@@ -348,9 +348,9 @@ const CB_LED_MAP = [
   60,62,63,64,65,66,67,68,69,70,71,-1,72,73,-1,
   75,76,77,79,-1,80,-1,-1,81,85,86,-1,87,88,89,
 ];
-// CyberBoard's 40×5 display is serialized column-first: index = x*5 + y.
-// This maps each visible row-major grid position back to its firmware index.
-const CB_DISPLAY_MAP = Array.from({length:200},(_,sourceIndex)=>(sourceIndex%40)*5+Math.floor(sourceIndex/40));
+// CyberBoard profile JSON stores its 40×5 display row-first: index=y*40+x.
+// Keep the editor grid in that same order so its preview matches the keyboard.
+const CB_DISPLAY_MAP = Array.from({length:200},(_,index)=>index);
 const AFA_LED_MAP = [
   0,1,2,3,4,5,6,20,7,8,9,10,11,12,-1,13,
   14,15,-1,16,17,18,19,34,35,21,22,23,24,25,26,27,

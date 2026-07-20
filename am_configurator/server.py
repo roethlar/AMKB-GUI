@@ -75,13 +75,11 @@ _CB_KEY_MAP = (
     60, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, -1, 72, 73, -1,
     75, 76, 77, 79, -1, 80, -1, -1, 81, 85, 86, -1, 87, 88, 89,
 )
-# The CyberBoard display is drawn as 40 columns by 5 rows, but both Angry
-# Miao's converter and the firmware serialize each column before moving right.
-# PIL gives us row-major source pixels, so map (x, y) to x * 5 + y.
-_CB_DISPLAY_MAP = tuple(
-    (source_index % 40) * 5 + source_index // 40
-    for source_index in range(200)
-)
+# CyberBoard profile JSON stores the 40x5 display in raster order:
+# index = y * 40 + x.  Angry Miao's editor uses a column-major array while
+# painting, then transposes it back to this row-major shape during export.
+# GIF pixels from Pillow are already row-major, so preserve their order.
+_CB_DISPLAY_MAP = tuple(range(200))
 _AFA_KEY_MAP = (
     0, 1, 2, 3, 4, 5, 6, 20, 7, 8, 9, 10, 11, 12, -1, 13,
     14, 15, -1, 16, 17, 18, 19, 34, 35, 21, 22, 23, 24, 25, 26, 27,

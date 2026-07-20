@@ -437,7 +437,7 @@ class GifImportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not support"):
             gif_to_led_frames(b"GIF89a", "frames", product_id="ALICE")
 
-    def test_cyberboard_display_is_serialized_column_first(self) -> None:
+    def test_cyberboard_display_preserves_row_major_motion(self) -> None:
         try:
             from PIL import Image
         except ModuleNotFoundError:
@@ -453,10 +453,10 @@ class GifImportTests(unittest.TestCase):
         frame = gif_to_led_frames(
             payload.getvalue(), "frames", "nearest", "CB04"
         )["frames"][0]
-        self.assertEqual("#FF0000", frame[0])  # x=0, y=0 -> 0*5+0
-        self.assertEqual("#00FF00", frame[5])  # x=1, y=0 -> 1*5+0
-        self.assertEqual("#0000FF", frame[1])  # x=0, y=1 -> 0*5+1
-        self.assertEqual("#000000", frame[40])
+        self.assertEqual("#FF0000", frame[0])   # x=0, y=0 -> 0*40+0
+        self.assertEqual("#00FF00", frame[1])   # x=1, y=0 -> 0*40+1
+        self.assertEqual("#0000FF", frame[40])  # x=0, y=1 -> 1*40+0
+        self.assertEqual("#000000", frame[5])
 
     def test_relic_gif_maps_keys_and_edges_from_the_same_raster(self) -> None:
         try:
