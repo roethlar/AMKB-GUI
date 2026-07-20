@@ -1091,8 +1091,20 @@ class GrokConceptImageProvider:
         on_candidate=None,
         cancelled=None,
     ) -> tuple[ConceptImageResult, ...]:
-        if not isinstance(plan, ConceptPlan):
+        if not isinstance(plan, ConceptPlan) or not isinstance(
+            plan.candidate_prompts, tuple
+        ):
             raise ProviderError("config", "a validated ConceptPlan is required")
+        try:
+            plan = concept_plan_from_json(
+                {
+                    "visual_brief": plan.visual_brief,
+                    "candidate_prompts": list(plan.candidate_prompts),
+                },
+                len(plan.candidate_prompts),
+            )
+        except ProviderError as exc:
+            raise ProviderError("config", "concept candidate batch is invalid") from exc
         results: list[ConceptImageResult] = []
         for index, prompt in enumerate(plan.candidate_prompts):
             if cancelled is not None and cancelled():

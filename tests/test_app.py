@@ -1712,6 +1712,36 @@ class GrokConceptProviderTests(unittest.TestCase):
         self.assertEqual(banked, [0])
         self.assertEqual(len(cancel_transport.calls), 1)
 
+    def test_candidates_revalidate_direct_plans_before_first_paid_call(self) -> None:
+        invalid_plans = (
+            llm.ConceptPlan(
+                visual_brief="brief",
+                candidate_prompts=tuple(f"candidate {index}" for index in range(9)),
+            ),
+            llm.ConceptPlan(
+                visual_brief="brief",
+                candidate_prompts=("candidate one", " ", "candidate three"),
+            ),
+            llm.ConceptPlan(
+                visual_brief="brief",
+                candidate_prompts=("Same", " same "),
+            ),
+            llm.ConceptPlan(
+                visual_brief="brief",
+                candidate_prompts=("x" * (llm.MAX_CONCEPT_PLAN_STRING + 1),),
+            ),
+        )
+        for plan in invalid_plans:
+            with self.subTest(candidate_count=len(plan.candidate_prompts)):
+                transport = _FakeTransport(response={})
+                provider = llm.GrokConceptImageProvider(
+                    _FAKE_KEY, transport=transport
+                )
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    provider.generate_candidates(plan, self._future_deadline())
+                self.assertEqual(ctx.exception.code, "config")
+                self.assertEqual(transport.calls, [])
+
 
 class GrokImagineRendererTests(unittest.TestCase):
     """Task 6: ``GrokImagineRenderer`` sequential per-keyframe rendering, the full
