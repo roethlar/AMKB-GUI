@@ -17,10 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 from am_configurator import __version__
 from am_configurator.server import (
     AcceptedWriteError,
+    _classify_macro_readback,
     _device_matches_config,
     _keymap_differences,
     _macro_references,
     _probe_keyboard,
+    _reconcile_read_macros,
     _stored_device_config,
     _verify_keymap_readback,
     blank_config,
@@ -488,6 +490,62 @@ class GifImportTests(unittest.TestCase):
 
 
 class MacroProtocolTests(unittest.TestCase):
+    def test_cyberboard_accepts_only_an_exact_fifteen_block_macro_prefix(self) -> None:
+        counts = (22, 32, 36, 38)
+        expected = [
+            {
+                "original_key": f"#009515{index:02X}",
+                "layer_key": ["#11070004"] * count,
+                "intvel_ms": [25] * (count - 1) + [0],
+            }
+            for index, count in enumerate(counts)
+        ]
+        readable_prefix = copy.deepcopy(expected)
+        readable_prefix[-1]["layer_key"] = readable_prefix[-1]["layer_key"][:24]
+        readable_prefix[-1]["intvel_ms"] = readable_prefix[-1]["intvel_ms"][:24]
+
+        partial = _classify_macro_readback("CB04", expected, readable_prefix)
+        self.assertEqual("partial", partial["status"])
+        self.assertEqual(114, partial["verified_events"])
+        self.assertEqual(128, partial["expected_events"])
+        self.assertIn("15 macro blocks", partial["warning"])
+        self.assertEqual(
+            "verified",
+            _classify_macro_readback("CB04", expected, expected)["status"],
+        )
+
+        self.assertEqual(
+            "mismatch",
+            _classify_macro_readback("AM21", expected, readable_prefix)["status"],
+        )
+        changed_prefix = copy.deepcopy(readable_prefix)
+        changed_prefix[0]["layer_key"][0] = "#11070005"
+        self.assertEqual(
+            "mismatch",
+            _classify_macro_readback("CB04", expected, changed_prefix)["status"],
+        )
+
+        restored, warning, used_snapshot = _reconcile_read_macros(
+            "CB04", readable_prefix, {"macro_key": expected}
+        )
+        self.assertEqual(expected, restored)
+        self.assertTrue(used_snapshot)
+        self.assertIn("complete local snapshot", warning)
+
+        truncated, warning, used_snapshot = _reconcile_read_macros(
+            "CB04", readable_prefix, None
+        )
+        self.assertEqual(readable_prefix, truncated)
+        self.assertFalse(used_snapshot)
+        self.assertIn("open a saved JSON", warning)
+
+    def test_cyberboard_macro_readback_ui_reports_the_unreadable_tail(self) -> None:
+        app = (ROOT / "am_configurator" / "web" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("macro_read_warning", app)
+        self.assertIn("Write accepted; macro tail unreadable", app)
+
     def test_text_macro_uses_fixed_delays_and_shift_runs(self) -> None:
         plain = text_to_macro_events("ab", 10)
         self.assertEqual(

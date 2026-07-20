@@ -1202,9 +1202,10 @@ async function readDevice() {
     markDirty();render();
     $("#device-dialog").close();
     const ledDetail=restored?'Its in-memory LED workspace was restored.':preserved?'Open LED data was preserved.':restoredFromDisk?'LEDs were restored from this machine’s last verified full write—not read from the keyboard.':'No portable LED source was available; blank local LED slots were created.';
-    const macroDetail=keptLocalMacros?`Keyboard reported no macro definitions; kept ${keptLocalMacros} from this local workspace.`:result.macros.length?`${result.macros.length} macros read from the keyboard.`:result.macro_references?.length?`The keymap assigns ${result.macro_references.map(code=>decodeCode(code)).join(', ')}, but the keyboard returned no macro actions.`:'No macros reported by the keyboard.';
+    const macroDetail=result.macro_restored_from_snapshot?`${result.macros.length} macros restored from the complete local snapshot; the readable device prefix matched.`:keptLocalMacros?`Keyboard reported no macro definitions; kept ${keptLocalMacros} from this local workspace.`:result.macros.length?`${result.macros.length} macros read from the keyboard.`:result.macro_references?.length?`The keymap assigns ${result.macro_references.map(code=>decodeCode(code)).join(', ')}, but the keyboard returned no macro actions.`:'No macros reported by the keyboard.';
+    const macroReadWarning=result.macro_read_warning?`\n${result.macro_read_warning}`:'';
     const storedWarning=result.stored_warning?`\n${result.stored_warning}`:'';
-    toast(switching?`Switched to ${result.device.product_id}`:'Device data loaded',`${result.layers.length} layers\n${macroDetail}\n${ledDetail}${storedWarning}`,keptLocalMacros||result.macro_references?.length||result.stored_warning?'':'success');
+    toast(switching?`Switched to ${result.device.product_id}`:'Device data loaded',`${result.layers.length} layers\n${macroDetail}\n${ledDetail}${macroReadWarning}${storedWarning}`,keptLocalMacros||result.macro_references?.length||result.macro_read_warning||result.stored_warning?'':'success');
   }catch(error){toast('Could not read device',error.message,'error');}
   finally{button.disabled=false;updateDeviceActions();}
 }
@@ -1246,7 +1247,9 @@ async function confirmDeviceWrite() {
     const endpoint=verifyOnly?'/api/device/verify':'/api/device/write';
     const result=await api(endpoint,{method:'POST',body:JSON.stringify({port:pending.device.port,config:state.config,confirmation})});
     markDirty(false);$("#write-dialog").close();state.pendingWrite=null;
-    toast('Write verified',`${result.device.product_id} · ${result.frames} configuration frames · ${result.macros} macros\nSnapshot ${result.snapshot}`,'success');
+    const partialMacros=result.macro_verification==='partial';
+    const macroWarning=result.macro_warning?`\n${result.macro_warning}`:'';
+    toast(partialMacros?'Write accepted; macro tail unreadable':'Write verified',`${result.device.product_id} · ${result.frames} configuration frames · ${result.macros} macros\nSnapshot ${result.snapshot}${macroWarning}`,partialMacros?'':'success');
   }catch(error){
     if(error.accepted){
       pending.verifyOnly=true;

@@ -43,6 +43,8 @@ _MAX_GIF_FRAMES = 256
 _LED_SPEEDS_MS = (255, 240, 224, 208, 192, 176, 160, 146, 132, 118, 100, 90, 76, 62, 48, 34)
 _KEYMAP_VERIFY_ATTEMPTS = 4
 _KEYMAP_VERIFY_RETRY_SECONDS = 1.0
+_MACRO_EVENTS_PER_BLOCK = 8
+_CYBERBOARD_MACRO_READBACK_BLOCKS = 15
 
 _TEXT_KEY_USAGES: dict[str, tuple[int, bool]] = {
     "\n": (0x28, False), "\t": (0x2B, False), " ": (0x2C, False),
@@ -756,6 +758,161 @@ def _padded_macro_delays(macro: dict[str, Any]) -> list[int]:
     return delays
 
 
+def _canonical_macros(values: Any) -> list[dict[str, Any]]:
+    """Normalize macro JSON to the exact shape returned by the device."""
+    result: list[dict[str, Any]] = []
+    for macro in values or []:
+        events = [str(code).upper() for code in (macro.get("layer_key") or [])]
+        result.append({
+            "original_key": str(macro.get("original_key") or "").upper(),
+            "layer_key": events,
+            "intvel_ms": _padded_macro_delays({**macro, "layer_key": events}),
+        })
+    return result
+
+
+def _macro_block_count(values: list[dict[str, Any]]) -> int:
+    return sum(
+        math.ceil(len(macro.get("layer_key") or []) / _MACRO_EVENTS_PER_BLOCK)
+        for macro in values
+        if macro.get("layer_key")
+    )
+
+
+def _macro_prefix_for_blocks(
+    values: list[dict[str, Any]], block_limit: int
+) -> list[dict[str, Any]]:
+    """Return the semantic macro prefix represented by the first N wire blocks."""
+    remaining = max(0, block_limit)
+    result: list[dict[str, Any]] = []
+    for macro in _canonical_macros(values):
+        events = macro["layer_key"]
+        required = math.ceil(len(events) / _MACRO_EVENTS_PER_BLOCK) if events else 0
+        used = min(required, remaining)
+        event_count = min(len(events), used * _MACRO_EVENTS_PER_BLOCK)
+        if event_count:
+            result.append({
+                "original_key": macro["original_key"],
+                "layer_key": events[:event_count],
+                "intvel_ms": macro["intvel_ms"][:event_count],
+            })
+        remaining -= used
+        if used < required or remaining == 0:
+            break
+    return result
+
+
+def _macro_mismatch_detail(
+    expected: list[dict[str, Any]], actual: list[dict[str, Any]]
+) -> str:
+    expected_events = sum(len(macro["layer_key"]) for macro in expected)
+    actual_events = sum(len(macro["layer_key"]) for macro in actual)
+    summary = (
+        f"expected {len(expected)} macros/{expected_events} events/"
+        f"{_macro_block_count(expected)} blocks, read {len(actual)} macros/"
+        f"{actual_events} events/{_macro_block_count(actual)} blocks"
+    )
+    for macro_index in range(max(len(expected), len(actual))):
+        if macro_index >= len(expected):
+            return f"{summary}; unexpected macro {macro_index + 1}"
+        if macro_index >= len(actual):
+            return f"{summary}; macro {macro_index + 1} was missing"
+        want = expected[macro_index]
+        got = actual[macro_index]
+        if want["original_key"] != got["original_key"]:
+            return f"{summary}; macro {macro_index + 1} token differed"
+        for event_index in range(max(len(want["layer_key"]), len(got["layer_key"]))):
+            if event_index >= len(want["layer_key"]):
+                return f"{summary}; macro {macro_index + 1} had an extra event"
+            if event_index >= len(got["layer_key"]):
+                return f"{summary}; macro {macro_index + 1} event {event_index + 1} was missing"
+            if want["layer_key"][event_index] != got["layer_key"][event_index]:
+                return f"{summary}; macro {macro_index + 1} event {event_index + 1} differed"
+            if want["intvel_ms"][event_index] != got["intvel_ms"][event_index]:
+                return f"{summary}; macro {macro_index + 1} delay {event_index + 1} differed"
+    return summary
+
+
+def _classify_macro_readback(
+    product_id: Any,
+    expected_values: Any,
+    actual_values: Any,
+) -> dict[str, Any]:
+    """Accept CyberBoard's observed 15-block ceiling only for an exact prefix."""
+    expected = _canonical_macros(expected_values)
+    actual = _canonical_macros(actual_values)
+    expected_events = sum(len(macro["layer_key"]) for macro in expected)
+    actual_events = sum(len(macro["layer_key"]) for macro in actual)
+    if actual == expected:
+        return {
+            "status": "verified",
+            "verified_events": actual_events,
+            "expected_events": expected_events,
+            "warning": None,
+            "detail": None,
+        }
+    expected_blocks = _macro_block_count(expected)
+    if (
+        _product_family(product_id) == "CB"
+        and expected_blocks > _CYBERBOARD_MACRO_READBACK_BLOCKS
+        and actual
+        == _macro_prefix_for_blocks(expected, _CYBERBOARD_MACRO_READBACK_BLOCKS)
+    ):
+        warning = (
+            "CyberBoard returned its first 15 macro blocks: "
+            f"{actual_events} of {expected_events} events matched exactly. "
+            f"The remaining {expected_events - actual_events} events are not exposed "
+            "by this firmware's macro read-back command."
+        )
+        return {
+            "status": "partial",
+            "verified_events": actual_events,
+            "expected_events": expected_events,
+            "warning": warning,
+            "detail": None,
+        }
+    return {
+        "status": "mismatch",
+        "verified_events": actual_events,
+        "expected_events": expected_events,
+        "warning": None,
+        "detail": _macro_mismatch_detail(expected, actual),
+    }
+
+
+def _reconcile_read_macros(
+    product_id: Any,
+    device_macros: Any,
+    stored_config: Any,
+) -> tuple[list[dict[str, Any]], str | None, bool]:
+    """Keep a complete local CyberBoard snapshot when its readable prefix matches."""
+    read = _canonical_macros(device_macros)
+    stored = (
+        stored_config.get("macro_key")
+        if isinstance(stored_config, dict)
+        and isinstance(stored_config.get("macro_key"), list)
+        else None
+    )
+    if stored is not None:
+        verdict = _classify_macro_readback(product_id, stored, read)
+        if verdict["status"] == "partial":
+            warning = (
+                f"{verdict['warning']} Restored the complete local snapshot instead "
+                "of replacing it with truncated device data."
+            )
+            return copy.deepcopy(stored), warning, True
+    if (
+        _product_family(product_id) == "CB"
+        and _macro_block_count(read) == _CYBERBOARD_MACRO_READBACK_BLOCKS
+    ):
+        return read, (
+            "CyberBoard returned 15 macro blocks, its observed read-back ceiling. "
+            "Without a matching complete local snapshot, later macro events may be "
+            "unreadable; open a saved JSON to restore them."
+        ), False
+    return read, None, False
+
+
 def _keymap_differences(
     expected: list[list[str]],
     actual: list[list[str]],
@@ -1011,7 +1168,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(result)
 
     def _read_device(self, body: dict[str, Any]) -> None:
-        from . import macros
+        from . import macros as macro_protocol
         from . import reader
 
         port = str(body.get("port") or "")
@@ -1026,14 +1183,23 @@ class _Handler(BaseHTTPRequestHandler):
             time.sleep(0.1)
             key_layers = reader.read_keymap(port, layers=layers)
             time.sleep(0.1)
-            macros = macros.read_macros(port)
+            device_macros = macro_protocol.read_macros(port)
         stored_config, stored_warning = _stored_device_config(device.product_id or "")
+        resolved_macros, macro_read_warning, restored_macro_snapshot = (
+            _reconcile_read_macros(
+                device.product_id or "", device_macros, stored_config
+            )
+        )
         self._json({
             "device": asdict(device),
             "layers": key_layers,
-            "macros": macros,
+            "macros": resolved_macros,
             "macro_references": _macro_references(key_layers),
-            "blank_config": blank_config(device.product_id or "", key_layers, macros),
+            "macro_read_warning": macro_read_warning,
+            "macro_restored_from_snapshot": restored_macro_snapshot,
+            "blank_config": blank_config(
+                device.product_id or "", key_layers, resolved_macros
+            ),
             "stored_config": stored_config,
             "stored_warning": stored_warning,
         })
@@ -1110,14 +1276,7 @@ class _Handler(BaseHTTPRequestHandler):
             [code.upper() for code in item["layer"]]
             for item in config["key_layer"]["layer_data"]
         ]
-        expected_macros = [
-            {
-                "original_key": macro["original_key"].upper(),
-                "layer_key": [code.upper() for code in macro.get("layer_key", [])],
-                "intvel_ms": _padded_macro_delays(macro),
-            }
-            for macro in config.get("macro_key", [])
-        ]
+        expected_macros = _canonical_macros(config.get("macro_key", []))
         # JSON_START replaces the device config. Restore the separately-addressed
         # macro table immediately after its ACK, before a potentially transient
         # keymap read-back can abort verification. The verify-only endpoint never
@@ -1128,11 +1287,15 @@ class _Handler(BaseHTTPRequestHandler):
 
         _verify_keymap_readback(port, expected_layers)
         read_macros = macros.read_macros(port)
-        if read_macros != expected_macros:
+        macro_verification = _classify_macro_readback(
+            before.product_id, expected_macros, read_macros
+        )
+        if macro_verification["status"] == "mismatch":
             raise AcceptedWriteError(
                 "Device accepted the configuration and its keymap verified, but macro "
-                "read-back did not match. Retry verification instead of sending the "
-                "full configuration again."
+                "read-back did not match "
+                f"({macro_verification['detail']}). Retry verification instead of "
+                "sending the full configuration again."
             )
 
         after = _probe_keyboard(port)
@@ -1150,6 +1313,8 @@ class _Handler(BaseHTTPRequestHandler):
             "device": asdict(after),
             "frames": frame_total,
             "macros": len(expected_macros),
+            "macro_verification": macro_verification["status"],
+            "macro_warning": macro_verification["warning"],
             "snapshot": snapshot.stem,
         }
 
