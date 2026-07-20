@@ -2,17 +2,44 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from PIL import Image
 
 from am_configurator import __version__
-from build_tools.release_info import artifact_filename, normalize_arch, project_version
+from build_tools.release_info import (
+    artifact_filename,
+    build_version,
+    normalize_arch,
+    project_version,
+    stamp_build_version,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseInfoTests(unittest.TestCase):
+    def test_ci_build_number_is_stamped_into_runtime_version(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = root / "am_configurator"
+            package.mkdir()
+            (root / "pyproject.toml").write_text(
+                '[project]\nversion = "0.1.0"\n', encoding="utf-8"
+            )
+            (package / "_version.py").write_text(
+                '__version__ = "0.1.0"\n', encoding="utf-8"
+            )
+
+            self.assertEqual("0.1.42", build_version(42, root=root))
+            self.assertEqual("0.1.42", stamp_build_version(42, root=root))
+            self.assertEqual("0.1.42", project_version(root))
+            self.assertEqual(
+                '__version__ = "0.1.42"\n',
+                (package / "_version.py").read_text(encoding="utf-8"),
+            )
+
     def test_release_names_use_project_version_and_normalized_architecture(self) -> None:
         self.assertEqual(__version__, project_version(ROOT))
         self.assertEqual("x86_64", normalize_arch("AMD64"))
@@ -38,6 +65,15 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("*.dmg", workflow)
         self.assertIn("*-Setup.exe", workflow)
         self.assertIn("*.AppImage", workflow)
+        self.assertIn(
+            "stamp --build-number ${{ github.run_number }} --github-output",
+            workflow,
+        )
+        self.assertIn(
+            "AM-Configurator-${{ steps.build_version.outputs.version }}-"
+            "${{ matrix.artifact }}",
+            workflow,
+        )
         self.assertNotIn(".zip", workflow)
         self.assertNotIn(".tar.gz", workflow)
 

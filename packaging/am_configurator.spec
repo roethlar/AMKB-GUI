@@ -2,12 +2,12 @@
 """Cross-platform PyInstaller recipe for the native AM Configurator app."""
 from pathlib import Path
 import sys
-import tomllib
+
+from build_tools.release_info import project_version
 
 
 project = Path(SPECPATH).parent
-with (project / "pyproject.toml").open("rb") as file:
-    app_version = tomllib.load(file)["project"]["version"]
+app_version = project_version(project)
 hidden_imports = [
     "am_configurator.device",
     "am_configurator.macros",

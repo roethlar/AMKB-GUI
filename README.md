@@ -31,6 +31,10 @@ CLI repository.
 Packaged releases belong on the [GitHub Releases page](https://github.com/roethlar/AMKB-GUI/releases).
 Before the first tagged release is published, download the current installers
 from the latest successful [Desktop installers workflow](https://github.com/roethlar/AMKB-GUI/actions/workflows/desktop.yml?query=branch%3Amain+is%3Asuccess).
+Every installer workflow run receives an increasing build version based on its
+GitHub run number. For example, run 11 is version `0.1.11`. That version appears
+in the app, the installer filename, and the downloadable artifact name, and is
+shared by the macOS, Windows, and Linux builds from that run.
 
 The installers are not code-signed yet. macOS Gatekeeper and Windows
 SmartScreen may warn on first launch; review the downloaded file and repository

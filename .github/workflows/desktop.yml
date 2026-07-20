@@ -27,17 +27,17 @@ jobs:
           - name: macOS
             os: macos-latest
             platform: macos
-            artifact: AM-Configurator-macOS-Installer
+            artifact: macOS-Installer
             installer: dist/*.dmg
           - name: Windows x64
             os: windows-latest
             platform: windows
-            artifact: AM-Configurator-Windows-x64-Installer
+            artifact: Windows-x64-Installer
             installer: dist/*-Setup.exe
           - name: Linux x86-64
             os: ubuntu-latest
             platform: linux
-            artifact: AM-Configurator-Linux-x86_64-AppImage
+            artifact: Linux-x86_64-AppImage
             installer: dist/*.AppImage
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
@@ -50,6 +50,9 @@ jobs:
           enable-cache: true
       - name: Install desktop build environment
         run: uv sync --locked --extra desktop --extra build
+      - name: Stamp unique build version
+        id: build_version
+        run: uv run --frozen python build_tools/release_info.py stamp --build-number ${{ github.run_number }} --github-output
       - name: Build native application
         run: uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
       - name: Build and test macOS DMG
@@ -65,7 +68,7 @@ jobs:
       - name: Upload native installer
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: AM-Configurator-${{ steps.build_version.outputs.version }}-${{ matrix.artifact }}
           path: ${{ matrix.installer }}
           if-no-files-found: error
           retention-days: 14
