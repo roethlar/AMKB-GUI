@@ -20,6 +20,7 @@ from am_configurator.server import (
     _device_matches_config,
     _keymap_differences,
     _macro_references,
+    _probe_keyboard,
     _stored_device_config,
     _verify_keymap_readback,
     blank_config,
@@ -64,6 +65,14 @@ def _base_config(product: str = "80") -> dict:
 
 
 class DesktopServerTests(unittest.TestCase):
+    def test_keyboard_probe_does_not_shadow_device_module(self) -> None:
+        keyboard = SimpleNamespace(is_keyboard=True)
+        with patch("am_configurator.device.probe", return_value=keyboard) as probe:
+            result = _probe_keyboard("/dev/example", attempts=1)
+
+        self.assertIs(keyboard, result)
+        probe.assert_called_once_with("/dev/example", full=True)
+
     def test_package_declares_native_desktop_entry_point(self) -> None:
         metadata = tomllib.loads(
             (ROOT / "pyproject.toml").read_text(encoding="utf-8")

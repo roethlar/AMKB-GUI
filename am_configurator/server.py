@@ -784,19 +784,19 @@ def _verify_keymap_readback(
 
 def _probe_keyboard(port: str, attempts: int = 3) -> Any:
     """Probe with a short settle retry; macOS can hold a just-scanned CDC port."""
-    from . import device
+    from . import device as device_module
 
-    device = None
+    result = None
     for attempt in range(attempts):
         try:
-            device = device.probe(port, full=True)
+            result = device_module.probe(port, full=True)
         except OSError:
-            device = None
-        if device and device.is_keyboard:
-            return device
+            result = None
+        if result and result.is_keyboard:
+            return result
         if attempt + 1 < attempts:
             time.sleep(0.2)
-    return device
+    return result
 
 
 class _State:
