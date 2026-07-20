@@ -12,8 +12,8 @@
 
 ## Next
 
-- Run the committed CI and desktop-bundle workflows after this repository is
-  connected to its intended GitHub remote.
+- Address any failures surfaced by the committed CI and desktop-bundle
+  workflows.
 - Continue hardware verification across CyberBoard, Relic 80, and AFA firmware
   variants using portable JSON backups.
 
