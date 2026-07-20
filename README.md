@@ -129,28 +129,27 @@ server.
 <summary><strong>Build native installers</strong></summary>
 
 PyInstaller must run on the target operating system; it is not a
-cross-compiler. Build the native application first:
+cross-compiler. From the repository root, build and smoke-test the installer
+for the current operating system with:
 
 ```sh
-uv sync --locked --extra desktop --extra build
-uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
+python build.py
 ```
 
-Then package the platform-native installer:
+The script automatically advances a local build number, temporarily stamps it
+into the application, restores the tracked base version afterward, and writes
+the finished artifact to `dist/`. Existing artifacts are considered when the
+next number is selected—for example, the build after `0.1.11` is `0.1.12`.
+
+Use a specific build number or skip dependency synchronization when needed:
 
 ```sh
-# macOS: versioned DMG, mounted and smoke-tested automatically
-packaging/macos/build_dmg.sh
-
-# Linux: versioned AppImage, executed in extract mode for its smoke test
-packaging/linux/build_appimage.sh
-
-# Windows PowerShell: versioned per-user Inno Setup installer
-./packaging/windows/build_installer.ps1
+python build.py --build-number 42
+python build.py --skip-sync
 ```
 
-Artifacts are written to `dist/` with the application version and architecture
-in the filename.
+It produces a versioned DMG on macOS, an Inno Setup installer on Windows, or an
+AppImage on Linux. Each operating system must run the script separately.
 
 </details>
 

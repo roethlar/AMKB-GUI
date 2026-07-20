@@ -5,6 +5,7 @@ build/
 dist/
 *.egg-info/
 .DS_Store
+.am-configurator-build-number
 
 # Local reference material and captured device configurations.
 /cyberboard-cli/

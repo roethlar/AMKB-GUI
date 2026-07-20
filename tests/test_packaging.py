@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from subprocess import CalledProcessError
 from tempfile import TemporaryDirectory
 
 from PIL import Image
 
+from build import build_installer, reserve_local_build_number
 from am_configurator import __version__
 from build_tools.release_info import (
     artifact_filename,
@@ -20,6 +22,89 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseInfoTests(unittest.TestCase):
+    def test_local_build_number_advances_past_artifacts_and_counter(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / "dist").mkdir()
+            (root / "pyproject.toml").write_text(
+                '[project]\nversion = "0.1.0"\n', encoding="utf-8"
+            )
+            (root / "dist" / "AM-Configurator-0.1.8-macOS-arm64.dmg").touch()
+            (root / ".am-configurator-build-number").write_text(
+                "10\n", encoding="utf-8"
+            )
+
+            self.assertEqual(11, reserve_local_build_number(root))
+            self.assertEqual(
+                "11\n",
+                (root / ".am-configurator-build-number").read_text(encoding="utf-8"),
+            )
+
+    def test_build_script_dispatches_and_restores_the_tracked_version(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            package = root / "am_configurator"
+            package.mkdir()
+            (root / "dist").mkdir()
+            (root / "pyproject.toml").write_text(
+                '[project]\nversion = "0.1.0"\n', encoding="utf-8"
+            )
+            version_file = package / "_version.py"
+            original = '__version__ = "0.1.0"\n'
+            version_file.write_text(original, encoding="utf-8")
+            expected_name = artifact_filename("macos", root=root).replace(
+                "-0.1.0-", "-0.1.12-"
+            )
+            commands: list[list[str]] = []
+
+            def run_command(command: list[str], cwd: Path) -> None:
+                self.assertEqual(root, cwd)
+                commands.append(command)
+                self.assertEqual("0.1.12", project_version(root))
+                if command[-1].endswith("build_dmg.sh"):
+                    (root / "dist" / artifact_filename("macos", root=root)).touch()
+
+            artifact = build_installer(
+                root=root,
+                platform_name="darwin",
+                build_number=12,
+                run_command=run_command,
+            )
+
+            self.assertEqual(
+                root / "dist" / expected_name,
+                artifact,
+            )
+            self.assertEqual(original, version_file.read_text(encoding="utf-8"))
+            self.assertEqual("uv", commands[0][0])
+            self.assertIn("sync", commands[0])
+            self.assertIn("pyinstaller", commands[1])
+            self.assertTrue(commands[2][-1].endswith("build_dmg.sh"))
+
+    def test_build_script_restores_the_version_after_a_failed_build(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            package = root / "am_configurator"
+            package.mkdir()
+            (root / "pyproject.toml").write_text(
+                '[project]\nversion = "0.1.0"\n', encoding="utf-8"
+            )
+            version_file = package / "_version.py"
+            original = '__version__ = "0.1.0"\n'
+            version_file.write_text(original, encoding="utf-8")
+
+            def fail(_command: list[str], _cwd: Path) -> None:
+                raise CalledProcessError(1, "uv")
+
+            with self.assertRaises(CalledProcessError):
+                build_installer(
+                    root=root,
+                    platform_name="linux",
+                    build_number=13,
+                    run_command=fail,
+                )
+            self.assertEqual(original, version_file.read_text(encoding="utf-8"))
+
     def test_ci_build_number_is_stamped_into_runtime_version(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
