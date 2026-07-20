@@ -2,39 +2,44 @@
 
 ## Now
 
-- The standalone AM Configurator app, protocol implementation, browser assets,
-  native desktop wrapper, tests, and cross-platform workflows are present as of
-  `98abb13` on `main`.
-- Branch `llm-led-generator` holds `e26be36`, which commits the approved design
-  `docs/design/llm-led-generator.md` (v3): an LLM-backed LED effect generator
-  using a two-role Grok/xAI provider (interpreter + Grok Imagine renderer),
-  reusing the GIF import mapping pipeline, with a pending/preview job UI and
-  settings-stored API key.
-- The implementation plan for that design is mid-write per
-  `superpowers:writing-plans`; `docs/superpowers/plans/` does not exist yet.
-  Codebase recon for the plan is complete (GIF mapping core, `_GIF_LAYOUTS`,
-  `_LED_SPEEDS_MS`, settings-store lock/atomic-write pattern, `importGif` UI
-  flow, `create_server` routing).
-- Agreed execution model: this session writes and commits the plan, then Opus
-  subagents implement it task-by-task (subagent-driven development) on the
-  feature branch with test/review gates between tasks.
-- The nested `cyberboard-cli/` checkout remains ignored reference material and
-  is not part of the application.
+- Branch `llm-led-generator`: the plan
+  `docs/superpowers/plans/2026-07-20-llm-led-generator.md` is committed and
+  Tasks 1–10 are implemented, test-gated, and committed via subagent-driven
+  TDD (settings store, `frames_to_led_tracks` refactor, `llm.py`
+  types/caps, xAI transport, `GrokInterpreter`, `GrokImagineRenderer`,
+  tween + `generate_effect` orchestrator, settings/generate-job HTTP
+  endpoints, frontend AI panel + settings UI) — head `a688914` as of this
+  handoff.
+- Task 11 (packaging + frozen smoke test) is mid-flight: the subagent was
+  interrupted and its prompt lost. Its partial tests-first work sits
+  UNCOMMITTED in the worktree: `packaging/am_configurator.spec` adds the
+  `"am_configurator.llm"` hidden import; `tests/test_packaging.py` adds
+  `test_spec_bundles_the_llm_module` (passes) and
+  `test_frozen_smoke_test_runs_a_fake_transport_generation` (FAILS — the
+  implementation half was never written).
+- The failing test pins the intended design: `am_configurator/desktop.py`
+  `run_smoke_test()` must exercise the LLM generation pipeline offline —
+  a fake transport feeding the real Grok providers so the
+  `b64_json`/Pillow decode chain and `frames_to_led_tracks` mapping run
+  inside the frozen bundle; ssl verified via `create_default_context`
+  without a socket; real-TLS reach opt-in behind `AM_SMOKE_NET`.
+- The nested `cyberboard-cli/` checkout remains ignored reference material
+  and is not part of the application.
 
 ## Next
 
-- Write and commit `docs/superpowers/plans/2026-07-20-llm-led-generator.md`
-  covering the TDD task sequence: settings store additions,
-  `frames_to_led_tracks` refactor with GIF parity, `llm.py`
-  types/validation/budget caps (`MAX_LLM_FRAMES`, `MAX_RENDERED_KEYFRAMES`,
-  `MODEL_FRAME_CAPS`), xAI transport, `GrokInterpreter`,
-  `GrokImagineRenderer`, tween/orchestrator, settings + generate-job HTTP
-  endpoints, UI settings and generate panel, packaging/smoke-test updates.
-- Dispatch Opus subagents per plan task; run `python3 -m unittest` between
-  tasks before advancing.
+- Implement the frozen smoke-test extension in
+  `am_configurator/desktop.py` to satisfy the two uncommitted tests, run
+  the full `python3 -m unittest` suite, and commit as Task 11
+  (packaging + frozen smoke test).
+- Then Task 12: final verification + docs.
+- Parked follow-up from review: thread `previous_plan` through
+  `/api/led/generate` and `generate_effect` so the interpreter sees the
+  prior plan on refinement requests.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
-  CyberBoard, Relic 80, and AFA firmware variants using portable JSON backups.
+  CyberBoard, Relic 80, and AFA firmware variants using portable JSON
+  backups.
 
 ## Blockers
 
