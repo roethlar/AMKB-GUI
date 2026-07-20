@@ -493,6 +493,27 @@ class MacroProtocolTests(unittest.TestCase):
 
 
 class SpotlightProtocolTests(unittest.TestCase):
+    def test_validation_rejects_edge_lights_outside_custom_slots(self) -> None:
+        page = _page(3)
+        page["spotlight_frames"] = {
+            "valid": 1,
+            "frame_num": 1,
+            "frame_data": [
+                {"frame_index": 0, "frame_RGB": ["#112233"] * 24}
+            ],
+        }
+        config = _base_config("80")
+        config["page_data"] = [page]
+        config["page_num"] = 1
+
+        result = validate_config(config)
+
+        self.assertFalse(result["ok"])
+        self.assertIn(
+            "Page 3 spotlight_frames is only valid on custom pages 5, 6, and 7.",
+            result["errors"],
+        )
+
     def test_display_and_per_key_tracks_share_manifest_and_timing(self) -> None:
         page = _page(5)
         page["frames"] = {

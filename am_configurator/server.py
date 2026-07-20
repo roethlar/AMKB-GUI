@@ -611,6 +611,15 @@ def validate_config(config: Any) -> dict[str, Any]:
         page_index = page.get("page_index", "?")
         for field, expected in (("frames", 200), ("keyframes", 90), ("spotlight_frames", 24)):
             track = page.get(field)
+            if (
+                field == "spotlight_frames"
+                and track is not None
+                and page_index not in (5, 6, 7)
+            ):
+                errors.append(
+                    f"Page {page_index} spotlight_frames is only valid on "
+                    "custom pages 5, 6, and 7."
+                )
             if not track:
                 continue
             data = track.get("frame_data") or []
