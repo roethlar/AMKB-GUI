@@ -12,6 +12,7 @@ import secrets
 import threading
 import time
 import webbrowser
+from collections.abc import Sequence
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -291,13 +292,23 @@ def _gif_timeline_indices(durations: list[int]) -> tuple[list[int], int, bool]:
     return indices, speed, True
 
 
-def gif_to_led_tracks(
-    payload: bytes,
+def frames_to_led_tracks(
+    images: Sequence[Image.Image],
+    durations_ms: Sequence[int],
     targets: list[str] | tuple[str, ...],
     resample: str = "box",
     product_id: str = "CB_XX",
 ) -> dict[str, Any]:
-    """Decode a GIF once and map each frame onto one or more LED tracks."""
+    """Map an ordered list of frames onto one or more LED tracks.
+
+    This is the shared mapping core for both the GIF import path (via
+    ``gif_to_led_tracks``) and the LLM generation path. It owns alpha
+    flattening, aspect-fit cropping, resampling, hex conversion, the per-target
+    firmware-index remap, the ``_MAX_GIF_FRAMES`` limit, and timeline
+    normalization. Callers that already know a decode-specific frame count
+    (e.g. GIF ``n_frames``) override ``source_frames``/``decoded_frames`` in the
+    returned dict.
+    """
     model = _led_model(product_id)
     requested = list(dict.fromkeys(str(target) for target in targets))
     if not requested:
@@ -311,6 +322,110 @@ def gif_to_led_tracks(
                 f"{product_id} does not support GIF target {target}; use {supported}."
             )
         layouts[target] = layout
+    if resample not in {"nearest", "box", "lanczos"}:
+        raise ValueError("GIF resampling must be nearest, box, or lanczos.")
+    try:
+        from PIL import Image
+    except ModuleNotFoundError as exc:
+        raise ValueError(
+            "GIF import needs Pillow. Reinstall AM Configurator."
+        ) from exc
+
+    frames = list(images)[:_MAX_GIF_FRAMES]
+    if not frames:
+        raise ValueError("The GIF contains no frames.")
+    raw_durations = list(durations_ms)[:_MAX_GIF_FRAMES]
+    filters = {
+        "nearest": Image.Resampling.NEAREST,
+        "box": Image.Resampling.BOX,
+        "lanczos": Image.Resampling.LANCZOS,
+    }
+    track_frames: dict[str, list[list[str]]] = {target: [] for target in requested}
+    durations: list[int] = []
+    for index, frame in enumerate(frames):
+        source_duration = raw_durations[index] if index < len(raw_durations) else None
+        durations.append(max(10, int(source_duration or 90)))
+        rgba = frame.convert("RGBA")
+        black = Image.new("RGBA", rgba.size, (0, 0, 0, 255))
+        rgb = Image.alpha_composite(black, rgba).convert("RGB")
+        raster_colors: dict[tuple[int, int], list[str]] = {}
+        for layout in layouts.values():
+            width, height = layout["size"]
+            size = (width, height)
+            if size not in raster_colors:
+                fitted = rgb
+                source_ratio = fitted.width / fitted.height
+                target_ratio = width / height
+                if source_ratio > target_ratio:
+                    crop_width = max(1, round(fitted.height * target_ratio))
+                    left = (fitted.width - crop_width) // 2
+                    fitted = fitted.crop((left, 0, left + crop_width, fitted.height))
+                elif source_ratio < target_ratio:
+                    crop_height = max(1, round(fitted.width / target_ratio))
+                    top = (fitted.height - crop_height) // 2
+                    fitted = fitted.crop((0, top, fitted.width, top + crop_height))
+                if fitted.size != size:
+                    fitted = fitted.resize(size, filters[resample])
+                pixels = (
+                    fitted.get_flattened_data()
+                    if hasattr(fitted, "get_flattened_data") else fitted.getdata()
+                )
+                raster_colors[size] = [
+                    f"#{red:02X}{green:02X}{blue:02X}"
+                    for red, green, blue in pixels
+                ]
+
+        for target, layout in layouts.items():
+            source_colors = raster_colors[layout["size"]]
+            colors = ["#000000"] * int(layout["pixels"])
+            for source_index, output_index in enumerate(layout["map"]):
+                if output_index >= 0:
+                    colors[output_index] = source_colors[source_index]
+            for output_index, source_index in layout.get("copies", ()):
+                colors[output_index] = colors[source_index]
+            track_frames[target].append(colors)
+
+    timeline, duration, timing_resampled = _gif_timeline_indices(durations)
+    tracks = {}
+    for target, layout in layouts.items():
+        mapped = [track_frames[target][index] for index in timeline]
+        width, height = layout["size"]
+        tracks[target] = {
+            "frames": mapped,
+            "frame_count": len(mapped),
+            "width": width,
+            "height": height,
+            "pixels": int(layout["pixels"]),
+            "mapped_pixels": len({index for index in layout["map"] if index >= 0}),
+        }
+    return {
+        "tracks": tracks,
+        "source_frames": len(frames),
+        "decoded_frames": len(frames),
+        "duration_ms": duration,
+        "source_duration_ms": sum(durations),
+        "timing_resampled": timing_resampled,
+        "model": model,
+    }
+
+
+def gif_to_led_tracks(
+    payload: bytes,
+    targets: list[str] | tuple[str, ...],
+    resample: str = "box",
+    product_id: str = "CB_XX",
+) -> dict[str, Any]:
+    """Decode a GIF once and map each frame onto one or more LED tracks."""
+    model = _led_model(product_id)
+    requested = list(dict.fromkeys(str(target) for target in targets))
+    if not requested:
+        raise ValueError("At least one GIF LED target is required.")
+    for target in requested:
+        if _GIF_LAYOUTS[model].get(target) is None:
+            supported = ", ".join(_GIF_LAYOUTS[model])
+            raise ValueError(
+                f"{product_id} does not support GIF target {target}; use {supported}."
+            )
     if resample not in {"nearest", "box", "lanczos"}:
         raise ValueError("GIF resampling must be nearest, box, or lanczos.")
     if not payload or len(payload) > _MAX_GIF_BYTES:
@@ -328,86 +443,21 @@ def gif_to_led_tracks(
                 raise ValueError("The selected file is not a GIF.")
             source_frames = int(getattr(image, "n_frames", 1))
             frame_count = min(source_frames, _MAX_GIF_FRAMES)
-            filters = {
-                "nearest": Image.Resampling.NEAREST,
-                "box": Image.Resampling.BOX,
-                "lanczos": Image.Resampling.LANCZOS,
-            }
-            track_frames: dict[str, list[list[str]]] = {
-                target: [] for target in requested
-            }
+            images: list[Image.Image] = []
             durations: list[int] = []
             for index in range(frame_count):
                 image.seek(index)
-                durations.append(max(10, int(image.info.get("duration") or 90)))
-                rgba = image.convert("RGBA")
-                black = Image.new("RGBA", rgba.size, (0, 0, 0, 255))
-                rgb = Image.alpha_composite(black, rgba).convert("RGB")
-                raster_colors: dict[tuple[int, int], list[str]] = {}
-                for layout in layouts.values():
-                    width, height = layout["size"]
-                    size = (width, height)
-                    if size not in raster_colors:
-                        fitted = rgb
-                        source_ratio = fitted.width / fitted.height
-                        target_ratio = width / height
-                        if source_ratio > target_ratio:
-                            crop_width = max(1, round(fitted.height * target_ratio))
-                            left = (fitted.width - crop_width) // 2
-                            fitted = fitted.crop((left, 0, left + crop_width, fitted.height))
-                        elif source_ratio < target_ratio:
-                            crop_height = max(1, round(fitted.width / target_ratio))
-                            top = (fitted.height - crop_height) // 2
-                            fitted = fitted.crop((0, top, fitted.width, top + crop_height))
-                        if fitted.size != size:
-                            fitted = fitted.resize(size, filters[resample])
-                        pixels = (
-                            fitted.get_flattened_data()
-                            if hasattr(fitted, "get_flattened_data") else fitted.getdata()
-                        )
-                        raster_colors[size] = [
-                            f"#{red:02X}{green:02X}{blue:02X}"
-                            for red, green, blue in pixels
-                        ]
-
-                for target, layout in layouts.items():
-                    source_colors = raster_colors[layout["size"]]
-                    colors = ["#000000"] * int(layout["pixels"])
-                    for source_index, output_index in enumerate(layout["map"]):
-                        if output_index >= 0:
-                            colors[output_index] = source_colors[source_index]
-                    for output_index, source_index in layout.get("copies", ()):
-                        colors[output_index] = colors[source_index]
-                    track_frames[target].append(colors)
+                durations.append(int(image.info.get("duration") or 90))
+                images.append(image.convert("RGBA"))
     except UnidentifiedImageError as exc:
         raise ValueError("The selected file is not a readable GIF.") from exc
     except (OSError, SyntaxError) as exc:
         raise ValueError(f"Could not decode GIF: {exc}") from exc
 
-    if not track_frames or not next(iter(track_frames.values())):
-        raise ValueError("The GIF contains no frames.")
-    timeline, duration, timing_resampled = _gif_timeline_indices(durations)
-    tracks = {}
-    for target, layout in layouts.items():
-        frames = [track_frames[target][index] for index in timeline]
-        width, height = layout["size"]
-        tracks[target] = {
-            "frames": frames,
-            "frame_count": len(frames),
-            "width": width,
-            "height": height,
-            "pixels": int(layout["pixels"]),
-            "mapped_pixels": len({index for index in layout["map"] if index >= 0}),
-        }
-    return {
-        "tracks": tracks,
-        "source_frames": source_frames,
-        "decoded_frames": frame_count,
-        "duration_ms": duration,
-        "source_duration_ms": sum(durations),
-        "timing_resampled": timing_resampled,
-        "model": model,
-    }
+    result = frames_to_led_tracks(images, durations, requested, resample, product_id)
+    result["source_frames"] = source_frames
+    result["decoded_frames"] = frame_count
+    return result
 
 
 def gif_to_led_frames(

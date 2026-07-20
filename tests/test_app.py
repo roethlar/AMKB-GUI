@@ -35,9 +35,11 @@ from am_configurator.server import (
     config_transfer_options,
     create_server,
     extract_importable_macros,
+    frames_to_led_tracks,
     gif_to_led_frames,
     gif_to_led_tracks,
     firmware_led_speed,
+    _MAX_GIF_FRAMES,
     merge_configs,
     text_to_macro_events,
     validate_config,
@@ -616,6 +618,87 @@ class GifImportTests(unittest.TestCase):
         self.assertEqual("#FF0000", edges["frames"][0][0])
         self.assertEqual("#00FF00", edges["frames"][0][6])
         self.assertEqual(["#000000"] * 17, edges["frames"][0][7:])
+
+
+class FramesToLedTracksTests(unittest.TestCase):
+    def _build_gif(self) -> bytes:
+        from PIL import Image
+
+        colors = ("#FF0000", "#00FF00", "#0000FF", "#FFFF00")
+        frames = [Image.new("RGB", (18, 7), color) for color in colors]
+        source = io.BytesIO()
+        frames[0].save(
+            source,
+            format="GIF",
+            save_all=True,
+            append_images=frames[1:],
+            duration=[80, 100, 120, 80],
+            loop=0,
+        )
+        return source.getvalue()
+
+    def _decode(self, payload: bytes):
+        from PIL import Image
+
+        images = []
+        durations = []
+        with Image.open(io.BytesIO(payload)) as image:
+            count = min(int(getattr(image, "n_frames", 1)), _MAX_GIF_FRAMES)
+            for index in range(count):
+                image.seek(index)
+                durations.append(int(image.info.get("duration") or 90))
+                images.append(image.convert("RGBA"))
+        return images, durations
+
+    def test_parity_with_gif_import(self) -> None:
+        try:
+            from PIL import Image  # noqa: F401
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        payload = self._build_gif()
+        images, durations = self._decode(payload)
+        cases = (
+            ("CB04", ["frames", "keyframes"]),
+            ("AM21", ["keyframes", "spotlight_frames"]),
+            ("ALICE", ["keyframes"]),
+        )
+        for product, targets in cases:
+            with self.subTest(product=product, targets=targets):
+                expected = gif_to_led_tracks(payload, targets, "nearest", product)
+                actual = frames_to_led_tracks(
+                    images, durations, targets, "nearest", product
+                )
+                self.assertEqual(expected, actual)
+
+    def test_frame_limit_and_timing(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        images = [Image.new("RGB", (4, 4), "#123456") for _ in range(300)]
+        durations = [50 if index % 2 == 0 else 100 for index in range(300)]
+        result = frames_to_led_tracks(images, durations, ["frames"], "nearest", "CB04")
+        self.assertTrue(result["timing_resampled"])
+        self.assertLessEqual(
+            result["tracks"]["frames"]["frame_count"], _MAX_GIF_FRAMES
+        )
+        self.assertEqual(_MAX_GIF_FRAMES, result["source_frames"])
+        self.assertEqual(_MAX_GIF_FRAMES, result["decoded_frames"])
+
+    def test_rejects_empty_and_bad_target(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        with self.assertRaisesRegex(ValueError, "contains no frames"):
+            frames_to_led_tracks([], [], ["frames"], "nearest", "CB04")
+        with self.assertRaisesRegex(ValueError, "does not support"):
+            frames_to_led_tracks(
+                [Image.new("RGB", (4, 4))], [90], ["frames"], "nearest", "ALICE"
+            )
 
 
 class MacroProtocolTests(unittest.TestCase):
