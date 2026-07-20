@@ -34,6 +34,18 @@
       <input id="macro-import-input" type="file" accept="application/json,.json" hidden>
     </header>
 
+    <section id="compatibility-banner" class="compatibility-banner" role="status" aria-live="polite" hidden>
+      <div class="compatibility-symbol" aria-hidden="true">!</div>
+      <div class="compatibility-copy">
+        <strong id="compatibility-title">Profile does not match the selected keyboard</strong>
+        <span id="compatibility-detail">Hardware writing is disabled. Save JSON still works.</span>
+      </div>
+      <div class="compatibility-actions">
+        <button id="import-banner-macros" type="button" class="button ghost">Import macros into keyboard profile</button>
+        <button id="return-connected-workspace" type="button" class="button primary">Return to connected keyboard</button>
+      </div>
+    </section>
+
     <div class="workspace">
       <aside class="sidebar">
         <nav aria-label="Configurator sections">
@@ -78,6 +90,31 @@
         <button id="read-device" type="button" class="button ghost">Read keymap &amp; macros</button>
       </div>
       <p class="dialog-note">Choose a keyboard here, then use the always-visible Write button in the main toolbar. LED frames cannot be read back. The app can preserve an open document or restore this machine’s last verified write, but another machine still needs the full portable JSON.</p>
+    </form>
+  </dialog>
+
+  <dialog id="incompatible-dialog" class="dialog incompatible-dialog">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Different keyboard profile</p><h2>Incompatible JSON</h2></div>
+        <button class="dialog-close" value="cancel" aria-label="Cancel opening profile">×</button>
+      </div>
+      <div class="profile-route" aria-label="Profile compatibility">
+        <span><small>JSON profile</small><strong id="incompatible-source">—</strong></span>
+        <b aria-hidden="true">→</b>
+        <span><small>Current target</small><strong id="incompatible-target">—</strong></span>
+      </div>
+      <p id="incompatible-message" class="incompatible-message"></p>
+      <div class="transfer-warning">
+        <strong>Keymaps and LED tracks use model-specific indexes.</strong>
+        <span>They cannot be transferred safely between these keyboard layouts. Valid modern macros are portable.</span>
+      </div>
+      <p id="incompatible-macro-note" class="dialog-note"></p>
+      <div class="device-actions">
+        <button value="cancel" class="button ghost">Cancel</button>
+        <button id="open-incompatible" type="button" class="button ghost">Open as detached file</button>
+        <button id="import-incompatible-macros" type="button" class="button primary">Import macros only</button>
+      </div>
     </form>
   </dialog>
 

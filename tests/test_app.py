@@ -122,6 +122,30 @@ class DesktopServerTests(unittest.TestCase):
         self.assertNotIn('id="write-button"', picker.group("body"))
         self.assertNotIn('id="write-device"', source)
 
+    def test_incompatible_profile_ui_explains_and_recovers_from_mismatch(self) -> None:
+        html = (ROOT / "am_configurator" / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        script = (ROOT / "am_configurator" / "web" / "app.js").read_text(
+            encoding="utf-8"
+        )
+
+        for element_id in (
+            "compatibility-banner",
+            "incompatible-dialog",
+            "import-incompatible-macros",
+            "open-incompatible",
+            "return-connected-workspace",
+        ):
+            with self.subTest(element_id=element_id):
+                self.assertIn(f'id="{element_id}"', html)
+
+        self.assertIn("/api/config/compatibility", script)
+        self.assertIn("Open as detached file", html)
+        self.assertIn("Import macros only", html)
+        self.assertIn("Keymaps and LED tracks use model-specific indexes", html)
+        self.assertIn('$("#save-button").disabled = !state.config;', script)
+
     def test_relic_layer_7_am_controls_are_available_in_key_palette(self) -> None:
         source = (ROOT / "am_configurator" / "web" / "app.js").read_text(
             encoding="utf-8"

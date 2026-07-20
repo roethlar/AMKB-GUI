@@ -36,6 +36,7 @@ const state = {
   deviceDocuments: new Map(),
   pendingWrite: null,
 };
+let incompatibleResolver = null;
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -77,6 +78,14 @@ function productFamily(value) {
 
 function sameProductFamily(left, right) {
   return Boolean(left && right && productFamily(left) === productFamily(right));
+}
+
+function productLabel(value) {
+  const family=productFamily(value);
+  if(family==="80")return "Relic 80";
+  if(family==="ALICE")return "AFA / AFA 2";
+  if(family==="CB")return "CyberBoard";
+  return String(value||"Unknown keyboard");
 }
 
 function pageData(config = state.config) {
@@ -143,6 +152,7 @@ function updateHistoryButtons() {
 
 function updateMeta() {
   $("#file-name").textContent = state.config ? state.fileName : "No configuration open";
+  $("#dirty-dot").classList.toggle("visible",state.dirty);
   const product = $("#product-pill");
   product.textContent = state.config ? productId() : "—";
   product.classList.toggle("muted", !state.config);
@@ -179,6 +189,39 @@ function mergeConfigs(configs) {
   return base;
 }
 
+function chooseIncompatibleProfile(config,fileName,target,compatibility,canImport) {
+  const sourceId=config?.product_info?.product_id||compatibility.source_product_id||"?";
+  const targetId=target.product_id||compatibility.target_product_id||"?";
+  const sourceName=`${productLabel(sourceId)} (${sourceId})`;
+  const targetName=target.label||`${productLabel(targetId)} (${targetId})`;
+  $("#incompatible-source").textContent=sourceName;
+  $("#incompatible-target").textContent=targetName;
+  $("#incompatible-message").textContent=target.kind==="document"
+    ? `${fileName} is for ${sourceName}; the open document is ${targetName}. These profiles cannot be merged.`
+    : `${fileName} is for ${sourceName}; the connected keyboard is ${targetName}. This profile cannot be written to that keyboard.`;
+  const importButton=$("#import-incompatible-macros");
+  importButton.hidden=!canImport;
+  importButton.textContent=compatibility.macro_count===1?"Import 1 macro only":`Import ${compatibility.macro_count} macros only`;
+  $("#incompatible-macro-note").textContent=canImport
+    ? `The ${compatibility.macro_count} validated macro definition${compatibility.macro_count===1?' is':'s are'} portable. Importing replaces the macros in the current ${productLabel(targetId)} workspace without opening this profile.`
+    : compatibility.macro_error||"This profile has no portable modern macros.";
+  const dialog=$("#incompatible-dialog");
+  dialog.returnValue="";
+  if(dialog.open)dialog.close();
+  return new Promise(resolve=>{
+    incompatibleResolver=resolve;
+    dialog.showModal();
+  });
+}
+
+function resolveIncompatibleProfile(choice) {
+  const resolve=incompatibleResolver;
+  incompatibleResolver=null;
+  const dialog=$("#incompatible-dialog");
+  if(dialog.open)dialog.close();
+  if(resolve)resolve(choice);
+}
+
 async function readFiles(input, merge) {
   const files = [...input.files];
   input.value = "";
@@ -189,23 +232,47 @@ async function readFiles(input, merge) {
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${file.name} is not a configuration object.`);
       return parsed;
     }));
-    const combined = merge && state.config ? mergeConfigs([state.config, ...configs]) : mergeConfigs(configs);
+    const families=new Set(configs.map(config=>productFamily(config?.product_info?.product_id)).filter(Boolean));
+    if(families.size>1)throw new Error("The selected JSON files belong to different keyboard families and cannot be combined.");
+    const incoming=mergeConfigs(configs);
+    if(!incoming?.key_layer)throw new Error("No key_layer was found in the selected JSON.");
+
+    const activeDevice=state.devices.find(device=>device.port===state.loadedPort)||selectedDevice();
+    const target=merge&&state.config
+      ? {product_id:productId(),label:`${productLabel(productId())} (${productId()})`,kind:"document"}
+      : !merge&&activeDevice?activeDevice:null;
+    let effectiveMerge=merge;
+    if(target){
+      const compatibility=await api("/api/config/compatibility",{method:"POST",body:JSON.stringify({config:incoming,target_product_id:target.product_id})});
+      if(!compatibility.compatible){
+        const canImport=Boolean(state.config)&&sameProductFamily(productId(),target.product_id)&&compatibility.can_import_macros;
+        const choice=await chooseIncompatibleProfile(incoming,files[0].name,target,compatibility,canImport);
+        if(choice==="cancel")return;
+        if(choice==="macros"){
+          await importMacrosFromConfig(incoming,files[0].name);
+          return;
+        }
+        effectiveMerge=false;
+      }
+    }
+
+    const combined=effectiveMerge&&state.config?mergeConfigs([state.config,...configs]):incoming;
     if (!combined?.key_layer) throw new Error("No key_layer was found in the selected JSON.");
-    if (!merge) {
+    if (!effectiveMerge) {
       stashDeviceDocument();
       state.loadedPort = null;
     }
-    if (merge && state.config) pushUndo();
+    if (effectiveMerge && state.config) pushUndo();
     state.config = combined;
     state.fileName = cleanFileName(files[0].name);
-    if (!merge) resetDocumentView();
+    if (!effectiveMerge) resetDocumentView();
     else state.ledFrame = 0;
     state.undo = [];
     state.redo = [];
-    markDirty(merge);
+    markDirty(effectiveMerge);
     updateMeta();
     render();
-    toast(merge ? "Configurations merged" : "Configuration opened", `${productId()} · ${layers().length} layers · ${(state.config.macro_key || []).length} macros`, "success");
+    toast(effectiveMerge ? "Configurations merged" : "Configuration opened", `${productId()} · ${layers().length} layers · ${(state.config.macro_key || []).length} macros`, "success");
   } catch (error) {
     toast("Could not open JSON", error.message, "error");
   }
@@ -539,19 +606,40 @@ function addMacro() {
   mutate(() => { macros().push({original_key:tokenCode, layer_key:[], intvel_ms:[]}); state.macro=macros().length-1; });
 }
 
+async function loadImportableMacros(config) {
+  return api("/api/macros/import",{method:"POST",body:JSON.stringify({config})});
+}
+
+function confirmMacroReplacement(existingCount,incomingCount,fileName) {
+  return !existingCount||confirm(`Replace the ${existingCount} macros in this workspace with ${incomingCount} from ${fileName}?`);
+}
+
+function applyImportedMacros(result) {
+  const incoming=result.macros||[];
+  mutate(()=>{state.config.macro_key=clone(incoming);state.macro=0;});
+  const events=incoming.reduce((sum,macro)=>sum+(macro.layer_key||[]).length,0);
+  const connected=incoming.filter(macro=>layers().some(layer=>(layer.layer||[]).some(code=>String(code).toUpperCase()===macro.original_key))).map(macro=>decodeCode(macro.original_key));
+  toast("Macros imported",`${incoming.length} macros · ${events} events from ${result.product_id}${connected.length?` · ${connected.join(', ')} connected to this keymap`:''}`,"success");
+}
+
+async function importMacrosFromConfig(config,fileName) {
+  if(!state.config)return false;
+  try{
+    const result=await loadImportableMacros(config);
+    const incoming=result.macros||[];
+    if(!confirmMacroReplacement(macros().length,incoming.length,fileName))return false;
+    applyImportedMacros(result);
+    return true;
+  }catch(error){toast("Could not import macros",error.message,"error");return false;}
+}
+
 async function importMacros(input) {
   const file=input.files?.[0];
   input.value="";
   if(!file||!state.config)return;
   try{
     const parsed=JSON.parse(await file.text());
-    const result=await api("/api/macros/import",{method:"POST",body:JSON.stringify({config:parsed})});
-    const incoming=result.macros||[];
-    if(macros().length&&!confirm(`Replace the ${macros().length} macros in this workspace with ${incoming.length} from ${file.name}?`))return;
-    mutate(()=>{state.config.macro_key=clone(incoming);state.macro=0;});
-    const events=incoming.reduce((sum,macro)=>sum+(macro.layer_key||[]).length,0);
-    const connected=incoming.filter(macro=>layers().some(layer=>(layer.layer||[]).some(code=>String(code).toUpperCase()===macro.original_key))).map(macro=>decodeCode(macro.original_key));
-    toast("Macros imported",`${incoming.length} macros · ${events} events from ${result.product_id}${connected.length?` · ${connected.join(', ')} connected to this keymap`:''}`,"success");
+    await importMacrosFromConfig(parsed,file.name);
   }catch(error){toast("Could not import macros",error.message,"error");}
 }
 
@@ -935,6 +1023,62 @@ function selectedDevice() {
   return state.devices.find(device=>device.port===state.selectedPort)||null;
 }
 
+function mismatchedDevice() {
+  const device=selectedDevice();
+  return state.config&&device&&!sameProductFamily(productId(),device.product_id)?device:null;
+}
+
+function updateCompatibilityBanner() {
+  const banner=$("#compatibility-banner");
+  if(!banner)return;
+  const device=mismatchedDevice();
+  banner.hidden=!device;
+  if(!device)return;
+  const sourceId=productId();
+  const sourceName=`${productLabel(sourceId)} (${sourceId})`;
+  const targetName=`${productLabel(device.product_id)} (${device.product_id})`;
+  $("#compatibility-title").textContent=`${sourceName} profile · ${targetName} connected`;
+  $("#compatibility-detail").textContent=`This JSON cannot be written to ${device.product_id}. Save JSON still works; keymaps and LED tracks cannot cross layouts.`;
+  const saved=state.deviceDocuments.get(device.port);
+  const hasMacros=Array.isArray(state.config.macro_key)&&state.config.macro_key.length>0;
+  $("#import-banner-macros").hidden=!(saved&&hasMacros);
+  const returnButton=$("#return-connected-workspace");
+  returnButton.textContent=saved?`Return to ${device.product_id}`:`Load ${device.product_id}`;
+}
+
+async function importDetachedMacros() {
+  const device=mismatchedDevice();
+  if(!device||!state.config)return;
+  const saved=state.deviceDocuments.get(device.port);
+  if(!saved)return toast("No keyboard workspace to restore",`Load ${device.product_id} before importing macros into it.`,"error");
+  const source=clone(state.config),sourceName=state.fileName;
+  try{
+    const result=await loadImportableMacros(source);
+    const incoming=result.macros||[];
+    const existing=(saved.config?.macro_key||[]).length;
+    if(!confirmMacroReplacement(existing,incoming.length,sourceName))return;
+    if(!restoreDeviceDocument(device.port,device.product_id))throw new Error(`The saved ${device.product_id} workspace is no longer compatible.`);
+    state.loadedPort=device.port;
+    state.selectedPort=device.port;
+    applyImportedMacros(result);
+  }catch(error){toast("Could not import macros",error.message,"error");}
+}
+
+async function returnToConnectedWorkspace() {
+  const device=mismatchedDevice();
+  if(!device)return;
+  if(state.dirty&&!confirm(`Discard unsaved changes to ${state.fileName} and return to ${device.product_id}?`))return;
+  if(restoreDeviceDocument(device.port,device.product_id)){
+    state.loadedPort=device.port;
+    state.selectedPort=device.port;
+    render();
+    toast("Keyboard workspace restored",`${device.product_id} · ${state.fileName}`,"success");
+    return;
+  }
+  state.selectedPort=device.port;
+  await readDevice();
+}
+
 function deviceSwitchesWorkspace(device) {
   if(!device||!state.config)return false;
   if(state.loadedPort)return state.loadedPort!==device.port;
@@ -946,6 +1090,7 @@ function stashDeviceDocument() {
   state.deviceDocuments.set(state.loadedPort,{
     config:state.config,
     fileName:state.fileName,
+    dirty:state.dirty,
     undo:state.undo,
     redo:state.redo,
     view:{layer:state.layer,selected:state.selected,macro:state.macro,ledSlot:state.ledSlot,ledTarget:state.ledTarget,ledFrame:state.ledFrame},
@@ -957,6 +1102,7 @@ function restoreDeviceDocument(port,deviceId) {
   if(!saved||!sameProductFamily(saved.config?.product_info?.product_id,deviceId))return false;
   state.config=saved.config;
   state.fileName=saved.fileName;
+  state.dirty=Boolean(saved.dirty);
   state.undo=saved.undo;
   state.redo=saved.redo;
   if(saved.view)Object.assign(state,saved.view);
@@ -976,6 +1122,7 @@ function resetDocumentView() {
 function updateDeviceActions() {
   const read=$("#read-device"),write=$("#write-button");
   if(!read||!write)return;
+  updateCompatibilityBanner();
   const device=selectedDevice();
   if(!device){
     read.disabled=true;
@@ -1128,6 +1275,11 @@ $("#backup-before-write").addEventListener("click",saveConfig);
 $("#write-button").addEventListener("click",writeDevice);
 $("#device-button").addEventListener("click",showDeviceDialog);
 $("#read-device").addEventListener("click",readDevice);
+$("#open-incompatible").addEventListener("click",()=>resolveIncompatibleProfile("open"));
+$("#import-incompatible-macros").addEventListener("click",()=>resolveIncompatibleProfile("macros"));
+$("#incompatible-dialog").addEventListener("close",()=>{if(incompatibleResolver)resolveIncompatibleProfile("cancel");});
+$("#import-banner-macros").addEventListener("click",importDetachedMacros);
+$("#return-connected-workspace").addEventListener("click",returnToConnectedWorkspace);
 $("#confirm-write").addEventListener("click",confirmDeviceWrite);
 $("#write-confirmation").addEventListener("input",event=>{$("#confirm-write").disabled=!state.pendingWrite||event.target.value.trim().toUpperCase()!==state.pendingWrite.device.product_id.toUpperCase();});
 $("#write-confirmation").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();if(!$("#confirm-write").disabled)confirmDeviceWrite();}});
