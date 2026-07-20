@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import copy
 import io
+import json
+import os
 import re
+import shutil
+import stat
+import sys
+import tempfile
 import threading
 import tomllib
 import unittest
@@ -41,6 +47,129 @@ from am_configurator.device import candidate_ports
 from am_configurator.protocol import exclusive_serial_kwargs
 from am_configurator.macros import macro_frames, parse_macro_frames
 from am_configurator.writer import car_light_data_frames, car_light_info_frames
+from am_configurator import store
+
+
+_DEFAULT_SETTINGS = {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}}}
+
+
+class SettingsStoreTests(unittest.TestCase):
+    """Strict app-level settings store: defaults, round-trip, recovery, env override."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.mkdtemp(prefix="am_settings_test_")
+        self._saved_env = {
+            k: os.environ.get(k)
+            for k in ("AM_CONFIGURATOR_DATA_DIR", "XDG_DATA_HOME", "XAI_API_KEY")
+        }
+        os.environ.pop("XDG_DATA_HOME", None)
+        os.environ.pop("XAI_API_KEY", None)
+        os.environ["AM_CONFIGURATOR_DATA_DIR"] = self._tmp
+
+    def tearDown(self) -> None:
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_defaults_when_missing(self) -> None:
+        self.assertEqual(store.load_settings(), _DEFAULT_SETTINGS)
+        # A missing file must not be created as a side effect of reading it.
+        self.assertFalse(store.settings_path().exists())
+
+    def test_round_trip(self) -> None:
+        payload = {
+            "llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": "sk-test"}}
+        }
+        store.save_settings(payload)
+        self.assertEqual(store.load_settings(), payload)
+
+    def test_unknown_fields_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            store.save_settings(
+                {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}}, "bogus": 1}
+            )
+        with self.assertRaises(ValueError):
+            store.save_settings(
+                {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}, "bogus": 1}}
+            )
+        with self.assertRaises(ValueError):
+            store.save_settings(
+                {"llm": {"interpreter": "nope", "renderer": "grok", "keys": {}}}
+            )
+        with self.assertRaises(ValueError):
+            store.save_settings(
+                {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"bogus": "x"}}}
+            )
+        # A rejected save must persist nothing.
+        self.assertFalse(store.settings_path().exists())
+
+    def test_mask_sentinel_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            store.save_settings(
+                {
+                    "llm": {
+                        "interpreter": "grok",
+                        "renderer": "grok",
+                        "keys": {"xai": store.KEY_MASK},
+                    }
+                }
+            )
+        self.assertFalse(store.settings_path().exists())
+
+    def test_empty_key_clears(self) -> None:
+        store.save_settings(
+            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": "sk-test"}}}
+        )
+        store.save_settings(
+            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": ""}}}
+        )
+        self.assertEqual(store.load_settings()["llm"]["keys"], {})
+        self.assertIsNone(store.resolve_xai_key())
+
+    def test_corrupt_file_recovers(self) -> None:
+        path = store.settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{ not valid json", encoding="utf-8")
+        self.assertEqual(store.load_settings(), _DEFAULT_SETTINGS)
+        self.assertFalse(path.exists())
+        self.assertTrue(path.with_name(path.name + ".bad").exists())
+
+    def test_env_override(self) -> None:
+        store.save_settings(
+            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": "sk-disk"}}}
+        )
+        before = store.settings_path().read_text(encoding="utf-8")
+        os.environ["XAI_API_KEY"] = "sk-env"
+        self.assertEqual(store.resolve_xai_key(), "sk-env")
+        # The env override is never persisted; disk content is untouched.
+        self.assertEqual(store.settings_path().read_text(encoding="utf-8"), before)
+        self.assertEqual(store.load_settings()["llm"]["keys"]["xai"], "sk-disk")
+
+    def test_error_message_omits_secret(self) -> None:
+        secret = "sk-super-secret-should-never-be-logged"
+        with self.assertRaises(ValueError) as ctx:
+            store.save_settings(
+                {
+                    "llm": {
+                        "interpreter": "nope",
+                        "renderer": "grok",
+                        "keys": {"xai": secret},
+                    }
+                }
+            )
+        self.assertNotIn(secret, str(ctx.exception))
+
+    def test_file_permissions(self) -> None:
+        store.save_settings(
+            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": "sk-test"}}}
+        )
+        if sys.platform.startswith("win"):
+            self.skipTest("POSIX file permissions are not enforced on Windows")
+        mode = stat.S_IMODE(os.stat(store.settings_path()).st_mode)
+        self.assertEqual(mode, 0o600)
 
 
 def _layer(fill: str = "#00000000") -> dict:

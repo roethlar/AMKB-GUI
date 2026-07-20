@@ -288,6 +288,170 @@ def snapshot(product_id: str, ir: dict) -> Path:
     return path
 
 
+# --- App-level settings (LLM providers + API keys) ---------------------------
+#
+# App-scoped (not device-scoped) configuration in a single settings.json under
+# the store root. It records the chosen LLM providers and any API keys. Keys are
+# stored in plaintext (0600 where the OS supports it), disclosed as such in the
+# UI; an XAI_API_KEY environment override is honoured without ever being written
+# to disk. The write contract is strict: unknown fields, unknown provider names,
+# and the display mask sentinel are rejected rather than merged, and raw key
+# values never appear in error messages.
+
+KEY_MASK = "•" * 8  # UI display mask; never a legal stored key value
+_KNOWN_INTERPRETERS = ("grok",)
+_KNOWN_RENDERERS = ("grok",)
+_KNOWN_KEY_PROVIDERS = ("xai",)
+
+
+def _default_settings() -> dict:
+    """A fresh copy of the default app settings (no key configured)."""
+    return {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}}}
+
+
+def settings_path() -> Path:
+    """`<root>/settings.json` — app-level (not per-device) configuration."""
+    return store_root() / "settings.json"
+
+
+@contextlib.contextmanager
+def _settings_lock():
+    """Exclusive advisory lock on `<root>/.settings.lock` for compound writes.
+
+    Modelled on `device_lock` but app-scoped, so two concurrent app processes
+    cannot interleave a settings write. Unix uses ``flock``; Windows locks the
+    first byte with ``msvcrt.locking``.
+    """
+    root = store_root()
+    root.mkdir(parents=True, exist_ok=True)
+    lock_path = root / ".settings.lock"
+    with open(lock_path, "a+b") as f:
+        if os.name == "nt":
+            f.seek(0, os.SEEK_END)
+            if f.tell() == 0:
+                f.write(b"\0")
+                f.flush()
+            _lock_windows_byte(f)
+        else:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if os.name == "nt":
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+def _validate_settings(values: object) -> dict:
+    """Strict-validate `values` and normalise them onto the defaults.
+
+    Known fields overlay the defaults; an empty-string API key clears its entry.
+    Unknown top-level keys, unknown `llm` keys, unknown provider names, non-string
+    key values, and the mask sentinel raise ``ValueError``. Raw key values are
+    never echoed into the error message.
+    """
+    if not isinstance(values, dict):
+        raise ValueError("settings must be a JSON object")
+    unknown_top = set(values) - {"llm"}
+    if unknown_top:
+        raise ValueError(f"unknown settings field(s): {sorted(unknown_top)}")
+
+    llm = values.get("llm", {})
+    if not isinstance(llm, dict):
+        raise ValueError("settings 'llm' must be a JSON object")
+    unknown_llm = set(llm) - {"interpreter", "renderer", "keys"}
+    if unknown_llm:
+        raise ValueError(f"unknown llm settings field(s): {sorted(unknown_llm)}")
+
+    result = _default_settings()
+    if "interpreter" in llm:
+        interpreter = llm["interpreter"]
+        if interpreter not in _KNOWN_INTERPRETERS:
+            raise ValueError(f"unknown interpreter provider {interpreter!r}")
+        result["llm"]["interpreter"] = interpreter
+    if "renderer" in llm:
+        renderer = llm["renderer"]
+        if renderer not in _KNOWN_RENDERERS:
+            raise ValueError(f"unknown renderer provider {renderer!r}")
+        result["llm"]["renderer"] = renderer
+
+    keys = llm.get("keys", {})
+    if not isinstance(keys, dict):
+        raise ValueError("settings 'llm.keys' must be a JSON object")
+    normalized_keys: dict = {}
+    for name, value in keys.items():
+        if name not in _KNOWN_KEY_PROVIDERS:
+            raise ValueError(f"unknown API key provider {name!r}")
+        if not isinstance(value, str):
+            # Deliberately omit the value from the message (it may be a secret).
+            raise ValueError(f"API key for {name!r} must be a string")
+        if value == KEY_MASK:
+            raise ValueError(f"API key for {name!r} is the display mask, not a real key")
+        if value == "":
+            continue  # empty string clears the stored key
+        normalized_keys[name] = value
+    result["llm"]["keys"] = normalized_keys
+    return result
+
+
+def _quarantine_settings(path: Path) -> None:
+    """Rename an unreadable settings file aside so the app can start fresh."""
+    with contextlib.suppress(OSError):
+        os.replace(path, path.with_name(path.name + ".bad"))
+
+
+def load_settings() -> dict:
+    """App settings, recovering to defaults on a missing/corrupt/invalid file.
+
+    A missing file yields the defaults without writing anything. A file that is
+    invalid JSON or structurally invalid is quarantined to ``settings.json.bad``
+    and the defaults are returned — a bad settings file is never a hard error.
+    """
+    path = settings_path()
+    try:
+        raw = _read_json(path)
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        _quarantine_settings(path)
+        return _default_settings()
+    if raw is None:
+        return _default_settings()
+    try:
+        return _validate_settings(raw)
+    except ValueError:
+        _quarantine_settings(path)
+        return _default_settings()
+
+
+def save_settings(values: dict) -> dict:
+    """Strict-validate `values`, then atomically persist them (0600 where able).
+
+    Returns the normalised settings actually written. On any validation failure
+    it raises ``ValueError`` and persists nothing.
+    """
+    normalized = _validate_settings(values)
+    path = settings_path()
+    with _settings_lock():
+        _atomic_write_json(path, normalized)
+        if os.name != "nt":
+            with contextlib.suppress(OSError):
+                os.chmod(path, 0o600)
+    return normalized
+
+
+def resolve_xai_key() -> str | None:
+    """The xAI API key: the ``XAI_API_KEY`` env override wins, else the stored key.
+
+    The environment override is never written to disk.
+    """
+    env = os.environ.get("XAI_API_KEY")
+    if env:
+        return env
+    key = load_settings()["llm"]["keys"].get("xai")
+    return key or None
+
+
 def _check(cond: bool, msg: str) -> None:
     """Self-test guard. Explicit raise (not `assert`) so `-O` can't strip it."""
     if not cond:
