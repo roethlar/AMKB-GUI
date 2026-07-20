@@ -960,6 +960,21 @@ class _FakeTransport:
         return self._response
 
 
+class _FakeGetTransport:
+    """Fake xAI GET transport with no payload argument."""
+
+    def __init__(self, *, response=None, error: BaseException | None = None) -> None:
+        self._response = response
+        self._error = error
+        self.calls: list[dict] = []
+
+    def __call__(self, url, api_key, deadline):
+        self.calls.append({"url": url, "api_key": api_key, "deadline": deadline})
+        if self._error is not None:
+            raise self._error
+        return self._response
+
+
 def _responses_envelope(plan_dict: dict) -> dict:
     """A minimal xAI ``/v1/responses`` structured-output envelope carrying
     ``plan_dict`` as the assistant message's ``output_text`` JSON."""
@@ -1818,6 +1833,411 @@ class GrokConceptProviderTests(unittest.TestCase):
                     provider.generate_candidates(plan, self._future_deadline())
                 self.assertEqual(ctx.exception.code, "config")
                 self.assertEqual(transport.calls, [])
+
+
+class GrokVideoProviderTests(unittest.TestCase):
+    """Structured animation planning and the asynchronous xAI video contract."""
+
+    def _future_deadline(self) -> float:
+        return time.monotonic() + 30.0
+
+    @staticmethod
+    def _spec() -> "llm.RasterSpec":
+        return llm.RasterSpec(
+            model="80",
+            target="per_key",
+            extra_targets=("spotlight",),
+            width=18,
+            height=7,
+            mapped_positions=((0, 0), (17, 6)),
+            output_len=126,
+            max_frames=200,
+        )
+
+    @staticmethod
+    def _plan_dict() -> dict:
+        return {
+            "subject_lock": "Keep the same amber comet and curved three-star trail.",
+            "style_lock": "Keep the original deep-blue pixel-art palette and texture.",
+            "video_prompt": "The amber comet glides left to right while its trail twinkles.",
+        }
+
+    @staticmethod
+    def _video_response(plan: dict, cost_ticks=41_000_000) -> dict:
+        response = _responses_envelope(plan)
+        response["usage"]["cost_in_usd_ticks"] = cost_ticks
+        return response
+
+    @staticmethod
+    def _png_bytes() -> bytes:
+        from PIL import Image
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (20, 9), (11, 22, 33)).save(buffer, "PNG")
+        return buffer.getvalue()
+
+    def test_video_plan_is_strict_bounded_and_requires_all_locks(self) -> None:
+        plan = llm.video_animation_plan_from_json(self._plan_dict())
+        self.assertEqual(plan.subject_lock, self._plan_dict()["subject_lock"])
+        self.assertEqual(plan.style_lock, self._plan_dict()["style_lock"])
+        self.assertEqual(plan.video_prompt, self._plan_dict()["video_prompt"])
+
+        bad_cases = (
+            [],
+            {"subject_lock": "subject", "style_lock": "style"},
+            {**self._plan_dict(), "extra": "no"},
+            {**self._plan_dict(), "subject_lock": " "},
+            {**self._plan_dict(), "style_lock": 7},
+            {
+                **self._plan_dict(),
+                "video_prompt": "x" * (llm.MAX_VIDEO_PLAN_STRING + 1),
+            },
+        )
+        for value in bad_cases:
+            with self.subTest(value=value):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm.video_animation_plan_from_json(value)
+                self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_planner_sends_selected_original_multimodal_context_and_strict_schema(self) -> None:
+        original = self._png_bytes()
+        transport = _FakeTransport(response=self._video_response(self._plan_dict()))
+        result = llm.GrokVideoPlanner(
+            _FAKE_KEY, model="grok-4.3", transport=transport
+        ).plan(
+            "an amber comet crosses a midnight keyboard",
+            "make the tail flicker gently",
+            original,
+            "image/png",
+            self._spec(),
+            "ping_pong",
+            self._future_deadline(),
+        )
+
+        self.assertEqual(result.plan.video_prompt, self._plan_dict()["video_prompt"])
+        self.assertEqual(result.usage.cost_in_usd_ticks, 41_000_000)
+        self.assertEqual(len(transport.calls), 1)
+        call = transport.calls[0]
+        self.assertEqual(call["url"], llm.XAI_RESPONSES_URL)
+        self.assertEqual(call["payload"]["model"], "grok-4.3")
+        self.assertIs(call["payload"]["store"], False)
+        fmt = call["payload"]["text"]["format"]
+        self.assertEqual(fmt["name"], "video_animation_plan")
+        self.assertIs(fmt["strict"], True)
+        self.assertIs(fmt["schema"]["additionalProperties"], False)
+        self.assertEqual(
+            set(fmt["schema"]["required"]),
+            {"subject_lock", "style_lock", "video_prompt"},
+        )
+        user_content = call["payload"]["input"][1]["content"]
+        input_text = next(part["text"] for part in user_content if part["type"] == "input_text")
+        input_image = next(
+            part["image_url"] for part in user_content if part["type"] == "input_image"
+        )
+        self.assertIn("an amber comet crosses a midnight keyboard", input_text)
+        self.assertIn("make the tail flicker gently", input_text)
+        self.assertIn("model=80", input_text)
+        self.assertIn("target=per_key", input_text)
+        self.assertIn("18x7", input_text)
+        self.assertIn("126", input_text)
+        self.assertIn("ping_pong", input_text)
+        self.assertIn("exactly one second", input_text)
+        self.assertIn("locked camera", input_text.lower())
+        self.assertEqual(
+            input_image,
+            "data:image/png;base64," + base64.b64encode(original).decode("ascii"),
+        )
+
+    def test_planner_accepts_absent_motion_and_rejects_bad_context_before_call(self) -> None:
+        transport = _FakeTransport(response=self._video_response(self._plan_dict()))
+        llm.GrokVideoPlanner(_FAKE_KEY, transport=transport).plan(
+            "valid prompt",
+            None,
+            self._png_bytes(),
+            "image/png",
+            self._spec(),
+            "smooth",
+            self._future_deadline(),
+        )
+        text = transport.calls[0]["payload"]["input"][1]["content"][0]["text"]
+        self.assertIn("Motion guidance: none supplied", text)
+
+        invalid_cases = (
+            ("", None, self._png_bytes(), "image/png", self._spec(), "smooth"),
+            ("valid", 7, self._png_bytes(), "image/png", self._spec(), "smooth"),
+            ("valid", None, b"not an image", "image/png", self._spec(), "smooth"),
+            ("valid", None, self._png_bytes(), "image/gif", self._spec(), "smooth"),
+            ("valid", None, self._png_bytes(), "image/png", object(), "smooth"),
+            ("valid", None, self._png_bytes(), "image/png", self._spec(), "bounce"),
+        )
+        for args in invalid_cases:
+            invalid_transport = _FakeTransport(response={})
+            with self.subTest(args=args):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm.GrokVideoPlanner(
+                        _FAKE_KEY, transport=invalid_transport
+                    ).plan(*args, self._future_deadline())
+                self.assertEqual(ctx.exception.code, "config")
+                self.assertEqual(invalid_transport.calls, [])
+
+    def test_submit_is_one_paid_call_with_curated_model_and_fixed_payload(self) -> None:
+        original = self._png_bytes()
+        transport = _FakeTransport(response={
+            "request_id": "video_req.abc-123~x",
+            "usage": {"cost_in_usd_ticks": 900_000_000},
+        })
+        provider = llm.XaiVideoProvider(
+            _FAKE_KEY,
+            model="grok-imagine-video",
+            submit_transport=transport,
+            poll_transport=_FakeGetTransport(response={}),
+        )
+        result = provider.submit(
+            llm.video_animation_plan_from_json(self._plan_dict()),
+            original,
+            "image/png",
+            self._future_deadline(),
+        )
+
+        self.assertEqual(result.request_id, "video_req.abc-123~x")
+        self.assertEqual(result.status, "pending")
+        self.assertEqual(result.usage.cost_in_usd_ticks, 900_000_000)
+        self.assertEqual(len(transport.calls), 1)
+        payload = transport.calls[0]["payload"]
+        self.assertEqual(transport.calls[0]["url"], llm.XAI_VIDEO_GENERATIONS_URL)
+        self.assertEqual(payload["model"], "grok-imagine-video")
+        self.assertEqual(payload["prompt"], self._plan_dict()["video_prompt"])
+        self.assertEqual(payload["duration"], 1)
+        self.assertEqual(payload["resolution"], "480p")
+        self.assertNotIn("aspect_ratio", payload)
+        self.assertEqual(
+            payload["image"]["url"],
+            "data:image/png;base64," + base64.b64encode(original).decode("ascii"),
+        )
+
+    def test_submit_never_retries_and_preserves_typed_redacted_failure(self) -> None:
+        usage = llm.ProviderUsage(cost_in_usd_ticks=123, reported=True)
+        transport = _FakeTransport(error=llm.ProviderError(
+            "timeout", f"ambiguous paid submission using {_FAKE_KEY}", usage=usage
+        ))
+        provider = llm.XaiVideoProvider(
+            _FAKE_KEY,
+            submit_transport=transport,
+            poll_transport=_FakeGetTransport(response={}),
+        )
+        with self.assertRaises(llm.ProviderError) as ctx:
+            provider.submit(
+                llm.video_animation_plan_from_json(self._plan_dict()),
+                self._png_bytes(),
+                "image/png",
+                self._future_deadline(),
+            )
+        self.assertEqual(ctx.exception.code, "timeout")
+        self.assertEqual(ctx.exception.usage, usage)
+        self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+        self.assertEqual(len(transport.calls), 1)
+
+    def test_default_models_jpeg_bytes_and_missing_usage_are_preserved(self) -> None:
+        from PIL import Image
+
+        jpeg_buffer = io.BytesIO()
+        Image.new("RGB", (20, 9), (31, 41, 59)).save(jpeg_buffer, "JPEG")
+        original = jpeg_buffer.getvalue()
+
+        planner_response = self._video_response(self._plan_dict())
+        planner_response["usage"].pop("cost_in_usd_ticks")
+        planner_transport = _FakeTransport(response=planner_response)
+        planned = llm.GrokVideoPlanner(
+            _FAKE_KEY, transport=planner_transport
+        ).plan(
+            "valid prompt",
+            None,
+            original,
+            "image/jpeg",
+            self._spec(),
+            "none",
+            self._future_deadline(),
+        )
+        self.assertEqual(
+            planner_transport.calls[0]["payload"]["model"], "grok-4.5"
+        )
+        self.assertIsNone(planned.usage.cost_in_usd_ticks)
+        self.assertFalse(planned.usage.reported)
+
+        submit_transport = _FakeTransport(response={"request_id": "req-jpeg_1"})
+        submitted = llm.XaiVideoProvider(
+            _FAKE_KEY,
+            submit_transport=submit_transport,
+            poll_transport=_FakeGetTransport(response={}),
+        ).submit(
+            planned.plan, original, "image/jpeg", self._future_deadline()
+        )
+        self.assertEqual(
+            submit_transport.calls[0]["payload"]["model"],
+            "grok-imagine-video-1.5",
+        )
+        self.assertEqual(
+            submit_transport.calls[0]["payload"]["image"]["url"],
+            "data:image/jpeg;base64," + base64.b64encode(original).decode("ascii"),
+        )
+        self.assertIsNone(submitted.usage.cost_in_usd_ticks)
+        self.assertFalse(submitted.usage.reported)
+
+        for provider_factory in (
+            lambda: llm.GrokVideoPlanner(
+                _FAKE_KEY, model="grok-future", transport=planner_transport
+            ),
+            lambda: llm.XaiVideoProvider(
+                _FAKE_KEY,
+                model="grok-video-future",
+                submit_transport=submit_transport,
+                poll_transport=_FakeGetTransport(response={}),
+            ),
+        ):
+            with self.assertRaises(llm.ProviderError) as ctx:
+                provider_factory()
+            self.assertEqual(ctx.exception.code, "config")
+
+    def test_poll_validates_request_id_before_get_and_accepts_every_status(self) -> None:
+        invalid_ids = (
+            "",
+            "-starts-wrong",
+            "has/slash",
+            "has?query",
+            "has#fragment",
+            "has%2Fescape",
+            "has\ncontrol",
+            "a" * 201,
+        )
+        for request_id in invalid_ids:
+            transport = _FakeGetTransport(response={})
+            provider = llm.XaiVideoProvider(
+                _FAKE_KEY,
+                submit_transport=_FakeTransport(response={}),
+                poll_transport=transport,
+            )
+            with self.subTest(request_id=request_id):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    provider.poll(request_id, self._future_deadline())
+                self.assertEqual(ctx.exception.code, "config")
+                self.assertEqual(transport.calls, [])
+
+        longest = "a" + "~" * 199
+        transport = _FakeGetTransport(response={"status": "pending"})
+        result = llm.XaiVideoProvider(
+            _FAKE_KEY,
+            submit_transport=_FakeTransport(response={}),
+            poll_transport=transport,
+        ).poll(longest, self._future_deadline())
+        self.assertEqual(result.request_id, longest)
+        self.assertEqual(len(transport.calls), 1)
+
+        for status in ("pending", "failed", "expired"):
+            response = {
+                "status": status,
+                "usage": {"cost_in_usd_ticks": 17},
+            }
+            transport = _FakeGetTransport(response=response)
+            result = llm.XaiVideoProvider(
+                _FAKE_KEY,
+                submit_transport=_FakeTransport(response={}),
+                poll_transport=transport,
+            ).poll("req_123", self._future_deadline())
+            self.assertEqual(result.status, status)
+            self.assertIsNone(result.video_url)
+            self.assertIsNone(result.duration)
+            self.assertEqual(result.usage.cost_in_usd_ticks, 17)
+            self.assertEqual(
+                transport.calls[0]["url"],
+                llm.XAI_VIDEO_STATUS_URL.format(request_id="req_123"),
+            )
+
+    def test_done_requires_one_second_video_url_and_usage_is_exact_or_missing(self) -> None:
+        signed_url = "https://cdn.example/video.mp4?signature=temporary-secret"
+        done = {
+            "request_id": "req.done-1",
+            "status": "done",
+            "video": {"url": signed_url, "duration": 1},
+        }
+        result = llm.XaiVideoProvider(
+            _FAKE_KEY,
+            submit_transport=_FakeTransport(response={}),
+            poll_transport=_FakeGetTransport(response=done),
+        ).poll("req.done-1", self._future_deadline())
+        self.assertEqual(result.video_url, signed_url)
+        self.assertEqual(result.duration, 1)
+        self.assertIsNone(result.usage.cost_in_usd_ticks)
+        self.assertFalse(result.usage.reported)
+        self.assertNotIn(signed_url, str(result.usage))
+
+        bad_responses = (
+            {**done, "status": "queued"},
+            {**done, "video": {}},
+            {**done, "video": {"url": "", "duration": 1}},
+            {**done, "video": {"url": signed_url, "duration": 2}},
+            {**done, "usage": {"cost_in_usd_ticks": True}},
+        )
+        for response in bad_responses:
+            with self.subTest(response=response):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm.XaiVideoProvider(
+                        _FAKE_KEY,
+                        submit_transport=_FakeTransport(response={}),
+                        poll_transport=_FakeGetTransport(response=response),
+                    ).poll("req.done-1", self._future_deadline())
+                self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_poll_preserves_typed_usage_and_redacts_errors(self) -> None:
+        usage = llm.ProviderUsage(cost_in_usd_ticks=77, reported=True)
+        transport = _FakeGetTransport(error=llm.ProviderError(
+            "rate_limited",
+            f"poll failed using {_FAKE_KEY}",
+            retry_after=9,
+            usage=usage,
+        ))
+        provider = llm.XaiVideoProvider(
+            _FAKE_KEY,
+            submit_transport=_FakeTransport(response={}),
+            poll_transport=transport,
+        )
+        with self.assertRaises(llm.ProviderError) as ctx:
+            provider.poll("req_1", self._future_deadline())
+        self.assertEqual(ctx.exception.code, "rate_limited")
+        self.assertEqual(ctx.exception.retry_after, 9)
+        self.assertEqual(ctx.exception.usage, usage)
+        self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+        self.assertEqual(len(transport.calls), 1)
+
+    def test_get_transport_uses_validated_url_deadline_timeout_and_no_body(self) -> None:
+        response = _FakeResponse(json.dumps({
+            "request_id": "req_1", "status": "pending"
+        }).encode("utf-8"))
+        opener = _RecordingOpener(response=response)
+        with patch.object(llm.time, "monotonic", return_value=100.0):
+            parsed = llm._xai_get_request(
+                llm.XAI_VIDEO_STATUS_URL.format(request_id="req_1"),
+                _FAKE_KEY,
+                112.5,
+                opener=opener,
+            )
+        self.assertEqual(parsed["status"], "pending")
+        self.assertEqual(len(opener.calls), 1)
+        request, timeout = opener.calls[0]
+        self.assertEqual(request.get_method(), "GET")
+        self.assertIsNone(request.data)
+        self.assertEqual(timeout, 12.5)
+
+        expired = _RecordingOpener(response=response)
+        with patch.object(llm.time, "monotonic", return_value=200.0):
+            with self.assertRaises(llm.ProviderError) as ctx:
+                llm._xai_get_request(
+                    llm.XAI_VIDEO_STATUS_URL.format(request_id="req_1"),
+                    _FAKE_KEY,
+                    200.0,
+                    opener=expired,
+                )
+        self.assertEqual(ctx.exception.code, "timeout")
+        self.assertEqual(expired.calls, [])
 
 
 class GrokImagineRendererTests(unittest.TestCase):

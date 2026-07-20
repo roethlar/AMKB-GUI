@@ -18,6 +18,7 @@ import base64
 import binascii
 import io
 import json
+import re
 import socket
 import ssl
 import time
@@ -47,6 +48,10 @@ PER_CALL_TIMEOUT = 30.0  # hard ceiling on any single upstream call; the deadlin
 MAX_CONCEPT_PROMPT_CHARS = 4000
 MAX_CONCEPT_CANDIDATES = 8
 MAX_CONCEPT_PLAN_STRING = 2000
+MAX_VIDEO_PLAN_STRING = 2000
+MAX_VIDEO_MOTION_CHARS = 2000
+VIDEO_LOOP_MODES = ("smooth", "none", "ping_pong")
+_VIDEO_REQUEST_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._~-]{0,199}", re.ASCII)
 
 # Firmware LED speed steps. Duplicated from ``server._LED_SPEEDS_MS`` so this
 # module stays importable without ``server``; a drift-guard test keeps the two
@@ -62,6 +67,8 @@ XAI_MODELS = {"interpreter": "grok-4.5", "renderer": "grok-imagine-image"}
 # the Images API; bumping a host/path is a deliberate one-line change.
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
 XAI_IMAGES_URL = "https://api.x.ai/v1/images/generations"
+XAI_VIDEO_GENERATIONS_URL = "https://api.x.ai/v1/videos/generations"
+XAI_VIDEO_STATUS_URL = "https://api.x.ai/v1/videos/{request_id}"
 
 # Canonical provider / key-provider names. ``store.py`` keeps its own copies of
 # these allowlists because it must stay stdlib-core-only and cannot import this
@@ -179,6 +186,41 @@ class ConceptPlan:
 class ConceptPlanResult:
     plan: ConceptPlan
     usage: ProviderUsage
+
+
+@dataclass(frozen=True)
+class VideoAnimationPlan:
+    """Validated one-second animation instructions anchored to a selected still."""
+
+    subject_lock: str
+    style_lock: str
+    video_prompt: str
+
+
+@dataclass(frozen=True)
+class VideoAnimationPlanResult:
+    plan: VideoAnimationPlan
+    usage: ProviderUsage
+
+
+@dataclass(frozen=True)
+class VideoSubmission:
+    """Accepted paid video submission; ``pending`` is the only local start state."""
+
+    request_id: str
+    status: str
+    usage: ProviderUsage
+
+
+@dataclass(frozen=True)
+class VideoStatus:
+    """One status observation; an ephemeral signed URL exists only when done."""
+
+    request_id: str
+    status: str
+    usage: ProviderUsage
+    video_url: str | None = None
+    duration: int | None = None
 
 
 @dataclass(frozen=True)
@@ -354,6 +396,35 @@ def concept_plan_from_json(data: object, candidate_count: object) -> ConceptPlan
     return ConceptPlan(visual_brief=visual_brief, candidate_prompts=prompts)
 
 
+def _video_plan_string(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ProviderError(
+            "bad_response", f"video plan field {field!r} must be a non-empty string"
+        )
+    if len(value) > MAX_VIDEO_PLAN_STRING:
+        raise ProviderError(
+            "bad_response",
+            f"video plan field {field!r} exceeds {MAX_VIDEO_PLAN_STRING} characters",
+        )
+    return value
+
+
+def video_animation_plan_from_json(data: object) -> VideoAnimationPlan:
+    """Strictly validate the three-field animation plan returned by Responses."""
+    if not isinstance(data, dict):
+        raise ProviderError("bad_response", "video animation plan must be a JSON object")
+    expected = {"subject_lock", "style_lock", "video_prompt"}
+    if set(data) != expected:
+        raise ProviderError(
+            "bad_response", "video animation plan fields did not match the schema"
+        )
+    return VideoAnimationPlan(
+        subject_lock=_video_plan_string(data["subject_lock"], "subject_lock"),
+        style_lock=_video_plan_string(data["style_lock"], "style_lock"),
+        video_prompt=_video_plan_string(data["video_prompt"], "video_prompt"),
+    )
+
+
 # --- xAI HTTP transport ------------------------------------------------------
 #
 # ``_xai_request`` is the single choke point through which every xAI call
@@ -426,6 +497,31 @@ def _call_provider(transport, url: str, payload: dict, api_key: str, deadline: f
         failure = ProviderError(
             "unavailable",
             _redact(f"provider call failed: {exc}", api_key),
+        )
+    if failure is not None:
+        raise failure from None
+    if not isinstance(response, dict):
+        raise ProviderError("bad_response", "provider response was not a JSON object")
+    return response
+
+
+def _call_poll_provider(transport, url: str, api_key: str, deadline: float) -> dict:
+    """Invoke the independent status-GET seam with typed, redacted failures."""
+    failure: ProviderError | None = None
+    try:
+        response = transport(url, api_key, deadline)
+    except ProviderError as exc:
+        code = exc.code if exc.code in PROVIDER_ERROR_CODES else "unavailable"
+        failure = ProviderError(
+            code,
+            _redact(str(exc), api_key),
+            retry_after=exc.retry_after,
+            usage=exc.usage,
+        )
+    except Exception as exc:
+        failure = ProviderError(
+            "unavailable",
+            _redact(f"provider status call failed: {exc}", api_key),
         )
     if failure is not None:
         raise failure from None
@@ -589,6 +685,107 @@ def _xai_request(
     if not isinstance(parsed, dict):
         raise ProviderError("bad_response", "provider response was not a JSON object")
 
+    return parsed
+
+
+def _xai_get_request(
+    url: str,
+    api_key: str,
+    deadline: float,
+    opener=None,
+) -> dict:
+    """GET one xAI JSON response under the shared deadline, without retrying."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ProviderError(
+            "timeout", "provider deadline exceeded before the request started"
+        )
+
+    if opener is None:
+        opener = _default_opener()
+
+    timeout = min(remaining, PER_CALL_TIMEOUT)
+    request = urllib.request.Request(
+        url,
+        method="GET",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+    try:
+        response = opener(request, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+        retry_after = _parse_retry_after(exc.headers.get("Retry-After"))
+        usage = _provider_error_usage(exc)
+        _close_quietly(exc)
+        if code in (401, 403):
+            raise ProviderError(
+                "auth",
+                "provider rejected the API key; check the key in Settings",
+                usage=usage,
+            ) from exc
+        if code == 429:
+            raise ProviderError(
+                "rate_limited",
+                "provider rate limit reached; retry later",
+                retry_after=retry_after,
+                usage=usage,
+            ) from exc
+        if 500 <= code <= 599:
+            raise ProviderError(
+                "unavailable",
+                f"provider is temporarily unavailable (HTTP {code})",
+                usage=usage,
+            ) from exc
+        raise ProviderError(
+            "bad_response",
+            f"provider returned an unexpected status (HTTP {code})",
+            usage=usage,
+        ) from exc
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, (TimeoutError, socket.timeout)):
+            raise ProviderError(
+                "timeout", _redact(f"provider request timed out: {exc}", api_key)
+            ) from exc
+        raise ProviderError(
+            "offline", _redact(f"could not reach the provider: {exc}", api_key)
+        ) from exc
+    except (TimeoutError, socket.timeout) as exc:
+        raise ProviderError(
+            "timeout", _redact(f"provider request timed out: {exc}", api_key)
+        ) from exc
+    except (ssl.SSLError, OSError) as exc:
+        raise ProviderError(
+            "offline", _redact(f"could not reach the provider: {exc}", api_key)
+        ) from exc
+
+    try:
+        raw = response.read(MAX_PROVIDER_RESPONSE + 1)
+    except (TimeoutError, socket.timeout) as exc:
+        raise ProviderError(
+            "timeout", _redact(f"provider response read timed out: {exc}", api_key)
+        ) from exc
+    except (ssl.SSLError, OSError) as exc:
+        raise ProviderError(
+            "offline", _redact(f"provider response read failed: {exc}", api_key)
+        ) from exc
+    finally:
+        _close_quietly(response)
+
+    if len(raw) > MAX_PROVIDER_RESPONSE:
+        raise ProviderError(
+            "bad_response",
+            f"provider response exceeded the {MAX_PROVIDER_RESPONSE}-byte cap",
+        )
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ProviderError(
+            "bad_response", _redact(f"provider response was not valid JSON: {exc}", api_key)
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise ProviderError("bad_response", "provider response was not a JSON object")
     return parsed
 
 
@@ -925,6 +1122,346 @@ class GrokConceptPlanner:
         if not texts:
             raise ProviderError("bad_response", "concept response contained no output text")
         return "".join(texts)
+
+
+# --- Video planning and asynchronous generation -----------------------------
+
+
+def _selected_image_data_uri(original_bytes: object, mime_type: object) -> str:
+    """Validate selected original PNG/JPEG bytes and return their exact data URI."""
+    from PIL import Image, UnidentifiedImageError
+
+    expected_format = {"image/png": "PNG", "image/jpeg": "JPEG"}.get(mime_type)
+    if expected_format is None:
+        raise ProviderError("config", "selected still must be a PNG or JPEG image")
+    if not isinstance(original_bytes, bytes) or not original_bytes:
+        raise ProviderError("config", "selected still bytes are missing or invalid")
+    if len(original_bytes) > MAX_IMAGE_BYTES:
+        raise ProviderError(
+            "config", f"selected still exceeds the {MAX_IMAGE_BYTES}-byte cap"
+        )
+
+    source = None
+    try:
+        source = Image.open(io.BytesIO(original_bytes))
+        if source.format != expected_format:
+            raise ProviderError(
+                "config", "selected still MIME type does not match its image bytes"
+            )
+        width, height = source.size
+        if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+            raise ProviderError(
+                "config", f"selected still exceeds the {MAX_IMAGE_PIXELS}-pixel cap"
+            )
+        source.load()
+    except ProviderError:
+        raise
+    except (Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ProviderError("config", "selected still is not a valid PNG or JPEG") from exc
+    finally:
+        if source is not None:
+            source.close()
+
+    encoded = base64.b64encode(original_bytes).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def _video_raster_context(spec: object) -> str:
+    if not isinstance(spec, RasterSpec):
+        raise ProviderError("config", "validated device geometry is required")
+    if not isinstance(spec.model, str) or not spec.model:
+        raise ProviderError("config", "device model geometry is invalid")
+    if not isinstance(spec.target, str) or not spec.target:
+        raise ProviderError("config", "device target geometry is invalid")
+    if not isinstance(spec.extra_targets, tuple) or any(
+        not isinstance(target, str) or not target for target in spec.extra_targets
+    ):
+        raise ProviderError("config", "device extra-target geometry is invalid")
+    for value in (spec.width, spec.height, spec.output_len, spec.max_frames):
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ProviderError("config", "device raster geometry is invalid")
+    if spec.mapped_positions is not None:
+        if not isinstance(spec.mapped_positions, tuple):
+            raise ProviderError("config", "device mapped-position geometry is invalid")
+        for position in spec.mapped_positions:
+            if (
+                not isinstance(position, tuple)
+                or len(position) != 2
+                or any(isinstance(value, bool) or not isinstance(value, int) for value in position)
+                or not 0 <= position[0] < spec.width
+                or not 0 <= position[1] < spec.height
+            ):
+                raise ProviderError("config", "device mapped-position geometry is invalid")
+
+    extra = ",".join(spec.extra_targets) if spec.extra_targets else "none"
+    mapped = len(spec.mapped_positions) if spec.mapped_positions is not None else "all"
+    return (
+        f"model={spec.model}; target={spec.target}; extra_targets={extra}; "
+        f"raster={spec.width}x{spec.height}; output_len={spec.output_len}; "
+        f"max_frames={spec.max_frames}; mapped_positions={mapped}"
+    )
+
+
+class GrokVideoPlanner:
+    """Create a strict animation plan with the selected still as image context."""
+
+    def __init__(self, api_key: str, model: str | None = None, transport=None) -> None:
+        self._api_key = api_key
+        self._model = _curated_model(
+            "interpreter", DEFAULT_MODELS["interpreter"] if model is None else model
+        )
+        self._transport = transport if transport is not None else _xai_request
+
+    def plan(
+        self,
+        original_prompt: object,
+        motion: object,
+        selected_image_bytes: object,
+        selected_image_mime_type: object,
+        spec: object,
+        loop_mode: object,
+        deadline: float,
+    ) -> VideoAnimationPlanResult:
+        if (
+            not isinstance(original_prompt, str)
+            or not original_prompt.strip()
+            or len(original_prompt) > MAX_CONCEPT_PROMPT_CHARS
+        ):
+            raise ProviderError(
+                "config",
+                f"original prompt must be a non-empty string of at most {MAX_CONCEPT_PROMPT_CHARS} characters",
+            )
+        if motion is not None and (
+            not isinstance(motion, str) or len(motion) > MAX_VIDEO_MOTION_CHARS
+        ):
+            raise ProviderError(
+                "config",
+                f"motion guidance must be omitted or at most {MAX_VIDEO_MOTION_CHARS} characters",
+            )
+        if loop_mode not in VIDEO_LOOP_MODES:
+            raise ProviderError("config", "video loop mode is invalid")
+
+        geometry = _video_raster_context(spec)
+        data_uri = _selected_image_data_uri(
+            selected_image_bytes, selected_image_mime_type
+        )
+        motion_text = motion if isinstance(motion, str) and motion.strip() else "none supplied"
+        context = (
+            f"Original prompt: {original_prompt}\n"
+            f"Motion guidance: {motion_text}\n"
+            f"Device geometry: {geometry}\n"
+            f"Loop mode: {loop_mode}\n"
+            "Duration: exactly one second.\n"
+            "Camera: locked camera with no pan, tilt, zoom, roll, cut, or reframing."
+        )
+        payload = {
+            "model": self._model,
+            "store": False,
+            "input": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You plan a one-second image-to-video animation from the supplied "
+                        "selected still. Preserve its subject identity, composition, palette, "
+                        "rendering style, and texture. The camera is locked. Return a subject "
+                        "lock, a style lock, and exactly one concrete standalone video prompt. "
+                        "Describe only motion that can complete in one second and respect the "
+                        "requested loop mode and small target raster. Do not introduce new "
+                        "subjects, scene cuts, camera movement, text, borders, or watermarks."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": context},
+                        {"type": "input_image", "image_url": data_uri},
+                    ],
+                },
+            ],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "video_animation_plan",
+                    "strict": True,
+                    "schema": self._schema(),
+                }
+            },
+        }
+        response = _call_provider(
+            self._transport, XAI_RESPONSES_URL, payload, self._api_key, deadline
+        )
+        usage = _provider_usage(response)
+        try:
+            text = self._extract_output_text(response)
+            parsed = json.loads(text)
+            plan = video_animation_plan_from_json(parsed)
+        except ProviderError as exc:
+            raise ProviderError(
+                exc.code,
+                _redact(str(exc), self._api_key),
+                retry_after=exc.retry_after,
+                usage=usage,
+            ) from exc
+        except ValueError as exc:
+            raise ProviderError(
+                "bad_response",
+                _redact(f"video planner output was not valid JSON: {exc}", self._api_key),
+                usage=usage,
+            ) from exc
+        return VideoAnimationPlanResult(plan=plan, usage=usage)
+
+    @staticmethod
+    def _schema() -> dict:
+        properties = {
+            field: {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": MAX_VIDEO_PLAN_STRING,
+            }
+            for field in ("subject_lock", "style_lock", "video_prompt")
+        }
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": properties,
+            "required": ["subject_lock", "style_lock", "video_prompt"],
+        }
+
+    @staticmethod
+    def _extract_output_text(response: dict) -> str:
+        output = response.get("output")
+        if not isinstance(output, list):
+            raise ProviderError("bad_response", "video response missing an output list")
+        texts: list[str] = []
+        for item in output:
+            if not isinstance(item, dict) or item.get("type") != "message":
+                continue
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "refusal":
+                    raise ProviderError(
+                        "moderation",
+                        "the provider declined this animation; try rephrasing it",
+                    )
+                if part.get("type") == "output_text" and isinstance(part.get("text"), str):
+                    texts.append(part["text"])
+        if not texts:
+            raise ProviderError("bad_response", "video response contained no output text")
+        return "".join(texts)
+
+
+def _video_request_id(value: object, code: str, usage: ProviderUsage) -> str:
+    if not isinstance(value, str) or _VIDEO_REQUEST_ID_RE.fullmatch(value) is None:
+        raise ProviderError(code, "video request ID is invalid", usage=usage)
+    return value
+
+
+class XaiVideoProvider:
+    """Submit one paid image-to-video request and poll it through separate seams."""
+
+    _STATUSES = ("pending", "done", "failed", "expired")
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str | None = None,
+        submit_transport=None,
+        poll_transport=None,
+    ) -> None:
+        self._api_key = api_key
+        self._model = _curated_model(
+            "video", DEFAULT_MODELS["video"] if model is None else model
+        )
+        self._submit_transport = (
+            submit_transport if submit_transport is not None else _xai_request
+        )
+        self._poll_transport = (
+            poll_transport if poll_transport is not None else _xai_get_request
+        )
+
+    def submit(
+        self,
+        plan: object,
+        selected_image_bytes: object,
+        selected_image_mime_type: object,
+        deadline: float,
+    ) -> VideoSubmission:
+        if not isinstance(plan, VideoAnimationPlan):
+            raise ProviderError("config", "a validated video animation plan is required")
+        try:
+            plan = video_animation_plan_from_json(
+                {
+                    "subject_lock": plan.subject_lock,
+                    "style_lock": plan.style_lock,
+                    "video_prompt": plan.video_prompt,
+                }
+            )
+        except ProviderError as exc:
+            raise ProviderError("config", "video animation plan is invalid") from exc
+        data_uri = _selected_image_data_uri(
+            selected_image_bytes, selected_image_mime_type
+        )
+        payload = {
+            "model": self._model,
+            "prompt": plan.video_prompt,
+            "image": {"url": data_uri},
+            "duration": 1,
+            "resolution": "480p",
+        }
+        response = _call_provider(
+            self._submit_transport,
+            XAI_VIDEO_GENERATIONS_URL,
+            payload,
+            self._api_key,
+            deadline,
+        )
+        usage = _provider_usage(response)
+        request_id = _video_request_id(response.get("request_id"), "bad_response", usage)
+        return VideoSubmission(request_id=request_id, status="pending", usage=usage)
+
+    def poll(self, request_id: object, deadline: float) -> VideoStatus:
+        request_id = _video_request_id(
+            request_id, "config", MISSING_PROVIDER_USAGE
+        )
+        url = XAI_VIDEO_STATUS_URL.format(request_id=request_id)
+        response = _call_poll_provider(
+            self._poll_transport, url, self._api_key, deadline
+        )
+        usage = _provider_usage(response)
+        status = response.get("status")
+        if status not in self._STATUSES:
+            raise ProviderError(
+                "bad_response", "video status was not recognized", usage=usage
+            )
+        if status != "done":
+            return VideoStatus(request_id=request_id, status=status, usage=usage)
+
+        video = response.get("video")
+        if not isinstance(video, dict):
+            raise ProviderError(
+                "bad_response", "completed video response omitted video metadata", usage=usage
+            )
+        video_url = video.get("url")
+        duration = video.get("duration")
+        if not isinstance(video_url, str) or not video_url.startswith("https://"):
+            raise ProviderError(
+                "bad_response", "completed video response omitted a secure video URL", usage=usage
+            )
+        if isinstance(duration, bool) or not isinstance(duration, int) or duration != 1:
+            raise ProviderError(
+                "bad_response", "completed video duration was not exactly one second", usage=usage
+            )
+        return VideoStatus(
+            request_id=request_id,
+            status=status,
+            usage=usage,
+            video_url=video_url,
+            duration=duration,
+        )
 
 
 # --- Grok Imagine renderer (EffectPlan -> RenderedFrames) --------------------
