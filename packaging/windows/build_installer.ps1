@@ -25,19 +25,26 @@ try {
 
     $smokeDir = Join-Path ([System.IO.Path]::GetTempPath()) "am-configurator-installer-smoke-$PID"
     try {
-        & $installer /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- "/DIR=$smokeDir"
-        if ($LASTEXITCODE -ne 0) {
-            throw "Silent installer failed with exit code $LASTEXITCODE"
+        $installerArgs = @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=$smokeDir")
+        $installerProcess = Start-Process -FilePath $installer -ArgumentList $installerArgs -Wait -PassThru
+        if ($installerProcess.ExitCode -ne 0) {
+            throw "Silent installer failed with exit code $($installerProcess.ExitCode)"
         }
-        & (Join-Path $smokeDir "AM Configurator.exe") --smoke-test
-        if ($LASTEXITCODE -ne 0) {
-            throw "Installed application smoke test failed with exit code $LASTEXITCODE"
+
+        $installedApp = Join-Path $smokeDir "AM Configurator.exe"
+        if (-not (Test-Path $installedApp)) {
+            throw "Silent installer did not create the application: $installedApp"
+        }
+
+        $appProcess = Start-Process -FilePath $installedApp -ArgumentList "--smoke-test" -Wait -PassThru
+        if ($appProcess.ExitCode -ne 0) {
+            throw "Installed application smoke test failed with exit code $($appProcess.ExitCode)"
         }
     }
     finally {
         $uninstaller = Join-Path $smokeDir "unins000.exe"
         if (Test-Path $uninstaller) {
-            & $uninstaller /VERYSILENT /SUPPRESSMSGBOXES /NORESTART | Out-Null
+            Start-Process -FilePath $uninstaller -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") -Wait | Out-Null
         }
         if (Test-Path $smokeDir) {
             Remove-Item -LiteralPath $smokeDir -Recurse -Force

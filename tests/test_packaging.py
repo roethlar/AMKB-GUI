@@ -49,6 +49,20 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file())
 
+    def test_windows_installer_smoke_test_waits_for_gui_processes(self) -> None:
+        script = (ROOT / "packaging" / "windows" / "build_installer.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "Start-Process -FilePath $installer -ArgumentList $installerArgs -Wait -PassThru",
+            script,
+        )
+        self.assertIn(
+            "Start-Process -FilePath $installedApp -ArgumentList \"--smoke-test\" -Wait -PassThru",
+            script,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
