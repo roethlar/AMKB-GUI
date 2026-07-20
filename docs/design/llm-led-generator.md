@@ -1,7 +1,22 @@
 # Design: LLM-Backed LED Effect Generator
 
-Status: draft v3 (post external design review + user review, pending approval)
+Status: implemented (v3, 2026-07-20)
 Author: Claude Code session, 2026-07-20
+
+## Implementation status
+
+The approved implementation plan is complete. Offline verification covers the
+full repository verification entry point, focused fake-provider checks for the
+happy path and mapped failure paths, and the frozen macOS app's fake-transport
+generation smoke test with network access disabled. No live xAI request or
+device write was part of final verification.
+
+One planned refinement behavior remains incomplete: the browser includes
+`previous_plan` in a refinement request, and `GrokInterpreter` can consume it,
+but `/api/led/generate` and `generate_effect` do not yet validate or forward
+that value. Refine therefore preserves the editable prompt but does not give
+the interpreter the prior structured plan. Threading that value through the
+endpoint and orchestrator remains a follow-up.
 
 ## Context
 

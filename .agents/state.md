@@ -2,40 +2,28 @@
 
 ## Now
 
-- Branch `llm-led-generator`: the plan
-  `docs/superpowers/plans/2026-07-20-llm-led-generator.md` is committed and
-  Tasks 1–10 are implemented, test-gated, and committed via subagent-driven
-  TDD (settings store, `frames_to_led_tracks` refactor, `llm.py`
-  types/caps, xAI transport, `GrokInterpreter`, `GrokImagineRenderer`,
-  tween + `generate_effect` orchestrator, settings/generate-job HTTP
-  endpoints, frontend AI panel + settings UI) — head `a688914` as of this
-  handoff.
-- Task 11 (packaging + frozen smoke test) is mid-flight: the subagent was
-  interrupted and its prompt lost. Its partial tests-first work sits
-  UNCOMMITTED in the worktree: `packaging/am_configurator.spec` adds the
-  `"am_configurator.llm"` hidden import; `tests/test_packaging.py` adds
-  `test_spec_bundles_the_llm_module` (passes) and
-  `test_frozen_smoke_test_runs_a_fake_transport_generation` (FAILS — the
-  implementation half was never written).
-- The failing test pins the intended design: `am_configurator/desktop.py`
-  `run_smoke_test()` must exercise the LLM generation pipeline offline —
-  a fake transport feeding the real Grok providers so the
-  `b64_json`/Pillow decode chain and `frames_to_led_tracks` mapping run
-  inside the frozen bundle; ssl verified via `create_default_context`
-  without a socket; real-TLS reach opt-in behind `AM_SMOKE_NET`.
+- Branch `llm-led-generator`: the approved plan
+  `docs/superpowers/plans/2026-07-20-llm-led-generator.md` is complete through
+  Task 12. The design's implementation status and final offline verification
+  record live in `docs/design/llm-led-generator.md`.
+- The generator now includes app settings, the shared frame-mapping core,
+  bounded Grok interpreter and renderer providers, local tweening, a
+  single-flight generation API, pending-preview UI, packaging support, and an
+  offline frozen-app generation smoke test.
+- The implementation has one recorded refinement gap: the UI sends
+  `previous_plan`, but the generation endpoint and orchestrator do not forward
+  it to the interpreter. The design's implementation-status section is the
+  canonical record of this deviation.
 - The nested `cyberboard-cli/` checkout remains ignored reference material
   and is not part of the application.
 
 ## Next
 
-- Implement the frozen smoke-test extension in
-  `am_configurator/desktop.py` to satisfy the two uncommitted tests, run
-  the full `python3 -m unittest` suite, and commit as Task 11
-  (packaging + frozen smoke test).
-- Then Task 12: final verification + docs.
-- Parked follow-up from review: thread `previous_plan` through
-  `/api/led/generate` and `generate_effect` so the interpreter sees the
-  prior plan on refinement requests.
+- Plan the parked `previous_plan` endpoint/orchestrator follow-up before its
+  code changes.
+- Optionally run live xAI generation and hardware quality checks when the
+  owner chooses to provide credentials and devices; offline implementation
+  verification is complete.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON
@@ -43,5 +31,6 @@
 
 ## Blockers
 
-- None for local development. A live `XAI_API_KEY` is required only for
-  end-to-end generation checks, not for the offline test suite.
+- None for local development. Live-provider and hardware checks require the
+  corresponding owner-supplied credentials and devices; they are not required
+  for the offline suite.
