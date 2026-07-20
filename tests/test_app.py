@@ -762,6 +762,47 @@ def _request_header(request, name: str) -> str | None:
     return None
 
 
+class _FakeTransport:
+    """Fake xAI transport: records each call, then returns a canned dict or raises.
+
+    The signature mirrors ``llm._xai_request`` minus the opener
+    (``(url, payload, api_key, deadline) -> dict``) — the contract the concrete
+    Grok providers use to invoke their injected transport, so their request
+    building, extraction, and error paths run with zero network I/O.
+    """
+
+    def __init__(self, *, response=None, error: BaseException | None = None) -> None:
+        self._response = response
+        self._error = error
+        self.calls: list[dict] = []
+
+    def __call__(self, url, payload, api_key, deadline):
+        self.calls.append(
+            {"url": url, "payload": payload, "api_key": api_key, "deadline": deadline}
+        )
+        if self._error is not None:
+            raise self._error
+        return self._response
+
+
+def _responses_envelope(plan_dict: dict) -> dict:
+    """A minimal xAI ``/v1/responses`` structured-output envelope carrying
+    ``plan_dict`` as the assistant message's ``output_text`` JSON."""
+    return {
+        "output": [
+            {"type": "reasoning", "content": []},
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    {"type": "output_text", "text": json.dumps(plan_dict)}
+                ],
+            },
+        ],
+        "usage": {"input_tokens": 128, "output_tokens": 64},
+    }
+
+
 class GrokTransportTests(unittest.TestCase):
     """Task 3 subset: shared constants, drift guards, and EffectPlan validation.
 
@@ -1080,6 +1121,164 @@ class GrokTransportTests(unittest.TestCase):
                 )
             self.assertNotIn(_FAKE_KEY, str(ctx.exception))
             self.assertNotIn(_FAKE_KEY, ctx.exception.message)
+
+
+class GrokInterpreterTests(unittest.TestCase):
+    """Task 5: ``GrokInterpreter`` request building, output extraction, refusal
+    handling, and the Refine flow — all through an injected fake transport."""
+
+    _RESPONSES_URL = "https://api.x.ai/v1/responses"
+
+    def _future_deadline(self) -> float:
+        return time.monotonic() + 30.0
+
+    def _spec(self, **overrides) -> "llm.RasterSpec":
+        base = dict(
+            model="CB",
+            target="display",
+            extra_targets=(),
+            width=40,
+            height=5,
+            mapped_positions=None,
+            output_len=200,
+            max_frames=80,
+        )
+        base.update(overrides)
+        return llm.RasterSpec(**base)
+
+    def _good_plan(self) -> dict:
+        return {
+            "subject": "pac-man",
+            "palette": "yellow dot on black",
+            "motion": "chomps left to right",
+            "frame_count": 6,
+            "frame_ms": 100,
+            "keyframe_prompts": ["open mouth", "closed mouth", "open again"],
+            "tween": "crossfade",
+            "notes": "loops seamlessly",
+        }
+
+    @staticmethod
+    def _system(payload: dict) -> str:
+        for message in payload["input"]:
+            if message.get("role") == "system":
+                return message["content"]
+        raise AssertionError("payload has no system message")
+
+    @staticmethod
+    def _user(payload: dict) -> str:
+        for message in payload["input"]:
+            if message.get("role") == "user":
+                return message["content"]
+        raise AssertionError("payload has no user message")
+
+    def test_interpret_happy_path(self) -> None:
+        spec = self._spec()
+        transport = _FakeTransport(response=_responses_envelope(self._good_plan()))
+        interpreter = llm.GrokInterpreter(_FAKE_KEY, transport=transport)
+
+        plan = interpreter.interpret(
+            "pac-man chased by a blue ghost", spec, self._future_deadline()
+        )
+
+        self.assertIsInstance(plan, llm.EffectPlan)
+        self.assertEqual(plan.subject, "pac-man")
+        self.assertEqual(
+            plan.keyframe_prompts, ("open mouth", "closed mouth", "open again")
+        )
+
+        # Exactly one upstream call, carrying the sentinel key and the endpoint.
+        self.assertEqual(len(transport.calls), 1)
+        call = transport.calls[0]
+        self.assertEqual(call["url"], self._RESPONSES_URL)
+        self.assertEqual(call["api_key"], _FAKE_KEY)
+
+        payload = call["payload"]
+        self.assertIs(payload["store"], False)
+        self.assertEqual(payload["model"], llm.XAI_MODELS["interpreter"])
+        fmt = payload["text"]["format"]
+        self.assertEqual(fmt["type"], "json_schema")
+        self.assertIs(fmt["strict"], True)
+        self.assertIs(fmt["schema"]["additionalProperties"], False)
+
+        system = self._system(payload)
+        self.assertIn(f"{spec.width}x{spec.height}", system)  # raster size
+        self.assertIn(str(spec.max_frames), system)  # frame cap
+        self.assertIn("limit, not a goal", system)  # cap is a ceiling, not a target
+        self.assertIn(", ".join(str(s) for s in llm.LED_SPEEDS_MS), system)  # speed steps
+        # No sparse mask language when the spec carries no mask.
+        self.assertNotIn("Only the following", system)
+
+        # The sparse-position mask appears only when the spec provides one.
+        masked = self._spec(
+            model="80",
+            target="spotlight_frames",
+            max_frames=200,
+            mapped_positions=((0, 0), (3, 2), (6, 4)),
+        )
+        masked_transport = _FakeTransport(
+            response=_responses_envelope(self._good_plan())
+        )
+        llm.GrokInterpreter(_FAKE_KEY, transport=masked_transport).interpret(
+            "edge glow", masked, self._future_deadline()
+        )
+        masked_system = self._system(masked_transport.calls[0]["payload"])
+        self.assertIn("(0, 0)", masked_system)
+        self.assertIn("(6, 4)", masked_system)
+
+    def test_schema_valid_but_inconsistent_fails(self) -> None:
+        # A plan that satisfies the JSON schema shape but violates the
+        # independent plan_from_json rules (more prompts than frame_count) must
+        # fail as bad_response — never leaking through to a paid render call.
+        spec = self._spec()
+        bad = self._good_plan()
+        bad["frame_count"] = 4
+        bad["keyframe_prompts"] = ["a", "b", "c", "d", "e"]
+        transport = _FakeTransport(response=_responses_envelope(bad))
+        interpreter = llm.GrokInterpreter(_FAKE_KEY, transport=transport)
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            interpreter.interpret("x", spec, self._future_deadline())
+        self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_moderation_refusal(self) -> None:
+        spec = self._spec()
+        refusal = {
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "refusal", "refusal": "I can't help with that."}
+                    ],
+                }
+            ]
+        }
+        transport = _FakeTransport(response=refusal)
+        interpreter = llm.GrokInterpreter(_FAKE_KEY, transport=transport)
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            interpreter.interpret("something disallowed", spec, self._future_deadline())
+        self.assertEqual(ctx.exception.code, "moderation")
+
+    def test_previous_plan_included(self) -> None:
+        spec = self._spec()
+        previous = llm.plan_from_json(self._good_plan(), spec)
+        transport = _FakeTransport(response=_responses_envelope(self._good_plan()))
+        interpreter = llm.GrokInterpreter(_FAKE_KEY, transport=transport)
+
+        interpreter.interpret(
+            "make the ghost redder",
+            spec,
+            self._future_deadline(),
+            previous_plan=previous,
+        )
+
+        user = self._user(transport.calls[0]["payload"])
+        # The prior plan summary and the new instruction both reach the model.
+        self.assertIn(previous.subject, user)
+        self.assertIn(previous.motion, user)
+        self.assertIn("make the ghost redder", user)
 
 
 class MacroProtocolTests(unittest.TestCase):

@@ -47,6 +47,10 @@ LED_SPEEDS_MS = (255, 240, 224, 208, 192, 176, 160, 146, 132, 118, 100, 90, 76, 
 # user direction). Bumping these is a deliberate one-line change.
 XAI_MODELS = {"interpreter": "grok-4.5", "renderer": "grok-imagine-image"}
 
+# Pinned xAI endpoints (design v3). The interpreter posts structured output to
+# the Responses API; bumping the host/path is a deliberate one-line change.
+XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
+
 # Canonical provider / key-provider names. ``store.py`` keeps its own copies of
 # these allowlists because it must stay stdlib-core-only and cannot import this
 # module; a drift-guard test keeps the two in sync. The registries below are
@@ -407,3 +411,204 @@ def _xai_request(
         raise ProviderError("bad_response", "provider response was not a JSON object")
 
     return parsed
+
+
+# --- Grok interpreter (prompt -> EffectPlan) ---------------------------------
+#
+# ``GrokInterpreter`` turns a natural-language prompt into a validated
+# :class:`EffectPlan` via the xAI Responses API (``store: false`` + a strict
+# JSON schema; ``additionalProperties: false``). Structured output is never
+# trusted on the provider's word: the parsed object is re-validated by
+# :func:`plan_from_json`, so a schema-valid-but-inconsistent plan fails as
+# ``bad_response`` *before* any paid image render. The ``transport`` is
+# injectable (default :func:`_xai_request`) so request building, output
+# extraction, refusal handling, and the Refine flow are tested without network.
+
+_INTERPRETER_SYSTEM_INTRO = (
+    "You are an LED effect designer for a mechanical keyboard's addressable "
+    "RGB LEDs."
+)
+
+
+class GrokInterpreter:
+    """xAI Responses interpreter: a prompt becomes a validated :class:`EffectPlan`.
+
+    ``transport`` is a callable ``(url, payload, api_key, deadline) -> dict``
+    matching :func:`_xai_request` (the production default). Tests inject a fake
+    so no real request is ever made.
+    """
+
+    def __init__(self, api_key: str, transport=None) -> None:
+        self._api_key = api_key
+        self._transport = transport if transport is not None else _xai_request
+
+    def interpret(
+        self,
+        prompt: str,
+        spec: RasterSpec,
+        deadline: float,
+        previous_plan: EffectPlan | None = None,
+    ) -> EffectPlan:
+        """Request a structured plan for ``prompt`` and return a validated
+        :class:`EffectPlan`.
+
+        ``previous_plan`` (the Refine flow) embeds the prior plan's summary so
+        the model produces a delta rather than starting over. Provider errors
+        propagate as typed :class:`ProviderError`; a refusal maps to
+        ``moderation`` and any inconsistent plan to ``bad_response``.
+        """
+        payload = {
+            "model": XAI_MODELS["interpreter"],
+            "store": False,
+            "input": [
+                {"role": "system", "content": self._system_prompt(spec)},
+                {"role": "user", "content": self._user_prompt(prompt, previous_plan)},
+            ],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "effect_plan",
+                    "strict": True,
+                    "schema": self._plan_schema(spec),
+                }
+            },
+        }
+        response = self._transport(XAI_RESPONSES_URL, payload, self._api_key, deadline)
+        text = self._extract_output_text(response)
+        try:
+            data = json.loads(text)
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ProviderError(
+                "bad_response",
+                _redact(f"interpreter output was not valid JSON: {exc}", self._api_key),
+            ) from exc
+        return plan_from_json(data, spec)
+
+    # -- request building --------------------------------------------------
+
+    @staticmethod
+    def _system_prompt(spec: RasterSpec) -> str:
+        speed_steps = ", ".join(str(step) for step in LED_SPEEDS_MS)
+        lines = [
+            _INTERPRETER_SYSTEM_INTRO,
+            f"The animation is rendered onto a {spec.width}x{spec.height} pixel "
+            f"raster (model {spec.model}, target {spec.target}).",
+            "Return an EffectPlan describing a short looping animation.",
+            f"Use at most {spec.max_frames} output frames: this cap is a limit, "
+            "not a goal — use the fewest frames that clearly express the effect.",
+            "The keyframe_prompts are the images actually rendered (at most "
+            f"{MAX_RENDERED_KEYFRAMES}); the remaining frames are interpolated "
+            "locally, so list only the distinct poses the motion needs.",
+            "frame_ms must be exactly one of these firmware speed steps, in "
+            f"milliseconds: {speed_steps}.",
+            "Keep the content within a wide horizontal band so it survives the "
+            "center-crop down to the raster.",
+        ]
+        if spec.mapped_positions:
+            positions = ", ".join(f"({x}, {y})" for x, y in spec.mapped_positions)
+            lines.append(
+                "Only the following raster positions are visible on this "
+                f"target; place all content there: {positions}."
+            )
+        return "\n".join(lines)
+
+    def _user_prompt(self, prompt: str, previous_plan: EffectPlan | None) -> str:
+        if previous_plan is None:
+            return prompt
+        return (
+            "Refine the previous effect described below rather than starting "
+            "over.\n"
+            f"{self._summarize_plan(previous_plan)}\n\n"
+            f"New request: {prompt}"
+        )
+
+    @staticmethod
+    def _summarize_plan(plan: EffectPlan) -> str:
+        prompts = "; ".join(plan.keyframe_prompts)
+        return (
+            "Previous plan — "
+            f"subject: {plan.subject}; palette: {plan.palette}; "
+            f"motion: {plan.motion}; frame_count: {plan.frame_count}; "
+            f"frame_ms: {plan.frame_ms}; tween: {plan.tween}; "
+            f"keyframe_prompts: {prompts}"
+        )
+
+    @staticmethod
+    def _plan_schema(spec: RasterSpec) -> dict:
+        max_prompts = min(spec.max_frames, MAX_RENDERED_KEYFRAMES)
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "subject": {"type": "string"},
+                "palette": {"type": "string"},
+                "motion": {"type": "string"},
+                "frame_count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": spec.max_frames,
+                },
+                "frame_ms": {"type": "integer", "enum": list(LED_SPEEDS_MS)},
+                "keyframe_prompts": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": max_prompts,
+                    "items": {"type": "string"},
+                },
+                "tween": {"type": "string", "enum": ["crossfade", "step"]},
+                "notes": {"type": "string"},
+            },
+            "required": [
+                "subject",
+                "palette",
+                "motion",
+                "frame_count",
+                "frame_ms",
+                "keyframe_prompts",
+                "tween",
+                "notes",
+            ],
+        }
+
+    # -- response extraction ----------------------------------------------
+
+    def _extract_output_text(self, response: dict) -> str:
+        """Pull the assistant's ``output_text`` out of a Responses envelope.
+
+        A ``refusal`` content part maps to :class:`ProviderError` ``moderation``;
+        a missing/empty text body maps to ``bad_response``. URL and other
+        unexpected content parts are ignored — this path never fetches anything.
+        """
+        output = response.get("output")
+        if not isinstance(output, list):
+            raise ProviderError(
+                "bad_response", "interpreter response missing an output list"
+            )
+        texts: list[str] = []
+        for item in output:
+            if not isinstance(item, dict) or item.get("type") != "message":
+                continue
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                part_type = part.get("type")
+                if part_type == "refusal":
+                    raise ProviderError(
+                        "moderation",
+                        "the provider declined this prompt; try rephrasing it",
+                    )
+                if part_type == "output_text":
+                    piece = part.get("text")
+                    if isinstance(piece, str):
+                        texts.append(piece)
+        if not texts:
+            raise ProviderError(
+                "bad_response", "interpreter response contained no output text"
+            )
+        return "".join(texts)
+
+
+INTERPRETERS["grok"] = GrokInterpreter
