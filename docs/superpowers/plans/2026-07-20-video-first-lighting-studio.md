@@ -1,9 +1,8 @@
 # Video-First Lighting Studio — Implementation Plan
 
 - **Date**: 2026-07-20
-- **Status**: proposed; all product decisions are approved in
-  `.agents/decisions.md`, but code execution awaits the owner's final approval
-  of this implementation scope.
+- **Status**: approved by the owner on 2026-07-20; implementation authorized.
+  Product decisions are recorded in `.agents/decisions.md`.
 - **Branch**: `llm-led-generator`
 - **Starting commit**: `137dbc85d2f731aeef1ce4b93c512c21792c42d5`
 - **Goal**: replace the inline keyframe generator with a durable, image-first
