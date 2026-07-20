@@ -39,6 +39,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -49,6 +50,8 @@ else:
 
 APP = "am-configurator"
 _SAFE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
+_WINDOWS_LOCK_ATTEMPTS = 100
+_WINDOWS_LOCK_RETRY_SECONDS = 0.1
 
 
 def store_root() -> Path:
@@ -102,6 +105,28 @@ def meta_path(product_id: str) -> Path:
     return device_dir(product_id) / "meta.json"
 
 
+def _lock_windows_byte(
+    file,
+    *,
+    attempts: int = _WINDOWS_LOCK_ATTEMPTS,
+    retry_seconds: float = _WINDOWS_LOCK_RETRY_SECONDS,
+) -> None:
+    """Acquire Windows' byte lock with a bounded, diagnosable retry."""
+    if attempts < 1:
+        raise ValueError("Windows lock attempts must be at least 1")
+    for attempt in range(attempts):
+        file.seek(0)
+        try:
+            msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, 1)
+            return
+        except OSError as exc:
+            if attempt == attempts - 1:
+                raise TimeoutError(
+                    "Device profile is locked by another AM Configurator process."
+                ) from exc
+            time.sleep(retry_seconds)
+
+
 @contextlib.contextmanager
 def device_lock(product_id: str):
     """Exclusive per-device advisory lock on `<device_dir>/.lock`.
@@ -118,8 +143,7 @@ def device_lock(product_id: str):
             if f.tell() == 0:
                 f.write(b"\0")
                 f.flush()
-            f.seek(0)
-            msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+            _lock_windows_byte(f)
         else:
             fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:

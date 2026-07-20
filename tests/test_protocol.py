@@ -85,6 +85,37 @@ class ProtocolTests(unittest.TestCase):
         ):
             self.assertEqual(Path(directory), store.store_root())
 
+    def test_windows_store_lock_contention_has_a_bounded_retry(self) -> None:
+        attempts = 0
+
+        def eventually_locks(_fd: int, _mode: int, _size: int) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise OSError("busy")
+
+        windows_api = SimpleNamespace(LK_NBLCK=1, locking=eventually_locks)
+        with tempfile.TemporaryFile("w+b") as lock_file, patch.object(
+            store,
+            "msvcrt",
+            windows_api,
+            create=True,
+        ), patch("am_configurator.store.time.sleep") as sleep:
+            store._lock_windows_byte(lock_file, attempts=2, retry_seconds=0.01)
+
+        self.assertEqual(2, attempts)
+        sleep.assert_called_once_with(0.01)
+
+        windows_api.locking = lambda *_args: (_ for _ in ()).throw(OSError("busy"))
+        with tempfile.TemporaryFile("w+b") as lock_file, patch.object(
+            store,
+            "msvcrt",
+            windows_api,
+            create=True,
+        ), patch("am_configurator.store.time.sleep"):
+            with self.assertRaisesRegex(TimeoutError, "another AM Configurator"):
+                store._lock_windows_byte(lock_file, attempts=2, retry_seconds=0)
+
 
 if __name__ == "__main__":
     unittest.main()
