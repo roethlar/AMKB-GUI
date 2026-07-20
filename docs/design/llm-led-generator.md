@@ -1,6 +1,6 @@
 # Design: LLM-Backed LED Effect Generator
 
-Status: implemented (v3, 2026-07-20)
+Status: implemented legacy path; superseded for future work (v3, 2026-07-20)
 Author: Claude Code session, 2026-07-20
 
 ## Implementation status
@@ -11,12 +11,22 @@ happy path and mapped failure paths, and the frozen macOS app's fake-transport
 generation smoke test with network access disabled. No live xAI request or
 device write was part of final verification.
 
-One planned refinement behavior remains incomplete: the browser includes
+One planned refinement behavior is incomplete in the legacy path: the browser includes
 `previous_plan` in a refinement request, and `GrokInterpreter` can consume it,
 but `/api/led/generate` and `generate_effect` do not yet validate or forward
 that value. Refine therefore preserves the editable prompt but does not give
-the interpreter the prior structured plan. Threading that value through the
-endpoint and orchestrator remains a follow-up.
+the interpreter the prior structured plan. The superseding plan below removes
+this legacy path after its replacement is operational rather than repairing it
+as a separate follow-up.
+
+The owner subsequently approved a video-first Lighting Studio with durable
+local asset banking. Its product decisions are recorded in
+`.agents/decisions.md`, and its implementation plan is
+`docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. That plan
+supersedes this design's MP4/FFmpeg non-goal, zero-runtime-dependency goal,
+16-render primary path, partial-discard behavior, ephemeral job model, inline
+AI panel, and `previous_plan` follow-up. This document remains the record of the
+implemented legacy path until the replacement plan removes it.
 
 ## Context
 
