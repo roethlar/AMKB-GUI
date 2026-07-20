@@ -64,7 +64,9 @@ def _base_config(product: str = "80") -> dict:
 
 class DesktopServerTests(unittest.TestCase):
     def test_package_declares_native_desktop_entry_point(self) -> None:
-        metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
+        metadata = tomllib.loads(
+            (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        )
 
         self.assertEqual(
             "am_configurator.desktop:main",
@@ -72,13 +74,17 @@ class DesktopServerTests(unittest.TestCase):
         )
 
     def test_empty_state_copy_names_the_current_device_read_action(self) -> None:
-        source = (ROOT / "am_configurator" / "web" / "index.html").read_text()
+        source = (ROOT / "am_configurator" / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn("Devices → Read keymap &amp; macros", source)
         self.assertNotIn("Device → Read", source)
 
     def test_am21_creates_relic_edge_tracks_only_for_custom_slots(self) -> None:
-        source = (ROOT / "am_configurator" / "web" / "app.js").read_text()
+        source = (ROOT / "am_configurator" / "web" / "app.js").read_text(
+            encoding="utf-8"
+        )
         create_pages = re.search(
             r"function createLedPages\(\) \{(?P<body>.*?)\n\}",
             source,
@@ -93,7 +99,9 @@ class DesktopServerTests(unittest.TestCase):
         self.assertNotIn('productId().toUpperCase()==="80"', compact)
 
     def test_write_action_is_in_main_toolbar_not_device_picker(self) -> None:
-        source = (ROOT / "am_configurator" / "web" / "index.html").read_text()
+        source = (ROOT / "am_configurator" / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
         toolbar = re.search(r'<div class="top-actions">(?P<body>.*?)</div>', source, re.DOTALL)
         picker = re.search(r'<div id="device-actions".*?>(?P<body>.*?)</div>', source, re.DOTALL)
         self.assertIsNotNone(toolbar)
@@ -103,7 +111,9 @@ class DesktopServerTests(unittest.TestCase):
         self.assertNotIn('id="write-device"', source)
 
     def test_relic_layer_7_am_controls_are_available_in_key_palette(self) -> None:
-        source = (ROOT / "am_configurator" / "web" / "app.js").read_text()
+        source = (ROOT / "am_configurator" / "web" / "app.js").read_text(
+            encoding="utf-8"
+        )
         table = re.search(r"const VENDOR = \{(?P<body>.*?)\n\};", source, re.DOTALL)
         self.assertIsNotNone(table)
         controls = {
