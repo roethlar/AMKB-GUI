@@ -5,7 +5,8 @@
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
-  the curated catalog and lossless settings migration, is next.
+  the curated catalog and lossless settings migration, landed in `bec8413`;
+  the full repository verification entry point passed at that commit.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -30,8 +31,9 @@
 ## Next
 
 - Execute the approved video-first Lighting Studio plan in order with
-  tests-first commits, beginning with Task 1. Do not separately repair the
-  legacy `previous_plan` path.
+  tests-first commits, beginning Task 2 with the secure manifest-backed
+  generated-asset library. Do not separately repair the legacy
+  `previous_plan` path.
 - A paid live xAI video acceptance check remains optional and needs a separate
   explicit go after the offline video pipeline is implemented.
 - Carried over: address any failures surfaced by the committed CI and
