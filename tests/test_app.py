@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import copy
 import io
 import json
@@ -803,6 +804,20 @@ def _responses_envelope(plan_dict: dict) -> dict:
     }
 
 
+def _image_envelope(b64: str) -> dict:
+    """A minimal xAI ``/v1/images/generations`` envelope carrying one inline
+    base64 image — the ``response_format: "b64_json"`` shape the renderer reads."""
+    return {"data": [{"b64_json": b64}]}
+
+
+def _encode_image(image, fmt: str = "PNG") -> str:
+    """Serialize a Pillow image to ``fmt`` and base64-encode the bytes for a fake
+    image-generation response body (no network, no temp files)."""
+    buf = io.BytesIO()
+    image.save(buf, fmt)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 class GrokTransportTests(unittest.TestCase):
     """Task 3 subset: shared constants, drift guards, and EffectPlan validation.
 
@@ -1279,6 +1294,195 @@ class GrokInterpreterTests(unittest.TestCase):
         self.assertIn(previous.subject, user)
         self.assertIn(previous.motion, user)
         self.assertIn("make the ghost redder", user)
+
+
+class GrokImagineRendererTests(unittest.TestCase):
+    """Task 6: ``GrokImagineRenderer`` sequential per-keyframe rendering, the full
+    response validation chain (shape → base64 → byte cap → format whitelist →
+    pixel cap → load), partial-failure discard, and cancellation — all through an
+    injected fake transport with tiny in-memory images and zero network I/O."""
+
+    _IMAGES_URL = "https://api.x.ai/v1/images/generations"
+
+    def _future_deadline(self) -> float:
+        return time.monotonic() + 30.0
+
+    def _spec(self, **overrides) -> "llm.RasterSpec":
+        base = dict(
+            model="CB",
+            target="display",
+            extra_targets=(),
+            width=40,
+            height=5,
+            mapped_positions=None,
+            output_len=200,
+            max_frames=80,
+        )
+        base.update(overrides)
+        return llm.RasterSpec(**base)
+
+    def _plan(self, prompts) -> "llm.EffectPlan":
+        prompts = tuple(prompts)
+        return llm.EffectPlan(
+            subject="pac-man",
+            palette="yellow dot on black",
+            motion="chomps left to right",
+            frame_count=max(6, len(prompts)),
+            frame_ms=100,
+            keyframe_prompts=prompts,
+            tween="crossfade",
+            notes="",
+        )
+
+    def test_render_happy_path(self) -> None:
+        from PIL import Image
+
+        b64 = _encode_image(Image.new("RGB", (8, 4), (10, 20, 30)))
+        prompts = ["open mouth", "closed mouth", "open again"]
+        transport = _FakeTransport(response=_image_envelope(b64))
+        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
+
+        result = renderer.render(
+            self._plan(prompts), self._spec(), self._future_deadline()
+        )
+
+        self.assertIsInstance(result, llm.RenderedFrames)
+        self.assertEqual(len(result.images), len(prompts))
+        for image in result.images:
+            self.assertEqual(image.mode, "RGB")
+            self.assertEqual(image.size, (8, 4))
+
+        # One sequential upstream call per keyframe prompt, in order, each
+        # carrying the pinned renderer model, n=1, and the b64_json mode.
+        self.assertEqual(len(transport.calls), len(prompts))
+        for prompt, call in zip(prompts, transport.calls):
+            self.assertEqual(call["url"], self._IMAGES_URL)
+            self.assertEqual(call["api_key"], _FAKE_KEY)
+            payload = call["payload"]
+            self.assertEqual(payload["model"], llm.XAI_MODELS["renderer"])
+            self.assertEqual(payload["n"], 1)
+            self.assertEqual(payload["response_format"], "b64_json")
+            self.assertIn(prompt, payload["prompt"])  # per-keyframe, in order
+
+    def test_url_fields_ignored(self) -> None:
+        # A response carrying only a URL (never the requested b64_json) is a
+        # malformed response, not something to fetch: URL mode is never fetched.
+        transport = _FakeTransport(
+            response={"data": [{"url": "https://x.example/frame.png"}]}
+        )
+        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            renderer.render(self._plan(["a"]), self._spec(), self._future_deadline())
+        self.assertEqual(ctx.exception.code, "bad_response")
+        self.assertEqual(len(transport.calls), 1)
+
+    def test_invalid_base64(self) -> None:
+        transport = _FakeTransport(response=_image_envelope("@not@base64@"))
+        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            renderer.render(self._plan(["a"]), self._spec(), self._future_deadline())
+        self.assertEqual(ctx.exception.code, "bad_response")
+        # The base64 stage rejects it — not a downstream Pillow failure. This
+        # pins the guard: strict base64 validation, so bad input never reaches
+        # the decoder.
+        self.assertIn("base64", ctx.exception.message)
+
+    def test_oversized_decoded_image(self) -> None:
+        # Byte-size cap fires before Pillow ever opens the payload, so oversized
+        # bytes are rejected without a decode attempt.
+        big = base64.b64encode(b"\x00" * (llm.MAX_IMAGE_BYTES + 1)).decode("ascii")
+        transport = _FakeTransport(response=_image_envelope(big))
+        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            renderer.render(self._plan(["a"]), self._spec(), self._future_deadline())
+        self.assertEqual(ctx.exception.code, "bad_response")
+        # Pin the guard to the byte cap specifically: without it, these bytes
+        # would instead fail later at Pillow open with a different message.
+        self.assertIn("byte cap", ctx.exception.message)
+
+    def test_pixel_cap(self) -> None:
+        from PIL import Image
+
+        # 2100x2100 = 4,410,000 px > 4 MP cap, but a solid PNG stays far under
+        # the byte cap — so this exercises the pixel cap specifically.
+        side = 2100
+        b64 = _encode_image(Image.new("RGB", (side, side), (1, 2, 3)))
+        self.assertLess(len(base64.b64decode(b64)), llm.MAX_IMAGE_BYTES)
+        transport = _FakeTransport(response=_image_envelope(b64))
+        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            renderer.render(self._plan(["a"]), self._spec(), self._future_deadline())
+        self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_format_whitelist(self) -> None:
+        from PIL import Image
+
+        # A GIF payload is rejected by the format whitelist...
+        gif_b64 = _encode_image(Image.new("RGB", (8, 4), (5, 5, 5)), "GIF")
+        gif_transport = _FakeTransport(response=_image_envelope(gif_b64))
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm.GrokImagineRenderer(_FAKE_KEY, transport=gif_transport).render(
+                self._plan(["a"]), self._spec(), self._future_deadline()
+            )
+        self.assertEqual(ctx.exception.code, "bad_response")
+
+        # ...while PNG and JPEG both decode to RGB images.
+        for fmt in ("PNG", "JPEG"):
+            b64 = _encode_image(Image.new("RGB", (8, 4), (9, 9, 9)), fmt)
+            transport = _FakeTransport(response=_image_envelope(b64))
+            result = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport).render(
+                self._plan(["a"]), self._spec(), self._future_deadline()
+            )
+            self.assertEqual(len(result.images), 1)
+            self.assertEqual(result.images[0].mode, "RGB")
+
+    def test_partial_failure_discards(self) -> None:
+        from PIL import Image
+
+        good = _image_envelope(_encode_image(Image.new("RGB", (8, 4), (7, 8, 9))))
+        # Keyframe 1 succeeds; keyframe 2 fails; keyframe 3 must never be called.
+        outcomes = [good, llm.ProviderError("unavailable", "boom"), good]
+        calls: list[dict] = []
+
+        def transport(url, payload, api_key, deadline):
+            calls.append({"url": url, "payload": payload})
+            outcome = outcomes[len(calls) - 1]
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
+        with self.assertRaises(llm.ProviderError) as ctx:
+            renderer.render(
+                self._plan(["a", "b", "c"]), self._spec(), self._future_deadline()
+            )
+        self.assertEqual(ctx.exception.code, "unavailable")
+        # Failed at keyframe 2 of 3: exactly two calls, no partial result leaks.
+        self.assertEqual(len(calls), 2)
+
+    def test_cancel_between_calls(self) -> None:
+        from PIL import Image
+
+        good = _image_envelope(_encode_image(Image.new("RGB", (8, 4), (2, 4, 6))))
+        transport = _FakeTransport(response=good)
+        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
+
+        # Cancel becomes true once the first keyframe has been requested, so the
+        # predicate is consulted between calls and stops the second render.
+        cancelled = lambda: len(transport.calls) >= 1  # noqa: E731
+
+        with self.assertRaises(llm.Cancelled):
+            renderer.render(
+                self._plan(["a", "b", "c"]),
+                self._spec(),
+                self._future_deadline(),
+                cancelled=cancelled,
+            )
+        self.assertEqual(len(transport.calls), 1)
 
 
 class MacroProtocolTests(unittest.TestCase):

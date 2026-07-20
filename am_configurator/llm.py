@@ -14,6 +14,9 @@ register themselves into ``INTERPRETERS`` / ``RENDERERS``.
 
 from __future__ import annotations
 
+import base64
+import binascii
+import io
 import json
 import socket
 import ssl
@@ -34,7 +37,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only; Pillow is a runtime-optiona
 MAX_RENDERED_KEYFRAMES = 16  # hard ceiling on paid image renders per generation
 MODEL_FRAME_CAPS = {"CB": 80, "80": 200, "ALICE": 186}  # per-model firmware caps
 MAX_PROVIDER_RESPONSE = 25_000_000  # bounded read cap on any upstream body (bytes)
-MAX_IMAGE_BYTES = 12_000_000  # decoded-image size cap before Pillow open (bytes)
+MAX_IMAGE_BYTES = 12_000_000  # decoded-image byte cap before Pillow open (bytes)
+MAX_IMAGE_PIXELS = 4_000_000  # decoded-image pixel cap (width*height) before load()
 LLM_TOTAL_BUDGET = 120.0  # monotonic deadline budget across both phases (seconds)
 PER_CALL_TIMEOUT = 30.0  # hard ceiling on any single upstream call; the deadline caps it lower
 
@@ -48,8 +52,10 @@ LED_SPEEDS_MS = (255, 240, 224, 208, 192, 176, 160, 146, 132, 118, 100, 90, 76, 
 XAI_MODELS = {"interpreter": "grok-4.5", "renderer": "grok-imagine-image"}
 
 # Pinned xAI endpoints (design v3). The interpreter posts structured output to
-# the Responses API; bumping the host/path is a deliberate one-line change.
+# the Responses API and the renderer posts one image request per keyframe to
+# the Images API; bumping a host/path is a deliberate one-line change.
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
+XAI_IMAGES_URL = "https://api.x.ai/v1/images/generations"
 
 # Canonical provider / key-provider names. ``store.py`` keeps its own copies of
 # these allowlists because it must stay stdlib-core-only and cannot import this
@@ -612,3 +618,183 @@ class GrokInterpreter:
 
 
 INTERPRETERS["grok"] = GrokInterpreter
+
+
+# --- Grok Imagine renderer (EffectPlan -> RenderedFrames) --------------------
+#
+# ``GrokImagineRenderer`` turns each of ``plan.keyframe_prompts`` into one
+# decoded RGB image via the xAI Images API (``response_format: "b64_json"``,
+# ``n: 1``), issuing exactly one request per keyframe sequentially under the
+# shared monotonic deadline. Paid image POSTs are never auto-retried, and the
+# URL response mode is never requested nor fetched, so the SSRF / redirect /
+# oversized-download class is removed entirely. Every response runs the full
+# defense-in-depth validation chain before the image is trusted:
+#
+#   shape (data/b64_json) -> base64 decode -> byte-size cap (MAX_IMAGE_BYTES)
+#   -> Pillow open with a PNG/JPEG format whitelist -> pixel cap
+#   (MAX_IMAGE_PIXELS) -> full load()
+#
+# Any deviation raises ``ProviderError('bad_response', ...)``. On a partial
+# failure (keyframe k of K) the exception propagates and every image rendered so
+# far is discarded — nothing partial ever leaks. A supplied ``cancelled``
+# predicate is polled between keyframes so a cancel is honored cleanly without a
+# mid-download abort. Pillow is imported lazily inside the decode path so this
+# module stays importable in a Pillow-less core install.
+
+
+class Cancelled(Exception):
+    """Raised when a supplied cancel predicate reports the generation was cancelled.
+
+    Distinct from :class:`ProviderError`: cancellation is a user action, not a
+    provider failure, so it carries no error code and no HTTP mapping. The job
+    layer turns it into a cancelled job state and discards any partial work.
+    """
+
+
+# Shared style prefix applied to every keyframe prompt for cross-frame
+# coherence and to steer content into a wide horizontal band (design §Renderer,
+# "Aspect fit"): the existing center-crop pipeline reduces the rendered image to
+# the short, wide LED raster, so content outside a central strip is lost.
+_IMAGE_STYLE_PREFIX = (
+    "Compose as a wide horizontal band on a solid black background; keep all "
+    "content within a short, centered horizontal strip so it survives a "
+    "center-crop down to a short, wide LED raster."
+)
+
+
+class GrokImagineRenderer:
+    """xAI Images renderer: each keyframe prompt becomes one decoded RGB image.
+
+    ``transport`` is a callable ``(url, payload, api_key, deadline) -> dict``
+    matching :func:`_xai_request` (the production default). Tests inject a fake
+    so no real request is ever made.
+    """
+
+    def __init__(self, api_key: str, transport=None) -> None:
+        self._api_key = api_key
+        self._transport = transport if transport is not None else _xai_request
+
+    def render(
+        self,
+        plan: EffectPlan,
+        spec: RasterSpec,
+        deadline: float,
+        cancelled=None,
+    ) -> RenderedFrames:
+        """Render every prompt in ``plan.keyframe_prompts`` to a decoded RGB image.
+
+        One sequential upstream call per prompt (``1 + K`` provider calls per
+        generation together with the interpret call), each validated through the
+        full chain before it is trusted. ``cancelled`` — a zero-argument
+        predicate — is polled *before* each keyframe; a truthy result raises
+        :class:`Cancelled` and discards any images rendered so far. Provider or
+        validation failure propagates as a typed :class:`ProviderError`,
+        likewise discarding partial work; the per-call deadline is enforced by
+        the transport. ``spec`` is part of the ``Renderer`` protocol and reserved
+        for raster-aware prompting; it is not sent upstream today.
+        """
+        images: list[Image.Image] = []
+        for prompt in plan.keyframe_prompts:
+            if cancelled is not None and cancelled():
+                raise Cancelled("generation cancelled before all keyframes rendered")
+            response = self._transport(
+                XAI_IMAGES_URL,
+                self._image_payload(plan, prompt),
+                self._api_key,
+                deadline,
+            )
+            images.append(self._decode_image(response))
+        return RenderedFrames(images=tuple(images))
+
+    # -- request building --------------------------------------------------
+
+    def _image_payload(self, plan: EffectPlan, keyframe_prompt: str) -> dict:
+        prompt = (
+            f"{plan.subject}. Palette: {plan.palette}. {_IMAGE_STYLE_PREFIX} "
+            f"This frame: {keyframe_prompt}"
+        )
+        return {
+            "model": XAI_MODELS["renderer"],
+            "prompt": prompt,
+            "n": 1,
+            "response_format": "b64_json",
+        }
+
+    # -- response validation ----------------------------------------------
+
+    def _extract_b64(self, response: dict) -> str:
+        """Pull the inline base64 image out of an Images envelope.
+
+        A missing ``data`` list, empty list, non-object entry, or an entry that
+        carries no ``b64_json`` string (e.g. a ``url``-only entry) all map to
+        ``bad_response`` — URL mode is never requested and never fetched.
+        """
+        data = response.get("data")
+        if not isinstance(data, list) or not data:
+            raise ProviderError("bad_response", "image response missing a data list")
+        entry = data[0]
+        if not isinstance(entry, dict):
+            raise ProviderError("bad_response", "image response entry was not an object")
+        b64 = entry.get("b64_json")
+        if not isinstance(b64, str) or not b64:
+            raise ProviderError(
+                "bad_response",
+                "image response carried no inline base64 image (b64_json)",
+            )
+        return b64
+
+    def _decode_image(self, response: dict) -> Image.Image:
+        """Validate and decode one image response into an RGB Pillow image.
+
+        Runs the full chain (shape → base64 → byte cap → format whitelist →
+        pixel cap → load) and returns an RGB image. Pillow is imported here so
+        the module imports without Pillow in a core install.
+        """
+        from PIL import Image, UnidentifiedImageError  # lazy: Pillow is optional in core
+
+        b64 = self._extract_b64(response)
+        try:
+            raw = base64.b64decode(b64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ProviderError(
+                "bad_response",
+                _redact(f"image payload was not valid base64: {exc}", self._api_key),
+            ) from exc
+        if not raw:
+            raise ProviderError("bad_response", "image payload decoded to zero bytes")
+        if len(raw) > MAX_IMAGE_BYTES:
+            raise ProviderError(
+                "bad_response",
+                f"decoded image exceeded the {MAX_IMAGE_BYTES}-byte cap",
+            )
+
+        try:
+            image = Image.open(io.BytesIO(raw))
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            raise ProviderError(
+                "bad_response",
+                _redact(f"image payload could not be opened: {exc}", self._api_key),
+            ) from exc
+
+        if image.format not in ("PNG", "JPEG"):
+            raise ProviderError(
+                "bad_response", f"image format {image.format!r} is not PNG or JPEG"
+            )
+        if image.width * image.height > MAX_IMAGE_PIXELS:
+            raise ProviderError(
+                "bad_response",
+                f"decoded image {image.width}x{image.height} exceeds the "
+                f"{MAX_IMAGE_PIXELS}-pixel cap",
+            )
+
+        try:
+            image.load()
+        except (OSError, ValueError) as exc:
+            raise ProviderError(
+                "bad_response",
+                _redact(f"image payload could not be decoded: {exc}", self._api_key),
+            ) from exc
+        return image.convert("RGB")
+
+
+RENDERERS["grok"] = GrokImagineRenderer
