@@ -243,6 +243,36 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .range-value { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
 .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
+/* Generate-with-AI panel + pending preview */
+.ai-panel { background: rgba(131, 88, 255, .05); border: 1px solid rgba(131, 88, 255, .2); border-radius: 10px; padding: 12px; margin-bottom: 16px; }
+.ai-panel .control-label { margin-bottom: 8px; }
+.ai-prompt { min-height: 62px; resize: vertical; line-height: 1.45; padding: 8px 10px; margin-bottom: 8px; }
+.ai-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.ai-frames { color: var(--muted); font-size: 11px; display: inline-flex; align-items: center; gap: 6px; }
+.ai-frames .select-field { width: 64px; min-height: 32px; padding: 0 6px; }
+.ai-calls { color: var(--violet-2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.ai-target-note { color: var(--muted); font-size: 11px; margin-bottom: 8px; }
+.ai-actions { display: flex; gap: 6px; margin-bottom: 6px; }
+.ai-actions .button { flex: 1; }
+.ai-busy { color: var(--violet-2); font-size: 12px; margin: 6px 0 0; min-height: 16px; }
+.ai-hint { color: var(--muted); font-size: 11px; line-height: 1.45; margin: 8px 0 0; }
+.ai-error { color: #ff8999; background: rgba(255, 93, 114, .09); border: 1px solid rgba(255, 93, 114, .32); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.45; margin: 8px 0 0; }
+.link-button { border: 0; background: transparent; color: var(--violet-2); cursor: pointer; padding: 0; font: inherit; text-decoration: underline; }
+.ai-result .ai-summary { margin: 0 0 12px; color: var(--text); font-size: 13px; line-height: 1.4; }
+.ai-plan { display: grid; gap: 6px; margin: 0 0 14px; }
+.ai-plan > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.ai-plan dt { color: var(--muted); font-size: 11px; }
+.ai-plan dd { margin: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* Settings dialog */
+.settings-dialog { width: min(520px, calc(100vw - 40px)); }
+.settings-body { display: grid; gap: 4px; }
+.settings-key-state { color: var(--muted); font-size: 12px; margin: 8px 0 12px; }
+.settings-key-actions { grid-template-columns: 1fr 1fr 1fr; }
+.settings-providers { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+.settings-providers .select-field { margin-top: 4px; }
+.settings-dialog .dialog-note code { color: var(--violet-2); background: var(--violet-soft); padding: 1px 5px; border-radius: 4px; }
+
 .dialog { border: 0; padding: 0; border-radius: 18px; background: transparent; color: white; width: min(620px, calc(100vw - 40px)); }
 .dialog::backdrop { background: rgba(0,0,0,.68); backdrop-filter: blur(5px); }
 .dialog-card { background: #17171b; border: 1px solid var(--line-strong); border-radius: 18px; padding: 22px; box-shadow: 0 40px 100px rgba(0,0,0,.55); }

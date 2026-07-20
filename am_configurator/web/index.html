@@ -26,6 +26,7 @@
         <button id="open-button" class="button ghost">Open</button>
         <button id="merge-button" class="button ghost">Merge</button>
         <button id="save-button" class="button ghost">Save JSON</button>
+        <button id="settings-button" class="button ghost">Settings</button>
         <button id="write-button" class="button danger" disabled>Write to keyboard</button>
         <button id="device-button" class="button primary"><span class="status-light"></span>Devices</button>
       </div>
@@ -137,6 +138,33 @@
         <button id="backup-before-write" type="button" class="button ghost">Save portable JSON</button>
         <button id="cancel-write" value="cancel" class="button ghost">Cancel</button>
         <button id="confirm-write" type="button" class="button danger" disabled>Write full configuration</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="settings-dialog" class="dialog settings-dialog">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-header">
+        <div><p class="eyebrow">AI providers</p><h2>Settings</h2></div>
+        <button class="dialog-close" value="cancel" aria-label="Close settings">×</button>
+      </div>
+      <div class="settings-body">
+        <div class="control-group">
+          <label class="control-label" for="settings-xai-key">xAI API key</label>
+          <input id="settings-xai-key" class="text-field" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-…">
+          <p id="settings-key-state" class="settings-key-state">No xAI key is configured.</p>
+          <div class="button-row settings-key-actions">
+            <button id="settings-save-key" type="button" class="button primary" disabled>Save key</button>
+            <button id="settings-test-key" type="button" class="button ghost">Test key</button>
+            <button id="settings-clear-key" type="button" class="button ghost" disabled>Clear</button>
+          </div>
+        </div>
+        <div class="control-group settings-providers">
+          <div><label class="control-label" for="settings-interpreter">Interpreter</label><select id="settings-interpreter" class="select-field"></select></div>
+          <div><label class="control-label" for="settings-renderer">Renderer</label><select id="settings-renderer" class="select-field"></select></div>
+        </div>
+        <p id="settings-status" class="write-status" aria-live="polite"></p>
+        <p class="dialog-note">The key is stored locally in plaintext under this app’s data directory (owner-only where the OS supports it). Set the <code>XAI_API_KEY</code> environment variable to override it without saving. When you generate an effect, your prompt and the target’s raster size are sent to xAI; xAI retains API data per its policy. Your keymap, macros, and device identity are never sent.</p>
       </div>
     </form>
   </dialog>

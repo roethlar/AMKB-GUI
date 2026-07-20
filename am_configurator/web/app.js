@@ -35,6 +35,14 @@ const state = {
   loadedPort: null,
   deviceDocuments: new Map(),
   pendingWrite: null,
+  capabilities: null,
+  settings: null,
+  aiPrompt: "",
+  aiFrameCount: 6,
+  aiError: "",
+  generation: null,
+  pendingGeneration: null,
+  previousPlan: null,
 };
 let incompatibleResolver = null;
 
@@ -784,8 +792,15 @@ function createLedPages() {
   });
 }
 
+// During a pending AI generation the LED canvas, frame list, and playback read
+// from the preview page held in state instead of the live document page, so the
+// generated animation can be examined before any Apply mutates the config.
+function ledSourcePage() {
+  return state.pendingGeneration ? state.pendingGeneration.page : getPage(state.ledSlot);
+}
+
 function trackInfo() {
-  const page = getPage(state.ledSlot);
+  const page = ledSourcePage();
   const lengths = {frames:200,keyframes:90,spotlight_frames:24};
   return {page, track:page?.[state.ledTarget], length:lengths[state.ledTarget]};
 }
@@ -857,7 +872,9 @@ function renderLeds() {
     $("#create-led").addEventListener("click",createLedPages);
     return;
   }
-  const page = getPage(state.ledSlot);
+  const previewing=Boolean(state.pendingGeneration);
+  const busy=Boolean(state.generation);
+  const page = ledSourcePage();
   const model=activeLedModel();
   const targets=model.targets;
   if (!targets.some(target=>target.key===state.ledTarget)) state.ledTarget=targets[0].key;
@@ -889,21 +906,46 @@ function renderLeds() {
     : relicKeyTarget?"Replaces the 89-key track; your separate edge animation is preserved and retimed to match.":edgeAutomation?`Maps this GIF to the 7 edge LEDs, then retimes it to the key track’s ${keyFrameCount} frames.`:`Replaces this track by resizing every GIF frame to ${gifSize}.`;
   const relicGifOption=relicKeyTarget?`<label class="check-row"><input id="relic-gif-edges" type="checkbox" ${state.relicGifEdges?'checked':''}><span>Also derive edge lights from this GIF</span></label>`:"";
   const edgeTools=edgeAutomation?`<div class="control-group"><label class="control-label">Whole edge animation</label><div class="button-row"><button id="edge-static" class="button ghost">Static color</button><button id="edge-pulse" class="button ghost">Pulse color</button></div><button id="edge-hold" class="button ghost wide-button">Hold painted frame</button><small class="control-help">Generates ${keyFrameCount} edge frames automatically to match the key animation. “Hold” preserves the seven colors painted in the current frame.</small></div>`:"";
-  $("#screen").innerHTML=`<div class="screen-shell">
-    <header class="screen-header"><div><p class="eyebrow">Custom animation slots</p><h1>LED Studio</h1><p class="description">Paint frames, adjust timing, and preview without uploading anything.</p></div><div class="header-controls"><div class="segmented">${[5,6,7].map(i=>`<button data-slot="${i}" class="${i===state.ledSlot?'active':''}">Slot ${i-4}</button>`).join("")}</div><div class="segmented">${targets.map(target=>`<button data-target="${target.key}" class="${target.key===state.ledTarget?'active':''}">${target.label}</button>`).join("")}</div></div></header>
-    <div class="led-layout">
-      <aside class="card frame-list"><div class="card-header"><strong>Frames</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${esc(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?'Editing':'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div></aside>
-      <section class="card led-canvas-card"><div class="card-header"><strong>${esc(model.name)} · ${esc(targets.find(t=>t.key===state.ledTarget)?.label)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}</small></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''}">${pixelCanvas}</div></section>
-      <aside class="card led-controls"><div class="card-header"><strong>Frame controls</strong><button id="play-led" class="icon-button">${state.playing?'■':'▶'}</button></div><div class="card-body">
+  const targetLabel=targets.find(t=>t.key===state.ledTarget)?.label||state.ledTarget;
+  const keySet=Boolean(state.settings?.llm?.keys?.xai?.set);
+  const capsReady=Boolean(state.capabilities);
+  const generateDisabled=busy||previewing||!keySet||!capsReady||!state.aiPrompt.trim();
+  const aiPanel=`<div class="control-group ai-panel"><label class="control-label" for="ai-prompt">Generate with AI</label>
+        <textarea id="ai-prompt" class="text-field ai-prompt" rows="3" placeholder="Describe an effect, e.g. pac-man chased by a blue ghost…" ${busy?'disabled':''}>${esc(state.aiPrompt)}</textarea>
+        <div class="ai-meta"><label class="ai-frames">Frames <select id="ai-frame-count" class="select-field" ${busy?'disabled':''}>${[1,2,3,4,5,6,7,8].map(n=>`<option value="${n}" ${n===state.aiFrameCount?'selected':''}>${n}</option>`).join("")}</select></label><span class="ai-calls">1 + ${state.aiFrameCount} API calls</span></div>
+        <div class="ai-target-note">Target: ${esc(targetLabel)}${pairsRelicGif?' + edge lights':''}</div>
+        <div class="button-row ai-actions"><button id="generate-ai" class="button primary" ${generateDisabled?'disabled':''}>${busy?'Generating…':'Generate'}</button><button id="cancel-ai" class="button ghost" ${busy?'':'hidden'}>Cancel</button></div>
+        <p id="ai-busy" class="ai-busy" ${busy?'':'hidden'}>${esc(aiPhaseLabel(state.generation?.phase))}</p>
+        ${!keySet?`<p class="ai-hint">Add an xAI API key in <button type="button" id="ai-open-settings" class="link-button">Settings</button> to enable AI generation.</p>`:''}
+        ${state.aiError?`<p class="ai-error" role="alert">${esc(state.aiError)}</p>`:''}
+        <small class="control-help">Your prompt and the target’s raster size are sent to xAI to render frames in the cloud; a paid xAI key and internet are required. xAI retains API data per its policy.</small></div>`;
+  const plan=state.pendingGeneration?.plan||{};
+  const usage=state.pendingGeneration?.usage||{};
+  const previewBody=`<div class="card-body"><div class="control-group ai-result"><label class="control-label">AI result ready</label>
+        <p class="ai-summary">${esc(plan.subject||"Generated effect")}</p>
+        <dl class="ai-plan"><div><dt>Frames</dt><dd>${Number(plan.frame_count||frames.length)}</dd></div><div><dt>Rendered</dt><dd>${Number(plan.rendered_keyframes||0)} keyframes</dd></div><div><dt>Tween</dt><dd>${esc(plan.tween||"—")}</dd></div><div><dt>Speed</dt><dd>${Number(plan.frame_ms||0)} ms</dd></div><div><dt>API calls</dt><dd>${Number(usage.provider_calls||0)}</dd></div></dl>
+        <div class="button-row ai-actions"><button id="apply-generation" class="button primary">Apply to page</button><button id="discard-generation" class="button ghost">Discard</button></div>
+        <button id="refine-generation" class="button ghost wide-button">Refine prompt</button>
+        <small class="control-help">Preview the animation to the left. Apply replaces this slot’s ${esc(targetLabel)} track (one undo step); nothing is written to your keyboard.</small></div></div>`;
+  const editorBody=`<div class="card-body">
         <div class="control-group"><label class="control-label">Animation source</label><input id="gif-input" type="file" accept="image/gif,.gif" hidden><div class="gif-import-row"><button id="import-gif" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="GIF resize method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
         ${edgeTools}
+        ${aiPanel}
         <div class="control-group"><label class="control-label">Paint color</label><input id="led-color" class="color-picker" type="color" value="${state.ledColor}"><input id="led-color-text" class="text-field" value="${state.ledColor}"></div>
         <div class="control-group"><label class="control-label">Brush</label><div class="button-row"><button id="fill-led" class="button ghost">Fill all</button><button id="clear-led" class="button ghost">Clear</button></div></div>
         <div class="control-group"><label class="control-label">Brightness</label><div class="range-row"><input id="brightness" type="range" min="0" max="100" value="${Number(page?.lightness??100)}"><span class="range-value">${Number(page?.lightness??100)}%</span></div></div>
         <div class="control-group"><label class="control-label">Frame duration</label><select id="speed" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===encodedSpeed?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select><small class="control-help">These are the timing steps exposed by Angry Miao firmware.</small></div>
-      </div></aside>
+      </div>`;
+  const lockSegments=previewing||busy;
+  $("#screen").innerHTML=`<div class="screen-shell">
+    <header class="screen-header"><div><p class="eyebrow">Custom animation slots</p><h1>LED Studio</h1><p class="description">Paint frames, import GIFs, and preview locally without uploading. “Generate with AI” is the one exception: it sends your prompt to xAI.</p></div><div class="header-controls"><div class="segmented">${[5,6,7].map(i=>`<button data-slot="${i}" class="${i===state.ledSlot?'active':''}" ${lockSegments?'disabled':''}>Slot ${i-4}</button>`).join("")}</div><div class="segmented">${targets.map(target=>`<button data-target="${target.key}" class="${target.key===state.ledTarget?'active':''}" ${lockSegments?'disabled':''}>${target.label}</button>`).join("")}</div></div></header>
+    <div class="led-layout">
+      <aside class="card frame-list"><div class="card-header"><strong>${previewing?'AI preview frames':'Frames'}</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${esc(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?(previewing?'Preview':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div>${previewing?'':`<div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div>`}</aside>
+      <section class="card led-canvas-card"><div class="card-header"><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}</small></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''}">${pixelCanvas}</div></section>
+      <aside class="card led-controls"><div class="card-header"><strong>${previewing?'AI preview':'Frame controls'}</strong><button id="play-led" class="icon-button">${state.playing?'■':'▶'}</button></div>${previewing?previewBody:editorBody}</aside>
     </div></div>`;
-  wireLedEditor();
+  if(previewing)wireLedPreview();
+  else wireLedEditor();
 }
 
 function wireLedEditor() {
@@ -942,6 +984,44 @@ function wireLedEditor() {
   $("#brightness").addEventListener("change",event=>mutate(()=>{getPage(state.ledSlot).lightness=Number(event.target.value);}));
   $("#speed").addEventListener("change",event=>mutate(()=>{getPage(state.ledSlot).speed_ms=Number(event.target.value);}));
   $("#play-led").addEventListener("click",()=>state.playing?stopPlayback():startPlayback());
+  wireAiPanel();
+}
+
+function wireAiPanel() {
+  $("#ai-prompt")?.addEventListener("input",event=>{state.aiPrompt=event.target.value;const button=$("#generate-ai");if(button)button.disabled=Boolean(state.generation)||!state.settings?.llm?.keys?.xai?.set||!state.capabilities||!state.aiPrompt.trim();});
+  $("#ai-frame-count")?.addEventListener("change",event=>{state.aiFrameCount=Number(event.target.value)||6;const calls=$(".ai-calls");if(calls)calls.textContent=`1 + ${state.aiFrameCount} API calls`;});
+  $("#ai-open-settings")?.addEventListener("click",openSettings);
+  $("#generate-ai")?.addEventListener("click",startGeneration);
+  $("#cancel-ai")?.addEventListener("click",cancelGeneration);
+}
+
+function wireLedPreview() {
+  $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>{state.ledFrame=Number(button.dataset.frame);renderLeds();}));
+  $("#play-led")?.addEventListener("click",()=>state.playing?stopPlayback():startPlayback());
+  $("#apply-generation")?.addEventListener("click",applyGeneration);
+  $("#discard-generation")?.addEventListener("click",discardGeneration);
+  $("#refine-generation")?.addEventListener("click",refineGeneration);
+}
+
+// Write the GIF/AI mapping result (same `/api/led/gif` shape from either source)
+// into a page object in place: replace each returned track, retime a paired or
+// existing Relic edge animation to the key track, and adopt the per-frame speed.
+// Used by both GIF import and AI-generation apply/preview so they stay identical.
+function applyLedResultToPage(page,result,primaryTarget,pairsRelicGif) {
+  page.valid=1;
+  for(const [trackName,trackResult] of Object.entries(result.tracks)){
+    if(trackName==="spotlight_frames"){
+      const count=Math.max(1,result.tracks.keyframes?.frame_count||page.keyframes?.frame_data?.length||trackResult.frame_count);
+      page[trackName]={valid:1,frame_num:count,frame_data:resampleEdgeAnimation(trackResult.frames,count)};
+    }else{
+      page[trackName]={valid:1,frame_num:trackResult.frame_count,frame_data:trackResult.frames.map((colors,index)=>({frame_index:index,frame_RGB:colors}))};
+    }
+  }
+  if(primaryTarget==="keyframes"&&!pairsRelicGif&&page.spotlight_frames?.frame_data?.length){
+    const count=page.keyframes.frame_data.length;
+    page.spotlight_frames={...page.spotlight_frames,valid:1,frame_num:count,frame_data:resampleEdgeAnimation(page.spotlight_frames.frame_data,count)};
+  }
+  if(result.duration_ms&&primaryTarget!=="spotlight_frames")page.speed_ms=Number(result.duration_ms);
 }
 
 async function importGif(input) {
@@ -957,26 +1037,7 @@ async function importGif(input) {
     const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("Could not read the GIF."));reader.readAsDataURL(file);});
     const encoded=String(dataUrl).split(",",2)[1];
     const result=await api("/api/led/gif",{method:"POST",body:JSON.stringify({data:encoded,targets,resample:state.gifResample,product_id:productId()})});
-    mutate(()=>{
-      const page=getPage(state.ledSlot);
-      page.valid=1;
-      for(const [trackName,trackResult] of Object.entries(result.tracks)){
-        if(trackName==="spotlight_frames"){
-          const count=Math.max(1,result.tracks.keyframes?.frame_count||page.keyframes?.frame_data?.length||trackResult.frame_count);
-          const frameData=resampleEdgeAnimation(trackResult.frames,count);
-          page[trackName]={valid:1,frame_num:count,frame_data:frameData};
-        }else{
-          page[trackName]={valid:1,frame_num:trackResult.frame_count,frame_data:trackResult.frames.map((colors,index)=>({frame_index:index,frame_RGB:colors}))};
-        }
-      }
-      if(target==="keyframes"&&!pairsRelicGif&&page.spotlight_frames?.frame_data?.length){
-        const count=page.keyframes.frame_data.length;
-        const frameData=resampleEdgeAnimation(page.spotlight_frames.frame_data,count);
-        page.spotlight_frames={...page.spotlight_frames,valid:1,frame_num:count,frame_data:frameData};
-      }
-      if(result.duration_ms&&target!=="spotlight_frames")page.speed_ms=Number(result.duration_ms);
-      state.ledFrame=0;
-    });
+    mutate(()=>{applyLedResultToPage(getPage(state.ledSlot),result,target,pairsRelicGif);state.ledFrame=0;});
     const primary=result.tracks[target];
     const mapped=pairsRelicGif?"89 key + 7 edge LEDs":`${primary.mapped_pixels} mapped LEDs`;
     const synchronized=target==="spotlight_frames"&&primary.frame_count!==getPage(state.ledSlot).spotlight_frames.frame_num?` · retimed to ${getPage(state.ledSlot).spotlight_frames.frame_num} key frames`:"";
@@ -997,13 +1058,300 @@ function startPlayback() {
     $$('.pixel').forEach(pixel=>{const color=frame.frame_RGB[Number(pixel.dataset.pixel)]||'#000000';pixel.style.background=color;pixel.style.setProperty('--pixel-color',color);});
     $$('.frame-item').forEach((node,i)=>node.classList.toggle('active',i===state.ledFrame));
   };
-  state.playTimer=setInterval(tick,Math.max(12,Number(getPage(state.ledSlot)?.speed_ms||90)));
+  state.playTimer=setInterval(tick,Math.max(12,Number(ledSourcePage()?.speed_ms||90)));
 }
 
 function stopPlayback(rerender=true) {
   if(state.playTimer)clearInterval(state.playTimer);
   const was=state.playing;state.playTimer=null;state.playing=false;
   if(was&&rerender&&state.screen==='leds')renderLeds();
+}
+
+// ---- AI LED generation -----------------------------------------------------
+
+// Typed provider-error codes → actionable, user-facing copy (design §error map).
+const AI_ERROR_MESSAGES = {
+  config: "AI generation isn’t configured. Add your xAI API key in Settings.",
+  auth: "xAI rejected the API key. Check the key in Settings.",
+  rate_limited: "xAI is rate-limiting requests. Try again shortly.",
+  timeout: "Generation timed out. Try a simpler prompt or fewer frames.",
+  offline: "Couldn’t reach xAI. Check your internet connection.",
+  moderation: "xAI declined this prompt. Try describing the effect differently.",
+  bad_response: "xAI returned an unexpected response. Try again.",
+  unavailable: "xAI is temporarily unavailable. Try again shortly.",
+};
+
+function aiErrorMessage(error) {
+  if (error?.status === 404) return "The generation job expired. Try again.";
+  const code = error?.code;
+  let message = AI_ERROR_MESSAGES[code] || error?.message || "Generation failed. Try again.";
+  if (code === "rate_limited" && error?.retry_after) message += ` Retry after ${error.retry_after}s.`;
+  return message;
+}
+
+function aiPhaseLabel(phase) {
+  if (!phase) return "Starting…";
+  const match = /^rendering (\d+)\/(\d+)$/.exec(phase);
+  if (match) return `Rendering keyframe ${match[1]}/${match[2]}…`;
+  return {
+    starting: "Starting…",
+    interpreting: "Interpreting your prompt…",
+    tweening: "Blending frames…",
+    mapping: "Mapping to LEDs…",
+    "cancelling…": "Cancelling…",
+  }[phase] || `${phase}…`;
+}
+
+// One-time privacy disclosure before the first generation (design §5). The prompt
+// and the target's raster size go to xAI; the keymap/macros/device identity never do.
+function confirmAiDisclosure() {
+  try { if (localStorage.getItem("am-ai-disclosure-ack") === "1") return true; } catch (error) {}
+  const ok = confirm(
+    "Generate with AI sends your prompt and the target's raster size (keyboard model family and pixel "
+    + "dimensions only — never your keymap, macros, or device identity) to xAI, which renders the frames "
+    + "in the cloud. A paid xAI API key and an internet connection are required, and xAI retains API data "
+    + "per its policy. Continue?"
+  );
+  if (ok) { try { localStorage.setItem("am-ai-disclosure-ack", "1"); } catch (error) {} }
+  return ok;
+}
+
+async function loadAiConfig() {
+  try { state.capabilities = await api("/api/led/capabilities"); } catch (error) {}
+  try { state.settings = await api("/api/settings"); } catch (error) {}
+  refreshAiGate();
+}
+
+function refreshAiGate() {
+  if (state.screen === "leds" && !state.generation && !state.pendingGeneration) renderScreen();
+}
+
+async function startGeneration() {
+  if (state.generation || state.pendingGeneration) return;
+  const prompt = state.aiPrompt.trim();
+  if (!prompt) return;
+  if (!state.settings?.llm?.keys?.xai?.set) { openSettings(); return; }
+  if (!confirmAiDisclosure()) return;
+  const target = state.ledTarget;
+  const pairsRelicGif = activeLedModel() === LED_MODELS["80"] && target === "keyframes" && state.relicGifEdges;
+  const targets = pairsRelicGif ? ["keyframes", "spotlight_frames"] : [target];
+  const body = {prompt, product_id: productId(), targets, frame_count: state.aiFrameCount};
+  if (state.previousPlan) body.previous_plan = state.previousPlan;
+  state.previousPlan = null;
+  state.aiError = "";
+  try {
+    const result = await api("/api/led/generate", {method: "POST", body: JSON.stringify(body)});
+    state.generation = {jobId: result.job_id, phase: "starting", target, pairsRelicGif, prompt, timer: null};
+    renderScreen();
+    pollGeneration(result.job_id);
+  } catch (error) {
+    state.aiError = aiErrorMessage(error);
+    renderScreen();
+  }
+}
+
+async function pollGeneration(jobId) {
+  if (!state.generation || state.generation.jobId !== jobId) return;
+  let data;
+  try {
+    data = await api(`/api/led/generate/status?job=${encodeURIComponent(jobId)}`);
+  } catch (error) {
+    if (state.generation && state.generation.jobId === jobId) finishGenerationError(error);
+    return;
+  }
+  if (!state.generation || state.generation.jobId !== jobId) return;
+  if (data.status === "running") {
+    state.generation.phase = data.phase;
+    updateAiBusy(data.phase);
+    state.generation.timer = setTimeout(() => pollGeneration(jobId), 700);
+    return;
+  }
+  if (data.status === "cancelled") {
+    state.generation = null;
+    renderScreen();
+    toast("Generation cancelled", "The page and your prompt are unchanged.", "");
+    return;
+  }
+  if (data.status === "done") { receiveGeneration(data); return; }
+  finishGenerationError(new Error("Generation ended unexpectedly."));
+}
+
+function updateAiBusy(phase) {
+  const label = $("#ai-busy");
+  if (label) { label.hidden = false; label.textContent = aiPhaseLabel(phase); }
+}
+
+async function cancelGeneration() {
+  const gen = state.generation;
+  if (!gen) return;
+  updateAiBusy("cancelling…");
+  const cancel = $("#cancel-ai");
+  if (cancel) cancel.disabled = true;
+  try { await api("/api/led/generate/cancel", {method: "POST", body: JSON.stringify({job: gen.jobId})}); } catch (error) {}
+  // The status poll observes the cancelled state and cleans up.
+}
+
+function finishGenerationError(error) {
+  state.generation = null;
+  state.aiError = aiErrorMessage(error);
+  renderScreen();
+}
+
+function receiveGeneration(result) {
+  const gen = state.generation;
+  state.generation = null;
+  const base = getPage(state.ledSlot);
+  if (!base) { state.aiError = "This LED slot is no longer available."; renderScreen(); return; }
+  const previewPage = clone(base);
+  applyLedResultToPage(previewPage, result, gen.target, gen.pairsRelicGif);
+  state.pendingGeneration = {
+    page: previewPage,
+    result,
+    target: gen.target,
+    pairsRelicGif: gen.pairsRelicGif,
+    prompt: gen.prompt,
+    plan: result.plan || {},
+    usage: result.usage || {},
+  };
+  state.ledTarget = gen.target;
+  state.ledFrame = 0;
+  state.aiError = "";
+  renderScreen();
+}
+
+function applyGeneration() {
+  const pending = state.pendingGeneration;
+  if (!pending || !getPage(state.ledSlot)) return;
+  state.pendingGeneration = null;
+  mutate(() => {
+    applyLedResultToPage(getPage(state.ledSlot), pending.result, pending.target, pending.pairsRelicGif);
+    state.ledFrame = 0;
+  });
+  toast("AI effect applied", `${pending.plan.frame_count || ""} frames · ${pending.plan.subject || "generated effect"}`, "success");
+}
+
+function discardGeneration() {
+  state.pendingGeneration = null;
+  renderScreen();
+}
+
+function refineGeneration() {
+  const pending = state.pendingGeneration;
+  if (pending) {
+    state.aiPrompt = pending.prompt || state.aiPrompt;
+    state.previousPlan = pending.plan || null;
+  }
+  state.pendingGeneration = null;
+  renderScreen();
+  setTimeout(() => $("#ai-prompt")?.focus(), 30);
+}
+
+// ---- Settings dialog -------------------------------------------------------
+
+function settingsKeyStateText(settings) {
+  const xai = settings?.llm?.keys?.xai;
+  return xai?.set ? `A key ending in ${xai.last4} is stored.` : "No xAI key is configured.";
+}
+
+async function openSettings() {
+  const dialog = $("#settings-dialog");
+  const status = $("#settings-status");
+  status.className = "write-status";
+  status.textContent = "";
+  try {
+    state.settings = await api("/api/settings");
+    if (!state.capabilities) state.capabilities = await api("/api/led/capabilities");
+  } catch (error) { toast("Could not load settings", error.message, "error"); }
+  populateSettings();
+  $("#settings-xai-key").value = "";
+  $("#settings-save-key").disabled = true;
+  if (!dialog.open) dialog.showModal();
+  setTimeout(() => $("#settings-xai-key")?.focus(), 50);
+}
+
+function populateSettings() {
+  const settings = state.settings || {llm: {interpreter: "grok", renderer: "grok", keys: {}}};
+  const caps = state.capabilities;
+  const interpreters = caps?.providers?.interpreters?.length ? caps.providers.interpreters : [settings.llm.interpreter];
+  const renderers = caps?.providers?.renderers?.length ? caps.providers.renderers : [settings.llm.renderer];
+  const fill = (select, options, current) => {
+    if (!select) return;
+    select.innerHTML = options.map(name => `<option value="${esc(name)}" ${name === current ? "selected" : ""}>${esc(name)}</option>`).join("");
+  };
+  fill($("#settings-interpreter"), interpreters, settings.llm.interpreter);
+  fill($("#settings-renderer"), renderers, settings.llm.renderer);
+  const xai = settings.llm.keys?.xai;
+  const input = $("#settings-xai-key");
+  input.placeholder = xai?.set ? `•••• •••• ${esc(xai.last4)}` : "sk-…";
+  $("#settings-key-state").textContent = settingsKeyStateText(settings);
+  $("#settings-clear-key").disabled = !xai?.set;
+}
+
+async function saveSettingsKey() {
+  const input = $("#settings-xai-key");
+  if (!input.value) return;
+  const status = $("#settings-status");
+  status.className = "write-status working";
+  status.textContent = "Saving…";
+  try {
+    state.settings = await api("/api/settings", {method: "POST", body: JSON.stringify({
+      llm: {interpreter: $("#settings-interpreter").value, renderer: $("#settings-renderer").value, keys: {xai: input.value}},
+    })});
+    input.value = "";
+    $("#settings-save-key").disabled = true;
+    populateSettings();
+    status.className = "write-status";
+    status.textContent = "Key saved.";
+    refreshAiGate();
+  } catch (error) {
+    status.className = "write-status error";
+    status.textContent = `Could not save: ${error.message}`;
+  }
+}
+
+async function clearSettingsKey() {
+  if (!state.settings?.llm?.keys?.xai?.set) return;
+  if (!confirm("Remove the stored xAI API key from this app?")) return;
+  const status = $("#settings-status");
+  status.className = "write-status working";
+  status.textContent = "Clearing…";
+  try {
+    state.settings = await api("/api/settings", {method: "POST", body: JSON.stringify({
+      llm: {interpreter: $("#settings-interpreter").value, renderer: $("#settings-renderer").value, keys: {xai: ""}},
+    })});
+    $("#settings-xai-key").value = "";
+    $("#settings-save-key").disabled = true;
+    populateSettings();
+    status.className = "write-status";
+    status.textContent = "Key cleared.";
+    refreshAiGate();
+  } catch (error) {
+    status.className = "write-status error";
+    status.textContent = `Could not clear: ${error.message}`;
+  }
+}
+
+async function testSettingsKey() {
+  const status = $("#settings-status");
+  if ($("#settings-xai-key").value) {
+    status.className = "write-status";
+    status.textContent = "Save the key first, then test it.";
+    return;
+  }
+  status.className = "write-status working";
+  status.textContent = "Testing key…";
+  const button = $("#settings-test-key");
+  button.disabled = true;
+  try {
+    const result = await api("/api/settings/test", {method: "POST", body: JSON.stringify({})});
+    status.className = "write-status";
+    status.textContent = result.ok ? "Key works — xAI accepted it." : "Unexpected response from the key check.";
+  } catch (error) {
+    status.className = "write-status error";
+    status.textContent = aiErrorMessage(error);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function validateCurrent(showSuccess = true) {
@@ -1290,6 +1638,12 @@ $("#write-dialog").addEventListener("close",()=>{if($("#write-dialog").returnVal
 $("#undo-button").addEventListener("click",undo);
 $("#redo-button").addEventListener("click",redo);
 $("#validate-button").addEventListener("click",()=>validateCurrent());
+$("#settings-button").addEventListener("click",openSettings);
+$("#settings-xai-key").addEventListener("input",event=>{$("#settings-save-key").disabled=!event.target.value;});
+$("#settings-xai-key").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();if(!$("#settings-save-key").disabled)saveSettingsKey();}});
+$("#settings-save-key").addEventListener("click",saveSettingsKey);
+$("#settings-clear-key").addEventListener("click",clearSettingsKey);
+$("#settings-test-key").addEventListener("click",testSettingsKey);
 $$('.nav-item').forEach(item=>item.addEventListener('click',()=>{state.recording=false;state.screen=item.dataset.screen;render();}));
 document.addEventListener('keydown',event=>{
   if(state.recording){recordEvent(event,true);return;}
@@ -1307,5 +1661,6 @@ window.addEventListener('beforeunload',event=>{if(state.dirty){event.preventDefa
     if(result.config){state.config=result.config;state.fileName=`AM-${productId()}-config.json`;}
     render();
     scanDevices();
+    loadAiConfig();
   }catch(error){toast('Could not start configurator',error.message,'error');}
 })();
