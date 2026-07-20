@@ -6,12 +6,17 @@ import json
 import os
 import re
 import shutil
+import socket
+import ssl
 import stat
 import sys
 import tempfile
 import threading
+import time
 import tomllib
 import unittest
+import urllib.error
+from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -703,6 +708,59 @@ class FramesToLedTracksTests(unittest.TestCase):
 
 _DROP = object()  # sentinel: mutate() removes the field entirely
 
+# A sentinel API key used only in transport tests. It is deliberately
+# distinctive so redaction assertions can prove it never reaches an error
+# string or log line. It is not a real credential.
+_FAKE_KEY = "sk-fake-SENTINEL-do-not-log-0123456789"
+
+
+class _FakeResponse:
+    """Minimal stand-in for a urllib response: bounded ``read`` plus ``close``."""
+
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+        self.read_amounts: list[int | None] = []
+        self.closed = False
+
+    def read(self, amt: int | None = None) -> bytes:
+        self.read_amounts.append(amt)
+        if amt is None:
+            data, self._body = self._body, b""
+        else:
+            data, self._body = self._body[:amt], self._body[amt:]
+        return data
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _RecordingOpener:
+    """Fake urllib opener callable: records each call, then returns or raises.
+
+    Mirrors the real opener contract used by ``llm._xai_request``
+    (``opener(request, timeout=...)``) so the transport's parsing and error
+    mapping are exercised with zero network I/O.
+    """
+
+    def __init__(self, *, response=None, error: BaseException | None = None) -> None:
+        self._response = response
+        self._error = error
+        self.calls: list[tuple[Request, object]] = []
+
+    def __call__(self, request, timeout=None):
+        self.calls.append((request, timeout))
+        if self._error is not None:
+            raise self._error
+        return self._response
+
+
+def _request_header(request, name: str) -> str | None:
+    """Case-insensitive lookup of a header on a urllib ``Request``."""
+    for key, value in request.header_items():
+        if key.lower() == name.lower():
+            return value
+    return None
+
 
 class GrokTransportTests(unittest.TestCase):
     """Task 3 subset: shared constants, drift guards, and EffectPlan validation.
@@ -810,6 +868,218 @@ class GrokTransportTests(unittest.TestCase):
         with self.assertRaises(llm.ProviderError) as ctx:
             llm.plan_from_json(["not", "a", "dict"], self._spec())
         self.assertEqual(ctx.exception.code, "bad_response")
+
+    # --- xAI transport (llm._xai_request) ---------------------------------
+    #
+    # All transport tests inject a fake opener; the real urllib opener
+    # (``opener=None``) is never exercised here.
+
+    _URL = "https://api.x.ai/v1/responses"
+
+    def _future_deadline(self) -> float:
+        return time.monotonic() + 30.0
+
+    def _http_error(self, code: int, *, retry_after=None) -> urllib.error.HTTPError:
+        hdrs = Message()
+        if retry_after is not None:
+            hdrs["Retry-After"] = str(retry_after)
+        return urllib.error.HTTPError(
+            self._URL, code, f"HTTP {code}", hdrs, io.BytesIO(b"{}")
+        )
+
+    def test_xai_request_success_sets_headers_and_returns_dict(self) -> None:
+        payload = {"model": "grok-4.5", "input": "hi"}
+        expected = {"ok": True, "value": 42}
+        opener = _RecordingOpener(
+            response=_FakeResponse(json.dumps(expected).encode("utf-8"))
+        )
+
+        result = llm._xai_request(
+            self._URL, payload, _FAKE_KEY, self._future_deadline(), opener=opener
+        )
+
+        self.assertEqual(result, expected)
+        self.assertEqual(len(opener.calls), 1)
+        request, timeout = opener.calls[0]
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(
+            _request_header(request, "Authorization"), f"Bearer {_FAKE_KEY}"
+        )
+        self.assertEqual(
+            _request_header(request, "Content-Type"), "application/json"
+        )
+        self.assertEqual(json.loads(request.data.decode("utf-8")), payload)
+        # Per-call timeout is capped at 30s and never exceeds the deadline.
+        self.assertLessEqual(timeout, 30.0)
+        self.assertGreater(timeout, 0.0)
+
+    def test_xai_request_auth_error(self) -> None:
+        for code in (401, 403):
+            with self.subTest(code=code):
+                opener = _RecordingOpener(error=self._http_error(code))
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm._xai_request(
+                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                    )
+                self.assertEqual(ctx.exception.code, "auth")
+
+    def test_xai_request_rate_limited_passes_retry_after(self) -> None:
+        opener = _RecordingOpener(error=self._http_error(429, retry_after=7))
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(
+                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+            )
+        self.assertEqual(ctx.exception.code, "rate_limited")
+        self.assertEqual(ctx.exception.retry_after, 7)
+
+    def test_xai_request_rate_limited_without_retry_after(self) -> None:
+        opener = _RecordingOpener(error=self._http_error(429))
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(
+                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+            )
+        self.assertEqual(ctx.exception.code, "rate_limited")
+        self.assertIsNone(ctx.exception.retry_after)
+
+    def test_xai_request_server_errors_unavailable(self) -> None:
+        for code in (500, 502, 503):
+            with self.subTest(code=code):
+                opener = _RecordingOpener(error=self._http_error(code))
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm._xai_request(
+                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                    )
+                self.assertEqual(ctx.exception.code, "unavailable")
+
+    def test_xai_request_other_4xx_bad_response(self) -> None:
+        for code in (400, 404, 422):
+            with self.subTest(code=code):
+                opener = _RecordingOpener(error=self._http_error(code))
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm._xai_request(
+                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                    )
+                self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_xai_request_offline_on_network_failure(self) -> None:
+        errors = {
+            "urlerror": urllib.error.URLError(socket.gaierror("name resolution")),
+            "connection_reset": ConnectionResetError("peer reset"),
+            "ssl": ssl.SSLError("handshake failed"),
+        }
+        for name, error in errors.items():
+            with self.subTest(case=name):
+                opener = _RecordingOpener(error=error)
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm._xai_request(
+                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                    )
+                self.assertEqual(ctx.exception.code, "offline")
+
+    def test_xai_request_timeout_on_expired_deadline_skips_opener(self) -> None:
+        opener = _RecordingOpener(response=_FakeResponse(b"{}"))
+        past_deadline = time.monotonic() - 1.0
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(self._URL, {}, _FAKE_KEY, past_deadline, opener=opener)
+        self.assertEqual(ctx.exception.code, "timeout")
+        # The deadline is enforced before any network contact.
+        self.assertEqual(opener.calls, [])
+
+    def test_xai_request_timeout_on_socket_timeout(self) -> None:
+        # A per-call timeout firing is a deadline overrun, not an offline
+        # condition (design: timeout == "deadline exceeded (any phase)").
+        for name, error in {
+            "raw": TimeoutError("slow"),
+            "wrapped": urllib.error.URLError(TimeoutError("slow")),
+        }.items():
+            with self.subTest(case=name):
+                opener = _RecordingOpener(error=error)
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm._xai_request(
+                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                    )
+                self.assertEqual(ctx.exception.code, "timeout")
+
+    def test_xai_request_oversized_body_bad_response(self) -> None:
+        # Shrink the cap so the test proves the bounded read without allocating
+        # 25 MB. The read must be bounded to cap+1 bytes, not trust in length.
+        with patch.object(llm, "MAX_PROVIDER_RESPONSE", 8):
+            body = b"x" * 20
+            response = _FakeResponse(body)
+            opener = _RecordingOpener(response=response)
+            with self.assertRaises(llm.ProviderError) as ctx:
+                llm._xai_request(
+                    self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                )
+            self.assertEqual(ctx.exception.code, "bad_response")
+            # Bounded read: exactly cap+1 bytes requested, never the whole stream.
+            self.assertEqual(response.read_amounts, [9])
+
+    def test_xai_request_non_json_bad_response(self) -> None:
+        opener = _RecordingOpener(response=_FakeResponse(b"not json {["))
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(
+                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+            )
+        self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_xai_request_non_object_json_bad_response(self) -> None:
+        opener = _RecordingOpener(response=_FakeResponse(b"[1, 2, 3]"))
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(
+                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+            )
+        self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_xai_request_no_auto_retry(self) -> None:
+        # Exactly one opener call per invocation on every path — no paid call is
+        # ever retried, including on 5xx/429 which look retryable.
+        scenarios = {
+            "success": _RecordingOpener(response=_FakeResponse(b"{}")),
+            "server_error": _RecordingOpener(error=self._http_error(503)),
+            "rate_limited": _RecordingOpener(error=self._http_error(429, retry_after=3)),
+        }
+        for name, opener in scenarios.items():
+            with self.subTest(case=name):
+                try:
+                    llm._xai_request(
+                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                    )
+                except llm.ProviderError:
+                    pass
+                self.assertEqual(len(opener.calls), 1)
+
+    def test_xai_request_redacts_secret_in_error(self) -> None:
+        # Force the key into a raised exception's own text; the transport must
+        # scrub it before it reaches ProviderError.message / str().
+        leaky = urllib.error.URLError(f"connection failed with key {_FAKE_KEY}")
+        opener = _RecordingOpener(error=leaky)
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(
+                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+            )
+        self.assertEqual(ctx.exception.code, "offline")
+        self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+        self.assertNotIn(_FAKE_KEY, ctx.exception.message)
+
+    def test_xai_request_secret_absent_across_all_error_paths(self) -> None:
+        # Sweep every error mapping and assert the key never surfaces.
+        openers = [
+            _RecordingOpener(error=self._http_error(401)),
+            _RecordingOpener(error=self._http_error(429, retry_after=7)),
+            _RecordingOpener(error=self._http_error(500)),
+            _RecordingOpener(error=self._http_error(404)),
+            _RecordingOpener(error=urllib.error.URLError("boom")),
+            _RecordingOpener(error=TimeoutError("slow")),
+            _RecordingOpener(response=_FakeResponse(b"not json")),
+        ]
+        for opener in openers:
+            with self.assertRaises(llm.ProviderError) as ctx:
+                llm._xai_request(
+                    self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                )
+            self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+            self.assertNotIn(_FAKE_KEY, ctx.exception.message)
 
 
 class MacroProtocolTests(unittest.TestCase):
