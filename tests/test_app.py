@@ -1547,6 +1547,30 @@ def _gen_factories(interpreter, renderer) -> dict:
     }
 
 
+class _BlockingGenInterpreter:
+    """Fake Interpreter that blocks inside ``interpret`` until released.
+
+    Lets the generation-endpoint tests observe a job while it is genuinely
+    running — for the single-flight 409 and the cancel path — with no timing
+    races: ``started`` is set on entry and the call then waits on ``release``
+    before returning the pre-built plan. ``calls`` records each invocation so a
+    test can prove the (single) provider call happened."""
+
+    def __init__(self, plan, started, release) -> None:
+        self._plan = plan
+        self._started = started
+        self._release = release
+        self.calls: list[dict] = []
+
+    def interpret(self, prompt, spec, deadline, previous_plan=None):
+        self.calls.append({"prompt": prompt, "spec": spec, "deadline": deadline,
+                           "previous_plan": previous_plan})
+        self._started.set()
+        if not self._release.wait(timeout=5):
+            raise AssertionError("blocking interpreter was never released")
+        return self._plan
+
+
 class GenerateEffectTests(unittest.TestCase):
     """Task 7: keyframe tweening and the ``generate_effect`` orchestrator that
     wires interpreter -> renderer -> tween -> frame mapping under one monotonic
@@ -2068,17 +2092,226 @@ class LedGenerateEndpointTests(unittest.TestCase):
         cases = [
             ("GET", "/api/settings", None),
             ("GET", "/api/led/capabilities", None),
+            ("GET", "/api/led/generate/status?job=x", None),
             (
                 "POST",
                 "/api/settings",
                 {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}}},
             ),
             ("POST", "/api/settings/test", {}),
+            (
+                "POST",
+                "/api/led/generate",
+                {"prompt": "p", "product_id": "CB04", "targets": ["frames"]},
+            ),
+            ("POST", "/api/led/generate/cancel", {}),
         ]
         for method, path, body in cases:
             with self.subTest(method=method, path=path):
                 status, _ = self._request(method, path, body, token=None)
                 self.assertEqual(status, 403)
+
+    # -- Task 9: background generation job endpoints ----------------------
+
+    def _plan(self) -> "llm.EffectPlan":
+        return llm.EffectPlan(
+            subject="pac-man", palette="yellow on black", motion="chomps",
+            frame_count=6, frame_ms=100,
+            keyframe_prompts=("open", "closed", "open again"),
+            tween="crossfade", notes="",
+        )
+
+    def _install_fakes(self, interpreter, renderer) -> None:
+        """Inject fake interpreter/renderer factories exactly as the registry
+        classes are wired in production (``callable(api_key) -> provider``)."""
+        self._server.state.llm_factories = _gen_factories(interpreter, renderer)
+
+    def _generate(self, **overrides):
+        body = {"prompt": "pac-man chased by a blue ghost",
+                "product_id": "CB04", "targets": ["frames"]}
+        body.update(overrides)
+        return self._request("POST", "/api/led/generate", body)
+
+    def test_generate_lifecycle(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+        self._save_key("sk-gen-ABCD1234")
+        interp = _FakeGenInterpreter(plan=self._plan())
+        rend = _FakeGenRenderer(
+            image_for=lambda i: Image.new("RGB", (40, 5), (i * 20, 0, 0))
+        )
+        self._install_fakes(interp, rend)
+
+        status, data = self._generate()
+        self.assertEqual(status, 200)
+        job_id = data["job_id"]
+        self.assertTrue(job_id)
+
+        # Deterministic: join the worker, then read the final status once.
+        self._server.state.join_generation(5)
+        status, data = self._request(
+            "GET", f"/api/led/generate/status?job={job_id}"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["status"], "done")
+        # Result-shape parity with /api/led/gif plus plan + usage (design §3).
+        self.assertEqual(data["tracks"]["frames"]["frame_count"], 6)
+        self.assertEqual(data["model"], "CB")
+        self.assertEqual(data["source_frames"], 6)
+        self.assertEqual(data["decoded_frames"], 6)
+        self.assertEqual(data["duration_ms"], 100)
+        self.assertEqual(data["source_duration_ms"], 6 * 100)
+        self.assertIs(data["timing_resampled"], False)
+        self.assertEqual(data["plan"]["subject"], "pac-man")
+        self.assertEqual(data["plan"]["rendered_keyframes"], 3)
+        self.assertEqual(data["usage"]["provider_calls"], 1 + 3)
+        # Exactly one interpret call and one render call for this generation.
+        self.assertEqual(len(interp.calls), 1)
+        self.assertEqual(len(rend.calls), 1)
+
+    def test_single_flight(self) -> None:
+        self._save_key("sk-gen-ABCD1234")
+        started, release = threading.Event(), threading.Event()
+        interp = _BlockingGenInterpreter(self._plan(), started, release)
+        rend = _FakeGenRenderer(image_for=lambda i: None)
+        self._install_fakes(interp, rend)
+        try:
+            status, _ = self._generate()
+            self.assertEqual(status, 200)
+            self.assertTrue(started.wait(2))
+            # A second start while the first job is still running → 409.
+            status, _ = self._generate(prompt="second")
+            self.assertEqual(status, 409)
+        finally:
+            release.set()
+        self._server.state.join_generation(5)
+        # Only the first job's provider call ever happened.
+        self.assertEqual(len(interp.calls), 1)
+
+    def test_cancel(self) -> None:
+        self._save_key("sk-gen-ABCD1234")
+        started, release = threading.Event(), threading.Event()
+        interp = _BlockingGenInterpreter(self._plan(), started, release)
+        rend = _FakeGenRenderer(image_for=lambda i: None)
+        self._install_fakes(interp, rend)
+
+        status, data = self._generate()
+        self.assertEqual(status, 200)
+        job_id = data["job_id"]
+        self.assertTrue(started.wait(2))
+
+        status, _ = self._request("POST", "/api/led/generate/cancel", {})
+        self.assertEqual(status, 200)
+        release.set()  # interpret returns; generate_effect then sees the cancel flag
+        self._server.state.join_generation(5)
+
+        status, data = self._request(
+            "GET", f"/api/led/generate/status?job={job_id}"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["status"], "cancelled")
+        # Cancel fired before any keyframe render, and nothing page-affecting moved.
+        self.assertEqual(rend.calls, [])
+        self.assertIsNone(self._server.state.config)
+
+    def test_validation_first(self) -> None:
+        self._save_key("sk-gen-ABCD1234")
+        interp = _FakeGenInterpreter(plan=self._plan())
+        rend = _FakeGenRenderer(image_for=lambda i: None)
+        self._install_fakes(interp, rend)
+
+        # Mixed CyberBoard targets span two rasters → 400 before any provider call.
+        status, _ = self._generate(targets=["frames", "keyframes"])
+        self.assertEqual(status, 400)
+        # Unknown target → 400.
+        status, _ = self._generate(targets=["bogus"])
+        self.assertEqual(status, 400)
+        # A rejected request never reaches the interpreter.
+        self.assertEqual(interp.calls, [])
+
+        # frame_count above the model cap is clamped to MODEL_FRAME_CAPS[model].
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+        interp = _FakeGenInterpreter(plan=self._plan())
+        rend = _FakeGenRenderer(
+            image_for=lambda i: Image.new("RGB", (40, 5), (0, 0, 0))
+        )
+        self._install_fakes(interp, rend)
+        status, _ = self._generate(frame_count=9999)
+        self.assertEqual(status, 200)
+        self._server.state.join_generation(5)
+        self.assertEqual(len(interp.calls), 1)
+        self.assertEqual(
+            interp.calls[0]["spec"].max_frames, llm.MODEL_FRAME_CAPS["CB"]
+        )
+
+    def test_missing_key_hint(self) -> None:
+        # setUp cleared XAI_API_KEY and points at a temp data dir: no key exists.
+        self.assertIsNone(store.resolve_xai_key())
+        interp = _FakeGenInterpreter(plan=self._plan())
+        rend = _FakeGenRenderer(image_for=lambda i: None)
+        self._install_fakes(interp, rend)
+        status, data = self._generate()
+        self.assertEqual(status, 400)
+        self.assertIn("Settings", data["error"])
+        # The guard fires before any provider work.
+        self.assertEqual(interp.calls, [])
+
+    def test_provider_error_mapping(self) -> None:
+        self._save_key("sk-gen-ABCD1234")
+        cases = [
+            (llm.ProviderError("rate_limited", "slow down", retry_after=7), 429, 7),
+            (llm.ProviderError("timeout", "too slow"), 504, None),
+            (llm.ProviderError("offline", "no network"), 503, None),
+            (llm.ProviderError("bad_response", "garbage"), 502, None),
+        ]
+        for error, http_status, retry in cases:
+            with self.subTest(code=error.code):
+                interp = _FakeGenInterpreter(error=error)
+                rend = _FakeGenRenderer(image_for=lambda i: None)
+                self._install_fakes(interp, rend)
+                status, data = self._generate()
+                self.assertEqual(status, 200)
+                job_id = data["job_id"]
+                self._server.state.join_generation(5)
+                status, data = self._request(
+                    "GET", f"/api/led/generate/status?job={job_id}"
+                )
+                self.assertEqual(status, http_status)
+                self.assertEqual(data["status"], "error")
+                self.assertEqual(data["code"], error.code)
+                if retry is not None:
+                    self.assertEqual(data["retry_after"], retry)
+
+    def test_no_device_writes(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+        self._save_key("sk-gen-ABCD1234")
+        interp = _FakeGenInterpreter(plan=self._plan())
+        rend = _FakeGenRenderer(
+            image_for=lambda i: Image.new("RGB", (40, 5), (0, 0, 0))
+        )
+        self._install_fakes(interp, rend)
+        with patch("am_configurator.writer.write_config") as write_config, \
+                patch("am_configurator.macros.write_macros") as write_macros, \
+                patch("am_configurator.reader.read_keymap") as read_keymap, \
+                patch.object(server, "_probe_keyboard") as probe:
+            status, data = self._generate()
+            self.assertEqual(status, 200)
+            job_id = data["job_id"]
+            self._server.state.join_generation(5)
+            self._request("GET", f"/api/led/generate/status?job={job_id}")
+            self._request("POST", "/api/led/generate/cancel", {})
+            write_config.assert_not_called()
+            write_macros.assert_not_called()
+            read_keymap.assert_not_called()
+            probe.assert_not_called()
 
 
 class MacroProtocolTests(unittest.TestCase):

@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from socketserver import TCPServer
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from . import __version__
 
@@ -1197,12 +1197,109 @@ def _capabilities() -> dict[str, Any]:
     }
 
 
+def _generation_spec(
+    product_id: str,
+    targets: list[str] | tuple[str, ...],
+    frame_count: int | None,
+) -> tuple[Any, list[str]]:
+    """Build the per-generation ``llm.RasterSpec`` from ``_GIF_LAYOUTS``.
+
+    Validates the product and every requested target the same way
+    ``frames_to_led_tracks`` does, then enforces the single-raster rule: all
+    requested targets must share one raster size (the single-CyberBoard-target
+    rule falls out of this, since CB's two targets are different rasters). The
+    first target is the spec's primary ``target`` and the rest become
+    ``extra_targets`` (e.g. the Relic per-key/spotlight pair on one raster).
+
+    ``mapped_positions`` is set only for genuinely sparse targets — where the
+    union of visible source positions covers at most half the raster (the Relic
+    spotlight edges), so the interpreter prompt can steer content onto them —
+    and is ``None`` for dense targets. ``max_frames`` is the per-model firmware
+    cap, lowered to a supplied ``frame_count`` (clamped into ``1..cap``) so a
+    user-chosen frame count acts as the ceiling the interpreter plans within.
+    Raises ``ValueError`` (mapped to HTTP 400 by the caller) on any bad input.
+    Returns the spec plus the de-duplicated target list to map through.
+    """
+    from . import llm
+
+    model = _led_model(product_id)
+    requested = list(dict.fromkeys(str(target) for target in targets))
+    if not requested:
+        raise ValueError("At least one LED generation target is required.")
+    layouts: dict[str, dict[str, Any]] = {}
+    for target in requested:
+        layout = _GIF_LAYOUTS[model].get(target)
+        if layout is None:
+            supported = ", ".join(_GIF_LAYOUTS[model])
+            raise ValueError(
+                f"{product_id} does not support LED target {target}; use {supported}."
+            )
+        layouts[target] = layout
+    sizes = {tuple(layout["size"]) for layout in layouts.values()}
+    if len(sizes) > 1:
+        raise ValueError(
+            "These LED targets use different rasters and cannot be generated "
+            "together; generate one target at a time."
+        )
+    width, height = next(iter(sizes))
+
+    cap = llm.MODEL_FRAME_CAPS[model]
+    if frame_count is None:
+        max_frames = cap
+    else:
+        max_frames = max(1, min(int(frame_count), cap))
+
+    visible: set[tuple[int, int]] = set()
+    for layout in layouts.values():
+        layout_width = int(layout["size"][0])
+        for source_index, output_index in enumerate(layout["map"]):
+            if output_index >= 0:
+                visible.add((source_index % layout_width, source_index // layout_width))
+    mapped_positions: tuple[tuple[int, int], ...] | None = None
+    if visible and len(visible) * 2 <= width * height:
+        mapped_positions = tuple(sorted(visible))
+
+    primary = requested[0]
+    output_len = len({index for index in layouts[primary]["map"] if index >= 0})
+    spec = llm.RasterSpec(
+        model=model,
+        target=primary,
+        extra_targets=tuple(requested[1:]),
+        width=width,
+        height=height,
+        mapped_positions=mapped_positions,
+        output_len=output_len,
+        max_frames=max_frames,
+    )
+    return spec, requested
+
+
+def _default_llm_factories() -> dict[str, Any]:
+    """Resolve the configured interpreter/renderer from the ``llm`` registries.
+
+    Returns the ``{"interpreter", "renderer"}`` factory map ``generate_effect``
+    expects — each a ``callable(api_key) -> provider`` — built from the provider
+    names in the saved settings. Tests inject their own map via
+    ``_State.llm_factories`` and never reach this path.
+    """
+    from . import llm, store
+
+    settings = store.load_settings()["llm"]
+    interpreter_cls = llm.INTERPRETERS[settings["interpreter"]]
+    renderer_cls = llm.RENDERERS[settings["renderer"]]
+    return {
+        "interpreter": lambda api_key: interpreter_cls(api_key),
+        "renderer": lambda api_key: renderer_cls(api_key),
+    }
+
+
 class _State:
     def __init__(
         self,
         config: dict[str, Any] | None,
         token: str,
         llm_transport: Any = None,
+        llm_factories: dict[str, Any] | None = None,
     ) -> None:
         self.config = config
         self.token = token
@@ -1212,11 +1309,97 @@ class _State:
         # the ``llm._xai_request`` contract). ``None`` uses the real ``_xai_get``
         # GET probe; tests inject a fake so no request ever leaves the machine.
         self.llm_transport = llm_transport
+        # Interpreter/renderer factory map for ``llm.generate_effect``. ``None``
+        # resolves the real registry classes via ``_default_llm_factories``;
+        # tests inject fakes so no request ever leaves the machine.
+        self.llm_factories = llm_factories
+        # Single-flight generation worker. Only one job runs at a time; the job
+        # dict (id/phase/status/cancel/result/error) is held until read or
+        # replaced by the next start. Guarded by ``_job_lock``.
+        self._job_lock = threading.Lock()
+        self._job: dict[str, Any] | None = None
+        self._worker: threading.Thread | None = None
 
     def settle_after_scan(self, seconds: float = 1.5) -> None:
         remaining = seconds - (time.monotonic() - self.last_device_scan)
         if remaining > 0:
             time.sleep(remaining)
+
+    def start_generation(self, run: Any) -> str | None:
+        """Start ``run(job)`` on the worker thread, or ``None`` if one is busy.
+
+        Enforces single-flight: a start is refused (returns ``None`` → HTTP 409)
+        while a previous job is still ``running``. The returned job id lets the
+        caller poll status. ``run`` is the closure that performs the generation
+        and must call :meth:`finish_generation` exactly once when it ends.
+        """
+        with self._job_lock:
+            if self._job is not None and self._job["status"] == "running":
+                return None
+            job_id = secrets.token_urlsafe(18)
+            job: dict[str, Any] = {
+                "id": job_id,
+                "phase": "starting",
+                "status": "running",
+                "cancel": threading.Event(),
+                "result": None,
+                "error": None,
+            }
+            self._job = job
+            self._worker = threading.Thread(
+                target=run, args=(job,), name="am-led-generation", daemon=True
+            )
+            self._worker.start()
+            return job_id
+
+    def finish_generation(
+        self,
+        job: dict[str, Any],
+        *,
+        status: str,
+        result: dict[str, Any] | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        """Record a job's terminal outcome (``done`` / ``cancelled`` / ``error``)."""
+        with self._job_lock:
+            job["status"] = status
+            job["phase"] = status
+            job["result"] = result
+            job["error"] = error
+
+    def generation_status(self, job_id: str | None) -> dict[str, Any] | None:
+        """Snapshot the named job, or ``None`` if it is unknown or has been replaced."""
+        with self._job_lock:
+            job = self._job
+            if job is None or not job_id or job["id"] != job_id:
+                return None
+            return {
+                "status": job["status"],
+                "phase": job["phase"],
+                "result": job["result"],
+                "error": job["error"],
+            }
+
+    def cancel_generation(self, job_id: str | None = None) -> bool:
+        """Flag the current running job for cancellation; ``True`` if one was flagged.
+
+        With no ``job_id`` the current job is targeted (the single-flight case);
+        a mismatched id or a job that is not running is a no-op returning ``False``.
+        """
+        with self._job_lock:
+            job = self._job
+            if job is None or job["status"] != "running":
+                return False
+            if job_id is not None and job["id"] != job_id:
+                return False
+            job["cancel"].set()
+            return True
+
+    def join_generation(self, timeout: float = 5.0) -> None:
+        """Join the generation worker thread (test synchronization helper)."""
+        worker = self._worker
+        if worker is not None:
+            worker.join(timeout)
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -1286,6 +1469,8 @@ class _Handler(BaseHTTPRequestHandler):
                     self._json(_settings_view())
                 elif path == "/api/led/capabilities":
                     self._json(_capabilities())
+                elif path == "/api/led/generate/status":
+                    self._generation_status(urlparse(self.path).query)
                 else:
                     self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
             except Exception as exc:  # noqa: BLE001 - API boundary
@@ -1341,6 +1526,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._save_settings(body)
             elif path == "/api/settings/test":
                 self._test_settings_key(body)
+            elif path == "/api/led/generate":
+                self._start_generation(body)
+            elif path == "/api/led/generate/cancel":
+                self._cancel_generation(body)
             elif path == "/api/device/read":
                 self._read_device(body)
             elif path == "/api/device/write":
@@ -1427,6 +1616,134 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(payload, status)
             return
         self._json({"ok": True})
+
+    def _start_generation(self, body: dict[str, Any]) -> None:
+        """Validate a generation request and start the single-flight worker.
+
+        Validation happens synchronously and up front (design §3): the prompt,
+        the product/target raster (via :func:`_generation_spec`, which enforces
+        the single-CyberBoard-target rule and clamps ``frame_count``), then the
+        configured key — each a ``ValueError`` mapped to HTTP 400 by ``do_POST``,
+        so no provider is ever contacted for a malformed request or a missing
+        key. Only then does a background job start; a second start while one is
+        running returns 409. The paid work runs on the worker thread; this
+        handler returns ``{"job_id"}`` immediately.
+        """
+        from . import llm, store
+
+        prompt = body.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("A prompt describing the effect is required.")
+        product_id = str(body.get("product_id") or "")
+        targets = body.get("targets")
+        if (
+            not isinstance(targets, list)
+            or not targets
+            or not all(isinstance(target, str) for target in targets)
+        ):
+            raise ValueError(
+                "Generation targets must be a non-empty list of LED track names."
+            )
+        frame_count = body.get("frame_count")
+        if frame_count is not None and (
+            isinstance(frame_count, bool) or not isinstance(frame_count, int)
+        ):
+            raise ValueError("frame_count must be an integer when supplied.")
+
+        spec, resolved_targets = _generation_spec(product_id, targets, frame_count)
+
+        key = store.resolve_xai_key()
+        if not key:
+            raise ValueError(
+                "No xAI API key is configured. Add your key in Settings, then generate."
+            )
+        factories = self.state.llm_factories or _default_llm_factories()
+        state = self.state
+
+        def run(job: dict[str, Any]) -> None:
+            def progress(phase: str) -> None:
+                job["phase"] = phase
+
+            def cancelled() -> bool:
+                return job["cancel"].is_set()
+
+            try:
+                result = llm.generate_effect(
+                    prompt, spec, resolved_targets, product_id, key, factories,
+                    progress, cancelled,
+                )
+            except llm.Cancelled:
+                state.finish_generation(job, status="cancelled")
+            except llm.ProviderError as exc:
+                state.finish_generation(job, status="error", error=exc)
+            except Exception as exc:  # noqa: BLE001 - surfaced as a job error
+                state.finish_generation(job, status="error", error=exc)
+            else:
+                state.finish_generation(job, status="done", result=result)
+
+        job_id = self.state.start_generation(run)
+        if job_id is None:
+            self._json(
+                {
+                    "error": "A generation is already running. Wait for it to "
+                    "finish or cancel it."
+                },
+                HTTPStatus.CONFLICT,
+            )
+            return
+        self._json({"job_id": job_id})
+
+    def _generation_status(self, query: str) -> None:
+        """Report a generation job's phase while running, or its outcome once done.
+
+        A running job returns ``{"status": "running", "phase": ...}``; a finished
+        job returns the full ``/api/led/gif``-shaped result merged with
+        ``{"status": "done"}`` plus ``plan``/``usage``. Cancellation reports
+        ``{"status": "cancelled"}``. A typed provider failure is mapped to its
+        design HTTP status (auth→400, rate_limited→429 with ``retry_after``,
+        timeout→504, offline→503, bad_response/unavailable→502); any other
+        failure is a 500. An unknown or replaced job id is a 404.
+        """
+        from . import llm
+
+        params = parse_qs(query)
+        job_id = (params.get("job") or [None])[0]
+        snapshot = self.state.generation_status(job_id)
+        if snapshot is None:
+            self._json({"error": "Unknown or expired generation job."}, HTTPStatus.NOT_FOUND)
+            return
+        status = snapshot["status"]
+        if status == "running":
+            self._json({"status": "running", "phase": snapshot["phase"]})
+            return
+        if status == "cancelled":
+            self._json({"status": "cancelled"})
+            return
+        if status == "error":
+            error = snapshot["error"]
+            if isinstance(error, llm.ProviderError):
+                http_status = _PROVIDER_ERROR_HTTP.get(error.code, HTTPStatus.BAD_GATEWAY)
+                payload: dict[str, Any] = {
+                    "status": "error", "code": error.code, "error": error.message,
+                }
+                if error.retry_after is not None:
+                    payload["retry_after"] = error.retry_after
+                self._json(payload, http_status)
+            else:
+                self._json(
+                    {"status": "error", "error": str(error)},
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+            return
+        payload = {"status": "done"}
+        payload.update(snapshot["result"] or {})
+        self._json(payload)
+
+    def _cancel_generation(self, body: dict[str, Any]) -> None:
+        """Flag the current generation for cancellation (honored between calls)."""
+        job_id = body.get("job") if isinstance(body, dict) else None
+        cancelled = self.state.cancel_generation(str(job_id) if job_id else None)
+        self._json({"cancelled": bool(cancelled)})
 
     def _read_device(self, body: dict[str, Any]) -> None:
         from . import macros as macro_protocol
@@ -1600,8 +1917,14 @@ def create_server(
     config_paths: list[str] | None = None,
     *,
     port: int = 0,
+    llm_factories: dict[str, Any] | None = None,
 ) -> tuple[_Server, str]:
-    """Create the loopback configurator server without starting its event loop."""
+    """Create the loopback configurator server without starting its event loop.
+
+    ``llm_factories`` overrides the interpreter/renderer factory map used by the
+    generation job endpoints (production resolves the real registry classes);
+    tests pass fakes so no request ever leaves the machine.
+    """
     configs: list[dict[str, Any]] = []
     for raw_path in config_paths or []:
         path = Path(raw_path).expanduser()
@@ -1614,7 +1937,7 @@ def create_server(
         configs.append(value)
 
     token = secrets.token_urlsafe(24)
-    state = _State(merge_configs(configs), token)
+    state = _State(merge_configs(configs), token, llm_factories=llm_factories)
     server = _Server(("127.0.0.1", port), state)
     url = f"http://127.0.0.1:{server.server_port}/?token={token}"
     return server, url
