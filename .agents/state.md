@@ -12,7 +12,7 @@
 
 ## Next
 
-- Address any failures surfaced by the committed CI and desktop-bundle
+- Address any failures surfaced by the committed CI and desktop-installer
   workflows.
 - Continue hardware verification across CyberBoard, Relic 80, and AFA firmware
   variants using portable JSON backups.

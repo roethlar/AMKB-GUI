@@ -2,9 +2,12 @@
 """Cross-platform PyInstaller recipe for the native AM Configurator app."""
 from pathlib import Path
 import sys
+import tomllib
 
 
 project = Path(SPECPATH).parent
+with (project / "pyproject.toml").open("rb") as file:
+    app_version = tomllib.load(file)["project"]["version"]
 hidden_imports = [
     "am_configurator.device",
     "am_configurator.macros",
@@ -67,7 +70,7 @@ if sys.platform == "darwin":
         coll,
         name="AM Configurator.app",
         bundle_identifier="dev.amconfigurator.desktop",
-        version="0.1.0",
+        version=app_version,
         info_plist={
             "CFBundleDisplayName": "AM Configurator",
             "NSHighResolutionCapable": True,

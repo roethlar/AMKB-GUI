@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
-name: Desktop bundles
+name: Desktop installers
 
 on:
   workflow_dispatch:
@@ -18,24 +18,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  bundle:
-    name: Bundle · ${{ matrix.artifact }}
+  installer:
+    name: Installer · ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            artifact: AM-Configurator-macOS
-            archive: AM-Configurator-macOS.zip
+          - name: macOS
+            os: macos-latest
             platform: macos
-          - os: windows-latest
-            artifact: AM-Configurator-Windows-x64
-            archive: AM-Configurator-Windows-x64.zip
+            artifact: AM-Configurator-macOS-Installer
+            installer: dist/*.dmg
+          - name: Windows x64
+            os: windows-latest
             platform: windows
-          - os: ubuntu-latest
-            artifact: AM-Configurator-Linux-x64
-            archive: AM-Configurator-Linux-x64.tar.gz
+            artifact: AM-Configurator-Windows-x64-Installer
+            installer: dist/*-Setup.exe
+          - name: Linux x86-64
+            os: ubuntu-latest
             platform: linux
+            artifact: AM-Configurator-Linux-x86_64-AppImage
+            installer: dist/*.AppImage
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     steps:
@@ -47,32 +50,22 @@ jobs:
           enable-cache: true
       - name: Install desktop build environment
         run: uv sync --locked --extra desktop --extra build
-      - name: Build native bundle
+      - name: Build native application
         run: uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
-      - name: Smoke-test macOS app
+      - name: Build and test macOS DMG
         if: matrix.platform == 'macos'
-        run: '"dist/AM Configurator.app/Contents/MacOS/AM Configurator" --smoke-test'
-      - name: Smoke-test Windows app
+        run: packaging/macos/build_dmg.sh
+      - name: Build and test Windows installer
         if: matrix.platform == 'windows'
         shell: pwsh
-        run: "& 'dist/AM Configurator/AM Configurator.exe' --smoke-test"
-      - name: Smoke-test Linux app
+        run: ./packaging/windows/build_installer.ps1
+      - name: Build and test Linux AppImage
         if: matrix.platform == 'linux'
-        run: '"dist/AM Configurator/AM Configurator" --smoke-test'
-      - name: Archive macOS app
-        if: matrix.platform == 'macos'
-        run: ditto -c -k --sequesterRsrc --keepParent "dist/AM Configurator.app" "${{ matrix.archive }}"
-      - name: Archive Windows app
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: Compress-Archive -Path 'dist/AM Configurator' -DestinationPath '${{ matrix.archive }}'
-      - name: Archive Linux app
-        if: matrix.platform == 'linux'
-        run: tar -C dist -czf "${{ matrix.archive }}" "AM Configurator"
-      - name: Upload native bundle
+        run: packaging/linux/build_appimage.sh
+      - name: Upload native installer
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.archive }}
+          path: ${{ matrix.installer }}
           if-no-files-found: error
           retention-days: 14

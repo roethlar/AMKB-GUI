@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=AM Configurator
+Comment=Configure Angry Miao keyboards locally
+Exec=am-configurator
+Icon=am-configurator
+Categories=Settings;
+Terminal=false

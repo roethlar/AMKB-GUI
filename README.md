@@ -90,17 +90,33 @@ inter-key delay instead of recorded pauses.
 ## Build standalone apps
 
 PyInstaller must run on the target operating system; it is not a
-cross-compiler. Build on macOS, Windows, or Linux with:
+cross-compiler. First build the native application on macOS, Windows, or Linux:
 
 ```sh
 uv sync --locked --extra desktop --extra build
 uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
 ```
 
-The result is written to `dist/` as a macOS app bundle or a Windows/Linux
-application folder. The `Desktop bundles` GitHub Actions workflow performs the
-same build and a headless frozen-app smoke test on all three operating systems,
-then uploads native archives.
+Then package the platform-native installer:
+
+```sh
+# macOS: versioned DMG, mounted and smoke-tested automatically
+packaging/macos/build_dmg.sh
+
+# Linux: versioned AppImage, executed in extract mode for its smoke test
+packaging/linux/build_appimage.sh
+
+# Windows PowerShell: versioned per-user Inno Setup installer
+./packaging/windows/build_installer.ps1
+```
+
+The result is written to `dist/` as a macOS `.dmg`, Windows `Setup.exe`, or
+Linux `.AppImage`. Artifact filenames include the version and architecture. The
+`Desktop installers` GitHub Actions workflow builds and executes the installed
+artifact on each operating system before uploading it.
+
+The installers are currently unsigned. macOS Gatekeeper and Windows SmartScreen
+may therefore warn until release signing is configured.
 
 Local macOS smoke test:
 
@@ -112,7 +128,7 @@ Local macOS smoke test:
 
 ```sh
 uv run python -m unittest discover -s tests -v
-uv run python -m compileall -q am_configurator
+uv run python -m compileall -q am_configurator packaging build_tools
 node --check am_configurator/web/app.js
 uv build
 ```
