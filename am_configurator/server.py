@@ -11,6 +11,8 @@ import mimetypes
 import secrets
 import threading
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -46,6 +48,26 @@ _KEYMAP_VERIFY_ATTEMPTS = 4
 _KEYMAP_VERIFY_RETRY_SECONDS = 1.0
 _MACRO_EVENTS_PER_BLOCK = 8
 _CYBERBOARD_MACRO_READBACK_BLOCKS = 15
+
+# xAI models-list endpoint (GET), used only for the no-cost "Test key" check.
+# Pinned like the generation endpoints in ``llm.py`` (``XAI_RESPONSES_URL`` /
+# ``XAI_IMAGES_URL``); bumping it is a deliberate one-line change. The paid
+# generation calls flow through ``llm._xai_request`` (POST); this cheap GET probe
+# lives here because that transport is POST-only.
+_XAI_MODELS_URL = "https://api.x.ai/v1/language-models"
+_SETTINGS_TEST_TIMEOUT = 20.0
+# ProviderError.code -> local HTTP status (design §Typed errors). Shared by the
+# settings key-test endpoint; the generation job endpoints reuse it in Task 9.
+_PROVIDER_ERROR_HTTP: dict[str, HTTPStatus] = {
+    "config": HTTPStatus.BAD_REQUEST,
+    "auth": HTTPStatus.BAD_REQUEST,
+    "rate_limited": HTTPStatus.TOO_MANY_REQUESTS,
+    "timeout": HTTPStatus.GATEWAY_TIMEOUT,
+    "offline": HTTPStatus.SERVICE_UNAVAILABLE,
+    "moderation": HTTPStatus.BAD_REQUEST,
+    "bad_response": HTTPStatus.BAD_GATEWAY,
+    "unavailable": HTTPStatus.BAD_GATEWAY,
+}
 
 _TEXT_KEY_USAGES: dict[str, tuple[int, bool]] = {
     "\n": (0x28, False), "\t": (0x2B, False), " ": (0x2C, False),
@@ -1043,12 +1065,153 @@ def _probe_keyboard(port: str, attempts: int = 3) -> Any:
     return result
 
 
+def _xai_get(url: str, payload: Any, api_key: str, deadline: float) -> dict[str, Any]:
+    """Validate an xAI API key with one no-cost GET, mapping failures to
+    ``llm.ProviderError`` exactly like the paid POST transport.
+
+    Same four-argument transport contract as ``llm._xai_request`` (``payload`` is
+    unused for a GET) so ``_State.llm_transport`` can hold this real probe or a
+    fake injected by tests. The bounded read guards an oversized body and the API
+    key is redacted from every error message via ``llm``'s helpers.
+    """
+    from . import llm
+
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise llm.ProviderError(
+            "timeout", "provider deadline exceeded before the key check"
+        )
+    request = urllib.request.Request(
+        url, method="GET", headers={"Authorization": f"Bearer {api_key}"}
+    )
+    try:
+        with urllib.request.urlopen(
+            request, timeout=min(remaining, _SETTINGS_TEST_TIMEOUT)
+        ) as response:
+            response.read(llm.MAX_PROVIDER_RESPONSE + 1)
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+        retry_after = llm._parse_retry_after(exc.headers.get("Retry-After"))
+        if code in (401, 403):
+            raise llm.ProviderError(
+                "auth", "provider rejected the API key; check the key in Settings"
+            ) from exc
+        if code == 429:
+            raise llm.ProviderError(
+                "rate_limited",
+                "provider rate limit reached; retry later",
+                retry_after=retry_after,
+            ) from exc
+        if 500 <= code <= 599:
+            raise llm.ProviderError(
+                "unavailable", f"provider is temporarily unavailable (HTTP {code})"
+            ) from exc
+        raise llm.ProviderError(
+            "bad_response", f"provider returned an unexpected status (HTTP {code})"
+        ) from exc
+    except (TimeoutError, urllib.error.URLError) as exc:
+        reason = getattr(exc, "reason", exc)
+        if isinstance(reason, TimeoutError):
+            raise llm.ProviderError(
+                "timeout", llm._redact(f"provider request timed out: {exc}", api_key)
+            ) from exc
+        raise llm.ProviderError(
+            "offline", llm._redact(f"could not reach the provider: {exc}", api_key)
+        ) from exc
+    except OSError as exc:
+        raise llm.ProviderError(
+            "offline", llm._redact(f"could not reach the provider: {exc}", api_key)
+        ) from exc
+    return {"ok": True}
+
+
+def _settings_view() -> dict[str, Any]:
+    """Load app settings for the browser with every API key masked.
+
+    The raw key never leaves the server: each known key provider reports only
+    ``{"set": bool, "last4": str}``, derived from the effective key (the
+    ``XAI_API_KEY`` env override or the stored value) so the UI can show whether
+    a usable key is present without ever receiving it.
+    """
+    from . import llm, store
+
+    settings = store.load_settings()
+    keys: dict[str, Any] = {}
+    for provider in llm.KEY_PROVIDERS:
+        if provider == "xai":
+            effective = store.resolve_xai_key()
+        else:  # pragma: no cover - single provider today; kept general for follow-ups
+            effective = settings["llm"]["keys"].get(provider) or None
+        keys[provider] = {
+            "set": bool(effective),
+            "last4": effective[-4:] if effective else "",
+        }
+    return {
+        "llm": {
+            "interpreter": settings["llm"]["interpreter"],
+            "renderer": settings["llm"]["renderer"],
+            "keys": keys,
+        }
+    }
+
+
+def _capabilities() -> dict[str, Any]:
+    """Provider/model/target capabilities for the UI — the single source of truth.
+
+    Targets are derived from ``_GIF_LAYOUTS``: targets on the same raster size can
+    be generated together (each lists the others as ``extra_targets``, e.g. the
+    Relic per-key/spotlight pair), while a model whose targets span more than one
+    raster is ``single_target`` (the single-CyberBoard-target rule).
+    """
+    from . import llm
+
+    targets: dict[str, Any] = {}
+    for model, layouts in _GIF_LAYOUTS.items():
+        sizes = {tuple(layout["size"]) for layout in layouts.values()}
+        entries = []
+        for name, layout in layouts.items():
+            width, height = layout["size"]
+            extra = [
+                other
+                for other, other_layout in layouts.items()
+                if other != name and tuple(other_layout["size"]) == (width, height)
+            ]
+            entries.append({
+                "name": name,
+                "width": width,
+                "height": height,
+                "pixels": int(layout["pixels"]),
+                "extra_targets": extra,
+            })
+        targets[model] = {"single_target": len(sizes) > 1, "targets": entries}
+    return {
+        "providers": {
+            "interpreters": list(llm.INTERPRETER_PROVIDERS),
+            "renderers": list(llm.RENDERER_PROVIDERS),
+            "keys": list(llm.KEY_PROVIDERS),
+        },
+        "models": dict(llm.XAI_MODELS),
+        "model_frame_caps": dict(llm.MODEL_FRAME_CAPS),
+        "max_rendered_keyframes": llm.MAX_RENDERED_KEYFRAMES,
+        "targets": targets,
+    }
+
+
 class _State:
-    def __init__(self, config: dict[str, Any] | None, token: str) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any] | None,
+        token: str,
+        llm_transport: Any = None,
+    ) -> None:
         self.config = config
         self.token = token
         self.device_lock = threading.Lock()
         self.last_device_scan = 0.0
+        # xAI key-check transport (``(url, payload, api_key, deadline) -> dict``,
+        # the ``llm._xai_request`` contract). ``None`` uses the real ``_xai_get``
+        # GET probe; tests inject a fake so no request ever leaves the machine.
+        self.llm_transport = llm_transport
 
     def settle_after_scan(self, seconds: float = 1.5) -> None:
         remaining = seconds - (time.monotonic() - self.last_device_scan)
@@ -1119,6 +1282,10 @@ class _Handler(BaseHTTPRequestHandler):
                         devices = device.list_devices(full=True)
                         self.state.last_device_scan = time.monotonic()
                     self._json({"devices": [asdict(d) for d in devices]})
+                elif path == "/api/settings":
+                    self._json(_settings_view())
+                elif path == "/api/led/capabilities":
+                    self._json(_capabilities())
                 else:
                     self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
             except Exception as exc:  # noqa: BLE001 - API boundary
@@ -1170,6 +1337,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(text_to_macro_events(body.get("text"), body.get("delay_ms", 10)))
             elif path == "/api/led/gif":
                 self._convert_gif(body)
+            elif path == "/api/settings":
+                self._save_settings(body)
+            elif path == "/api/settings/test":
+                self._test_settings_key(body)
             elif path == "/api/device/read":
                 self._read_device(body)
             elif path == "/api/device/write":
@@ -1216,6 +1387,46 @@ class _Handler(BaseHTTPRequestHandler):
                 str(body.get("product_id") or ""),
             )
         self._json(result)
+
+    def _save_settings(self, body: dict[str, Any]) -> None:
+        """Strict-validate and persist app settings; reply with the masked view.
+
+        ``store.save_settings`` rejects unknown fields/providers and the mask
+        sentinel with ``ValueError`` (mapped to 400 by ``do_POST``) and persists
+        nothing on failure. The response never echoes the raw key back.
+        """
+        from . import store
+
+        store.save_settings(body)
+        self._json(_settings_view())
+
+    def _test_settings_key(self, body: dict[str, Any]) -> None:
+        """No-cost xAI key check: one models-list request through the transport.
+
+        Uses the effective key (``store.resolve_xai_key``); no key → 400 with a
+        Settings hint before any request. Typed provider failures map to their
+        design HTTP status (auth→400, rate_limited→429 with ``retry_after``,
+        timeout→504, offline→503, bad_response/unavailable→502).
+        """
+        from . import llm, store
+
+        key = store.resolve_xai_key()
+        if not key:
+            raise ValueError(
+                "No xAI API key is configured. Add your key in Settings, then test it."
+            )
+        transport = self.state.llm_transport or _xai_get
+        deadline = time.monotonic() + _SETTINGS_TEST_TIMEOUT
+        try:
+            transport(_XAI_MODELS_URL, None, key, deadline)
+        except llm.ProviderError as exc:
+            status = _PROVIDER_ERROR_HTTP.get(exc.code, HTTPStatus.BAD_GATEWAY)
+            payload: dict[str, Any] = {"ok": False, "code": exc.code, "error": exc.message}
+            if exc.retry_after is not None:
+                payload["retry_after"] = exc.retry_after
+            self._json(payload, status)
+            return
+        self._json({"ok": True})
 
     def _read_device(self, body: dict[str, Any]) -> None:
         from . import macros as macro_protocol

@@ -1870,6 +1870,217 @@ class GenerateEffectTests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, "unavailable")
 
 
+class LedGenerateEndpointTests(unittest.TestCase):
+    """Task 8: settings + capabilities HTTP endpoints on the loopback server.
+
+    Each test starts a real ``create_server`` instance on a background thread and
+    drives it over localhost with ``X-AM-Token``. Settings persistence is isolated
+    to a temp ``AM_CONFIGURATOR_DATA_DIR`` and the ``XAI_API_KEY`` override is
+    cleared, so nothing here reads a real environment. The ``/api/settings/test``
+    key check runs entirely through an injected fake transport — no real network,
+    no real API key.
+    """
+
+    _DEFAULT = object()  # sentinel: use the server's own token
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.mkdtemp(prefix="am_endpoint_test_")
+        self._saved_env = {
+            k: os.environ.get(k)
+            for k in ("AM_CONFIGURATOR_DATA_DIR", "XDG_DATA_HOME", "XAI_API_KEY")
+        }
+        os.environ.pop("XDG_DATA_HOME", None)
+        os.environ.pop("XAI_API_KEY", None)
+        os.environ["AM_CONFIGURATOR_DATA_DIR"] = self._tmp
+        self._server, url = create_server()
+        self._token = parse_qs(urlparse(url).query)["token"][0]
+        self._base = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, daemon=True
+        )
+        self._thread.start()
+
+    def tearDown(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _request(self, method, path, body=None, token=_DEFAULT):
+        headers = {}
+        tok = self._token if token is self._DEFAULT else token
+        if tok is not None:
+            headers["X-AM-Token"] = tok
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = Request(self._base + path, data=data, method=method, headers=headers)
+        try:
+            with urlopen(request, timeout=5) as response:
+                raw = response.read()
+                return response.status, (json.loads(raw) if raw else None)
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            return exc.code, (json.loads(raw) if raw else None)
+
+    def _save_key(self, value: str) -> None:
+        status, _ = self._request(
+            "POST",
+            "/api/settings",
+            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": value}}},
+        )
+        self.assertEqual(status, 200)
+
+    def test_settings_round_trip_masks_key(self) -> None:
+        key = "sk-secret-9WXYZ7788"
+        status, saved = self._request(
+            "POST",
+            "/api/settings",
+            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": key}}},
+        )
+        self.assertEqual(status, 200)
+        # Even the POST response must never echo the raw key back to the browser.
+        self.assertNotIn(key, json.dumps(saved))
+
+        status, data = self._request("GET", "/api/settings")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["llm"]["keys"]["xai"], {"set": True, "last4": "7788"})
+        self.assertEqual(data["llm"]["interpreter"], "grok")
+        # The raw key never returns to the browser, anywhere in the payload.
+        self.assertNotIn(key, json.dumps(data))
+
+        # Posting the display mask sentinel can never round-trip into storage.
+        status, _ = self._request(
+            "POST",
+            "/api/settings",
+            {
+                "llm": {
+                    "interpreter": "grok",
+                    "renderer": "grok",
+                    "keys": {"xai": store.KEY_MASK},
+                }
+            },
+        )
+        self.assertEqual(status, 400)
+
+    def test_settings_strict_validation(self) -> None:
+        # Unknown top-level field.
+        status, _ = self._request(
+            "POST",
+            "/api/settings",
+            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}}, "bogus": 1},
+        )
+        self.assertEqual(status, 400)
+        # Unknown provider name.
+        status, _ = self._request(
+            "POST",
+            "/api/settings",
+            {"llm": {"interpreter": "nope", "renderer": "grok", "keys": {}}},
+        )
+        self.assertEqual(status, 400)
+        # Unknown API-key provider.
+        status, _ = self._request(
+            "POST",
+            "/api/settings",
+            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"bogus": "x"}}},
+        )
+        self.assertEqual(status, 400)
+        # Nothing was persisted by any rejected save.
+        self.assertFalse(store.settings_path().exists())
+
+    def test_capabilities(self) -> None:
+        status, data = self._request("GET", "/api/led/capabilities")
+        self.assertEqual(status, 200)
+
+        self.assertEqual(data["models"], dict(llm.XAI_MODELS))
+        self.assertEqual(data["model_frame_caps"], dict(llm.MODEL_FRAME_CAPS))
+        self.assertEqual(data["max_rendered_keyframes"], llm.MAX_RENDERED_KEYFRAMES)
+        self.assertEqual(
+            data["providers"]["interpreters"], list(llm.INTERPRETER_PROVIDERS)
+        )
+        self.assertEqual(data["providers"]["renderers"], list(llm.RENDERER_PROVIDERS))
+        self.assertEqual(data["providers"]["keys"], list(llm.KEY_PROVIDERS))
+
+        # Single-CB-target rule: CB's two targets are different rasters, so exactly
+        # one may be generated at a time and neither pairs with the other.
+        cb = data["targets"]["CB"]
+        self.assertTrue(cb["single_target"])
+        for target in cb["targets"]:
+            self.assertEqual(target["extra_targets"], [])
+
+        # Relic pair: keyframes and spotlight_frames share one raster, so each is
+        # the other's extra_target and the model is not single-target.
+        relic = data["targets"]["80"]
+        self.assertFalse(relic["single_target"])
+        by_name = {target["name"]: target for target in relic["targets"]}
+        self.assertIn("spotlight_frames", by_name["keyframes"]["extra_targets"])
+        self.assertIn("keyframes", by_name["spotlight_frames"]["extra_targets"])
+
+    def test_settings_test_endpoint(self) -> None:
+        self._save_key("sk-test-ABCD1234")
+
+        # A successful models-list probe through the injected transport → ok.
+        probe = _FakeTransport(response={"models": []})
+        self._server.state.llm_transport = probe
+        status, data = self._request("POST", "/api/settings/test", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(data, {"ok": True})
+        # The probe carried the stored key and the pinned models-list endpoint.
+        self.assertEqual(len(probe.calls), 1)
+        self.assertEqual(probe.calls[0]["api_key"], "sk-test-ABCD1234")
+        self.assertEqual(probe.calls[0]["url"], server._XAI_MODELS_URL)
+
+        # A typed auth failure maps to 400 and carries the stable code.
+        self._server.state.llm_transport = _FakeTransport(
+            error=llm.ProviderError("auth", "provider rejected the API key")
+        )
+        status, data = self._request("POST", "/api/settings/test", {})
+        self.assertEqual(status, 400)
+        self.assertEqual(data["code"], "auth")
+
+        # A rate-limit maps to 429 and passes retry_after through.
+        self._server.state.llm_transport = _FakeTransport(
+            error=llm.ProviderError("rate_limited", "slow down", retry_after=7)
+        )
+        status, data = self._request("POST", "/api/settings/test", {})
+        self.assertEqual(status, 429)
+        self.assertEqual(data["code"], "rate_limited")
+        self.assertEqual(data["retry_after"], 7)
+
+        # No key configured → 400 with a Settings hint, and the transport is never
+        # consulted (the guard fires before any network path).
+        self._save_key("")
+        self.assertIsNone(store.resolve_xai_key())
+        unused = _FakeTransport(response={"models": []})
+        self._server.state.llm_transport = unused
+        status, data = self._request("POST", "/api/settings/test", {})
+        self.assertEqual(status, 400)
+        self.assertIn("Settings", data["error"])
+        self.assertEqual(unused.calls, [])
+
+    def test_requires_auth(self) -> None:
+        cases = [
+            ("GET", "/api/settings", None),
+            ("GET", "/api/led/capabilities", None),
+            (
+                "POST",
+                "/api/settings",
+                {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}}},
+            ),
+            ("POST", "/api/settings/test", {}),
+        ]
+        for method, path, body in cases:
+            with self.subTest(method=method, path=path):
+                status, _ = self._request(method, path, body, token=None)
+                self.assertEqual(status, 403)
+
+
 class MacroProtocolTests(unittest.TestCase):
     def test_cyberboard_accepts_only_an_exact_fifteen_block_macro_prefix(self) -> None:
         counts = (22, 32, 36, 38)
