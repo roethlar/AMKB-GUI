@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 import tomllib
+import traceback
 import unittest
 import urllib.error
 from email.message import Message
@@ -1615,6 +1616,27 @@ class GrokConceptProviderTests(unittest.TestCase):
             ).plan("valid", 2, self._future_deadline())
         self.assertEqual(ctx.exception.code, "offline")
         self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+
+    def test_transport_error_traceback_severs_secret_bearing_chain(self) -> None:
+        usage = llm.ProviderUsage(cost_in_usd_ticks=91, reported=True)
+        leaky = llm.ProviderError(
+            "rate_limited",
+            f"transport exposed {_FAKE_KEY}",
+            retry_after=17,
+            usage=usage,
+        )
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm.GrokConceptPlanner(
+                _FAKE_KEY, transport=_FakeTransport(error=leaky)
+            ).plan("valid", 2, self._future_deadline())
+
+        formatted = "".join(traceback.format_exception(ctx.exception))
+        self.assertNotIn(_FAKE_KEY, formatted)
+        self.assertIsNone(ctx.exception.__cause__)
+        self.assertIsNone(ctx.exception.__context__)
+        self.assertEqual(ctx.exception.code, "rate_limited")
+        self.assertEqual(ctx.exception.retry_after, 17)
+        self.assertEqual(ctx.exception.usage, usage)
 
     def test_single_image_returns_original_bytes_metadata_image_and_exact_cost(self) -> None:
         from PIL import Image

@@ -391,21 +391,24 @@ def _provider_usage(response: dict) -> ProviderUsage:
 
 def _call_provider(transport, url: str, payload: dict, api_key: str, deadline: float) -> dict:
     """Invoke an injected transport while preserving typed, redacted failures."""
+    failure: ProviderError | None = None
     try:
         response = transport(url, payload, api_key, deadline)
     except ProviderError as exc:
         code = exc.code if exc.code in PROVIDER_ERROR_CODES else "unavailable"
-        raise ProviderError(
+        failure = ProviderError(
             code,
             _redact(str(exc), api_key),
             retry_after=exc.retry_after,
             usage=exc.usage,
-        ) from exc
+        )
     except Exception as exc:
-        raise ProviderError(
+        failure = ProviderError(
             "unavailable",
             _redact(f"provider call failed: {exc}", api_key),
-        ) from exc
+        )
+    if failure is not None:
+        raise failure from None
     if not isinstance(response, dict):
         raise ProviderError("bad_response", "provider response was not a JSON object")
     return response
