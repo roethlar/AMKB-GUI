@@ -1005,7 +1005,7 @@ def _validated_image_result(
 
     try:
         source = Image.open(io.BytesIO(raw))
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
+    except (Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError) as exc:
         raise ProviderError(
             "bad_response",
             _redact(f"image payload could not be opened: {exc}", api_key),

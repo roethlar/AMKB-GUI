@@ -1720,6 +1720,23 @@ class GrokConceptProviderTests(unittest.TestCase):
                 self.assertEqual(ctx.exception.code, "bad_response")
                 self.assertNotIn(_FAKE_KEY, str(ctx.exception))
 
+    def test_single_image_types_pillow_decompression_bomb_error(self) -> None:
+        from PIL import Image
+
+        response = _image_envelope(
+            _encode_image(Image.new("RGB", (8, 4), (1, 2, 3)))
+        )
+        provider = llm.GrokConceptImageProvider(
+            _FAKE_KEY, transport=_FakeTransport(response=response)
+        )
+
+        with patch.object(Image, "MAX_IMAGE_PIXELS", 10):
+            with self.assertRaises(llm.ProviderError) as ctx:
+                provider.generate_one("valid", self._future_deadline())
+
+        self.assertEqual(ctx.exception.code, "bad_response")
+        self.assertNotIsInstance(ctx.exception, Image.DecompressionBombError)
+
     def test_candidates_callback_banks_before_next_call_and_cancel_is_between_calls(self) -> None:
         from PIL import Image
 
