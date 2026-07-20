@@ -20,6 +20,8 @@ from socketserver import TCPServer
 from typing import Any
 from urllib.parse import urlparse
 
+from . import __version__
+
 
 _PKG = Path(__file__).resolve().parent
 _ASSETS = _PKG / "web"
@@ -811,7 +813,7 @@ class _State:
 
 
 class _Handler(BaseHTTPRequestHandler):
-    server_version = "AMConfigurator/0.1"
+    server_version = f"AMConfigurator/{__version__}"
 
     @property
     def state(self) -> _State:
@@ -889,6 +891,11 @@ class _Handler(BaseHTTPRequestHandler):
         except OSError:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
+        if filename == "index.html":
+            payload = payload.replace(
+                b"__AM_VERSION__",
+                __version__.encode("utf-8"),
+            )
         content_type = mimetypes.guess_type(asset.name)[0] or "application/octet-stream"
         if content_type.startswith("text/") or content_type == "application/javascript":
             content_type += "; charset=utf-8"

@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
+from am_configurator import __version__
 from am_configurator.server import (
     AcceptedWriteError,
     _device_matches_config,
@@ -68,6 +69,7 @@ class DesktopServerTests(unittest.TestCase):
             (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         )
 
+        self.assertEqual(metadata["project"]["version"], __version__)
         self.assertEqual(
             "am_configurator.desktop:main",
             metadata["project"]["gui-scripts"]["am-configurator"],
@@ -212,7 +214,17 @@ class DesktopServerTests(unittest.TestCase):
         thread.start()
         try:
             with urlopen(url, timeout=2) as response:
-                self.assertIn(b"AM Configurator", response.read())
+                page = response.read()
+                self.assertIn(b"AM Configurator", page)
+                version_badge = (
+                    f'id="app-version" title="Application version">'
+                    f"v{__version__}</span>"
+                ).encode()
+                self.assertIn(
+                    version_badge,
+                    page,
+                )
+                self.assertNotIn(b"__AM_VERSION__", page)
             request = Request(
                 f"http://127.0.0.1:{server.server_port}/api/config",
                 headers={"X-AM-Token": token},
