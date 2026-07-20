@@ -12,10 +12,11 @@ and ``recovery``) instead of adding ad-hoc top-level keys.  Assets are internal
 relative paths in the manifest, but public views expose only opaque job and
 asset UUIDs.
 
-On POSIX, created job directories/files are explicitly owner-only.  Python's
-stdlib mode flags do not create a private Windows DACL, so Windows currently
-inherits the ACL of the user-selected root; native DACL validation remains a
-required platform acceptance check.  Junctions and symlinks still fail closed.
+On POSIX, created job directories/files are explicitly owner-only.  On Windows,
+CPython 3.11.10+, 3.12.4+, and 3.13+ honor ``mkdir(mode=0o700)`` with a private
+DACL; preflight rejects older patch runtimes.  Native ACL verification for
+pre-existing Windows ``jobs`` directories remains pending.  Junctions and
+symlinks still fail closed.
 """
 from __future__ import annotations
 
@@ -29,6 +30,7 @@ import os
 import re
 import shutil
 import stat
+import sys
 import tempfile
 import threading
 import uuid
@@ -207,6 +209,27 @@ def _canonical_uuid(value: object, label: str) -> str:
     if canonical != value:
         raise InvalidIdentifierError(f"{label} must be a canonical opaque UUID")
     return canonical
+
+
+def _windows_private_mode_supported(version_info: object) -> bool:
+    """Whether this CPython version honors private Windows ``mkdir`` mode."""
+    try:
+        major, minor, micro = tuple(version_info)[:3]
+    except (TypeError, ValueError):
+        return False
+    if not all(isinstance(part, int) for part in (major, minor, micro)):
+        return False
+    if major > 3:
+        return True
+    if major != 3:
+        return False
+    if minor >= 13:
+        return True
+    if minor == 12:
+        return micro >= 4
+    if minor == 11:
+        return micro >= 10
+    return False
 
 
 def _canonical_root(value: str | os.PathLike[str] | None) -> Path | None:
@@ -755,6 +778,14 @@ class GeneratedAssetLibrary:
 
     def preflight(self) -> Path:
         """Validate the current root before paid work; no fallback is possible."""
+        if os.name == "nt" and (
+            sys.implementation.name != "cpython"
+            or not _windows_private_mode_supported(sys.version_info)
+        ):
+            raise LibraryRootError(
+                "Private Windows library folders require CPython 3.11.10+, "
+                "3.12.4+, or 3.13+."
+            )
         if self._current_root_value is None:
             raise LibraryRootError("A library folder must be configured before generation.")
         root = _canonical_root(self._current_root_value)

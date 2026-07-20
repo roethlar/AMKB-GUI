@@ -190,12 +190,33 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         ):
             library_module._fsync_directory(self.root)
 
-    @unittest.skipUnless(os.name == "nt", "Windows-only ACL validation risk")
-    def test_windows_private_dacl_requires_native_validation(self) -> None:
-        self.skipTest(
-            "Explicit Windows DACL enforcement is pending native Windows validation; "
-            "the library currently inherits the selected root's user ACL."
-        )
+    def test_windows_private_mode_runtime_boundaries(self) -> None:
+        cases = {
+            (3, 10, 99): False,
+            (3, 11, 9): False,
+            (3, 11, 10): True,
+            (3, 12, 3): False,
+            (3, 12, 4): True,
+            (3, 13, 0): True,
+            (3, 14, 0): True,
+        }
+        for version, expected in cases.items():
+            with self.subTest(version=version):
+                self.assertEqual(
+                    expected,
+                    library_module._windows_private_mode_supported(version),
+                )
+
+    def test_preflight_rejects_old_windows_before_touching_root(self) -> None:
+        guarded_root = self.base / "old-windows-must-not-exist"
+        guarded = GeneratedAssetLibrary(guarded_root, minimum_free_bytes=1)
+        with (
+            patch("am_configurator.library.os.name", "nt"),
+            patch("am_configurator.library.sys.version_info", (3, 12, 3)),
+        ):
+            with self.assertRaisesRegex(LibraryRootError, "3.12.4"):
+                guarded.preflight()
+        self.assertFalse(guarded_root.exists())
 
     def test_uuid_collisions_never_reuse_or_delete_existing_jobs_or_assets(self) -> None:
         self.library.preflight()
