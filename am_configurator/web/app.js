@@ -690,7 +690,7 @@ function createLedPages() {
       color:{default:false,back_rgb:"#000000",rgb:"#000000"},word_page:{valid:0,word_len:0,unicode:[]},
       frames:{valid:0,frame_num:0,frame_data:[]},
       keyframes:{valid:index>=5?1:0,frame_num:index>=5?1:0,frame_data:index>=5?[{frame_index:0,frame_RGB:Array(90).fill("#000000")}]:[]},
-      ...(productId().toUpperCase()==="80"?{spotlight_frames:{valid:index>=5?1:0,frame_num:index>=5?1:0,frame_data:index>=5?[{frame_index:0,frame_RGB:Array(24).fill("#000000")}]:[]}}:{}),
+      ...(productFamily(productId())==="80"&&index>=5?{spotlight_frames:{valid:1,frame_num:1,frame_data:[{frame_index:0,frame_RGB:Array(24).fill("#000000")}]}}:{}),
     }));
     state.config.page_num = 8;
   });

@@ -62,6 +62,21 @@ def _base_config(product: str = "80") -> dict:
 
 
 class DesktopServerTests(unittest.TestCase):
+    def test_am21_creates_relic_edge_tracks_only_for_custom_slots(self) -> None:
+        source = (ROOT / "am_configurator" / "web" / "app.js").read_text()
+        create_pages = re.search(
+            r"function createLedPages\(\) \{(?P<body>.*?)\n\}",
+            source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(create_pages)
+        compact = re.sub(r"\s+", "", create_pages.group("body"))
+        self.assertIn(
+            'productFamily(productId())==="80"&&index>=5',
+            compact,
+        )
+        self.assertNotIn('productId().toUpperCase()==="80"', compact)
+
     def test_write_action_is_in_main_toolbar_not_device_picker(self) -> None:
         source = (ROOT / "am_configurator" / "web" / "index.html").read_text()
         toolbar = re.search(r'<div class="top-actions">(?P<body>.*?)</div>', source, re.DOTALL)
