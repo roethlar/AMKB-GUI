@@ -389,6 +389,26 @@ def _provider_usage(response: dict) -> ProviderUsage:
     return ProviderUsage(cost_in_usd_ticks=ticks, reported=True)
 
 
+def _provider_error_usage(error: urllib.error.HTTPError) -> ProviderUsage:
+    """Best-effort exact usage from a bounded HTTP error body; never reclassify."""
+    try:
+        raw = error.read(MAX_PROVIDER_RESPONSE + 1)
+    except Exception:
+        return MISSING_PROVIDER_USAGE
+    if not isinstance(raw, bytes) or len(raw) > MAX_PROVIDER_RESPONSE:
+        return MISSING_PROVIDER_USAGE
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return MISSING_PROVIDER_USAGE
+    if not isinstance(parsed, dict):
+        return MISSING_PROVIDER_USAGE
+    try:
+        return _provider_usage(parsed)
+    except ProviderError:
+        return MISSING_PROVIDER_USAGE
+
+
 def _call_provider(transport, url: str, payload: dict, api_key: str, deadline: float) -> dict:
     """Invoke an injected transport while preserving typed, redacted failures."""
     failure: ProviderError | None = None
@@ -496,23 +516,31 @@ def _xai_request(
     except urllib.error.HTTPError as exc:
         code = exc.code
         retry_after = _parse_retry_after(exc.headers.get("Retry-After"))
+        usage = _provider_error_usage(exc)
         _close_quietly(exc)
         if code in (401, 403):
             raise ProviderError(
-                "auth", "provider rejected the API key; check the key in Settings"
+                "auth",
+                "provider rejected the API key; check the key in Settings",
+                usage=usage,
             ) from exc
         if code == 429:
             raise ProviderError(
                 "rate_limited",
                 "provider rate limit reached; retry later",
                 retry_after=retry_after,
+                usage=usage,
             ) from exc
         if 500 <= code <= 599:
             raise ProviderError(
-                "unavailable", f"provider is temporarily unavailable (HTTP {code})"
+                "unavailable",
+                f"provider is temporarily unavailable (HTTP {code})",
+                usage=usage,
             ) from exc
         raise ProviderError(
-            "bad_response", f"provider returned an unexpected status (HTTP {code})"
+            "bad_response",
+            f"provider returned an unexpected status (HTTP {code})",
+            usage=usage,
         ) from exc
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", None)

@@ -1109,12 +1109,14 @@ class GrokTransportTests(unittest.TestCase):
     def _future_deadline(self) -> float:
         return time.monotonic() + 30.0
 
-    def _http_error(self, code: int, *, retry_after=None) -> urllib.error.HTTPError:
+    def _http_error(
+        self, code: int, *, retry_after=None, body: bytes = b"{}"
+    ) -> urllib.error.HTTPError:
         hdrs = Message()
         if retry_after is not None:
             hdrs["Retry-After"] = str(retry_after)
         return urllib.error.HTTPError(
-            self._URL, code, f"HTTP {code}", hdrs, io.BytesIO(b"{}")
+            self._URL, code, f"HTTP {code}", hdrs, io.BytesIO(body)
         )
 
     def test_xai_request_success_sets_headers_and_returns_dict(self) -> None:
@@ -1161,6 +1163,28 @@ class GrokTransportTests(unittest.TestCase):
             )
         self.assertEqual(ctx.exception.code, "rate_limited")
         self.assertEqual(ctx.exception.retry_after, 7)
+
+    def test_xai_request_http_error_retains_exact_usage_without_retry(self) -> None:
+        body = json.dumps(
+            {"error": {"message": _FAKE_KEY}, "usage": {"cost_in_usd_ticks": 91}}
+        ).encode("utf-8")
+        error = self._http_error(429, retry_after=7, body=body)
+        opener = _RecordingOpener(error=error)
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(
+                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+            )
+
+        self.assertEqual(ctx.exception.code, "rate_limited")
+        self.assertEqual(ctx.exception.retry_after, 7)
+        self.assertEqual(
+            ctx.exception.usage,
+            llm.ProviderUsage(cost_in_usd_ticks=91, reported=True),
+        )
+        self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+        self.assertEqual(len(opener.calls), 1)
+        self.assertTrue(error.fp.closed)
 
     def test_xai_request_rate_limited_without_retry_after(self) -> None:
         opener = _RecordingOpener(error=self._http_error(429))
