@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+.DS_Store
+
+# Local reference material and captured device configurations.
+/cyberboard-cli/
+/AM-80Relic-KEY.json
+/AM-80Relic.json
+/grokrev.txt
