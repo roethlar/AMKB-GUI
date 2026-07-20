@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AM Configurator</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div>
+          <strong>AM Configurator</strong>
+          <small>Local keyboard studio</small>
+        </div>
+      </div>
+      <div class="document-meta">
+        <span id="dirty-dot" class="dirty-dot"></span>
+        <span id="file-name">No configuration open</span>
+        <span id="product-pill" class="pill muted">—</span>
+      </div>
+      <div class="top-actions">
+        <button id="open-button" class="button ghost">Open</button>
+        <button id="merge-button" class="button ghost">Merge</button>
+        <button id="save-button" class="button ghost">Save JSON</button>
+        <button id="write-button" class="button danger" disabled>Write to keyboard</button>
+        <button id="device-button" class="button primary"><span class="status-light"></span>Devices</button>
+      </div>
+      <input id="open-input" type="file" accept="application/json,.json" multiple hidden>
+      <input id="merge-input" type="file" accept="application/json,.json" multiple hidden>
+      <input id="macro-import-input" type="file" accept="application/json,.json" hidden>
+    </header>
+
+    <div class="workspace">
+      <aside class="sidebar">
+        <nav aria-label="Configurator sections">
+          <button class="nav-item active" data-screen="keymap">
+            <span class="nav-icon">⌨</span><span>Keymap</span><small id="nav-layers">—</small>
+          </button>
+          <button class="nav-item" data-screen="macros">
+            <span class="nav-icon">⏺</span><span>Macros</span><small id="nav-macros">—</small>
+          </button>
+          <button class="nav-item" data-screen="leds">
+            <span class="nav-icon">✦</span><span>LEDs</span><small id="nav-leds">—</small>
+          </button>
+        </nav>
+        <div class="sidebar-footer">
+          <button id="undo-button" class="icon-button" title="Undo (⌘Z)">↶</button>
+          <button id="redo-button" class="icon-button" title="Redo (⇧⌘Z)">↷</button>
+          <button id="validate-button" class="icon-button" title="Validate configuration">✓</button>
+        </div>
+      </aside>
+
+      <main id="main" class="main-content">
+        <section id="empty-state" class="empty-state">
+          <div class="empty-orbit"><div></div><span>AM</span></div>
+          <p class="eyebrow">No cloud. No vendor app.</p>
+          <h1>Make the keyboard yours.</h1>
+          <p>Connect by USB and choose <code>Device → Read</code> to start fresh, or open an existing JSON to preserve LED animations that the keyboard cannot read back.</p>
+          <button id="empty-open" class="button primary large">Open configuration</button>
+        </section>
+        <section id="screen" hidden></section>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="device-dialog" class="dialog">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-header">
+        <div><p class="eyebrow">USB serial</p><h2>Connected keyboards</h2></div>
+        <button class="dialog-close" value="cancel" aria-label="Close">×</button>
+      </div>
+      <div id="device-list" class="device-list"><div class="loader"></div></div>
+      <div id="device-actions" class="device-actions" hidden>
+        <button id="read-device" type="button" class="button ghost">Read keymap &amp; macros</button>
+      </div>
+      <p class="dialog-note">Choose a keyboard here, then use the always-visible Write button in the main toolbar. LED frames cannot be read back. The app can preserve an open document or restore this machine’s last verified write, but another machine still needs the full portable JSON.</p>
+    </form>
+  </dialog>
+
+  <dialog id="write-dialog" class="dialog write-dialog">
+    <form method="dialog" class="dialog-card" id="write-form">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Full device write</p><h2 id="write-title">Confirm write</h2></div>
+        <button id="cancel-write-x" class="dialog-close" value="cancel" aria-label="Cancel write">×</button>
+      </div>
+      <div class="write-warning">
+        <strong>This replaces LEDs, keymaps, and macros.</strong>
+        <p>Keep the USB cable connected until verification finishes. Firmware is not modified.</p>
+      </div>
+      <div id="write-summary" class="write-summary"></div>
+      <label class="confirm-label" for="write-confirmation">Type the device ID shown below to confirm</label>
+      <div id="write-token" class="confirm-token">—</div>
+      <input id="write-confirmation" class="text-field confirm-input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Device ID">
+      <p id="write-status" class="write-status" aria-live="polite"></p>
+      <div class="device-actions">
+        <button id="backup-before-write" type="button" class="button ghost">Save portable JSON</button>
+        <button id="cancel-write" value="cancel" class="button ghost">Cancel</button>
+        <button id="confirm-write" type="button" class="button danger" disabled>Write full configuration</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+  <script src="/app.js"></script>
+</body>
+</html>
