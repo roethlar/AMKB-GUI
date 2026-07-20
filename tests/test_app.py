@@ -1584,6 +1584,20 @@ class GrokConceptProviderTests(unittest.TestCase):
         self.assertEqual(candidates["minItems"], 3)
         self.assertEqual(candidates["maxItems"], 3)
 
+    def test_planner_requests_coherent_minor_variations_of_one_brief(self) -> None:
+        transport = _FakeTransport(response=self._concept_response(self._plan_dict()))
+        llm.GrokConceptPlanner(_FAKE_KEY, transport=transport).plan(
+            "an amber comet", 3, self._future_deadline()
+        )
+
+        instruction = transport.calls[0]["payload"]["input"][0]["content"]
+        self.assertIn(
+            "closely related minor variations of one shared visual brief",
+            instruction,
+        )
+        self.assertIn("Do not propose unrelated alternative concepts", instruction)
+        self.assertIn("meaningfully distinct", instruction)
+
     def test_planner_rejects_prompt_count_and_uncurated_model_before_call(self) -> None:
         transport = _FakeTransport(response=self._concept_response(self._plan_dict()))
         planner = llm.GrokConceptPlanner(_FAKE_KEY, transport=transport)

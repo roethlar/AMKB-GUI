@@ -831,7 +831,10 @@ class GrokConceptPlanner:
                     "role": "system",
                     "content": (
                         "You are a lighting concept designer. Return exactly "
-                        f"{count} unique, meaningfully varied still-image prompts. "
+                        f"{count} unique, meaningfully distinct, closely related minor "
+                        "variations of one shared visual brief. Keep the central subject, "
+                        "composition, palette, and mood coherent; vary only minor "
+                        "execution details. Do not propose unrelated alternative concepts. "
                         "Each prompt must describe a complete standalone image, use a "
                         "wide 20:9 composition, and keep important content in the safe "
                         "central horizontal band."
