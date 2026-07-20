@@ -62,6 +62,12 @@ def _base_config(product: str = "80") -> dict:
 
 
 class DesktopServerTests(unittest.TestCase):
+    def test_empty_state_copy_names_the_current_device_read_action(self) -> None:
+        source = (ROOT / "am_configurator" / "web" / "index.html").read_text()
+
+        self.assertIn("Devices → Read keymap &amp; macros", source)
+        self.assertNotIn("Device → Read", source)
+
     def test_am21_creates_relic_edge_tracks_only_for_custom_slots(self) -> None:
         source = (ROOT / "am_configurator" / "web" / "app.js").read_text()
         create_pages = re.search(
