@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""Device-scoped state store: where the CLI keeps each keyboard's config + history.
+"""Device-scoped state store for each keyboard's configuration and history.
 
-This is the foundation the stateful commands (`dump` / `get` / `set` / `history` /
-`restore` / `diff`) build on. The firmware does NOT support partial writes
-(`JSON_START` erases the whole config flash), so every edit is read -> merge ->
-full-write; and the LED display/per-key frames cannot be read back from the
-device at all. The practical consequence is that the *last full IR we wrote* is
-the only source of truth for LED state — so we persist it here, keyed per device,
-and snapshot it on every write to make rollback possible (= "git for keyboard").
+The firmware does not support partial writes (`JSON_START` erases the whole
+configuration flash), and LED frames cannot be read back from the device. The
+last verified full profile is therefore the local source of truth for LED state.
+It is persisted here per device and snapshotted after each verified write.
 
 Storage root resolution ladder (first that is set wins):
 
@@ -27,8 +24,8 @@ Pure stdlib — no pyserial / Pillow — so it loads in a core-only install.
 
 Usage::
 
-    cb_store.py path [--device CB04]   # print resolved store root / device dir
-    cb_store.py --selftest             # round-trip self-test in a temp dir
+    python -m am_configurator.store path --device CB04
+    python -m am_configurator.store --selftest
 """
 from __future__ import annotations
 
@@ -131,7 +128,7 @@ def _lock_windows_byte(
 def device_lock(product_id: str):
     """Exclusive per-device advisory lock on `<device_dir>/.lock`.
 
-    Holds for a whole compound write so two concurrent CLI processes can't
+    Holds for a whole compound write so two concurrent app processes can't
     interleave the current.json + meta.json pair (or, later, a snapshot+save
     sequence) and leave them describing different states. Unix uses ``flock``;
     Windows locks the first byte with ``msvcrt.locking``.
@@ -276,7 +273,7 @@ def snapshot(product_id: str, ir: dict) -> Path:
     `save_current`): a writer takes a before-snapshot then saves current as two
     sequential locked steps — flock is per-fd, so nesting two `device_lock`s in
     one process would self-deadlock. The brief gap is acceptable for a
-    single-user device CLI (history vs current are independent files).
+    single-user desktop app (history and current are independent files).
     """
     with device_lock(product_id):
         d = history_dir(product_id, create=True)

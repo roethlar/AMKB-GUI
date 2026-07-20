@@ -4,6 +4,7 @@ import copy
 import io
 import re
 import threading
+import tomllib
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -62,6 +63,14 @@ def _base_config(product: str = "80") -> dict:
 
 
 class DesktopServerTests(unittest.TestCase):
+    def test_package_declares_native_desktop_entry_point(self) -> None:
+        metadata = tomllib.loads((ROOT / "pyproject.toml").read_text())
+
+        self.assertEqual(
+            "am_configurator.desktop:main",
+            metadata["project"]["gui-scripts"]["am-configurator"],
+        )
+
     def test_empty_state_copy_names_the_current_device_read_action(self) -> None:
         source = (ROOT / "am_configurator" / "web" / "index.html").read_text()
 

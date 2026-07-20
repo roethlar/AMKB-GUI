@@ -1,0 +1,78 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Desktop bundles
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle:
+    name: Bundle · ${{ matrix.artifact }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: AM-Configurator-macOS
+            archive: AM-Configurator-macOS.zip
+            platform: macos
+          - os: windows-latest
+            artifact: AM-Configurator-Windows-x64
+            archive: AM-Configurator-Windows-x64.zip
+            platform: windows
+          - os: ubuntu-latest
+            artifact: AM-Configurator-Linux-x64
+            archive: AM-Configurator-Linux-x64.tar.gz
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install desktop build environment
+        run: uv sync --locked --extra desktop --extra build
+      - name: Build native bundle
+        run: uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
+      - name: Smoke-test macOS app
+        if: matrix.platform == 'macos'
+        run: '"dist/AM Configurator.app/Contents/MacOS/AM Configurator" --smoke-test'
+      - name: Smoke-test Windows app
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: "& 'dist/AM Configurator/AM Configurator.exe' --smoke-test"
+      - name: Smoke-test Linux app
+        if: matrix.platform == 'linux'
+        run: '"dist/AM Configurator/AM Configurator" --smoke-test'
+      - name: Archive macOS app
+        if: matrix.platform == 'macos'
+        run: ditto -c -k --sequesterRsrc --keepParent "dist/AM Configurator.app" "${{ matrix.archive }}"
+      - name: Archive Windows app
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: Compress-Archive -Path 'dist/AM Configurator' -DestinationPath '${{ matrix.archive }}'
+      - name: Archive Linux app
+        if: matrix.platform == 'linux'
+        run: tar -C dist -czf "${{ matrix.archive }}" "AM Configurator"
+      - name: Upload native bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
+          retention-days: 14

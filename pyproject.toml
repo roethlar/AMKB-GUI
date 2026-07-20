@@ -21,5 +21,8 @@ desktop = [
 ]
 build = ["pyinstaller>=6.21.0"]
 
+[project.gui-scripts]
+am-configurator = "am_configurator.desktop:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["am_configurator"]
