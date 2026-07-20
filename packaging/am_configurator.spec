@@ -10,6 +10,7 @@ project = Path(SPECPATH).parent
 app_version = project_version(project)
 hidden_imports = [
     "am_configurator.device",
+    "am_configurator.llm",
     "am_configurator.macros",
     "am_configurator.protocol",
     "am_configurator.reader",

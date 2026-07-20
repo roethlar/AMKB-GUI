@@ -2,13 +2,102 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import importlib.util
+import json
+import os
 import platform
+import ssl
 import threading
 from collections.abc import Sequence
-from urllib.request import urlopen
+from io import BytesIO
+from urllib.request import Request, urlopen
 
 from .server import create_server
+
+
+def _run_llm_generation_smoke() -> None:
+    """Drive the real LLM providers and LED mapper through an offline transport."""
+    from PIL import Image
+
+    from .llm import (
+        XAI_IMAGES_URL,
+        XAI_RESPONSES_URL,
+        GrokImagineRenderer,
+        GrokInterpreter,
+        RasterSpec,
+        generate_effect,
+    )
+
+    plan = {
+        "subject": "two-color smoke test",
+        "palette": "red and blue on black",
+        "motion": "crossfade",
+        "frame_count": 2,
+        "frame_ms": 100,
+        "keyframe_prompts": ["solid red band", "solid blue band"],
+        "tween": "crossfade",
+        "notes": "offline frozen-bundle verification",
+    }
+    interpreter_response = {
+        "output": [
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    {"type": "output_text", "text": json.dumps(plan)}
+                ],
+            }
+        ]
+    }
+
+    image_bytes = BytesIO()
+    Image.new("RGB", (40, 5), (255, 0, 0)).save(image_bytes, format="PNG")
+    image_response = {
+        "data": [
+            {"b64_json": base64.b64encode(image_bytes.getvalue()).decode("ascii")}
+        ]
+    }
+
+    def fake_transport(url: str, payload: dict, api_key: str, deadline: float) -> dict:
+        del deadline
+        if api_key != "smoke-test-key":
+            raise AssertionError("smoke generation used an unexpected API key")
+        if url == XAI_RESPONSES_URL:
+            return interpreter_response
+        if url == XAI_IMAGES_URL and payload.get("response_format") == "b64_json":
+            return image_response
+        raise AssertionError(f"smoke generation made an unexpected request: {url}")
+
+    factories = {
+        "interpreter": lambda api_key: GrokInterpreter(
+            api_key, transport=fake_transport
+        ),
+        "renderer": lambda api_key: GrokImagineRenderer(
+            api_key, transport=fake_transport
+        ),
+    }
+    spec = RasterSpec(
+        model="CB",
+        target="frames",
+        extra_targets=(),
+        width=40,
+        height=5,
+        mapped_positions=None,
+        output_len=200,
+        max_frames=80,
+    )
+    result = generate_effect(
+        "offline frozen smoke test",
+        spec,
+        ["frames"],
+        "CB04",
+        "smoke-test-key",
+        factories,
+    )
+    track = result.get("tracks", {}).get("frames", {})
+    if result.get("plan", {}).get("frame_count") != 2 or track.get("frame_count") != 2:
+        raise SystemExit("Desktop smoke test failed: offline LLM generation was invalid.")
 
 
 def run_smoke_test() -> int:
@@ -25,6 +114,18 @@ def run_smoke_test() -> int:
     }.get(platform.system())
     if backend and importlib.util.find_spec(backend) is None:
         raise SystemExit(f"Desktop smoke test failed: {backend} is unavailable.")
+
+    tls_context = ssl.create_default_context()
+    _run_llm_generation_smoke()
+    if os.environ.get("AM_SMOKE_NET") == "1":
+        request = Request("https://example.com/", method="HEAD")
+        with urlopen(  # noqa: S310 - explicit opt-in packaged CA trust check
+            request, timeout=5, context=tls_context
+        ) as response:
+            if response.status != 200:
+                raise SystemExit(
+                    "Desktop smoke test failed: opt-in TLS reach check failed."
+                )
 
     server, url = create_server()
     server_thread = threading.Thread(

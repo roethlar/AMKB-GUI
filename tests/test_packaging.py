@@ -206,6 +206,29 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn('<link rel="icon" href="/icon.png"', html)
         self.assertIn('<img class="brand-mark" src="/icon.png"', html)
 
+    def test_spec_bundles_the_llm_module(self) -> None:
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
+
+        # The LLM provider layer is imported lazily inside server.py, so
+        # PyInstaller's static analysis misses it; it must be a hidden import or
+        # the frozen app cannot generate effects.
+        self.assertIn("hidden_imports", spec)
+        self.assertIn('"am_configurator.llm"', spec)
+
+    def test_frozen_smoke_test_runs_a_fake_transport_generation(self) -> None:
+        smoke = (ROOT / "am_configurator" / "desktop.py").read_text(encoding="utf-8")
+
+        # The frozen smoke test must exercise the whole LLM generation pipeline
+        # offline: a fake transport feeds the real Grok providers so the
+        # base64/Pillow decode chain and frames_to_led_tracks mapping run inside
+        # the bundle with no network and no API key.
+        self.assertIn("generate_effect", smoke)
+        self.assertIn("b64_json", smoke)
+        # ssl context creation is verified without a socket; the real-TLS reach
+        # test is opt-in only, so a CI/offline smoke run never touches network.
+        self.assertIn("create_default_context", smoke)
+        self.assertIn("AM_SMOKE_NET", smoke)
+
     def test_windows_installer_smoke_test_waits_for_gui_processes(self) -> None:
         script = (ROOT / "packaging" / "windows" / "build_installer.ps1").read_text(
             encoding="utf-8"
