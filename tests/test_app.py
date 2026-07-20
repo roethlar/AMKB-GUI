@@ -49,7 +49,7 @@ from am_configurator.device import candidate_ports
 from am_configurator.protocol import exclusive_serial_kwargs
 from am_configurator.macros import macro_frames, parse_macro_frames
 from am_configurator.writer import car_light_data_frames, car_light_info_frames
-from am_configurator import store
+from am_configurator import llm, server, store
 
 
 _DEFAULT_SETTINGS = {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}}}
@@ -699,6 +699,117 @@ class FramesToLedTracksTests(unittest.TestCase):
             frames_to_led_tracks(
                 [Image.new("RGB", (4, 4))], [90], ["frames"], "nearest", "ALICE"
             )
+
+
+_DROP = object()  # sentinel: mutate() removes the field entirely
+
+
+class GrokTransportTests(unittest.TestCase):
+    """Task 3 subset: shared constants, drift guards, and EffectPlan validation.
+
+    Later tasks extend this class with the xAI transport and the concrete
+    interpreter/renderer paths (all with injected fakes, never the network).
+    """
+
+    def _spec(self, **overrides) -> "llm.RasterSpec":
+        base = dict(
+            model="CB",
+            target="display",
+            extra_targets=(),
+            width=40,
+            height=5,
+            mapped_positions=None,
+            output_len=200,
+            max_frames=80,
+        )
+        base.update(overrides)
+        return llm.RasterSpec(**base)
+
+    def _good_plan(self) -> dict:
+        return {
+            "subject": "pac-man",
+            "palette": "yellow dot on black",
+            "motion": "chomps left to right",
+            "frame_count": 6,
+            "frame_ms": 100,
+            "keyframe_prompts": ["open mouth", "closed mouth", "open again"],
+            "tween": "crossfade",
+            "notes": "loops seamlessly",
+        }
+
+    def test_speed_steps_match_server(self) -> None:
+        # Single source of truth: llm duplicates the tuple so it need not import
+        # server; this guard fails loudly if the two ever drift apart.
+        self.assertEqual(llm.LED_SPEEDS_MS, server._LED_SPEEDS_MS)
+
+    def test_provider_names_match_store_allowlists(self) -> None:
+        # store.py must stay stdlib-core-only and cannot import llm, so it keeps
+        # its own allowlists. This guard keeps the canonical names in sync.
+        self.assertEqual(
+            set(llm.INTERPRETER_PROVIDERS), set(store._KNOWN_INTERPRETERS)
+        )
+        self.assertEqual(set(llm.RENDERER_PROVIDERS), set(store._KNOWN_RENDERERS))
+        self.assertEqual(set(llm.KEY_PROVIDERS), set(store._KNOWN_KEY_PROVIDERS))
+
+    def test_plan_validation_accepts_good_plan(self) -> None:
+        plan = llm.plan_from_json(self._good_plan(), self._spec())
+        self.assertIsInstance(plan, llm.EffectPlan)
+        self.assertEqual(plan.subject, "pac-man")
+        self.assertEqual(plan.frame_count, 6)
+        self.assertEqual(plan.frame_ms, 100)
+        self.assertEqual(plan.tween, "crossfade")
+        self.assertEqual(
+            plan.keyframe_prompts, ("open mouth", "closed mouth", "open again")
+        )
+        self.assertIsInstance(plan.keyframe_prompts, tuple)
+
+    def test_plan_validation_rejects_bad_plans(self) -> None:
+        spec = self._spec()
+
+        def mutate(**changes) -> dict:
+            data = self._good_plan()
+            for key, value in changes.items():
+                if value is _DROP:
+                    data.pop(key, None)
+                else:
+                    data[key] = value
+            return data
+
+        cases = {
+            "missing_field": mutate(subject=_DROP),
+            "wrong_type_int": mutate(frame_count="6"),
+            "wrong_type_str": mutate(subject=123),
+            "wrong_type_prompts": mutate(keyframe_prompts="not a list"),
+            "prompt_entry_not_str": mutate(keyframe_prompts=["ok", 7]),
+            "bool_not_int": mutate(frame_count=True),
+            "frame_ms_not_a_speed_step": mutate(frame_ms=101),
+            "frame_count_too_low": mutate(frame_count=0),
+            "frame_count_over_cap": mutate(frame_count=spec.max_frames + 1),
+            "no_prompts": mutate(keyframe_prompts=[]),
+            "too_many_prompts": mutate(
+                frame_count=4, keyframe_prompts=["a", "b", "c", "d", "e"]
+            ),
+            "over_keyframe_ceiling": mutate(
+                frame_count=80,
+                keyframe_prompts=[
+                    f"f{i}" for i in range(llm.MAX_RENDERED_KEYFRAMES + 1)
+                ],
+            ),
+            "bad_tween": mutate(tween="fade"),
+            "empty_prompt": mutate(keyframe_prompts=["ok", ""]),
+            "oversized_prompt": mutate(keyframe_prompts=["x" * 2001]),
+            "oversized_subject": mutate(subject="x" * 2001),
+        }
+        for name, data in cases.items():
+            with self.subTest(case=name):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm.plan_from_json(data, spec)
+                self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_plan_from_json_rejects_non_object(self) -> None:
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm.plan_from_json(["not", "a", "dict"], self._spec())
+        self.assertEqual(ctx.exception.code, "bad_response")
 
 
 class MacroProtocolTests(unittest.TestCase):
