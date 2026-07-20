@@ -60,8 +60,9 @@
   (`response_format: "b64_json"`, `n: 1`); no URL fetching ever; paid image
   POSTs never auto-retried.
 - Pinned model IDs (verified against docs.x.ai 2026-07-20; bumping is a
-  one-line change): `XAI_MODELS = {"interpreter":
-  "grok-4.20-0309-non-reasoning", "renderer": "grok-imagine-image"}`.
+  one-line change): `XAI_MODELS = {"interpreter": "grok-4.5",
+  "renderer": "grok-imagine-image"}` — current versions, per user
+  direction; do not pin dated/older releases.
 - TDD is mandatory: every task writes its failing test first, watches it
   fail for the right reason, implements, watches it pass, runs the full
   suite, commits.
