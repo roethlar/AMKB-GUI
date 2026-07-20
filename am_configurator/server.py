@@ -576,6 +576,8 @@ def validate_config(config: Any) -> dict[str, Any]:
         events = macro.get("layer_key") or []
         delays = macro.get("intvel_ms") or []
         event_total += len(events)
+        if not events:
+            errors.append(f"Macro {index} has no events.")
         if len(events) > 200:
             errors.append(f"Macro {index} contains more than 200 events.")
         if len(delays) < max(0, len(events) - 1):

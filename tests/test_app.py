@@ -434,6 +434,19 @@ class MacroProtocolTests(unittest.TestCase):
         self.assertEqual([25, 0], imported[0]["intvel_ms"])
         self.assertTrue(validate_config(source)["ok"])
 
+    def test_validation_rejects_empty_macro(self) -> None:
+        source = _base_config("80")
+        source["macro_key"] = [{
+            "original_key": "#00951500",
+            "layer_key": [],
+            "intvel_ms": [],
+        }]
+
+        result = validate_config(source)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("Macro 1 has no events.", result["errors"])
+
     def test_macro_import_rejects_legacy_only_lighting_export(self) -> None:
         source = _base_config("80")
         source["MACRO_key"] = [{
