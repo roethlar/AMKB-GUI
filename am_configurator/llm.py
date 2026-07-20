@@ -36,6 +36,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only; Pillow is a runtime-optiona
 
 MAX_RENDERED_KEYFRAMES = 16  # hard ceiling on paid image renders per generation
 MODEL_FRAME_CAPS = {"CB": 80, "80": 200, "ALICE": 186}  # per-model firmware caps
+MAX_LLM_FRAMES = max(MODEL_FRAME_CAPS.values())  # global output-frame ceiling (200)
 MAX_PROVIDER_RESPONSE = 25_000_000  # bounded read cap on any upstream body (bytes)
 MAX_IMAGE_BYTES = 12_000_000  # decoded-image byte cap before Pillow open (bytes)
 MAX_IMAGE_PIXELS = 4_000_000  # decoded-image pixel cap (width*height) before load()
@@ -798,3 +799,221 @@ class GrokImagineRenderer:
 
 
 RENDERERS["grok"] = GrokImagineRenderer
+
+
+# --- Tween expansion + generation orchestrator -------------------------------
+#
+# ``expand_keyframes`` is the pure, deterministic interpolation from K rendered
+# keyframes to the plan's ``frame_count`` output frames. ``generate_effect``
+# wires the two provider phases together under a single monotonic deadline and
+# is the one place the whole spend ceiling is enforced — even against a rogue or
+# faked interpreter, so at most ``1 + MAX_RENDERED_KEYFRAMES`` provider calls and
+# ``MAX_LLM_FRAMES`` output frames are ever produced. ``frames_to_led_tracks`` is
+# imported lazily inside ``generate_effect`` to avoid a ``server`` <-> ``llm``
+# import cycle, and Pillow stays a lazy import on the render/tween path so this
+# module remains importable in a Pillow-less core install.
+
+
+def expand_keyframes(images, frame_count: int, tween: str) -> list:
+    """Expand K rendered keyframes into ``frame_count`` output frames.
+
+    The keyframes are placed at evenly spaced positions on the output timeline
+    and the gaps between them are filled per ``tween``:
+
+    - ``"step"`` holds the nearest keyframe at or to the left of each output
+      position (a hard cut on each keyframe boundary);
+    - ``"crossfade"`` blends the two bracketing keyframes with Pillow
+      :func:`PIL.Image.blend` at the fractional position between them.
+
+    ``K == 1`` repeats the single keyframe for every output frame, and
+    ``K == frame_count`` is the identity — the exact input images are returned
+    unchanged. Callers must pass same-size RGB images:
+    :func:`generate_effect` normalizes rendered keyframes to the generation
+    raster first, which is what makes the crossfade blend well-defined even when
+    the renderer returns differently sized images. Pure and deterministic — no
+    I/O, no provider state.
+    """
+    frames = list(images)
+    count = len(frames)
+    if count == 0:
+        raise ValueError("expand_keyframes requires at least one keyframe image.")
+    if frame_count < 1:
+        raise ValueError("frame_count must be at least 1.")
+    if count == frame_count:
+        return frames  # identity: every output frame is a rendered keyframe
+    if frame_count == 1:
+        return [frames[0]]
+    if tween not in ("crossfade", "step"):
+        raise ValueError("tween must be 'crossfade' or 'step'.")
+
+    span = count - 1  # keyframe-index distance spanned by the output timeline
+    blend = None
+    out: list = []
+    for index in range(frame_count):
+        position = index * span / (frame_count - 1)  # in [0, span]
+        left = int(position)  # floor; position is non-negative
+        if left >= span:
+            out.append(frames[span])  # final (or beyond) keyframe
+            continue
+        if tween == "step":
+            out.append(frames[left])
+            continue
+        frac = position - left
+        if frac == 0.0:
+            out.append(frames[left])
+            continue
+        if blend is None:
+            from PIL import Image  # lazy: Pillow only needed for the crossfade blend
+
+            blend = Image.blend
+        out.append(blend(frames[left], frames[left + 1], frac))
+    return out
+
+
+def _fit_cover(image, width: int, height: int):
+    """Center-crop ``image`` to the target aspect, then resize to ``width`` x ``height``.
+
+    Mirrors the aspect-fit (crop-cover) that :func:`server.frames_to_led_tracks`
+    applies per frame. It is used to normalize each rendered keyframe to the
+    generation raster before tweening, so the crossfade blend operates on
+    same-size images regardless of what dimensions the renderer returned. Pillow
+    is imported lazily so this module stays importable without it.
+    """
+    from PIL import Image  # lazy: Pillow only needed on the render/tween path
+
+    source_ratio = image.width / image.height
+    target_ratio = width / height
+    fitted = image
+    if source_ratio > target_ratio:
+        crop_width = max(1, round(image.height * target_ratio))
+        left = (image.width - crop_width) // 2
+        fitted = image.crop((left, 0, left + crop_width, image.height))
+    elif source_ratio < target_ratio:
+        crop_height = max(1, round(image.width / target_ratio))
+        top = (image.height - crop_height) // 2
+        fitted = image.crop((0, top, image.width, top + crop_height))
+    if fitted.size != (width, height):
+        fitted = fitted.resize((width, height), Image.Resampling.BOX)
+    return fitted
+
+
+def generate_effect(
+    prompt: str,
+    spec: RasterSpec,
+    targets,
+    product_id: str,
+    api_key: str,
+    factories: dict,
+    progress=None,
+    cancelled=None,
+) -> dict:
+    """Run the full text-to-LED pipeline and return an ``/api/led/gif``-shaped dict.
+
+    Wires interpreter -> renderer -> tween -> frame mapping under one monotonic
+    deadline (``time.monotonic() + LLM_TOTAL_BUDGET``) shared verbatim by both
+    provider phases. ``factories`` maps ``"interpreter"`` and ``"renderer"`` to
+    callables ``(api_key) -> provider`` (the registry classes in production,
+    injected fakes under test).
+
+    ``progress`` is an optional ``(phase: str) -> None`` callback that reports
+    ``"interpreting"``, then ``"rendering k/K"`` once per keyframe, then
+    ``"tweening"`` and ``"mapping"``, in order. ``cancelled`` is an optional
+    zero-argument predicate polled between phases and — via the renderer's
+    between-keyframe hook — between keyframes; a truthy result raises
+    :class:`Cancelled` and discards any partial work.
+
+    The spend ceiling is enforced here against the *returned* plan, independent
+    of the interpreter's own validation, so a rogue or faked interpreter can
+    never exceed the budget: at most ``1 + MAX_RENDERED_KEYFRAMES`` provider
+    calls and ``MAX_LLM_FRAMES`` output frames, and never more keyframes than
+    output frames. Provider failures propagate as typed :class:`ProviderError`;
+    nothing partial ever leaks.
+
+    Generated-path values for the GIF-shape fields follow from feeding exactly
+    ``frame_count`` frames each of duration ``frame_ms``: ``source_frames`` and
+    ``decoded_frames`` equal ``frame_count``, ``source_duration_ms`` equals
+    ``frame_count * frame_ms``, and ``timing_resampled`` is ``False``.
+    ``duration_ms`` stays the per-frame firmware speed (``frame_ms``), the value
+    the UI consumes as ``speed_ms``. The result additionally carries ``"plan"``
+    and ``"usage"`` summaries for the UI.
+    """
+
+    def _emit(phase: str) -> None:
+        if progress is not None:
+            progress(phase)
+
+    def _check_cancel() -> None:
+        if cancelled is not None and cancelled():
+            raise Cancelled("generation cancelled")
+
+    deadline = time.monotonic() + LLM_TOTAL_BUDGET
+    interpreter = factories["interpreter"](api_key)
+    renderer = factories["renderer"](api_key)
+
+    _check_cancel()
+    _emit("interpreting")
+    plan = interpreter.interpret(prompt, spec, deadline)
+
+    # Spend ceiling, re-checked against the plan the interpreter actually
+    # returned. The real GrokInterpreter already validates via plan_from_json,
+    # but generate_effect must hold the line for *any* provider so tabs, direct
+    # calls, or a misbehaving model can never amplify cost past the ceiling.
+    keyframes = len(plan.keyframe_prompts)
+    if not (1 <= keyframes <= MAX_RENDERED_KEYFRAMES):
+        raise ProviderError(
+            "bad_response",
+            f"plan requested {keyframes} rendered keyframes outside "
+            f"1..{MAX_RENDERED_KEYFRAMES}",
+        )
+    if not (1 <= plan.frame_count <= spec.max_frames) or plan.frame_count > MAX_LLM_FRAMES:
+        raise ProviderError(
+            "bad_response",
+            f"plan frame_count {plan.frame_count} exceeds the generation budget "
+            f"(model cap {spec.max_frames}, global cap {MAX_LLM_FRAMES})",
+        )
+    if keyframes > plan.frame_count:
+        raise ProviderError(
+            "bad_response",
+            f"plan has more rendered keyframes ({keyframes}) than output frames "
+            f"({plan.frame_count})",
+        )
+
+    _check_cancel()
+
+    # The renderer polls this once before each keyframe (Task 6 contract): use it
+    # both to report per-keyframe progress and to forward the user's cancel flag.
+    rendered = 0
+
+    def _render_gate() -> bool:
+        nonlocal rendered
+        rendered += 1
+        _emit(f"rendering {rendered}/{keyframes}")
+        return cancelled is not None and cancelled()
+
+    frames = renderer.render(plan, spec, deadline, cancelled=_render_gate)
+
+    _emit("tweening")
+    normalized = [
+        _fit_cover(image, spec.width, spec.height) for image in frames.images
+    ]
+    expanded = expand_keyframes(normalized, plan.frame_count, plan.tween)
+
+    _emit("mapping")
+    from am_configurator.server import frames_to_led_tracks  # lazy: avoid import cycle
+
+    durations = [plan.frame_ms] * plan.frame_count
+    result = frames_to_led_tracks(expanded, durations, targets, "box", product_id)
+
+    result["plan"] = {
+        "subject": plan.subject,
+        "frame_count": plan.frame_count,
+        "rendered_keyframes": keyframes,
+        "tween": plan.tween,
+        "frame_ms": plan.frame_ms,
+    }
+    result["usage"] = {
+        "provider_calls": 1 + keyframes,
+        "rendered_keyframes": keyframes,
+        "output_frames": plan.frame_count,
+    }
+    return result

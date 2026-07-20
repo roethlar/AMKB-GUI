@@ -1485,6 +1485,391 @@ class GrokImagineRendererTests(unittest.TestCase):
         self.assertEqual(len(transport.calls), 1)
 
 
+class _FakeGenInterpreter:
+    """Fake Interpreter matching the ``interpret`` protocol; records its calls.
+
+    Returns a pre-built :class:`llm.EffectPlan` (constructed directly, so a test
+    can deliberately hand ``generate_effect`` a plan that violates the budget the
+    real interpreter's ``plan_from_json`` would have rejected) or raises a
+    supplied error.
+    """
+
+    def __init__(self, plan=None, error: BaseException | None = None) -> None:
+        self._plan = plan
+        self._error = error
+        self.calls: list[dict] = []
+
+    def interpret(self, prompt, spec, deadline, previous_plan=None):
+        self.calls.append(
+            {"prompt": prompt, "spec": spec, "deadline": deadline,
+             "previous_plan": previous_plan}
+        )
+        if self._error is not None:
+            raise self._error
+        return self._plan
+
+
+class _FakeGenRenderer:
+    """Fake Renderer matching the ``render`` protocol and the Task 6 renderer's
+    between-keyframe cancel contract: it polls ``cancelled()`` once *before* each
+    keyframe, so ``generate_effect``'s progress/cancel gate is exercised exactly
+    as the real ``GrokImagineRenderer`` drives it. Records one entry per
+    ``render`` call so a test can prove render was (or was never) started."""
+
+    def __init__(self, image_for=None, error: BaseException | None = None,
+                 error_at: int | None = None) -> None:
+        self._image_for = image_for
+        self._error = error
+        self._error_at = error_at
+        self.calls: list[float] = []
+
+    def render(self, plan, spec, deadline, cancelled=None):
+        self.calls.append(deadline)
+        images = []
+        for index in range(len(plan.keyframe_prompts)):
+            if cancelled is not None and cancelled():
+                raise llm.Cancelled("cancelled between keyframes")
+            if self._error is not None and (
+                self._error_at is None or self._error_at == index
+            ):
+                raise self._error
+            images.append(self._image_for(index))
+        return llm.RenderedFrames(images=tuple(images))
+
+
+def _gen_factories(interpreter, renderer) -> dict:
+    """Resolved interpreter/renderer factory pair for ``generate_effect``:
+    each value is a ``callable(api_key) -> provider`` as the registry classes
+    are in production."""
+    return {
+        "interpreter": lambda api_key: interpreter,
+        "renderer": lambda api_key: renderer,
+    }
+
+
+class GenerateEffectTests(unittest.TestCase):
+    """Task 7: keyframe tweening and the ``generate_effect`` orchestrator that
+    wires interpreter -> renderer -> tween -> frame mapping under one monotonic
+    deadline, with budget enforcement, cancellation, progress phases, and typed
+    error propagation — all with injected fakes and zero network I/O."""
+
+    def _spec(self, **overrides) -> "llm.RasterSpec":
+        base = dict(
+            model="CB",
+            target="frames",
+            extra_targets=(),
+            width=40,
+            height=5,
+            mapped_positions=None,
+            output_len=200,
+            max_frames=80,
+        )
+        base.update(overrides)
+        return llm.RasterSpec(**base)
+
+    def _plan(self, **overrides) -> "llm.EffectPlan":
+        base = dict(
+            subject="pac-man",
+            palette="yellow dot on black",
+            motion="chomps left to right",
+            frame_count=6,
+            frame_ms=100,
+            keyframe_prompts=("open", "closed", "open again"),
+            tween="crossfade",
+            notes="",
+        )
+        base.update(overrides)
+        return llm.EffectPlan(**base)
+
+    # -- tween expansion ---------------------------------------------------
+
+    def test_expand_step_and_crossfade(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        dark = Image.new("RGB", (1, 1), (0, 0, 0))
+        bright = Image.new("RGB", (1, 1), (30, 60, 90))
+
+        # K == frame_count is the identity: the exact input objects come back.
+        identity = llm.expand_keyframes([dark, bright], 2, "crossfade")
+        self.assertEqual(len(identity), 2)
+        self.assertIs(identity[0], dark)
+        self.assertIs(identity[1], bright)
+
+        # K == 1 repeats the single keyframe for every output frame.
+        repeated = llm.expand_keyframes([bright], 4, "crossfade")
+        self.assertEqual(len(repeated), 4)
+        for frame in repeated:
+            self.assertEqual(frame.getpixel((0, 0)), (30, 60, 90))
+
+        # crossfade: two keyframes -> four frames blend at 0, 1/3, 2/3, 1 with
+        # Image.blend, giving exact intermediate pixels.
+        cross = llm.expand_keyframes([dark, bright], 4, "crossfade")
+        self.assertEqual(
+            [frame.getpixel((0, 0)) for frame in cross],
+            [(0, 0, 0), (10, 20, 30), (20, 40, 60), (30, 60, 90)],
+        )
+
+        # step: hold the nearest keyframe at or to the left of each position.
+        stepped = llm.expand_keyframes([dark, bright], 4, "step")
+        self.assertEqual(
+            [frame.getpixel((0, 0)) for frame in stepped],
+            [(0, 0, 0), (0, 0, 0), (0, 0, 0), (30, 60, 90)],
+        )
+
+    # -- full pipeline -----------------------------------------------------
+
+    def test_generate_effect_pipeline(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        plan = self._plan(frame_count=6, frame_ms=100,
+                          keyframe_prompts=("open", "closed", "open again"))
+        # Rendered keyframes deliberately differ in size: the orchestrator must
+        # normalize each to the generation raster before the crossfade blend and
+        # the mapping, or Image.blend would refuse mismatched sizes.
+        sizes = [(120, 30), (80, 80), (64, 40)]
+        colors = [(90, 0, 0), (0, 90, 0), (0, 0, 90)]
+        renderer = _FakeGenRenderer(
+            image_for=lambda i: Image.new("RGB", sizes[i], colors[i])
+        )
+        interpreter = _FakeGenInterpreter(plan=plan)
+
+        result = llm.generate_effect(
+            "pac-man chased by a blue ghost",
+            self._spec(),
+            ["frames"],
+            "CB04",
+            _FAKE_KEY,
+            _gen_factories(interpreter, renderer),
+        )
+
+        # /api/led/gif-shaped result, mapped through frames_to_led_tracks.
+        self.assertIn("tracks", result)
+        self.assertEqual(result["tracks"]["frames"]["frame_count"], 6)
+        self.assertEqual(result["model"], "CB")
+        # Generated-path GIF-shape fields (design §3): defined by the generation
+        # parameters, not decode leftovers.
+        self.assertEqual(result["source_frames"], 6)
+        self.assertEqual(result["decoded_frames"], 6)
+        self.assertEqual(result["source_duration_ms"], 6 * 100)
+        self.assertIs(result["timing_resampled"], False)
+        # duration_ms is the per-frame firmware speed (consumed as speed_ms by
+        # the UI), so it is frame_ms — not the total loop duration.
+        self.assertEqual(result["duration_ms"], 100)
+
+        # Plan + usage summaries for the UI.
+        self.assertEqual(result["plan"]["subject"], "pac-man")
+        self.assertEqual(result["plan"]["frame_count"], 6)
+        self.assertEqual(result["plan"]["rendered_keyframes"], 3)
+        self.assertEqual(result["plan"]["tween"], "crossfade")
+        self.assertEqual(result["plan"]["frame_ms"], 100)
+        self.assertEqual(result["usage"]["provider_calls"], 1 + 3)
+        self.assertEqual(result["usage"]["rendered_keyframes"], 3)
+        self.assertEqual(result["usage"]["output_frames"], 6)
+
+        # One interpret call, one render call over the three keyframes.
+        self.assertEqual(len(interpreter.calls), 1)
+        self.assertEqual(len(renderer.calls), 1)
+
+    def test_progress_phases(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        plan = self._plan(frame_count=6, keyframe_prompts=("a", "b", "c"))
+        renderer = _FakeGenRenderer(
+            image_for=lambda i: Image.new("RGB", (40, 5), (i, i, i))
+        )
+        interpreter = _FakeGenInterpreter(plan=plan)
+        phases: list[str] = []
+
+        llm.generate_effect(
+            "p", self._spec(), ["frames"], "CB04", _FAKE_KEY,
+            _gen_factories(interpreter, renderer), progress=phases.append,
+        )
+
+        self.assertEqual(
+            phases,
+            ["interpreting", "rendering 1/3", "rendering 2/3", "rendering 3/3",
+             "tweening", "mapping"],
+        )
+
+    def test_deadline_spans_phases(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        plan = self._plan(keyframe_prompts=("a", "b"))
+        renderer = _FakeGenRenderer(
+            image_for=lambda i: Image.new("RGB", (40, 5), (1, 2, 3))
+        )
+        interpreter = _FakeGenInterpreter(plan=plan)
+
+        before = time.monotonic()
+        llm.generate_effect(
+            "p", self._spec(), ["frames"], "CB04", _FAKE_KEY,
+            _gen_factories(interpreter, renderer),
+        )
+        after = time.monotonic()
+
+        interp_deadline = interpreter.calls[0]["deadline"]
+        render_deadline = renderer.calls[0]
+        # One monotonic deadline created from LLM_TOTAL_BUDGET, shared verbatim
+        # across both provider phases.
+        self.assertEqual(interp_deadline, render_deadline)
+        self.assertGreaterEqual(interp_deadline, before + llm.LLM_TOTAL_BUDGET)
+        self.assertLessEqual(interp_deadline, after + llm.LLM_TOTAL_BUDGET)
+
+    # -- cancellation ------------------------------------------------------
+
+    def test_cancel_between_phases(self) -> None:
+        # Cancel becomes true once interpret has run: the orchestrator must honor
+        # it before the paid render phase ever starts.
+        plan = self._plan(keyframe_prompts=("a", "b"))
+        renderer = _FakeGenRenderer(image_for=lambda i: None)
+        interpreter = _FakeGenInterpreter(plan=plan)
+        cancelled = lambda: len(interpreter.calls) >= 1  # noqa: E731
+
+        with self.assertRaises(llm.Cancelled):
+            llm.generate_effect(
+                "p", self._spec(), ["frames"], "CB04", _FAKE_KEY,
+                _gen_factories(interpreter, renderer), cancelled=cancelled,
+            )
+        # render() was never entered, so no paid image call was made.
+        self.assertEqual(len(renderer.calls), 0)
+
+    def test_cancel_during_render(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        plan = self._plan(keyframe_prompts=("a", "b", "c"))
+        rendered: list[int] = []
+
+        def image_for(index):
+            rendered.append(index)
+            return Image.new("RGB", (40, 5), (index, index, index))
+
+        renderer = _FakeGenRenderer(image_for=image_for)
+        interpreter = _FakeGenInterpreter(plan=plan)
+        cancelled = lambda: len(rendered) >= 1  # noqa: E731
+
+        with self.assertRaises(llm.Cancelled):
+            llm.generate_effect(
+                "p", self._spec(), ["frames"], "CB04", _FAKE_KEY,
+                _gen_factories(interpreter, renderer), cancelled=cancelled,
+            )
+        # First keyframe rendered; the second was gated off between keyframes.
+        self.assertEqual(rendered, [0])
+
+    # -- budget enforcement (mutation-proofed) -----------------------------
+
+    def test_budget_rejects_excess_keyframes(self) -> None:
+        # A rogue/faked interpreter returns more keyframes than
+        # MAX_RENDERED_KEYFRAMES; the orchestrator must reject before any paid
+        # render, capping spend regardless of provider behavior.
+        over = llm.MAX_RENDERED_KEYFRAMES + 1
+        plan = self._plan(
+            frame_count=over, keyframe_prompts=tuple(f"k{i}" for i in range(over))
+        )
+        renderer = _FakeGenRenderer(image_for=lambda i: None)
+        interpreter = _FakeGenInterpreter(plan=plan)
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm.generate_effect(
+                "p", self._spec(max_frames=200), ["frames"], "CB04", _FAKE_KEY,
+                _gen_factories(interpreter, renderer),
+            )
+        self.assertEqual(ctx.exception.code, "bad_response")
+        self.assertEqual(len(renderer.calls), 0)
+
+    def test_budget_rejects_excess_frame_count(self) -> None:
+        # frame_count over the per-model MODEL_FRAME_CAPS ceiling is rejected
+        # before any paid render.
+        plan = self._plan(frame_count=81, keyframe_prompts=("a", "b"))
+        renderer = _FakeGenRenderer(image_for=lambda i: None)
+        interpreter = _FakeGenInterpreter(plan=plan)
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm.generate_effect(
+                "p", self._spec(max_frames=80), ["frames"], "CB04", _FAKE_KEY,
+                _gen_factories(interpreter, renderer),
+            )
+        self.assertEqual(ctx.exception.code, "bad_response")
+        self.assertEqual(len(renderer.calls), 0)
+
+    def test_budget_rejects_global_frame_ceiling(self) -> None:
+        try:
+            from PIL import Image  # noqa: F401
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        # Even with an implausibly large per-model cap, MAX_LLM_FRAMES is the
+        # hard global ceiling on output frames; frame_count above it is rejected
+        # before any paid render (real images so the guard's removal would
+        # silently succeed instead of erroring elsewhere).
+        over = llm.MAX_LLM_FRAMES + 1
+        plan = self._plan(frame_count=over, keyframe_prompts=("a", "b"))
+        renderer = _FakeGenRenderer(
+            image_for=lambda i: Image.new("RGB", (40, 5), (0, 0, 0))
+        )
+        interpreter = _FakeGenInterpreter(plan=plan)
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm.generate_effect(
+                "p", self._spec(max_frames=10_000), ["frames"], "CB04", _FAKE_KEY,
+                _gen_factories(interpreter, renderer),
+            )
+        self.assertEqual(ctx.exception.code, "bad_response")
+        self.assertEqual(len(renderer.calls), 0)
+
+    # -- typed error propagation -------------------------------------------
+
+    def test_interpreter_error_propagates(self) -> None:
+        interpreter = _FakeGenInterpreter(
+            error=llm.ProviderError("rate_limited", "slow down", retry_after=7)
+        )
+        renderer = _FakeGenRenderer(image_for=lambda i: None)
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm.generate_effect(
+                "p", self._spec(), ["frames"], "CB04", _FAKE_KEY,
+                _gen_factories(interpreter, renderer),
+            )
+        self.assertEqual(ctx.exception.code, "rate_limited")
+        self.assertEqual(ctx.exception.retry_after, 7)
+        self.assertEqual(len(renderer.calls), 0)
+
+    def test_renderer_error_propagates(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        plan = self._plan(keyframe_prompts=("a", "b", "c"))
+        renderer = _FakeGenRenderer(
+            image_for=lambda i: Image.new("RGB", (40, 5), (0, 0, 0)),
+            error=llm.ProviderError("unavailable", "boom"),
+            error_at=1,
+        )
+        interpreter = _FakeGenInterpreter(plan=plan)
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm.generate_effect(
+                "p", self._spec(), ["frames"], "CB04", _FAKE_KEY,
+                _gen_factories(interpreter, renderer),
+            )
+        self.assertEqual(ctx.exception.code, "unavailable")
+
+
 class MacroProtocolTests(unittest.TestCase):
     def test_cyberboard_accepts_only_an_exact_fifteen_block_macro_prefix(self) -> None:
         counts = (22, 32, 36, 38)
