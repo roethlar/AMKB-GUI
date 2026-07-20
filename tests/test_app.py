@@ -1469,6 +1469,250 @@ class GrokInterpreterTests(unittest.TestCase):
         self.assertIn("make the ghost redder", user)
 
 
+class GrokConceptProviderTests(unittest.TestCase):
+    """Video-first concept planning and immediately bankable still results."""
+
+    def _future_deadline(self) -> float:
+        return time.monotonic() + 30.0
+
+    @staticmethod
+    def _plan_dict(count: int = 3) -> dict:
+        return {
+            "visual_brief": "A tiny amber comet crossing a deep-blue safe band.",
+            "candidate_prompts": [
+                f"Amber comet variation {index + 1}, with a distinct curved trail."
+                for index in range(count)
+            ],
+        }
+
+    @staticmethod
+    def _concept_response(plan: dict, cost_ticks=37_756_000) -> dict:
+        response = _responses_envelope(plan)
+        response["usage"]["cost_in_usd_ticks"] = cost_ticks
+        return response
+
+    def test_concept_plan_is_strict_exact_bounded_and_varied(self) -> None:
+        plan = llm.concept_plan_from_json(self._plan_dict(), 3)
+        self.assertIsInstance(plan, llm.ConceptPlan)
+        self.assertEqual(len(plan.candidate_prompts), 3)
+        self.assertIsInstance(plan.candidate_prompts, tuple)
+
+        bad_cases = {
+            "non_object": [],
+            "missing": {"visual_brief": "brief"},
+            "unknown": {**self._plan_dict(), "extra": "no"},
+            "blank_brief": {**self._plan_dict(), "visual_brief": "  "},
+            "long_brief": {
+                **self._plan_dict(),
+                "visual_brief": "x" * (llm.MAX_CONCEPT_PLAN_STRING + 1),
+            },
+            "wrong_count": self._plan_dict(2),
+            "blank_candidate": {
+                **self._plan_dict(),
+                "candidate_prompts": ["one", " ", "three"],
+            },
+            "duplicate_candidate": {
+                **self._plan_dict(),
+                "candidate_prompts": ["One", " one ", "three"],
+            },
+            "long_candidate": {
+                **self._plan_dict(),
+                "candidate_prompts": [
+                    "one",
+                    "x" * (llm.MAX_CONCEPT_PLAN_STRING + 1),
+                    "three",
+                ],
+            },
+        }
+        for name, value in bad_cases.items():
+            with self.subTest(case=name):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm.concept_plan_from_json(value, 3)
+                self.assertEqual(ctx.exception.code, "bad_response")
+
+        for count in (0, 9, True, "3"):
+            with self.subTest(count=count):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm.concept_plan_from_json(self._plan_dict(3), count)
+                self.assertEqual(ctx.exception.code, "config")
+
+    def test_planner_uses_selected_model_strict_schema_store_false_and_cost(self) -> None:
+        transport = _FakeTransport(response=self._concept_response(self._plan_dict()))
+        planner = llm.GrokConceptPlanner(
+            _FAKE_KEY, model="grok-4.3", transport=transport
+        )
+        result = planner.plan("an amber comet", 3, self._future_deadline())
+
+        self.assertEqual(result.plan.visual_brief, self._plan_dict()["visual_brief"])
+        self.assertEqual(result.usage.cost_in_usd_ticks, 37_756_000)
+        self.assertTrue(result.usage.reported)
+        self.assertEqual(len(transport.calls), 1)
+        payload = transport.calls[0]["payload"]
+        self.assertEqual(transport.calls[0]["url"], llm.XAI_RESPONSES_URL)
+        self.assertEqual(payload["model"], "grok-4.3")
+        self.assertIs(payload["store"], False)
+        fmt = payload["text"]["format"]
+        self.assertEqual(fmt["name"], "concept_plan")
+        self.assertIs(fmt["strict"], True)
+        self.assertIs(fmt["schema"]["additionalProperties"], False)
+        candidates = fmt["schema"]["properties"]["candidate_prompts"]
+        self.assertEqual(candidates["minItems"], 3)
+        self.assertEqual(candidates["maxItems"], 3)
+
+    def test_planner_rejects_prompt_count_and_uncurated_model_before_call(self) -> None:
+        transport = _FakeTransport(response=self._concept_response(self._plan_dict()))
+        planner = llm.GrokConceptPlanner(_FAKE_KEY, transport=transport)
+        for prompt in ("", "   ", "x" * (llm.MAX_CONCEPT_PROMPT_CHARS + 1), 7):
+            with self.subTest(prompt_type=type(prompt).__name__, prompt_len=getattr(prompt, "__len__", lambda: -1)()):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    planner.plan(prompt, 3, self._future_deadline())
+                self.assertEqual(ctx.exception.code, "config")
+        for count in (0, llm.MAX_CONCEPT_CANDIDATES + 1, True, "3"):
+            with self.subTest(count=count):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    planner.plan("valid", count, self._future_deadline())
+                self.assertEqual(ctx.exception.code, "config")
+        self.assertEqual(transport.calls, [])
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm.GrokConceptPlanner(_FAKE_KEY, model="grok-future", transport=transport)
+        self.assertEqual(ctx.exception.code, "config")
+
+    def test_usage_is_exact_missing_explicit_and_malformed_rejected(self) -> None:
+        missing = self._concept_response(self._plan_dict())
+        missing["usage"].pop("cost_in_usd_ticks")
+        result = llm.GrokConceptPlanner(
+            _FAKE_KEY, transport=_FakeTransport(response=missing)
+        ).plan("valid", 3, self._future_deadline())
+        self.assertIsNone(result.usage.cost_in_usd_ticks)
+        self.assertFalse(result.usage.reported)
+
+        for invalid in (True, -1, 1.5, "100"):
+            with self.subTest(value=invalid):
+                response = self._concept_response(self._plan_dict(), invalid)
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm.GrokConceptPlanner(
+                        _FAKE_KEY, transport=_FakeTransport(response=response)
+                    ).plan("valid", 3, self._future_deadline())
+                self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_planner_refusal_typed_errors_and_secret_redaction(self) -> None:
+        refusal = {
+            "output": [{"type": "message", "content": [{"type": "refusal"}]}],
+            "usage": {"cost_in_usd_ticks": 123},
+        }
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm.GrokConceptPlanner(
+                _FAKE_KEY, transport=_FakeTransport(response=refusal)
+            ).plan("valid", 2, self._future_deadline())
+        self.assertEqual(ctx.exception.code, "moderation")
+        self.assertEqual(ctx.exception.usage.cost_in_usd_ticks, 123)
+
+        leaky = llm.ProviderError("offline", f"failed using {_FAKE_KEY}")
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm.GrokConceptPlanner(
+                _FAKE_KEY, transport=_FakeTransport(error=leaky)
+            ).plan("valid", 2, self._future_deadline())
+        self.assertEqual(ctx.exception.code, "offline")
+        self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+
+    def test_single_image_returns_original_bytes_metadata_image_and_exact_cost(self) -> None:
+        from PIL import Image
+
+        for fmt, expected_mime in (("PNG", "image/png"), ("JPEG", "image/jpeg")):
+            with self.subTest(fmt=fmt):
+                source = Image.new("RGB", (12, 6), (11, 22, 33))
+                raw_buffer = io.BytesIO()
+                source.save(raw_buffer, fmt)
+                original = raw_buffer.getvalue()
+                response = {
+                    "data": [{
+                        "b64_json": base64.b64encode(original).decode("ascii"),
+                        "mime_type": expected_mime,
+                        "revised_prompt": "provider-safe revision",
+                    }],
+                    "usage": {"cost_in_usd_ticks": 200_000_000},
+                }
+                transport = _FakeTransport(response=response)
+                provider = llm.GrokConceptImageProvider(
+                    _FAKE_KEY, model="grok-imagine-image-quality", transport=transport
+                )
+                result = provider.generate_one("a complete candidate", self._future_deadline())
+
+                self.assertEqual(result.original_bytes, original)
+                self.assertEqual(result.image.mode, "RGB")
+                self.assertEqual(result.image.size, (12, 6))
+                self.assertEqual(result.metadata.format, fmt)
+                self.assertEqual(result.metadata.mime_type, expected_mime)
+                self.assertEqual(result.metadata.width, 12)
+                self.assertEqual(result.metadata.height, 6)
+                self.assertEqual(result.metadata.revised_prompt, "provider-safe revision")
+                self.assertEqual(result.usage.cost_in_usd_ticks, 200_000_000)
+                payload = transport.calls[0]["payload"]
+                self.assertEqual(payload["model"], "grok-imagine-image-quality")
+                self.assertEqual(payload["prompt"], "a complete candidate")
+                self.assertEqual(payload["n"], 1)
+                self.assertEqual(payload["aspect_ratio"], "20:9")
+                self.assertEqual(payload["resolution"], "1k")
+                self.assertEqual(payload["response_format"], "b64_json")
+
+    def test_single_image_is_strict_about_one_result_and_response_metadata(self) -> None:
+        from PIL import Image
+
+        b64 = _encode_image(Image.new("RGB", (8, 4), (1, 2, 3)))
+        bad_responses = (
+            {"data": [{"b64_json": b64}, {"b64_json": b64}]},
+            {"data": [{"b64_json": b64, "mime_type": "image/jpeg"}]},
+            {"data": [{"b64_json": b64, "revised_prompt": [_FAKE_KEY]}]},
+        )
+        for response in bad_responses:
+            with self.subTest(response=response):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm.GrokConceptImageProvider(
+                        _FAKE_KEY, transport=_FakeTransport(response=response)
+                    ).generate_one("valid", self._future_deadline())
+                self.assertEqual(ctx.exception.code, "bad_response")
+                self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+
+    def test_candidates_callback_banks_before_next_call_and_cancel_is_between_calls(self) -> None:
+        from PIL import Image
+
+        response = {
+            **_image_envelope(_encode_image(Image.new("RGB", (8, 4), (1, 2, 3)))),
+            "usage": {"cost_in_usd_ticks": 10},
+        }
+        transport = _FakeTransport(response=response)
+        provider = llm.GrokConceptImageProvider(_FAKE_KEY, transport=transport)
+        plan = llm.concept_plan_from_json(self._plan_dict(), 3)
+        events: list[tuple[str, int]] = []
+
+        def bank(index, _prompt, result):
+            events.append(("bank", index))
+            self.assertEqual(len(transport.calls), index + 1)
+            self.assertEqual(result.usage.cost_in_usd_ticks, 10)
+
+        results = provider.generate_candidates(
+            plan, self._future_deadline(), on_candidate=bank
+        )
+        self.assertEqual(len(results), 3)
+        self.assertEqual(events, [("bank", 0), ("bank", 1), ("bank", 2)])
+
+        cancel_transport = _FakeTransport(response=response)
+        cancel_provider = llm.GrokConceptImageProvider(
+            _FAKE_KEY, transport=cancel_transport
+        )
+        banked: list[int] = []
+        with self.assertRaises(llm.Cancelled):
+            cancel_provider.generate_candidates(
+                plan,
+                self._future_deadline(),
+                on_candidate=lambda index, _prompt, _result: banked.append(index),
+                cancelled=lambda: bool(banked),
+            )
+        self.assertEqual(banked, [0])
+        self.assertEqual(len(cancel_transport.calls), 1)
+
+
 class GrokImagineRendererTests(unittest.TestCase):
     """Task 6: ``GrokImagineRenderer`` sequential per-keyframe rendering, the full
     response validation chain (shape → base64 → byte cap → format whitelist →

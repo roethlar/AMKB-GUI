@@ -26,6 +26,8 @@ import urllib.request
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from .ai_catalog import DEFAULT_MODELS, validate_model
+
 if TYPE_CHECKING:  # pragma: no cover - typing only; Pillow is a runtime-optional dep
     from PIL import Image
 
@@ -42,6 +44,9 @@ MAX_IMAGE_BYTES = 12_000_000  # decoded-image byte cap before Pillow open (bytes
 MAX_IMAGE_PIXELS = 4_000_000  # decoded-image pixel cap (width*height) before load()
 LLM_TOTAL_BUDGET = 120.0  # monotonic deadline budget across both phases (seconds)
 PER_CALL_TIMEOUT = 30.0  # hard ceiling on any single upstream call; the deadline caps it lower
+MAX_CONCEPT_PROMPT_CHARS = 4000
+MAX_CONCEPT_CANDIDATES = 8
+MAX_CONCEPT_PLAN_STRING = 2000
 
 # Firmware LED speed steps. Duplicated from ``server._LED_SPEEDS_MS`` so this
 # module stays importable without ``server``; a drift-guard test keeps the two
@@ -87,6 +92,17 @@ PROVIDER_ERROR_CODES = (
 _MAX_PLAN_STRING = 2000  # per-field character cap on interpreter-supplied text
 
 
+@dataclass(frozen=True)
+class ProviderUsage:
+    """Exact provider-reported response cost, or an explicit missing marker."""
+
+    cost_in_usd_ticks: int | None
+    reported: bool
+
+
+MISSING_PROVIDER_USAGE = ProviderUsage(cost_in_usd_ticks=None, reported=False)
+
+
 class ProviderError(Exception):
     """A typed provider failure carrying a stable ``code`` for HTTP mapping.
 
@@ -95,11 +111,18 @@ class ProviderError(Exception):
     Messages must never contain an API key: callers redact before constructing.
     """
 
-    def __init__(self, code: str, message: str, retry_after: int | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        retry_after: int | None = None,
+        usage: ProviderUsage = MISSING_PROVIDER_USAGE,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.retry_after = retry_after
+        self.usage = usage
 
 
 @dataclass(frozen=True)
@@ -142,6 +165,37 @@ class EffectPlan:
     keyframe_prompts: tuple[str, ...]
     tween: str
     notes: str
+
+
+@dataclass(frozen=True)
+class ConceptPlan:
+    """Validated concept-planning output with exactly the requested candidates."""
+
+    visual_brief: str
+    candidate_prompts: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ConceptPlanResult:
+    plan: ConceptPlan
+    usage: ProviderUsage
+
+
+@dataclass(frozen=True)
+class ImageMetadata:
+    format: str
+    mime_type: str
+    width: int
+    height: int
+    revised_prompt: str | None
+
+
+@dataclass(frozen=True)
+class ConceptImageResult:
+    original_bytes: bytes
+    metadata: ImageMetadata
+    image: Image.Image
+    usage: ProviderUsage
 
 
 @dataclass(frozen=True)
@@ -253,6 +307,53 @@ def plan_from_json(data: object, spec: RasterSpec) -> EffectPlan:
     )
 
 
+def _concept_count(value: object) -> int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 1 <= value <= MAX_CONCEPT_CANDIDATES
+    ):
+        raise ProviderError(
+            "config", f"concept candidate count must be an integer from 1 to {MAX_CONCEPT_CANDIDATES}"
+        )
+    return value
+
+
+def _concept_string(value: object, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ProviderError("bad_response", f"concept field {field!r} must be a non-empty string")
+    if len(value) > MAX_CONCEPT_PLAN_STRING:
+        raise ProviderError(
+            "bad_response",
+            f"concept field {field!r} exceeds {MAX_CONCEPT_PLAN_STRING} characters",
+        )
+    return value
+
+
+def concept_plan_from_json(data: object, candidate_count: object) -> ConceptPlan:
+    """Strictly validate a concept plan independently of provider-side schema checks."""
+    count = _concept_count(candidate_count)
+    if not isinstance(data, dict):
+        raise ProviderError("bad_response", "concept plan must be a JSON object")
+    expected = {"visual_brief", "candidate_prompts"}
+    if set(data) != expected:
+        raise ProviderError("bad_response", "concept plan fields did not match the schema")
+
+    visual_brief = _concept_string(data["visual_brief"], "visual_brief")
+    raw_prompts = data["candidate_prompts"]
+    if not isinstance(raw_prompts, list) or len(raw_prompts) != count:
+        raise ProviderError(
+            "bad_response", f"concept plan must contain exactly {count} candidate prompts"
+        )
+    prompts = tuple(
+        _concept_string(prompt, "candidate_prompts") for prompt in raw_prompts
+    )
+    normalized = {prompt.strip().casefold() for prompt in prompts}
+    if len(normalized) != count:
+        raise ProviderError("bad_response", "concept candidate prompts must be unique")
+    return ConceptPlan(visual_brief=visual_brief, candidate_prompts=prompts)
+
+
 # --- xAI HTTP transport ------------------------------------------------------
 #
 # ``_xai_request`` is the single choke point through which every xAI call
@@ -268,6 +369,46 @@ def _redact(text: str, secret: str | None) -> str:
     if secret and secret in text:
         text = text.replace(secret, "<redacted>")
     return text
+
+
+def _provider_usage(response: dict) -> ProviderUsage:
+    """Read exact integer USD ticks without estimating or coercing provider data."""
+    if "usage" not in response:
+        return MISSING_PROVIDER_USAGE
+    usage = response["usage"]
+    if not isinstance(usage, dict):
+        raise ProviderError("bad_response", "provider usage was not an object")
+    if "cost_in_usd_ticks" not in usage:
+        return MISSING_PROVIDER_USAGE
+    ticks = usage["cost_in_usd_ticks"]
+    if isinstance(ticks, bool) or not isinstance(ticks, int) or ticks < 0:
+        raise ProviderError(
+            "bad_response",
+            "provider cost_in_usd_ticks must be a nonnegative integer",
+        )
+    return ProviderUsage(cost_in_usd_ticks=ticks, reported=True)
+
+
+def _call_provider(transport, url: str, payload: dict, api_key: str, deadline: float) -> dict:
+    """Invoke an injected transport while preserving typed, redacted failures."""
+    try:
+        response = transport(url, payload, api_key, deadline)
+    except ProviderError as exc:
+        code = exc.code if exc.code in PROVIDER_ERROR_CODES else "unavailable"
+        raise ProviderError(
+            code,
+            _redact(str(exc), api_key),
+            retry_after=exc.retry_after,
+            usage=exc.usage,
+        ) from exc
+    except Exception as exc:
+        raise ProviderError(
+            "unavailable",
+            _redact(f"provider call failed: {exc}", api_key),
+        ) from exc
+    if not isinstance(response, dict):
+        raise ProviderError("bad_response", "provider response was not a JSON object")
+    return response
 
 
 def _parse_retry_after(value: str | None) -> int | None:
@@ -621,6 +762,137 @@ class GrokInterpreter:
 INTERPRETERS["grok"] = GrokInterpreter
 
 
+def _curated_model(role: str, model: object) -> str:
+    try:
+        return validate_model(role, model)
+    except ValueError as exc:
+        raise ProviderError("config", f"selected {role} model is not available") from exc
+
+
+class GrokConceptPlanner:
+    """Create a strict, exactly-N concept plan through the xAI Responses API."""
+
+    def __init__(self, api_key: str, model: str | None = None, transport=None) -> None:
+        self._api_key = api_key
+        self._model = _curated_model(
+            "interpreter", DEFAULT_MODELS["interpreter"] if model is None else model
+        )
+        self._transport = transport if transport is not None else _xai_request
+
+    def plan(
+        self, prompt: object, candidate_count: object, deadline: float
+    ) -> ConceptPlanResult:
+        if (
+            not isinstance(prompt, str)
+            or not prompt.strip()
+            or len(prompt) > MAX_CONCEPT_PROMPT_CHARS
+        ):
+            raise ProviderError(
+                "config",
+                f"concept prompt must be a non-empty string of at most {MAX_CONCEPT_PROMPT_CHARS} characters",
+            )
+        count = _concept_count(candidate_count)
+        payload = {
+            "model": self._model,
+            "store": False,
+            "input": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a lighting concept designer. Return exactly "
+                        f"{count} unique, meaningfully varied still-image prompts. "
+                        "Each prompt must describe a complete standalone image, use a "
+                        "wide 20:9 composition, and keep important content in the safe "
+                        "central horizontal band."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "concept_plan",
+                    "strict": True,
+                    "schema": self._schema(count),
+                }
+            },
+        }
+        response = _call_provider(
+            self._transport, XAI_RESPONSES_URL, payload, self._api_key, deadline
+        )
+        usage = _provider_usage(response)
+        try:
+            text = self._extract_output_text(response)
+            parsed = json.loads(text)
+            plan = concept_plan_from_json(parsed, count)
+        except ProviderError as exc:
+            raise ProviderError(
+                exc.code,
+                _redact(str(exc), self._api_key),
+                retry_after=exc.retry_after,
+                usage=usage,
+            ) from exc
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ProviderError(
+                "bad_response",
+                _redact(f"concept planner output was not valid JSON: {exc}", self._api_key),
+                usage=usage,
+            ) from exc
+        return ConceptPlanResult(plan=plan, usage=usage)
+
+    @staticmethod
+    def _schema(count: int) -> dict:
+        return {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "visual_brief": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": MAX_CONCEPT_PLAN_STRING,
+                },
+                "candidate_prompts": {
+                    "type": "array",
+                    "minItems": count,
+                    "maxItems": count,
+                    "uniqueItems": True,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_CONCEPT_PLAN_STRING,
+                    },
+                },
+            },
+            "required": ["visual_brief", "candidate_prompts"],
+        }
+
+    @staticmethod
+    def _extract_output_text(response: dict) -> str:
+        output = response.get("output")
+        if not isinstance(output, list):
+            raise ProviderError("bad_response", "concept response missing an output list")
+        texts: list[str] = []
+        for item in output:
+            if not isinstance(item, dict) or item.get("type") != "message":
+                continue
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "refusal":
+                    raise ProviderError(
+                        "moderation",
+                        "the provider declined this prompt; try rephrasing it",
+                    )
+                if part.get("type") == "output_text" and isinstance(part.get("text"), str):
+                    texts.append(part["text"])
+        if not texts:
+            raise ProviderError("bad_response", "concept response contained no output text")
+        return "".join(texts)
+
+
 # --- Grok Imagine renderer (EffectPlan -> RenderedFrames) --------------------
 #
 # ``GrokImagineRenderer`` turns each of ``plan.keyframe_prompts`` into one
@@ -650,6 +922,186 @@ class Cancelled(Exception):
     provider failure, so it carries no error code and no HTTP mapping. The job
     layer turns it into a cancelled job state and discards any partial work.
     """
+
+
+def _validated_image_result(
+    response: dict,
+    api_key: str,
+    usage: ProviderUsage,
+    *,
+    require_exactly_one: bool,
+) -> ConceptImageResult:
+    """Validate inline image bytes and retain both the original and RGB decode."""
+    from PIL import Image, UnidentifiedImageError  # lazy optional dependency
+
+    data = response.get("data")
+    if not isinstance(data, list) or not data:
+        raise ProviderError("bad_response", "image response missing a data list", usage=usage)
+    if require_exactly_one and len(data) != 1:
+        raise ProviderError(
+            "bad_response", "image response must contain exactly one result", usage=usage
+        )
+    entry = data[0]
+    if not isinstance(entry, dict):
+        raise ProviderError(
+            "bad_response", "image response entry was not an object", usage=usage
+        )
+    b64 = entry.get("b64_json")
+    if not isinstance(b64, str) or not b64:
+        raise ProviderError(
+            "bad_response",
+            "image response carried no inline base64 image (b64_json)",
+            usage=usage,
+        )
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ProviderError(
+            "bad_response",
+            _redact(f"image payload was not valid base64: {exc}", api_key),
+            usage=usage,
+        ) from exc
+    if not raw:
+        raise ProviderError(
+            "bad_response", "image payload decoded to zero bytes", usage=usage
+        )
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise ProviderError(
+            "bad_response",
+            f"decoded image exceeded the {MAX_IMAGE_BYTES}-byte cap",
+            usage=usage,
+        )
+
+    try:
+        source = Image.open(io.BytesIO(raw))
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ProviderError(
+            "bad_response",
+            _redact(f"image payload could not be opened: {exc}", api_key),
+            usage=usage,
+        ) from exc
+
+    image_format = source.format
+    if image_format not in ("PNG", "JPEG"):
+        source.close()
+        raise ProviderError(
+            "bad_response",
+            f"image format {image_format!r} is not PNG or JPEG",
+            usage=usage,
+        )
+    width, height = source.size
+    if width * height > MAX_IMAGE_PIXELS:
+        source.close()
+        raise ProviderError(
+            "bad_response",
+            f"decoded image {width}x{height} exceeds the {MAX_IMAGE_PIXELS}-pixel cap",
+            usage=usage,
+        )
+    try:
+        source.load()
+        rgb = source.convert("RGB")
+    except (OSError, ValueError) as exc:
+        source.close()
+        raise ProviderError(
+            "bad_response",
+            _redact(f"image payload could not be decoded: {exc}", api_key),
+            usage=usage,
+        ) from exc
+    finally:
+        source.close()
+
+    mime_type = "image/png" if image_format == "PNG" else "image/jpeg"
+    declared_mime = entry.get("mime_type")
+    if declared_mime is not None and declared_mime != mime_type:
+        rgb.close()
+        raise ProviderError(
+            "bad_response", "image MIME metadata did not match its bytes", usage=usage
+        )
+    revised_prompt = entry.get("revised_prompt")
+    if revised_prompt is not None and not isinstance(revised_prompt, str):
+        rgb.close()
+        raise ProviderError(
+            "bad_response", "image revised_prompt metadata was not a string", usage=usage
+        )
+    if revised_prompt is not None:
+        revised_prompt = _redact(revised_prompt, api_key)
+    return ConceptImageResult(
+        original_bytes=raw,
+        metadata=ImageMetadata(
+            format=image_format,
+            mime_type=mime_type,
+            width=width,
+            height=height,
+            revised_prompt=revised_prompt,
+        ),
+        image=rgb,
+        usage=usage,
+    )
+
+
+class GrokConceptImageProvider:
+    """Generate and validate one bankable concept still per paid Images POST."""
+
+    def __init__(self, api_key: str, model: str | None = None, transport=None) -> None:
+        self._api_key = api_key
+        self._model = _curated_model(
+            "concept", DEFAULT_MODELS["concept"] if model is None else model
+        )
+        self._transport = transport if transport is not None else _xai_request
+
+    def generate_one(self, prompt: object, deadline: float) -> ConceptImageResult:
+        if (
+            not isinstance(prompt, str)
+            or not prompt.strip()
+            or len(prompt) > MAX_CONCEPT_PROMPT_CHARS
+        ):
+            raise ProviderError(
+                "config",
+                f"concept image prompt must be a non-empty string of at most {MAX_CONCEPT_PROMPT_CHARS} characters",
+            )
+        payload = {
+            "model": self._model,
+            "prompt": prompt,
+            "n": 1,
+            "aspect_ratio": "20:9",
+            "resolution": "1k",
+            "response_format": "b64_json",
+        }
+        response = _call_provider(
+            self._transport, XAI_IMAGES_URL, payload, self._api_key, deadline
+        )
+        usage = _provider_usage(response)
+        try:
+            return _validated_image_result(
+                response, self._api_key, usage, require_exactly_one=True
+            )
+        except ProviderError as exc:
+            raise ProviderError(
+                exc.code,
+                _redact(str(exc), self._api_key),
+                retry_after=exc.retry_after,
+                usage=usage,
+            ) from exc
+
+    def generate_candidates(
+        self,
+        plan: ConceptPlan,
+        deadline: float,
+        *,
+        on_candidate=None,
+        cancelled=None,
+    ) -> tuple[ConceptImageResult, ...]:
+        if not isinstance(plan, ConceptPlan):
+            raise ProviderError("config", "a validated ConceptPlan is required")
+        results: list[ConceptImageResult] = []
+        for index, prompt in enumerate(plan.candidate_prompts):
+            if cancelled is not None and cancelled():
+                raise Cancelled("concept generation cancelled between image calls")
+            result = self.generate_one(prompt, deadline)
+            if on_candidate is not None:
+                on_candidate(index, prompt, result)
+            results.append(result)
+        return tuple(results)
 
 
 # Shared style prefix applied to every keyframe prompt for cross-frame
@@ -751,51 +1203,12 @@ class GrokImagineRenderer:
         pixel cap → load) and returns an RGB image. Pillow is imported here so
         the module imports without Pillow in a core install.
         """
-        from PIL import Image, UnidentifiedImageError  # lazy: Pillow is optional in core
-
-        b64 = self._extract_b64(response)
-        try:
-            raw = base64.b64decode(b64, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise ProviderError(
-                "bad_response",
-                _redact(f"image payload was not valid base64: {exc}", self._api_key),
-            ) from exc
-        if not raw:
-            raise ProviderError("bad_response", "image payload decoded to zero bytes")
-        if len(raw) > MAX_IMAGE_BYTES:
-            raise ProviderError(
-                "bad_response",
-                f"decoded image exceeded the {MAX_IMAGE_BYTES}-byte cap",
-            )
-
-        try:
-            image = Image.open(io.BytesIO(raw))
-        except (UnidentifiedImageError, OSError, ValueError) as exc:
-            raise ProviderError(
-                "bad_response",
-                _redact(f"image payload could not be opened: {exc}", self._api_key),
-            ) from exc
-
-        if image.format not in ("PNG", "JPEG"):
-            raise ProviderError(
-                "bad_response", f"image format {image.format!r} is not PNG or JPEG"
-            )
-        if image.width * image.height > MAX_IMAGE_PIXELS:
-            raise ProviderError(
-                "bad_response",
-                f"decoded image {image.width}x{image.height} exceeds the "
-                f"{MAX_IMAGE_PIXELS}-pixel cap",
-            )
-
-        try:
-            image.load()
-        except (OSError, ValueError) as exc:
-            raise ProviderError(
-                "bad_response",
-                _redact(f"image payload could not be decoded: {exc}", self._api_key),
-            ) from exc
-        return image.convert("RGB")
+        return _validated_image_result(
+            response,
+            self._api_key,
+            MISSING_PROVIDER_USAGE,
+            require_exactly_one=False,
+        ).image
 
 
 RENDERERS["grok"] = GrokImagineRenderer
