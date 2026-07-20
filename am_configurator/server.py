@@ -504,6 +504,52 @@ def extract_importable_macros(config: Any) -> list[dict[str, Any]]:
     return result
 
 
+def _product_family(value: Any) -> str:
+    product = str(value or "").upper()
+    if product in {"80", "AM21"}:
+        return "80"
+    if product == "ALICE":
+        return "ALICE"
+    if product.startswith("CB"):
+        return "CB"
+    return product
+
+
+def config_transfer_options(config: Any, target_product_id: Any) -> dict[str, Any]:
+    """Describe which parts of a profile can safely move to another board."""
+    if not isinstance(config, dict):
+        raise ValueError("The selected JSON is not a configuration object.")
+    source_product_id = str(
+        ((config.get("product_info") or {}).get("product_id") or "")
+    )
+    if not source_product_id:
+        raise ValueError("The selected JSON has no product_info.product_id.")
+    target = str(target_product_id or "")
+    if not target:
+        raise ValueError("The target keyboard has no product ID.")
+
+    try:
+        imported_macros = extract_importable_macros(config)
+        macro_error = None
+    except ValueError as exc:
+        imported_macros = []
+        macro_error = str(exc)
+
+    compatible = _product_family(source_product_id) == _product_family(target)
+    key_layers = ((config.get("key_layer") or {}).get("layer_data") or [])
+    led_pages = config.get("page_data") or []
+    return {
+        "compatible": compatible,
+        "source_product_id": source_product_id,
+        "target_product_id": target,
+        "can_import_macros": bool(imported_macros),
+        "macro_count": len(imported_macros),
+        "macro_error": macro_error,
+        "can_merge_keymap": compatible and bool(key_layers),
+        "can_merge_leds": compatible and bool(led_pages),
+    }
+
+
 def text_to_macro_events(text: Any, delay_ms: Any = 10) -> dict[str, Any]:
     """Compile US-layout text into deterministic macro key-down/up events."""
     if not isinstance(text, str) or not text:
@@ -668,15 +714,7 @@ def validate_config(config: Any) -> dict[str, Any]:
 
 
 def _device_matches_config(device_id: str, config_id: str) -> bool:
-    device = device_id.upper()
-    config = config_id.upper()
-    if config == "80":
-        return device == "AM21"
-    if config == "ALICE":
-        return device == "ALICE"
-    if config.startswith("CB"):
-        return device.startswith("CB")
-    return device == config
+    return _product_family(device_id) == _product_family(config_id)
 
 
 def _stored_device_config(device_id: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -912,6 +950,11 @@ class _Handler(BaseHTTPRequestHandler):
             body = self._body()
             if path == "/api/config/validate":
                 self._json(validate_config(body.get("config")))
+            elif path == "/api/config/compatibility":
+                self._json(config_transfer_options(
+                    body.get("config"),
+                    body.get("target_product_id"),
+                ))
             elif path == "/api/macros/import":
                 source = body.get("config")
                 self._json({

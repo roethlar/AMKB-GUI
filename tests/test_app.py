@@ -24,6 +24,7 @@ from am_configurator.server import (
     _stored_device_config,
     _verify_keymap_readback,
     blank_config,
+    config_transfer_options,
     create_server,
     extract_importable_macros,
     gif_to_led_frames,
@@ -315,6 +316,27 @@ class MergeTests(unittest.TestCase):
         self.assertTrue(_device_matches_config("ALICE", "ALICE"))
         self.assertTrue(_device_matches_config("CB04", "CB_XX"))
         self.assertFalse(_device_matches_config("AM21", "ALICE"))
+
+    def test_cross_board_transfer_allows_only_portable_macros(self) -> None:
+        source = _base_config("80")
+        source["page_data"] = [_page(index) for index in range(8)]
+        source["macro_key"] = [{
+            "original_key": "#00951500",
+            "layer_key": ["#11070004", "#10070004"],
+            "intvel_ms": [25, 0],
+        }]
+
+        cross_board = config_transfer_options(source, "CB04")
+        self.assertFalse(cross_board["compatible"])
+        self.assertTrue(cross_board["can_import_macros"])
+        self.assertEqual(1, cross_board["macro_count"])
+        self.assertFalse(cross_board["can_merge_keymap"])
+        self.assertFalse(cross_board["can_merge_leds"])
+
+        same_board = config_transfer_options(source, "AM21")
+        self.assertTrue(same_board["compatible"])
+        self.assertTrue(same_board["can_merge_keymap"])
+        self.assertTrue(same_board["can_merge_leds"])
 
     def test_blank_config_from_device_is_writable(self) -> None:
         config = blank_config("AM21", [["#00000000"] * 200] * 7, [])
