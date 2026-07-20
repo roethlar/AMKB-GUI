@@ -288,25 +288,42 @@ def snapshot(product_id: str, ir: dict) -> Path:
     return path
 
 
-# --- App-level settings (LLM providers + API keys) ---------------------------
+# --- App-level settings -------------------------------------------------------
 #
-# App-scoped (not device-scoped) configuration in a single settings.json under
-# the store root. It records the chosen LLM providers and any API keys. Keys are
+# App-scoped configuration in one settings.json under the store root. Keys are
 # stored in plaintext (0600 where the OS supports it), disclosed as such in the
 # UI; an XAI_API_KEY environment override is honoured without ever being written
-# to disk. The write contract is strict: unknown fields, unknown provider names,
-# and the display mask sentinel are rejected rather than merged, and raw key
-# values never appear in error messages.
+# to disk. The v2 write contract is strict and each UI section mutates only its
+# own fields, so a model or library change can never erase a key.
 
 KEY_MASK = "•" * 8  # UI display mask; never a legal stored key value
-_KNOWN_INTERPRETERS = ("grok",)
-_KNOWN_RENDERERS = ("grok",)
+SETTINGS_SCHEMA_VERSION = 2
+LOOP_MODES = ("smooth", "none", "ping_pong")
+MIN_CANDIDATE_COUNT = 1
+MAX_CANDIDATE_COUNT = 8
+_LEGACY_INTERPRETERS = ("grok",)
+_LEGACY_RENDERERS = ("grok",)
+# Kept until the superseded provider-registry generator is removed in Task 16.
+_KNOWN_INTERPRETERS = _LEGACY_INTERPRETERS
+_KNOWN_RENDERERS = _LEGACY_RENDERERS
 _KNOWN_KEY_PROVIDERS = ("xai",)
 
 
 def _default_settings() -> dict:
     """A fresh copy of the default app settings (no key configured)."""
-    return {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}}}
+    from . import ai_catalog
+
+    return {
+        "schema_version": SETTINGS_SCHEMA_VERSION,
+        "llm": {"models": dict(ai_catalog.DEFAULT_MODELS), "keys": {}},
+        "library": {"current_root": None, "roots": []},
+        "generation": {
+            "candidate_count": 4,
+            "loop_mode": "smooth",
+            "privacy_ack_version": None,
+            "privacy_ack_at": None,
+        },
+    }
 
 
 def settings_path() -> Path:
@@ -344,43 +361,21 @@ def _settings_lock():
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
-def _validate_settings(values: object) -> dict:
-    """Strict-validate `values` and normalise them onto the defaults.
-
-    Known fields overlay the defaults; an empty-string API key clears its entry.
-    Unknown top-level keys, unknown `llm` keys, unknown provider names, non-string
-    key values, and the mask sentinel raise ``ValueError``. Raw key values are
-    never echoed into the error message.
-    """
+def _object(values: object, label: str) -> dict:
     if not isinstance(values, dict):
-        raise ValueError("settings must be a JSON object")
-    unknown_top = set(values) - {"llm"}
-    if unknown_top:
-        raise ValueError(f"unknown settings field(s): {sorted(unknown_top)}")
+        raise ValueError(f"{label} must be a JSON object")
+    return values
 
-    llm = values.get("llm", {})
-    if not isinstance(llm, dict):
-        raise ValueError("settings 'llm' must be a JSON object")
-    unknown_llm = set(llm) - {"interpreter", "renderer", "keys"}
-    if unknown_llm:
-        raise ValueError(f"unknown llm settings field(s): {sorted(unknown_llm)}")
 
-    result = _default_settings()
-    if "interpreter" in llm:
-        interpreter = llm["interpreter"]
-        if interpreter not in _KNOWN_INTERPRETERS:
-            raise ValueError(f"unknown interpreter provider {interpreter!r}")
-        result["llm"]["interpreter"] = interpreter
-    if "renderer" in llm:
-        renderer = llm["renderer"]
-        if renderer not in _KNOWN_RENDERERS:
-            raise ValueError(f"unknown renderer provider {renderer!r}")
-        result["llm"]["renderer"] = renderer
+def _reject_unknown(values: dict, allowed: set[str], label: str) -> None:
+    unknown = set(values) - allowed
+    if unknown:
+        raise ValueError(f"unknown {label} field(s): {sorted(unknown)}")
 
-    keys = llm.get("keys", {})
-    if not isinstance(keys, dict):
-        raise ValueError("settings 'llm.keys' must be a JSON object")
-    normalized_keys: dict = {}
+
+def _validate_keys(values: object) -> dict[str, str]:
+    keys = _object(values, "settings 'llm.keys'")
+    normalized: dict[str, str] = {}
     for name, value in keys.items():
         if name not in _KNOWN_KEY_PROVIDERS:
             raise ValueError(f"unknown API key provider {name!r}")
@@ -389,17 +384,158 @@ def _validate_settings(values: object) -> dict:
             raise ValueError(f"API key for {name!r} must be a string")
         if value == KEY_MASK:
             raise ValueError(f"API key for {name!r} is the display mask, not a real key")
-        if value == "":
-            continue  # empty string clears the stored key
-        normalized_keys[name] = value
-    result["llm"]["keys"] = normalized_keys
+        if value:
+            normalized[name] = value
+    return normalized
+
+
+def _canonical_library_root(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("library current_root must be an absolute path or null")
+    try:
+        path = Path(value).expanduser()
+    except (OSError, RuntimeError) as exc:
+        raise ValueError("library current_root could not be canonicalized") from exc
+    if not path.is_absolute():
+        raise ValueError("library current_root must be an absolute path or null")
+    try:
+        return str(path.resolve(strict=False))
+    except (OSError, RuntimeError) as exc:
+        raise ValueError("library current_root could not be canonicalized") from exc
+
+
+def _validate_legacy_settings(values: object) -> dict:
+    """Validate the unversioned v1 shape and return normalized v2 settings."""
+    settings = _object(values, "settings")
+    unknown_top = set(settings) - {"schema_version", "llm"}
+    if unknown_top:
+        raise ValueError(f"unknown settings field(s): {sorted(unknown_top)}")
+    if "schema_version" in settings:
+        version = settings["schema_version"]
+        if type(version) is not int or version != 1:
+            raise ValueError("unsupported settings schema_version")
+
+    llm = _object(settings.get("llm", {}), "settings 'llm'")
+    unknown_llm = set(llm) - {"interpreter", "renderer", "keys"}
+    if unknown_llm:
+        raise ValueError(f"unknown llm settings field(s): {sorted(unknown_llm)}")
+
+    result = _default_settings()
+    if "interpreter" in llm:
+        interpreter = llm["interpreter"]
+        if interpreter not in _LEGACY_INTERPRETERS:
+            raise ValueError("unknown interpreter provider")
+    if "renderer" in llm:
+        renderer = llm["renderer"]
+        if renderer not in _LEGACY_RENDERERS:
+            raise ValueError("unknown renderer provider")
+    result["llm"]["keys"] = _validate_keys(llm.get("keys", {}))
     return result
+
+
+def _validate_settings(values: object) -> dict:
+    """Strict-validate and normalize a v2 settings object."""
+    from . import ai_catalog
+
+    settings = _object(values, "settings")
+    _reject_unknown(
+        settings,
+        {"schema_version", "llm", "library", "generation"},
+        "settings",
+    )
+    version = settings.get("schema_version")
+    if type(version) is not int or version != SETTINGS_SCHEMA_VERSION:
+        raise ValueError("unsupported settings schema_version")
+    result = _default_settings()
+
+    llm = _object(settings.get("llm", {}), "settings 'llm'")
+    _reject_unknown(llm, {"models", "keys"}, "llm settings")
+    models = _object(llm.get("models", {}), "settings 'llm.models'")
+    _reject_unknown(models, set(ai_catalog.MODEL_IDS), "llm model")
+    for role, model_id in models.items():
+        result["llm"]["models"][role] = ai_catalog.validate_model(role, model_id)
+    result["llm"]["keys"] = _validate_keys(llm.get("keys", {}))
+
+    library = _object(settings.get("library", {}), "settings 'library'")
+    _reject_unknown(library, {"current_root", "roots"}, "library settings")
+    result["library"]["current_root"] = _canonical_library_root(
+        library.get("current_root")
+    )
+    roots = library.get("roots", [])
+    if not isinstance(roots, list):
+        raise ValueError("settings 'library.roots' must be a JSON array")
+    normalized_roots: list[str] = []
+    for root in roots:
+        canonical = _canonical_library_root(root)
+        if canonical is None:
+            raise ValueError("settings 'library.roots' entries must be absolute paths")
+        if canonical not in normalized_roots:
+            normalized_roots.append(canonical)
+    result["library"]["roots"] = normalized_roots
+
+    generation = _object(settings.get("generation", {}), "settings 'generation'")
+    _reject_unknown(
+        generation,
+        {"candidate_count", "loop_mode", "privacy_ack_version", "privacy_ack_at"},
+        "generation settings",
+    )
+    candidate_count = generation.get("candidate_count", 4)
+    if (
+        type(candidate_count) is not int
+        or not MIN_CANDIDATE_COUNT <= candidate_count <= MAX_CANDIDATE_COUNT
+    ):
+        raise ValueError("candidate_count must be an integer from 1 through 8")
+    loop_mode = generation.get("loop_mode", "smooth")
+    if loop_mode not in LOOP_MODES:
+        raise ValueError("loop_mode must be smooth, none, or ping_pong")
+    ack_version = generation.get("privacy_ack_version")
+    ack_at = generation.get("privacy_ack_at")
+    if ack_version is not None and (not isinstance(ack_version, str) or not ack_version):
+        raise ValueError("privacy_ack_version must be a non-empty string or null")
+    if ack_at is not None and (not isinstance(ack_at, str) or not ack_at):
+        raise ValueError("privacy_ack_at must be a non-empty string or null")
+    if (ack_version is None) != (ack_at is None):
+        raise ValueError("privacy acknowledgment version and timestamp must be set together")
+    result["generation"].update({
+        "candidate_count": candidate_count,
+        "loop_mode": loop_mode,
+        "privacy_ack_version": ack_version,
+        "privacy_ack_at": ack_at,
+    })
+    return result
+
+
+def _decode_settings(values: object) -> tuple[dict, bool]:
+    """Return ``(normalized_v2, migrated_from_v1)``."""
+    if isinstance(values, dict) and values.get("schema_version") == SETTINGS_SCHEMA_VERSION:
+        return _validate_settings(values), False
+    if isinstance(values, dict) and "schema_version" in values:
+        version = values.get("schema_version")
+        if type(version) is not int or version != 1:
+            raise ValueError("unsupported settings schema_version")
+    return _validate_legacy_settings(values), True
 
 
 def _quarantine_settings(path: Path) -> None:
     """Rename an unreadable settings file aside so the app can start fresh."""
     with contextlib.suppress(OSError):
         os.replace(path, path.with_name(path.name + ".bad"))
+
+
+def _read_settings_file(path: Path) -> tuple[dict, bool] | None:
+    raw = _read_json(path)
+    if raw is None:
+        return None
+    return _decode_settings(raw)
+
+
+def _write_settings_file(path: Path, settings: dict) -> None:
+    _atomic_write_json(path, settings)
+    if os.name != "nt":
+        with contextlib.suppress(OSError):
+            os.chmod(path, 0o600)
 
 
 def load_settings() -> dict:
@@ -411,33 +547,172 @@ def load_settings() -> dict:
     """
     path = settings_path()
     try:
-        raw = _read_json(path)
+        loaded = _read_settings_file(path)
     except (json.JSONDecodeError, UnicodeDecodeError, OSError):
         _quarantine_settings(path)
         return _default_settings()
-    if raw is None:
-        return _default_settings()
-    try:
-        return _validate_settings(raw)
     except ValueError:
         _quarantine_settings(path)
         return _default_settings()
+    if loaded is None:
+        return _default_settings()
+    normalized, migrated = loaded
+    if not migrated:
+        return normalized
+
+    # Re-read under the lock before migrating so a concurrent valid write is
+    # never overwritten by a stale v1 snapshot.
+    with _settings_lock():
+        try:
+            current = _read_settings_file(path)
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError):
+            _quarantine_settings(path)
+            return _default_settings()
+        if current is None:
+            return _default_settings()
+        normalized, migrated = current
+        if migrated:
+            _write_settings_file(path, normalized)
+        return normalized
+
+
+def _settings_for_update(path: Path) -> dict:
+    try:
+        loaded = _read_settings_file(path)
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError):
+        _quarantine_settings(path)
+        return _default_settings()
+    return _default_settings() if loaded is None else loaded[0]
+
+
+def _mutate_settings(mutator) -> dict:
+    path = settings_path()
+    with _settings_lock():
+        settings = _settings_for_update(path)
+        mutator(settings)
+        normalized = _validate_settings(settings)
+        _write_settings_file(path, normalized)
+    return normalized
 
 
 def save_settings(values: dict) -> dict:
-    """Strict-validate `values`, then atomically persist them (0600 where able).
+    """Persist v2 settings, or merge the legacy UI's v1 key-only payload.
 
-    Returns the normalised settings actually written. On any validation failure
-    it raises ``ValueError`` and persists nothing.
+    The temporary v1 compatibility form validates ``grok`` provider aliases and
+    updates only stored keys, preserving all v2 preferences. Task 11 removes
+    the unchanged UI's reliance on this form.
     """
-    normalized = _validate_settings(values)
     path = settings_path()
+    if isinstance(values, dict) and values.get("schema_version") == SETTINGS_SCHEMA_VERSION:
+        normalized = _validate_settings(values)
+        with _settings_lock():
+            _write_settings_file(path, normalized)
+        return normalized
+
+    legacy = _validate_legacy_settings(values)
     with _settings_lock():
-        _atomic_write_json(path, normalized)
-        if os.name != "nt":
-            with contextlib.suppress(OSError):
-                os.chmod(path, 0o600)
+        normalized = _settings_for_update(path)
+        normalized["llm"]["keys"] = legacy["llm"]["keys"]
+        normalized = _validate_settings(normalized)
+        _write_settings_file(path, normalized)
     return normalized
+
+
+def update_api_key(values: object) -> dict:
+    """Set or clear one provider key without changing any preferences."""
+    body = _object(values, "API key settings")
+    _reject_unknown(body, {"provider", "key"}, "API key settings")
+    if set(body) != {"provider", "key"}:
+        raise ValueError("API key settings require provider and key")
+    provider = body["provider"]
+    if provider not in _KNOWN_KEY_PROVIDERS:
+        raise ValueError("unknown API key provider")
+    normalized = _validate_keys({provider: body["key"]})
+
+    def mutate(settings: dict) -> None:
+        if provider in normalized:
+            settings["llm"]["keys"][provider] = normalized[provider]
+        else:
+            settings["llm"]["keys"].pop(provider, None)
+
+    return _mutate_settings(mutate)
+
+
+def update_preferences(values: object) -> dict:
+    """Update curated models and generation defaults without touching keys."""
+    from . import ai_catalog
+
+    body = _object(values, "preference settings")
+    _reject_unknown(body, {"models", "candidate_count", "loop_mode"}, "preference settings")
+    if not body:
+        raise ValueError("preference settings must include a value")
+    updates: dict[str, object] = {}
+    if "models" in body:
+        models = _object(body["models"], "preference models")
+        _reject_unknown(models, set(ai_catalog.MODEL_IDS), "model preference")
+        if not models:
+            raise ValueError("preference models must include a model")
+        updates["models"] = {
+            role: ai_catalog.validate_model(role, model_id)
+            for role, model_id in models.items()
+        }
+    if "candidate_count" in body:
+        count = body["candidate_count"]
+        if type(count) is not int or not MIN_CANDIDATE_COUNT <= count <= MAX_CANDIDATE_COUNT:
+            raise ValueError("candidate_count must be an integer from 1 through 8")
+        updates["candidate_count"] = count
+    if "loop_mode" in body:
+        loop_mode = body["loop_mode"]
+        if loop_mode not in LOOP_MODES:
+            raise ValueError("loop_mode must be smooth, none, or ping_pong")
+        updates["loop_mode"] = loop_mode
+
+    def mutate(settings: dict) -> None:
+        settings["llm"]["models"].update(updates.get("models", {}))
+        if "candidate_count" in updates:
+            settings["generation"]["candidate_count"] = updates["candidate_count"]
+        if "loop_mode" in updates:
+            settings["generation"]["loop_mode"] = updates["loop_mode"]
+
+    return _mutate_settings(mutate)
+
+
+def update_library_root(values: object) -> dict:
+    """Change the root for future jobs while retaining canonical old roots."""
+    body = _object(values, "library settings")
+    _reject_unknown(body, {"current_root"}, "library settings")
+    if set(body) != {"current_root"}:
+        raise ValueError("library settings require current_root")
+    new_root = _canonical_library_root(body["current_root"])
+
+    def mutate(settings: dict) -> None:
+        library = settings["library"]
+        previous = library["current_root"]
+        if previous == new_root:
+            return
+        if previous is not None and previous not in library["roots"]:
+            library["roots"].append(previous)
+        library["current_root"] = new_root
+
+    return _mutate_settings(mutate)
+
+
+def acknowledge_privacy(values: object) -> dict:
+    """Record explicit acknowledgment of only the current data-flow disclosure."""
+    from . import ai_catalog
+
+    body = _object(values, "privacy settings")
+    _reject_unknown(body, {"version"}, "privacy settings")
+    if set(body) != {"version"}:
+        raise ValueError("privacy settings require version")
+    if body["version"] != ai_catalog.PRIVACY_DISCLOSURE_VERSION:
+        raise ValueError("only the current privacy disclosure can be acknowledged")
+
+    def mutate(settings: dict) -> None:
+        settings["generation"]["privacy_ack_version"] = ai_catalog.PRIVACY_DISCLOSURE_VERSION
+        settings["generation"]["privacy_ack_at"] = _now_iso()
+
+    return _mutate_settings(mutate)
 
 
 def resolve_xai_key() -> str | None:

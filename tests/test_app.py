@@ -58,11 +58,28 @@ from am_configurator.writer import car_light_data_frames, car_light_info_frames
 from am_configurator import llm, server, store
 
 
-_DEFAULT_SETTINGS = {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}}}
+_DEFAULT_SETTINGS = {
+    "schema_version": 2,
+    "llm": {
+        "models": {
+            "interpreter": "grok-4.5",
+            "concept": "grok-imagine-image",
+            "video": "grok-imagine-video-1.5",
+        },
+        "keys": {},
+    },
+    "library": {"current_root": None, "roots": []},
+    "generation": {
+        "candidate_count": 4,
+        "loop_mode": "smooth",
+        "privacy_ack_version": None,
+        "privacy_ack_at": None,
+    },
+}
 
 
 class SettingsStoreTests(unittest.TestCase):
-    """Strict app-level settings store: defaults, round-trip, recovery, env override."""
+    """Strict v2 settings, lossless v1 migration, and curated AI catalog."""
 
     def setUp(self) -> None:
         self._tmp = tempfile.mkdtemp(prefix="am_settings_test_")
@@ -87,55 +104,223 @@ class SettingsStoreTests(unittest.TestCase):
         # A missing file must not be created as a side effect of reading it.
         self.assertFalse(store.settings_path().exists())
 
-    def test_round_trip(self) -> None:
-        payload = {
-            "llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": "sk-test"}}
+    def test_catalog_has_exact_curated_models_defaults_and_integer_prices(self) -> None:
+        from am_configurator import ai_catalog
+
+        catalog = ai_catalog.catalog_view()
+        self.assertEqual(catalog["schema_version"], 1)
+        self.assertEqual(catalog["pricing_as_of"], "2026-07-20")
+        expected = {
+            "interpreter": {
+                "default": "grok-4.5",
+                "choices": {
+                    "grok-4.5": {
+                        "input_per_million_tokens_usd_ticks": 20_000_000_000,
+                        "output_per_million_tokens_usd_ticks": 60_000_000_000,
+                    },
+                    "grok-4.3": {
+                        "input_per_million_tokens_usd_ticks": 12_500_000_000,
+                        "output_per_million_tokens_usd_ticks": 25_000_000_000,
+                    },
+                },
+            },
+            "concept": {
+                "default": "grok-imagine-image",
+                "choices": {
+                    "grok-imagine-image": {
+                        "input_per_image_usd_ticks": 20_000_000,
+                        "output_per_1k_image_usd_ticks": 200_000_000,
+                    },
+                    "grok-imagine-image-quality": {
+                        "input_per_image_usd_ticks": 100_000_000,
+                        "output_per_1k_image_usd_ticks": 500_000_000,
+                    },
+                },
+            },
+            "video": {
+                "default": "grok-imagine-video-1.5",
+                "choices": {
+                    "grok-imagine-video-1.5": {
+                        "input_per_image_usd_ticks": 100_000_000,
+                        "output_per_second_480p_usd_ticks": 800_000_000,
+                    },
+                    "grok-imagine-video": {
+                        "input_per_image_usd_ticks": 20_000_000,
+                        "output_per_second_480p_usd_ticks": 500_000_000,
+                    },
+                },
+            },
         }
+        observed = {}
+        for role, role_data in catalog["roles"].items():
+            observed[role] = {
+                "default": role_data["default"],
+                "choices": {
+                    choice["id"]: choice["pricing"] for choice in role_data["choices"]
+                },
+            }
+            for choice in role_data["choices"]:
+                self.assertTrue(choice["pricing"])
+                self.assertTrue(all(type(value) is int for value in choice["pricing"].values()))
+        self.assertEqual(observed, expected)
+        self.assertEqual(ai_catalog.DEFAULT_MODELS, {
+            "interpreter": "grok-4.5",
+            "concept": "grok-imagine-image",
+            "video": "grok-imagine-video-1.5",
+        })
+
+    def test_v1_file_migrates_in_place_without_losing_key(self) -> None:
+        legacy = {
+            "llm": {
+                "interpreter": "grok",
+                "renderer": "grok",
+                "keys": {"xai": "sk-existing"},
+            }
+        }
+        path = store.settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(legacy), encoding="utf-8")
+
+        self.assertEqual(store.load_settings(), {
+            **_DEFAULT_SETTINGS,
+            "llm": {**_DEFAULT_SETTINGS["llm"], "keys": {"xai": "sk-existing"}},
+        })
+        self.assertFalse(path.with_name(path.name + ".bad").exists())
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["schema_version"], 2)
+        self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["llm"]["keys"]["xai"], "sk-existing")
+
+    def test_v2_round_trip(self) -> None:
+        payload = copy.deepcopy(_DEFAULT_SETTINGS)
+        payload["llm"]["models"] = {
+            "interpreter": "grok-4.3",
+            "concept": "grok-imagine-image-quality",
+            "video": "grok-imagine-video",
+        }
+        payload["llm"]["keys"] = {"xai": "sk-test"}
+        payload["generation"]["candidate_count"] = 8
+        payload["generation"]["loop_mode"] = "ping_pong"
         store.save_settings(payload)
         self.assertEqual(store.load_settings(), payload)
 
     def test_unknown_fields_rejected(self) -> None:
         with self.assertRaises(ValueError):
-            store.save_settings(
-                {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}}, "bogus": 1}
-            )
+            store.save_settings({**copy.deepcopy(_DEFAULT_SETTINGS), "bogus": 1})
         with self.assertRaises(ValueError):
-            store.save_settings(
-                {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}, "bogus": 1}}
-            )
+            store.update_preferences({"models": {}, "bogus": 1})
         with self.assertRaises(ValueError):
-            store.save_settings(
-                {"llm": {"interpreter": "nope", "renderer": "grok", "keys": {}}}
-            )
+            store.update_api_key({"provider": "bogus", "key": "x"})
         with self.assertRaises(ValueError):
-            store.save_settings(
-                {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"bogus": "x"}}}
-            )
+            store.update_library_root({"current_root": None, "bogus": 1})
         # A rejected save must persist nothing.
+        self.assertFalse(store.settings_path().exists())
+
+    def test_unknown_models_loop_modes_and_candidate_counts_rejected(self) -> None:
+        invalid_preferences = (
+            {"models": {"interpreter": "grok-future"}},
+            {"models": {"concept": "grok-future"}},
+            {"models": {"video": "grok-future"}},
+            {"models": {"unknown": "grok-4.5"}},
+            {"loop_mode": "crossfade"},
+            {"candidate_count": 0},
+            {"candidate_count": 9},
+            {"candidate_count": True},
+            {"candidate_count": "4"},
+        )
+        for payload in invalid_preferences:
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                store.update_preferences(payload)
         self.assertFalse(store.settings_path().exists())
 
     def test_mask_sentinel_rejected(self) -> None:
         with self.assertRaises(ValueError):
-            store.save_settings(
-                {
-                    "llm": {
-                        "interpreter": "grok",
-                        "renderer": "grok",
-                        "keys": {"xai": store.KEY_MASK},
-                    }
-                }
-            )
+            store.update_api_key({"provider": "xai", "key": store.KEY_MASK})
         self.assertFalse(store.settings_path().exists())
 
     def test_empty_key_clears(self) -> None:
-        store.save_settings(
-            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": "sk-test"}}}
-        )
-        store.save_settings(
-            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": ""}}}
-        )
+        store.update_api_key({"provider": "xai", "key": "sk-test"})
+        store.update_api_key({"provider": "xai", "key": ""})
         self.assertEqual(store.load_settings()["llm"]["keys"], {})
         self.assertIsNone(store.resolve_xai_key())
+
+    def test_independent_updates_preserve_keys_models_and_library(self) -> None:
+        root = Path(self._tmp) / "library"
+        store.update_api_key({"provider": "xai", "key": "sk-stays-put"})
+        store.update_preferences({
+            "models": {"interpreter": "grok-4.3"},
+            "candidate_count": 7,
+            "loop_mode": "none",
+        })
+        store.update_library_root({"current_root": str(root)})
+        settings = store.load_settings()
+        self.assertEqual(settings["llm"]["keys"]["xai"], "sk-stays-put")
+        self.assertEqual(settings["llm"]["models"]["interpreter"], "grok-4.3")
+        self.assertEqual(settings["generation"]["candidate_count"], 7)
+        self.assertEqual(settings["generation"]["loop_mode"], "none")
+        self.assertEqual(settings["library"]["current_root"], str(root.resolve()))
+
+        # The unchanged UI's legacy whole-object POST remains a key-only
+        # compatibility seam and must not reset v2 preferences.
+        store.save_settings({
+            "llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": ""}}
+        })
+        settings = store.load_settings()
+        self.assertEqual(settings["llm"]["keys"], {})
+        self.assertEqual(settings["llm"]["models"]["interpreter"], "grok-4.3")
+        self.assertEqual(settings["library"]["current_root"], str(root.resolve()))
+
+    def test_v2_model_preferences_do_not_break_legacy_generation_factories(self) -> None:
+        store.update_preferences({
+            "models": {
+                "interpreter": "grok-4.3",
+                "concept": "grok-imagine-image-quality",
+                "video": "grok-imagine-video",
+            }
+        })
+        factories = server._default_llm_factories()
+        self.assertIsInstance(factories["interpreter"]("sk-test"), llm.GrokInterpreter)
+        self.assertIsInstance(factories["renderer"]("sk-test"), llm.GrokImagineRenderer)
+
+    def test_library_root_history_is_canonical_and_deduplicated(self) -> None:
+        first = Path(self._tmp) / "first"
+        second = Path(self._tmp) / "second"
+        first.mkdir()
+        second.mkdir()
+        first_spelling = first / "child" / ".."
+
+        store.update_library_root({"current_root": str(first_spelling)})
+        store.update_library_root({"current_root": str(first)})
+        self.assertEqual(store.load_settings()["library"]["roots"], [])
+        store.update_library_root({"current_root": str(second)})
+        store.update_library_root({"current_root": str(first)})
+        store.update_library_root({"current_root": None})
+
+        library = store.load_settings()["library"]
+        self.assertIsNone(library["current_root"])
+        self.assertEqual(library["roots"], [str(first.resolve()), str(second.resolve())])
+
+    def test_privacy_acknowledges_only_current_version(self) -> None:
+        from am_configurator import ai_catalog
+
+        store.update_api_key({"provider": "xai", "key": "sk-private"})
+        with self.assertRaises(ValueError):
+            store.acknowledge_privacy({"version": "older-disclosure"})
+        with self.assertRaises(ValueError):
+            store.acknowledge_privacy({
+                "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+                "extra": True,
+            })
+        saved = store.acknowledge_privacy({
+            "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+        })
+        self.assertEqual(
+            saved["generation"]["privacy_ack_version"],
+            ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+        )
+        self.assertRegex(
+            saved["generation"]["privacy_ack_at"],
+            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$",
+        )
+        self.assertEqual(saved["llm"]["keys"]["xai"], "sk-private")
 
     def test_corrupt_file_recovers(self) -> None:
         path = store.settings_path()
@@ -146,9 +331,7 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertTrue(path.with_name(path.name + ".bad").exists())
 
     def test_env_override(self) -> None:
-        store.save_settings(
-            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": "sk-disk"}}}
-        )
+        store.update_api_key({"provider": "xai", "key": "sk-disk"})
         before = store.settings_path().read_text(encoding="utf-8")
         os.environ["XAI_API_KEY"] = "sk-env"
         self.assertEqual(store.resolve_xai_key(), "sk-env")
@@ -159,21 +342,11 @@ class SettingsStoreTests(unittest.TestCase):
     def test_error_message_omits_secret(self) -> None:
         secret = "sk-super-secret-should-never-be-logged"
         with self.assertRaises(ValueError) as ctx:
-            store.save_settings(
-                {
-                    "llm": {
-                        "interpreter": "nope",
-                        "renderer": "grok",
-                        "keys": {"xai": secret},
-                    }
-                }
-            )
+            store.update_api_key({"provider": "xai", "key": [secret]})
         self.assertNotIn(secret, str(ctx.exception))
 
     def test_file_permissions(self) -> None:
-        store.save_settings(
-            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": "sk-test"}}}
-        )
+        store.update_api_key({"provider": "xai", "key": "sk-test"})
         if sys.platform.startswith("win"):
             self.skipTest("POSIX file permissions are not enforced on Windows")
         mode = stat.S_IMODE(os.stat(store.settings_path()).st_mode)
@@ -1975,7 +2148,10 @@ class LedGenerateEndpointTests(unittest.TestCase):
         status, data = self._request("GET", "/api/settings")
         self.assertEqual(status, 200)
         self.assertEqual(data["llm"]["keys"]["xai"], {"set": True, "last4": "7788"})
+        self.assertEqual(data["schema_version"], 2)
+        self.assertEqual(data["llm"]["models"], _DEFAULT_SETTINGS["llm"]["models"])
         self.assertEqual(data["llm"]["interpreter"], "grok")
+        self.assertEqual(data["llm"]["renderer"], "grok")
         # The raw key never returns to the browser, anywhere in the payload.
         self.assertNotIn(key, json.dumps(data))
 
@@ -1992,6 +2168,15 @@ class LedGenerateEndpointTests(unittest.TestCase):
             },
         )
         self.assertEqual(status, 400)
+
+    def test_settings_masks_even_a_short_key_in_full(self) -> None:
+        key = "tiny"
+        status, saved = self._request(
+            "POST", "/api/settings/key", {"provider": "xai", "key": key}
+        )
+        self.assertEqual(status, 200)
+        self.assertNotIn(key, json.dumps(saved))
+        self.assertEqual(saved["llm"]["keys"]["xai"], {"set": True, "last4": ""})
 
     def test_settings_strict_validation(self) -> None:
         # Unknown top-level field.
@@ -2015,13 +2200,117 @@ class LedGenerateEndpointTests(unittest.TestCase):
             {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"bogus": "x"}}},
         )
         self.assertEqual(status, 400)
+        # The compatibility route cannot bypass the split privacy/preferences
+        # routes by accepting a forged v2 whole object.
+        forged = copy.deepcopy(_DEFAULT_SETTINGS)
+        forged["generation"]["privacy_ack_version"] = "forged"
+        forged["generation"]["privacy_ack_at"] = "2026-07-20T00:00:00+00:00"
+        status, _ = self._request("POST", "/api/settings", forged)
+        self.assertEqual(status, 400)
         # Nothing was persisted by any rejected save.
         self.assertFalse(store.settings_path().exists())
 
+    def test_split_settings_routes_update_sections_independently(self) -> None:
+        from am_configurator import ai_catalog
+
+        key = "sk-split-route-12345678"
+        status, data = self._request(
+            "POST", "/api/settings/key", {"provider": "xai", "key": key}
+        )
+        self.assertEqual(status, 200)
+        self.assertNotIn(key, json.dumps(data))
+        self.assertEqual(data["llm"]["keys"]["xai"], {"set": True, "last4": "5678"})
+
+        status, data = self._request("POST", "/api/settings/preferences", {
+            "models": {
+                "interpreter": "grok-4.3",
+                "concept": "grok-imagine-image-quality",
+                "video": "grok-imagine-video",
+            },
+            "candidate_count": 8,
+            "loop_mode": "ping_pong",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.3")
+        self.assertEqual(data["generation"]["candidate_count"], 8)
+        self.assertEqual(data["generation"]["loop_mode"], "ping_pong")
+        self.assertTrue(data["llm"]["keys"]["xai"]["set"])
+
+        library = Path(self._tmp) / "generated-library"
+        status, data = self._request(
+            "POST", "/api/settings/library", {"current_root": str(library)}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["library"]["current_root"], str(library.resolve()))
+        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.3")
+        self.assertTrue(data["llm"]["keys"]["xai"]["set"])
+
+        status, data = self._request("POST", "/api/settings/privacy", {
+            "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            data["generation"]["privacy_ack_version"],
+            ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+        )
+        self.assertTrue(data["generation"]["privacy_ack_at"])
+        self.assertTrue(data["llm"]["keys"]["xai"]["set"])
+
+        status, data = self._request(
+            "POST", "/api/settings/key", {"provider": "xai", "key": ""}
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(data["llm"]["keys"]["xai"]["set"])
+        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.3")
+        self.assertEqual(data["library"]["current_root"], str(library.resolve()))
+
+        # The unchanged dialog can still use its legacy key-save route without
+        # resetting any v2 preference or storage choice.
+        legacy_key = "sk-legacy-dialog-87654321"
+        status, data = self._request("POST", "/api/settings", {
+            "llm": {
+                "interpreter": "grok",
+                "renderer": "grok",
+                "keys": {"xai": legacy_key},
+            }
+        })
+        self.assertEqual(status, 200)
+        self.assertNotIn(legacy_key, json.dumps(data))
+        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.3")
+        self.assertEqual(data["library"]["current_root"], str(library.resolve()))
+
+    def test_split_settings_routes_are_strict_and_never_echo_secrets(self) -> None:
+        from am_configurator import ai_catalog
+
+        secret = "sk-must-not-appear-anywhere"
+        invalid_cases = (
+            ("/api/settings/key", {"provider": "xai", "key": [secret]}),
+            ("/api/settings/key", {"provider": "xai", "key": "x", "extra": 1}),
+            ("/api/settings/preferences", {"models": {"interpreter": "future"}}),
+            ("/api/settings/preferences", {"candidate_count": 9}),
+            ("/api/settings/preferences", {"loop_mode": "crossfade"}),
+            ("/api/settings/preferences", {"unknown": True}),
+            ("/api/settings/library", {"current_root": None, "unknown": True}),
+            ("/api/settings/privacy", {"version": "old"}),
+            (
+                "/api/settings/privacy",
+                {"version": ai_catalog.PRIVACY_DISCLOSURE_VERSION, "unknown": True},
+            ),
+        )
+        for path, body in invalid_cases:
+            with self.subTest(path=path, body=body):
+                status, data = self._request("POST", path, body)
+                self.assertEqual(status, 400)
+                self.assertNotIn(secret, json.dumps(data))
+        self.assertFalse(store.settings_path().exists())
+
     def test_capabilities(self) -> None:
+        from am_configurator import ai_catalog
+
         status, data = self._request("GET", "/api/led/capabilities")
         self.assertEqual(status, 200)
 
+        self.assertEqual(data["ai_catalog"], ai_catalog.catalog_view())
         self.assertEqual(data["models"], dict(llm.XAI_MODELS))
         self.assertEqual(data["model_frame_caps"], dict(llm.MODEL_FRAME_CAPS))
         self.assertEqual(data["max_rendered_keyframes"], llm.MAX_RENDERED_KEYFRAMES)
@@ -2098,6 +2387,10 @@ class LedGenerateEndpointTests(unittest.TestCase):
                 "/api/settings",
                 {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}}},
             ),
+            ("POST", "/api/settings/key", {"provider": "xai", "key": "x"}),
+            ("POST", "/api/settings/preferences", {"candidate_count": 4}),
+            ("POST", "/api/settings/library", {"current_root": None}),
+            ("POST", "/api/settings/privacy", {"version": "anything"}),
             ("POST", "/api/settings/test", {}),
             (
                 "POST",

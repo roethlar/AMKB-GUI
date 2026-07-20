@@ -1144,14 +1144,26 @@ def _settings_view() -> dict[str, Any]:
             effective = settings["llm"]["keys"].get(provider) or None
         keys[provider] = {
             "set": bool(effective),
-            "last4": effective[-4:] if effective else "",
+            # Never let a short malformed/test key escape in full merely
+            # because its entire value fits inside the last-four display.
+            "last4": effective[-4:] if effective and len(effective) > 4 else "",
         }
     return {
+        "schema_version": settings["schema_version"],
         "llm": {
-            "interpreter": settings["llm"]["interpreter"],
-            "renderer": settings["llm"]["renderer"],
+            "models": dict(settings["llm"]["models"]),
             "keys": keys,
-        }
+            # Temporary aliases for the unchanged settings dialog. Model IDs
+            # are separate v2 preferences; the legacy provider registries still
+            # contain only the xAI-backed ``grok`` implementation.
+            "interpreter": "grok",
+            "renderer": "grok",
+        },
+        "library": {
+            "current_root": settings["library"]["current_root"],
+            "roots": list(settings["library"]["roots"]),
+        },
+        "generation": dict(settings["generation"]),
     }
 
 
@@ -1163,7 +1175,7 @@ def _capabilities() -> dict[str, Any]:
     Relic per-key/spotlight pair), while a model whose targets span more than one
     raster is ``single_target`` (the single-CyberBoard-target rule).
     """
-    from . import llm
+    from . import ai_catalog, llm
 
     targets: dict[str, Any] = {}
     for model, layouts in _GIF_LAYOUTS.items():
@@ -1185,6 +1197,7 @@ def _capabilities() -> dict[str, Any]:
             })
         targets[model] = {"single_target": len(sizes) > 1, "targets": entries}
     return {
+        "ai_catalog": ai_catalog.catalog_view(),
         "providers": {
             "interpreters": list(llm.INTERPRETER_PROVIDERS),
             "renderers": list(llm.RENDERER_PROVIDERS),
@@ -1275,18 +1288,17 @@ def _generation_spec(
 
 
 def _default_llm_factories() -> dict[str, Any]:
-    """Resolve the configured interpreter/renderer from the ``llm`` registries.
+    """Resolve the legacy interpreter/renderer provider implementations.
 
     Returns the ``{"interpreter", "renderer"}`` factory map ``generate_effect``
-    expects — each a ``callable(api_key) -> provider`` — built from the provider
-    names in the saved settings. Tests inject their own map via
-    ``_State.llm_factories`` and never reach this path.
+    expects. Curated v2 values are model IDs, not registry keys; the superseded
+    generator continues using its sole ``grok`` providers until Task 16 removes
+    it. Tests inject their own map via ``_State.llm_factories``.
     """
-    from . import llm, store
+    from . import llm
 
-    settings = store.load_settings()["llm"]
-    interpreter_cls = llm.INTERPRETERS[settings["interpreter"]]
-    renderer_cls = llm.RENDERERS[settings["renderer"]]
+    interpreter_cls = llm.INTERPRETERS["grok"]
+    renderer_cls = llm.RENDERERS["grok"]
     return {
         "interpreter": lambda api_key: interpreter_cls(api_key),
         "renderer": lambda api_key: renderer_cls(api_key),
@@ -1524,6 +1536,14 @@ class _Handler(BaseHTTPRequestHandler):
                 self._convert_gif(body)
             elif path == "/api/settings":
                 self._save_settings(body)
+            elif path == "/api/settings/key":
+                self._save_settings_key(body)
+            elif path == "/api/settings/preferences":
+                self._save_settings_preferences(body)
+            elif path == "/api/settings/library":
+                self._save_settings_library(body)
+            elif path == "/api/settings/privacy":
+                self._save_settings_privacy(body)
             elif path == "/api/settings/test":
                 self._test_settings_key(body)
             elif path == "/api/led/generate":
@@ -1578,15 +1598,42 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(result)
 
     def _save_settings(self, body: dict[str, Any]) -> None:
-        """Strict-validate and persist app settings; reply with the masked view.
+        """Temporary whole-object compatibility route for the current UI.
 
-        ``store.save_settings`` rejects unknown fields/providers and the mask
-        sentinel with ``ValueError`` (mapped to 400 by ``do_POST``) and persists
-        nothing on failure. The response never echoes the raw key back.
+        It accepts only the legacy provider/key shape and changes only the key;
+        all v2 preferences survive. The split routes below are canonical.
         """
         from . import store
 
+        if "schema_version" in body:
+            raise ValueError(
+                "The legacy settings route accepts provider key changes only."
+            )
         store.save_settings(body)
+        self._json(_settings_view())
+
+    def _save_settings_key(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        store.update_api_key(body)
+        self._json(_settings_view())
+
+    def _save_settings_preferences(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        store.update_preferences(body)
+        self._json(_settings_view())
+
+    def _save_settings_library(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        store.update_library_root(body)
+        self._json(_settings_view())
+
+    def _save_settings_privacy(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        store.acknowledge_privacy(body)
         self._json(_settings_view())
 
     def _test_settings_key(self, body: dict[str, Any]) -> None:
