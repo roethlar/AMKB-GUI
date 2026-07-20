@@ -31,6 +31,7 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\AM Configurator.exe
+SetupIconFile=..\..\assets\am-configurator.ico
 LicenseFile=..\..\LICENSE
 CloseApplications=yes
 

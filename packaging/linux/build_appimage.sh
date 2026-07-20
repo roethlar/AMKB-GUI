@@ -35,14 +35,14 @@ rm -rf "$app_dir"
 mkdir -p \
   "$app_dir/usr/lib/am-configurator" \
   "$app_dir/usr/share/applications" \
-  "$app_dir/usr/share/icons/hicolor/scalable/apps"
+  "$app_dir/usr/share/icons/hicolor/512x512/apps"
 cp -a "$bundle_path/." "$app_dir/usr/lib/am-configurator/"
 install -m 0755 packaging/linux/AppRun "$app_dir/AppRun"
 install -m 0644 packaging/linux/am-configurator.desktop "$app_dir/am-configurator.desktop"
 install -m 0644 packaging/linux/am-configurator.desktop "$app_dir/usr/share/applications/am-configurator.desktop"
-install -m 0644 assets/am-configurator.svg "$app_dir/am-configurator.svg"
-install -m 0644 assets/am-configurator.svg "$app_dir/usr/share/icons/hicolor/scalable/apps/am-configurator.svg"
-ln -s am-configurator.svg "$app_dir/.DirIcon"
+install -m 0644 assets/am-configurator-512.png "$app_dir/am-configurator.png"
+install -m 0644 assets/am-configurator-512.png "$app_dir/usr/share/icons/hicolor/512x512/apps/am-configurator.png"
+ln -s am-configurator.png "$app_dir/.DirIcon"
 
 artifact_name="$(uv run --frozen python build_tools/release_info.py artifact linux)"
 output_path="$project_root/dist/$artifact_name"

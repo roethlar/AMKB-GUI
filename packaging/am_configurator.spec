@@ -23,6 +23,11 @@ elif sys.platform == "win32":
     hidden_imports.extend(("webview.platforms.winforms", "webview.platforms.edgechromium"))
 else:
     hidden_imports.append("webview.platforms.qt")
+executable_icon = (
+    str(project / "assets" / "am-configurator.ico")
+    if sys.platform == "win32"
+    else None
+)
 
 a = Analysis(
     [str(project / "packaging" / "launcher.py")],
@@ -54,6 +59,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=executable_icon,
 )
 coll = COLLECT(
     exe,
@@ -71,6 +77,7 @@ if sys.platform == "darwin":
         name="AM Configurator.app",
         bundle_identifier="dev.amconfigurator.desktop",
         version=app_version,
+        icon=str(project / "assets" / "am-configurator.icns"),
         info_plist={
             "CFBundleDisplayName": "AM Configurator",
             "NSHighResolutionCapable": True,

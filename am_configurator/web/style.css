@@ -46,11 +46,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .brand strong { display: block; font-size: 15px; }
 .app-version { color: var(--muted); font-size: 10px; font-weight: 500; letter-spacing: .02em; margin-left: 4px; vertical-align: 1px; }
 .brand small { color: var(--muted); display: block; margin-top: 2px; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
-.brand-mark { width: 34px; height: 34px; border-radius: 10px; background: var(--violet); display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding: 8px; box-shadow: 0 0 28px rgba(131, 88, 255, .28); }
-.brand-mark span { display: block; width: 4px; border-radius: 4px; background: white; }
-.brand-mark span:nth-child(1) { height: 9px; opacity: .7; }
-.brand-mark span:nth-child(2) { height: 17px; }
-.brand-mark span:nth-child(3) { height: 12px; opacity: .82; }
+.brand-mark { width: 36px; height: 36px; border-radius: 10px; object-fit: cover; flex: none; box-shadow: 0 0 28px rgba(131, 88, 255, .28); }
 
 .document-meta { display: flex; align-items: center; justify-content: center; gap: 9px; min-width: 0; color: #d1d1d6; }
 .document-meta #file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 360px; }
@@ -97,7 +93,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .empty-orbit { position: relative; width: 130px; height: 130px; display: grid; place-items: center; margin-bottom: 24px; }
 .empty-orbit div { position: absolute; inset: 0; border: 1px solid rgba(131, 88, 255, .4); border-radius: 50%; animation: orbit 12s linear infinite; }
 .empty-orbit div::after { content: ""; position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--violet); top: 8px; left: 25px; box-shadow: 0 0 18px var(--violet); }
-.empty-orbit span { width: 76px; height: 76px; display: grid; place-items: center; border-radius: 22px; background: var(--panel-2); border: 1px solid var(--line-strong); font-weight: 800; font-size: 22px; letter-spacing: -.04em; }
+.empty-orbit img { width: 76px; height: 76px; border-radius: 22px; box-shadow: 0 12px 32px rgba(0, 0, 0, .35), 0 0 28px rgba(131, 88, 255, .2); }
 @keyframes orbit { to { transform: rotate(360deg); } }
 
 .screen-shell { padding: 28px 30px 50px; min-height: 100%; }

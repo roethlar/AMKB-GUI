@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from PIL import Image
+
 from am_configurator import __version__
 from build_tools.release_info import artifact_filename, normalize_arch, project_version
 
@@ -40,7 +42,7 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertNotIn(".tar.gz", workflow)
 
         for path in (
-            "assets/am-configurator.svg",
+            "assets/am-configurator.png",
             "packaging/macos/build_dmg.sh",
             "packaging/linux/build_appimage.sh",
             "packaging/windows/AMConfigurator.iss",
@@ -48,6 +50,40 @@ class ReleaseInfoTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file())
+
+    def test_brand_icon_is_wired_into_every_distribution(self) -> None:
+        icon_paths = {
+            "assets/am-configurator.png": (1024, 1024),
+            "assets/am-configurator-512.png": (512, 512),
+            "am_configurator/web/icon.png": (128, 128),
+        }
+        for relative_path, expected_size in icon_paths.items():
+            with self.subTest(path=relative_path):
+                with Image.open(ROOT / relative_path) as icon:
+                    self.assertEqual(expected_size, icon.size)
+
+        self.assertTrue((ROOT / "assets" / "am-configurator.icns").is_file())
+        self.assertTrue((ROOT / "assets" / "am-configurator.ico").is_file())
+
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
+        windows = (ROOT / "packaging" / "windows" / "AMConfigurator.iss").read_text(
+            encoding="utf-8"
+        )
+        linux = (ROOT / "packaging" / "linux" / "build_appimage.sh").read_text(
+            encoding="utf-8"
+        )
+        server = (ROOT / "am_configurator" / "server.py").read_text(encoding="utf-8")
+        html = (ROOT / "am_configurator" / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("am-configurator.icns", spec)
+        self.assertIn("am-configurator.ico", spec)
+        self.assertIn("SetupIconFile=..\\..\\assets\\am-configurator.ico", windows)
+        self.assertIn("assets/am-configurator-512.png", linux)
+        self.assertIn('"/icon.png": "icon.png"', server)
+        self.assertIn('<link rel="icon" href="/icon.png"', html)
+        self.assertIn('<img class="brand-mark" src="/icon.png"', html)
 
     def test_windows_installer_smoke_test_waits_for_gui_processes(self) -> None:
         script = (ROOT / "packaging" / "windows" / "build_installer.ps1").read_text(

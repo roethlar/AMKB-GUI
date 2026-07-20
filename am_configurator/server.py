@@ -29,6 +29,7 @@ _STATIC = {
     "/": "index.html",
     "/index.html": "index.html",
     "/app.js": "app.js",
+    "/icon.png": "icon.png",
     "/style.css": "style.css",
 }
 _KEY_FIELDS = (
