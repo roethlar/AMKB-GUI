@@ -8,12 +8,126 @@ import json
 import os
 import platform
 import ssl
+import subprocess
 import threading
 from collections.abc import Sequence
 from io import BytesIO
+from pathlib import Path
+from typing import Any, Callable
 from urllib.request import Request, urlopen
 
 from .server import create_server
+
+
+def _folder_dialog_type() -> Any:
+    """Resolve pywebview's folder-dialog enum without making it a base install."""
+    import webview
+
+    return webview.FileDialog.FOLDER
+
+
+def _open_reveal_target(target: Path) -> None:
+    """Open a validated target in the platform file manager."""
+    system = platform.system()
+    if system == "Darwin":
+        command = ["open", str(target)] if target.is_dir() else ["open", "-R", str(target)]
+    elif system == "Windows":
+        command = (
+            ["explorer", str(target)]
+            if target.is_dir()
+            else ["explorer", "/select,", str(target)]
+        )
+    else:
+        command = ["xdg-open", str(target if target.is_dir() else target.parent)]
+    subprocess.Popen(  # noqa: S603 - fixed executable and validated path argument
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+class DesktopBridge:
+    """Narrow native bridge for choosing and revealing library locations.
+
+    Settings persistence intentionally remains behind the authenticated loopback
+    HTTP API. Only these two public methods are exposed to JavaScript by
+    pywebview.
+    """
+
+    def __init__(
+        self,
+        window: Any | None = None,
+        *,
+        settings_loader: Callable[[], dict] | None = None,
+        opener: Callable[[Path], None] | None = None,
+    ) -> None:
+        self._window = window
+        self._settings_loader = settings_loader
+        self._opener = opener or _open_reveal_target
+
+    def _bind_window(self, window: Any) -> None:
+        self._window = window
+
+    def choose_library_folder(self) -> str | None:
+        """Return one canonical absolute directory, or ``None`` on cancellation."""
+        if self._window is None:
+            return None
+        selected = self._window.create_file_dialog(
+            dialog_type=_folder_dialog_type(),
+            allow_multiple=False,
+        )
+        if not selected:
+            return None
+        raw = selected if isinstance(selected, str) else selected[0]
+        if not isinstance(raw, str) or not raw:
+            return None
+        try:
+            path = Path(raw).expanduser()
+            if not path.is_absolute() or not path.is_dir():
+                return None
+            return str(path.resolve(strict=True))
+        except (OSError, RuntimeError):
+            return None
+
+    def reveal_library_path(self, value: object) -> bool:
+        """Reveal an existing target only when a recorded library root owns it."""
+        if not isinstance(value, str) or not value:
+            return False
+        try:
+            target = Path(value).expanduser()
+            if not target.is_absolute():
+                return False
+            target = target.resolve(strict=True)
+            settings = self._load_settings()
+            library = settings.get("library", {})
+            configured = [library.get("current_root"), *(library.get("roots") or [])]
+            roots = [self._canonical_root(root) for root in configured]
+            if not any(
+                root is not None and (target == root or root in target.parents)
+                for root in roots
+            ):
+                return False
+            self._opener(target)
+            return True
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return False
+
+    def _load_settings(self) -> dict:
+        if self._settings_loader is not None:
+            return self._settings_loader()
+        from . import store
+
+        return store.load_settings()
+
+    @staticmethod
+    def _canonical_root(value: object) -> Path | None:
+        if not isinstance(value, str) or not value:
+            return None
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            return None
+        return path.resolve(strict=False)
 
 
 def _run_llm_generation_smoke() -> None:
@@ -180,6 +294,7 @@ def run_desktop(config_paths: list[str] | None = None, *, debug: bool = False) -
         server_thread.join(timeout=2)
 
     webview.settings["ALLOW_DOWNLOADS"] = True
+    bridge = DesktopBridge()
     window = webview.create_window(
         "AM Configurator",
         url,
@@ -189,7 +304,9 @@ def run_desktop(config_paths: list[str] | None = None, *, debug: bool = False) -
         background_color="#0d0d0f",
         text_select=True,
         zoomable=True,
+        js_api=bridge,
     )
+    bridge._bind_window(window)
     window.events.closed += stop_server
     renderer = "qt" if platform.system() == "Linux" else None
     try:

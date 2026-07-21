@@ -129,6 +129,31 @@ test("Library and Settings have document-independent routed surfaces", () => {
   assert.match(js, /function renderRoute\s*\(/);
 });
 
+test("Settings is a complete saveable route with storage and an explicit exit", () => {
+  assert.match(html, /id="settings-save"[^>]*>Save changes</);
+  assert.match(html, /id="settings-done"[^>]*>Done</);
+  for (const id of [
+    "settings-xai-key",
+    "settings-interpreter",
+    "settings-concept-model",
+    "settings-video-model",
+    "settings-library-root",
+    "settings-choose-library",
+    "settings-reveal-library",
+    "settings-candidate-count",
+    "settings-loop-mode",
+  ]) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(js, /api\("\/api\/settings\/preferences"/);
+  assert.match(js, /api\("\/api\/settings\/library"/);
+  assert.match(js, /api\("\/api\/settings\/key"/);
+  assert.match(js, /choose_library_folder/);
+  assert.match(js, /reveal_library_path/);
+  assert.match(js, /settingsReturnRoute/);
+  assert.match(js, /\$\("#settings-done"\).*saveSettings\(\{exit:true\}\)/);
+  assert.match(js, /function finishSettings[\s\S]*navigateTo\(route/);
+  assert.doesNotMatch(html, /id="settings-renderer"/);
+});
+
 test("a restored Settings route refreshes after persisted settings load", () => {
   const refresh = js.match(/function refreshAiGate\s*\(\)\s*\{[\s\S]*?\n\}/)?.[0] || "";
   assert.match(refresh, /ROUTES\.SETTINGS/);

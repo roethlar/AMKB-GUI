@@ -54,6 +54,9 @@ const state = {
   pendingWrite: null,
   capabilities: null,
   settings: null,
+  settingsReturnRoute: null,
+  settingsReturnDialog: false,
+  settingsSaveBusy: false,
   aiPrompt: "",
   conceptQuantity: 4,
   conceptManifest: null,
@@ -1418,7 +1421,7 @@ function updateConceptStage() {
 function wireConceptStage() {
   $("#concept-prompt")?.addEventListener("input",event=>{state.aiPrompt=event.target.value;updateConceptStage();});
   $("#concept-output-count")?.addEventListener("change",event=>{state.conceptQuantity=Math.max(1,Math.min(8,Number(event.target.value)||4));});
-  $("#concept-open-settings")?.addEventListener("click",()=>{$("#lighting-generate-dialog").close();openSettings();});
+  $("#concept-open-settings")?.addEventListener("click",()=>openSettings({returnToGeneration:true}));
   $("#generate-concepts")?.addEventListener("click",startConceptGeneration);
   $("#cancel-concepts")?.addEventListener("click",cancelLightingJob);
 }
@@ -1777,7 +1780,10 @@ function settingsKeyStateText(settings) {
   return xai?.set ? `A key ending in ${xai.last4} is stored.` : "No xAI key is configured.";
 }
 
-async function openSettings() {
+async function openSettings({returnToGeneration = false} = {}) {
+  if (state.lighting.route !== ROUTES.SETTINGS) state.settingsReturnRoute = state.lighting.route;
+  state.settingsReturnDialog = returnToGeneration || $("#lighting-generate-dialog").open;
+  if ($("#lighting-generate-dialog").open) $("#lighting-generate-dialog").close();
   navigateTo(ROUTES.SETTINGS, {focusHeading: true});
   const status = $("#settings-status");
   status.className = "write-status";
@@ -1788,47 +1794,114 @@ async function openSettings() {
   } catch (error) { toast("Could not load settings", error.message, "error"); }
   populateSettings();
   $("#settings-xai-key").value = "";
-  $("#settings-save-key").disabled = true;
 }
 
 function populateSettings() {
-  const settings = state.settings || {llm: {interpreter: "grok", renderer: "grok", keys: {}}};
-  const caps = state.capabilities;
-  const interpreters = caps?.providers?.interpreters?.length ? caps.providers.interpreters : [settings.llm.interpreter];
-  const renderers = caps?.providers?.renderers?.length ? caps.providers.renderers : [settings.llm.renderer];
-  const fill = (select, options, current) => {
+  const settings = state.settings || {llm: {models: {}, keys: {}}, library: {current_root: null}, generation: {candidate_count: 4, loop_mode: "smooth"}};
+  const catalog = state.capabilities?.ai_catalog;
+  const fill = (select, choices, current) => {
     if (!select) return;
-    select.innerHTML = options.map(name => `<option value="${esc(name)}" ${name === current ? "selected" : ""}>${esc(name)}</option>`).join("");
+    const options = choices?.length ? choices : current ? [{id: current, label: current}] : [];
+    select.innerHTML = options.map(choice => `<option value="${esc(choice.id)}" ${choice.id === current ? "selected" : ""}>${esc(choice.label || choice.id)}</option>`).join("");
   };
-  fill($("#settings-interpreter"), interpreters, settings.llm.interpreter);
-  fill($("#settings-renderer"), renderers, settings.llm.renderer);
+  fill($("#settings-interpreter"), catalog?.roles?.interpreter?.choices, settings.llm.models?.interpreter);
+  fill($("#settings-concept-model"), catalog?.roles?.concept?.choices, settings.llm.models?.concept);
+  fill($("#settings-video-model"), catalog?.roles?.video?.choices, settings.llm.models?.video);
   const xai = settings.llm.keys?.xai;
   const input = $("#settings-xai-key");
   input.placeholder = xai?.set ? `•••• •••• ${esc(xai.last4)}` : "sk-…";
   $("#settings-key-state").textContent = settingsKeyStateText(settings);
   $("#settings-clear-key").disabled = !xai?.set;
+  $("#settings-provider-state").textContent = xai?.set ? "Connected" : "Not connected";
+  $("#settings-provider-state").className = `pill ${xai?.set ? "" : "muted"}`;
+  $("#settings-library-root").value = settings.library?.current_root || "";
+  $("#settings-reveal-library").disabled = !settings.library?.current_root;
+  $("#settings-candidate-count").value = String(settings.generation?.candidate_count || 4);
+  $("#settings-loop-mode").value = settings.generation?.loop_mode || "smooth";
+  populateSettingsCostSummary();
 }
 
-async function saveSettingsKey() {
-  const input = $("#settings-xai-key");
-  if (!input.value) return;
+function populateSettingsCostSummary() {
+  const catalog=state.capabilities?.ai_catalog;
+  const target=$("#settings-cost-summary");
+  if(!catalog||!target)return;
+  const ticks=Number(catalog.usd_ticks_per_dollar)||10_000_000_000;
+  const find=(role,id)=>catalog.roles?.[role]?.choices?.find(choice=>choice.id===id);
+  const concept=find("concept",$("#settings-concept-model").value);
+  const video=find("video",$("#settings-video-model").value);
+  const count=Number($("#settings-candidate-count").value)||4;
+  const conceptEstimate=(Number(concept?.pricing?.output_per_1k_image_usd_ticks)||0)*count/ticks;
+  const videoEstimate=((Number(video?.pricing?.input_per_image_usd_ticks)||0)+(Number(video?.pricing?.output_per_second_480p_usd_ticks)||0))/ticks;
+  const money=value=>value.toLocaleString(undefined,{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:4});
+  target.textContent=`Estimates as of ${catalog.pricing_as_of}: ${count} still${count===1?"":"s"} about ${money(conceptEstimate)}; video about ${money(videoEstimate)} per generated second. Provider-reported totals are retained with each Library item.`;
+}
+
+function setSettingsStatus(message, kind = "") {
   const status = $("#settings-status");
-  status.className = "write-status working";
-  status.textContent = "Saving…";
+  status.className = `write-status settings-route-status ${kind}`.trim();
+  status.textContent = message;
+}
+
+async function saveSettings({exit = false} = {}) {
+  if(state.settingsSaveBusy)return false;
+  state.settingsSaveBusy=true;
+  $("#settings-save").disabled=true;
+  $("#settings-done").disabled=true;
+  setSettingsStatus("Saving…", "working");
   try {
-    state.settings = await api("/api/settings", {method: "POST", body: JSON.stringify({
-      llm: {interpreter: $("#settings-interpreter").value, renderer: $("#settings-renderer").value, keys: {xai: input.value}},
+    const key=$("#settings-xai-key").value.trim();
+    if(key)state.settings=await api("/api/settings/key",{method:"POST",body:JSON.stringify({provider:"xai",key})});
+    state.settings=await api("/api/settings/preferences",{method:"POST",body:JSON.stringify({
+      models:{interpreter:$("#settings-interpreter").value,concept:$("#settings-concept-model").value,video:$("#settings-video-model").value},
+      candidate_count:Number($("#settings-candidate-count").value),
+      loop_mode:$("#settings-loop-mode").value,
     })});
-    input.value = "";
-    $("#settings-save-key").disabled = true;
+    const requestedRoot=$("#settings-library-root").value.trim()||null;
+    if(requestedRoot!==state.settings.library?.current_root){
+      state.settings=await api("/api/settings/library",{method:"POST",body:JSON.stringify({current_root:requestedRoot})});
+    }
+    $("#settings-xai-key").value="";
     populateSettings();
-    status.className = "write-status";
-    status.textContent = "Key saved.";
+    state.conceptQuantity=Number(state.settings.generation?.candidate_count)||state.conceptQuantity;
+    setSettingsStatus("Changes saved.");
     refreshAiGate();
+    if(exit)finishSettings();
+    return true;
   } catch (error) {
-    status.className = "write-status error";
-    status.textContent = `Could not save: ${error.message}`;
+    setSettingsStatus(`Could not save: ${error.message}`, "error");
+    return false;
+  } finally {
+    state.settingsSaveBusy=false;
+    $("#settings-save").disabled=false;
+    $("#settings-done").disabled=false;
   }
+}
+
+function finishSettings() {
+  const route=state.settingsReturnRoute&&state.settingsReturnRoute!==ROUTES.SETTINGS?state.settingsReturnRoute:ROUTES.EDIT;
+  const reopen=state.settingsReturnDialog;
+  state.settingsReturnRoute=null;
+  state.settingsReturnDialog=false;
+  navigateTo(route,{focusHeading:!reopen});
+  if(reopen)setTimeout(openGenerationDialog,0);
+}
+
+async function chooseLibraryFolder() {
+  const bridge=window.pywebview?.api;
+  if(!bridge?.choose_library_folder){$("#settings-library-root").focus();setSettingsStatus("Enter an absolute folder path, then save changes.");return;}
+  try{
+    const path=await bridge.choose_library_folder();
+    if(path){$("#settings-library-root").value=path;setSettingsStatus("Folder selected. Save changes to use it.");}
+  }catch(error){setSettingsStatus(`Could not choose folder: ${error.message||error}`,"error");}
+}
+
+async function revealLibraryFolder() {
+  const path=state.settings?.library?.current_root;
+  if(!path)return;
+  const bridge=window.pywebview?.api;
+  if(!bridge?.reveal_library_path){setSettingsStatus("Reveal is available in the Mac app.");return;}
+  try{if(!await bridge.reveal_library_path(path))throw new Error("The folder is unavailable.");}
+  catch(error){setSettingsStatus(`Could not reveal folder: ${error.message||error}`,"error");}
 }
 
 async function clearSettingsKey() {
@@ -1838,11 +1911,8 @@ async function clearSettingsKey() {
   status.className = "write-status working";
   status.textContent = "Clearing…";
   try {
-    state.settings = await api("/api/settings", {method: "POST", body: JSON.stringify({
-      llm: {interpreter: $("#settings-interpreter").value, renderer: $("#settings-renderer").value, keys: {xai: ""}},
-    })});
+    state.settings = await api("/api/settings/key", {method: "POST", body: JSON.stringify({provider:"xai",key:""})});
     $("#settings-xai-key").value = "";
-    $("#settings-save-key").disabled = true;
     populateSettings();
     status.className = "write-status";
     status.textContent = "Key cleared.";
@@ -2160,11 +2230,16 @@ $("#undo-button").addEventListener("click",undo);
 $("#redo-button").addEventListener("click",redo);
 $("#validate-button").addEventListener("click",()=>validateCurrent());
 $("#settings-button").addEventListener("click",openSettings);
-$("#settings-xai-key").addEventListener("input",event=>{$("#settings-save-key").disabled=!event.target.value;});
-$("#settings-xai-key").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();if(!$("#settings-save-key").disabled)saveSettingsKey();}});
-$("#settings-save-key").addEventListener("click",saveSettingsKey);
+$("#settings-xai-key").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();saveSettings();}});
+$("#settings-save").addEventListener("click",()=>saveSettings());
+$("#settings-done").addEventListener("click",()=>saveSettings({exit:true}));
 $("#settings-clear-key").addEventListener("click",clearSettingsKey);
 $("#settings-test-key").addEventListener("click",testSettingsKey);
+$("#settings-choose-library").addEventListener("click",chooseLibraryFolder);
+$("#settings-reveal-library").addEventListener("click",revealLibraryFolder);
+$("#settings-candidate-count").addEventListener("change",populateSettingsCostSummary);
+$("#settings-concept-model").addEventListener("change",populateSettingsCostSummary);
+$("#settings-video-model").addEventListener("change",populateSettingsCostSummary);
 $("#lighting-generate-open").addEventListener("click",openGenerationDialog);
 $("#lighting-generate-dialog").addEventListener("close",handleGenerationDialogClose);
 $$('.nav-item').forEach(item=>item.addEventListener('click',()=>navigateTo(item.dataset.route, {focusHeading: true})));
