@@ -69,6 +69,17 @@
   visible/selectable in Concepts, browsable in Library detail, and retained
   across Settings → Done. Provider-reported cost was $0.0227244. No key was
   persisted and no video or hardware call was made.
+- The owner's saved Relic concept job demonstrated that generic `20:9` safe-band
+  steering still produced cinematic landscapes whose detail could not survive
+  an `18x7` LED raster. Concept planning now receives exact device geometry and
+  binds every paid still prompt to a flat, high-contrast emissive texture in
+  `569e244`. Animation now pixel-reduces and banks the exact selected source
+  sent upstream, deterministically constrains every video prompt to a fixed
+  one-second closed LED cycle, and gives each loop mode explicit endpoint motion
+  rules in `e7dd78d`; the offline integration adapter was updated in `a94f86d`.
+  The full verification entry point passed at `a94f86d` with 267 Python tests
+  and 29 browser-state/static tests. Versioned macOS build `0.1.20` passed frozen
+  smoke and DMG verification. No provider or hardware call was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in

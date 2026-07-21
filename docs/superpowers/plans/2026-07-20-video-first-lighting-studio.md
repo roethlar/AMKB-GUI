@@ -262,9 +262,11 @@ Concept operation:
 2. Create the manifest before spending.
 3. Ask the interpreter for a strict `ConceptPlan` containing a shared visual
    brief and exactly N closely related candidate prompts. Request 1K `20:9`
-   stills and instruct the model to keep all essential subjects/action inside
-   the target-raster safe band; the Create gallery overlays the actual device
-   crop so users judge what will survive mapping.
+   stills and bind every candidate prompt to the exact device raster. Concepts
+   are flat, high-contrast emissive textures with raster-cell-scale forms, not
+   cinematic scenes, landscapes, photographed keyboards, or fine-detail art.
+   Keep all essential subjects/action inside the target-raster safe band; the
+   Create gallery overlays the actual device crop so users judge what survives.
 4. Generate candidates sequentially. Atomically bank and publish each valid
    image and its exact usage before starting the next call.
 5. End as `awaiting_selection`, `partial`, `cancelled`, or `failed`. Successful
@@ -276,10 +278,14 @@ Animation operation:
 
 1. Validate that the candidate asset belongs to the job and commit the
    selection; this does not mutate the open document.
-2. Send the original prompt, optional user motion text, selected still as image
-   context, device geometry, fixed one-second duration, locked-camera guidance,
-   and selected loop mode to the interpreter. Validate a strict
-   `VideoAnimationPlan` with subject/style locks and one concrete video prompt.
+2. Pixel-reduce the selected still to the target raster's information budget,
+   nearest-upscale it back to provider dimensions, and bank that exact PNG as a
+   `selected_still`. Send it with the original prompt, optional user motion text,
+   device geometry, fixed one-second duration, locked coordinates, and selected
+   loop mode to the interpreter. Validate a strict `VideoAnimationPlan` with
+   subject/style locks and one concrete prompt, then deterministically append
+   the non-optional LED-texture, no-scene, closed-cycle constraints so planner
+   drift cannot turn the request back into conventional video.
 3. Submit exactly one image-to-video POST and persist `request_id` before poll.
 4. Poll durably. On visible cancellation after acceptance, stop foreground
    progress but continue background poll/download; bank the MP4, mark
