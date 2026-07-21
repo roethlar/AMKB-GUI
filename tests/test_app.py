@@ -3188,6 +3188,25 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertNotIn(first, serialized)
         self.assertNotIn(second, serialized)
 
+    def test_native_folder_actions_dispatch_through_the_desktop_bridge(self) -> None:
+        revealed: list[str] = []
+        bridge = SimpleNamespace(
+            choose_library_folder=lambda: "/tmp/chosen-library",
+            reveal_library_path=lambda path: revealed.append(path) is None,
+        )
+        self._server.state.desktop_bridge = bridge
+
+        status, data = self._request("POST", "/api/native/choose-library", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(data, {"path": "/tmp/chosen-library"})
+
+        status, data = self._request(
+            "POST", "/api/native/reveal-library", {"path": "/tmp/chosen-library"}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data, {"revealed": True})
+        self.assertEqual(revealed, ["/tmp/chosen-library"])
+
         # No key configured → 400 with a Settings hint, and the transport is never
         # consulted (the guard fires before any network path).
         self._save_key("")

@@ -128,6 +128,9 @@ class DesktopWindowTests(unittest.TestCase):
         )
 
         class _Server:
+            def __init__(self):
+                self.state = types.SimpleNamespace()
+
             def serve_forever(self, **kwargs):
                 return None
 
@@ -137,15 +140,17 @@ class DesktopWindowTests(unittest.TestCase):
             def server_close(self):
                 created["server_close"] = True
 
+        fake_server = _Server()
         with (
             mock.patch.dict(sys.modules, {"webview": fake_webview}),
-            mock.patch.object(desktop, "create_server", return_value=(_Server(), "http://local")),
+            mock.patch.object(desktop, "create_server", return_value=(fake_server, "http://local")),
         ):
             self.assertEqual(desktop.run_desktop(debug=True), 0)
 
         bridge = created["kwargs"]["js_api"]
         self.assertIsInstance(bridge, desktop.DesktopBridge)
         self.assertIs(bridge._window, window)
+        self.assertIs(fake_server.state.desktop_bridge, bridge)
         self.assertTrue(created["shutdown"])
         self.assertTrue(created["server_close"])
 

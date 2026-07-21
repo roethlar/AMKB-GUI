@@ -2067,20 +2067,42 @@ function finishSettings() {
 }
 
 async function chooseLibraryFolder() {
-  const bridge=window.pywebview?.api;
-  if(!bridge?.choose_library_folder){$("#settings-library-root").focus();setSettingsStatus("Enter an absolute folder path, then save changes.");return;}
+  const button=$("#settings-choose-library");
+  button.disabled=true;
+  setSettingsStatus("Opening folder chooser…","working");
   try{
-    const path=await bridge.choose_library_folder();
+    let path=null;
+    try{
+      const result=await api("/api/native/choose-library",{method:"POST",body:"{}"});
+      path=result.path;
+    }catch(error){
+      const bridge=window.pywebview?.api;
+      if(error.status!==404||!bridge?.choose_library_folder)throw error;
+      path=await bridge.choose_library_folder();
+    }
     if(path){$("#settings-library-root").value=path;setSettingsStatus("Folder selected. Save changes to use it.");}
-  }catch(error){setSettingsStatus(`Could not choose folder: ${error.message||error}`,"error");}
+    else setSettingsStatus("No folder selected.");
+  }catch(error){
+    $("#settings-library-root").focus();
+    setSettingsStatus(error.status===404?"Enter an absolute folder path, then save changes.":`Could not choose folder: ${error.message||error}`,"error");
+  }finally{button.disabled=false;}
+}
+
+async function invokeRevealLibraryPath(path) {
+  try{
+    const result=await api("/api/native/reveal-library",{method:"POST",body:JSON.stringify({path})});
+    return Boolean(result.revealed);
+  }catch(error){
+    const bridge=window.pywebview?.api;
+    if(error.status!==404||!bridge?.reveal_library_path)throw error;
+    return Boolean(await bridge.reveal_library_path(path));
+  }
 }
 
 async function revealLibraryFolder() {
   const path=state.settings?.library?.current_root;
   if(!path)return;
-  const bridge=window.pywebview?.api;
-  if(!bridge?.reveal_library_path){setSettingsStatus("Reveal is available in the Mac app.");return;}
-  try{if(!await bridge.reveal_library_path(path))throw new Error("The folder is unavailable.");}
+  try{if(!await invokeRevealLibraryPath(path))throw new Error("The folder is unavailable.");}
   catch(error){setSettingsStatus(`Could not reveal folder: ${error.message||error}`,"error");}
 }
 
@@ -2424,9 +2446,7 @@ $("#library-refresh").addEventListener("click",()=>loadLibrary({force:true}));
 $("#library-reveal").addEventListener("click",async()=>{
   const path=state.settings?.library?.current_root;
   if(!path){openSettings();return;}
-  const bridge=window.pywebview?.api;
-  if(!bridge?.reveal_library_path){toast("Reveal is available in the Mac app","Your Library folder is shown in Settings.");return;}
-  try{if(!await bridge.reveal_library_path(path))throw new Error("The folder is unavailable.");}
+  try{if(!await invokeRevealLibraryPath(path))throw new Error("The folder is unavailable.");}
   catch(error){toast("Could not reveal Library",error.message||String(error),"error");}
 });
 $$("[data-library-filter]").forEach(button=>button.addEventListener("click",()=>{

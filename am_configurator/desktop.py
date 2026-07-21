@@ -275,7 +275,11 @@ def run_desktop(config_paths: list[str] | None = None, *, debug: bool = False) -
             ) from None
         raise
 
+    bridge = DesktopBridge()
     server, url = create_server(config_paths)
+    server_state = getattr(server, "state", None)
+    if server_state is not None:
+        server_state.desktop_bridge = bridge
     server_thread = threading.Thread(
         target=server.serve_forever,
         kwargs={"poll_interval": 0.2},
@@ -294,7 +298,6 @@ def run_desktop(config_paths: list[str] | None = None, *, debug: bool = False) -
         server_thread.join(timeout=2)
 
     webview.settings["ALLOW_DOWNLOADS"] = True
-    bridge = DesktopBridge()
     window = webview.create_window(
         "AM Configurator",
         url,

@@ -172,6 +172,8 @@ test("Settings is a complete saveable route with storage and an explicit exit", 
   assert.match(js, /api\("\/api\/settings\/key"/);
   assert.match(js, /choose_library_folder/);
   assert.match(js, /reveal_library_path/);
+  assert.match(js, /api\("\/api\/native\/choose-library"/);
+  assert.match(js, /api\("\/api\/native\/reveal-library"/);
   assert.match(js, /settingsReturnRoute/);
   assert.match(js, /\$\("#settings-done"\).*saveSettings\(\{exit:true\}\)/);
   assert.match(js, /function finishSettings[\s\S]*navigateTo\(route/);

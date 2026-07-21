@@ -1358,6 +1358,9 @@ class _State:
         # resolves the real registry classes via ``_default_llm_factories``;
         # tests inject fakes so no request ever leaves the machine.
         self.llm_factories = llm_factories
+        # Native desktop builds attach a narrow chooser/reveal bridge after
+        # creating the loopback server. Browser-only launches leave it unset.
+        self.desktop_bridge: Any = None
         self._lighting_lock = threading.Lock()
         self._lighting_library = lighting_library
         self._lighting_coordinator = lighting_coordinator
@@ -1779,6 +1782,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._save_settings_privacy(body)
             elif path == "/api/settings/test":
                 self._test_settings_key(body)
+            elif path == "/api/native/choose-library":
+                self._native_choose_library(body)
+            elif path == "/api/native/reveal-library":
+                self._native_reveal_library(body)
             elif path == "/api/lighting/concepts" or path.startswith(
                 "/api/lighting/jobs/"
             ):
@@ -2206,6 +2213,42 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(payload, status)
             return
         self._json({"ok": True})
+
+    def _native_choose_library(self, body: dict[str, Any]) -> None:
+        if body:
+            raise ValueError("The folder chooser does not accept options.")
+        bridge = self.state.desktop_bridge
+        if bridge is None:
+            self._json(
+                {"error": "The native folder chooser is unavailable in this launch."},
+                HTTPStatus.NOT_FOUND,
+            )
+            return
+        try:
+            selected = bridge.choose_library_folder()
+        except Exception:  # noqa: BLE001 - native UI boundary
+            self._json(
+                {"error": "The native folder chooser could not be opened."},
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
+            return
+        self._json({"path": selected})
+
+    def _native_reveal_library(self, body: dict[str, Any]) -> None:
+        if set(body) != {"path"} or not isinstance(body["path"], str):
+            raise ValueError("Reveal requires one library path.")
+        bridge = self.state.desktop_bridge
+        if bridge is None:
+            self._json(
+                {"error": "Native Reveal is unavailable in this launch."},
+                HTTPStatus.NOT_FOUND,
+            )
+            return
+        try:
+            revealed = bool(bridge.reveal_library_path(body["path"]))
+        except Exception:  # noqa: BLE001 - native UI boundary
+            revealed = False
+        self._json({"revealed": revealed})
 
     def _start_generation(self, body: dict[str, Any]) -> None:
         """Validate a generation request and start the single-flight worker.
