@@ -1044,6 +1044,25 @@ class DurableVideoGenerationTests(unittest.TestCase):
         self.assertEqual(1, len(self.video.poll_calls))
 
     def test_startup_resumes_every_accepted_request_sequentially(self) -> None:
+        class InterleavingGate(generation.OperationGate):
+            def __init__(self) -> None:
+                super().__init__()
+                self.interleaved = threading.Event()
+                self.interloper_token: object | None = None
+
+            def finish(self, token: object) -> None:
+                active_job = self.active_job_id
+                super().finish(token)
+                if active_job is not None and self.interloper_token is None:
+                    self.interloper_token, _cancelled = self.begin(
+                        "competing-generation"
+                    )
+                    self.interleaved.set()
+
+            def release_interloper(self) -> None:
+                assert self.interloper_token is not None
+                super().finish(self.interloper_token)
+
         class ResumeProvider:
             def __init__(self) -> None:
                 self.poll_ids: list[str] = []
@@ -1059,8 +1078,10 @@ class DurableVideoGenerationTests(unittest.TestCase):
                 )
 
         resume_provider = ResumeProvider()
+        gate = InterleavingGate()
         self.coordinator = self._coordinator(
-            video_provider_factory=lambda _key, _model: resume_provider
+            video_provider_factory=lambda _key, _model: resume_provider,
+            operation_gate=gate,
         )
         jobs = []
         for index in range(2):
@@ -1100,6 +1121,8 @@ class DurableVideoGenerationTests(unittest.TestCase):
 
         actions = self.coordinator.reconcile_startup(api_key="video-secret-key")
         self.assertEqual(2, len(actions))
+        self.assertTrue(gate.interleaved.wait(timeout=2))
+        gate.release_interloper()
         for action in actions:
             self.assertEqual(
                 "ready", self.coordinator.wait(action["job_id"], timeout=20)["status"]

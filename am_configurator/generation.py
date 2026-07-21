@@ -244,6 +244,7 @@ class OperationGate:
         self._state_lock = threading.Lock()
         self._idle = threading.Event()
         self._idle.set()
+        self._idle_callbacks: list[Callable[[], None]] = []
         self._token: object | None = None
         self._job_id: str | None = None
         self._cancelled: threading.Event | None = None
@@ -261,6 +262,17 @@ class OperationGate:
     def wait_until_idle(self) -> None:
         """Block a background reconciler until the current lease is released."""
         self._idle.wait()
+
+    def call_when_idle(self, callback: Callable[[], None]) -> None:
+        """Run ``callback`` now or once after the current lease finishes."""
+        run_now = False
+        with self._state_lock:
+            if self._token is None and not self._lease.locked():
+                run_now = True
+            else:
+                self._idle_callbacks.append(callback)
+        if run_now:
+            callback()
 
     def begin(self, job_id: str | None = None) -> tuple[object, threading.Event]:
         if not self._lease.acquire(blocking=False):
@@ -288,14 +300,25 @@ class OperationGate:
             return True
 
     def finish(self, token: object) -> None:
+        callbacks: list[Callable[[], None]] = []
         with self._state_lock:
             if self._token is not token:
                 return
             self._token = None
             self._job_id = None
             self._cancelled = None
-        self._lease.release()
-        self._idle.set()
+            self._lease.release()
+            self._idle.set()
+            callbacks = self._idle_callbacks
+            self._idle_callbacks = []
+        for callback in callbacks:
+            try:
+                callback()
+            except Exception:
+                # Admission release must never be lost because a deferred
+                # recovery callback failed; the durable manifest remains the
+                # source for a later startup reconciliation.
+                continue
 
 
 _PROCESS_OPERATION_GATE = OperationGate()
@@ -2002,7 +2025,7 @@ class GenerationCoordinator:
                         on_finished=lambda: resume_at(index + 1),
                     )
                 except GenerationBusyError:
-                    raise
+                    self._gate.call_when_idle(lambda: resume_at(index))
                 except (GenerationError, LibraryError):
                     resume_at(index + 1)
 
