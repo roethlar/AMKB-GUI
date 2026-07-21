@@ -9,6 +9,7 @@ import time
 import traceback
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from am_configurator import media
@@ -71,6 +72,28 @@ class _Opener:
         if not self.responses:
             raise AssertionError("unexpected opener call")
         return self.responses.pop(0)
+
+
+class _ProductionShapedResponse:
+    """Models HTTPResponse clearing ``fp`` when Content-Length is exhausted."""
+
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+        self.status = 200
+        self.headers = {"Content-Length": str(len(body))}
+        self.socket_timeouts: list[float] = []
+        sock = SimpleNamespace(settimeout=self.socket_timeouts.append)
+        self.fp = SimpleNamespace(raw=SimpleNamespace(_sock=sock))
+        self.closed = False
+
+    def read(self, amount: int) -> bytes:
+        result, self.body = self.body[:amount], self.body[amount:]
+        if not self.body:
+            self.fp = None
+        return result
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class VideoDownloaderTests(unittest.TestCase):
@@ -318,6 +341,22 @@ class VideoDownloaderTests(unittest.TestCase):
                     )
             self.assertEqual(ctx.exception.code, "timeout")
             self.assertFalse(destination.exists())
+
+    def test_declared_length_stops_before_urllib_clears_response_socket(self) -> None:
+        payload = _mp4_bytes()
+        response = _ProductionShapedResponse(payload)
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "source.mp4"
+            result = media.download_video(
+                self._URL,
+                destination,
+                self._deadline(),
+                opener=_Opener(response),
+            )
+            self.assertEqual(destination.read_bytes(), payload)
+            self.assertEqual(result.size_bytes, len(payload))
+            self.assertTrue(response.socket_timeouts)
+            self.assertTrue(response.closed)
 
     def test_cancellation_before_or_during_stream_preserves_destination(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

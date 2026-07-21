@@ -367,6 +367,8 @@ def download_video(
                     stream.write(chunk)
                 except OSError:
                     raise MediaError("io", "video temporary file write failed") from None
+                if expected_size is not None and total == expected_size:
+                    break
 
             _check_cancel(cancelled)
             _remaining_timeout(deadline)
