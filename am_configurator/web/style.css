@@ -168,11 +168,39 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .lighting-edit-shell { min-width: 0; padding-top: 14px; }
 .lighting-edit-empty { min-height: 460px; }
 
-.generation-dialog { width: min(620px, calc(100vw - 32px)); }
+.generation-dialog { width: min(780px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); }
+.generation-dialog .dialog-card { max-height: calc(100dvh - 32px); overflow-y: auto; }
 .generation-dialog .create-steps { margin-bottom: 14px; }
 .ai-dialog-content { display: grid; gap: 10px; }
 .generation-ready { padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
 .generation-ready p { margin: 5px 0 0; color: var(--muted); line-height: 1.5; }
+.concept-stage { display: grid; gap: 14px; }
+.concept-prompt { display: grid; gap: 7px; }
+.concept-prompt textarea { min-height: 92px; padding: 10px 12px; resize: vertical; line-height: 1.5; }
+.concept-actions { display: grid; grid-template-columns: auto minmax(0,1fr) auto auto; align-items: end; gap: 10px; }
+.concept-actions label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; }
+.concept-actions select { width: 78px; }
+.concept-destination { align-self: center; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.concept-phase { min-height: 18px; margin: -4px 0 0; color: var(--violet-2); font-size: 11px; }
+.concept-progress-row { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 10px; margin-top: -8px; color: var(--muted); font-size: 10px; }
+.concept-progress-row[hidden] { display: none; }
+.concept-progress-row progress { width: 100%; accent-color: var(--violet); }
+.concept-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.concept-grid:empty { display: none; }
+.concept-card { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); cursor: pointer; }
+.concept-media { position: relative; display: grid; aspect-ratio: 20/9; place-items: center; overflow: hidden; background: linear-gradient(145deg,#202026,#111114); }
+.concept-media img { width: 100%; height: 100%; object-fit: cover; }
+.concept-placeholder { color: var(--muted); font-size: 11px; }
+.concept-crop { position: absolute; inset: 12%; margin: auto; width: 72%; height: auto; border: 1px solid rgba(255,255,255,.72); border-radius: 3px; box-shadow: 0 0 0 999px rgba(0,0,0,.2); opacity: 0; pointer-events: none; }
+.concept-media img + .concept-crop { opacity: 1; }
+.concept-card-footer { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; }
+.concept-card-footer strong { font-size: 12px; }
+.concept-state { color: var(--muted); font-size: 10px; }
+.concept-choice:focus-visible + .concept-media { outline: 2px solid var(--violet-2); outline-offset: -2px; }
+.concept-card:has(.concept-choice:checked) { border-color: var(--violet-2); box-shadow: 0 0 0 1px var(--violet-2); }
+.concept-card:has(.concept-choice:disabled) { cursor: default; }
+.concept-card[data-state="selected"] .concept-state { color: var(--violet-2); }
+.concept-card[data-state="incomplete"] { opacity: .68; }
 
 .settings-screen { max-width: 920px; margin: 0 auto; }
 .settings-header { align-items: flex-start; }
@@ -311,10 +339,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .ai-panel { background: rgba(131, 88, 255, .05); border: 1px solid rgba(131, 88, 255, .2); border-radius: 10px; padding: 12px; margin-bottom: 16px; }
 .ai-panel .control-label { margin-bottom: 8px; }
 .ai-prompt { min-height: 62px; resize: vertical; line-height: 1.45; padding: 8px 10px; margin-bottom: 8px; }
-.ai-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.ai-frames { color: var(--muted); font-size: 11px; display: inline-flex; align-items: center; gap: 6px; }
-.ai-frames .select-field { width: 64px; min-height: 32px; padding: 0 6px; }
-.ai-calls { color: var(--violet-2); font-size: 11px; font-variant-numeric: tabular-nums; }
 .ai-target-note { color: var(--muted); font-size: 11px; margin-bottom: 8px; }
 .ai-actions { display: flex; gap: 6px; margin-bottom: 6px; }
 .ai-actions .button { flex: 1; }
@@ -473,6 +497,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .settings-key-actions, .settings-providers { grid-template-columns: 1fr; }
   .toast-region { right: 10px; bottom: 10px; left: 10px; }
   .toast { width: auto; }
+}
+
+@media (max-width: 520px) {
+  .concept-actions { grid-template-columns: auto minmax(0,1fr); }
+  .concept-actions .button { width: 100%; }
+  #generate-concepts, #cancel-concepts { grid-column: 1 / -1; }
+  .concept-grid { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

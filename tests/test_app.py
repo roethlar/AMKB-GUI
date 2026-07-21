@@ -3114,6 +3114,10 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(status, 200)
 
         self.assertEqual(data["ai_catalog"], ai_catalog.catalog_view())
+        self.assertEqual(
+            data["privacy_disclosure_version"],
+            ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+        )
         self.assertEqual(data["models"], dict(llm.XAI_MODELS))
         self.assertEqual(data["model_frame_caps"], dict(llm.MODEL_FRAME_CAPS))
         self.assertEqual(data["max_rendered_keyframes"], llm.MAX_RENDERED_KEYFRAMES)

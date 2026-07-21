@@ -57,7 +57,7 @@ test("destination selectors expose their selected value and lock during review",
   assert.match(html, /id="lighting-target-controls"[^>]*role="group"/);
   assert.match(js, /setAttribute\("aria-pressed"/);
   assert.match(js, /data-lighting-target=.*aria-pressed=/);
-  assert.match(js, /destinationLocked\s*=\s*Boolean\(state\.generation\s*\|\|\s*state\.pendingGeneration\)/);
+  assert.match(js, /destinationLocked\s*=\s*Boolean\(state\.generation\s*\|\|\s*state\.pendingGeneration\s*\|\|\s*state\.lighting\.activeJob\)/);
   assert.match(js, /slot:\s*state\.ledSlot/);
   assert.match(js, /productFamily:\s*productFamily\(productId\(\)\)/);
   assert.match(js, /getPage\(pending\.slot\)/);
@@ -90,12 +90,35 @@ test("AI generation is contained in a closed secondary dialog", () => {
   const editorBody = js.slice(js.indexOf("const editorBody="), js.indexOf('$("#lighting-edit-content").innerHTML', js.indexOf("const editorBody=")));
   assert.doesNotMatch(editorBody, /ai-prompt|generate-ai|\$\{aiPanel\}/);
   assert.match(js, /function renderGenerationDialog\s*\(/);
-  assert.match(js, /id="ai-prompt"/);
-  assert.match(js, /id="generate-ai"/);
+  assert.match(js, /id="concept-prompt"/);
+  assert.match(js, /id="generate-concepts"/);
+});
 
-  const start = js.slice(js.indexOf("async function startGeneration"), js.indexOf("async function pollGeneration"));
-  assert.ok(start.indexOf("state.generation =") < start.indexOf('api("/api/led/generate"'), "generation must lock before the paid request");
-  assert.match(start, /jobId:\s*null/);
+test("Generate uses banked still outputs instead of legacy animation frames", () => {
+  const start = js.indexOf("function renderGenerationDialog");
+  const end = js.indexOf("function openGenerationDialog", start);
+  const dialog = js.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.match(dialog, /'Additional outputs':'Outputs'/);
+  assert.match(dialog, /\[1,2,3,4,5,6,7,8\]/);
+  assert.match(dialog, /state\.conceptQuantity/);
+  assert.doesNotMatch(dialog, /ai-frame-count|ai-calls|API calls|>Frames</);
+  assert.match(dialog, /role="radiogroup"/);
+  assert.match(dialog, /id="concept-progress"[^>]*aria-label="Concept generation progress"/);
+  assert.match(js, /name="lighting-concept"/);
+  assert.match(js, /dataset\.candidateSlot=/);
+  assert.match(js, /candidate_count:\s*state\.conceptQuantity/);
+  assert.match(js, /api\("\/api\/lighting\/concepts"/);
+  assert.match(js, /\/api\/lighting\/jobs\/\$\{encodeURIComponent\(jobId\)\}/);
+  assert.match(js, /\/api\/lighting\/assets\/\$\{encodeURIComponent\(jobId\)\}\/\$\{encodeURIComponent\(assetId\)\}/);
+  assert.match(js, /type:\s*"SELECT_CANDIDATE"/);
+  assert.doesNotMatch(js, /fewer frames/);
+  assert.match(js, /conceptAssetLoads\.has\(key\)/);
+  assert.match(js, /conceptAssetLoads\.add\(key\)/);
+  assert.match(js, /acceptConceptJob\(response\.job_id/);
+  assert.match(js, /const extendExisting=Boolean\(manifest\?\.candidates\?\.length\)/);
+  assert.match(js, /extendExisting[\s\S]*\/api\/lighting\/jobs\/[\s\S]*:\s*await api\("\/api\/lighting\/concepts"/);
+  assert.match(js, /scheduleLightingJobPoll\(jobId,Math\.min\(5000/);
 });
 
 test("Library and Settings have document-independent routed surfaces", () => {

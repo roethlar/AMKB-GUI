@@ -1210,6 +1210,7 @@ def _capabilities() -> dict[str, Any]:
         targets[model] = {"single_target": len(sizes) > 1, "targets": entries}
     return {
         "ai_catalog": ai_catalog.catalog_view(),
+        "privacy_disclosure_version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
         "providers": {
             "interpreters": list(llm.INTERPRETER_PROVIDERS),
             "renderers": list(llm.RENDERER_PROVIDERS),
