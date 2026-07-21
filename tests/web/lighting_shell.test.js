@@ -92,22 +92,22 @@ test("AI generation is contained in a closed secondary dialog", () => {
   assert.match(js, /function renderGenerationDialog\s*\(/);
   assert.match(js, /id="concept-prompt"/);
   assert.match(js, /id="generate-concepts"/);
+  assert.doesNotMatch(html, /class="create-steps"/);
 });
 
-test("Generate uses banked still outputs instead of legacy animation frames", () => {
+test("the proof flow generates one banked still with no quantity or wizard controls", () => {
   const start = js.indexOf("function renderConceptStage");
   const end = js.indexOf("function animationPhaseLabel", start);
   const dialog = js.slice(start, end);
   assert.ok(start >= 0 && end > start);
-  assert.match(dialog, /'Additional outputs':'Outputs'/);
-  assert.match(dialog, /\[1,2,3,4,5,6,7,8\]/);
-  assert.match(dialog, /state\.conceptQuantity/);
+  assert.match(dialog, /Generate one still/);
+  assert.doesNotMatch(dialog, /concept-output-count|Additional outputs|More like this/);
   assert.doesNotMatch(dialog, /ai-frame-count|ai-calls|API calls|>Frames</);
   assert.match(dialog, /role="radiogroup"/);
   assert.match(dialog, /id="concept-progress"[^>]*aria-label="Concept generation progress"/);
   assert.match(js, /name="lighting-concept"/);
   assert.match(js, /dataset\.candidateSlot=/);
-  assert.match(js, /candidate_count:\s*state\.conceptQuantity/);
+  assert.match(js, /candidate_count:\s*1/);
   assert.match(js, /api\("\/api\/lighting\/concepts"/);
   assert.match(js, /\/api\/lighting\/jobs\/\$\{encodeURIComponent\(jobId\)\}/);
   assert.match(js, /\/api\/lighting\/assets\/\$\{encodeURIComponent\(jobId\)\}\/\$\{encodeURIComponent\(assetId\)\}/);
@@ -116,15 +116,15 @@ test("Generate uses banked still outputs instead of legacy animation frames", ()
   assert.match(js, /conceptAssetLoads\.has\(key\)/);
   assert.match(js, /conceptAssetLoads\.add\(key\)/);
   assert.match(js, /acceptConceptJob\(response\.job_id/);
-  assert.match(js, /const extendExisting=Boolean\(manifest\?\.candidates\?\.length\)/);
-  assert.match(js, /extendExisting[\s\S]*\/api\/lighting\/jobs\/[\s\S]*:\s*await api\("\/api\/lighting\/concepts"/);
   assert.match(js, /scheduleLightingJobPoll\(jobId,Math\.min\(5000/);
 });
 
-test("a selected concept has an explicit animation and review handoff", () => {
-  assert.match(js, /id="animate-selected"/);
+test("clicking a concept opens Animate directly without an API call", () => {
+  assert.doesNotMatch(js, /id="animate-selected"/);
   assert.match(js, /type:\s*"SHOW_ANIMATE"/);
   const selection = js.slice(js.indexOf("function appendConceptSlot"), js.indexOf("function updateConceptStage"));
+  assert.match(selection, /type:\s*"SELECT_CANDIDATE"/);
+  assert.match(selection, /showAnimateStage\(\)/);
   assert.doesNotMatch(selection, /\/animate|startLightingAnimation|api\(/);
 
   for (const id of [
@@ -236,7 +236,7 @@ test("shell supports narrow windows, zoom, focus, and reduced motion", () => {
   assert.match(css, /textarea:focus-visible/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)/);
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
-  assert.doesNotMatch(css, /\.create-steps li strong\s*\{\s*display:\s*none/);
+  assert.doesNotMatch(css, /\.create-steps/);
 });
 
 test("the Lighting editor exposes named keyboard-operable controls", () => {

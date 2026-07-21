@@ -58,7 +58,7 @@ const state = {
   settingsReturnDialog: false,
   settingsSaveBusy: false,
   aiPrompt: "",
-  conceptQuantity: 4,
+  conceptQuantity: 1,
   conceptManifest: null,
   conceptExpectedCount: 0,
   conceptSubmitting: false,
@@ -1568,18 +1568,16 @@ function generationDialogContext() {
 function renderConceptStage(context) {
   const content=$("#lighting-generate-content");
   const {manifest,target,pairsRelicGif,keySet,librarySet,busy,hasCandidates,destinationSlot}=context;
-  const selectedCandidateId=state.lighting.create.selectedCandidateId;
   const generateDisabled = busy || !keySet || !librarySet || !state.capabilities || !String(manifest?.prompt||state.aiPrompt).trim();
   content.innerHTML = `<div class="concept-stage">
     <div class="concept-prompt"><label class="control-label" for="concept-prompt">Describe the lighting</label><textarea id="concept-prompt" class="text-field" rows="4" maxlength="4000" placeholder="A soft violet aurora moving across deep blue…" ${busy||hasCandidates?'disabled':''}>${esc(manifest?.prompt || state.aiPrompt)}</textarea></div>
-    <div class="concept-actions"><label for="concept-output-count">${hasCandidates?'Additional outputs':'Outputs'}<select id="concept-output-count" class="select-field" ${busy?'disabled':''}>${[1,2,3,4,5,6,7,8].map(number=>`<option value="${number}" ${number===state.conceptQuantity?'selected':''}>${number}</option>`).join("")}</select></label><span class="concept-destination">Slot ${destinationSlot - 4} · ${esc(target.label)}${pairsRelicGif?' + edge lights':''}</span><button id="generate-concepts" type="button" class="button primary" ${generateDisabled?'disabled':''}>${hasCandidates?'More like this':'Generate concepts'}</button><button id="cancel-concepts" type="button" class="button ghost" ${busy?'':'hidden'} ${state.lighting.activeJob?.id?'':'disabled'}>Cancel</button></div>
+    <div class="concept-actions"><span class="concept-destination">Custom ${destinationSlot - 4} · ${esc(target.label)}${pairsRelicGif?' + edge lights':''}</span>${hasCandidates?'<span class="concept-next">Click a still to animate it.</span>':`<button id="generate-concepts" type="button" class="button primary" ${generateDisabled?'disabled':''}>Generate one still</button>`}<button id="cancel-concepts" type="button" class="button ghost" ${busy?'':'hidden'} ${state.lighting.activeJob?.id?'':'disabled'}>Cancel</button></div>
     <p id="concept-phase" class="concept-phase" aria-live="polite"></p>
     <div id="concept-progress-row" class="concept-progress-row" hidden><progress id="concept-progress" max="1" value="0" aria-label="Concept generation progress"></progress><span id="concept-progress-label"></span></div>
     <div id="concept-grid" class="concept-grid" role="radiogroup" aria-label="Generated concepts"></div>
     ${!keySet?`<p class="ai-hint">Add an xAI API key in <button type="button" id="concept-open-settings" class="link-button">Settings</button> to enable generation.</p>`:''}
     ${keySet&&!librarySet?`<p class="ai-hint">Choose a Library folder in <button type="button" id="concept-open-settings" class="link-button">Settings</button> before generating.</p>`:''}
     ${state.conceptError?`<p class="ai-error" role="alert">${esc(state.conceptError)}</p>`:''}
-    <div class="concept-handoff"><div><strong>${selectedCandidateId?'Concept selected':'Choose one concept'}</strong><small>${selectedCandidateId?'Continue to set motion and looping. Nothing is generated yet.':'Selection is local and does not start a provider request.'}</small></div><button id="animate-selected" type="button" class="button primary" ${selectedCandidateId&&!busy?'':'disabled'}>Animate selected <span aria-hidden="true">→</span></button></div>
   </div>`;
   wireConceptStage();
   updateConceptStage();
@@ -1630,22 +1628,21 @@ function renderAnimateStage(context) {
   const canRetryLocal=retainedVideo&&["ready_to_process","cancelled_saved"].includes(manifest.status);
   const phase=animationPhaseLabel(manifest);
   const loops=[
-    ["smooth","Smooth loop","Blends the end back into the beginning."],
-    ["none","Hard loop","Keeps the whole video and jumps directly back to frame 1."],
-    ["ping_pong","Ping-pong","Plays forward, then backward for a seamless reversal."],
+    ["smooth","Smooth loop"],
+    ["none","Hard loop"],
+    ["ping_pong","Ping-pong"],
   ];
   content.innerHTML=`<section class="animate-stage" aria-labelledby="animate-stage-title">
     <button id="animation-back" type="button" class="stage-back">← Concepts</button>
     <div class="animate-layout">
       <figure id="animation-selected-still" class="animation-anchor">${selectedUrl?`<img src="${esc(selectedUrl)}" alt="Selected concept to animate">`:'<span class="concept-placeholder">Loading selected concept…</span>'}<figcaption><span>Selected concept</span><strong>${esc(candidate.revised_prompt||candidate.prompt||manifest.prompt)}</strong></figcaption></figure>
       <div class="animation-controls">
-        <div><p class="eyebrow">One-second video</p><h3 id="animate-stage-title">Set the motion</h3><p class="animation-intro">The full source video is saved, then converted locally into the maximum ${Number(manifest.target?.frame_cap)||"device"} frames for ${esc(target.label)}.</p></div>
+        <div><h3 id="animate-stage-title">Animate this still</h3></div>
         <label class="animation-field" for="animation-motion"><span>Motion direction <small>Optional</small></span><textarea id="animation-motion" class="text-field" rows="3" maxlength="1000" placeholder="Slowly drift left while the bright streak wraps cleanly…" ${active?'disabled':''}>${esc(state.animationMotion)}</textarea></label>
-        <label class="animation-field" for="animation-loop-mode"><span>Loop treatment</span><select id="animation-loop-mode" class="select-field" ${active?'disabled':''}>${loops.map(([value,label,description])=>`<option value="${value}" ${state.animationLoopMode===value?'selected':''}>${label} — ${description}</option>`).join("")}</select></label>
+        <label class="animation-field" for="animation-loop-mode"><span>Loop</span><select id="animation-loop-mode" class="select-field" ${active?'disabled':''}>${loops.map(([value,label])=>`<option value="${value}" ${state.animationLoopMode===value?'selected':''}>${label}</option>`).join("")}</select></label>
         ${phase?`<div class="animation-status ${["failed","ready_to_process","cancelled_saved","submission_unknown"].includes(manifest.status)?'warning':''}" role="status"><span class="job-state-mark" aria-hidden="true"></span><p>${esc(phase)}</p></div>`:''}
         ${state.animationError?`<p class="ai-error" role="alert">${esc(state.animationError)}</p>`:''}
-        <div class="animation-actions">${canRetryLocal?'<button id="retry-local-processing" type="button" class="button primary">Process saved video</button><small>No provider call or additional xAI charge.</small>':`<button id="start-animation" type="button" class="button primary" ${active?'disabled':''}>${attempt?'Generate another animation':'Generate animation'}</button><small>This button starts one paid video request. Nothing starts on selection.</small>`}${active?'<button id="cancel-animation" type="button" class="button ghost">Cancel</button>':''}</div>
-        <p class="animation-destination">Destination locked to Custom ${destinationSlot-4} · ${esc(target.label)} until review.</p>
+        <div class="animation-actions">${canRetryLocal?'<button id="retry-local-processing" type="button" class="button primary">Process saved video</button><small>No xAI call.</small>':`<button id="start-animation" type="button" class="button primary" ${active?'disabled':''}>${attempt?'Generate another animation':'Generate animation'}</button><small>One paid xAI video request.</small>`}${active?'<button id="cancel-animation" type="button" class="button ghost">Cancel</button>':''}</div>
       </div>
     </div>
   </section>`;
@@ -1709,19 +1706,8 @@ function renderReviewStage(context) {
   hydrateConceptAssets(manifest);
 }
 
-function updateGenerationSteps() {
-  $$('[data-lighting-stage]').forEach(step=>{
-    const stage=step.dataset.lightingStage;
-    const current=stage===state.lighting.create.stage;
-    if(current)step.setAttribute("aria-current","step");else step.removeAttribute("aria-current");
-    const button=$("button",step);
-    if(button)button.disabled=current||(stage===STAGES.ANIMATE&&!state.lighting.create.selectedCandidateId)||(stage===STAGES.REVIEW&&!state.lighting.activeJob?.resultAssetId);
-  });
-}
-
 function renderGenerationDialog() {
   const content = $("#lighting-generate-content");
-  updateGenerationSteps();
   if (!state.config || !pageData().length) {
     content.innerHTML = documentRequirementMarkup("Generation needs the document's LED geometry and frame limits.");
     return;
@@ -1770,7 +1756,7 @@ function appendConceptSlot(grid,index) {
     if(!input.checked||!input.value)return;
     state.lighting=reduceLightingState(state.lighting,{type:"SELECT_CANDIDATE",candidateId:input.value}).state;
     persistLightingState();
-    updateConceptStage();
+    showAnimateStage();
   });
   grid.append(label);
 }
@@ -1823,7 +1809,7 @@ function updateConceptStage() {
       if(url&&!image){image=document.createElement("img");image.alt=`Concept ${index+1}: ${candidate.revised_prompt||candidate.prompt||manifest.prompt}`;media.prepend(image);}
       if(image&&url&&image.src!==url)image.src=url;
       $(".concept-placeholder",media)?.remove();
-      stateNode.textContent=selected?"Selected":"Saved";
+      stateNode.textContent="Animate →";
     }else{
       card.dataset.state=terminal?"incomplete":"waiting";
       input.disabled=true;input.value="";input.checked=false;
@@ -1845,25 +1831,15 @@ function updateConceptStage() {
     const busy=state.conceptSubmitting||state.lighting.activeJob?.status==="in_progress";
     const eligible=Boolean(state.settings?.llm?.keys?.xai?.set&&state.settings?.library?.current_root&&state.capabilities&&String(manifest?.prompt||state.aiPrompt).trim());
     button.disabled=busy||!eligible;
-    button.textContent=candidates.length?"More like this":"Generate concepts";
-  }
-  const selectedCandidateId=state.lighting.create.selectedCandidateId;
-  const animate=$("#animate-selected");
-  if(animate)animate.disabled=!selectedCandidateId||state.conceptSubmitting||state.lighting.activeJob?.status==="in_progress";
-  const handoff=$(".concept-handoff");
-  if(handoff){
-    $("strong",handoff).textContent=selectedCandidateId?"Concept selected":"Choose one concept";
-    $("small",handoff).textContent=selectedCandidateId?"Continue to set motion and looping. Nothing is generated yet.":"Selection is local and does not start a provider request.";
+    button.textContent="Generate one still";
   }
 }
 
 function wireConceptStage() {
   $("#concept-prompt")?.addEventListener("input",event=>{state.aiPrompt=event.target.value;updateConceptStage();});
-  $("#concept-output-count")?.addEventListener("change",event=>{state.conceptQuantity=Math.max(1,Math.min(8,Number(event.target.value)||4));});
   $("#concept-open-settings")?.addEventListener("click",()=>openSettings({returnToGeneration:true}));
   $("#generate-concepts")?.addEventListener("click",startConceptGeneration);
   $("#cancel-concepts")?.addEventListener("click",cancelLightingJob);
-  $("#animate-selected")?.addEventListener("click",showAnimateStage);
 }
 
 async function startLightingAnimation() {
@@ -2082,7 +2058,7 @@ function acceptConceptJob(jobId,{destination,targets,newJob}) {
   state.conceptPollEpoch++;
   state.lighting=reduceLightingState(state.lighting,{
     type:"JOB_SYNCED",
-    job:{id:jobId,status:"in_progress",phase:"concept_generation",progress:{completed:0,total:state.conceptQuantity},selectedCandidateId:null,resultAssetId:null,target:{family,productId:productId(),targets,frameCap}},
+    job:{id:jobId,status:"in_progress",phase:"concept_generation",progress:{completed:0,total:1},selectedCandidateId:null,resultAssetId:null,target:{family,productId:productId(),targets,frameCap}},
   }).state;
   state.lightingJobId=jobId;
   persistLightingState();
@@ -2100,8 +2076,7 @@ async function startConceptGeneration() {
   state.conceptSubmitting=true;
   state.conceptError="";
   const previousExpected=state.conceptExpectedCount;
-  const extendExisting=Boolean(manifest?.candidates?.length);
-  state.conceptExpectedCount=extendExisting?conceptSlotCount(manifest)+state.conceptQuantity:state.conceptQuantity;
+  state.conceptExpectedCount=1;
   updateConceptStage();
   try{
     if(!await ensureLightingPrivacyAcknowledged()){
@@ -2112,10 +2087,8 @@ async function startConceptGeneration() {
     const pairsRelicGif=activeLedModel()===LED_MODELS["80"]&&target==="keyframes"&&state.relicGifEdges;
     const targets=pairsRelicGif?["keyframes","spotlight_frames"]:[target];
     const destination=state.conceptDestination||{slot:state.ledSlot,target};
-    const response=extendExisting
-      ? await api(`/api/lighting/jobs/${encodeURIComponent(manifest.job_id)}/concepts`,{method:"POST",body:JSON.stringify({candidate_count:state.conceptQuantity})})
-      : await api("/api/lighting/concepts",{method:"POST",body:JSON.stringify({prompt,product_id:productId(),targets,candidate_count:state.conceptQuantity})});
-    acceptConceptJob(response.job_id,{destination,targets,newJob:!extendExisting});
+    const response=await api("/api/lighting/concepts",{method:"POST",body:JSON.stringify({prompt,product_id:productId(),targets,candidate_count:1})});
+    acceptConceptJob(response.job_id,{destination,targets,newJob:true});
   }catch(error){
     state.conceptExpectedCount=previousExpected;
     state.conceptError=aiErrorMessage(error);
@@ -2128,8 +2101,7 @@ async function startConceptGeneration() {
 async function loadAiConfig() {
   try { state.capabilities = await api("/api/led/capabilities"); } catch (error) {}
   try { state.settings = await api("/api/settings"); } catch (error) {}
-  const preferred=Number(state.settings?.generation?.candidate_count);
-  if(Number.isInteger(preferred)&&preferred>=1&&preferred<=8)state.conceptQuantity=preferred;
+  state.conceptQuantity=1;
   if(["smooth","none","ping_pong"].includes(state.settings?.generation?.loop_mode))state.animationLoopMode=state.settings.generation.loop_mode;
   refreshAiGate();
 }
@@ -2323,7 +2295,7 @@ function populateSettings() {
   $("#settings-provider-state").className = `pill ${xai?.set ? "" : "muted"}`;
   $("#settings-library-root").value = settings.library?.current_root || "";
   $("#settings-reveal-library").disabled = !settings.library?.current_root;
-  $("#settings-candidate-count").value = String(settings.generation?.candidate_count || 4);
+  $("#settings-candidate-count").value = "1";
   $("#settings-loop-mode").value = settings.generation?.loop_mode || "smooth";
   populateSettingsCostSummary();
 }
@@ -2369,7 +2341,7 @@ async function saveSettings({exit = false} = {}) {
     }
     $("#settings-xai-key").value="";
     populateSettings();
-    state.conceptQuantity=Number(state.settings.generation?.candidate_count)||state.conceptQuantity;
+    state.conceptQuantity=1;
     setSettingsStatus("Changes saved.");
     refreshAiGate();
     if(exit)finishSettings();
@@ -2789,11 +2761,6 @@ $("#library-search").addEventListener("input",event=>{
 });
 $("#lighting-generate-open").addEventListener("click",openGenerationDialog);
 $("#lighting-generate-dialog").addEventListener("close",handleGenerationDialogClose);
-$$('[data-generation-stage]').forEach(button=>button.addEventListener('click',()=>{
-  if(button.dataset.generationStage===STAGES.CONCEPTS)showConceptStage();
-  else if(button.dataset.generationStage===STAGES.ANIMATE)showAnimateStage();
-  else if(button.dataset.generationStage===STAGES.REVIEW)showReviewStage();
-}));
 $$('.nav-item').forEach(item=>item.addEventListener('click',()=>navigateTo(item.dataset.route, {focusHeading: true})));
 $$('[data-lighting-route]').forEach(tab => {
   tab.addEventListener('click', () => navigateTo(tab.dataset.lightingRoute));

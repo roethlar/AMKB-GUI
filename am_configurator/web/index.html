@@ -182,7 +182,7 @@
               <section class="settings-section" aria-labelledby="settings-defaults-title">
                 <div class="settings-section-heading"><div><h2 id="settings-defaults-title">Defaults &amp; costs</h2><p>Generation asks before its first paid provider call.</p></div></div>
                 <div class="settings-rows">
-                  <label class="settings-row" for="settings-candidate-count"><span><strong>Still outputs</strong><small>Minor variations to generate and bank per concept run.</small></span><select id="settings-candidate-count" class="select-field"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></label>
+                  <label class="settings-row" for="settings-candidate-count"><span><strong>Still outputs</strong><small>Fixed at one while the AI pipeline is being validated.</small></span><select id="settings-candidate-count" class="select-field" disabled><option value="1">1</option></select></label>
                   <label class="settings-row" for="settings-loop-mode"><span><strong>Animation loop</strong><small>Default frame treatment after the provider video returns.</small></span><select id="settings-loop-mode" class="select-field"><option value="smooth">Smooth loop</option><option value="none">Hard loop (no transition)</option><option value="ping_pong">Ping-pong</option></select></label>
                 </div>
                 <details class="settings-cost-details"><summary>Cost details</summary><p id="settings-cost-summary">Loading dated provider estimates…</p></details>
@@ -198,14 +198,9 @@
   <dialog id="lighting-generate-dialog" class="dialog generation-dialog" aria-labelledby="lighting-generate-title">
     <form method="dialog" class="dialog-card">
       <div class="dialog-header">
-        <div><p class="eyebrow">Optional tool</p><h2 id="lighting-generate-title">Generate lighting</h2></div>
+        <div><h2 id="lighting-generate-title">AI lighting</h2></div>
         <button class="dialog-close" value="cancel" aria-label="Close generation">×</button>
       </div>
-      <ol class="create-steps" aria-label="Generation stages">
-        <li data-lighting-stage="concepts" aria-current="step"><button type="button" data-generation-stage="concepts"><span>1</span><strong>Concepts</strong></button></li>
-        <li data-lighting-stage="animate"><button type="button" data-generation-stage="animate" disabled><span>2</span><strong>Animate</strong></button></li>
-        <li data-lighting-stage="review"><button type="button" data-generation-stage="review" disabled><span>3</span><strong>Review</strong></button></li>
-      </ol>
       <div id="lighting-generate-content"></div>
     </form>
   </dialog>
