@@ -132,11 +132,12 @@
 
 ## Next
 
-- Run one owner-controlled live acceptance through still selection, video
-  generation, local processing, and result review. Do not resume Library,
-  editor, or broader UI work until this path's infrastructure result is known.
-- A paid live xAI video acceptance check remains optional and needs a separate
-  explicit go after the offline video pipeline is implemented.
+- Await the owner's result from macOS build `0.1.25` using the single proof path:
+  Generate, generate one still, click that still, then Generate animation. On
+  failure, inspect that job's banked manifest and assets before changing UI;
+  isolate and fix only the failed provider, download, FFmpeg, mapping, or review
+  boundary. Do not resume Library, editor, or broader UI work until this path is
+  proven. The agent must not initiate a paid xAI call without a separate go.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON
