@@ -43,6 +43,9 @@ jobs:
       - name: Check source compilation
         run: uv run --frozen python -m compileall -q am_configurator packaging build_tools
       - name: Check browser JavaScript
-        run: node --check am_configurator/web/app.js
+        run: |
+          node --test tests/web/*.test.js
+          node --check am_configurator/web/lighting_state.js
+          node --check am_configurator/web/app.js
       - name: Build Python distributions
         run: uv build

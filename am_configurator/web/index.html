@@ -50,32 +50,151 @@
     <div class="workspace">
       <aside class="sidebar">
         <nav aria-label="Configurator sections">
-          <button class="nav-item active" data-screen="keymap">
+          <button class="nav-item" data-route="keymap">
             <span class="nav-icon">⌨</span><span>Keymap</span><small id="nav-layers">—</small>
           </button>
-          <button class="nav-item" data-screen="macros">
+          <button class="nav-item" data-route="macros">
             <span class="nav-icon">⏺</span><span>Macros</span><small id="nav-macros">—</small>
           </button>
-          <button class="nav-item" data-screen="leds">
-            <span class="nav-icon">✦</span><span>LEDs</span><small id="nav-leds">—</small>
+          <button class="nav-item" data-route="lighting/create">
+            <span class="nav-icon">✦</span><span>Lighting</span><small id="nav-leds">—</small>
           </button>
         </nav>
         <div class="sidebar-footer">
-          <button id="undo-button" class="icon-button" title="Undo (⌘Z)">↶</button>
-          <button id="redo-button" class="icon-button" title="Redo (⇧⌘Z)">↷</button>
-          <button id="validate-button" class="icon-button" title="Validate configuration">✓</button>
+          <button id="undo-button" class="icon-button" title="Undo (⌘Z)" aria-label="Undo">↶</button>
+          <button id="redo-button" class="icon-button" title="Redo (⇧⌘Z)" aria-label="Redo">↷</button>
+          <button id="validate-button" class="icon-button" title="Validate configuration" aria-label="Validate configuration">✓</button>
         </div>
       </aside>
 
       <main id="main" class="main-content">
-        <section id="empty-state" class="empty-state">
-          <div class="empty-orbit"><div></div><img src="/icon.png" alt=""></div>
-          <p class="eyebrow">No cloud. No vendor app.</p>
-          <h1>Make the keyboard yours.</h1>
-          <p>Connect by USB and choose <code>Devices → Read keymap &amp; macros</code> to start fresh, or open an existing JSON to preserve LED animations that the keyboard cannot read back.</p>
-          <button id="empty-open" class="button primary large">Open configuration</button>
+        <section id="lighting-job-strip" class="lighting-job-strip" hidden>
+          <span class="job-state-mark" aria-hidden="true"></span>
+          <div class="job-strip-copy">
+            <strong id="lighting-job-phase">Lighting job</strong>
+            <span id="lighting-job-detail">Preparing local workspace…</span>
+          </div>
+          <progress id="lighting-job-progress" max="1" value="0" hidden></progress>
+          <div class="job-strip-actions">
+            <button id="lighting-job-view" type="button" class="button ghost">View</button>
+            <button id="lighting-job-cancel" type="button" class="button ghost">Cancel</button>
+          </div>
+          <span id="lighting-job-phase-live" class="sr-only" aria-live="polite"></span>
         </section>
-        <section id="screen" hidden></section>
+
+        <div id="route-content">
+          <section id="empty-state" class="empty-state" hidden>
+            <div class="empty-orbit"><div></div><img src="/icon.png" alt=""></div>
+            <p class="eyebrow">Local keyboard studio</p>
+            <h1 id="empty-title">Open a configuration to begin.</h1>
+            <p id="empty-description">Connect by USB and choose <code>Devices → Read keymap &amp; macros</code>, or open an existing JSON to preserve every lighting page.</p>
+            <button id="empty-open" class="button primary large">Open configuration</button>
+          </section>
+
+          <section id="screen" hidden></section>
+
+          <section id="lighting-shell" class="lighting-shell" hidden aria-labelledby="lighting-title">
+            <header class="lighting-hero">
+              <div class="lighting-title-block">
+                <p class="eyebrow">Image-first workflow</p>
+                <h1 id="lighting-title" tabindex="-1">Lighting Studio</h1>
+                <p>Shape a visual direction, animate the one you love, then apply it to a keyboard only when you choose.</p>
+              </div>
+              <div class="destination-card" aria-label="Lighting destination">
+                <div class="destination-context">
+                  <span>Destination</span>
+                  <strong id="lighting-destination-product">No document</strong>
+                </div>
+                <div class="destination-controls">
+                  <div>
+                    <span class="control-caption">Custom slot</span>
+                    <div class="segmented compact" aria-label="Custom slot">
+                      <button type="button" data-lighting-slot="5" class="active">1</button>
+                      <button type="button" data-lighting-slot="6">2</button>
+                      <button type="button" data-lighting-slot="7">3</button>
+                    </div>
+                  </div>
+                  <div>
+                    <span class="control-caption">Target</span>
+                    <div id="lighting-target-controls" class="segmented compact" aria-label="Lighting target"></div>
+                  </div>
+                </div>
+              </div>
+            </header>
+
+            <div class="lighting-tabs" role="tablist" aria-label="Lighting Studio">
+              <button id="lighting-create-tab" role="tab" aria-controls="lighting-create-panel" aria-selected="true" tabindex="0" data-lighting-route="lighting/create">
+                <span>Create</span><small>Concept to motion</small>
+              </button>
+              <button id="lighting-library-tab" role="tab" aria-controls="lighting-library-panel" aria-selected="false" tabindex="-1" data-lighting-route="lighting/library">
+                <span>Library</span><small>Everything saved</small>
+              </button>
+              <button id="lighting-edit-tab" role="tab" aria-controls="lighting-edit-panel" aria-selected="false" tabindex="-1" data-lighting-route="lighting/edit">
+                <span>Edit</span><small>Frames &amp; paint</small>
+              </button>
+            </div>
+
+            <section id="lighting-create-panel" role="tabpanel" aria-labelledby="lighting-create-tab">
+              <div id="lighting-create-content" class="lighting-panel-body">
+                <ol class="create-steps" aria-label="Creation stages">
+                  <li data-lighting-stage="concepts" aria-current="step"><span>1</span><strong>Concepts</strong></li>
+                  <li data-lighting-stage="animate"><span>2</span><strong>Animate</strong></li>
+                  <li data-lighting-stage="review"><span>3</span><strong>Review</strong></li>
+                </ol>
+                <div class="studio-welcome card">
+                  <div class="studio-welcome-copy">
+                    <p class="eyebrow">Start with the look</p>
+                    <h2>Explore still concepts before spending on motion.</h2>
+                    <p>Describe the atmosphere, subject, and movement you want. You’ll compare every generated still and choose the one that becomes the animation.</p>
+                    <button type="button" class="button primary" disabled>Concept tools arrive next</button>
+                  </div>
+                  <div class="concept-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+                </div>
+              </div>
+            </section>
+
+            <section id="lighting-library-panel" role="tabpanel" aria-labelledby="lighting-library-tab" hidden>
+              <div class="lighting-panel-body library-welcome">
+                <div class="library-mark" aria-hidden="true">✦</div>
+                <p class="eyebrow">Local by design</p>
+                <h2>Your generated work will live here.</h2>
+                <p>Every still, source video, preview, and device-ready result stays banked in the folder you choose.</p>
+                <button type="button" class="button primary" data-library-create>Create something</button>
+              </div>
+            </section>
+
+            <section id="lighting-edit-panel" role="tabpanel" aria-labelledby="lighting-edit-tab" hidden>
+              <div id="lighting-edit-content"></div>
+            </section>
+          </section>
+
+          <section id="settings-screen" class="settings-screen screen-shell" hidden aria-labelledby="settings-title">
+            <header class="screen-header settings-header">
+              <div><p class="eyebrow">Local preferences</p><h1 id="settings-title" tabindex="-1">Settings</h1><p class="description">Provider access and generation defaults stay on this Mac.</p></div>
+            </header>
+            <div class="settings-route-card card">
+              <div class="card-header"><strong>xAI provider</strong><span class="pill muted">Current setup</span></div>
+              <div class="settings-body card-body">
+                <div class="control-group">
+                  <label class="control-label" for="settings-xai-key">xAI API key</label>
+                  <input id="settings-xai-key" class="text-field" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-…">
+                  <p id="settings-key-state" class="settings-key-state">No xAI key is configured.</p>
+                  <div class="button-row settings-key-actions">
+                    <button id="settings-save-key" type="button" class="button primary" disabled>Save key</button>
+                    <button id="settings-test-key" type="button" class="button ghost">Test key</button>
+                    <button id="settings-clear-key" type="button" class="button ghost" disabled>Clear</button>
+                  </div>
+                </div>
+                <div class="control-group settings-providers">
+                  <div><label class="control-label" for="settings-interpreter">Interpreter</label><select id="settings-interpreter" class="select-field"></select></div>
+                  <div><label class="control-label" for="settings-renderer">Renderer</label><select id="settings-renderer" class="select-field"></select></div>
+                </div>
+                <p id="settings-status" class="write-status" aria-live="polite"></p>
+                <p class="dialog-note">The key is stored locally in plaintext under this app’s data directory (owner-only where the OS supports it). Set the <code>XAI_API_KEY</code> environment variable to override it without saving. When you generate an effect, your prompt and the target’s raster size are sent to xAI; xAI retains API data per its policy. Your keymap, macros, and device identity are never sent.</p>
+              </div>
+            </div>
+          </section>
+        </div>
       </main>
     </div>
   </div>
@@ -142,34 +261,8 @@
     </form>
   </dialog>
 
-  <dialog id="settings-dialog" class="dialog settings-dialog">
-    <form method="dialog" class="dialog-card">
-      <div class="dialog-header">
-        <div><p class="eyebrow">AI providers</p><h2>Settings</h2></div>
-        <button class="dialog-close" value="cancel" aria-label="Close settings">×</button>
-      </div>
-      <div class="settings-body">
-        <div class="control-group">
-          <label class="control-label" for="settings-xai-key">xAI API key</label>
-          <input id="settings-xai-key" class="text-field" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-…">
-          <p id="settings-key-state" class="settings-key-state">No xAI key is configured.</p>
-          <div class="button-row settings-key-actions">
-            <button id="settings-save-key" type="button" class="button primary" disabled>Save key</button>
-            <button id="settings-test-key" type="button" class="button ghost">Test key</button>
-            <button id="settings-clear-key" type="button" class="button ghost" disabled>Clear</button>
-          </div>
-        </div>
-        <div class="control-group settings-providers">
-          <div><label class="control-label" for="settings-interpreter">Interpreter</label><select id="settings-interpreter" class="select-field"></select></div>
-          <div><label class="control-label" for="settings-renderer">Renderer</label><select id="settings-renderer" class="select-field"></select></div>
-        </div>
-        <p id="settings-status" class="write-status" aria-live="polite"></p>
-        <p class="dialog-note">The key is stored locally in plaintext under this app’s data directory (owner-only where the OS supports it). Set the <code>XAI_API_KEY</code> environment variable to override it without saving. When you generate an effect, your prompt and the target’s raster size are sent to xAI; xAI retains API data per its policy. Your keymap, macros, and device identity are never sent.</p>
-      </div>
-    </form>
-  </dialog>
-
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
+  <script src="/lighting_state.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

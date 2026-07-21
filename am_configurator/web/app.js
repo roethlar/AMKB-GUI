@@ -3,18 +3,34 @@
 const queryToken = new URLSearchParams(location.search).get("token") || "";
 if (queryToken) sessionStorage.setItem("am-configurator-token", queryToken);
 const token = queryToken || sessionStorage.getItem("am-configurator-token") || "";
-if (queryToken) history.replaceState({}, "", location.pathname);
+if (queryToken) history.replaceState({}, "", `${location.pathname}${location.hash}`);
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch]));
+const {ROUTES, STAGES, createLightingState, formatLightingHash, parseLightingHash, reduceLightingState, routeAvailability} = LightingState;
+const LIGHTING_SESSION_KEY = "am-lighting-session";
+
+function restoredLightingState() {
+  let saved = {};
+  try { saved = JSON.parse(sessionStorage.getItem(LIGHTING_SESSION_KEY) || "{}"); } catch (error) {}
+  const parsed = parseLightingHash(location.hash);
+  const hasRoute = /^#\//.test(location.hash);
+  return {
+    lighting: createLightingState({...saved, route: hasRoute ? parsed.route : saved.route}),
+    jobId: parsed.jobId || saved.activeJob?.id || null,
+  };
+}
+
+const restoredLighting = restoredLightingState();
 
 const state = {
   config: null,
   fileName: "AM-config.json",
   dirty: false,
-  screen: "keymap",
+  lighting: restoredLighting.lighting,
+  lightingJobId: restoredLighting.jobId,
   layer: 0,
   selected: null,
   macro: 0,
@@ -517,19 +533,218 @@ function keyClass(code) {
 }
 
 function render() {
-  $("#empty-state").hidden = Boolean(state.config);
-  $("#screen").hidden = !state.config;
-  $$(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.screen === state.screen));
-  if (state.config) renderScreen();
+  renderRoute();
+  renderLightingJobStrip();
   updateMeta();
 }
 
 function renderScreen() {
+  renderRoute();
+}
+
+function persistLightingState() {
+  try { sessionStorage.setItem(LIGHTING_SESSION_KEY, JSON.stringify(state.lighting)); } catch (error) {}
+}
+
+function navigateTo(route, {replace = false, focusHeading = false} = {}) {
+  state.recording = false;
+  state.lighting = reduceLightingState(state.lighting, {type: "NAVIGATE", route}).state;
+  persistLightingState();
+  const jobId = state.lighting.activeJob?.id || state.lightingJobId;
+  const hash = formatLightingHash(state.lighting.route, jobId);
+  const nextUrl = `${location.pathname}${location.search}${hash}`;
+  history[replace ? "replaceState" : "pushState"]({}, "", nextUrl);
+  render();
+  if (focusHeading) {
+    const heading = state.lighting.route === ROUTES.SETTINGS ? $("#settings-title") : $("#lighting-title");
+    heading?.focus({preventScroll: true});
+  }
+}
+
+function documentDescriptor() {
+  if (!state.config) return null;
+  const targets = activeLedModel().targets.map(target => target.key);
+  return {
+    family: productFamily(productId()),
+    productId: productId(),
+    slots: [5, 6, 7],
+    supportedTargets: targets,
+  };
+}
+
+function renderRoute() {
   stopPlayback(false);
-  if (!state.config) return;
-  if (state.screen === "keymap") renderKeymap();
-  else if (state.screen === "macros") renderMacros();
-  else renderLeds();
+  const route = state.lighting.route;
+  $("#empty-state").hidden = true;
+  $("#screen").hidden = true;
+  $("#lighting-shell").hidden = true;
+  $("#settings-screen").hidden = true;
+
+  $$(".nav-item").forEach(item => {
+    const active = item.dataset.route === route
+      || (item.dataset.route === ROUTES.CREATE && route.startsWith("lighting/"));
+    item.classList.toggle("active", active);
+    if (active) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  });
+  const settingsActive = route === ROUTES.SETTINGS;
+  $("#settings-button").classList.toggle("active", settingsActive);
+  if (settingsActive) $("#settings-button").setAttribute("aria-current", "page");
+  else $("#settings-button").removeAttribute("aria-current");
+
+  if (route === ROUTES.SETTINGS) {
+    $("#settings-screen").hidden = false;
+    populateSettings();
+    return;
+  }
+  if (route === ROUTES.CREATE || route === ROUTES.LIBRARY || route === ROUTES.EDIT) {
+    $("#lighting-shell").hidden = false;
+    renderLightingShell();
+    return;
+  }
+  if (!state.config) {
+    const label = route === ROUTES.MACROS ? "edit macros" : "edit a keymap";
+    $("#empty-title").textContent = `Open a configuration to ${label}.`;
+    $("#empty-state").hidden = false;
+    return;
+  }
+  $("#screen").hidden = false;
+  if (route === ROUTES.KEYMAP) renderKeymap();
+  else if (route === ROUTES.MACROS) renderMacros();
+}
+
+function renderLightingJobStrip() {
+  const strip = $("#lighting-job-strip");
+  const job = state.lighting.activeJob;
+  strip.hidden = !job;
+  if (!job) return;
+  const phase = job.phase ? job.phase.replaceAll("_", " ") : "Ready";
+  const phaseLabel = phase.charAt(0).toUpperCase() + phase.slice(1);
+  if ($("#lighting-job-phase").textContent !== phaseLabel) {
+    $("#lighting-job-phase").textContent = phaseLabel;
+    $("#lighting-job-phase-live").textContent = `Lighting job: ${phaseLabel}`;
+  }
+  const progress = job.progress;
+  $("#lighting-job-detail").textContent = progress
+    ? `${progress.completed} of ${progress.total} saved`
+    : "Your work is saved locally as it completes.";
+  const progressNode = $("#lighting-job-progress");
+  progressNode.hidden = !progress || progress.total <= 0;
+  if (!progressNode.hidden) {
+    progressNode.max = progress.total;
+    progressNode.value = Math.min(progress.total, progress.completed);
+  }
+  $("#lighting-job-cancel").disabled = !["in_progress", "accepted", "processing"].includes(job.status);
+}
+
+function projectLightingJob(manifest) {
+  const attempts = Array.isArray(manifest?.animation_attempts) ? manifest.animation_attempts : [];
+  const completedAttempt = [...attempts].reverse().find(attempt => attempt?.mapped_result_asset_id);
+  return {
+    id: manifest.job_id,
+    status: manifest.status,
+    phase: manifest.phase,
+    progress: manifest.progress,
+    selectedCandidateId: manifest.selected_candidate_id,
+    resultAssetId: completedAttempt?.mapped_result_asset_id || null,
+    target: manifest.target,
+  };
+}
+
+function syncLightingJob(manifest) {
+  state.lighting = reduceLightingState(state.lighting, {
+    type: "JOB_SYNCED",
+    job: manifest ? projectLightingJob(manifest) : null,
+  }).state;
+  state.lightingJobId = state.lighting.activeJob?.id || null;
+  persistLightingState();
+  const hash = formatLightingHash(state.lighting.route, state.lightingJobId);
+  history.replaceState({}, "", `${location.pathname}${location.search}${hash}`);
+  render();
+}
+
+async function restoreLightingJob() {
+  if (!state.lightingJobId) return;
+  try {
+    syncLightingJob(await api(`/api/lighting/jobs/${encodeURIComponent(state.lightingJobId)}`));
+  } catch (error) {
+    if (error.status === 404 || error.status === 400) syncLightingJob(null);
+  }
+}
+
+async function cancelLightingJob() {
+  const job = state.lighting.activeJob;
+  if (!job || $("#lighting-job-cancel").disabled) return;
+  $("#lighting-job-cancel").disabled = true;
+  try {
+    await api(`/api/lighting/jobs/${encodeURIComponent(job.id)}/cancel`, {method: "POST", body: "{}"});
+    await restoreLightingJob();
+  } catch (error) {
+    toast("Could not cancel lighting job", error.message, "error");
+    renderLightingJobStrip();
+  }
+}
+
+function documentRequirementMarkup(message) {
+  return `<div class="route-requirement"><span class="route-requirement-icon" aria-hidden="true">⌨</span><div><strong>Open a keyboard configuration first.</strong><p>${esc(message)}</p></div><div class="route-requirement-actions"><button type="button" class="button ghost" data-requirement-open>Open JSON</button><button type="button" class="button primary" data-requirement-devices>Devices</button></div></div>`;
+}
+
+function renderLightingShell() {
+  const route = state.lighting.route;
+  const available = routeAvailability(route, documentDescriptor());
+  const routes = [ROUTES.CREATE, ROUTES.LIBRARY, ROUTES.EDIT];
+  const names = ["create", "library", "edit"];
+  routes.forEach((candidate, index) => {
+    const selected = route === candidate;
+    const tab = $(`#lighting-${names[index]}-tab`);
+    const panel = $(`#lighting-${names[index]}-panel`);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    panel.hidden = !selected;
+  });
+
+  $("#lighting-destination-product").textContent = state.config
+    ? `${productLabel(productId())} · ${productId()}`
+    : "No document open";
+  $$('[data-lighting-slot]').forEach(button => {
+    button.classList.toggle("active", Number(button.dataset.lightingSlot) === state.ledSlot);
+    button.disabled = !state.config;
+  });
+
+  const targetHost = $("#lighting-target-controls");
+  const targets = state.config ? activeLedModel().targets : [];
+  if (targets.length && !targets.some(target => target.key === state.ledTarget)) state.ledTarget = targets[0].key;
+  targetHost.innerHTML = targets.length
+    ? targets.map(target => `<button type="button" data-lighting-target="${esc(target.key)}" class="${target.key === state.ledTarget ? "active" : ""}">${esc(target.label)}</button>`).join("")
+    : '<button type="button" disabled>Open document</button>';
+  $$('[data-lighting-target]', targetHost).forEach(button => button.addEventListener("click", () => {
+    state.ledTarget = button.dataset.lightingTarget;
+    state.ledFrame = 0;
+    renderLightingShell();
+  }));
+
+  const createContent = $("#lighting-create-content");
+  createContent.querySelector(".route-requirement")?.remove();
+  if (route === ROUTES.CREATE && !available.available) {
+    createContent.insertAdjacentHTML("afterbegin", documentRequirementMarkup("A document supplies the exact LED geometry and maximum frame count for generation."));
+    wireRequirementActions(createContent);
+  }
+  $$("[data-lighting-stage]").forEach(step => {
+    if (step.dataset.lightingStage === state.lighting.create.stage) step.setAttribute("aria-current", "step");
+    else step.removeAttribute("aria-current");
+  });
+
+  if (route === ROUTES.EDIT) {
+    if (!available.available) {
+      $("#lighting-edit-content").innerHTML = documentRequirementMarkup("Edit works directly on the custom lighting slots in an open document.");
+      wireRequirementActions($("#lighting-edit-content"));
+    } else renderLightingEdit();
+  }
+}
+
+function wireRequirementActions(root) {
+  $("[data-requirement-open]", root)?.addEventListener("click", () => $("#open-input").click());
+  $("[data-requirement-devices]", root)?.addEventListener("click", showDeviceDialog);
 }
 
 function renderKeymap() {
@@ -761,7 +976,7 @@ function toggleRecording() {
 }
 
 function recordEvent(event, down) {
-  if (!state.recording || state.screen !== "macros" || event.repeat) return;
+  if (!state.recording || state.lighting.route !== ROUTES.MACROS || event.repeat) return;
   const usage = DOM_USAGE[event.code];
   if (usage === undefined) return;
   event.preventDefault();
@@ -865,9 +1080,9 @@ function replaceEdgeAnimation(mode) {
   toast(label,`${count} edge frames generated to match the key animation.`,"success");
 }
 
-function renderLeds() {
+function renderLightingEdit() {
   if (!pageData().length) {
-    $("#screen").innerHTML=`<div class="empty-state"><p class="eyebrow">Key-only export</p><h1>No LED pages loaded.</h1><p>Merge the matching lighting JSON to preserve your existing effects, or create three blank custom slots.</p><div class="header-controls"><button id="merge-led" class="button ghost large">Merge lighting JSON</button><button id="create-led" class="button primary large">Create blank slots</button></div></div>`;
+    $("#lighting-edit-content").innerHTML=`<div class="empty-state lighting-edit-empty"><p class="eyebrow">Key-only export</p><h1>No LED pages loaded.</h1><p>Merge the matching lighting JSON to preserve your existing effects, or create three blank custom slots.</p><div class="header-controls"><button id="merge-led" class="button ghost large">Merge lighting JSON</button><button id="create-led" class="button primary large">Create blank slots</button></div></div>`;
     $("#merge-led").addEventListener("click",()=>$("#merge-input").click());
     $("#create-led").addEventListener("click",createLedPages);
     return;
@@ -936,10 +1151,7 @@ function renderLeds() {
         <div class="control-group"><label class="control-label">Brightness</label><div class="range-row"><input id="brightness" type="range" min="0" max="100" value="${Number(page?.lightness??100)}"><span class="range-value">${Number(page?.lightness??100)}%</span></div></div>
         <div class="control-group"><label class="control-label">Frame duration</label><select id="speed" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===encodedSpeed?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select><small class="control-help">These are the timing steps exposed by Angry Miao firmware.</small></div>
       </div>`;
-  const lockSegments=previewing||busy;
-  $("#screen").innerHTML=`<div class="screen-shell">
-    <header class="screen-header"><div><p class="eyebrow">Custom animation slots</p><h1>LED Studio</h1><p class="description">Paint frames, import GIFs, and preview locally without uploading. “Generate with AI” is the one exception: it sends your prompt to xAI.</p></div><div class="header-controls"><div class="segmented">${[5,6,7].map(i=>`<button data-slot="${i}" class="${i===state.ledSlot?'active':''}" ${lockSegments?'disabled':''}>Slot ${i-4}</button>`).join("")}</div><div class="segmented">${targets.map(target=>`<button data-target="${target.key}" class="${target.key===state.ledTarget?'active':''}" ${lockSegments?'disabled':''}>${target.label}</button>`).join("")}</div></div></header>
-    <div class="led-layout">
+  $("#lighting-edit-content").innerHTML=`<div class="lighting-edit-shell"><div class="led-layout">
       <aside class="card frame-list"><div class="card-header"><strong>${previewing?'AI preview frames':'Frames'}</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${esc(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?(previewing?'Preview':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div>${previewing?'':`<div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div>`}</aside>
       <section class="card led-canvas-card"><div class="card-header"><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}</small></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''}">${pixelCanvas}</div></section>
       <aside class="card led-controls"><div class="card-header"><strong>${previewing?'AI preview':'Frame controls'}</strong><button id="play-led" class="icon-button">${state.playing?'■':'▶'}</button></div>${previewing?previewBody:editorBody}</aside>
@@ -949,13 +1161,11 @@ function renderLeds() {
 }
 
 function wireLedEditor() {
-  $$('[data-slot]').forEach(button=>button.addEventListener('click',()=>{state.ledSlot=Number(button.dataset.slot);state.ledFrame=0;renderLeds();}));
-  $$('[data-target]').forEach(button=>button.addEventListener('click',()=>{state.ledTarget=button.dataset.target;state.ledFrame=0;renderLeds();}));
-  $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>{state.ledFrame=Number(button.dataset.frame);renderLeds();}));
+  $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>{state.ledFrame=Number(button.dataset.frame);renderLightingEdit();}));
   $("#first-frame")?.addEventListener("click",()=>mutate(ensureTrack));
   $("#import-gif").addEventListener("click",()=>$("#gif-input").click());
   $("#gif-resample").addEventListener("change",event=>{state.gifResample=event.target.value;});
-  $("#relic-gif-edges")?.addEventListener("change",event=>{state.relicGifEdges=event.target.checked;renderLeds();});
+  $("#relic-gif-edges")?.addEventListener("change",event=>{state.relicGifEdges=event.target.checked;renderLightingEdit();});
   $("#gif-input").addEventListener("change",event=>importGif(event.currentTarget));
   $("#edge-static")?.addEventListener("click",()=>replaceEdgeAnimation("static"));
   $("#edge-pulse")?.addEventListener("click",()=>replaceEdgeAnimation("pulse"));
@@ -978,7 +1188,7 @@ function wireLedEditor() {
   });
   window.addEventListener('pointerup',()=>{painting=false;checkpointed=false;},{once:true});
   $("#led-color").addEventListener("input",event=>{state.ledColor=event.target.value.toUpperCase();$("#led-color-text").value=state.ledColor;});
-  $("#led-color-text").addEventListener("change",event=>{if(/^#[0-9a-f]{6}$/i.test(event.target.value)){state.ledColor=event.target.value.toUpperCase();renderLeds();}else toast("Invalid color","Use a six-digit hex color such as #8358FF.","error");});
+  $("#led-color-text").addEventListener("change",event=>{if(/^#[0-9a-f]{6}$/i.test(event.target.value)){state.ledColor=event.target.value.toUpperCase();renderLightingEdit();}else toast("Invalid color","Use a six-digit hex color such as #8358FF.","error");});
   $("#fill-led").addEventListener("click",()=>mutate(()=>{const track=ensureTrack();track.frame_data[state.ledFrame].frame_RGB.fill(state.ledColor);}));
   $("#clear-led").addEventListener("click",()=>mutate(()=>{const track=ensureTrack();track.frame_data[state.ledFrame].frame_RGB.fill("#000000");}));
   $("#brightness").addEventListener("change",event=>mutate(()=>{getPage(state.ledSlot).lightness=Number(event.target.value);}));
@@ -996,7 +1206,7 @@ function wireAiPanel() {
 }
 
 function wireLedPreview() {
-  $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>{state.ledFrame=Number(button.dataset.frame);renderLeds();}));
+  $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>{state.ledFrame=Number(button.dataset.frame);renderLightingEdit();}));
   $("#play-led")?.addEventListener("click",()=>state.playing?stopPlayback():startPlayback());
   $("#apply-generation")?.addEventListener("click",applyGeneration);
   $("#discard-generation")?.addEventListener("click",discardGeneration);
@@ -1050,7 +1260,7 @@ async function importGif(input) {
 
 function startPlayback() {
   const track=trackInfo().track;if(!track?.frame_data?.length)return;
-  state.playing=true;renderLeds();
+  state.playing=true;renderLightingEdit();
   const tick=()=>{
     if(!state.playing)return;
     state.ledFrame=(state.ledFrame+1)%track.frame_data.length;
@@ -1064,7 +1274,7 @@ function startPlayback() {
 function stopPlayback(rerender=true) {
   if(state.playTimer)clearInterval(state.playTimer);
   const was=state.playing;state.playTimer=null;state.playing=false;
-  if(was&&rerender&&state.screen==='leds')renderLeds();
+  if(was&&rerender&&state.lighting.route===ROUTES.EDIT)renderLightingEdit();
 }
 
 // ---- AI LED generation -----------------------------------------------------
@@ -1123,7 +1333,7 @@ async function loadAiConfig() {
 }
 
 function refreshAiGate() {
-  if (state.screen === "leds" && !state.generation && !state.pendingGeneration) renderScreen();
+  if (state.lighting.route === ROUTES.EDIT && !state.generation && !state.pendingGeneration) renderScreen();
 }
 
 async function startGeneration() {
@@ -1246,7 +1456,7 @@ function refineGeneration() {
   setTimeout(() => $("#ai-prompt")?.focus(), 30);
 }
 
-// ---- Settings dialog -------------------------------------------------------
+// ---- Settings route --------------------------------------------------------
 
 function settingsKeyStateText(settings) {
   const xai = settings?.llm?.keys?.xai;
@@ -1254,7 +1464,7 @@ function settingsKeyStateText(settings) {
 }
 
 async function openSettings() {
-  const dialog = $("#settings-dialog");
+  navigateTo(ROUTES.SETTINGS, {focusHeading: true});
   const status = $("#settings-status");
   status.className = "write-status";
   status.textContent = "";
@@ -1265,8 +1475,6 @@ async function openSettings() {
   populateSettings();
   $("#settings-xai-key").value = "";
   $("#settings-save-key").disabled = true;
-  if (!dialog.open) dialog.showModal();
-  setTimeout(() => $("#settings-xai-key")?.focus(), 50);
 }
 
 function populateSettings() {
@@ -1644,7 +1852,38 @@ $("#settings-xai-key").addEventListener("keydown",event=>{if(event.key==='Enter'
 $("#settings-save-key").addEventListener("click",saveSettingsKey);
 $("#settings-clear-key").addEventListener("click",clearSettingsKey);
 $("#settings-test-key").addEventListener("click",testSettingsKey);
-$$('.nav-item').forEach(item=>item.addEventListener('click',()=>{state.recording=false;state.screen=item.dataset.screen;render();}));
+$$('.nav-item').forEach(item=>item.addEventListener('click',()=>navigateTo(item.dataset.route, {focusHeading: true})));
+$$('[data-lighting-route]').forEach(tab => {
+  tab.addEventListener('click', () => navigateTo(tab.dataset.lightingRoute, {focusHeading: true}));
+  tab.addEventListener('keydown', event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = $$('[data-lighting-route]');
+    const current = tabs.indexOf(event.currentTarget);
+    const next = event.key === "Home" ? 0
+      : event.key === "End" ? tabs.length - 1
+      : event.key === "ArrowLeft" ? (current - 1 + tabs.length) % tabs.length
+      : (current + 1) % tabs.length;
+    tabs[next].focus();
+    navigateTo(tabs[next].dataset.lightingRoute);
+  });
+});
+$$('[data-lighting-slot]').forEach(button=>button.addEventListener('click',()=>{
+  state.ledSlot=Number(button.dataset.lightingSlot);
+  state.ledFrame=0;
+  renderLightingShell();
+}));
+$("[data-library-create]").addEventListener("click", () => navigateTo(ROUTES.CREATE, {focusHeading: true}));
+$("#lighting-job-view").addEventListener("click", () => navigateTo(ROUTES.CREATE, {focusHeading: true}));
+$("#lighting-job-cancel").addEventListener("click", cancelLightingJob);
+window.addEventListener("popstate", () => {
+  const parsed = parseLightingHash(location.hash);
+  state.lightingJobId = parsed.jobId;
+  state.lighting = reduceLightingState(state.lighting, {type: "NAVIGATE", route: parsed.route}).state;
+  persistLightingState();
+  render();
+  if (parsed.jobId && parsed.jobId !== state.lighting.activeJob?.id) restoreLightingJob();
+});
 document.addEventListener('keydown',event=>{
   if(state.recording){recordEvent(event,true);return;}
   if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='z'){event.preventDefault();event.shiftKey?redo():undo();}
@@ -1660,6 +1899,7 @@ window.addEventListener('beforeunload',event=>{if(state.dirty){event.preventDefa
     const result=await api('/api/config');
     if(result.config){state.config=result.config;state.fileName=`AM-${productId()}-config.json`;}
     render();
+    restoreLightingJob();
     scanDevices();
     loadAiConfig();
   }catch(error){toast('Could not start configurator',error.message,'error');}
