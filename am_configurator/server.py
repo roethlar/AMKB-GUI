@@ -1528,7 +1528,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args: Any) -> None:
         # Keep launch output useful; successful static requests are noise.
-        if args and str(args[1]) not in {"200", "304"}:
+        if len(args) < 2 or str(args[1]) not in {"200", "304"}:
             super().log_message(fmt, *args)
 
     def _headers(
@@ -1617,6 +1617,16 @@ class _Handler(BaseHTTPRequestHandler):
             return True
         return False
 
+    def _lighting_internal_error(self, exc: Exception) -> None:
+        # Keep unexpected dependency and filesystem details on the local
+        # process boundary. In particular, OSError text may contain the user's
+        # absolute library path and must never become browser-visible JSON.
+        self.log_error("Unhandled Lighting request error: %s", type(exc).__name__)
+        self._json(
+            {"error": "The Lighting request failed unexpectedly."},
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+        )
+
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         path = urlparse(self.path).path
         if path.startswith("/api/"):
@@ -1644,7 +1654,10 @@ class _Handler(BaseHTTPRequestHandler):
                 else:
                     self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
             except Exception as exc:  # noqa: BLE001 - API boundary
-                if not path.startswith("/api/lighting/") or not self._lighting_error(exc):
+                if path.startswith("/api/lighting/"):
+                    if not self._lighting_error(exc):
+                        self._lighting_internal_error(exc)
+                else:
                     self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
@@ -1729,7 +1742,10 @@ class _Handler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
         except Exception as exc:  # noqa: BLE001 - API boundary
-            if not path.startswith("/api/lighting/") or not self._lighting_error(exc):
+            if path.startswith("/api/lighting/"):
+                if not self._lighting_error(exc):
+                    self._lighting_internal_error(exc)
+            else:
                 self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     @staticmethod

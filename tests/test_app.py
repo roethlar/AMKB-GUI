@@ -3737,6 +3737,36 @@ class LightingStudioEndpointTests(unittest.TestCase):
                     self.assertEqual(error.code, data["code"])
         self.coordinator.failure = None
 
+    def test_unexpected_lighting_errors_never_expose_local_paths(self) -> None:
+        secret_path = self.root / "jobs" / "private-video.mp4"
+        self.coordinator.failure = OSError(f"cannot read {secret_path}")
+        status, response = self._request(
+            "POST",
+            "/api/lighting/concepts",
+            {"prompt": "p", "product_id": "CB04", "targets": ["frames"]},
+        )
+        self.assertEqual(500, status)
+        self.assertNotIn(str(self.root), json.dumps(response))
+        self.assertEqual("The Lighting request failed unexpectedly.", response["error"])
+        self.coordinator.failure = None
+
+        job_id = "00000000-0000-4000-8000-000000000000"
+        asset_id = "00000000-0000-4000-8000-000000000001"
+        with patch.object(
+            self.library,
+            "resolve_asset",
+            side_effect=OSError(f"asset changed at {secret_path}"),
+        ):
+            status, _headers, payload = self._raw_request(
+                f"/api/lighting/assets/{job_id}/{asset_id}"
+            )
+        self.assertEqual(500, status)
+        self.assertNotIn(str(self.root).encode(), payload)
+        self.assertEqual(
+            "The Lighting request failed unexpectedly.",
+            json.loads(payload)["error"],
+        )
+
     def test_durable_job_snapshots_and_filterable_pagination_are_pathless(self) -> None:
         first = self._job(prompt="violet ember", status="ready")
         self.library.bank_asset(
