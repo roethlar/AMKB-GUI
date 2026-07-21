@@ -2,14 +2,16 @@
 
 - **Date**: 2026-07-20
 - **Status**: approved by the owner on 2026-07-20; implementation authorized.
+  The owner approved an editor-first UI reset on 2026-07-21 before Task 11.
   Product decisions are recorded in `.agents/decisions.md`.
 - **Branch**: `llm-led-generator`
 - **Starting commit**: `137dbc85d2f731aeef1ce4b93c512c21792c42d5`
-- **Goal**: replace the inline keyframe generator with a durable, image-first
-  Lighting Studio. Users generate and select still concepts, animate one with a
-  minimum-duration xAI video, convert the complete video locally into the
-  active device's maximum firmware frame count, browse every retained artifact,
-  and explicitly apply a compatible result to the open document.
+- **Goal**: keep the manual Lighting editor as the primary product workspace
+  while adding an optional durable image/video generation workflow. Users can
+  generate and select still concepts, animate one with a minimum-duration xAI
+  video, convert the complete video locally into the active device's maximum
+  firmware frame count, browse every retained artifact, and explicitly apply a
+  compatible result to the open document.
 - **Execution**: tests first, one commit per numbered task, full repository
   verification after every task. When a task adds a test, prove the guard by
   observing the test fail before the implementation and pass afterward.
@@ -29,6 +31,10 @@ this plan. This plan supersedes these parts of
 - discarding successful artifacts after a partial failure;
 - a single ephemeral in-memory job and browser-only pending result;
 - the narrow inline AI panel and modal Settings UI.
+
+The 2026-07-21 editor-first decision supersedes the Create-first shell described
+by the original Task 10. It does not supersede the generation, library,
+durability, compatibility, or explicit-Apply contracts.
 
 Keep the implemented GIF import and `frames_to_led_tracks()` mapping core. The
 parked `previous_plan` forwarding defect belongs only to the superseded inline
@@ -412,12 +418,15 @@ No provider call may begin until the configured path is writable.
 
 ## Lighting Studio experience
 
-The global Lighting screen has a persistent destination header with product,
-slot, and target, then semantic `Create`, `Library`, and `Edit` tabs. Library
-and Settings work without an open configuration; Create/Edit and Apply explain
-when a compatible document is required.
+The global Lighting screen opens directly into the manual editor. A compact
+toolbar exposes Workspace and Library, the current product/slot/target, and a
+secondary `Generate…` action. It reuses the single global Open and Devices
+controls; routed content must not duplicate either action. Library and Settings
+work without an open configuration. Workspace, Generate, and Apply explain
+when a compatible document is required using copy only.
 
-Create uses `Concepts → Animate → Review & Apply`:
+Generate opens a labelled dialog or drawer over the editor and uses `Concepts →
+Animate → Review & Apply`:
 
 - Concepts: large prompt, quantity default four/max eight, stable media grid,
   explicit single selection, saved indicators, partial tiles, “More like this,”
@@ -434,6 +443,11 @@ Create uses `Concepts → Animate → Review & Apply`:
   creates one undo checkpoint, and calls the existing mapping application
   boundary. Closing or navigating leaves the result in Library.
 
+Closing the generation surface never cancels, discards, applies, or triggers a
+provider call. A completed result appears in the existing explicit pending
+review surface; it is not applied automatically. Opening or selecting within
+Generate makes no paid call.
+
 Library groups cards by lineage and shows concepts, selected still, source MP4,
 device animation, status, and poster. Filters include All, Concepts, Videos,
 Partial, and Applied. Detail actions include preview, animate a banked still,
@@ -441,24 +455,29 @@ retry local processing, explicitly retry a paid step, apply a compatible result,
 and Reveal. Never call a paid endpoint from a filter, selection, navigation,
 resume-local, or Apply action.
 
-Replace `renderLeds()` with a Lighting shell and Create/Library/Edit renderers.
-Extract the existing manual editor as Edit. Keep stable shell/media nodes while
+Keep the manual editor as the default Lighting renderer and place Library in a
+secondary routed view. The generation surface owns the Concepts/Animate/Review
+state without replacing the editor shell. Keep stable shell/media nodes while
 polling; update only progress and affected cards so focus and scroll survive.
-Add a persistent compact job strip outside the routed screen.
+Keep the persistent compact job strip outside the routed screen.
 
 Accessibility and responsive requirements:
 
-- semantic tabs use `aria-selected`, roving focus, and arrow keys;
+- Workspace/Library tabs use `aria-selected`, roving focus, and arrow keys;
 - concept cards are a single-select radiogroup with arrow/Space operation;
 - selection, errors, and status include text/icons and never rely on color;
 - phase changes use a polite live region once; measurable work uses a
   progressbar; polling itself is silent;
 - images have useful alt text; videos start paused and muted with named
   play/pause controls; no autoplay;
-- Escape closes a drawer/dialog but never cancels, applies, or discards;
+- Escape closes the generation drawer/dialog and returns focus to Generate,
+  but never cancels, applies, discards, or starts a provider call;
 - respect `prefers-reduced-motion`;
-- at 880 px and 200% zoom there is no page-level horizontal scrolling; at wide
-  widths the context panel is 300–340 px, and below 1240 px it moves beneath the
+- the LED canvas and its entry state remain in the first viewport at wide and
+  narrow sizes; frames become a horizontal strip before controls stack;
+- at 880 px and 200% zoom there is no page-level horizontal scrolling, and the
+  editor remains usable at 720 px and 200% zoom equivalent. At wide widths the
+  context panel is 230–260 px; below its fit threshold it moves beneath the
   canvas or into a named drawer.
 
 ## Task 1 — Curated catalog and lossless settings migration
@@ -610,6 +629,36 @@ modify server static assets and the recorded verification entry point.
    Edit. Keep job progress outside routed content.
 3. Add `node --test tests/web/*.test.js` to repository verification. Run full
    verification and commit `feat: add lighting studio shell`.
+
+## Task 10R — Editor-first responsive shell reset
+
+**Status**: approved by the owner on 2026-07-21; execute before Task 11.
+
+**Files**: modify `am_configurator/web/index.html`, `app.js`, `style.css`, and
+`lighting_state.js`; modify browser tests under `tests/web/`.
+
+1. Add failing state/static tests proving Lighting defaults and links to Edit,
+   the shell contains one global Open control and one global Devices control,
+   routed requirements contain neither duplicate, Workspace precedes Library,
+   Generate is secondary and closed by default, and opening/closing it cannot
+   call a provider, cancel, discard, apply, or mutate the document.
+2. Replace the Task 10 hero, destination card, equal-weight Create tab, staged
+   landing artwork, and oversized empty requirement with a compact two-row
+   Workspace toolbar. Keep route/job/stage/apply APIs, Library and Settings
+   routes, the persistent job strip, and all manual editor behavior. Move the
+   legacy prompt controls into the labelled generation dialog as a temporary
+   adapter until Tasks 12–13 replace its contents. Keep pending review in the
+   editor and lock its captured slot/target while generation or review is live.
+   Prove the focused tests red before implementation and green after; commit
+   `feat: restore editor-first lighting workspace`.
+3. Add failing interaction/static tests for named playback/frame/paint controls,
+   keyboard painting, retained focus, canvas-first narrow ordering, a horizontal
+   frame strip, no page-level overflow, visible device access, and sufficient
+   small-text contrast. Implement the responsive/accessibility pass without
+   changing device/provider behavior. Manually inspect 1600×900, 1280×800,
+   980×720, 720×600, and the 720px/200%-zoom equivalent. Run full verification,
+   rebuild the native app through `python build.py --skip-sync`, run frozen
+   smoke, and commit `fix: make lighting workspace compact and accessible`.
 
 ## Task 11 — Native folder bridge and full Settings page
 

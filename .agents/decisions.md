@@ -1,13 +1,32 @@
 # Repository Decisions
 
+## 2026-07-21 — Editor-first Lighting workspace
+
+Status: approved by the owner on 2026-07-21.
+
+- Lighting opens directly into the manual device workspace. AI generation is
+  an optional secondary action contained in a dialog or drawer; it is not the
+  default route, a landing page, or the product's visual emphasis. Library is
+  a secondary view alongside the workspace.
+- The global Open and Devices controls are the only file/device entry
+  affordances. Routed empty states and document requirements explain what is
+  needed without duplicating those buttons.
+- The working viewport prioritizes the LED canvas, frame navigation, playback,
+  and paint controls beneath compact slot/target context. At narrower widths,
+  frames become a horizontal strip and controls reflow without pushing the
+  canvas out of the first viewport or creating page-level horizontal scroll.
+- The durable generation/library pipeline, persistent job status, pending
+  review, explicit Apply boundary, manual GIF import, painting, playback, and
+  device safety behavior remain intact.
+
 ## 2026-07-20 — Video-first Lighting Studio generation
 
 Status: approved by the owner on 2026-07-20.
 
-- Replace the narrow inline AI controls with a holistic Lighting Studio that
-  keeps destination context visible and provides full-width Create, Library,
-  and Edit views. Create is a staged Concepts → Animate → Review & Apply flow;
-  Settings is a full page. Provider-call and price details stay out of Create.
+- Replace the narrow inline AI controls with a durable Concepts → Animate →
+  Review & Apply workflow and a full Library. The 2026-07-21 editor-first
+  decision supersedes this decision's original full-width, Create-first UI
+  hierarchy; provider-call and price details still stay out of generation.
 - Concept generation defaults to four candidates and has a server-enforced
   maximum of eight per batch. Every completed candidate is banked immediately.
   “More like this” is a separate explicit paid batch. Selection never applies
