@@ -57,6 +57,11 @@ from am_configurator.protocol import exclusive_serial_kwargs
 from am_configurator.macros import macro_frames, parse_macro_frames
 from am_configurator.writer import car_light_data_frames, car_light_info_frames
 from am_configurator import llm, server, store
+from am_configurator import generation
+from am_configurator.library import (
+    GeneratedAssetLibrary,
+    LibraryRootError,
+)
 
 
 _DEFAULT_SETTINGS = {
@@ -3397,6 +3402,456 @@ class LedGenerateEndpointTests(unittest.TestCase):
             write_macros.assert_not_called()
             read_keymap.assert_not_called()
             probe.assert_not_called()
+
+
+class _LightingEndpointCoordinator:
+    def __init__(self, library: GeneratedAssetLibrary) -> None:
+        self.library = library
+        self.calls: list[tuple[str, tuple, dict]] = []
+        self.failure: Exception | None = None
+        self.active_job_id: str | None = None
+
+    def _raise_or_record(self, name: str, args: tuple, kwargs: dict) -> None:
+        self.calls.append((name, args, kwargs))
+        if self.failure is not None:
+            raise self.failure
+
+    def start_concepts(self, **kwargs):
+        self._raise_or_record("start_concepts", (), kwargs)
+        return self.library.create_job(
+            prompt=kwargs["prompt"],
+            target=kwargs["target"],
+            models=kwargs["models"],
+            loop_mode=kwargs["loop_mode"],
+        )
+
+    def more_like_this(self, job_id: str, **kwargs):
+        self._raise_or_record("more_like_this", (job_id,), kwargs)
+        return self.library.load_manifest(job_id)
+
+    def start_animation(self, job_id: str, **kwargs):
+        self._raise_or_record("start_animation", (job_id,), kwargs)
+        return self.library.load_manifest(job_id)
+
+    def retry_local(self, job_id: str):
+        self._raise_or_record("retry_local", (job_id,), {})
+        return self.library.load_manifest(job_id)
+
+    def cancel(self, job_id: str):
+        self._raise_or_record("cancel", (job_id,), {})
+        return self.library.load_manifest(job_id)
+
+
+class LightingStudioEndpointTests(unittest.TestCase):
+    _DEFAULT = object()
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.mkdtemp(prefix="am_lighting_endpoint_")
+        self._saved_env = {
+            key: os.environ.get(key)
+            for key in ("AM_CONFIGURATOR_DATA_DIR", "XDG_DATA_HOME", "XAI_API_KEY")
+        }
+        os.environ.pop("XDG_DATA_HOME", None)
+        os.environ.pop("XAI_API_KEY", None)
+        os.environ["AM_CONFIGURATOR_DATA_DIR"] = self._tmp
+        self.root = Path(self._tmp) / "generated"
+        store.update_library_root({"current_root": str(self.root)})
+        store.update_api_key({"provider": "xai", "key": "sk-lighting-secret"})
+        store.acknowledge_privacy({"version": "2026-07-20-xai-v1"})
+        self.library = GeneratedAssetLibrary(self.root, minimum_free_bytes=1)
+        self.coordinator = _LightingEndpointCoordinator(self.library)
+        self._server, url = create_server(
+            lighting_library=self.library,
+            lighting_coordinator=self.coordinator,
+        )
+        self._token = parse_qs(urlparse(url).query)["token"][0]
+        self._base = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+    def tearDown(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _request(self, method, path, body=None, token=_DEFAULT):
+        headers = {}
+        selected = self._token if token is self._DEFAULT else token
+        if selected is not None:
+            headers["X-AM-Token"] = selected
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = Request(self._base + path, data=data, method=method, headers=headers)
+        try:
+            with urlopen(request, timeout=5) as response:
+                raw = response.read()
+                return response.status, (json.loads(raw) if raw else None)
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            return exc.code, (json.loads(raw) if raw else None)
+
+    def _raw_request(self, path: str, *, headers: dict | None = None, token=_DEFAULT):
+        request_headers = dict(headers or {})
+        selected = self._token if token is self._DEFAULT else token
+        if selected is not None:
+            request_headers["X-AM-Token"] = selected
+        request = Request(self._base + path, method="GET", headers=request_headers)
+        try:
+            with urlopen(request, timeout=5) as response:
+                return response.status, dict(response.headers.items()), response.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, dict(exc.headers.items()), exc.read()
+
+    def _job(self, *, prompt="library ember", status="awaiting_selection") -> dict:
+        manifest = self.library.create_job(
+            prompt=prompt,
+            target={
+                "family": "CB",
+                "product_id": "CB_TEST",
+                "raster": {"width": 40, "height": 5},
+                "targets": ["frames"],
+                "frame_cap": 80,
+            },
+            models={
+                "interpreter": "grok-4.5",
+                "concept": "grok-imagine-image",
+                "video": "grok-imagine-video-1.5",
+            },
+            loop_mode="smooth",
+        )
+        return self.library.update_manifest(
+            manifest["job_id"], {"status": status, "phase": status}
+        )
+
+    def test_routes_are_authenticated_and_create_uses_settings_without_echoing_key(self) -> None:
+        paths = (
+            ("POST", "/api/lighting/concepts", {"prompt": "p", "product_id": "CB04", "targets": ["frames"]}),
+            ("GET", "/api/lighting/library", None),
+            ("GET", "/api/lighting/jobs/00000000-0000-4000-8000-000000000000", None),
+            ("POST", "/api/lighting/jobs/00000000-0000-4000-8000-000000000000/cancel", {}),
+            ("GET", "/api/lighting/assets/00000000-0000-4000-8000-000000000000/00000000-0000-4000-8000-000000000000", None),
+        )
+        for method, path, body in paths:
+            with self.subTest(path=path):
+                if method == "GET":
+                    status, _headers, _raw = self._raw_request(path, token=None)
+                else:
+                    status, _data = self._request(method, path, body, token=None)
+                self.assertEqual(403, status)
+
+        with patch("am_configurator.writer.write_config") as write_config:
+            status, data = self._request(
+                "POST",
+                "/api/lighting/concepts",
+                {
+                    "prompt": "A violet comet",
+                    "product_id": "CB04",
+                    "targets": ["frames"],
+                    "candidate_count": 3,
+                    "loop_mode": "smooth",
+                },
+            )
+        self.assertEqual(202, status)
+        self.assertEqual({"job_id"}, set(data))
+        self.assertNotIn("sk-lighting-secret", json.dumps(data))
+        name, _args, kwargs = self.coordinator.calls[-1]
+        self.assertEqual("start_concepts", name)
+        self.assertEqual(3, kwargs["candidate_count"])
+        self.assertEqual("sk-lighting-secret", kwargs["api_key"])
+        self.assertTrue(kwargs["privacy_acknowledged"])
+        self.assertEqual(80, kwargs["target"]["frame_cap"])
+        write_config.assert_not_called()
+
+    def test_all_mutating_routes_are_strict_and_dispatch_without_device_writes(self) -> None:
+        job = self._job()
+        job_id = job["job_id"]
+        routes = (
+            (f"/api/lighting/jobs/{job_id}/concepts", {"candidate_count": 2}, "more_like_this"),
+            (
+                f"/api/lighting/jobs/{job_id}/animate",
+                {"candidate_id": "00000000-0000-4000-8000-000000000001", "motion": "pulse", "loop_mode": "none"},
+                "start_animation",
+            ),
+            (f"/api/lighting/jobs/{job_id}/process", {}, "retry_local"),
+            (f"/api/lighting/jobs/{job_id}/cancel", {}, "cancel"),
+        )
+        with patch("am_configurator.writer.write_config") as write_config:
+            for path, body, expected in routes:
+                with self.subTest(path=path):
+                    status, data = self._request("POST", path, body)
+                    self.assertEqual(202 if expected != "cancel" else 200, status)
+                    self.assertEqual(job_id, data["job_id"])
+                    self.assertEqual(expected, self.coordinator.calls[-1][0])
+            write_config.assert_not_called()
+
+        bad_bodies = (
+            ("/api/lighting/concepts", {"prompt": "p", "product_id": "CB04", "targets": ["frames"], "extra": True}),
+            (f"/api/lighting/jobs/{job_id}/concepts", {"candidate_count": 2, "extra": True}),
+            (f"/api/lighting/jobs/{job_id}/animate", {"candidate_id": "x", "extra": True}),
+            (f"/api/lighting/jobs/{job_id}/process", {"extra": True}),
+            (f"/api/lighting/jobs/{job_id}/cancel", {"extra": True}),
+        )
+        before = len(self.coordinator.calls)
+        for path, body in bad_bodies:
+            with self.subTest(path=path):
+                status, _ = self._request("POST", path, body)
+                self.assertEqual(400, status)
+        status, _ = self._request(
+            "POST", "/api/lighting/jobs/not-a-job/cancel", {}
+        )
+        self.assertEqual(400, status)
+        self.assertEqual(before, len(self.coordinator.calls))
+
+    def test_generation_errors_map_to_safe_http_statuses(self) -> None:
+        cases = (
+            (LibraryRootError("library unavailable"), 400),
+            (generation.GenerationBusyError("busy"), 409),
+            (generation.GenerationNotActiveError("not active"), 409),
+            (llm.ProviderError("rate_limited", "slow", retry_after=9), 429),
+            (llm.ProviderError("unavailable", "provider unavailable"), 502),
+        )
+        for error, expected in cases:
+            with self.subTest(error=type(error).__name__):
+                self.coordinator.failure = error
+                status, data = self._request(
+                    "POST",
+                    "/api/lighting/concepts",
+                    {"prompt": "p", "product_id": "CB04", "targets": ["frames"]},
+                )
+                self.assertEqual(expected, status)
+                self.assertNotIn("sk-lighting-secret", json.dumps(data))
+                if isinstance(error, llm.ProviderError):
+                    self.assertEqual(error.code, data["code"])
+        self.coordinator.failure = None
+
+    def test_durable_job_snapshots_and_filterable_pagination_are_pathless(self) -> None:
+        first = self._job(prompt="violet ember", status="ready")
+        self.library.bank_asset(
+            first["job_id"],
+            kind="concept",
+            data=b"concept",
+            mime_type="image/png",
+            origin="test",
+        )
+        self._job(prompt="blue ocean", status="failed")
+        self._job(prompt="violet pulse", status="ready")
+        status, snapshot = self._request(
+            "GET", f"/api/lighting/jobs/{first['job_id']}"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(first["job_id"], snapshot["job_id"])
+        self.assertNotIn(str(self.root), json.dumps(snapshot))
+        status, library_detail = self._request(
+            "GET", f"/api/lighting/library/{first['job_id']}"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(snapshot, library_detail)
+
+        status, page = self._request(
+            "GET", "/api/lighting/library?page=1&limit=1&status=ready&query=violet"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(2, page["total"])
+        self.assertEqual(1, len(page["jobs"]))
+        self.assertTrue(page["has_more"])
+        self.assertEqual(1, page["page"])
+        status, second_page = self._request(
+            "GET", "/api/lighting/library?page=2&limit=1&status=ready&query=violet"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(1, len(second_page["jobs"]))
+        for summary in page["jobs"] + second_page["jobs"]:
+            self.assertEqual("ready", summary["status"])
+            self.assertIn("violet", summary["prompt"])
+            self.assertNotIn("assets", summary)
+        status, kind_page = self._request(
+            "GET", "/api/lighting/library?kind=concept"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(1, kind_page["total"])
+        self.assertEqual(first["job_id"], kind_page["jobs"][0]["job_id"])
+        for query in ("unknown=x", "limit=101", "status=ready&status=failed"):
+            with self.subTest(query=query):
+                status, _ = self._request("GET", f"/api/lighting/library?{query}")
+                self.assertEqual(400, status)
+
+    def test_asset_streaming_enforces_ownership_mime_and_bounded_single_ranges(self) -> None:
+        job = self._job()
+        other = self._job(prompt="other")
+        image = self.library.bank_asset(
+            job["job_id"],
+            kind="concept",
+            data=b"fake-png-bytes",
+            mime_type="image/png",
+            origin="test",
+        )
+        video_payload = b"0123456789abcdefghijklmnopqrstuvwxyz"
+        video = self.library.bank_asset(
+            job["job_id"],
+            kind="source_video",
+            data=video_payload,
+            mime_type="video/mp4",
+            origin="test",
+        )
+
+        status, headers, payload = self._raw_request(
+            f"/api/lighting/assets/{job['job_id']}/{image['asset_id']}"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("image/png", headers["Content-Type"])
+        self.assertEqual(b"fake-png-bytes", payload)
+        status, _headers, _payload = self._raw_request(
+            f"/api/lighting/assets/{job['job_id']}/{image['asset_id']}",
+            headers={"Range": "bytes=0-1"},
+        )
+        self.assertEqual(416, status)
+        status, headers, payload = self._raw_request(
+            f"/api/lighting/assets/{job['job_id']}/{video['asset_id']}",
+            headers={"Range": "bytes=10-19"},
+        )
+        self.assertEqual(206, status)
+        self.assertEqual("bytes 10-19/36", headers["Content-Range"])
+        self.assertEqual(video_payload[10:20], payload)
+        self.assertEqual("bytes", headers["Accept-Ranges"])
+
+        status, _headers, _payload = self._raw_request(
+            f"/api/lighting/assets/{other['job_id']}/{image['asset_id']}"
+        )
+        self.assertEqual(404, status)
+        status, _headers, _payload = self._raw_request(
+            f"/api/lighting/assets/{job['job_id']}/{video['asset_id']}",
+            headers={"Range": "bytes=0-1,3-4"},
+        )
+        self.assertEqual(416, status)
+        status, _headers, _payload = self._raw_request(
+            "/api/lighting/assets/not-a-job/not-an-asset"
+        )
+        self.assertEqual(400, status)
+
+        oversized = self.library.bank_asset(
+            job["job_id"],
+            kind="source_video",
+            data=b"v" * (server._MAX_ASSET_RANGE_BYTES + 1),
+            mime_type="video/mp4",
+            origin="test",
+        )
+        status, _headers, _payload = self._raw_request(
+            f"/api/lighting/assets/{job['job_id']}/{oversized['asset_id']}",
+            headers={
+                "Range": f"bytes=0-{server._MAX_ASSET_RANGE_BYTES}"
+            },
+        )
+        self.assertEqual(416, status)
+
+        owned_image = self.library.resolve_asset(job["job_id"], image["asset_id"])
+        external = Path(self._tmp) / "external.png"
+        external.write_bytes(b"outside")
+        owned_image.path.unlink()
+        owned_image.path.symlink_to(external)
+        status, _headers, _payload = self._raw_request(
+            f"/api/lighting/assets/{job['job_id']}/{image['asset_id']}"
+        )
+        self.assertEqual(404, status)
+
+    def test_create_server_injects_the_complete_offline_generation_stack(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        planner_calls = []
+        image_calls = []
+        png = io.BytesIO()
+        with Image.new("RGB", (20, 9), (10, 20, 30)) as source:
+            source.save(png, format="PNG")
+        png_bytes = png.getvalue()
+
+        class Planner:
+            def plan(self, prompt, count, deadline):
+                planner_calls.append((prompt, count, deadline))
+                return llm.ConceptPlanResult(
+                    llm.ConceptPlan("one brief", tuple(f"candidate {i}" for i in range(count))),
+                    llm.ProviderUsage(10, True),
+                )
+
+        class Images:
+            def generate_one(self, prompt, deadline):
+                image_calls.append((prompt, deadline))
+                return llm.ConceptImageResult(
+                    original_bytes=png_bytes,
+                    metadata=llm.ImageMetadata(
+                        format="PNG",
+                        mime_type="image/png",
+                        width=20,
+                        height=9,
+                        revised_prompt=None,
+                    ),
+                    image=Image.open(io.BytesIO(png_bytes)).convert("RGB"),
+                    usage=llm.ProviderUsage(20, True),
+                )
+
+        class CompletedWorker:
+            def join(self, _timeout=None):
+                return None
+
+            def is_alive(self):
+                return False
+
+        def immediate(target):
+            target()
+            return CompletedWorker()
+
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+        self._server, url = create_server(
+            lighting_dependencies={
+                "planner_factory": lambda _key, _model: Planner(),
+                "image_provider_factory": lambda _key, _model: Images(),
+                "operation_gate": generation.OperationGate(),
+                "launcher": immediate,
+            }
+        )
+        self._token = parse_qs(urlparse(url).query)["token"][0]
+        self._base = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+        with patch("am_configurator.writer.write_config") as write_config:
+            status, started = self._request(
+                "POST",
+                "/api/lighting/concepts",
+                {
+                    "prompt": "offline violet",
+                    "product_id": "CB04",
+                    "targets": ["frames"],
+                    "candidate_count": 1,
+                },
+            )
+            self.assertEqual(202, status)
+            status, snapshot = self._request(
+                "GET", f"/api/lighting/jobs/{started['job_id']}"
+            )
+        self.assertEqual(200, status)
+        self.assertEqual("awaiting_selection", snapshot["status"])
+        self.assertEqual(1, len(snapshot["candidates"]))
+        self.assertEqual(1, len(planner_calls))
+        self.assertEqual(1, len(image_calls))
+        write_config.assert_not_called()
+
+    def test_static_csp_allows_only_local_media(self) -> None:
+        request = Request(self._base + "/", method="GET")
+        with urlopen(request, timeout=5) as response:
+            csp = response.headers["Content-Security-Policy"]
+        self.assertIn("media-src 'self' blob:", csp)
 
 
 class MacroProtocolTests(unittest.TestCase):

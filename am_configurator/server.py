@@ -56,6 +56,16 @@ _CYBERBOARD_MACRO_READBACK_BLOCKS = 15
 # lives here because that transport is POST-only.
 _XAI_MODELS_URL = "https://api.x.ai/v1/language-models"
 _SETTINGS_TEST_TIMEOUT = 20.0
+_MAX_ASSET_RANGE_BYTES = 8 * 1024 * 1024
+_LIGHTING_ASSET_MIMES = frozenset(
+    {
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "video/mp4",
+        "application/json",
+    }
+)
 # ProviderError.code -> local HTTP status (design §Typed errors). Shared by the
 # settings key-test endpoint; the generation job endpoints reuse it in Task 9.
 _PROVIDER_ERROR_HTTP: dict[str, HTTPStatus] = {
@@ -1316,7 +1326,14 @@ class _State:
         token: str,
         llm_transport: Any = None,
         llm_factories: dict[str, Any] | None = None,
+        lighting_library: Any = None,
+        lighting_coordinator: Any = None,
+        lighting_dependencies: dict[str, Any] | None = None,
     ) -> None:
+        if (lighting_library is None) != (lighting_coordinator is None):
+            raise ValueError(
+                "lighting_library and lighting_coordinator must be injected together"
+            )
         self.config = config
         self.token = token
         self.device_lock = threading.Lock()
@@ -1329,12 +1346,46 @@ class _State:
         # resolves the real registry classes via ``_default_llm_factories``;
         # tests inject fakes so no request ever leaves the machine.
         self.llm_factories = llm_factories
+        self._lighting_lock = threading.Lock()
+        self._lighting_library = lighting_library
+        self._lighting_coordinator = lighting_coordinator
+        self._lighting_dependencies = dict(lighting_dependencies or {})
+        self._lighting_root_signature: tuple[Any, ...] | None = None
         # Single-flight generation worker. Only one job runs at a time; the job
         # dict (id/phase/status/cancel/result/error) is held until read or
         # replaced by the next start. Guarded by ``_job_lock``.
         self._job_lock = threading.Lock()
         self._job: dict[str, Any] | None = None
         self._worker: threading.Thread | None = None
+
+    def lighting_services(self) -> tuple[Any, Any]:
+        """Return durable services, refreshing idle production roots from Settings."""
+        if self._lighting_root_signature is None and self._lighting_library is not None:
+            return self._lighting_library, self._lighting_coordinator
+        from . import store
+        from .generation import GenerationCoordinator
+        from .library import GeneratedAssetLibrary
+
+        settings = store.load_settings()
+        current_root = settings["library"]["current_root"]
+        roots = tuple(settings["library"]["roots"])
+        signature = (current_root, *roots)
+        with self._lighting_lock:
+            active = getattr(self._lighting_coordinator, "active_job_id", None)
+            if (
+                self._lighting_library is not None
+                and (self._lighting_root_signature == signature or active is not None)
+            ):
+                return self._lighting_library, self._lighting_coordinator
+            library = GeneratedAssetLibrary(current_root, roots)
+            coordinator = GenerationCoordinator(
+                library, **self._lighting_dependencies
+            )
+            self._lighting_library = library
+            self._lighting_coordinator = coordinator
+            self._lighting_root_signature = signature
+            coordinator.reconcile_startup(api_key=store.resolve_xai_key())
+            return library, coordinator
 
     def settle_after_scan(self, seconds: float = 1.5) -> None:
         remaining = seconds - (time.monotonic() - self.last_device_scan)
@@ -1430,7 +1481,13 @@ class _Handler(BaseHTTPRequestHandler):
         if args and str(args[1]) not in {"200", "304"}:
             super().log_message(fmt, *args)
 
-    def _headers(self, status: int, content_type: str, length: int) -> None:
+    def _headers(
+        self,
+        status: int,
+        content_type: str,
+        length: int,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(length))
@@ -1441,8 +1498,10 @@ class _Handler(BaseHTTPRequestHandler):
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
             "img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; "
-            "base-uri 'none'; frame-ancestors 'none'",
+            "media-src 'self' blob:; base-uri 'none'; frame-ancestors 'none'",
         )
+        for name, value in (extra_headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
 
     def _json(self, value: Any, status: int = HTTPStatus.OK) -> None:
@@ -1465,6 +1524,49 @@ class _Handler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError) as exc:
             raise ValueError(f"Invalid request: {exc}") from exc
 
+    def _lighting_error(self, exc: Exception) -> bool:
+        from . import llm
+        from .generation import (
+            GenerationBusyError,
+            GenerationNotActiveError,
+            GenerationValidationError,
+        )
+        from .library import (
+            AssetNotFoundError,
+            InvalidIdentifierError,
+            LibraryRootError,
+            ManifestError,
+        )
+
+        if isinstance(exc, llm.ProviderError):
+            payload: dict[str, Any] = {
+                "code": exc.code,
+                "error": exc.message,
+            }
+            if exc.retry_after is not None:
+                payload["retry_after"] = exc.retry_after
+            self._json(
+                payload,
+                _PROVIDER_ERROR_HTTP.get(exc.code, HTTPStatus.BAD_GATEWAY),
+            )
+            return True
+        if isinstance(exc, (GenerationBusyError, GenerationNotActiveError)):
+            self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
+            return True
+        if isinstance(exc, AssetNotFoundError):
+            self._json({"error": "Asset not found."}, HTTPStatus.NOT_FOUND)
+            return True
+        if isinstance(exc, InvalidIdentifierError):
+            self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return True
+        if isinstance(exc, ManifestError):
+            self._json({"error": "Generated job or asset not found."}, HTTPStatus.NOT_FOUND)
+            return True
+        if isinstance(exc, (GenerationValidationError, LibraryRootError, ValueError)):
+            self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return True
+        return False
+
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         path = urlparse(self.path).path
         if path.startswith("/api/"):
@@ -1485,12 +1587,15 @@ class _Handler(BaseHTTPRequestHandler):
                     self._json(_settings_view())
                 elif path == "/api/led/capabilities":
                     self._json(_capabilities())
+                elif path.startswith("/api/lighting/"):
+                    self._lighting_get(path, urlparse(self.path).query)
                 elif path == "/api/led/generate/status":
                     self._generation_status(urlparse(self.path).query)
                 else:
                     self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
             except Exception as exc:  # noqa: BLE001 - API boundary
-                self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+                if not path.startswith("/api/lighting/") or not self._lighting_error(exc):
+                    self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return
 
         filename = _STATIC.get(path)
@@ -1550,6 +1655,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._save_settings_privacy(body)
             elif path == "/api/settings/test":
                 self._test_settings_key(body)
+            elif path == "/api/lighting/concepts" or path.startswith(
+                "/api/lighting/jobs/"
+            ):
+                self._lighting_post(path, body)
             elif path == "/api/led/generate":
                 self._start_generation(body)
             elif path == "/api/led/generate/cancel":
@@ -1570,7 +1679,307 @@ class _Handler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
         except Exception as exc:  # noqa: BLE001 - API boundary
-            self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            if not path.startswith("/api/lighting/") or not self._lighting_error(exc):
+                self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    @staticmethod
+    def _strict_body(
+        body: dict[str, Any],
+        *,
+        allowed: set[str],
+        required: set[str] = frozenset(),
+    ) -> None:
+        unknown = set(body) - allowed
+        missing = required - set(body)
+        if unknown or missing:
+            raise ValueError("The lighting request body has unsupported fields.")
+
+    @staticmethod
+    def _lighting_settings(*, require_key: bool) -> tuple[dict, str, bool]:
+        from . import ai_catalog, store
+
+        settings = store.load_settings()
+        key = store.resolve_xai_key() or ""
+        acknowledged = (
+            settings["generation"]["privacy_ack_version"]
+            == ai_catalog.PRIVACY_DISCLOSURE_VERSION
+            and isinstance(settings["generation"]["privacy_ack_at"], str)
+        )
+        if require_key and not key:
+            raise ValueError("Add an xAI API key in Settings before generation.")
+        if require_key and not acknowledged:
+            raise ValueError(
+                "Acknowledge the current xAI privacy disclosure in Settings before generation."
+            )
+        return settings, key, acknowledged
+
+    @staticmethod
+    def _lighting_target(product_id: object, targets: object) -> dict:
+        if not isinstance(product_id, str) or not product_id:
+            raise ValueError("product_id must be a non-empty string.")
+        if (
+            not isinstance(targets, list)
+            or not targets
+            or not all(isinstance(target, str) and target for target in targets)
+        ):
+            raise ValueError("targets must be a non-empty list of LED track names.")
+        spec, resolved = generation_spec(product_id, targets, None)
+        return {
+            "family": spec.model,
+            "product_id": product_id,
+            "raster": {"width": spec.width, "height": spec.height},
+            "targets": resolved,
+            "frame_cap": spec.max_frames,
+        }
+
+    def _lighting_post(self, path: str, body: dict[str, Any]) -> None:
+        library, coordinator = self.state.lighting_services()
+        if path == "/api/lighting/concepts":
+            self._strict_body(
+                body,
+                allowed={
+                    "prompt",
+                    "product_id",
+                    "targets",
+                    "candidate_count",
+                    "loop_mode",
+                },
+                required={"prompt", "product_id", "targets"},
+            )
+            settings, key, acknowledged = self._lighting_settings(require_key=True)
+            candidate_count = body.get(
+                "candidate_count", settings["generation"]["candidate_count"]
+            )
+            loop_mode = body.get("loop_mode", settings["generation"]["loop_mode"])
+            manifest = coordinator.start_concepts(
+                prompt=body["prompt"],
+                candidate_count=candidate_count,
+                target=self._lighting_target(body["product_id"], body["targets"]),
+                models=settings["llm"]["models"],
+                loop_mode=loop_mode,
+                api_key=key,
+                privacy_acknowledged=acknowledged,
+            )
+            self._json({"job_id": manifest["job_id"]}, HTTPStatus.ACCEPTED)
+            return
+
+        parts = path.strip("/").split("/")
+        if len(parts) != 5 or parts[:3] != ["api", "lighting", "jobs"]:
+            self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+            return
+        job_id, action = parts[3], parts[4]
+        # Resolve through the manifest boundary before any coordinator action;
+        # this validates canonical IDs and historical-root ownership uniformly.
+        library.load_manifest(job_id)
+        if action == "concepts":
+            self._strict_body(body, allowed={"candidate_count"})
+            settings, key, acknowledged = self._lighting_settings(require_key=True)
+            manifest = coordinator.more_like_this(
+                job_id,
+                candidate_count=body.get(
+                    "candidate_count", settings["generation"]["candidate_count"]
+                ),
+                api_key=key,
+                privacy_acknowledged=acknowledged,
+            )
+            status = HTTPStatus.ACCEPTED
+        elif action == "animate":
+            self._strict_body(
+                body,
+                allowed={"candidate_id", "motion", "loop_mode"},
+                required={"candidate_id"},
+            )
+            settings, key, acknowledged = self._lighting_settings(require_key=True)
+            manifest = coordinator.start_animation(
+                job_id,
+                candidate_id=body["candidate_id"],
+                motion=body.get("motion"),
+                loop_mode=body.get(
+                    "loop_mode", settings["generation"]["loop_mode"]
+                ),
+                api_key=key,
+                privacy_acknowledged=acknowledged,
+            )
+            status = HTTPStatus.ACCEPTED
+        elif action == "process":
+            self._strict_body(body, allowed=set())
+            manifest = coordinator.retry_local(job_id)
+            status = HTTPStatus.ACCEPTED
+        elif action == "cancel":
+            self._strict_body(body, allowed=set())
+            manifest = coordinator.cancel(job_id)
+            status = HTTPStatus.OK
+        else:
+            self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+            return
+        self._json({"job_id": manifest["job_id"]}, status)
+
+    def _lighting_get(self, path: str, query: str) -> None:
+        library, _coordinator = self.state.lighting_services()
+        if path == "/api/lighting/library":
+            self._lighting_library_page(library, query)
+            return
+        parts = path.strip("/").split("/")
+        if len(parts) == 4 and parts[:3] == ["api", "lighting", "jobs"]:
+            if query:
+                raise ValueError("The job status route does not accept query fields.")
+            self._json(library.get_job(parts[3]))
+            return
+        if len(parts) == 4 and parts[:3] == ["api", "lighting", "library"]:
+            if query:
+                raise ValueError("The library detail route does not accept query fields.")
+            self._json(library.get_job(parts[3]))
+            return
+        if len(parts) == 5 and parts[:3] == ["api", "lighting", "assets"]:
+            if query:
+                raise ValueError("Asset routes do not accept query fields.")
+            self._lighting_asset(library, parts[3], parts[4])
+            return
+        self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+
+    def _lighting_library_page(self, library: Any, query: str) -> None:
+        values = parse_qs(query, keep_blank_values=True)
+        if set(values) - {"page", "limit", "status", "kind", "query"}:
+            raise ValueError("The library query has unsupported fields.")
+        if any(len(items) != 1 for items in values.values()):
+            raise ValueError("The library query cannot repeat fields.")
+
+        def positive_integer(name: str, default: int, maximum: int) -> int:
+            raw = values.get(name, [str(default)])[0]
+            if not raw.isdigit():
+                raise ValueError(f"{name} must be a positive integer.")
+            number = int(raw)
+            if not 1 <= number <= maximum:
+                raise ValueError(f"{name} is outside its supported range.")
+            return number
+
+        page = positive_integer("page", 1, 1_000_000)
+        limit = positive_integer("limit", 24, 100)
+        statuses = {
+            value
+            for value in values.get("status", [""])[0].split(",")
+            if value
+        }
+        if any(
+            len(status) > 80 or not status.replace("_", "").isalnum()
+            for status in statuses
+        ):
+            raise ValueError("status filter is invalid.")
+        kind = values.get("kind", [""])[0]
+        if len(kind) > 80 or (kind and not kind.replace("_", "").isalnum()):
+            raise ValueError("kind filter is invalid.")
+        search = values.get("query", [""])[0].casefold()
+        if len(search) > 200:
+            raise ValueError("query filter is too long.")
+
+        scanned = library.scan()
+        jobs = []
+        for manifest in scanned["jobs"]:
+            if statuses and manifest["status"] not in statuses:
+                continue
+            if kind and not any(asset["kind"] == kind for asset in manifest["assets"]):
+                continue
+            if search and search not in manifest["prompt"].casefold():
+                continue
+            jobs.append(
+                {
+                    "job_id": manifest["job_id"],
+                    "created_at": manifest["created_at"],
+                    "updated_at": manifest["updated_at"],
+                    "prompt": manifest["prompt"],
+                    "target": manifest["target"],
+                    "selected_candidate_id": manifest["selected_candidate_id"],
+                    "status": manifest["status"],
+                    "phase": manifest["phase"],
+                    "progress": manifest["progress"],
+                    "costs": manifest["costs"],
+                    "candidate_count": len(manifest["candidates"]),
+                    "asset_count": len(manifest["assets"]),
+                }
+            )
+        total = len(jobs)
+        start = (page - 1) * limit
+        selected = jobs[start : start + limit]
+        self._json(
+            {
+                "jobs": selected,
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "has_more": start + len(selected) < total,
+                "errors": scanned["errors"],
+            }
+        )
+
+    def _range_not_satisfiable(self, total: int) -> None:
+        payload = json.dumps({"error": "The requested media range is invalid."}).encode()
+        self._headers(
+            HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE,
+            "application/json; charset=utf-8",
+            len(payload),
+            {"Content-Range": f"bytes */{total}"},
+        )
+        self.wfile.write(payload)
+
+    def _lighting_asset(self, library: Any, job_id: str, asset_id: str) -> None:
+        owned = library.resolve_asset(job_id, asset_id)
+        mime_type = owned.record["mime_type"]
+        if mime_type not in _LIGHTING_ASSET_MIMES:
+            raise ValueError("This generated asset type cannot be served.")
+        total = owned.record["byte_size"]
+        range_header = self.headers.get("Range")
+        if range_header is None:
+            with owned.open_verified() as stream:
+                payload = stream.read(total + 1)
+            if len(payload) != total:
+                raise ValueError("The generated asset changed while it was read.")
+            extra = {"Accept-Ranges": "bytes"} if mime_type == "video/mp4" else None
+            self._headers(HTTPStatus.OK, mime_type, len(payload), extra)
+            self.wfile.write(payload)
+            return
+        if mime_type != "video/mp4" or not range_header.startswith("bytes="):
+            self._range_not_satisfiable(total)
+            return
+        requested = range_header[6:]
+        if "," in requested or requested.count("-") != 1:
+            self._range_not_satisfiable(total)
+            return
+        first, last = requested.split("-", 1)
+        try:
+            if first:
+                start = int(first)
+                end = int(last) if last else total - 1
+            else:
+                suffix = int(last)
+                if suffix <= 0:
+                    raise ValueError
+                start = max(0, total - suffix)
+                end = total - 1
+        except ValueError:
+            self._range_not_satisfiable(total)
+            return
+        if (
+            start < 0
+            or end < start
+            or start >= total
+            or end >= total
+            or end - start + 1 > _MAX_ASSET_RANGE_BYTES
+        ):
+            self._range_not_satisfiable(total)
+            return
+        with owned.open_verified() as stream:
+            stream.seek(start)
+            payload = stream.read(end - start + 1)
+        self._headers(
+            HTTPStatus.PARTIAL_CONTENT,
+            mime_type,
+            len(payload),
+            {
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes {start}-{end}/{total}",
+            },
+        )
+        self.wfile.write(payload)
 
     def _convert_gif(self, body: dict[str, Any]) -> None:
         encoded = body.get("data")
@@ -1969,12 +2378,16 @@ def create_server(
     *,
     port: int = 0,
     llm_factories: dict[str, Any] | None = None,
+    lighting_library: Any = None,
+    lighting_coordinator: Any = None,
+    lighting_dependencies: dict[str, Any] | None = None,
 ) -> tuple[_Server, str]:
     """Create the loopback configurator server without starting its event loop.
 
-    ``llm_factories`` overrides the interpreter/renderer factory map used by the
-    generation job endpoints (production resolves the real registry classes);
-    tests pass fakes so no request ever leaves the machine.
+    ``llm_factories`` overrides the legacy interpreter/renderer factory map.
+    Lighting tests may inject a complete ``lighting_library``/coordinator pair,
+    or just ``lighting_dependencies`` for the production coordinator. These
+    seams keep endpoint tests offline while production resolves real providers.
     """
     configs: list[dict[str, Any]] = []
     for raw_path in config_paths or []:
@@ -1988,7 +2401,14 @@ def create_server(
         configs.append(value)
 
     token = secrets.token_urlsafe(24)
-    state = _State(merge_configs(configs), token, llm_factories=llm_factories)
+    state = _State(
+        merge_configs(configs),
+        token,
+        llm_factories=llm_factories,
+        lighting_library=lighting_library,
+        lighting_coordinator=lighting_coordinator,
+        lighting_dependencies=lighting_dependencies,
+    )
     server = _Server(("127.0.0.1", port), state)
     url = f"http://127.0.0.1:{server.server_port}/?token={token}"
     return server, url
