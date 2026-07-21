@@ -31,6 +31,20 @@
     return Object.values(STAGES).includes(value) ? value : STAGES.CONCEPTS;
   }
 
+  function nextGridIndex(index, key, count, columns) {
+    const total = Math.max(0, Math.trunc(Number(count) || 0));
+    if (!total) return -1;
+    const current = Math.min(total - 1, Math.max(0, Math.trunc(Number(index) || 0)));
+    const width = Math.max(1, Math.trunc(Number(columns) || 1));
+    if (key === "Home") return 0;
+    if (key === "End") return total - 1;
+    if (key === "ArrowLeft") return Math.max(0, current - 1);
+    if (key === "ArrowRight") return Math.min(total - 1, current + 1);
+    if (key === "ArrowUp") return Math.max(0, current - width);
+    if (key === "ArrowDown") return Math.min(total - 1, current + width);
+    return current;
+  }
+
   function copyProgress(value) {
     if (!value || typeof value !== "object") return null;
     const completed = Number(value.completed);
@@ -235,6 +249,7 @@
     applyCompatibility,
     createLightingState,
     formatLightingHash,
+    nextGridIndex,
     parseLightingHash,
     projectLightingJob,
     reduceLightingState,

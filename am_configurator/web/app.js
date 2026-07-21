@@ -9,7 +9,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch]));
-const {ROUTES, STAGES, createLightingState, formatLightingHash, parseLightingHash, projectLightingJob, reduceLightingState, routeAvailability} = LightingState;
+const {ROUTES, STAGES, createLightingState, formatLightingHash, nextGridIndex, parseLightingHash, projectLightingJob, reduceLightingState, routeAvailability} = LightingState;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 
 function restoredLightingState() {
@@ -39,6 +39,7 @@ const state = {
   ledSlot: 5,
   ledTarget: "keyframes",
   ledFrame: 0,
+  ledPixel: 0,
   ledColor: "#8358ff",
   gifResample: "box",
   relicGifEdges: true,
@@ -708,9 +709,12 @@ function renderLightingShell() {
     : '<button type="button" disabled>Open document</button>';
   if (destinationLocked) $$('[data-lighting-target]', targetHost).forEach(button => { button.disabled = true; });
   $$('[data-lighting-target]', targetHost).forEach(button => button.addEventListener("click", () => {
-    state.ledTarget = button.dataset.lightingTarget;
+    const target = button.dataset.lightingTarget;
+    state.ledTarget = target;
     state.ledFrame = 0;
+    state.ledPixel = 0;
     renderLightingShell();
+    focusSelectedTarget(target);
   }));
 
   $$("[data-lighting-stage]").forEach(step => {
@@ -726,6 +730,10 @@ function renderLightingShell() {
   $("#lighting-generate-open").disabled = !state.config || Boolean(state.pendingGeneration);
   renderGenerationDialog();
   if (route === ROUTES.CREATE) setTimeout(openGenerationDialog, 0);
+}
+
+function focusSelectedTarget(target = state.ledTarget) {
+  $$('[data-lighting-target]').find(button => button.dataset.lightingTarget === String(target))?.focus();
 }
 
 function renderKeymap() {
@@ -1082,13 +1090,23 @@ function renderLightingEdit() {
   const physicalLayout=state.ledTarget==="keyframes"?model.physicalLayout:null;
   const pixelMap=physicalLayout?physicalLayout.map(item=>item.index):state.ledTarget==="keyframes"?model.keyMap:state.ledTarget==="spotlight_frames"?[0,1,2,3,4,5,6]:model.displayMap||Array.from({length},(_,index)=>index);
   const mappedCount=new Set(pixelMap.filter(index=>index>=0)).size;
+  const focusablePixelCount=physicalLayout?.length||pixelMap.filter(index=>index>=0).length;
+  state.ledPixel=Math.min(state.ledPixel,Math.max(0,focusablePixelCount-1));
   const keyLabels=layers()[0]?.layer||[];
-  const pixelCanvas=!frame?`<div class="event-empty"><button id="first-frame" class="button primary">Create first frame</button></div>`:physicalLayout?`<div class="pixel-grid physical afa-led-board">${physicalLayout.map(item=>{
+  let pixelOrder=0;
+  const rasterCells=pixelMap.map(index=>{
+    if(index<0)return `<span class="pixel-spacer"></span>`;
+    const position=pixelOrder++;
+    const color=frame?.frame_RGB[index]||'#000000';
+    return `<button class="pixel" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${index}" style="background:${esc(color)};--pixel-color:${esc(color)}" aria-label="LED ${index}, ${esc(color)}" title="LED ${index} · ${esc(color)}"></button>`;
+  }).join("");
+  const pixelCanvas=!frame?`<div class="event-empty"><button id="first-frame" class="button primary">Create first frame</button></div>`:physicalLayout?`<div class="pixel-grid physical afa-led-board" role="grid" aria-label="LED paint grid">${physicalLayout.map((item,position)=>{
     const color=frame.frame_RGB[item.index]||"#000000";
     const body=item.keyIndex===null;
     const label=body?item.label:decodeCode(keyLabels[item.keyIndex]||"#00000000");
-    return `<button class="pixel physical-pixel ${body?'body-led':''}" data-pixel="${item.index}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;--rotation:${item.rotation}deg;background:${esc(color)};--pixel-color:${esc(color)}" title="${body?'Center light':`Key ${esc(label)} · matrix ${item.keyIndex}`} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
-  }).join("")}</div>`:`<div class="pixel-grid ${gridClass}" style="grid-template-columns:repeat(${columns},1fr)">${pixelMap.map(index=>index<0?`<span class="pixel-spacer"></span>`:`<button class="pixel" data-pixel="${index}" style="background:${esc(frame.frame_RGB[index]||'#000000')};--pixel-color:${esc(frame.frame_RGB[index]||'#000000')}" title="LED ${index} · ${esc(frame.frame_RGB[index]||'#000000')}"></button>`).join("")}</div>`;
+    const description=body?'Center light':`Key ${label}, matrix ${item.keyIndex}`;
+    return `<button class="pixel physical-pixel ${body?'body-led':''}" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${item.index}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;--rotation:${item.rotation}deg;background:${esc(color)};--pixel-color:${esc(color)}" aria-label="${esc(description)}, LED ${item.index}, ${esc(color)}" title="${esc(description)} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
+  }).join("")}</div>`:`<div class="pixel-grid ${gridClass}" role="grid" aria-label="LED paint grid" style="grid-template-columns:repeat(${columns},1fr)">${rasterCells}</div>`;
   const gifSize=state.ledTarget==="frames"?"40×5":state.ledTarget==="spotlight_frames"?"18×7 → 7 edge LEDs":`${model.keyRaster} → ${mappedCount} mapped LEDs`;
   const relicKeyTarget=model===LED_MODELS["80"]&&state.ledTarget==="keyframes";
   const pairsRelicGif=relicKeyTarget&&state.relicGifEdges;
@@ -1111,24 +1129,34 @@ function renderLightingEdit() {
         <button id="refine-generation" class="button ghost wide-button">Refine prompt</button>
         <small class="control-help">Preview the animation to the left. Apply replaces this slot’s ${esc(targetLabel)} track (one undo step); nothing is written to your keyboard.</small></div></div>`;
   const editorBody=`<div class="card-body">
-        <div class="control-group"><label class="control-label">Animation source</label><input id="gif-input" type="file" accept="image/gif,.gif" hidden><div class="gif-import-row"><button id="import-gif" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="GIF resize method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
+        <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Animation source</h3><input id="gif-input" type="file" accept="image/gif,.gif" hidden><div class="gif-import-row"><button id="import-gif" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="GIF resize method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
         ${edgeTools}
-        <div class="control-group"><label class="control-label">Paint color</label><input id="led-color" class="color-picker" type="color" value="${state.ledColor}"><input id="led-color-text" class="text-field" value="${state.ledColor}"></div>
+        <div class="control-group"><label class="control-label" for="led-color">Paint color</label><input id="led-color" class="color-picker" type="color" value="${state.ledColor}"><input id="led-color-text" class="text-field" aria-label="Paint color hex value" value="${state.ledColor}"></div>
         <div class="control-group"><label class="control-label">Brush</label><div class="button-row"><button id="fill-led" class="button ghost">Fill all</button><button id="clear-led" class="button ghost">Clear</button></div></div>
-        <div class="control-group"><label class="control-label">Brightness</label><div class="range-row"><input id="brightness" type="range" min="0" max="100" value="${Number(page?.lightness??100)}"><span class="range-value">${Number(page?.lightness??100)}%</span></div></div>
-        <div class="control-group"><label class="control-label">Frame duration</label><select id="speed" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===encodedSpeed?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select><small class="control-help">These are the timing steps exposed by Angry Miao firmware.</small></div>
+        <div class="control-group"><label class="control-label" for="brightness">Brightness</label><div class="range-row"><input id="brightness" type="range" min="0" max="100" value="${Number(page?.lightness??100)}" aria-describedby="brightness-value"><span id="brightness-value" class="range-value">${Number(page?.lightness??100)}%</span></div></div>
+        <div class="control-group"><label class="control-label" for="speed">Frame duration</label><select id="speed" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===encodedSpeed?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select><small class="control-help">These are the timing steps exposed by Angry Miao firmware.</small></div>
       </div>`;
   $("#lighting-edit-content").innerHTML=`<div class="lighting-edit-shell"><div class="led-layout">
-      <aside class="card frame-list"><div class="card-header"><strong>${previewing?'AI preview frames':'Frames'}</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${esc(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?(previewing?'Preview':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div>${previewing?'':`<div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div>`}</aside>
-      <section class="card led-canvas-card"><div class="card-header"><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}</small></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''}">${pixelCanvas}</div></section>
-      <aside class="card led-controls"><div class="card-header"><strong>${previewing?'AI preview':'Frame controls'}</strong><button id="play-led" class="icon-button">${state.playing?'■':'▶'}</button></div>${previewing?previewBody:editorBody}</aside>
+      <aside class="card frame-list" aria-label="Animation frames"><div class="card-header"><strong>${previewing?'AI preview frames':'Frames'}</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${esc(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?(previewing?'Preview':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div>${previewing?'':`<div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div>`}</aside>
+      <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header"><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}</small></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''}" role="region" aria-label="Paint the selected animation frame">${pixelCanvas}</div></section>
+      <aside class="card led-controls" aria-label="Lighting controls"><div class="card-header"><strong>${previewing?'AI preview':'Frame controls'}</strong><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div>${previewing?previewBody:editorBody}</aside>
     </div></div>`;
   if(previewing)wireLedPreview();
-  else wireLedEditor();
+  else wireLedEditor(columns);
 }
 
-function wireLedEditor() {
-  $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>{state.ledFrame=Number(button.dataset.frame);renderLightingEdit();}));
+function focusSelectedFrame() {
+  $$('[data-frame]').find(button=>Number(button.dataset.frame)===state.ledFrame)?.focus();
+}
+
+function selectLightingFrame(index) {
+  state.ledFrame=Number(index);
+  renderLightingEdit();
+  focusSelectedFrame();
+}
+
+function wireLedEditor(gridColumns) {
+  $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>selectLightingFrame(button.dataset.frame)));
   $("#first-frame")?.addEventListener("click",()=>mutate(ensureTrack));
   $("#import-gif").addEventListener("click",()=>$("#gif-input").click());
   $("#gif-resample").addEventListener("change",event=>{state.gifResample=event.target.value;});
@@ -1147,10 +1175,29 @@ function wireLedEditor() {
   }));
   let painting=false, checkpointed=false;
   const paint = pixel => {
-    const frame=currentFrame();if(!frame)return;const i=Number(pixel.dataset.pixel);frame.frame_RGB[i]=state.ledColor;pixel.style.background=state.ledColor;pixel.style.setProperty('--pixel-color',state.ledColor);pixel.title=`LED ${i} · ${state.ledColor}`;
+    const frame=currentFrame();if(!frame)return;const i=Number(pixel.dataset.pixel);frame.frame_RGB[i]=state.ledColor;pixel.style.background=state.ledColor;pixel.style.setProperty('--pixel-color',state.ledColor);pixel.title=`LED ${i} · ${state.ledColor}`;pixel.setAttribute('aria-label',`LED ${i}, ${state.ledColor}`);
   };
-  $$('.pixel').forEach(pixel=>{
-    pixel.addEventListener('pointerdown',event=>{event.preventDefault();if(!checkpointed){pushUndo();checkpointed=true;}painting=true;paint(pixel);markDirty();});
+  const pixels=$$('.pixel');
+  const focusPixel=index=>{
+    const next=Math.min(pixels.length-1,Math.max(0,index));
+    pixels.forEach((pixel,pixelIndex)=>{pixel.tabIndex=pixelIndex===next?0:-1;});
+    state.ledPixel=next;
+    pixels[next]?.focus();
+  };
+  pixels.forEach((pixel,index)=>{
+    pixel.addEventListener('focus',()=>{state.ledPixel=index;pixels.forEach((item,itemIndex)=>{item.tabIndex=itemIndex===index?0:-1;});});
+    pixel.addEventListener('keydown',event=>{
+      if(["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Home","End"].includes(event.key)){
+        event.preventDefault();
+        focusPixel(nextGridIndex(index,event.key,pixels.length,gridColumns));
+      }else if(event.key===' '||event.key==='Enter'){
+        event.preventDefault();
+        pushUndo();
+        paint(pixel);
+        markDirty();
+      }
+    });
+    pixel.addEventListener('pointerdown',event=>{event.preventDefault();focusPixel(index);if(!checkpointed){pushUndo();checkpointed=true;}painting=true;paint(pixel);markDirty();});
     pixel.addEventListener('pointerenter',event=>{if(painting&&event.buttons)paint(pixel);});
   });
   window.addEventListener('pointerup',()=>{painting=false;checkpointed=false;},{once:true});
@@ -1160,7 +1207,7 @@ function wireLedEditor() {
   $("#clear-led").addEventListener("click",()=>mutate(()=>{const track=ensureTrack();track.frame_data[state.ledFrame].frame_RGB.fill("#000000");}));
   $("#brightness").addEventListener("change",event=>mutate(()=>{getPage(state.ledSlot).lightness=Number(event.target.value);}));
   $("#speed").addEventListener("change",event=>mutate(()=>{getPage(state.ledSlot).speed_ms=Number(event.target.value);}));
-  $("#play-led").addEventListener("click",()=>state.playing?stopPlayback():startPlayback());
+  $("#play-led").addEventListener("click",toggleLightingPlayback);
 }
 
 function renderGenerationDialog() {
@@ -1212,8 +1259,8 @@ function wireAiPanel() {
 }
 
 function wireLedPreview() {
-  $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>{state.ledFrame=Number(button.dataset.frame);renderLightingEdit();}));
-  $("#play-led")?.addEventListener("click",()=>state.playing?stopPlayback():startPlayback());
+  $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>selectLightingFrame(button.dataset.frame)));
+  $("#play-led")?.addEventListener("click",toggleLightingPlayback);
   $("#apply-generation")?.addEventListener("click",applyGeneration);
   $("#discard-generation")?.addEventListener("click",discardGeneration);
   $("#refine-generation")?.addEventListener("click",refineGeneration);
@@ -1272,9 +1319,15 @@ function startPlayback() {
     state.ledFrame=(state.ledFrame+1)%track.frame_data.length;
     const frame=track.frame_data[state.ledFrame];
     $$('.pixel').forEach(pixel=>{const color=frame.frame_RGB[Number(pixel.dataset.pixel)]||'#000000';pixel.style.background=color;pixel.style.setProperty('--pixel-color',color);});
-    $$('.frame-item').forEach((node,i)=>node.classList.toggle('active',i===state.ledFrame));
+    $$('.frame-item').forEach((node,i)=>{const selected=i===state.ledFrame;node.classList.toggle('active',selected);node.setAttribute('aria-pressed',String(selected));node.setAttribute('aria-label',`Frame ${i+1}${selected?', selected':''}`);});
   };
   state.playTimer=setInterval(tick,Math.max(12,Number(ledSourcePage()?.speed_ms||90)));
+}
+
+function toggleLightingPlayback() {
+  if(state.playing)stopPlayback();
+  else startPlayback();
+  $("#play-led")?.focus();
 }
 
 function stopPlayback(rerender=true) {
@@ -1899,6 +1952,7 @@ $$('[data-lighting-route]').forEach(tab => {
 $$('[data-lighting-slot]').forEach(button=>button.addEventListener('click',()=>{
   state.ledSlot=Number(button.dataset.lightingSlot);
   state.ledFrame=0;
+  state.ledPixel=0;
   renderLightingShell();
 }));
 $("[data-library-create]").addEventListener("click", () => navigateTo(ROUTES.CREATE));

@@ -119,3 +119,30 @@ test("shell supports narrow windows, zoom, focus, and reduced motion", () => {
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
   assert.doesNotMatch(css, /\.create-steps li strong\s*\{\s*display:\s*none/);
 });
+
+test("the Lighting editor exposes named keyboard-operable controls", () => {
+  assert.match(js, /id="play-led"[^>]*aria-label="\$\{state\.playing\?'Stop animation':'Play animation'\}"/);
+  assert.match(js, /class="frame-item[^`]*aria-pressed="\$\{i===state\.ledFrame\}"/);
+  assert.match(js, /class="pixel[^`]*tabindex="\$\{/);
+  assert.match(js, /aria-label="[^"`]*LED \$\{/);
+  assert.match(js, /role="grid"[^>]*aria-label="LED paint grid"/);
+  assert.match(js, /for="led-color"/);
+  assert.match(js, /for="brightness"/);
+  assert.match(js, /for="speed"/);
+  assert.match(js, /nextGridIndex\(/);
+  assert.match(js, /event\.key===['"] ['"]\|\|event\.key===['"]Enter['"]/);
+  assert.match(js, /focusSelectedFrame\(/);
+  assert.match(js, /focusSelectedTarget\(/);
+});
+
+test("responsive Lighting layout keeps canvas first and turns frames into a filmstrip", () => {
+  const medium = css.match(/@media\s*\(max-width:\s*1240px\)\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(medium, /grid-template-areas:\s*"canvas controls"\s*"frames frames"/);
+  assert.match(medium, /grid-auto-flow:\s*column/);
+  assert.match(medium, /overflow-x:\s*auto/);
+  const narrow = css.match(/@media\s*\(max-width:\s*980px\)\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(narrow, /grid-template-areas:\s*"canvas"\s*"frames"\s*"controls"/);
+  const mobile = css.match(/@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(mobile, /#device-button\s*\{\s*order:\s*-2/);
+  assert.doesNotMatch(css, /--muted-2:\s*#6f6f78/);
+});

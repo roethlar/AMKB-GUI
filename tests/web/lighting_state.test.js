@@ -9,6 +9,7 @@ const {
   applyCompatibility,
   createLightingState,
   formatLightingHash,
+  nextGridIndex,
   parseLightingHash,
   projectLightingJob,
   reduceLightingState,
@@ -67,6 +68,20 @@ test("defaults to the manual Lighting workspace at the Concepts stage", () => {
     create: {stage: STAGES.CONCEPTS, selectedCandidateId: null},
     activeJob: null,
   });
+});
+
+test("grid focus movement is bounded and supports arrows plus Home and End", () => {
+  const count = 12;
+  const columns = 4;
+  assert.equal(nextGridIndex(5, "ArrowLeft", count, columns), 4);
+  assert.equal(nextGridIndex(5, "ArrowRight", count, columns), 6);
+  assert.equal(nextGridIndex(5, "ArrowUp", count, columns), 1);
+  assert.equal(nextGridIndex(5, "ArrowDown", count, columns), 9);
+  assert.equal(nextGridIndex(0, "ArrowLeft", count, columns), 0);
+  assert.equal(nextGridIndex(11, "ArrowDown", count, columns), 11);
+  assert.equal(nextGridIndex(7, "Home", count, columns), 0);
+  assert.equal(nextGridIndex(2, "End", count, columns), 11);
+  assert.equal(nextGridIndex(5, "Escape", count, columns), 5);
 });
 
 test("reducer never mutates frozen input", () => {
