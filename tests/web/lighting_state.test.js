@@ -140,6 +140,28 @@ test("backward stage changes and route navigation preserve job and selection", (
   assert.equal(current.activeJob.id, JOB_ID);
 });
 
+test("switching or clearing jobs cannot inherit another job's candidate", () => {
+  const first = reduceLightingState(createLightingState(), {
+    type: "JOB_SYNCED",
+    job: readyJob(),
+  }).state;
+  const secondJob = readyJob({
+    id: "6b7e48f2-9b4b-4fb5-a20e-14e9a0d7d2bd",
+    selectedCandidateId: null,
+    resultAssetId: null,
+    status: "awaiting_selection",
+    phase: "awaiting_selection",
+  });
+  const switched = reduceLightingState(first, {type: "JOB_SYNCED", job: secondJob}).state;
+  assert.equal(switched.create.selectedCandidateId, null);
+  assert.equal(switched.create.stage, STAGES.CONCEPTS);
+  assert.equal(reduceLightingState(switched, {type: "SHOW_ANIMATE"}).blocked, "selection-required");
+
+  const cleared = reduceLightingState(first, {type: "JOB_SYNCED", job: null}).state;
+  assert.equal(cleared.activeJob, null);
+  assert.deepEqual(cleared.create, {stage: STAGES.CONCEPTS, selectedCandidateId: null});
+});
+
 test("hash routing round-trips safe routes and opaque job IDs", () => {
   for (const route of Object.values(ROUTES)) {
     assert.deepEqual(parseLightingHash(formatLightingHash(route, JOB_ID)), {route, jobId: JOB_ID});

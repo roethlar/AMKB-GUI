@@ -143,11 +143,18 @@
       }
       case "JOB_SYNCED": {
         const activeJob = copyJob(event.job);
-        const selectedCandidateId = activeJob?.selectedCandidateId || state.create.selectedCandidateId;
+        const sameJob = Boolean(activeJob && activeJob.id === state.activeJob?.id);
+        const selectedCandidateId = activeJob
+          ? (activeJob.selectedCandidateId || (sameJob ? state.create.selectedCandidateId : null))
+          : null;
+        const becameReady = sameJob && !state.activeJob?.resultAssetId && activeJob?.resultAssetId;
+        const beganAnimation = sameJob && !state.activeJob?.selectedCandidateId && activeJob?.selectedCandidateId;
         return result({
           ...state,
           create: {
-            stage: activeJob ? jobStage(activeJob) : state.create.stage,
+            stage: !activeJob
+              ? STAGES.CONCEPTS
+              : (!sameJob || becameReady || beganAnimation ? jobStage(activeJob) : state.create.stage),
             selectedCandidateId,
           },
           activeJob,
