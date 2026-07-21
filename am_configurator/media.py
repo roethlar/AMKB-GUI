@@ -323,7 +323,7 @@ def download_video(
     backup_created = False
     preserve_backup = False
     try:
-        _content_length(response)
+        expected_size = _content_length(response)
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         flags |= getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0)
@@ -370,6 +370,10 @@ def download_video(
 
             _check_cancel(cancelled)
             _remaining_timeout(deadline)
+            if expected_size is not None and total != expected_size:
+                raise MediaError(
+                    "bad_response", "video response length did not match its header"
+                )
             if not _looks_like_mp4(bytes(prefix), total):
                 raise MediaError("bad_response", "video response was not an MP4 file")
             try:

@@ -202,6 +202,26 @@ class VideoDownloaderTests(unittest.TestCase):
                     self.assertFalse((Path(tmp) / "source.mp4.part").exists())
                     self.assertTrue(response.closed)
 
+    def test_truncated_declared_content_length_is_not_published(self) -> None:
+        payload = _mp4_bytes()
+        response = _Response(
+            payload,
+            headers={"Content-Length": str(len(payload) + 10)},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "source.mp4"
+            destination.write_bytes(b"existing")
+            with self.assertRaises(media.MediaError) as ctx:
+                media.download_video(
+                    self._URL,
+                    destination,
+                    self._deadline(),
+                    opener=_Opener(response),
+                )
+            self.assertEqual(ctx.exception.code, "bad_response")
+            self.assertEqual(destination.read_bytes(), b"existing")
+            self.assertFalse((Path(tmp) / "source.mp4.part").exists())
+
     def test_empty_or_non_mp4_payload_is_not_published(self) -> None:
         for payload in (b"", b"not an mp4 payload", b"\x00\x00\x00\x08free"):
             with tempfile.TemporaryDirectory() as tmp:
