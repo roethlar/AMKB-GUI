@@ -15,9 +15,12 @@
   hardened temporary-video downloader landed in `deca3d5` and passed review
   after focused fixes through `8798a68`; Task 6's signed-source, reproducible
   LGPL FFmpeg build/runtime verification and exact-frame animation processor
-  landed in `3cbe33c`. The full repository verification entry point passed at
-  `3cbe33c`, including the prepared real FFmpeg runtime integration check for
-  every supported device frame cap. No provider or hardware call was made.
+  landed in `3cbe33c`; Task 7's durable, single-operation concept coordinator
+  landed in `0ecf7c8` and passed review after owning-root preflight and canonical
+  target-validation fixes through `b243d22`. The full repository verification
+  entry point passed at `b243d22`, including the prepared real FFmpeg runtime
+  integration check for every supported device frame cap. No provider or
+  hardware call was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -42,9 +45,9 @@
 ## Next
 
 - Execute the approved video-first Lighting Studio plan in order with
-  tests-first commits, beginning Task 7 with the durable single-operation job
-  coordinator and restart reconciliation. Do not separately repair the legacy
-  `previous_plan` path.
+  tests-first commits, beginning Task 8 with durable video, recovery, and
+  mapping orchestration. Do not separately repair the legacy `previous_plan`
+  path.
 - A paid live xAI video acceptance check remains optional and needs a separate
   explicit go after the offline video pipeline is implemented.
 - Carried over: address any failures surfaced by the committed CI and
