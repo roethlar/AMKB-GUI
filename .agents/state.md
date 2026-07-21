@@ -47,6 +47,22 @@
   `78e236f` with 256 Python tests and 27 browser tests. Versioned macOS build
   `0.1.15` passed frozen smoke and was visually checked at 1440×920 and 520×720
   with the Relic profile; no provider or hardware call was made.
+- Task 11's full Provider/Models/Storage/Costs Settings route and restricted
+  native folder-chooser/Reveal bridge landed in `2797312`. Settings now saves
+  keys, curated models, still-count and loop defaults, and the current Library
+  root through independent routes; Done returns to the originating route and
+  restores an open Concepts dialog. The first manifest-backed Library browser
+  slice landed in `70e01ba`: it lists/filter/searches durable jobs, loads
+  authenticated local thumbnails and detail media as Blob URLs, and works
+  without a document. A malformed-effective-key redaction hole found during
+  live acceptance testing was closed in `2e4d474`.
+- The full repository verification entry point passed at `2e4d474` with 262
+  Python tests and 29 browser-state/static tests. Versioned macOS build
+  `0.1.18` passed frozen smoke and DMG verification and was launched with the
+  Relic profile. A one-output live xAI Concepts acceptance check completed with
+  one still banked locally, visible/selectable in Concepts, browsable in
+  Library detail, and retained across Settings → Done. Provider-reported cost
+  was $0.0227244. No key was persisted and no video or hardware call was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -70,10 +86,10 @@
 
 ## Next
 
-- Continue Task 11 with the native library-folder bridge and full
-  Provider/Models/Storage/Costs Settings page, then finish Task 12's explicit
-  selected-concept handoff into Animate. Do not separately repair the legacy
-  `previous_plan` path.
+- Finish Task 12's explicit selected-concept handoff into Animate, implement
+  Task 13's video/review/apply workflow, then expand the landed read-only
+  Library browser to Task 14's remaining resume/retry/animate/apply actions. Do
+  not separately repair the legacy `previous_plan` path.
 - A paid live xAI video acceptance check remains optional and needs a separate
   explicit go after the offline video pipeline is implemented.
 - Carried over: address any failures surfaced by the committed CI and
