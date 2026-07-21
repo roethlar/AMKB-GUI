@@ -6,6 +6,7 @@ import socket
 import stat
 import tempfile
 import time
+import traceback
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -238,6 +239,11 @@ class VideoDownloaderTests(unittest.TestCase):
                 )
             self.assertEqual(ctx.exception.code, "timeout")
             self.assertNotIn("secret", str(ctx.exception))
+            self.assertNotIn(
+                "signed-url-secret", "".join(traceback.format_exception(ctx.exception))
+            )
+            self.assertIsNone(ctx.exception.__cause__)
+            self.assertIsNone(ctx.exception.__context__)
             self.assertEqual(destination.read_bytes(), b"existing")
             self.assertFalse((Path(tmp) / "source.mp4.part").exists())
             self.assertTrue(response.closed)

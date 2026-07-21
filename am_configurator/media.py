@@ -157,6 +157,7 @@ def _open_media_response(
             method="GET",
             headers={"Accept": "video/mp4"},
         )
+        failure: MediaError | None = None
         try:
             response = opener(request, timeout=timeout)
         except urllib.error.HTTPError as exc:
@@ -164,12 +165,15 @@ def _open_media_response(
         except urllib.error.URLError as exc:
             reason = getattr(exc, "reason", None)
             if isinstance(reason, (TimeoutError, socket.timeout)):
-                raise MediaError("timeout", "video host request timed out") from None
-            raise MediaError("unavailable", "video host could not be reached") from None
+                failure = MediaError("timeout", "video host request timed out")
+            else:
+                failure = MediaError("unavailable", "video host could not be reached")
         except (TimeoutError, socket.timeout):
-            raise MediaError("timeout", "video host request timed out") from None
+            failure = MediaError("timeout", "video host request timed out")
         except (ssl.SSLError, OSError):
-            raise MediaError("unavailable", "video host could not be reached") from None
+            failure = MediaError("unavailable", "video host could not be reached")
+        if failure is not None:
+            raise failure from None
 
         keep_open = False
         try:
@@ -305,12 +309,15 @@ def download_video(
                 _check_cancel(cancelled)
                 _remaining_timeout(deadline)
                 amount = min(_READ_CHUNK_BYTES, MAX_VIDEO_BYTES - total + 1)
+                read_failure: MediaError | None = None
                 try:
                     chunk = response.read(amount)
                 except (TimeoutError, socket.timeout):
-                    raise MediaError("timeout", "video response read timed out") from None
+                    read_failure = MediaError("timeout", "video response read timed out")
                 except (ssl.SSLError, OSError):
-                    raise MediaError("unavailable", "video response read failed") from None
+                    read_failure = MediaError("unavailable", "video response read failed")
+                if read_failure is not None:
+                    raise read_failure from None
                 if not isinstance(chunk, bytes):
                     raise MediaError(
                         "bad_response", "video host returned non-byte content"
