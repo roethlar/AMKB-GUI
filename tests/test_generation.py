@@ -933,6 +933,27 @@ class DurableVideoGenerationTests(unittest.TestCase):
         self.assertEqual(44, final["costs"]["actual_by_operation"][self.video.request_id])
         self.assertEqual(75, sum(final["costs"]["actual_by_operation"].values()))
 
+    def test_transient_acceptance_write_failure_keeps_the_known_request_id(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        original_update = self.library.update_manifest
+        failed_once = False
+
+        def fail_first_accept(job_id: str, changes):
+            nonlocal failed_once
+            if getattr(changes, "__name__", "") == "accept" and not failed_once:
+                failed_once = True
+                raise OSError("transient manifest write failure")
+            return original_update(job_id, changes)
+
+        with patch.object(self.library, "update_manifest", side_effect=fail_first_accept):
+            started = self._start_animation(manifest, candidate_id)
+            final = self.coordinator.wait(started["job_id"], timeout=10)
+        self.assertTrue(failed_once)
+        self.assertEqual("ready", final["status"])
+        self.assertEqual(1, len(self.video.submit_calls))
+        self.assertEqual(self.video.request_id, final["provider_requests"]["video"]["request_id"])
+        self.assertEqual(self.video.request_id, final["animation_attempts"][-1]["request_id"])
+
     def test_ambiguous_submit_is_never_retried_automatically(self) -> None:
         manifest, candidate_id = self._selectable_job()
         self.video.submit_failure = ProviderError(

@@ -988,19 +988,27 @@ class GenerationCoordinator:
                 current_attempt["phase"] = "video_polling"
                 current["phase"] = "video_polling"
 
-            try:
-                self._library.update_manifest(job_id, accept)
-            except LibraryError:
-                self._record_submission_unknown(
-                    job_id,
-                    attempt_id,
-                    ProviderError(
-                        "bad_response",
-                        "the accepted video request could not be recorded safely",
-                        usage=submission.usage,
-                    ),
-                    api_key,
-                )
+            acceptance_persisted = False
+            for _attempt in range(self._safe_retry_limit):
+                try:
+                    self._library.update_manifest(job_id, accept)
+                    acceptance_persisted = True
+                    break
+                except (LibraryError, OSError):
+                    continue
+            if not acceptance_persisted:
+                try:
+                    self._record_video_error(
+                        job_id,
+                        code="acceptance_persist_failed",
+                        message=(
+                            "The accepted video request ID could not be persisted; "
+                            "the paid submission was not replayed."
+                        ),
+                        api_key=api_key,
+                    )
+                except (LibraryError, OSError):
+                    pass
                 return
             self._poll_and_retrieve(
                 job_id,
