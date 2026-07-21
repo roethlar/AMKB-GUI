@@ -5,6 +5,7 @@ import json
 import tempfile
 import threading
 import unittest
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -20,7 +21,12 @@ from am_configurator.llm import (
     ImageMetadata,
     ProviderError,
     ProviderUsage,
+    VideoAnimationPlan,
+    VideoAnimationPlanResult,
+    VideoStatus,
+    VideoSubmission,
 )
+from am_configurator.media import DownloadedVideo, MediaError, ProcessedAnimation
 
 
 TARGET = {
@@ -113,6 +119,171 @@ class _ImageProvider:
             ),
             image=Image.open(io.BytesIO(self.payload)).convert("RGB"),
             usage=usage,
+        )
+
+
+class _VideoPlanner:
+    def __init__(self, usage: ProviderUsage = ProviderUsage(31, True)) -> None:
+        self.usage = usage
+        self.calls: list[tuple] = []
+        self.before_call = None
+        self.failure: ProviderError | None = None
+
+    def plan(
+        self,
+        prompt: object,
+        motion: object,
+        image_bytes: object,
+        mime_type: object,
+        spec: object,
+        loop_mode: object,
+        deadline: float,
+    ) -> VideoAnimationPlanResult:
+        if self.before_call is not None:
+            self.before_call()
+        self.calls.append(
+            (prompt, motion, image_bytes, mime_type, spec, loop_mode, deadline)
+        )
+        if self.failure is not None:
+            raise self.failure
+        return VideoAnimationPlanResult(
+            plan=VideoAnimationPlan(
+                subject_lock="Keep the ember ribbon unchanged.",
+                style_lock="Keep the original palette and texture.",
+                video_prompt="Animate a gentle one-second ember pulse with a locked camera.",
+            ),
+            usage=self.usage,
+        )
+
+
+class _VideoProvider:
+    def __init__(self) -> None:
+        self.request_id = "video_request_123"
+        self.submit_usage = ProviderUsage(41, True)
+        self.poll_outcomes: list[VideoStatus | ProviderError] = [
+            VideoStatus(
+                request_id=self.request_id,
+                status="done",
+                usage=ProviderUsage(43, True),
+                video_url="https://vidgen.x.ai/generated/video.mp4?signature=secret",
+                duration=1,
+            )
+        ]
+        self.submit_calls: list[tuple] = []
+        self.poll_calls: list[tuple[str, float]] = []
+        self.before_poll = None
+        self.submit_failure: ProviderError | None = None
+
+    def submit(
+        self,
+        plan: object,
+        image_bytes: object,
+        mime_type: object,
+        deadline: float,
+    ) -> VideoSubmission:
+        self.submit_calls.append((plan, image_bytes, mime_type, deadline))
+        if self.submit_failure is not None:
+            raise self.submit_failure
+        return VideoSubmission(
+            request_id=self.request_id,
+            status="pending",
+            usage=self.submit_usage,
+        )
+
+    def poll(self, request_id: object, deadline: float) -> VideoStatus:
+        assert isinstance(request_id, str)
+        if self.before_poll is not None:
+            self.before_poll()
+        self.poll_calls.append((request_id, deadline))
+        outcome = self.poll_outcomes.pop(0) if len(self.poll_outcomes) > 1 else self.poll_outcomes[0]
+        if isinstance(outcome, ProviderError):
+            raise outcome
+        return outcome
+
+
+class _Downloader:
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+        self.failures = 0
+
+    def __call__(
+        self,
+        source_url: object,
+        destination: object,
+        deadline: float,
+        *,
+        cancelled=None,
+    ) -> DownloadedVideo:
+        self.calls.append((source_url, destination, deadline, cancelled))
+        if self.failures:
+            self.failures -= 1
+            raise MediaError("unavailable", "temporary media failure")
+        path = Path(destination)
+        payload = b"\x00\x00\x00\x18ftypisomdurable-video"
+        path.write_bytes(payload)
+        import hashlib
+
+        return DownloadedVideo(
+            path=path,
+            size_bytes=len(payload),
+            sha256=hashlib.sha256(payload).hexdigest(),
+        )
+
+
+class _Processor:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+        self.failures = 0
+
+    def __call__(
+        self,
+        source_path: object,
+        destination_directory: object,
+        work_directory: object,
+        *,
+        ffmpeg_path: object,
+        width: object,
+        height: object,
+        frame_count: object,
+        loop_mode: str,
+        deadline: float,
+        cancelled=None,
+    ) -> ProcessedAnimation:
+        call = {
+            "source_path": Path(source_path),
+            "destination": Path(destination_directory),
+            "work": Path(work_directory),
+            "ffmpeg_path": ffmpeg_path,
+            "width": width,
+            "height": height,
+            "frame_count": frame_count,
+            "loop_mode": loop_mode,
+            "deadline": deadline,
+            "cancelled": cancelled,
+        }
+        self.calls.append(call)
+        if self.failures:
+            self.failures -= 1
+            raise MediaError("ffmpeg_failed", "local processing failed")
+        destination = call["destination"]
+        destination.mkdir(mode=0o700)
+        frame_paths = []
+        for index in range(int(frame_count)):
+            path = destination / f"frame-{index + 1:04d}.png"
+            with Image.new(
+                "RGB",
+                (int(width), int(height)),
+                ((index * 3) % 256, (index * 5) % 256, (index * 7) % 256),
+            ) as image:
+                image.save(path, format="PNG")
+            frame_paths.append(path)
+        return ProcessedAnimation(
+            directory=destination,
+            frame_paths=tuple(frame_paths),
+            frame_count=int(frame_count),
+            width=int(width),
+            height=int(height),
+            loop_mode=loop_mode,
         )
 
 
@@ -572,6 +743,452 @@ class DurableConceptGenerationTests(unittest.TestCase):
         )
         self.assertEqual(33, sum(recovered["costs"]["actual_by_operation"].values()))
         self.assertFalse(recovered["costs"]["actual_incomplete"])
+
+
+class _AdvancingClock:
+    def __init__(self) -> None:
+        self.value = 100.0
+
+    def __call__(self) -> float:
+        return self.value
+
+    def sleep(self, seconds: float) -> None:
+        self.value += seconds
+
+
+class DurableVideoGenerationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name) / "library"
+        self.library = GeneratedAssetLibrary(self.root, minimum_free_bytes=1)
+        self.planner = _VideoPlanner()
+        self.video = _VideoProvider()
+        self.downloader = _Downloader()
+        self.processor = _Processor()
+        self.clock = _AdvancingClock()
+        self.planner_factory_calls: list[tuple[str, str]] = []
+        self.video_factory_calls: list[tuple[str, str]] = []
+        self.coordinator = self._coordinator()
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _coordinator(self, **overrides: object) -> generation.GenerationCoordinator:
+        def planner_factory(api_key: str, model: str):
+            self.planner_factory_calls.append((api_key, model))
+            return self.planner
+
+        def video_factory(api_key: str, model: str):
+            self.video_factory_calls.append((api_key, model))
+            return self.video
+
+        values = {
+            "video_planner_factory": planner_factory,
+            "video_provider_factory": video_factory,
+            "downloader": self.downloader,
+            "processor": self.processor,
+            "ffmpeg_resolver": lambda: Path(__file__),
+            "operation_gate": generation.OperationGate(),
+            "monotonic": self.clock,
+            "sleeper": self.clock.sleep,
+            "poll_interval_seconds": 5,
+            "foreground_timeout_seconds": 2,
+        }
+        values.update(overrides)
+        return generation.GenerationCoordinator(self.library, **values)
+
+    def _selectable_job(
+        self,
+        *,
+        target: dict = TARGET,
+        loop_mode: str = "smooth",
+    ) -> tuple[dict, str]:
+        manifest = self.library.create_job(
+            prompt="A calm ember ribbon",
+            target=target,
+            models=MODELS,
+            loop_mode=loop_mode,
+        )
+        asset = self.library.bank_asset(
+            manifest["job_id"],
+            kind="concept",
+            data=_png_bytes(),
+            mime_type="image/png",
+            origin="test_concept",
+        )
+
+        def publish(current: dict) -> None:
+            current["candidates"].append(
+                {
+                    "candidate_id": asset["asset_id"],
+                    "asset_id": asset["asset_id"],
+                    "batch_id": str(uuid.uuid4()),
+                    "prompt": "A calm ember ribbon concept",
+                    "revised_prompt": None,
+                    "width": 20,
+                    "height": 9,
+                    "mime_type": "image/png",
+                    "status": "complete",
+                    "created_at": asset["created_at"],
+                }
+            )
+            current["status"] = "awaiting_selection"
+            current["phase"] = "awaiting_selection"
+
+        return (
+            self.library.update_manifest(manifest["job_id"], publish),
+            asset["asset_id"],
+        )
+
+    def _start_animation(
+        self,
+        manifest: dict,
+        candidate_id: str,
+        **overrides: object,
+    ) -> dict:
+        values = {
+            "candidate_id": candidate_id,
+            "motion": "A gentle pulse",
+            "loop_mode": manifest["loop_mode"],
+            "api_key": "video-secret-key",
+            "privacy_acknowledged": True,
+        }
+        values.update(overrides)
+        return self.coordinator.start_animation(manifest["job_id"], **values)
+
+    def test_selection_ownership_is_fail_closed_and_persisted_before_provider(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        other, other_candidate = self._selectable_job()
+        with self.assertRaises(generation.GenerationValidationError):
+            self._start_animation(manifest, other_candidate)
+        self.assertIsNone(
+            self.library.load_manifest(manifest["job_id"])["selected_candidate_id"]
+        )
+        self.assertEqual([], self.planner_factory_calls)
+        self.assertEqual([], self.video_factory_calls)
+
+        def assert_selection_is_durable() -> None:
+            current = self.library.load_manifest(manifest["job_id"])
+            self.assertEqual(candidate_id, current["selected_candidate_id"])
+            self.assertEqual("video_planning", current["phase"])
+            self.assertEqual(1, len(current["animation_attempts"]))
+            self.assertEqual(candidate_id, current["animation_attempts"][0]["candidate_id"])
+            self.assertEqual(900_000_000, current["costs"]["estimated_ticks"])
+            self.assertEqual("submitting", current["provider_requests"]["video_plan"]["status"])
+
+        self.planner.before_call = assert_selection_is_durable
+        with patch("am_configurator.writer.write_config") as write_config:
+            started = self._start_animation(manifest, candidate_id)
+            final = self.coordinator.wait(started["job_id"], timeout=10)
+        write_config.assert_not_called()
+        self.assertEqual("ready", final["status"])
+        self.assertEqual("ready_for_review", final["phase"])
+        self.assertEqual({"video_plan": 31, self.video.request_id: 43}, final["costs"]["actual_by_operation"])
+        self.assertFalse(final["costs"]["actual_incomplete"])
+        self.assertNotIn("vidgen.x.ai", json.dumps(final))
+        self.assertNotIn("signature", json.dumps(final).lower())
+        self.assertNotEqual(other["job_id"], manifest["job_id"])
+
+    def test_request_id_is_persisted_before_poll_and_poll_cost_replaces_observations(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        self.video.poll_outcomes = [
+            VideoStatus(
+                request_id=self.video.request_id,
+                status="pending",
+                usage=ProviderUsage(42, True),
+            ),
+            VideoStatus(
+                request_id=self.video.request_id,
+                status="done",
+                usage=ProviderUsage(44, True),
+                video_url="https://vidgen.x.ai/generated/final.mp4?token=ephemeral",
+                duration=1,
+            ),
+        ]
+
+        def assert_request_id_is_durable() -> None:
+            current = self.library.load_manifest(manifest["job_id"])
+            request = current["provider_requests"]["video"]
+            self.assertEqual(self.video.request_id, request["request_id"])
+            self.assertEqual(self.video.request_id, current["animation_attempts"][0]["request_id"])
+
+        self.video.before_poll = assert_request_id_is_durable
+        started = self._start_animation(manifest, candidate_id)
+        final = self.coordinator.wait(started["job_id"], timeout=10)
+        self.assertEqual(2, len(self.video.poll_calls))
+        self.assertEqual(44, final["costs"]["actual_by_operation"][self.video.request_id])
+        self.assertEqual(75, sum(final["costs"]["actual_by_operation"].values()))
+
+    def test_ambiguous_submit_is_never_retried_automatically(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        self.video.submit_failure = ProviderError(
+            "unavailable", "the submit response was lost", usage=ProviderUsage(None, False)
+        )
+        started = self._start_animation(manifest, candidate_id)
+        final = self.coordinator.wait(started["job_id"], timeout=10)
+        self.assertEqual("submission_unknown", final["status"])
+        self.assertEqual("interrupted", final["phase"])
+        self.assertEqual(1, len(self.video.submit_calls))
+        self.assertEqual([], self.video.poll_calls)
+        self.assertEqual([], self.coordinator.reconcile_startup(api_key="video-secret-key"))
+        self.assertEqual(1, len(self.video.submit_calls))
+
+    def test_startup_resumes_accepted_request_without_replaying_paid_posts(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        attempt_id = str(uuid.uuid4())
+
+        def accepted(current: dict) -> None:
+            current["selected_candidate_id"] = candidate_id
+            current["animation_attempts"].append(
+                {
+                    "attempt_id": attempt_id,
+                    "candidate_id": candidate_id,
+                    "loop_mode": "smooth",
+                    "status": "polling",
+                    "phase": "video_polling",
+                    "motion": None,
+                    "request_id": self.video.request_id,
+                    "source_video_asset_id": None,
+                    "frame_asset_ids": [],
+                    "preview_asset_id": None,
+                    "mapped_result_asset_id": None,
+                    "created_at": current["updated_at"],
+                    "completed_at": None,
+                }
+            )
+            current["provider_requests"]["video"] = {
+                "request_id": self.video.request_id,
+                "status": "pending",
+            }
+            current["status"] = "in_progress"
+            current["phase"] = "video_polling"
+
+        self.library.update_manifest(manifest["job_id"], accepted)
+        actions = self.coordinator.reconcile_startup(api_key="video-secret-key")
+        self.assertEqual(
+            [{"job_id": manifest["job_id"], "action": "resume_video_poll", "request_id": self.video.request_id}],
+            actions,
+        )
+        final = self.coordinator.wait(manifest["job_id"], timeout=10)
+        self.assertEqual("ready", final["status"])
+        self.assertEqual([], self.planner.calls)
+        self.assertEqual([], self.video.submit_calls)
+        self.assertEqual(1, len(self.video.poll_calls))
+
+    def test_foreground_timeout_and_bounded_safe_retries_do_not_abandon_video(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        self.video.poll_outcomes = [
+            ProviderError("unavailable", "poll unavailable"),
+            ProviderError("timeout", "poll timeout"),
+            VideoStatus(
+                request_id=self.video.request_id,
+                status="pending",
+                usage=ProviderUsage(None, False),
+            ),
+            VideoStatus(
+                request_id=self.video.request_id,
+                status="done",
+                usage=ProviderUsage(45, True),
+                video_url="https://vidgen.x.ai/generated/retry.mp4",
+                duration=1,
+            ),
+        ]
+        self.downloader.failures = 2
+        observed_phases: list[str] = []
+
+        def observe_phase() -> None:
+            observed_phases.append(
+                self.library.load_manifest(manifest["job_id"])["phase"]
+            )
+
+        self.video.before_poll = observe_phase
+        started = self._start_animation(manifest, candidate_id)
+        final = self.coordinator.wait(started["job_id"], timeout=10)
+        self.assertEqual("ready", final["status"])
+        self.assertIn("background_retrieval", observed_phases)
+        self.assertEqual(4, len(self.video.poll_calls))
+        self.assertEqual(3, len(self.downloader.calls))
+        request = final["provider_requests"]["video"]
+        self.assertEqual(2, request["poll_failures"])
+        self.assertEqual(2, request["download_failures"])
+
+    def test_cancel_after_acceptance_banks_video_without_local_processing(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        entered = threading.Event()
+        release = threading.Event()
+        self.video.poll_outcomes = [
+            VideoStatus(
+                request_id=self.video.request_id,
+                status="pending",
+                usage=ProviderUsage(None, False),
+            ),
+            VideoStatus(
+                request_id=self.video.request_id,
+                status="done",
+                usage=ProviderUsage(46, True),
+                video_url="https://vidgen.x.ai/generated/cancelled.mp4",
+                duration=1,
+            ),
+        ]
+
+        def block_first_poll() -> None:
+            if not entered.is_set():
+                entered.set()
+                self.assertTrue(release.wait(5))
+
+        self.video.before_poll = block_first_poll
+        started = self._start_animation(manifest, candidate_id)
+        self.assertTrue(entered.wait(5))
+        visible = self.coordinator.cancel(manifest["job_id"])
+        self.assertEqual("cancelled", visible["status"])
+        self.assertEqual("background_retrieval", visible["phase"])
+        release.set()
+        final = self.coordinator.wait(started["job_id"], timeout=10)
+        self.assertEqual("cancelled_saved", final["status"])
+        self.assertEqual([], self.processor.calls)
+        videos = [asset for asset in final["assets"] if asset["kind"] == "source_video"]
+        self.assertEqual(1, len(videos))
+        self.assertEqual("cancelled_saved", videos[0]["status"])
+        self.assertTrue(
+            self.library.resolve_asset(manifest["job_id"], videos[0]["asset_id"]).path.is_file()
+        )
+
+    def test_local_failure_retains_mp4_and_explicit_retry_makes_no_provider_call(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        self.processor.failures = 1
+        started = self._start_animation(manifest, candidate_id)
+        failed = self.coordinator.wait(started["job_id"], timeout=10)
+        self.assertEqual("ready_to_process", failed["status"])
+        videos = [asset for asset in failed["assets"] if asset["kind"] == "source_video"]
+        self.assertEqual(1, len(videos))
+        self.assertTrue(
+            self.library.resolve_asset(manifest["job_id"], videos[0]["asset_id"]).path.is_file()
+        )
+        paid_counts = (
+            len(self.planner.calls),
+            len(self.video.submit_calls),
+            len(self.video.poll_calls),
+        )
+        retried = self.coordinator.retry_local(manifest["job_id"])
+        final = self.coordinator.wait(retried["job_id"], timeout=10)
+        self.assertEqual("ready", final["status"])
+        self.assertEqual(
+            paid_counts,
+            (len(self.planner.calls), len(self.video.submit_calls), len(self.video.poll_calls)),
+        )
+        self.assertEqual(80, len([asset for asset in final["assets"] if asset["kind"] == "frame"]))
+        self.assertEqual(1, len([asset for asset in final["assets"] if asset["kind"] == "preview_poster"]))
+        results = [asset for asset in final["assets"] if asset["kind"] == "mapped_result"]
+        self.assertEqual(1, len(results))
+        mapped = json.loads(
+            self.library.resolve_asset(manifest["job_id"], results[0]["asset_id"]).path.read_text()
+        )
+        self.assertEqual(80, mapped["source_frames"])
+        self.assertEqual(34, mapped["duration_ms"])
+        self.assertEqual(80 * 34, mapped["source_duration_ms"])
+        self.assertFalse(mapped["timing_resampled"])
+
+    def test_startup_adopts_banked_frames_and_mapping_after_final_manifest_interruption(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        started = self._start_animation(manifest, candidate_id)
+        complete = self.coordinator.wait(started["job_id"], timeout=10)
+        attempt_id = complete["animation_attempts"][-1]["attempt_id"]
+        paid_counts = (
+            len(self.planner.calls),
+            len(self.video.submit_calls),
+            len(self.video.poll_calls),
+        )
+
+        def simulate_interruption(current: dict) -> None:
+            attempt = current["animation_attempts"][-1]
+            attempt["status"] = "processing"
+            attempt["phase"] = "local_processing"
+            attempt["frame_asset_ids"] = []
+            attempt["preview_asset_id"] = None
+            attempt["mapped_result_asset_id"] = None
+            attempt["completed_at"] = None
+            current["status"] = "in_progress"
+            current["phase"] = "local_processing"
+            current["progress"] = {"completed": 0, "total": 80}
+
+        self.library.update_manifest(manifest["job_id"], simulate_interruption)
+        actions = self.coordinator.reconcile_startup()
+        self.assertEqual([], actions)
+        recovered = self.library.load_manifest(manifest["job_id"])
+        attempt = recovered["animation_attempts"][-1]
+        self.assertEqual(attempt_id, attempt["attempt_id"])
+        self.assertEqual("ready", recovered["status"])
+        self.assertEqual("ready_for_review", recovered["phase"])
+        self.assertEqual(80, len(attempt["frame_asset_ids"]))
+        self.assertIsNotNone(attempt["preview_asset_id"])
+        self.assertIsNotNone(attempt["mapped_result_asset_id"])
+        self.assertEqual(
+            paid_counts,
+            (len(self.planner.calls), len(self.video.submit_calls), len(self.video.poll_calls)),
+        )
+
+    def test_every_loop_and_device_family_uses_exact_cap_and_mapping_parity(self) -> None:
+        cases = (
+            (TARGET, "smooth", 80),
+            (
+                {
+                    "family": "80",
+                    "product_id": "AM21",
+                    "raster": {"width": 18, "height": 7},
+                    "targets": ["keyframes", "spotlight_frames"],
+                },
+                "none",
+                200,
+            ),
+            (
+                {
+                    "family": "ALICE",
+                    "product_id": "ALICE",
+                    "raster": {"width": 16, "height": 5},
+                    "targets": ["keyframes"],
+                },
+                "ping_pong",
+                186,
+            ),
+        )
+        with patch("am_configurator.writer.write_config") as write_config:
+            for target, loop_mode, frame_cap in cases:
+                with self.subTest(family=target["family"], loop_mode=loop_mode):
+                    self.planner = _VideoPlanner()
+                    self.video = _VideoProvider()
+                    self.downloader = _Downloader()
+                    self.processor = _Processor()
+                    self.coordinator = self._coordinator()
+                    manifest, candidate_id = self._selectable_job(
+                        target=target, loop_mode=loop_mode
+                    )
+                    started = self._start_animation(manifest, candidate_id)
+                    final = self.coordinator.wait(started["job_id"], timeout=20)
+                    call = self.processor.calls[-1]
+                    self.assertEqual(frame_cap, call["frame_count"])
+                    self.assertEqual(loop_mode, call["loop_mode"])
+                    self.assertEqual(target["raster"]["width"], call["width"])
+                    self.assertEqual(target["raster"]["height"], call["height"])
+                    frames = [asset for asset in final["assets"] if asset["kind"] == "frame"]
+                    self.assertEqual(frame_cap, len(frames))
+                    result_asset = next(
+                        asset for asset in final["assets"] if asset["kind"] == "mapped_result"
+                    )
+                    mapped = json.loads(
+                        self.library.resolve_asset(
+                            manifest["job_id"], result_asset["asset_id"]
+                        ).path.read_text()
+                    )
+                    self.assertEqual(frame_cap, mapped["source_frames"])
+                    self.assertEqual(frame_cap, mapped["decoded_frames"])
+                    self.assertEqual(34, mapped["duration_ms"])
+                    self.assertEqual(frame_cap * 34, mapped["source_duration_ms"])
+                    self.assertFalse(mapped["timing_resampled"])
+                    self.assertEqual(set(target["targets"]), set(mapped["tracks"]))
+                    for track in mapped["tracks"].values():
+                        self.assertEqual(frame_cap, track["frame_count"])
+                        self.assertEqual(frame_cap, len(track["frames"]))
+        write_config.assert_not_called()
 
 
 if __name__ == "__main__":
