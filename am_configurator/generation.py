@@ -438,6 +438,7 @@ class GenerationCoordinator:
             current = self._library.load_manifest(job_id)
             if current["status"] != original["status"] or not current["candidates"]:
                 raise GenerationBusyError("the generation job changed before it could start")
+            self._library.preflight_job(job_id)
             manifest, batch_id = self._prepare_batch(job_id, count, "more_like_this")
             self._launch_batch(job_id, batch_id, api_key, token, cancelled)
             return manifest

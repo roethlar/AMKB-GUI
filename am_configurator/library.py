@@ -881,6 +881,33 @@ class GeneratedAssetLibrary:
                 shutil.rmtree(job_dir)
             raise
 
+    def preflight_job(self, job_id: str) -> Path:
+        """Recheck an existing job's owning root before another paid operation."""
+        if os.name == "nt" and (
+            sys.implementation.name != "cpython"
+            or not _windows_private_mode_supported(sys.version_info)
+        ):
+            raise LibraryRootError(
+                "Private Windows library folders require CPython 3.11.10+, "
+                "3.12.4+, or 3.13+."
+            )
+        job_dir = self._find_job_dir(job_id)
+        root = job_dir.parent.parent
+        try:
+            concept_directory = self._owned_child_directory(job_dir, "concepts")
+            _run_write_probe(job_dir)
+            _run_write_probe(concept_directory)
+            free = self._disk_usage(root).free
+        except (OSError, PermissionError, AttributeError, ManifestError) as exc:
+            raise LibraryRootError(
+                "The job's library folder is not privately writable."
+            ) from exc
+        if not isinstance(free, int) or free < self._minimum_free_bytes:
+            raise LibraryRootError(
+                "The job's library folder does not have enough free space."
+            )
+        return job_dir
+
     def _find_job_dir(self, job_id: str) -> Path:
         canonical_id = _canonical_uuid(job_id, "job ID")
         for root in self._roots():

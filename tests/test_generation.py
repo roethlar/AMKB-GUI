@@ -6,6 +6,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from PIL import Image
@@ -370,6 +371,43 @@ class DurableConceptGenerationTests(unittest.TestCase):
         self.assertEqual(10 + 20 + 30 + 40 + 50, sum(final["costs"]["actual_by_operation"].values()))
         self.assertFalse(final["costs"]["actual_incomplete"])
         self.assertEqual(5, len(final["costs"]["actual_by_operation"]))
+
+    def test_more_like_this_rechecks_the_owning_historical_root_before_spend(self) -> None:
+        initial = self._start(candidate_count=1)
+        initial = self._wait(initial["job_id"])
+        self.assertEqual(1, len(self.planner.calls))
+
+        new_root = Path(self._tmp.name) / "new-current-library"
+
+        def disk_usage(path: str | Path):
+            free = 0 if Path(path).resolve() == self.root.resolve() else 10_000
+            return SimpleNamespace(total=10_000, used=10_000 - free, free=free)
+
+        relocated_library = GeneratedAssetLibrary(
+            new_root,
+            historical_roots=[self.root],
+            minimum_free_bytes=100,
+            disk_usage=disk_usage,
+        )
+        relocated = generation.GenerationCoordinator(
+            relocated_library,
+            planner_factory=lambda _key, _model: self.planner,
+            image_provider_factory=lambda _key, _model: self.images,
+            operation_gate=generation.OperationGate(),
+        )
+        try:
+            with self.assertRaises(LibraryRootError):
+                relocated.more_like_this(
+                    initial["job_id"],
+                    candidate_count=1,
+                    api_key="super-secret-key",
+                    privacy_acknowledged=True,
+                )
+        finally:
+            if relocated.active_job_id == initial["job_id"]:
+                relocated.wait(initial["job_id"], timeout=5)
+        self.assertEqual(1, len(self.planner.calls))
+        self.assertEqual(1, len(relocated_library.load_manifest(initial["job_id"])["concept_batches"]))
 
     def test_missing_usage_marks_exact_total_incomplete_and_estimates_stay_integer(self) -> None:
         self.planner.usages = [ProviderUsage(101, True)]
