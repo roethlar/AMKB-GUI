@@ -1,12 +1,17 @@
-"""Hardened download boundary for ephemeral xAI-generated videos."""
+"""Hardened local media boundary for provider video downloads and animation."""
 
 from __future__ import annotations
 
 import errno
 import hashlib
+import math
 import os
+import shutil
 import socket
 import ssl
+import subprocess
+import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -48,6 +53,18 @@ class DownloadedVideo:
     path: Path
     size_bytes: int
     sha256: str
+
+
+@dataclass(frozen=True)
+class ProcessedAnimation:
+    """An exact, validated compact-raster frame sequence."""
+
+    directory: Path
+    frame_paths: tuple[Path, ...]
+    frame_count: int
+    width: int
+    height: int
+    loop_mode: str
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -465,3 +482,551 @@ def download_video(
                 backup_path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def content_frame_count(frame_count: int, loop_mode: str) -> int:
+    """Return the full-source frames FFmpeg must produce for a loop mode."""
+    if isinstance(frame_count, bool) or not isinstance(frame_count, int) or frame_count <= 0:
+        raise MediaError("config", "animation frame count is invalid")
+    if loop_mode == "smooth":
+        return frame_count - math.ceil(frame_count / 8)
+    if loop_mode == "none":
+        return frame_count
+    if loop_mode == "ping_pong":
+        if frame_count % 2:
+            raise MediaError("config", "ping-pong animation requires an even frame count")
+        return frame_count // 2 + 1
+    raise MediaError("config", "animation loop mode is invalid")
+
+
+def _validated_dimensions(width: object, height: object) -> tuple[int, int]:
+    values = (width, height)
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 1 <= value <= 4096
+        for value in values
+    ):
+        raise MediaError("config", "animation dimensions are invalid")
+    return width, height
+
+
+def _absolute_regular_file(value: object, label: str, *, executable: bool = False) -> Path:
+    try:
+        path = Path(os.fspath(value))
+    except (TypeError, ValueError):
+        raise MediaError("config", f"{label} path is invalid") from None
+    if not path.is_absolute() or path.is_symlink():
+        raise MediaError("config", f"{label} must be an absolute regular file")
+    try:
+        path = path.resolve(strict=True)
+    except OSError:
+        raise MediaError("config", f"{label} is unavailable") from None
+    if not path.is_file():
+        raise MediaError("config", f"{label} must be an absolute regular file")
+    if executable and not os.access(path, os.X_OK):
+        raise MediaError("config", f"{label} is not executable")
+    return path
+
+
+def _absolute_output_pattern(value: object) -> Path:
+    try:
+        pattern = Path(os.fspath(value))
+    except (TypeError, ValueError):
+        raise MediaError("config", "animation output pattern is invalid") from None
+    if (
+        not pattern.is_absolute()
+        or pattern.name.count("%04d") != 1
+        or pattern.name.replace("%04d", "").find("%") != -1
+        or pattern.suffix.casefold() != ".png"
+        or not pattern.parent.is_dir()
+        or pattern.parent.is_symlink()
+    ):
+        raise MediaError("config", "animation output pattern is invalid")
+    return pattern
+
+
+def build_ffmpeg_frame_command(
+    ffmpeg_path: object,
+    source_path: object,
+    output_pattern: object,
+    *,
+    width: object,
+    height: object,
+    content_frame_count: object,
+) -> tuple[str, ...]:
+    """Build the fixed local-only argv used to decode compact content frames."""
+    binary = _absolute_regular_file(ffmpeg_path, "FFmpeg runtime", executable=True)
+    source = _absolute_regular_file(source_path, "source video")
+    pattern = _absolute_output_pattern(output_pattern)
+    width, height = _validated_dimensions(width, height)
+    if (
+        isinstance(content_frame_count, bool)
+        or not isinstance(content_frame_count, int)
+        or not 1 <= content_frame_count <= 200
+    ):
+        raise MediaError("config", "animation content frame count is invalid")
+    filter_graph = ",".join(
+        (
+            "trim=duration=1",
+            "setpts=PTS-STARTPTS",
+            (
+                f"minterpolate=fps={content_frame_count}:mi_mode=mci:"
+                "mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+            ),
+            (
+                f"scale=w={width}:h={height}:"
+                "force_original_aspect_ratio=increase:flags=lanczos"
+            ),
+            f"crop={width}:{height}:(iw-{width})/2:(ih-{height})/2",
+            "format=rgb24",
+            f"fps=fps={content_frame_count}:round=up:eof_action=pass",
+        )
+    )
+    return (
+        str(binary),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-y",
+        "-protocol_whitelist",
+        "file",
+        "-i",
+        str(source),
+        "-an",
+        "-sn",
+        "-dn",
+        "-vf",
+        filter_graph,
+        "-frames:v",
+        str(content_frame_count),
+        "-start_number",
+        "1",
+        "-threads",
+        "1",
+        "-c:v",
+        "png",
+        "-f",
+        "image2",
+        str(pattern),
+    )
+
+
+def subprocess_creation_flags(os_name: str | None = None) -> int:
+    """Return the platform flag that keeps FFmpeg from opening a console."""
+    if os_name is None:
+        os_name = os.name
+    if os_name == "nt":
+        return int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return 0
+
+
+def _bounded_ffmpeg_diagnostics(stderr: object) -> str:
+    if isinstance(stderr, bytes):
+        value = stderr[-8192:].decode("utf-8", errors="replace")
+    elif isinstance(stderr, str):
+        value = stderr[-8192:]
+    else:
+        return ""
+    return "".join(character if character >= " " or character in "\n\t" else "?" for character in value)
+
+
+def _stop_process(process) -> None:
+    try:
+        process.terminate()
+    except (OSError, ProcessLookupError):
+        return
+    try:
+        process.wait(timeout=1.0)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    except (OSError, ValueError):
+        return
+    try:
+        process.kill()
+    except (OSError, ProcessLookupError):
+        return
+    try:
+        process.wait(timeout=1.0)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        pass
+
+
+def _start_diagnostic_reader(process) -> tuple[bytearray, threading.Thread | None]:
+    stream = getattr(process, "stderr", None)
+    buffer = bytearray()
+    if stream is None or not callable(getattr(stream, "read", None)):
+        return buffer, None
+
+    def drain() -> None:
+        try:
+            while True:
+                chunk = stream.read(4096)
+                if not isinstance(chunk, bytes) or not chunk:
+                    return
+                buffer.extend(chunk)
+                if len(buffer) > 8192:
+                    del buffer[:-8192]
+        except (OSError, ValueError):
+            return
+
+    thread = threading.Thread(target=drain, name="ffmpeg-diagnostics", daemon=True)
+    thread.start()
+    return buffer, thread
+
+
+def _finish_diagnostic_reader(process, thread: threading.Thread | None) -> None:
+    if thread is None:
+        return
+    thread.join(timeout=1.0)
+    stream = getattr(process, "stderr", None)
+    if thread.is_alive():
+        try:
+            stream.close()
+        except (AttributeError, OSError, ValueError):
+            pass
+        thread.join(timeout=0.1)
+    else:
+        try:
+            stream.close()
+        except (AttributeError, OSError, ValueError):
+            pass
+
+
+def _check_processing_cancel(cancelled) -> None:
+    if cancelled is not None and cancelled():
+        raise MediaCancelled("animation processing cancelled")
+
+
+def run_ffmpeg_command(
+    command: object,
+    *,
+    deadline: float,
+    cancelled=None,
+    popen_factory=None,
+) -> None:
+    """Run one fixed FFmpeg argv with bounded waits and graceful cancellation."""
+    if (
+        not isinstance(command, (tuple, list))
+        or not command
+        or any(not isinstance(value, str) or not value for value in command)
+        or not Path(command[0]).is_absolute()
+        or any(
+            "http://" in value.casefold() or "https://" in value.casefold()
+            for value in command
+        )
+    ):
+        raise MediaError("config", "FFmpeg command is invalid")
+    _check_processing_cancel(cancelled)
+    if deadline - time.monotonic() <= 0:
+        raise MediaError("timeout", "animation processing deadline expired")
+    if popen_factory is None:
+        popen_factory = subprocess.Popen
+    try:
+        process = popen_factory(
+            tuple(command),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            creationflags=subprocess_creation_flags(),
+            shell=False,
+        )
+    except (OSError, ValueError):
+        raise MediaError("runtime", "FFmpeg could not be started") from None
+
+    diagnostics, diagnostic_thread = _start_diagnostic_reader(process)
+    try:
+        while True:
+            _check_processing_cancel(cancelled)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise MediaError("timeout", "animation processing deadline expired")
+            try:
+                process.wait(timeout=min(remaining, 0.1))
+                break
+            except subprocess.TimeoutExpired:
+                continue
+            except (OSError, ValueError):
+                raise MediaError("processing", "FFmpeg process communication failed") from None
+    except (MediaCancelled, MediaError):
+        _stop_process(process)
+        _finish_diagnostic_reader(process, diagnostic_thread)
+        raise
+    _finish_diagnostic_reader(process, diagnostic_thread)
+    if process.returncode != 0:
+        diagnostic_text = _bounded_ffmpeg_diagnostics(bytes(diagnostics))
+        message = "FFmpeg could not process the video"
+        if diagnostic_text:
+            message += f": {diagnostic_text}"
+        raise MediaError("processing", message)
+
+
+def _validate_png_sequence(
+    directory: Path,
+    prefix: str,
+    count: int,
+    width: int,
+    height: int,
+) -> tuple[Path, ...]:
+    from PIL import Image, UnidentifiedImageError
+
+    expected = tuple(directory / f"{prefix}-{index:04d}.png" for index in range(1, count + 1))
+    try:
+        actual = tuple(sorted(directory.iterdir()))
+    except OSError:
+        raise MediaError("bad_output", "animation frame output could not be inspected") from None
+    if actual != expected or any(path.is_symlink() for path in expected):
+        raise MediaError("bad_output", "animation frame names or count were invalid")
+    for path in expected:
+        try:
+            with Image.open(path) as image:
+                if (
+                    image.format != "PNG"
+                    or image.mode != "RGB"
+                    or image.size != (width, height)
+                ):
+                    raise MediaError("bad_output", "animation frame format or dimensions were invalid")
+                image.verify()
+            with Image.open(path) as image:
+                image.load()
+        except MediaError:
+            raise
+        except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
+            raise MediaError("bad_output", "animation frame image data was invalid") from None
+    return expected
+
+
+def _write_frame_copy(source: Path, destination: Path) -> None:
+    try:
+        with source.open("rb") as input_stream, destination.open("xb") as output_stream:
+            shutil.copyfileobj(input_stream, output_stream)
+            output_stream.flush()
+            os.fsync(output_stream.fileno())
+        os.chmod(destination, 0o600)
+    except OSError:
+        raise MediaError("io", "animation frame could not be staged") from None
+
+
+def _write_smooth_blend(source_last: Path, source_first: Path, destination: Path, alpha: float) -> None:
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(source_last) as last_image, Image.open(source_first) as first_image:
+            last_rgb = last_image.convert("RGB")
+            first_rgb = first_image.convert("RGB")
+            blended = Image.blend(last_rgb, first_rgb, alpha)
+            with destination.open("xb") as output_stream:
+                blended.save(output_stream, format="PNG")
+                output_stream.flush()
+                os.fsync(output_stream.fileno())
+        os.chmod(destination, 0o600)
+    except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
+        raise MediaError("io", "animation loop blend could not be staged") from None
+
+
+def _assemble_loop_frames(
+    content_paths: tuple[Path, ...],
+    destination: Path,
+    frame_count: int,
+    loop_mode: str,
+) -> None:
+    if loop_mode == "smooth":
+        for index, source in enumerate(content_paths, 1):
+            _write_frame_copy(source, destination / f"frame-{index:04d}.png")
+        blend_count = frame_count - len(content_paths)
+        for offset in range(1, blend_count + 1):
+            _write_smooth_blend(
+                content_paths[-1],
+                content_paths[0],
+                destination / f"frame-{len(content_paths) + offset:04d}.png",
+                offset / (blend_count + 1),
+            )
+        return
+    if loop_mode == "none":
+        order = range(len(content_paths))
+    else:
+        order = tuple(range(len(content_paths))) + tuple(
+            range(len(content_paths) - 2, 0, -1)
+        )
+    for output_index, content_index in enumerate(order, 1):
+        _write_frame_copy(
+            content_paths[content_index],
+            destination / f"frame-{output_index:04d}.png",
+        )
+
+
+def _validate_processing_paths(
+    source_path: object,
+    destination_directory: object,
+    work_directory: object,
+) -> tuple[Path, Path, Path]:
+    source = _absolute_regular_file(source_path, "source video")
+    try:
+        destination = Path(os.fspath(destination_directory))
+        work = Path(os.fspath(work_directory))
+    except (TypeError, ValueError):
+        raise MediaError("config", "animation processing path is invalid") from None
+    if (
+        not destination.is_absolute()
+        or not destination.name
+        or not destination.parent.is_dir()
+        or destination.parent.is_symlink()
+        or destination.is_symlink()
+        or (destination.exists() and not destination.is_dir())
+        or not work.is_absolute()
+        or not work.is_dir()
+        or work.is_symlink()
+    ):
+        raise MediaError("config", "animation processing path is invalid")
+    try:
+        if destination.parent.stat().st_dev != work.stat().st_dev:
+            raise MediaError("config", "animation work directory must share the destination filesystem")
+    except OSError:
+        raise MediaError("config", "animation processing path is unavailable") from None
+    return source, destination, work
+
+
+def _publish_frame_directory(staged: Path, destination: Path) -> None:
+    backup = destination.with_name(f".{destination.name}.previous")
+    if backup.exists() or backup.is_symlink():
+        raise MediaError("io", "animation publication backup is unavailable")
+    backup_created = False
+    published = False
+    try:
+        if destination.exists():
+            os.replace(destination, backup)
+            backup_created = True
+        os.replace(staged, destination)
+        published = True
+        _fsync_directory(destination.parent)
+    except (OSError, MediaError):
+        if published:
+            try:
+                os.replace(destination, staged)
+            except OSError:
+                pass
+        if backup_created:
+            try:
+                os.replace(backup, destination)
+                backup_created = False
+                _fsync_directory(destination.parent)
+            except OSError:
+                raise MediaError(
+                    "io", "animation publication rollback failed; previous frames were preserved"
+                ) from None
+        raise MediaError("io", "animation frames could not be published durably") from None
+    if backup_created:
+        try:
+            shutil.rmtree(backup)
+            _fsync_directory(destination.parent)
+        except OSError:
+            pass
+
+
+def _reconcile_frame_publication(destination: Path) -> None:
+    """Restore an interrupted prior publication or remove its stale backup."""
+    backup = destination.with_name(f".{destination.name}.previous")
+    if not backup.exists() and not backup.is_symlink():
+        return
+    if backup.is_symlink() or not backup.is_dir():
+        raise MediaError("io", "animation publication backup is invalid")
+    try:
+        if destination.exists():
+            shutil.rmtree(backup)
+        else:
+            os.replace(backup, destination)
+        _fsync_directory(destination.parent)
+    except OSError:
+        raise MediaError("io", "animation publication backup could not be reconciled") from None
+
+
+def process_video_frames(
+    source_path: object,
+    destination_directory: object,
+    work_directory: object,
+    *,
+    ffmpeg_path: object,
+    width: object,
+    height: object,
+    frame_count: object,
+    loop_mode: str,
+    deadline: float,
+    cancelled=None,
+    runner=None,
+) -> ProcessedAnimation:
+    """Convert one banked local MP4 into an exact atomic firmware-cap sequence."""
+    from .llm import MODEL_FRAME_CAPS
+
+    source, destination, work = _validate_processing_paths(
+        source_path, destination_directory, work_directory
+    )
+    width, height = _validated_dimensions(width, height)
+    if (
+        isinstance(frame_count, bool)
+        or not isinstance(frame_count, int)
+        or frame_count not in frozenset(MODEL_FRAME_CAPS.values())
+    ):
+        raise MediaError("config", "animation frame count is not a device maximum")
+    content_count = content_frame_count(frame_count, loop_mode)
+    _check_processing_cancel(cancelled)
+    if deadline - time.monotonic() <= 0:
+        raise MediaError("timeout", "animation processing deadline expired")
+    binary = _absolute_regular_file(ffmpeg_path, "FFmpeg runtime", executable=True)
+    _reconcile_frame_publication(destination)
+    if runner is None:
+        runner = run_ffmpeg_command
+
+    stage_root: Path | None = None
+    try:
+        stage_root = Path(tempfile.mkdtemp(prefix="animation-", dir=work))
+        os.chmod(stage_root, 0o700)
+        content_directory = stage_root / "content"
+        final_directory = stage_root / "final"
+        content_directory.mkdir(mode=0o700)
+        final_directory.mkdir(mode=0o700)
+    except OSError:
+        if stage_root is not None:
+            try:
+                shutil.rmtree(stage_root)
+            except OSError:
+                pass
+        raise MediaError("io", "animation work directory could not be prepared") from None
+
+    try:
+        command = build_ffmpeg_frame_command(
+            binary,
+            source,
+            content_directory / "content-%04d.png",
+            width=width,
+            height=height,
+            content_frame_count=content_count,
+        )
+        runner(command, deadline=deadline, cancelled=cancelled)
+        _check_processing_cancel(cancelled)
+        content_paths = _validate_png_sequence(
+            content_directory, "content", content_count, width, height
+        )
+        _assemble_loop_frames(
+            content_paths, final_directory, frame_count, loop_mode
+        )
+        final_paths = _validate_png_sequence(
+            final_directory, "frame", frame_count, width, height
+        )
+        _fsync_directory(final_directory)
+        _publish_frame_directory(final_directory, destination)
+        published_paths = tuple(destination / path.name for path in final_paths)
+        return ProcessedAnimation(
+            directory=destination,
+            frame_paths=published_paths,
+            frame_count=frame_count,
+            width=width,
+            height=height,
+            loop_mode=loop_mode,
+        )
+    finally:
+        try:
+            shutil.rmtree(stage_root)
+        except OSError:
+            pass

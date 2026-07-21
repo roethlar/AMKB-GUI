@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import socket
 import stat
+import subprocess
 import tempfile
 import time
 import traceback
@@ -504,6 +506,345 @@ class VideoDownloaderTests(unittest.TestCase):
             self.assertTrue(calls)
             if os.name != "nt":
                 self.assertEqual(stat.S_IMODE(destination.stat().st_mode), 0o600)
+
+
+class _FrameRunner:
+    def __init__(
+        self,
+        *,
+        extra_output: bool = False,
+        wrong_dimensions: bool = False,
+        wrong_mode: bool = False,
+    ) -> None:
+        self.extra_output = extra_output
+        self.wrong_dimensions = wrong_dimensions
+        self.wrong_mode = wrong_mode
+        self.calls: list[tuple[str, ...]] = []
+
+    def __call__(self, command, *, deadline: float, cancelled=None) -> None:
+        from PIL import Image
+
+        del deadline, cancelled
+        command = tuple(command)
+        self.calls.append(command)
+        count = int(command[command.index("-frames:v") + 1])
+        filter_graph = command[command.index("-vf") + 1]
+        crop = next(
+            part for part in filter_graph.split(",") if part.startswith("crop=")
+        )
+        width, height = (int(value) for value in crop[5:].split(":", 2)[:2])
+        if self.wrong_dimensions:
+            width += 1
+        pattern = Path(command[-1])
+        for index in range(1, count + 1):
+            color = (index % 256, (index * 3) % 256, (index * 7) % 256)
+            mode = "RGBA" if self.wrong_mode else "RGB"
+            fill = (*color, 255) if self.wrong_mode else color
+            Image.new(mode, (width, height), fill).save(
+                Path(str(pattern).replace("%04d", f"{index:04d}")),
+                format="PNG",
+            )
+        if self.extra_output:
+            (pattern.parent / "unexpected.txt").write_text("not a frame")
+
+
+class _BlockingProcess:
+    def __init__(self) -> None:
+        self.returncode: int | None = None
+        self.terminated = False
+        self.killed = False
+        self.wait_calls = 0
+
+    def wait(self, timeout=None):
+        self.wait_calls += 1
+        if self.killed:
+            self.returncode = -9
+            return self.returncode
+        raise subprocess.TimeoutExpired(["ffmpeg"], timeout)
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def kill(self) -> None:
+        self.killed = True
+
+
+class _CompletedErrorProcess:
+    def __init__(self, diagnostics: bytes) -> None:
+        self.returncode: int | None = None
+        self.stderr = io.BytesIO(diagnostics)
+
+    def wait(self, timeout=None):
+        self.returncode = 1
+        return self.returncode
+
+
+class AnimationProcessorTests(unittest.TestCase):
+    def _paths(self, root: str) -> tuple[Path, Path, Path, Path]:
+        base = Path(root)
+        binary = base / "runtime" / "ffmpeg"
+        binary.parent.mkdir()
+        binary.write_bytes(b"test runtime")
+        binary.chmod(0o700)
+        source = base / "video" / "source.mp4"
+        source.parent.mkdir()
+        source.write_bytes(_mp4_bytes())
+        work = base / ".work"
+        work.mkdir()
+        destination = base / "frames"
+        return binary, source, work, destination
+
+    def test_loop_formulas_reserve_the_exact_content_frame_counts(self) -> None:
+        expected = {
+            (80, "smooth"): 70,
+            (200, "smooth"): 175,
+            (186, "smooth"): 162,
+            (80, "none"): 80,
+            (200, "none"): 200,
+            (186, "none"): 186,
+            (80, "ping_pong"): 41,
+            (200, "ping_pong"): 101,
+            (186, "ping_pong"): 94,
+        }
+        for arguments, count in expected.items():
+            with self.subTest(arguments=arguments):
+                self.assertEqual(media.content_frame_count(*arguments), count)
+
+    def test_command_is_local_argument_array_and_interpolates_before_cover_crop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            binary, source, work, _destination = self._paths(tmp)
+            pattern = work / "frame-%04d.png"
+            command = media.build_ffmpeg_frame_command(
+                binary,
+                source,
+                pattern,
+                width=160,
+                height=36,
+                content_frame_count=70,
+            )
+        self.assertIsInstance(command, tuple)
+        self.assertEqual(command[0], str(binary.resolve()))
+        self.assertIn("-nostdin", command)
+        self.assertEqual(command[command.index("-protocol_whitelist") + 1], "file")
+        self.assertEqual(command[command.index("-frames:v") + 1], "70")
+        self.assertFalse(any("http://" in value or "https://" in value for value in command))
+        filter_graph = command[command.index("-vf") + 1]
+        self.assertLess(filter_graph.index("minterpolate="), filter_graph.index("scale="))
+        self.assertLess(filter_graph.index("scale="), filter_graph.index("crop=160:36"))
+        self.assertIn(
+            "scale=w=160:h=36:force_original_aspect_ratio=increase",
+            filter_graph,
+        )
+
+    def test_all_device_caps_publish_exact_validated_frames(self) -> None:
+        cases = (
+            (80, "smooth", 160, 36),
+            (200, "none", 128, 32),
+            (186, "ping_pong", 144, 36),
+        )
+        for frame_count, loop_mode, width, height in cases:
+            with self.subTest(frame_count=frame_count, loop_mode=loop_mode), tempfile.TemporaryDirectory() as tmp:
+                from PIL import Image
+
+                binary, source, work, destination = self._paths(tmp)
+                runner = _FrameRunner()
+                result = media.process_video_frames(
+                    source,
+                    destination,
+                    work,
+                    ffmpeg_path=binary,
+                    width=width,
+                    height=height,
+                    frame_count=frame_count,
+                    loop_mode=loop_mode,
+                    deadline=time.monotonic() + 30,
+                    runner=runner,
+                )
+                names = [path.name for path in result.frame_paths]
+                self.assertEqual(result.frame_count, frame_count)
+                self.assertEqual(result.frame_paths[0], destination / "frame-0001.png")
+                self.assertEqual(names, [f"frame-{index:04d}.png" for index in range(1, frame_count + 1)])
+                self.assertEqual(len(list(destination.iterdir())), frame_count)
+                self.assertEqual(len(runner.calls), 1)
+                self.assertEqual(
+                    int(runner.calls[0][runner.calls[0].index("-frames:v") + 1]),
+                    media.content_frame_count(frame_count, loop_mode),
+                )
+                with Image.open(result.frame_paths[-1]) as image:
+                    self.assertEqual(image.format, "PNG")
+                    self.assertEqual(image.size, (width, height))
+                self.assertEqual(list(work.iterdir()), [])
+                self.assertEqual(source.read_bytes(), _mp4_bytes())
+
+    def test_invalid_ffmpeg_output_preserves_existing_frames_and_cleans_work(self) -> None:
+        for runner in (
+            _FrameRunner(extra_output=True),
+            _FrameRunner(wrong_dimensions=True),
+            _FrameRunner(wrong_mode=True),
+        ):
+            with self.subTest(runner=runner.__dict__), tempfile.TemporaryDirectory() as tmp:
+                binary, source, work, destination = self._paths(tmp)
+                destination.mkdir()
+                marker = destination / "existing.txt"
+                marker.write_text("preserved")
+                with self.assertRaises(media.MediaError) as raised:
+                    media.process_video_frames(
+                        source,
+                        destination,
+                        work,
+                        ffmpeg_path=binary,
+                        width=20,
+                        height=5,
+                        frame_count=80,
+                        loop_mode="none",
+                        deadline=time.monotonic() + 30,
+                        runner=runner,
+                    )
+                self.assertEqual(raised.exception.code, "bad_output")
+                self.assertEqual(marker.read_text(), "preserved")
+                self.assertEqual(list(work.iterdir()), [])
+
+    def test_interrupted_publication_backup_is_restored_before_processing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            binary, source, work, destination = self._paths(tmp)
+            backup = destination.with_name(".frames.previous")
+            backup.mkdir()
+            marker = backup / "existing.txt"
+            marker.write_text("preserved")
+            with self.assertRaises(media.MediaError):
+                media.process_video_frames(
+                    source,
+                    destination,
+                    work,
+                    ffmpeg_path=binary,
+                    width=20,
+                    height=5,
+                    frame_count=80,
+                    loop_mode="none",
+                    deadline=time.monotonic() + 30,
+                    runner=_FrameRunner(extra_output=True),
+                )
+            self.assertEqual((destination / "existing.txt").read_text(), "preserved")
+            self.assertFalse(backup.exists())
+
+    def test_cancellation_terminates_then_kills_without_shell(self) -> None:
+        process = _BlockingProcess()
+        calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
+        checks = iter((False, True))
+
+        def factory(command, **kwargs):
+            calls.append((tuple(command), kwargs))
+            return process
+
+        with self.assertRaises(media.MediaCancelled):
+            media.run_ffmpeg_command(
+                ("/absolute/ffmpeg", "-nostdin", "-version"),
+                deadline=time.monotonic() + 30,
+                cancelled=lambda: next(checks),
+                popen_factory=factory,
+            )
+        self.assertTrue(process.terminated)
+        self.assertTrue(process.killed)
+        self.assertEqual(len(calls), 1)
+        self.assertIs(calls[0][1]["shell"], False)
+        self.assertEqual(calls[0][1]["stdin"], subprocess.DEVNULL)
+        self.assertEqual(calls[0][1]["stdout"], subprocess.DEVNULL)
+        self.assertEqual(calls[0][1]["stderr"], subprocess.PIPE)
+
+    def test_runner_rejects_provider_urls_before_starting_process(self) -> None:
+        def must_not_start(command, **kwargs):
+            raise AssertionError("URL-bearing FFmpeg command reached the process boundary")
+
+        with self.assertRaises(media.MediaError) as raised:
+            media.run_ffmpeg_command(
+                (
+                    "/absolute/ffmpeg",
+                    "-nostdin",
+                    "-i",
+                    "https://vidgen.x.ai/signed.mp4?secret=value",
+                ),
+                deadline=time.monotonic() + 30,
+                popen_factory=must_not_start,
+            )
+        self.assertEqual(raised.exception.code, "config")
+        self.assertNotIn("secret", str(raised.exception))
+
+    def test_failed_process_retains_only_bounded_diagnostics(self) -> None:
+        process = _CompletedErrorProcess(b"HEAD-MARKER" + b"x" * 20_000 + b"TAIL-MARKER")
+        with self.assertRaises(media.MediaError) as raised:
+            media.run_ffmpeg_command(
+                ("/absolute/ffmpeg", "-nostdin", "-version"),
+                deadline=time.monotonic() + 30,
+                popen_factory=lambda command, **kwargs: process,
+            )
+        self.assertEqual(raised.exception.code, "processing")
+        self.assertIn("TAIL-MARKER", str(raised.exception))
+        self.assertNotIn("HEAD-MARKER", str(raised.exception))
+        self.assertLessEqual(len(str(raised.exception)), 8300)
+
+    def test_timeout_stops_process_and_windows_uses_no_console_flag(self) -> None:
+        unstarted = _BlockingProcess()
+        with self.assertRaises(media.MediaError) as raised:
+            media.run_ffmpeg_command(
+                ("/absolute/ffmpeg", "-nostdin", "-version"),
+                deadline=time.monotonic() - 1,
+                popen_factory=lambda command, **kwargs: unstarted,
+            )
+        self.assertEqual(raised.exception.code, "timeout")
+        self.assertFalse(unstarted.terminated, "expired work must not be spawned")
+
+        running = _BlockingProcess()
+        with patch.object(media.time, "monotonic", side_effect=(100.0, 101.0)):
+            with self.assertRaises(media.MediaError) as raised:
+                media.run_ffmpeg_command(
+                    ("/absolute/ffmpeg", "-nostdin", "-version"),
+                    deadline=100.5,
+                    popen_factory=lambda command, **kwargs: running,
+                )
+        self.assertEqual(raised.exception.code, "timeout")
+        self.assertTrue(running.terminated)
+        self.assertTrue(running.killed)
+        with patch.object(media.subprocess, "CREATE_NO_WINDOW", 0x08000000, create=True):
+            self.assertEqual(media.subprocess_creation_flags("nt"), 0x08000000)
+        self.assertEqual(media.subprocess_creation_flags("posix"), 0)
+
+    @unittest.skipUnless(
+        os.environ.get("AM_CONFIGURATOR_TEST_FFMPEG"),
+        "set AM_CONFIGURATOR_TEST_FFMPEG to exercise the prepared native runtime",
+    )
+    def test_prepared_current_host_runtime_processes_real_mp4(self) -> None:
+        from PIL import Image
+
+        binary = Path(os.environ["AM_CONFIGURATOR_TEST_FFMPEG"])
+        fixture = Path(__file__).parent / "fixtures" / "tiny-motion.mp4"
+        cases = (
+            (80, "smooth", 15, 6),
+            (200, "none", 18, 7),
+            (186, "ping_pong", 16, 5),
+        )
+        for frame_count, loop_mode, width, height in cases:
+            with self.subTest(frame_count=frame_count, loop_mode=loop_mode), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                work = base / ".work"
+                work.mkdir()
+                result = media.process_video_frames(
+                    fixture.resolve(),
+                    base / "frames",
+                    work,
+                    ffmpeg_path=binary.resolve(),
+                    width=width,
+                    height=height,
+                    frame_count=frame_count,
+                    loop_mode=loop_mode,
+                    deadline=time.monotonic() + 60,
+                )
+                self.assertEqual(len(result.frame_paths), frame_count)
+                self.assertEqual(list(work.iterdir()), [])
+                for frame in result.frame_paths:
+                    with Image.open(frame) as image:
+                        self.assertEqual(image.format, "PNG")
+                        self.assertEqual(image.mode, "RGB")
+                        self.assertEqual(image.size, (width, height))
 
 
 if __name__ == "__main__":

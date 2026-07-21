@@ -1,3 +1,9 @@
 AM Configurator incorporates protocol implementation work adapted from
 cyberboard-cli by GeneralD, used under the MIT License. The applicable license
 text is included in LICENSE.
+
+Native AM Configurator distributions include a constrained, network-disabled build
+of FFmpeg 8.1.2, Copyright (c) the FFmpeg developers, under the GNU Lesser
+General Public License version 2.1 or later. The license text, pinned official
+source, detached-signature information, reproducible build recipe, and source
+offer are included under packaging/ffmpeg/.
