@@ -2152,6 +2152,26 @@ class GrokVideoProviderTests(unittest.TestCase):
                 llm.XAI_VIDEO_STATUS_URL.format(request_id="req_123"),
             )
 
+    def test_poll_rejects_malformed_or_mismatched_echoed_request_ids(self) -> None:
+        signed_url = "https://cdn.example/video.mp4?signature=temporary-secret"
+        for echoed_request_id in ("different_request", "has/slash", None):
+            response = {
+                "request_id": echoed_request_id,
+                "status": "done",
+                "video": {"url": signed_url, "duration": 1},
+                "usage": {"cost_in_usd_ticks": 29},
+            }
+            provider = llm.XaiVideoProvider(
+                _FAKE_KEY,
+                submit_transport=_FakeTransport(response={}),
+                poll_transport=_FakeGetTransport(response=response),
+            )
+            with self.subTest(echoed_request_id=echoed_request_id):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    provider.poll("req_123", self._future_deadline())
+                self.assertEqual(ctx.exception.code, "bad_response")
+                self.assertEqual(ctx.exception.usage.cost_in_usd_ticks, 29)
+
     def test_done_requires_one_second_video_url_and_usage_is_exact_or_missing(self) -> None:
         signed_url = "https://cdn.example/video.mp4?signature=temporary-secret"
         done = {

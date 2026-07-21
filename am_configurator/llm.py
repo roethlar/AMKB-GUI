@@ -1432,6 +1432,16 @@ class XaiVideoProvider:
             self._poll_transport, url, self._api_key, deadline
         )
         usage = _provider_usage(response)
+        if "request_id" in response:
+            echoed_request_id = _video_request_id(
+                response["request_id"], "bad_response", usage
+            )
+            if echoed_request_id != request_id:
+                raise ProviderError(
+                    "bad_response",
+                    "video status response did not match the requested ID",
+                    usage=usage,
+                )
         status = response.get("status")
         if status not in self._STATUSES:
             raise ProviderError(
