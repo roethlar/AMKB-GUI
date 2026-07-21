@@ -559,7 +559,13 @@ class DesktopServerTests(unittest.TestCase):
             )
 
     def test_loopback_server_can_be_owned_by_a_native_window(self) -> None:
-        server, url = create_server()
+        server, url = create_server(
+            lighting_library=object(),
+            lighting_coordinator=SimpleNamespace(
+                active_job_id=None,
+                reconcile_startup=lambda **_kwargs: [],
+            ),
+        )
         self.assertEqual("127.0.0.1", server.server_address[0])
         token = parse_qs(urlparse(url).query)["token"][0]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -3408,8 +3414,13 @@ class _LightingEndpointCoordinator:
     def __init__(self, library: GeneratedAssetLibrary) -> None:
         self.library = library
         self.calls: list[tuple[str, tuple, dict]] = []
+        self.reconcile_calls: list[str | None] = []
         self.failure: Exception | None = None
         self.active_job_id: str | None = None
+
+    def reconcile_startup(self, *, api_key: str | None = None):
+        self.reconcile_calls.append(api_key)
+        return []
 
     def _raise_or_record(self, name: str, args: tuple, kwargs: dict) -> None:
         self.calls.append((name, args, kwargs))
@@ -3569,6 +3580,31 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertTrue(kwargs["privacy_acknowledged"])
         self.assertEqual(80, kwargs["target"]["frame_cap"])
         write_config.assert_not_called()
+
+    def test_startup_reconciliation_retries_when_a_key_becomes_available(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+        store.update_api_key({"provider": "xai", "key": ""})
+        coordinator = _LightingEndpointCoordinator(self.library)
+        self._server, url = create_server(
+            lighting_library=self.library,
+            lighting_coordinator=coordinator,
+        )
+        self._token = parse_qs(urlparse(url).query)["token"][0]
+        self._base = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+        self.assertEqual([None], coordinator.reconcile_calls)
+        status, response = self._request(
+            "POST",
+            "/api/settings/key",
+            {"provider": "xai", "key": "sk-restored-secret"},
+        )
+        self.assertEqual(200, status)
+        self.assertEqual([None, "sk-restored-secret"], coordinator.reconcile_calls)
+        self.assertNotIn("sk-restored-secret", json.dumps(response))
 
     def test_all_mutating_routes_are_strict_and_dispatch_without_device_writes(self) -> None:
         job = self._job()

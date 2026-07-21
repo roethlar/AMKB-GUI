@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import base64
 import binascii
+import hashlib
 import io
 import json
 import math
@@ -1351,6 +1352,7 @@ class _State:
         self._lighting_coordinator = lighting_coordinator
         self._lighting_dependencies = dict(lighting_dependencies or {})
         self._lighting_root_signature: tuple[Any, ...] | None = None
+        self._lighting_reconcile_signature: tuple[int, bytes | None] | None = None
         # Single-flight generation worker. Only one job runs at a time; the job
         # dict (id/phase/status/cancel/result/error) is held until read or
         # replaced by the next start. Guarded by ``_job_lock``.
@@ -1384,8 +1386,32 @@ class _State:
             self._lighting_library = library
             self._lighting_coordinator = coordinator
             self._lighting_root_signature = signature
-            coordinator.reconcile_startup(api_key=store.resolve_xai_key())
             return library, coordinator
+
+    def reconcile_lighting(self, *, force: bool = False) -> list[dict]:
+        """Reconcile durable work now and again whenever the effective key changes."""
+        from . import store
+
+        _library, coordinator = self.lighting_services()
+        api_key = store.resolve_xai_key()
+        key_fingerprint = (
+            hashlib.sha256(api_key.encode("utf-8")).digest() if api_key else None
+        )
+        signature = (id(coordinator), key_fingerprint)
+        with self._lighting_lock:
+            if not force and signature == self._lighting_reconcile_signature:
+                return []
+            # Claim this signature before reconciliation so concurrent requests
+            # cannot launch the same accepted video twice. A failure clears the
+            # claim, allowing the next safe trigger to retry.
+            self._lighting_reconcile_signature = signature
+        try:
+            return coordinator.reconcile_startup(api_key=api_key)
+        except BaseException:
+            with self._lighting_lock:
+                if self._lighting_reconcile_signature == signature:
+                    self._lighting_reconcile_signature = None
+            raise
 
     def settle_after_scan(self, seconds: float = 1.5) -> None:
         remaining = seconds - (time.monotonic() - self.last_device_scan)
@@ -2023,12 +2049,14 @@ class _Handler(BaseHTTPRequestHandler):
                 "The legacy settings route accepts provider key changes only."
             )
         store.save_settings(body)
+        self.state.reconcile_lighting(force=True)
         self._json(_settings_view())
 
     def _save_settings_key(self, body: dict[str, Any]) -> None:
         from . import store
 
         store.update_api_key(body)
+        self.state.reconcile_lighting(force=True)
         self._json(_settings_view())
 
     def _save_settings_preferences(self, body: dict[str, Any]) -> None:
@@ -2041,6 +2069,7 @@ class _Handler(BaseHTTPRequestHandler):
         from . import store
 
         store.update_library_root(body)
+        self.state.reconcile_lighting(force=True)
         self._json(_settings_view())
 
     def _save_settings_privacy(self, body: dict[str, Any]) -> None:
@@ -2409,6 +2438,7 @@ def create_server(
         lighting_coordinator=lighting_coordinator,
         lighting_dependencies=lighting_dependencies,
     )
+    state.reconcile_lighting(force=True)
     server = _Server(("127.0.0.1", port), state)
     url = f"http://127.0.0.1:{server.server_port}/?token={token}"
     return server, url
