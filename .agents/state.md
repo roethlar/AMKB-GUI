@@ -27,15 +27,16 @@
   Create/Library/Edit shell, persistent job surface, extracted manual editor,
   and pure browser state landed in `39cd7ca` and passed state and visual review
   after focused fixes through `14423bd`. The owner subsequently rejected its
-  bulky Create-first presentation and approved Task 10R's editor-first reset;
-  the underlying state, generation, library, and Apply boundaries remain valid.
-  The full repository verification entry
-  point passed at `14423bd` with 256 Python tests and 21 browser-state/static
-  tests, including the prepared real FFmpeg runtime integration check for every
-  supported device frame cap. The macOS app bundle was rebuilt, passed frozen
-  smoke, launched its loopback server, and served the new bundled state module.
-  Create, Library, Settings, Edit, and the 720px/200%-zoom equivalent were
-  visually inspected. No provider or hardware call was made.
+  bulky Create-first presentation. The approved Task 10R reset restored the
+  manual editor as the default, removed duplicate Open/Devices affordances,
+  demoted AI generation to a secondary dialog, and made the canvas-first editor
+  responsive and keyboard-operable in `24c7764` and `fbac041`. The full
+  repository verification entry point passed at `fbac041` with 256 Python tests
+  and 26 browser-state/static tests, including the prepared real FFmpeg runtime
+  integration check for every supported device frame cap. The macOS app bundle
+  was rebuilt through the versioned builder, passed frozen smoke, and launched
+  with the Relic profile for owner visual inspection. No provider or hardware
+  call was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -59,10 +60,9 @@
 
 ## Next
 
-- Execute approved Task 10R's editor-first responsive shell reset with
-  tests-first commits, then continue Task 11 with the native library-folder
-  bridge and full Provider/Models/Storage/Costs Settings page. Do not separately
-  repair the legacy `previous_plan` path.
+- Continue Task 11 with the native library-folder bridge and full
+  Provider/Models/Storage/Costs Settings page. Do not separately repair the
+  legacy `previous_plan` path.
 - A paid live xAI video acceptance check remains optional and needs a separate
   explicit go after the offline video pipeline is implemented.
 - Carried over: address any failures surfaced by the committed CI and
