@@ -1026,6 +1026,73 @@ class DurableVideoGenerationTests(unittest.TestCase):
         self.assertEqual([], self.video.submit_calls)
         self.assertEqual(1, len(self.video.poll_calls))
 
+    def test_startup_resumes_every_accepted_request_sequentially(self) -> None:
+        class ResumeProvider:
+            def __init__(self) -> None:
+                self.poll_ids: list[str] = []
+
+            def poll(self, request_id: str, _deadline: float) -> VideoStatus:
+                self.poll_ids.append(request_id)
+                return VideoStatus(
+                    request_id=request_id,
+                    status="done",
+                    usage=ProviderUsage(50, True),
+                    video_url="https://vidgen.x.ai/generated/resumed.mp4",
+                    duration=1,
+                )
+
+        resume_provider = ResumeProvider()
+        self.coordinator = self._coordinator(
+            video_provider_factory=lambda _key, _model: resume_provider
+        )
+        jobs = []
+        for index in range(2):
+            manifest, candidate_id = self._selectable_job()
+            request_id = f"resume_request_{index}"
+            attempt_id = str(uuid.uuid4())
+
+            def accepted(current: dict) -> None:
+                current["selected_candidate_id"] = candidate_id
+                current["animation_attempts"].append(
+                    {
+                        "attempt_id": attempt_id,
+                        "candidate_id": candidate_id,
+                        "loop_mode": "smooth",
+                        "status": "polling",
+                        "phase": "video_polling",
+                        "motion": None,
+                        "plan": None,
+                        "request_id": request_id,
+                        "source_video_asset_id": None,
+                        "frame_asset_ids": [],
+                        "preview_asset_id": None,
+                        "mapped_result_asset_id": None,
+                        "created_at": current["updated_at"],
+                        "completed_at": None,
+                    }
+                )
+                current["provider_requests"]["video"] = {
+                    "request_id": request_id,
+                    "status": "pending",
+                }
+                current["status"] = "in_progress"
+                current["phase"] = "video_polling"
+
+            self.library.update_manifest(manifest["job_id"], accepted)
+            jobs.append((manifest["job_id"], request_id))
+
+        actions = self.coordinator.reconcile_startup(api_key="video-secret-key")
+        self.assertEqual(2, len(actions))
+        for action in actions:
+            self.assertEqual(
+                "ready", self.coordinator.wait(action["job_id"], timeout=20)["status"]
+            )
+        for job_id, _request_id in jobs:
+            self.assertEqual("ready", self.library.load_manifest(job_id)["status"])
+        self.assertEqual({request_id for _job_id, request_id in jobs}, set(resume_provider.poll_ids))
+        self.assertEqual(2, len(resume_provider.poll_ids))
+        self.assertEqual([], self.video.submit_calls)
+
     def test_startup_marks_uncertain_planning_posts_interrupted_without_misclassifying_video_submit(self) -> None:
         jobs = []
         for phase, plan_status in (

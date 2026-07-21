@@ -654,12 +654,18 @@ class GenerationCoordinator:
         token: object,
         api_key: str,
         target: Callable[[], None],
+        on_finished: Callable[[], None] | None = None,
     ) -> None:
         def run() -> None:
             try:
                 target()
             finally:
                 self._gate.finish(token)
+                if on_finished is not None:
+                    try:
+                        on_finished()
+                    except Exception:
+                        pass
 
         try:
             worker = self._launcher(run)
@@ -1678,6 +1684,8 @@ class GenerationCoordinator:
         job_id: str,
         request_id: str,
         api_key: str,
+        *,
+        on_finished: Callable[[], None] | None = None,
     ) -> None:
         token, cancelled = self._gate.begin(job_id)
         try:
@@ -1718,6 +1726,7 @@ class GenerationCoordinator:
                     api_key,
                     cancelled,
                 ),
+                on_finished=on_finished,
             )
         except BaseException:
             if self._gate.active_job_id == job_id:
@@ -1918,8 +1927,21 @@ class GenerationCoordinator:
                 # authority; one unreadable job must not hide the others.
                 continue
         if api_key is not None and actions:
-            first = actions[0]
-            self._resume_video_poll(first["job_id"], first["request_id"], api_key)
+            def resume_at(index: int) -> None:
+                if index >= len(actions):
+                    return
+                action = actions[index]
+                try:
+                    self._resume_video_poll(
+                        action["job_id"],
+                        action["request_id"],
+                        api_key,
+                        on_finished=lambda: resume_at(index + 1),
+                    )
+                except (GenerationError, LibraryError):
+                    resume_at(index + 1)
+
+            resume_at(0)
         return actions
 
     @staticmethod
