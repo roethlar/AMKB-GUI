@@ -1010,6 +1010,54 @@ class DurableVideoGenerationTests(unittest.TestCase):
         self.assertEqual([], self.video.submit_calls)
         self.assertEqual(1, len(self.video.poll_calls))
 
+    def test_startup_marks_uncertain_planning_posts_interrupted_without_misclassifying_video_submit(self) -> None:
+        jobs = []
+        for phase, plan_status in (
+            ("video_planning", "submitting"),
+            ("video_submitting", "complete"),
+        ):
+            manifest, candidate_id = self._selectable_job()
+            attempt_id = str(uuid.uuid4())
+
+            def interrupted(current: dict) -> None:
+                current["selected_candidate_id"] = candidate_id
+                current["animation_attempts"].append(
+                    {
+                        "attempt_id": attempt_id,
+                        "candidate_id": candidate_id,
+                        "loop_mode": "smooth",
+                        "status": "planning" if phase == "video_planning" else "planned",
+                        "phase": phase,
+                        "motion": None,
+                        "plan": None,
+                        "request_id": None,
+                        "source_video_asset_id": None,
+                        "frame_asset_ids": [],
+                        "preview_asset_id": None,
+                        "mapped_result_asset_id": None,
+                        "created_at": current["updated_at"],
+                        "completed_at": None,
+                    }
+                )
+                current["provider_requests"]["video_plan"] = {
+                    "status": plan_status
+                }
+                current["status"] = "in_progress"
+                current["phase"] = phase
+
+            self.library.update_manifest(manifest["job_id"], interrupted)
+            jobs.append(manifest["job_id"])
+
+        self.assertEqual([], self.coordinator.reconcile_startup())
+        for job_id in jobs:
+            with self.subTest(job_id=job_id):
+                current = self.library.load_manifest(job_id)
+                self.assertEqual("interrupted", current["status"])
+                self.assertEqual("interrupted", current["phase"])
+                self.assertEqual("interrupted", current["animation_attempts"][-1]["status"])
+        self.assertEqual([], self.planner.calls)
+        self.assertEqual([], self.video.submit_calls)
+
     def test_foreground_timeout_and_bounded_safe_retries_do_not_abandon_video(self) -> None:
         manifest, candidate_id = self._selectable_job()
         self.video.poll_outcomes = [

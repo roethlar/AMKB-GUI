@@ -1806,6 +1806,40 @@ class GenerationCoordinator:
 
         self._library.update_manifest(job_id, update)
 
+    def _reconcile_interrupted_animation(self, job_id: str) -> None:
+        """Classify paid-planner crashes without inventing a video submission."""
+        manifest = self._library.load_manifest(job_id)
+        if not manifest["animation_attempts"]:
+            return
+        attempt = _animation_attempt(manifest)
+        planning_interrupted = (
+            manifest["status"] == "in_progress"
+            and manifest["phase"] == "video_planning"
+            and attempt.get("phase") == "video_planning"
+        )
+        planned_before_submit = (
+            manifest["status"] == "submission_unknown"
+            and manifest["phase"] == "interrupted"
+            and "video" not in manifest["provider_requests"]
+            and attempt.get("phase") == "video_submitting"
+            and attempt.get("request_id") is None
+        )
+        if not planning_interrupted and not planned_before_submit:
+            return
+
+        def update(current: dict) -> None:
+            current_attempt = _animation_attempt(current, attempt["attempt_id"])
+            current_attempt["status"] = "interrupted"
+            current_attempt["phase"] = "interrupted"
+            current["status"] = "interrupted"
+            current["phase"] = "interrupted"
+            for operation, request in current["provider_requests"].items():
+                if operation == "video_plan" or operation.startswith("video_plan:"):
+                    if request["status"] == "submitting":
+                        request["status"] = "interrupted"
+
+        self._library.update_manifest(job_id, update)
+
     def wait(self, job_id: str, timeout: float | None = None) -> dict:
         with self._workers_lock:
             worker = self._workers.get(job_id)
@@ -1849,6 +1883,7 @@ class GenerationCoordinator:
         actions = self._library.reconcile()
         for job in self._library.scan()["jobs"]:
             try:
+                self._reconcile_interrupted_animation(job["job_id"])
                 self._recover_banked_candidates(job["job_id"])
                 self._recover_banked_animation(job["job_id"])
             except Exception:
