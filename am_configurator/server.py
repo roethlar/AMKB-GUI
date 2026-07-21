@@ -1351,6 +1351,11 @@ class _State:
         self._lighting_library = lighting_library
         self._lighting_coordinator = lighting_coordinator
         self._lighting_dependencies = dict(lighting_dependencies or {})
+        from .generation import _PROCESS_OPERATION_GATE
+
+        self._generation_gate = self._lighting_dependencies.get(
+            "operation_gate", _PROCESS_OPERATION_GATE
+        )
         self._lighting_root_signature: tuple[Any, ...] | None = None
         self._lighting_reconcile_signature: tuple[int, bytes | None] | None = None
         # Single-flight generation worker. Only one job runs at a time; the job
@@ -1426,23 +1431,42 @@ class _State:
         caller poll status. ``run`` is the closure that performs the generation
         and must call :meth:`finish_generation` exactly once when it ends.
         """
+        from .generation import GenerationBusyError
+
         with self._job_lock:
             if self._job is not None and self._job["status"] == "running":
                 return None
             job_id = secrets.token_urlsafe(18)
+            try:
+                operation_token, cancelled = self._generation_gate.begin(job_id)
+            except GenerationBusyError:
+                return None
             job: dict[str, Any] = {
                 "id": job_id,
                 "phase": "starting",
                 "status": "running",
-                "cancel": threading.Event(),
+                "cancel": cancelled,
                 "result": None,
                 "error": None,
             }
+
+            def guarded_run() -> None:
+                try:
+                    run(job)
+                finally:
+                    self._generation_gate.finish(operation_token)
+
             self._job = job
             self._worker = threading.Thread(
-                target=run, args=(job,), name="am-led-generation", daemon=True
+                target=guarded_run, name="am-led-generation", daemon=True
             )
-            self._worker.start()
+            try:
+                self._worker.start()
+            except BaseException:
+                self._job = None
+                self._worker = None
+                self._generation_gate.finish(operation_token)
+                raise
             return job_id
 
     def finish_generation(

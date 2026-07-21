@@ -3606,6 +3606,75 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual([None, "sk-restored-secret"], coordinator.reconcile_calls)
         self.assertNotIn("sk-restored-secret", json.dumps(response))
 
+    def test_legacy_and_durable_generation_share_one_admission_gate(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        gate = generation.OperationGate()
+        started = threading.Event()
+        release = threading.Event()
+        plan = llm.EffectPlan(
+            subject="violet pulse",
+            palette="violet on black",
+            motion="pulse",
+            frame_count=1,
+            frame_ms=100,
+            keyframe_prompts=("violet pulse",),
+            tween="step",
+            notes="",
+        )
+        interpreter = _BlockingGenInterpreter(plan, started, release)
+        renderer = _FakeGenRenderer(
+            image_for=lambda _index: Image.new("RGB", (40, 5), (20, 0, 40))
+        )
+
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+        self._server, url = create_server(
+            llm_factories=_gen_factories(interpreter, renderer),
+            lighting_dependencies={"operation_gate": gate},
+        )
+        self._token = parse_qs(urlparse(url).query)["token"][0]
+        self._base = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+        legacy_body = {
+            "prompt": "violet pulse",
+            "product_id": "CB04",
+            "targets": ["frames"],
+            "frame_count": 1,
+        }
+
+        durable_token, _cancelled = gate.begin("durable-test-job")
+        try:
+            status, _ = self._request("POST", "/api/led/generate", legacy_body)
+        finally:
+            gate.finish(durable_token)
+        if status != 409:
+            release.set()
+            self._server.state.join_generation(5)
+        self.assertEqual(409, status)
+
+        status, legacy = self._request("POST", "/api/led/generate", legacy_body)
+        self.assertEqual(200, status)
+        self.assertTrue(started.wait(timeout=2))
+        try:
+            status, _ = self._request(
+                "POST",
+                "/api/lighting/concepts",
+                {"prompt": "p", "product_id": "CB04", "targets": ["frames"]},
+            )
+            self.assertEqual(409, status)
+        finally:
+            self._request(
+                "POST", "/api/led/generate/cancel", {"job": legacy["job_id"]}
+            )
+            release.set()
+            self._server.state.join_generation(5)
+
     def test_all_mutating_routes_are_strict_and_dispatch_without_device_writes(self) -> None:
         job = self._job()
         job_id = job["job_id"]
