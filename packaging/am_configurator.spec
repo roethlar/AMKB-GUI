@@ -3,11 +3,14 @@
 from pathlib import Path
 import sys
 
+from am_configurator.ffmpeg_runtime import get_ffmpeg_runtime
 from build_tools.release_info import project_version
 
 
 project = Path(SPECPATH).parent
 app_version = project_version(project)
+ffmpeg_binary = get_ffmpeg_runtime()
+ffmpeg_metadata = project / "packaging" / "ffmpeg"
 hidden_imports = [
     "am_configurator.device",
     "am_configurator.llm",
@@ -33,8 +36,16 @@ executable_icon = (
 a = Analysis(
     [str(project / "packaging" / "launcher.py")],
     pathex=[str(project)],
-    binaries=[],
-    datas=[(str(project / "am_configurator" / "web"), "am_configurator/web")],
+    binaries=[(str(ffmpeg_binary), "ffmpeg")],
+    datas=[
+        (str(project / "am_configurator" / "web"), "am_configurator/web"),
+        (str(ffmpeg_binary.with_name("ffmpeg-runtime.json")), "ffmpeg"),
+        (str(ffmpeg_metadata / "manifest.json"), "ffmpeg"),
+        (str(ffmpeg_metadata / "LGPL-2.1.txt"), "ffmpeg"),
+        (str(ffmpeg_metadata / "README.md"), "ffmpeg"),
+        (str(ffmpeg_metadata / "ffmpeg-devel.asc"), "ffmpeg"),
+        (str(project / "tests" / "fixtures" / "tiny-motion.mp4"), "smoke"),
+    ],
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},

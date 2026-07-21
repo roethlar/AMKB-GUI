@@ -9,7 +9,10 @@ import os
 import platform
 import ssl
 import subprocess
+import sys
+import tempfile
 import threading
+import time
 from collections.abc import Sequence
 from io import BytesIO
 from pathlib import Path
@@ -214,6 +217,46 @@ def _run_llm_generation_smoke() -> None:
         raise SystemExit("Desktop smoke test failed: offline LLM generation was invalid.")
 
 
+def _run_ffmpeg_media_smoke() -> None:
+    """Resolve the bundled runtime and process real MP4 frames fully offline."""
+    from .ffmpeg_runtime import get_ffmpeg_runtime
+    from .llm import MODEL_FRAME_CAPS
+    from .media import process_video_frames
+
+    frozen_root = getattr(sys, "_MEIPASS", None)
+    fixture = (
+        Path(frozen_root) / "smoke" / "tiny-motion.mp4"
+        if frozen_root is not None
+        else Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "tiny-motion.mp4"
+    )
+    if not fixture.is_file():
+        raise SystemExit("Desktop smoke test failed: bundled MP4 fixture is unavailable.")
+    ffmpeg = get_ffmpeg_runtime()
+    geometry = {"CB": (15, 6), "80": (18, 7), "ALICE": (16, 5)}
+    loops = {"CB": "smooth", "80": "none", "ALICE": "ping_pong"}
+    with tempfile.TemporaryDirectory(prefix="am-media-smoke-") as temporary:
+        root = Path(temporary)
+        work = root / ".work"
+        work.mkdir()
+        for family, frame_count in MODEL_FRAME_CAPS.items():
+            width, height = geometry[family]
+            result = process_video_frames(
+                fixture.resolve(),
+                root / f"frames-{family}",
+                work,
+                ffmpeg_path=ffmpeg,
+                width=width,
+                height=height,
+                frame_count=frame_count,
+                loop_mode=loops[family],
+                deadline=time.monotonic() + 60,
+            )
+            if len(result.frame_paths) != frame_count or any(not path.is_file() for path in result.frame_paths):
+                raise SystemExit("Desktop smoke test failed: bundled FFmpeg produced invalid frames.")
+        if list(work.iterdir()):
+            raise SystemExit("Desktop smoke test failed: FFmpeg left temporary media behind.")
+
+
 def run_smoke_test() -> int:
     """Exercise the frozen entry point, bundled assets, and loopback server."""
     try:
@@ -231,6 +274,7 @@ def run_smoke_test() -> int:
 
     tls_context = ssl.create_default_context()
     _run_llm_generation_smoke()
+    _run_ffmpeg_media_smoke()
     if os.environ.get("AM_SMOKE_NET") == "1":
         request = Request("https://example.com/", method="HEAD")
         with urlopen(  # noqa: S310 - explicit opt-in packaged CA trust check

@@ -337,7 +337,29 @@ def _verify_candidate(
         raise FfmpegRuntimeError("FFmpeg runtime path is not executable")
     attestation = candidate.with_name("ffmpeg-runtime.json")
     if attestation.is_symlink():
-        raise FfmpegRuntimeError("FFmpeg runtime attestation must not be a symlink")
+        frozen_value = getattr(sys, "_MEIPASS", None)
+        if frozen_value is None:
+            raise FfmpegRuntimeError("FFmpeg runtime attestation must not be a symlink")
+        try:
+            frozen_root = Path(frozen_value).resolve(strict=True)
+            candidate.relative_to(frozen_root)
+            resolved_attestation = attestation.resolve(strict=True)
+            allowed_roots = [frozen_root]
+            if frozen_root.name == "Frameworks":
+                allowed_roots.append(frozen_root.parent / "Resources")
+            if not any(
+                resolved_attestation.is_relative_to(root.resolve(strict=True))
+                for root in allowed_roots
+                if root.is_dir()
+            ):
+                raise ValueError
+            if not resolved_attestation.is_file():
+                raise ValueError
+        except (OSError, ValueError):
+            raise FfmpegRuntimeError(
+                "FFmpeg runtime attestation symlink leaves the frozen bundle"
+            ) from None
+        attestation = resolved_attestation
     verify_runtime_attestation(
         candidate,
         attestation,

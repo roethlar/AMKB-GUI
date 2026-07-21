@@ -10,6 +10,13 @@ if [[ ! -d "$app_path" ]]; then
   exit 1
 fi
 
+# PyInstaller ad-hoc signs Mach-O binaries while assembling the .app, which
+# changes the prepared FFmpeg hash. Re-attest those final bytes, then refresh
+# only the outer app seal; the already signed nested executable is unchanged.
+uv run --frozen python -m build_tools.finalize_ffmpeg_bundle "$app_path"
+codesign --force --sign - "$app_path"
+codesign --verify --deep --strict "$app_path"
+
 artifact_name="$(uv run --frozen python build_tools/release_info.py artifact macos)"
 output_path="$project_root/dist/$artifact_name"
 staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/am-configurator-dmg.XXXXXX")"

@@ -78,8 +78,9 @@ class ReleaseInfoTests(unittest.TestCase):
             self.assertEqual(original, version_file.read_text(encoding="utf-8"))
             self.assertEqual("uv", commands[0][0])
             self.assertIn("sync", commands[0])
-            self.assertIn("pyinstaller", commands[1])
-            self.assertTrue(commands[2][-1].endswith("build_dmg.sh"))
+            self.assertIn("build_tools.prepare_ffmpeg", commands[1])
+            self.assertIn("pyinstaller", commands[2])
+            self.assertTrue(commands[3][-1].endswith("build_dmg.sh"))
 
     def test_build_script_restores_the_version_after_a_failed_build(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -214,6 +215,26 @@ class ReleaseInfoTests(unittest.TestCase):
         # the frozen app cannot generate effects.
         self.assertIn("hidden_imports", spec)
         self.assertIn('"am_configurator.llm"', spec)
+
+    def test_native_bundle_contains_verified_ffmpeg_and_real_media_smoke(self) -> None:
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
+        build_script = (ROOT / "build.py").read_text(encoding="utf-8")
+        smoke = (ROOT / "am_configurator" / "desktop.py").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(encoding="utf-8")
+        macos = (ROOT / "packaging" / "macos" / "build_dmg.sh").read_text(encoding="utf-8")
+
+        self.assertIn("build_tools.prepare_ffmpeg", build_script)
+        self.assertIn("build_tools.prepare_ffmpeg", workflow)
+        self.assertIn("get_ffmpeg_runtime", spec)
+        self.assertRegex(spec, r"binaries\s*=\s*\[\(str\(ffmpeg_binary\),\s*\"ffmpeg\"\)\]")
+        for name in ("manifest.json", "ffmpeg-runtime.json", "LGPL-2.1.txt", "README.md"):
+            self.assertIn(name, spec)
+        self.assertIn("tiny-motion.mp4", spec)
+        self.assertIn("process_video_frames", smoke)
+        self.assertIn("MODEL_FRAME_CAPS", smoke)
+        self.assertIn("get_ffmpeg_runtime", smoke)
+        self.assertIn("build_tools.finalize_ffmpeg_bundle", macos)
+        self.assertIn("codesign --force --sign -", macos)
 
     def test_frozen_smoke_test_runs_a_fake_transport_generation(self) -> None:
         smoke = (ROOT / "am_configurator" / "desktop.py").read_text(encoding="utf-8")

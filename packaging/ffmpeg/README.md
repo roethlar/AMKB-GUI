@@ -13,8 +13,9 @@ explicitly disables GPL, nonfree, and version-3-only code.
 - FFmpeg release-key fingerprint: `FCF986EA15E6E293A5644F10B4322F04D67658D8`
 
 The source hash and release-key fingerprint were verified once when this recipe
-was recorded. `build_tools/ffmpeg_bundle.py` rechecks the source hash and the
-detached signature with local GnuPG key material; it disables automatic key
+was recorded. `ffmpeg-devel.asc` is the pinned public key used for release
+verification. `build_tools/ffmpeg_bundle.py` rechecks the source hash and the
+detached signature with an isolated GnuPG home; it disables automatic key
 retrieval and never downloads anything.
 
 ## Reproducing the native executable
@@ -45,6 +46,18 @@ uv run --frozen python -m build_tools.ffmpeg_bundle build \
   --platform macos --architecture arm64 --jobs N \
   --cc /usr/bin/cc --ar /usr/bin/ar --ranlib /usr/bin/ranlib --strip /usr/bin/strip
 ```
+
+Native builds normally run the current-host wrapper after staging the archive
+and signature under `build/ffmpeg/sources/`:
+
+```sh
+uv run --frozen python -m build_tools.prepare_ffmpeg
+```
+
+The wrapper verifies and reuses a matching attested cache entry. On a cache
+miss it imports only the committed release key into a temporary GnuPG home,
+verifies the staged files, builds the constrained executable, and writes the
+attestation expected by the application bundle.
 
 `--extract-dir` must not exist, must contain no whitespace, and must live outside
 the repository workspace.

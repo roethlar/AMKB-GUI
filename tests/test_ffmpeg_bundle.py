@@ -588,6 +588,51 @@ class FfmpegBundleTests(unittest.TestCase):
                     bundled.resolve(),
                 )
 
+    def test_frozen_macos_layout_accepts_only_an_internal_attestation_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            frameworks = root / "Contents" / "Frameworks"
+            resources = root / "Contents" / "Resources"
+            binary = frameworks / "ffmpeg" / "ffmpeg"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"bundled")
+            if os.name != "nt":
+                binary.chmod(0o700)
+            inspection = ffmpeg_bundle.inspect_runtime(
+                binary, self.manifest, runner=_FakeRunner(self.manifest)
+            )
+            resource_attestation = resources / "ffmpeg" / "ffmpeg-runtime.json"
+            resource_attestation.parent.mkdir(parents=True)
+            ffmpeg_bundle.emit_runtime_attestation(
+                binary,
+                resource_attestation,
+                self.manifest,
+                inspection,
+                compiler_identity="synthetic",
+                platform_name="linux",
+                architecture="x86_64",
+            )
+            bundled_manifest = frameworks / "ffmpeg" / "manifest.json"
+            bundled_manifest.write_bytes(MANIFEST_PATH.read_bytes())
+            attestation_link = binary.with_name("ffmpeg-runtime.json")
+            attestation_link.symlink_to(resource_attestation)
+
+            with patch.object(ffmpeg_runtime.sys, "_MEIPASS", str(frameworks), create=True):
+                self.assertEqual(
+                    ffmpeg_runtime.get_ffmpeg_runtime(
+                        environment={}, platform_name="linux", architecture="x86_64"
+                    ),
+                    binary.resolve(),
+                )
+                attestation_link.unlink()
+                outside = root / "outside-attestation.json"
+                outside.write_bytes(resource_attestation.read_bytes())
+                attestation_link.symlink_to(outside)
+                with self.assertRaises(ffmpeg_runtime.FfmpegRuntimeError):
+                    ffmpeg_runtime.get_ffmpeg_runtime(
+                        environment={}, platform_name="linux", architecture="x86_64"
+                    )
+
     def test_build_plan_uses_argument_arrays_reproducible_flags_and_no_network(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             source = Path(temp) / "source-tree"
