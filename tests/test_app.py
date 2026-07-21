@@ -2168,7 +2168,8 @@ class GrokVideoProviderTests(unittest.TestCase):
         self.assertEqual(result.duration, 1)
         self.assertIsNone(result.usage.cost_in_usd_ticks)
         self.assertFalse(result.usage.reported)
-        self.assertNotIn(signed_url, str(result.usage))
+        self.assertNotIn(signed_url, repr(result))
+        self.assertNotIn(signed_url, str(result))
 
         bad_responses = (
             {**done, "status": "queued"},

@@ -24,7 +24,7 @@ import ssl
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from .ai_catalog import DEFAULT_MODELS, validate_model
@@ -219,7 +219,7 @@ class VideoStatus:
     request_id: str
     status: str
     usage: ProviderUsage
-    video_url: str | None = None
+    video_url: str | None = field(default=None, repr=False)
     duration: int | None = None
 
 
