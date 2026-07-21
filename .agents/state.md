@@ -11,8 +11,10 @@
   3's bankable concept-planning and still-generation providers landed in
   `ae20186` and passed review after focused fixes through `57ec851`; Task 4's
   structured video planner and asynchronous image-to-video contract landed in
-  `f9f5cab` and passed review after focused fixes through `88776d0`. The full
-  repository verification entry point passed at `88776d0`.
+  `f9f5cab` and passed review after focused fixes through `88776d0`; Task 5's
+  hardened temporary-video downloader landed in `deca3d5` and passed review
+  after focused fixes through `8798a68`. The full repository verification entry
+  point passed at `8798a68`.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -37,8 +39,9 @@
 ## Next
 
 - Execute the approved video-first Lighting Studio plan in order with
-  tests-first commits, beginning Task 5 with the hardened temporary-video
-  downloader. Do not separately repair the legacy `previous_plan` path.
+  tests-first commits, beginning Task 6 with the reproducible LGPL FFmpeg
+  runtime and exact-frame processor. Do not separately repair the legacy
+  `previous_plan` path.
 - A paid live xAI video acceptance check remains optional and needs a separate
   explicit go after the offline video pipeline is implemented.
 - Carried over: address any failures surfaced by the committed CI and
