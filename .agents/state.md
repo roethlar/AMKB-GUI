@@ -91,6 +91,15 @@
   passed at `624cccc` with 269 Python tests and 30 browser tests. Versioned macOS
   build `0.1.23` passed DMG verification and processed the fixture at all three
   device frame caps from the frozen app. No provider or hardware call was made.
+- Task 14's first actionable Library bridge landed in `0792ceb`. Every banked
+  concept now exposes `Animate this concept` when the open document is
+  compatible; it restores the durable job, selects that exact still, and opens
+  Animate without a provider request. The owner's eight-concept Relic job
+  `281044bf-b560-456c-85b9-37456c0b60dc` was checked against this path. Full
+  verification passed with 269 Python tests and 31 browser tests. Versioned
+  macOS build `0.1.24` passed frozen media smoke and DMG verification and was
+  launched with the owner's Relic profile. No provider or hardware call was
+  made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -114,10 +123,10 @@
 
 ## Next
 
-- Expand the landed read-only Library browser to Task 14's remaining
-  resume/retry/animate/apply actions, then remove the superseded inline
-  generator in Task 16. Do not separately repair the legacy `previous_plan`
-  path.
+- Finish Task 14's remaining Library actions: lineage grouping, explicit local
+  processing retry, compatible Apply, and Reveal from detail. Then remove the
+  superseded inline generator in Task 16. Do not separately repair the legacy
+  `previous_plan` path.
 - A paid live xAI video acceptance check remains optional and needs a separate
   explicit go after the offline video pipeline is implemented.
 - Carried over: address any failures surfaced by the committed CI and
