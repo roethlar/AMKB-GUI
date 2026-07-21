@@ -75,4 +75,5 @@ test("shell supports narrow windows, zoom, focus, and reduced motion", () => {
   assert.match(css, /textarea:focus-visible/);
   assert.match(css, /@media\s*\(max-width:\s*720px\)/);
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
+  assert.doesNotMatch(css, /\.create-steps li strong\s*\{\s*display:\s*none/);
 });

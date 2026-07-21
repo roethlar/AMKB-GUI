@@ -471,7 +471,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .lighting-tabs [role="tab"]::after { right: 8px; left: 8px; }
   .create-steps { gap: 3px; }
   .create-steps li { justify-content: center; padding-inline: 5px; }
-  .create-steps li strong { display: none; }
   .studio-welcome { gap: 18px; padding: 24px; }
   .concept-skeleton { min-height: 180px; }
   .route-requirement { grid-template-columns: auto minmax(0, 1fr); }
