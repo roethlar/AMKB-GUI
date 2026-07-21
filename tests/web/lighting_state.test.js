@@ -10,6 +10,7 @@ const {
   createLightingState,
   formatLightingHash,
   parseLightingHash,
+  projectLightingJob,
   reduceLightingState,
   routeAvailability,
 } = require("../../am_configurator/web/lighting_state.js");
@@ -160,6 +161,24 @@ test("switching or clearing jobs cannot inherit another job's candidate", () => 
   const cleared = reduceLightingState(first, {type: "JOB_SYNCED", job: null}).state;
   assert.equal(cleared.activeJob, null);
   assert.deepEqual(cleared.create, {stage: STAGES.CONCEPTS, selectedCandidateId: null});
+});
+
+test("job projection never exposes a prior animation attempt's result", () => {
+  const manifest = {
+    job_id: JOB_ID,
+    status: "in_progress",
+    phase: "video_polling",
+    progress: null,
+    selected_candidate_id: "candidate-b",
+    target: readyJob().target,
+    animation_attempts: [
+      {mapped_result_asset_id: "old-result"},
+      {mapped_result_asset_id: null},
+    ],
+  };
+  assert.equal(projectLightingJob(manifest).resultAssetId, null);
+  manifest.animation_attempts[1].mapped_result_asset_id = "new-result";
+  assert.equal(projectLightingJob(manifest).resultAssetId, "new-result");
 });
 
 test("hash routing round-trips safe routes and opaque job IDs", () => {

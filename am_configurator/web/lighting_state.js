@@ -133,6 +133,20 @@
     return {state, blocked, intent};
   }
 
+  function projectLightingJob(manifest) {
+    const attempts = Array.isArray(manifest?.animation_attempts) ? manifest.animation_attempts : [];
+    const latestAttempt = attempts.length ? attempts[attempts.length - 1] : null;
+    return {
+      id: manifest?.job_id,
+      status: manifest?.status,
+      phase: manifest?.phase,
+      progress: manifest?.progress,
+      selectedCandidateId: manifest?.selected_candidate_id,
+      resultAssetId: latestAttempt?.mapped_result_asset_id || null,
+      target: manifest?.target,
+    };
+  }
+
   function reduceLightingState(input, event = {}, context = {}) {
     const state = input || createLightingState();
     switch (event.type) {
@@ -215,6 +229,7 @@
     createLightingState,
     formatLightingHash,
     parseLightingHash,
+    projectLightingJob,
     reduceLightingState,
     routeAvailability,
   });

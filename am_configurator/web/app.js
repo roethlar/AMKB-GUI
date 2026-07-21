@@ -9,7 +9,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch]));
-const {ROUTES, STAGES, createLightingState, formatLightingHash, parseLightingHash, reduceLightingState, routeAvailability} = LightingState;
+const {ROUTES, STAGES, createLightingState, formatLightingHash, parseLightingHash, projectLightingJob, reduceLightingState, routeAvailability} = LightingState;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 
 function restoredLightingState() {
@@ -635,20 +635,6 @@ function renderLightingJobStrip() {
     progressNode.value = Math.min(progress.total, progress.completed);
   }
   $("#lighting-job-cancel").disabled = !["in_progress", "accepted", "processing"].includes(job.status);
-}
-
-function projectLightingJob(manifest) {
-  const attempts = Array.isArray(manifest?.animation_attempts) ? manifest.animation_attempts : [];
-  const completedAttempt = [...attempts].reverse().find(attempt => attempt?.mapped_result_asset_id);
-  return {
-    id: manifest.job_id,
-    status: manifest.status,
-    phase: manifest.phase,
-    progress: manifest.progress,
-    selectedCandidateId: manifest.selected_candidate_id,
-    resultAssetId: completedAttempt?.mapped_result_asset_id || null,
-    target: manifest.target,
-  };
 }
 
 function syncLightingJob(manifest) {
