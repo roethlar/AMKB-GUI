@@ -100,6 +100,15 @@
   macOS build `0.1.24` passed frozen media smoke and DMG verification and was
   launched with the owner's Relic profile. No provider or hardware call was
   made.
+- The owner paused broader UI work until the paid AI path is proven end to end.
+  Commit `581e058` reduces Generate to one linear proof flow: prompt, exactly
+  one banked still, click the still to open Animate, then explicitly start the
+  video request. The stage bar, quantity control, selection handoff panel, and
+  extra concept-generation action are absent; the saved multi-concept job still
+  remains usable. Full verification passed with 269 Python tests and 31 browser
+  tests. Versioned macOS build `0.1.25` passed frozen media smoke and DMG
+  verification and was launched with the owner's Relic profile. No provider or
+  hardware call was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -123,10 +132,9 @@
 
 ## Next
 
-- Finish Task 14's remaining Library actions: lineage grouping, explicit local
-  processing retry, compatible Apply, and Reveal from detail. Then remove the
-  superseded inline generator in Task 16. Do not separately repair the legacy
-  `previous_plan` path.
+- Run one owner-controlled live acceptance through still selection, video
+  generation, local processing, and result review. Do not resume Library,
+  editor, or broader UI work until this path's infrastructure result is known.
 - A paid live xAI video acceptance check remains optional and needs a separate
   explicit go after the offline video pipeline is implemented.
 - Carried over: address any failures surfaced by the committed CI and
