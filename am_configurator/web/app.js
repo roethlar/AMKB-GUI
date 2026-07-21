@@ -794,12 +794,28 @@ function libraryCardMarkup(job) {
   </button>`;
 }
 
-function libraryMediaMarkup(jobId,asset,index) {
+function libraryConceptAvailability(detail,candidate) {
+  if(!candidate)return {available:false,reason:"This saved image is not an animation concept."};
+  const document=documentDescriptor();
+  if(!document)return {available:false,reason:"Open a compatible keyboard configuration to animate this concept."};
+  const target=detail?.target||{};
+  if(!sameProductFamily(target.family||target.product_id,document.family||document.productId))return {available:false,reason:`This concept was made for ${productLabel(target.family||target.product_id)}.`};
+  const targets=Array.isArray(target.targets)?target.targets:[];
+  if(!targets.length||targets.some(item=>!document.supportedTargets.includes(item)))return {available:false,reason:"This concept uses a lighting target the open configuration does not support."};
+  const running=state.lighting.activeJob?.status==="in_progress"&&state.lighting.activeJob.id!==detail.job_id;
+  if(running)return {available:false,reason:"Finish or cancel the current generation first."};
+  return {available:true,reason:"Open this saved concept in Animate. No provider request is made yet."};
+}
+
+function libraryMediaMarkup(jobId,asset,index,detail) {
   const url=state.library.assetUrls.get(`${jobId}:${asset.asset_id}`);
   const label=asset.kind.replaceAll("_"," ");
   if(!url)return `<div class="library-media-card loading"><span class="library-card-placeholder">Loading…</span><small>${esc(label)}</small></div>`;
   if(asset.mime_type==="video/mp4")return `<figure class="library-media-card"><video src="${esc(url)}" controls muted playsinline preload="metadata"></video><figcaption>${esc(label)}</figcaption></figure>`;
-  return `<figure class="library-media-card"><img src="${esc(url)}" alt="Saved lighting asset ${index+1}"><figcaption>${esc(label)}</figcaption></figure>`;
+  const candidate=asset.kind==="concept"?detail?.candidates?.find(item=>item.asset_id===asset.asset_id):null;
+  const availability=candidate?libraryConceptAvailability(detail,candidate):null;
+  const action=candidate?`<button type="button" class="button ghost library-concept-action" data-library-animate-job="${esc(jobId)}" data-library-animate-candidate="${esc(candidate.candidate_id)}" title="${esc(availability.reason)}" ${availability.available?'':'disabled'}>Animate this concept <span aria-hidden="true">→</span></button>`:"";
+  return `<figure class="library-media-card"><img src="${esc(url)}" alt="Saved lighting asset ${index+1}"><figcaption><span>${esc(label)}</span>${action}</figcaption></figure>`;
 }
 
 function libraryDetailMarkup(jobId) {
@@ -810,13 +826,14 @@ function libraryDetailMarkup(jobId) {
   return `<section class="library-detail" aria-labelledby="library-detail-title">
     <button type="button" class="library-back" data-library-back>← Library</button>
     <header><div><p class="eyebrow">${esc(libraryStatusLabel(detail.status))}</p><h2 id="library-detail-title">${esc(detail.prompt)}</h2><p>${libraryDate(detail.created_at)} · ${media.length} saved media item${media.length===1?"":"s"}</p></div><span class="pill ${detail.status==="partial"?"muted":""}">${esc(libraryStatusLabel(detail.phase||detail.status))}</span></header>
-    <div class="library-media-grid">${media.length?media.map((asset,index)=>libraryMediaMarkup(jobId,asset,index)).join(""):'<p class="library-no-media">This job has no viewable media yet.</p>'}</div>
+    <div class="library-media-grid">${media.length?media.map((asset,index)=>libraryMediaMarkup(jobId,asset,index,detail)).join(""):'<p class="library-no-media">This job has no viewable media yet.</p>'}</div>
     ${summary?.costs?.actual_incomplete?'<p class="library-warning">Provider cost reporting is incomplete for this item.</p>':""}
   </section>`;
 }
 
 function wireLibraryContent() {
   $$("[data-library-job]",$("#library-content")).forEach(card=>card.addEventListener("click",()=>openLibraryJob(card.dataset.libraryJob)));
+  $$("[data-library-animate-job]",$("#library-content")).forEach(button=>button.addEventListener("click",()=>continueLibraryConcept(button.dataset.libraryAnimateJob,button.dataset.libraryAnimateCandidate)));
   $("[data-library-back]",$("#library-content"))?.addEventListener("click",()=>{state.library.selectedJobId=null;renderLibrary();});
   $("[data-library-retry]",$("#library-content"))?.addEventListener("click",()=>loadLibrary({force:true}));
   $("[data-library-settings]",$("#library-content"))?.addEventListener("click",openSettings);
@@ -827,6 +844,22 @@ function openLibraryJob(jobId) {
   state.library.selectedJobId=jobId;
   renderLibrary();
   void ensureLibraryJobDetail(jobId);
+}
+
+function continueLibraryConcept(jobId,candidateId) {
+  const detail=state.library.details.get(jobId);
+  const candidate=detail?.candidates?.find(item=>item.candidate_id===candidateId);
+  const availability=libraryConceptAvailability(detail,candidate);
+  if(!availability.available){toast("Could not open concept",availability.reason,"error");return;}
+  state.conceptDestination={slot:state.ledSlot,target:detail.target.targets[0]};
+  syncLightingJob(detail,{renderPage:false});
+  state.lighting=reduceLightingState(state.lighting,{type:"SELECT_CANDIDATE",candidateId}).state;
+  state.lighting=reduceLightingState(state.lighting,{type:"SHOW_ANIMATE"}).state;
+  state.lightingJobId=jobId;
+  persistLightingState();
+  history.replaceState({},"",`${location.pathname}${location.search}${formatLightingHash(state.lighting.route,jobId)}`);
+  renderLightingJobStrip();
+  openGenerationDialog();
 }
 
 function renderLibrary() {

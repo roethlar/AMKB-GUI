@@ -187,6 +187,17 @@ test("Library browses banked manifests and authenticated local assets", () => {
   assert.doesNotMatch(js, /src=["'`]\/api\/lighting\/assets/);
 });
 
+test("a banked Library concept can resume directly in Animate without a provider call", () => {
+  assert.match(js, /data-library-animate-job=/);
+  assert.match(js, /data-library-animate-candidate=/);
+  assert.match(js, /function continueLibraryConcept\s*\(/);
+  const resume = js.slice(js.indexOf("function continueLibraryConcept"), js.indexOf("function renderLibrary", js.indexOf("function continueLibraryConcept")));
+  assert.match(resume, /type:\s*"SELECT_CANDIDATE"/);
+  assert.match(resume, /type:\s*"SHOW_ANIMATE"/);
+  assert.match(resume, /openGenerationDialog\(\)/);
+  assert.doesNotMatch(resume, /\/animate|method:\s*"POST"|startLightingAnimation/);
+});
+
 test("Settings is a complete saveable route with storage and an explicit exit", () => {
   assert.match(html, /id="settings-save"[^>]*>Save changes</);
   assert.match(html, /id="settings-done"[^>]*>Done</);

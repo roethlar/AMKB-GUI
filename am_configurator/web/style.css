@@ -196,7 +196,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .library-media-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .library-media-card { min-width: 0; overflow: hidden; margin: 0; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); }
 .library-media-card img, .library-media-card video { display: block; width: 100%; aspect-ratio: 16/9; object-fit: contain; background: #0a0a0c; }
-.library-media-card figcaption, .library-media-card > small { display: block; padding: 9px 11px; color: var(--muted); font-size: 9px; text-transform: capitalize; }
+.library-media-card figcaption { display: flex; min-height: 43px; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 8px 7px 11px; color: var(--muted); font-size: 9px; text-transform: capitalize; }
+.library-media-card > small { display: block; padding: 9px 11px; color: var(--muted); font-size: 9px; text-transform: capitalize; }
+.library-concept-action { flex: 0 0 auto; padding: 7px 9px; font-size: 10px; text-transform: none; }
 .library-media-card.loading { min-height: 180px; display: grid; place-items: center; }
 .library-no-media { color: var(--muted); }
 .lighting-edit-shell { min-width: 0; padding-top: 14px; }
