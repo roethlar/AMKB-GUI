@@ -744,6 +744,23 @@ class DurableConceptGenerationTests(unittest.TestCase):
         self.assertEqual(33, sum(recovered["costs"]["actual_by_operation"].values()))
         self.assertFalse(recovered["costs"]["actual_incomplete"])
 
+    def test_startup_reconciliation_never_mutates_while_admission_is_active(self) -> None:
+        gate = generation.OperationGate()
+        coordinator = generation.GenerationCoordinator(
+            self.library,
+            operation_gate=gate,
+        )
+        token, _cancelled = gate.begin("live-generation")
+        try:
+            with (
+                patch.object(self.library, "reconcile", wraps=self.library.reconcile) as reconcile,
+                self.assertRaises(generation.GenerationBusyError),
+            ):
+                coordinator.reconcile_startup()
+            reconcile.assert_not_called()
+        finally:
+            gate.finish(token)
+
 
 class _AdvancingClock:
     def __init__(self) -> None:

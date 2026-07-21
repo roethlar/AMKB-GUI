@@ -1358,6 +1358,8 @@ class _State:
         )
         self._lighting_root_signature: tuple[Any, ...] | None = None
         self._lighting_reconcile_signature: tuple[int, bytes | None] | None = None
+        self._lighting_reconcile_pending = False
+        self._lighting_reconcile_worker: threading.Thread | None = None
         # Single-flight generation worker. Only one job runs at a time; the job
         # dict (id/phase/status/cancel/result/error) is held until read or
         # replaced by the next start. Guarded by ``_job_lock``.
@@ -1396,6 +1398,11 @@ class _State:
     def reconcile_lighting(self, *, force: bool = False) -> list[dict]:
         """Reconcile durable work now and again whenever the effective key changes."""
         from . import store
+        from .generation import GenerationBusyError
+
+        if self._generation_gate.is_active:
+            self._defer_lighting_reconciliation()
+            return []
 
         _library, coordinator = self.lighting_services()
         api_key = store.resolve_xai_key()
@@ -1412,11 +1419,54 @@ class _State:
             self._lighting_reconcile_signature = signature
         try:
             return coordinator.reconcile_startup(api_key=api_key)
+        except GenerationBusyError:
+            with self._lighting_lock:
+                if self._lighting_reconcile_signature == signature:
+                    self._lighting_reconcile_signature = None
+            self._defer_lighting_reconciliation()
+            return []
         except BaseException:
             with self._lighting_lock:
                 if self._lighting_reconcile_signature == signature:
                     self._lighting_reconcile_signature = None
             raise
+
+    def _defer_lighting_reconciliation(self) -> None:
+        """Coalesce settings/startup recovery until shared admission is idle."""
+        with self._lighting_lock:
+            self._lighting_reconcile_pending = True
+            if (
+                self._lighting_reconcile_worker is not None
+                and self._lighting_reconcile_worker.is_alive()
+            ):
+                return
+
+            def resume_when_idle() -> None:
+                while True:
+                    self._generation_gate.wait_until_idle()
+                    with self._lighting_lock:
+                        if not self._lighting_reconcile_pending:
+                            self._lighting_reconcile_worker = None
+                            return
+                        self._lighting_reconcile_pending = False
+                    try:
+                        self.reconcile_lighting(force=True)
+                    except Exception:
+                        with self._lighting_lock:
+                            self._lighting_reconcile_worker = None
+                        return
+                    with self._lighting_lock:
+                        if not self._lighting_reconcile_pending:
+                            self._lighting_reconcile_worker = None
+                            return
+
+            worker = threading.Thread(
+                target=resume_when_idle,
+                name="am-lighting-reconcile",
+                daemon=True,
+            )
+            self._lighting_reconcile_worker = worker
+            worker.start()
 
     def settle_after_scan(self, seconds: float = 1.5) -> None:
         remaining = seconds - (time.monotonic() - self.last_device_scan)

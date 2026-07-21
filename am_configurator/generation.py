@@ -242,6 +242,8 @@ class OperationGate:
     def __init__(self) -> None:
         self._lease = threading.Lock()
         self._state_lock = threading.Lock()
+        self._idle = threading.Event()
+        self._idle.set()
         self._token: object | None = None
         self._job_id: str | None = None
         self._cancelled: threading.Event | None = None
@@ -251,9 +253,19 @@ class OperationGate:
         with self._state_lock:
             return self._job_id
 
+    @property
+    def is_active(self) -> bool:
+        with self._state_lock:
+            return self._token is not None
+
+    def wait_until_idle(self) -> None:
+        """Block a background reconciler until the current lease is released."""
+        self._idle.wait()
+
     def begin(self, job_id: str | None = None) -> tuple[object, threading.Event]:
         if not self._lease.acquire(blocking=False):
             raise GenerationBusyError("another generation operation is already active")
+        self._idle.clear()
         token = object()
         cancelled = threading.Event()
         with self._state_lock:
@@ -283,6 +295,7 @@ class OperationGate:
             self._job_id = None
             self._cancelled = None
         self._lease.release()
+        self._idle.set()
 
 
 _PROCESS_OPERATION_GATE = OperationGate()
@@ -1962,16 +1975,20 @@ class GenerationCoordinator:
             not isinstance(api_key, str) or not api_key.strip() or len(api_key) > 4096
         ):
             raise GenerationValidationError("an xAI API key is required")
-        actions = self._library.reconcile()
-        for job in self._library.scan()["jobs"]:
-            try:
-                self._reconcile_interrupted_animation(job["job_id"])
-                self._recover_banked_candidates(job["job_id"])
-                self._recover_banked_animation(job["job_id"])
-            except Exception:
-                # The library scan/reconciliation error surface remains the
-                # authority; one unreadable job must not hide the others.
-                continue
+        token, _cancelled = self._gate.begin()
+        try:
+            actions = self._library.reconcile()
+            for job in self._library.scan()["jobs"]:
+                try:
+                    self._reconcile_interrupted_animation(job["job_id"])
+                    self._recover_banked_candidates(job["job_id"])
+                    self._recover_banked_animation(job["job_id"])
+                except Exception:
+                    # The library scan/reconciliation error surface remains the
+                    # authority; one unreadable job must not hide the others.
+                    continue
+        finally:
+            self._gate.finish(token)
         if api_key is not None and actions:
             def resume_at(index: int) -> None:
                 if index >= len(actions):
@@ -1984,6 +2001,8 @@ class GenerationCoordinator:
                         api_key,
                         on_finished=lambda: resume_at(index + 1),
                     )
+                except GenerationBusyError:
+                    raise
                 except (GenerationError, LibraryError):
                     resume_at(index + 1)
 

@@ -3606,6 +3606,41 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual([None, "sk-restored-secret"], coordinator.reconcile_calls)
         self.assertNotIn("sk-restored-secret", json.dumps(response))
 
+    def test_settings_reconciliation_waits_for_active_generation_to_finish(self) -> None:
+        gate = generation.OperationGate()
+        coordinator = _LightingEndpointCoordinator(self.library)
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+        self._server, url = create_server(
+            lighting_library=self.library,
+            lighting_coordinator=coordinator,
+            lighting_dependencies={"operation_gate": gate},
+        )
+        self._token = parse_qs(urlparse(url).query)["token"][0]
+        self._base = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+        coordinator.reconcile_calls.clear()
+
+        token, _cancelled = gate.begin("active-generation")
+        try:
+            status, response = self._request(
+                "POST",
+                "/api/settings/key",
+                {"provider": "xai", "key": "sk-deferred-secret"},
+            )
+            self.assertEqual(200, status)
+            self.assertNotIn("sk-deferred-secret", json.dumps(response))
+            self.assertEqual([], coordinator.reconcile_calls)
+        finally:
+            gate.finish(token)
+
+        deadline = time.monotonic() + 2
+        while not coordinator.reconcile_calls and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(["sk-deferred-secret"], coordinator.reconcile_calls)
+
     def test_legacy_and_durable_generation_share_one_admission_gate(self) -> None:
         try:
             from PIL import Image
