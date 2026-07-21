@@ -3173,6 +3173,21 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(data["code"], "rate_limited")
         self.assertEqual(data["retry_after"], 7)
 
+    def test_settings_test_rejects_a_multiline_effective_key_without_echoing_it(self) -> None:
+        first = "xai-first-secret-value"
+        second = "xai-second-secret-value"
+        malformed = f"{first}\n\nlabel:\n{second}"
+        self._server.state.llm_transport = server._xai_get
+
+        with patch.dict(os.environ, {"XAI_API_KEY": malformed}):
+            status, data = self._request("POST", "/api/settings/test", {})
+
+        self.assertEqual(status, 400)
+        self.assertEqual(data["code"], "auth")
+        serialized = json.dumps(data)
+        self.assertNotIn(first, serialized)
+        self.assertNotIn(second, serialized)
+
         # No key configured → 400 with a Settings hint, and the transport is never
         # consulted (the guard fires before any network path).
         self._save_key("")

@@ -1088,6 +1088,15 @@ def _xai_get(url: str, payload: Any, api_key: str, deadline: float) -> dict[str,
     """
     from . import llm
 
+    if (
+        not isinstance(api_key, str)
+        or not api_key
+        or api_key != api_key.strip()
+        or any(ord(character) < 33 or ord(character) == 127 for character in api_key)
+    ):
+        raise llm.ProviderError(
+            "auth", "provider could not use this API key; check the key in Settings"
+        )
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise llm.ProviderError(
