@@ -248,15 +248,15 @@ def _set_response_timeout(response: object, timeout: float) -> None:
 
 
 def _looks_like_mp4(prefix: bytes, total_size: int) -> bool:
-    if total_size < 12 or len(prefix) < 12 or prefix[4:8] != b"ftyp":
+    if total_size < 16 or len(prefix) < 16 or prefix[4:8] != b"ftyp":
         return False
     box_size = int.from_bytes(prefix[:4], "big")
     if box_size == 1:
-        if len(prefix) < 16:
+        if total_size < 24 or len(prefix) < 24:
             return False
         box_size = int.from_bytes(prefix[8:16], "big")
-        return 16 <= box_size <= total_size
-    return 8 <= box_size <= total_size
+        return 24 <= box_size <= total_size
+    return 16 <= box_size <= total_size
 
 
 def _fsync_directory(path: Path) -> None:
@@ -360,8 +360,8 @@ def download_video(
                 total += len(chunk)
                 if total > MAX_VIDEO_BYTES:
                     raise MediaError("too_large", "video exceeded the download size limit")
-                if len(prefix) < 16:
-                    prefix.extend(chunk[: 16 - len(prefix)])
+                if len(prefix) < 24:
+                    prefix.extend(chunk[: 24 - len(prefix)])
                 digest.update(chunk)
                 try:
                     stream.write(chunk)

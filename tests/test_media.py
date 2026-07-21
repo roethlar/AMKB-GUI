@@ -223,7 +223,20 @@ class VideoDownloaderTests(unittest.TestCase):
             self.assertFalse((Path(tmp) / "source.mp4.part").exists())
 
     def test_empty_or_non_mp4_payload_is_not_published(self) -> None:
-        for payload in (b"", b"not an mp4 payload", b"\x00\x00\x00\x08free"):
+        malformed_ftyp = (8).to_bytes(4, "big") + b"ftyp" + b"x" * 8
+        malformed_extended_ftyp = (
+            (1).to_bytes(4, "big")
+            + b"ftyp"
+            + (16).to_bytes(8, "big")
+            + b"x" * 8
+        )
+        for payload in (
+            b"",
+            b"not an mp4 payload",
+            b"\x00\x00\x00\x08free",
+            malformed_ftyp,
+            malformed_extended_ftyp,
+        ):
             with tempfile.TemporaryDirectory() as tmp:
                 destination = Path(tmp) / "source.mp4"
                 destination.write_bytes(b"existing")
