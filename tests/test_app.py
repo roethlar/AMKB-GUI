@@ -4079,8 +4079,8 @@ class LightingStudioEndpointTests(unittest.TestCase):
         png_bytes = png.getvalue()
 
         class Planner:
-            def plan(self, prompt, count, deadline):
-                planner_calls.append((prompt, count, deadline))
+            def plan(self, prompt, count, deadline, *, spec=None):
+                planner_calls.append((prompt, count, deadline, spec))
                 return llm.ConceptPlanResult(
                     llm.ConceptPlan("one brief", tuple(f"candidate {i}" for i in range(count))),
                     llm.ProviderUsage(10, True),
@@ -4148,6 +4148,8 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual("awaiting_selection", snapshot["status"])
         self.assertEqual(1, len(snapshot["candidates"]))
         self.assertEqual(1, len(planner_calls))
+        self.assertIsInstance(planner_calls[0][3], llm.RasterSpec)
+        self.assertEqual((40, 5), (planner_calls[0][3].width, planner_calls[0][3].height))
         self.assertEqual(1, len(image_calls))
         write_config.assert_not_called()
 
