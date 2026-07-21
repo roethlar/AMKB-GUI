@@ -69,6 +69,14 @@ const state = {
   conceptAssetUrls: new Map(),
   conceptAssetLoads: new Set(),
   conceptDestination: null,
+  animationMotion: "",
+  animationLoopMode: "smooth",
+  animationSubmitting: false,
+  animationError: "",
+  reviewTab: "device",
+  reviewFrameIndex: 0,
+  mappedLightingResults: new Map(),
+  mappedLightingResultLoads: new Set(),
   library: {
     jobs: [],
     details: new Map(),
@@ -671,6 +679,8 @@ function renderLightingJobStrip() {
 function clearConceptAssetUrls() {
   for(const url of state.conceptAssetUrls.values())URL.revokeObjectURL(url);
   state.conceptAssetUrls.clear();
+  state.mappedLightingResults.clear();
+  state.mappedLightingResultLoads.clear();
 }
 
 function clearLibraryAssetUrls() {
@@ -847,14 +857,51 @@ async function loadConceptAsset(jobId,assetId) {
     const previous=state.conceptAssetUrls.get(key);
     if(previous&&previous!==url)URL.revokeObjectURL(previous);
     state.conceptAssetUrls.set(key,url);
-    updateConceptStage();
+    refreshGenerationDialog();
   }catch(error){
-    if(state.conceptManifest?.job_id===jobId){state.conceptError=error.message;updateConceptStage();}
+    if(state.conceptManifest?.job_id===jobId){state.conceptError=error.message;refreshGenerationDialog();}
   }finally{state.conceptAssetLoads.delete(key);}
+}
+
+function latestAnimationAttempt(manifest=state.conceptManifest) {
+  const attempts=manifest?.animation_attempts||[];
+  return attempts.length?attempts[attempts.length-1]:null;
+}
+
+async function loadMappedLightingResult(jobId,assetId) {
+  const key=`${jobId}:${assetId}`;
+  if(state.mappedLightingResults.has(key)||state.mappedLightingResultLoads.has(key))return;
+  state.mappedLightingResultLoads.add(key);
+  try{
+    const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load LED result (${response.status})`);}
+    const result=await response.json();
+    if(!result||typeof result!=="object"||!result.tracks)throw new Error("The saved LED result is invalid.");
+    if(state.conceptManifest?.job_id!==jobId)return;
+    state.mappedLightingResults.set(key,result);
+    refreshGenerationDialog();
+  }catch(error){
+    if(state.conceptManifest?.job_id===jobId){state.animationError=error.message;refreshGenerationDialog();}
+  }finally{state.mappedLightingResultLoads.delete(key);}
 }
 
 function hydrateConceptAssets(manifest) {
   for(const candidate of manifest?.candidates||[])void loadConceptAsset(manifest.job_id,candidate.asset_id);
+  const attempt=latestAnimationAttempt(manifest);
+  if(!attempt)return;
+  for(const assetId of [attempt.selected_still_asset_id,attempt.source_video_asset_id,attempt.preview_asset_id]){
+    if(assetId)void loadConceptAsset(manifest.job_id,assetId);
+  }
+  const frameId=attempt.frame_asset_ids?.[state.reviewFrameIndex];
+  if(frameId)void loadConceptAsset(manifest.job_id,frameId);
+  if(attempt.mapped_result_asset_id)void loadMappedLightingResult(manifest.job_id,attempt.mapped_result_asset_id);
+}
+
+function refreshGenerationDialog() {
+  const dialog=$("#lighting-generate-dialog");
+  if(!dialog?.open)return;
+  if(state.lighting.create.stage===STAGES.CONCEPTS&&$("#concept-grid"))updateConceptStage();
+  else renderGenerationDialog();
 }
 
 function scheduleLightingJobPoll(jobId,delay=800) {
@@ -865,13 +912,14 @@ function scheduleLightingJobPoll(jobId,delay=800) {
 
 function syncLightingJob(manifest,{renderPage=true}={}) {
   const previousId=state.conceptManifest?.job_id;
-  if(previousId&&previousId!==manifest?.job_id){clearConceptAssetUrls();state.conceptExpectedCount=0;}
+  if(previousId&&previousId!==manifest?.job_id){clearConceptAssetUrls();state.conceptExpectedCount=0;state.reviewFrameIndex=0;state.reviewTab="device";state.animationError="";}
   state.conceptManifest=manifest||null;
   if(manifest){
     state.conceptPollFailures=0;
     state.aiPrompt=manifest.prompt||state.aiPrompt;
     if(!state.conceptDestination)state.conceptDestination={slot:state.ledSlot,target:manifest.target?.targets?.[0]||state.ledTarget};
     state.conceptExpectedCount=Math.max(state.conceptExpectedCount,conceptSlotCount(manifest));
+    if(manifest.loop_mode)state.animationLoopMode=manifest.loop_mode;
   }
   else{state.conceptExpectedCount=0;state.conceptDestination=null;}
   state.lighting = reduceLightingState(state.lighting, {
@@ -884,7 +932,7 @@ function syncLightingJob(manifest,{renderPage=true}={}) {
   history.replaceState({}, "", `${location.pathname}${location.search}${hash}`);
   hydrateConceptAssets(manifest);
   if(renderPage)render();
-  else{renderLightingJobStrip();updateConceptStage();}
+  else{renderLightingJobStrip();refreshGenerationDialog();}
   if(manifest?.status==="in_progress")scheduleLightingJobPoll(manifest.job_id);
 }
 
@@ -898,7 +946,7 @@ async function pollLightingJob(jobId,epoch=state.conceptPollEpoch) {
     if(error.status===400||error.status===404){syncLightingJob(null,{renderPage:false});return;}
     state.conceptError=error.message;
     state.conceptPollFailures++;
-    updateConceptStage();
+    refreshGenerationDialog();
     scheduleLightingJobPoll(jobId,Math.min(5000,800*(2**Math.min(3,state.conceptPollFailures))));
   }
 }
@@ -1470,12 +1518,7 @@ function wireLedEditor(gridColumns) {
   $("#play-led").addEventListener("click",toggleLightingPlayback);
 }
 
-function renderGenerationDialog() {
-  const content = $("#lighting-generate-content");
-  if (!state.config || !pageData().length) {
-    content.innerHTML = documentRequirementMarkup("Generation needs the document's LED geometry and frame limits.");
-    return;
-  }
+function generationDialogContext() {
   const model = activeLedModel();
   const manifest = state.conceptManifest?.job_id === state.lighting.activeJob?.id ? state.conceptManifest : null;
   const targetKey=manifest?.target?.targets?.[0]||state.conceptDestination?.target||state.ledTarget;
@@ -1485,8 +1528,15 @@ function renderGenerationDialog() {
   const librarySet = Boolean(state.settings?.library?.current_root);
   const busy = state.conceptSubmitting || state.lighting.activeJob?.status === "in_progress";
   const hasCandidates = Boolean(manifest?.candidates?.length);
-  const generateDisabled = busy || !keySet || !librarySet || !state.capabilities || !String(manifest?.prompt||state.aiPrompt).trim();
   const destinationSlot=state.conceptDestination?.slot||state.ledSlot;
+  return {model,manifest,target,pairsRelicGif,keySet,librarySet,busy,hasCandidates,destinationSlot};
+}
+
+function renderConceptStage(context) {
+  const content=$("#lighting-generate-content");
+  const {manifest,target,pairsRelicGif,keySet,librarySet,busy,hasCandidates,destinationSlot}=context;
+  const selectedCandidateId=state.lighting.create.selectedCandidateId;
+  const generateDisabled = busy || !keySet || !librarySet || !state.capabilities || !String(manifest?.prompt||state.aiPrompt).trim();
   content.innerHTML = `<div class="concept-stage">
     <div class="concept-prompt"><label class="control-label" for="concept-prompt">Describe the lighting</label><textarea id="concept-prompt" class="text-field" rows="4" maxlength="4000" placeholder="A soft violet aurora moving across deep blue…" ${busy||hasCandidates?'disabled':''}>${esc(manifest?.prompt || state.aiPrompt)}</textarea></div>
     <div class="concept-actions"><label for="concept-output-count">${hasCandidates?'Additional outputs':'Outputs'}<select id="concept-output-count" class="select-field" ${busy?'disabled':''}>${[1,2,3,4,5,6,7,8].map(number=>`<option value="${number}" ${number===state.conceptQuantity?'selected':''}>${number}</option>`).join("")}</select></label><span class="concept-destination">Slot ${destinationSlot - 4} · ${esc(target.label)}${pairsRelicGif?' + edge lights':''}</span><button id="generate-concepts" type="button" class="button primary" ${generateDisabled?'disabled':''}>${hasCandidates?'More like this':'Generate concepts'}</button><button id="cancel-concepts" type="button" class="button ghost" ${busy?'':'hidden'} ${state.lighting.activeJob?.id?'':'disabled'}>Cancel</button></div>
@@ -1496,10 +1546,157 @@ function renderGenerationDialog() {
     ${!keySet?`<p class="ai-hint">Add an xAI API key in <button type="button" id="concept-open-settings" class="link-button">Settings</button> to enable generation.</p>`:''}
     ${keySet&&!librarySet?`<p class="ai-hint">Choose a Library folder in <button type="button" id="concept-open-settings" class="link-button">Settings</button> before generating.</p>`:''}
     ${state.conceptError?`<p class="ai-error" role="alert">${esc(state.conceptError)}</p>`:''}
-    <small class="control-help">Each output is a separate still concept and is saved to your Library as it completes. Selection never animates or applies it automatically.</small>
+    <div class="concept-handoff"><div><strong>${selectedCandidateId?'Concept selected':'Choose one concept'}</strong><small>${selectedCandidateId?'Continue to set motion and looping. Nothing is generated yet.':'Selection is local and does not start a provider request.'}</small></div><button id="animate-selected" type="button" class="button primary" ${selectedCandidateId&&!busy?'':'disabled'}>Animate selected <span aria-hidden="true">→</span></button></div>
   </div>`;
   wireConceptStage();
   updateConceptStage();
+}
+
+function animationPhaseLabel(manifest) {
+  if(state.animationSubmitting)return "Starting animation…";
+  const labels={
+    video_planning:"Planning LED motion…",
+    video_submitting:"Starting the video request…",
+    video_polling:"Generating the one-second source video…",
+    background_retrieval:"The video is still generating in the background…",
+    video_downloading:"Saving the completed source video…",
+    local_processing:"Converting the complete video into device frames…",
+    ready_to_process:"The source video is saved; local frame conversion needs attention.",
+    cancelled_saved:"Generation stopped. The completed source video is still saved.",
+    submission_unknown:"xAI may have accepted the request, but its ID was not returned. The app will not retry automatically.",
+    video_plan_failed:"The animation plan could not be created.",
+    animation_failed:"Animation did not complete.",
+    local_failed:"The source video is safe, but local frame conversion failed.",
+  };
+  return labels[manifest?.phase]||String(manifest?.phase||"").replaceAll("_"," ");
+}
+
+function selectedCandidate(manifest=state.conceptManifest) {
+  const candidateId=state.lighting.create.selectedCandidateId;
+  return manifest?.candidates?.find(candidate=>candidate.candidate_id===candidateId)||null;
+}
+
+function assetUrl(jobId,assetId) {
+  return assetId?state.conceptAssetUrls.get(`${jobId}:${assetId}`):null;
+}
+
+function renderAnimateStage(context) {
+  const content=$("#lighting-generate-content");
+  const {manifest,target,destinationSlot}=context;
+  const candidate=selectedCandidate(manifest);
+  if(!manifest||!candidate){
+    content.innerHTML='<div class="generation-ready"><strong>Select a concept first.</strong><p>Return to Concepts and choose the still you want to animate.</p><button id="animation-back" type="button" class="button ghost">← Concepts</button></div>';
+    $("#animation-back")?.addEventListener("click",showConceptStage);
+    return;
+  }
+  const attempt=latestAnimationAttempt(manifest);
+  const selectedAssetId=attempt?.candidate_id===candidate.candidate_id&&attempt?.selected_still_asset_id?attempt.selected_still_asset_id:candidate.asset_id;
+  const selectedUrl=assetUrl(manifest.job_id,selectedAssetId);
+  const active=state.animationSubmitting||manifest.status==="in_progress";
+  const retainedVideo=Boolean(attempt?.source_video_asset_id);
+  const canRetryLocal=retainedVideo&&["ready_to_process","cancelled_saved"].includes(manifest.status);
+  const phase=animationPhaseLabel(manifest);
+  const loops=[
+    ["smooth","Smooth loop","Blends the end back into the beginning."],
+    ["none","Hard loop","Keeps the whole video and jumps directly back to frame 1."],
+    ["ping_pong","Ping-pong","Plays forward, then backward for a seamless reversal."],
+  ];
+  content.innerHTML=`<section class="animate-stage" aria-labelledby="animate-stage-title">
+    <button id="animation-back" type="button" class="stage-back">← Concepts</button>
+    <div class="animate-layout">
+      <figure id="animation-selected-still" class="animation-anchor">${selectedUrl?`<img src="${esc(selectedUrl)}" alt="Selected concept to animate">`:'<span class="concept-placeholder">Loading selected concept…</span>'}<figcaption><span>Selected concept</span><strong>${esc(candidate.revised_prompt||candidate.prompt||manifest.prompt)}</strong></figcaption></figure>
+      <div class="animation-controls">
+        <div><p class="eyebrow">One-second video</p><h3 id="animate-stage-title">Set the motion</h3><p class="animation-intro">The full source video is saved, then converted locally into the maximum ${Number(manifest.target?.frame_cap)||"device"} frames for ${esc(target.label)}.</p></div>
+        <label class="animation-field" for="animation-motion"><span>Motion direction <small>Optional</small></span><textarea id="animation-motion" class="text-field" rows="3" maxlength="1000" placeholder="Slowly drift left while the bright streak wraps cleanly…" ${active?'disabled':''}>${esc(state.animationMotion)}</textarea></label>
+        <label class="animation-field" for="animation-loop-mode"><span>Loop treatment</span><select id="animation-loop-mode" class="select-field" ${active?'disabled':''}>${loops.map(([value,label,description])=>`<option value="${value}" ${state.animationLoopMode===value?'selected':''}>${label} — ${description}</option>`).join("")}</select></label>
+        ${phase?`<div class="animation-status ${["failed","ready_to_process","cancelled_saved","submission_unknown"].includes(manifest.status)?'warning':''}" role="status"><span class="job-state-mark" aria-hidden="true"></span><p>${esc(phase)}</p></div>`:''}
+        ${state.animationError?`<p class="ai-error" role="alert">${esc(state.animationError)}</p>`:''}
+        <div class="animation-actions">${canRetryLocal?'<button id="retry-local-processing" type="button" class="button primary">Process saved video</button><small>No provider call or additional xAI charge.</small>':`<button id="start-animation" type="button" class="button primary" ${active?'disabled':''}>${attempt?'Generate another animation':'Generate animation'}</button><small>This button starts one paid video request. Nothing starts on selection.</small>`}${active?'<button id="cancel-animation" type="button" class="button ghost">Cancel</button>':''}</div>
+        <p class="animation-destination">Destination locked to Custom ${destinationSlot-4} · ${esc(target.label)} until review.</p>
+      </div>
+    </div>
+  </section>`;
+  $("#animation-back")?.addEventListener("click",showConceptStage);
+  $("#animation-motion")?.addEventListener("input",event=>{state.animationMotion=event.target.value;});
+  $("#animation-loop-mode")?.addEventListener("change",event=>{state.animationLoopMode=event.target.value;});
+  $("#start-animation")?.addEventListener("click",startLightingAnimation);
+  $("#retry-local-processing")?.addEventListener("click",retryLocalProcessing);
+  $("#cancel-animation")?.addEventListener("click",cancelLightingJob);
+}
+
+function reviewBlockedMessage(reason) {
+  return {
+    "document-required":"Open a compatible keyboard document before applying.",
+    "family-mismatch":"This result was generated for a different keyboard family.",
+    "slot-unavailable":"The original custom slot is not available in this document.",
+    "target-mismatch":"The original LED target has changed.",
+    "target-unsupported":"This document does not support every generated LED target.",
+    "result-not-ready":"The LED result is still loading.",
+  }[reason]||"This result cannot be applied to the current document.";
+}
+
+function renderReviewStage(context) {
+  const content=$("#lighting-generate-content");
+  const {manifest,target,pairsRelicGif,destinationSlot}=context;
+  const attempt=latestAnimationAttempt(manifest);
+  const resultAssetId=attempt?.mapped_result_asset_id;
+  if(!manifest||!attempt||!resultAssetId){
+    content.innerHTML='<div class="generation-ready"><strong>Review is not ready yet.</strong><p>Return to Animate to see the current status.</p><button id="review-back" type="button" class="button ghost">← Animate</button></div>';
+    $("#review-back")?.addEventListener("click",showAnimateStage);
+    return;
+  }
+  const result=state.mappedLightingResults.get(`${manifest.job_id}:${resultAssetId}`);
+  const sourceUrl=assetUrl(manifest.job_id,attempt.source_video_asset_id);
+  const posterUrl=assetUrl(manifest.job_id,attempt.preview_asset_id);
+  const frameIds=attempt.frame_asset_ids||[];
+  state.reviewFrameIndex=Math.min(Math.max(0,state.reviewFrameIndex),Math.max(0,frameIds.length-1));
+  const frameUrl=assetUrl(manifest.job_id,frameIds[state.reviewFrameIndex]);
+  const destination=state.conceptDestination||{slot:destinationSlot,target:target.key};
+  const applyCheck=reduceLightingState(state.lighting,{type:"APPLY_REQUESTED"},{document:documentDescriptor(),destination});
+  const blocked=applyCheck.blocked||(result?null:"result-not-ready");
+  const tabs=[["device","LED result"],["source","Source video"],["frames","Frames"]];
+  const frameCount=Number(result?.source_frames||frameIds.length||manifest.target?.frame_cap||0);
+  const duration=Number(result?.duration_ms||34);
+  content.innerHTML=`<section class="review-stage" aria-labelledby="review-stage-title">
+    <button id="review-back" type="button" class="stage-back">← Animate</button>
+    <header class="review-heading"><div><p class="eyebrow">Saved locally</p><h3 id="review-stage-title">Review before applying</h3><p>${frameCount} device frame${frameCount===1?'':'s'} · ${duration} ms per frame · Custom ${destination.slot-4} · ${esc(target.label)}${pairsRelicGif?' + edge lights':''}</p></div><span class="pill">Nothing applied yet</span></header>
+    <div class="review-tabs" role="tablist" aria-label="Animation previews">${tabs.map(([value,label])=>`<button type="button" role="tab" data-review-tab="${value}" aria-selected="${state.reviewTab===value}" class="${state.reviewTab===value?'active':''}">${label}</button>`).join("")}</div>
+    <div class="review-media">
+      <div data-review-panel="device" ${state.reviewTab==='device'?'':'hidden'}>${posterUrl?`<img class="review-pixel-preview" src="${esc(posterUrl)}" alt="Exact LED raster preview, first frame">`:'<div class="review-loading">Loading exact LED preview…</div>'}<p>Exact ${Number(manifest.target?.raster?.width)||""}×${Number(manifest.target?.raster?.height)||""} LED raster after local conversion.</p></div>
+      <div data-review-panel="source" ${state.reviewTab==='source'?'':'hidden'}>${sourceUrl?`<video controls muted preload="metadata" playsinline src="${esc(sourceUrl)}"></video>`:'<div class="review-loading">Loading saved source video…</div>'}<p>The original provider video, retained in your Library.</p></div>
+      <div data-review-panel="frames" ${state.reviewTab==='frames'?'':'hidden'}>${frameUrl?`<img class="review-pixel-preview" src="${esc(frameUrl)}" alt="Processed LED frame ${state.reviewFrameIndex+1}">`:'<div class="review-loading">Loading frame ${state.reviewFrameIndex+1}…</div>'}${frameIds.length?`<label class="review-scrubber" for="review-frame"><span>Frame <strong>${state.reviewFrameIndex+1}</strong> of ${frameIds.length}</span><input id="review-frame" type="range" min="1" max="${frameIds.length}" value="${state.reviewFrameIndex+1}"></label>`:''}<p>Scrub the exact banked frames; playback remains paused until you choose it in the editor.</p></div>
+    </div>
+    ${state.animationError?`<p class="ai-error" role="alert">${esc(state.animationError)}</p>`:''}
+    <footer class="review-actions"><div>${blocked?`<strong>Apply unavailable</strong><small>${esc(reviewBlockedMessage(blocked))}</small>`:'<strong>Ready for the open document</strong><small>Apply creates one undo step and never writes to the keyboard.</small>'}</div><button id="apply-reviewed-lighting" type="button" class="button primary" ${blocked?'disabled':''}>Apply to Custom ${destination.slot-4} · ${esc(target.label)}</button></footer>
+  </section>`;
+  $("#review-back")?.addEventListener("click",showAnimateStage);
+  $$('[data-review-tab]',content).forEach(button=>button.addEventListener("click",()=>{state.reviewTab=button.dataset.reviewTab;renderGenerationDialog();}));
+  $("#review-frame")?.addEventListener("input",event=>{state.reviewFrameIndex=Number(event.target.value)-1;hydrateConceptAssets(manifest);renderGenerationDialog();});
+  $("#apply-reviewed-lighting")?.addEventListener("click",applyReviewedLighting);
+  hydrateConceptAssets(manifest);
+}
+
+function updateGenerationSteps() {
+  $$('[data-lighting-stage]').forEach(step=>{
+    const stage=step.dataset.lightingStage;
+    const current=stage===state.lighting.create.stage;
+    if(current)step.setAttribute("aria-current","step");else step.removeAttribute("aria-current");
+    const button=$("button",step);
+    if(button)button.disabled=current||(stage===STAGES.ANIMATE&&!state.lighting.create.selectedCandidateId)||(stage===STAGES.REVIEW&&!state.lighting.activeJob?.resultAssetId);
+  });
+}
+
+function renderGenerationDialog() {
+  const content = $("#lighting-generate-content");
+  updateGenerationSteps();
+  if (!state.config || !pageData().length) {
+    content.innerHTML = documentRequirementMarkup("Generation needs the document's LED geometry and frame limits.");
+    return;
+  }
+  const context=generationDialogContext();
+  if(state.lighting.create.stage===STAGES.ANIMATE)renderAnimateStage(context);
+  else if(state.lighting.create.stage===STAGES.REVIEW)renderReviewStage(context);
+  else renderConceptStage(context);
 }
 
 function openGenerationDialog() {
@@ -1543,6 +1740,28 @@ function appendConceptSlot(grid,index) {
     updateConceptStage();
   });
   grid.append(label);
+}
+
+function showConceptStage() {
+  state.lighting=reduceLightingState(state.lighting,{type:"SHOW_CONCEPTS"}).state;
+  persistLightingState();
+  renderGenerationDialog();
+}
+
+function showAnimateStage() {
+  const transition=reduceLightingState(state.lighting,{type:"SHOW_ANIMATE"});
+  if(transition.blocked)return;
+  state.lighting=transition.state;
+  persistLightingState();
+  renderGenerationDialog();
+}
+
+function showReviewStage() {
+  const transition=reduceLightingState(state.lighting,{type:"SHOW_REVIEW"});
+  if(transition.blocked)return;
+  state.lighting=transition.state;
+  persistLightingState();
+  renderGenerationDialog();
 }
 
 function updateConceptStage() {
@@ -1595,6 +1814,14 @@ function updateConceptStage() {
     button.disabled=busy||!eligible;
     button.textContent=candidates.length?"More like this":"Generate concepts";
   }
+  const selectedCandidateId=state.lighting.create.selectedCandidateId;
+  const animate=$("#animate-selected");
+  if(animate)animate.disabled=!selectedCandidateId||state.conceptSubmitting||state.lighting.activeJob?.status==="in_progress";
+  const handoff=$(".concept-handoff");
+  if(handoff){
+    $("strong",handoff).textContent=selectedCandidateId?"Concept selected":"Choose one concept";
+    $("small",handoff).textContent=selectedCandidateId?"Continue to set motion and looping. Nothing is generated yet.":"Selection is local and does not start a provider request.";
+  }
 }
 
 function wireConceptStage() {
@@ -1603,6 +1830,72 @@ function wireConceptStage() {
   $("#concept-open-settings")?.addEventListener("click",()=>openSettings({returnToGeneration:true}));
   $("#generate-concepts")?.addEventListener("click",startConceptGeneration);
   $("#cancel-concepts")?.addEventListener("click",cancelLightingJob);
+  $("#animate-selected")?.addEventListener("click",showAnimateStage);
+}
+
+async function startLightingAnimation() {
+  const jobId=state.conceptManifest?.job_id;
+  const selectedCandidateId=state.lighting.create.selectedCandidateId;
+  if(!jobId||!selectedCandidateId||state.animationSubmitting||state.lighting.activeJob?.status==="in_progress")return;
+  state.animationSubmitting=true;
+  state.animationError="";
+  renderGenerationDialog();
+  try{
+    if(!await ensureLightingPrivacyAcknowledged())return;
+    const motion=state.animationMotion.trim();
+    await api(`/api/lighting/jobs/${encodeURIComponent(jobId)}/animate`,{
+      method:"POST",
+      body:JSON.stringify({candidate_id:selectedCandidateId,motion:motion||null,loop_mode:state.animationLoopMode}),
+    });
+    await restoreLightingJob();
+  }catch(error){state.animationError=aiErrorMessage(error);}
+  finally{state.animationSubmitting=false;refreshGenerationDialog();}
+}
+
+async function retryLocalProcessing() {
+  const job=state.lighting.activeJob;
+  if(!job||state.animationSubmitting)return;
+  state.animationSubmitting=true;
+  state.animationError="";
+  renderGenerationDialog();
+  try{
+    await api(`/api/lighting/jobs/${encodeURIComponent(job.id)}/process`,{method:"POST",body:"{}"});
+    await restoreLightingJob();
+  }catch(error){state.animationError=error.message;}
+  finally{state.animationSubmitting=false;refreshGenerationDialog();}
+}
+
+function applyReviewedLighting() {
+  const manifest=state.conceptManifest;
+  const attempt=latestAnimationAttempt(manifest);
+  const destination=state.conceptDestination;
+  if(!manifest||!attempt?.mapped_result_asset_id||!destination)return;
+  const decision=reduceLightingState(state.lighting,{type:"APPLY_REQUESTED"},{document:documentDescriptor(),destination});
+  if(decision.blocked){state.animationError=reviewBlockedMessage(decision.blocked);renderGenerationDialog();return;}
+  const result=state.mappedLightingResults.get(`${manifest.job_id}:${attempt.mapped_result_asset_id}`);
+  if(!result){state.animationError="The saved LED result is still loading.";renderGenerationDialog();return;}
+  const pairsRelicGif=(manifest.target?.targets||[]).includes("spotlight_frames");
+  mutate(()=>{
+    state.ledSlot=destination.slot;
+    state.ledTarget=destination.target;
+    applyLedResultToPage(getPage(destination.slot),result,destination.target,pairsRelicGif);
+    state.ledFrame=0;
+  },false);
+  const appliedFrames=Number(result.source_frames||attempt.frame_asset_ids?.length||0);
+  state.conceptPollEpoch++;
+  if(state.conceptPollTimer)clearTimeout(state.conceptPollTimer);
+  clearConceptAssetUrls();
+  state.conceptManifest=null;
+  state.conceptExpectedCount=0;
+  state.conceptDestination=null;
+  state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:null}).state;
+  state.lightingJobId=null;
+  state.library.loaded=false;
+  persistLightingState();
+  history.replaceState({},"",`${location.pathname}${location.search}${formatLightingHash(state.lighting.route)}`);
+  render();
+  $("#lighting-generate-dialog").close();
+  toast("Lighting applied",`${appliedFrames} frames added to Custom ${destination.slot-4}. The keyboard has not been written.`,"success");
 }
 
 function wireLedPreview() {
@@ -1804,6 +2097,7 @@ async function loadAiConfig() {
   try { state.settings = await api("/api/settings"); } catch (error) {}
   const preferred=Number(state.settings?.generation?.candidate_count);
   if(Number.isInteger(preferred)&&preferred>=1&&preferred<=8)state.conceptQuantity=preferred;
+  if(["smooth","none","ping_pong"].includes(state.settings?.generation?.loop_mode))state.animationLoopMode=state.settings.generation.loop_mode;
   refreshAiGate();
 }
 
@@ -2462,6 +2756,11 @@ $("#library-search").addEventListener("input",event=>{
 });
 $("#lighting-generate-open").addEventListener("click",openGenerationDialog);
 $("#lighting-generate-dialog").addEventListener("close",handleGenerationDialogClose);
+$$('[data-generation-stage]').forEach(button=>button.addEventListener('click',()=>{
+  if(button.dataset.generationStage===STAGES.CONCEPTS)showConceptStage();
+  else if(button.dataset.generationStage===STAGES.ANIMATE)showAnimateStage();
+  else if(button.dataset.generationStage===STAGES.REVIEW)showReviewStage();
+}));
 $$('.nav-item').forEach(item=>item.addEventListener('click',()=>navigateTo(item.dataset.route, {focusHeading: true})));
 $$('[data-lighting-route]').forEach(tab => {
   tab.addEventListener('click', () => navigateTo(tab.dataset.lightingRoute));

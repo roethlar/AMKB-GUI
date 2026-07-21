@@ -95,8 +95,8 @@ test("AI generation is contained in a closed secondary dialog", () => {
 });
 
 test("Generate uses banked still outputs instead of legacy animation frames", () => {
-  const start = js.indexOf("function renderGenerationDialog");
-  const end = js.indexOf("function openGenerationDialog", start);
+  const start = js.indexOf("function renderConceptStage");
+  const end = js.indexOf("function animationPhaseLabel", start);
   const dialog = js.slice(start, end);
   assert.ok(start >= 0 && end > start);
   assert.match(dialog, /'Additional outputs':'Outputs'/);
@@ -119,6 +119,40 @@ test("Generate uses banked still outputs instead of legacy animation frames", ()
   assert.match(js, /const extendExisting=Boolean\(manifest\?\.candidates\?\.length\)/);
   assert.match(js, /extendExisting[\s\S]*\/api\/lighting\/jobs\/[\s\S]*:\s*await api\("\/api\/lighting\/concepts"/);
   assert.match(js, /scheduleLightingJobPoll\(jobId,Math\.min\(5000/);
+});
+
+test("a selected concept has an explicit animation and review handoff", () => {
+  assert.match(js, /id="animate-selected"/);
+  assert.match(js, /type:\s*"SHOW_ANIMATE"/);
+  const selection = js.slice(js.indexOf("function appendConceptSlot"), js.indexOf("function updateConceptStage"));
+  assert.doesNotMatch(selection, /\/animate|startLightingAnimation|api\(/);
+
+  for (const id of [
+    "animation-selected-still",
+    "animation-motion",
+    "animation-loop-mode",
+    "start-animation",
+    "retry-local-processing",
+  ]) assert.match(js, new RegExp(`id="${id}"`));
+  assert.match(js, /\["smooth","Smooth loop"/);
+  assert.match(js, /\["none","Hard loop"/);
+  assert.match(js, /\["ping_pong","Ping-pong"/);
+  assert.match(js, /\/api\/lighting\/jobs\/\$\{encodeURIComponent\(jobId\)\}\/animate/);
+  assert.match(js, /candidate_id:\s*selectedCandidateId/);
+  assert.match(js, /motion:\s*motion\s*\|\|\s*null/);
+  assert.match(js, /loop_mode:\s*state\.animationLoopMode/);
+  assert.match(js, /\/api\/lighting\/jobs\/\$\{encodeURIComponent\(job\.id\)\}\/process/);
+
+  assert.match(js, /\[\["device","LED result"\],\["source","Source video"\],\["frames","Frames"\]\]/);
+  assert.match(js, /data-review-tab="\$\{value\}"/);
+  assert.match(js, /<video[^>]*controls[^>]*muted[^>]*preload="metadata"/);
+  assert.doesNotMatch(js, /<video[^>]*autoplay/);
+  assert.match(js, /mappedLightingResults/);
+  assert.match(js, /type:\s*"APPLY_REQUESTED"/);
+  assert.match(js, /applyLedResultToPage\(getPage\(destination\.slot\),result,destination\.target,pairsRelicGif\)/);
+  const apply = js.slice(js.indexOf("function applyReviewedLighting"), js.indexOf("\n}", js.indexOf("function applyReviewedLighting")) + 2);
+  assert.match(apply, /mutate\(\(\)=>\{/);
+  assert.equal((apply.match(/mutate\(/g) || []).length, 1);
 });
 
 test("Library and Settings have document-independent routed surfaces", () => {
