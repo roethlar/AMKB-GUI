@@ -1527,6 +1527,19 @@ class GrokConceptProviderTests(unittest.TestCase):
         return time.monotonic() + 30.0
 
     @staticmethod
+    def _spec() -> "llm.RasterSpec":
+        return llm.RasterSpec(
+            model="80",
+            target="keyframes",
+            extra_targets=("spotlight_frames",),
+            width=18,
+            height=7,
+            mapped_positions=None,
+            output_len=89,
+            max_frames=200,
+        )
+
+    @staticmethod
     def _plan_dict(count: int = 3) -> dict:
         return {
             "visual_brief": "A tiny amber comet crossing a deep-blue safe band.",
@@ -1623,6 +1636,32 @@ class GrokConceptProviderTests(unittest.TestCase):
         )
         self.assertIn("Do not propose unrelated alternative concepts", instruction)
         self.assertIn("meaningfully distinct", instruction)
+
+    def test_planner_overrides_cinematic_drift_with_device_led_constraints(self) -> None:
+        drifted = {
+            "visual_brief": "A cinematic lake beneath a detailed night sky.",
+            "candidate_prompts": [
+                "Ultra-wide cinematic landscape with a lagoon, fog, and tiny stars."
+            ],
+        }
+        transport = _FakeTransport(response=self._concept_response(drifted))
+        result = llm.GrokConceptPlanner(_FAKE_KEY, transport=transport).plan(
+            "shooting stars, blue-aqua color palette",
+            1,
+            self._future_deadline(),
+            spec=self._spec(),
+        )
+
+        instruction = transport.calls[0]["payload"]["input"][0]["content"]
+        self.assertIn("addressable keyboard LED source texture", instruction)
+        self.assertIn("18x7", instruction)
+        self.assertIn("89 LED samples", instruction)
+        self.assertIn("not a cinematic still, landscape, or photographed scene", instruction)
+        submitted_prompt = result.plan.candidate_prompts[0]
+        self.assertIn(drifted["candidate_prompts"][0], submitted_prompt)
+        self.assertIn("NON-NEGOTIABLE LED OUTPUT", submitted_prompt)
+        self.assertIn("cover-downsampled to 18x7", submitted_prompt)
+        self.assertIn("Do not depict a keyboard", submitted_prompt)
 
     def test_planner_rejects_prompt_count_and_uncurated_model_before_call(self) -> None:
         transport = _FakeTransport(response=self._concept_response(self._plan_dict()))

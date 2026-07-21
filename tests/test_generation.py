@@ -56,9 +56,17 @@ class _Planner:
         self.before_call = None
         self.failure: ProviderError | None = None
 
-    def plan(self, prompt: object, candidate_count: object, deadline: float) -> ConceptPlanResult:
+    def plan(
+        self,
+        prompt: object,
+        candidate_count: object,
+        deadline: float,
+        *,
+        spec: object = None,
+    ) -> ConceptPlanResult:
         assert isinstance(prompt, str)
         assert isinstance(candidate_count, int)
+        assert spec is not None
         if self.before_call is not None:
             self.before_call()
         self.calls.append((prompt, candidate_count, deadline))

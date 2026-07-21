@@ -997,6 +997,45 @@ def _curated_model(role: str, model: object) -> str:
         raise ProviderError("config", f"selected {role} model is not available") from exc
 
 
+def _concept_led_constraints(spec: RasterSpec) -> str:
+    """Return the non-optional image constraints for an LED-sized concept."""
+    _video_raster_context(spec)
+    paired_targets = ", ".join(spec.extra_targets) if spec.extra_targets else "none"
+    lines = [
+        "Design an addressable keyboard LED source texture, not a cinematic "
+        "still, landscape, or photographed scene.",
+        f"The image will be cover-downsampled to {spec.width}x{spec.height}; "
+        f"{spec.output_len} LED samples drive the primary {spec.target} target, "
+        f"and the same texture also drives these paired targets: {paired_targets}.",
+        "Translate the requested subject into a flat 2D emissive motif on a "
+        "dark ground. Use broad high-contrast color fields, bold silhouettes, "
+        "and trails at least one final raster cell thick; prefer features two "
+        "to four cells wide.",
+        "Do not depict a keyboard or device. Do not add horizons, scenery, "
+        "water, clouds, reflections, realistic depth, perspective, lens effects, "
+        "fine texture, tiny stars, text, borders, or photographic detail.",
+        "Every important shape and color change must remain legible after the "
+        "tiny raster reduction. Treat semantic nouns as symbolic light patterns, "
+        "not literal environments.",
+    ]
+    if spec.mapped_positions:
+        positions = ", ".join(f"({x},{y})" for x, y in spec.mapped_positions)
+        lines.append(
+            "Only these final raster coordinates emit light; concentrate the "
+            f"motif on them and leave other cells dark: {positions}."
+        )
+    return " ".join(lines)
+
+
+def _steered_concept_prompt(prompt: str, spec: RasterSpec) -> str:
+    """Make device constraints survive even when the interpreter drifts."""
+    return (
+        f"Creative motif: {prompt}\n\n"
+        "NON-NEGOTIABLE LED OUTPUT: "
+        f"{_concept_led_constraints(spec)}"
+    )
+
+
 class GrokConceptPlanner:
     """Create a strict, exactly-N concept plan through the xAI Responses API."""
 
@@ -1008,7 +1047,12 @@ class GrokConceptPlanner:
         self._transport = transport if transport is not None else _xai_request
 
     def plan(
-        self, prompt: object, candidate_count: object, deadline: float
+        self,
+        prompt: object,
+        candidate_count: object,
+        deadline: float,
+        *,
+        spec: RasterSpec | None = None,
     ) -> ConceptPlanResult:
         if (
             not isinstance(prompt, str)
@@ -1020,22 +1064,26 @@ class GrokConceptPlanner:
                 f"concept prompt must be a non-empty string of at most {MAX_CONCEPT_PROMPT_CHARS} characters",
             )
         count = _concept_count(candidate_count)
+        led_constraints = _concept_led_constraints(spec) if spec is not None else None
+        instruction = (
+            "You are a lighting concept designer. Return exactly "
+            f"{count} unique, meaningfully distinct, closely related minor "
+            "variations of one shared visual brief. Keep the central subject, "
+            "composition, palette, and mood coherent; vary only minor "
+            "execution details. Do not propose unrelated alternative concepts. "
+            "Each prompt must describe a complete standalone image, use a "
+            "wide 20:9 composition, and keep important content in the safe "
+            "central horizontal band."
+        )
+        if led_constraints is not None:
+            instruction = f"{instruction}\n\n{led_constraints}"
         payload = {
             "model": self._model,
             "store": False,
             "input": [
                 {
                     "role": "system",
-                    "content": (
-                        "You are a lighting concept designer. Return exactly "
-                        f"{count} unique, meaningfully distinct, closely related minor "
-                        "variations of one shared visual brief. Keep the central subject, "
-                        "composition, palette, and mood coherent; vary only minor "
-                        "execution details. Do not propose unrelated alternative concepts. "
-                        "Each prompt must describe a complete standalone image, use a "
-                        "wide 20:9 composition, and keep important content in the safe "
-                        "central horizontal band."
-                    ),
+                    "content": instruction,
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -1056,6 +1104,14 @@ class GrokConceptPlanner:
             text = self._extract_output_text(response)
             parsed = json.loads(text)
             plan = concept_plan_from_json(parsed, count)
+            if spec is not None:
+                plan = ConceptPlan(
+                    visual_brief=plan.visual_brief,
+                    candidate_prompts=tuple(
+                        _steered_concept_prompt(candidate, spec)
+                        for candidate in plan.candidate_prompts
+                    ),
+                )
         except ProviderError as exc:
             raise ProviderError(
                 exc.code,

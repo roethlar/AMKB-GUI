@@ -2376,6 +2376,7 @@ class GenerationCoordinator:
                 self._finish_cancelled(job_id, batch_id)
                 return
             manifest = self._library.load_manifest(job_id)
+            spec, _targets = self._video_spec(manifest)
             planner_operation = self._planner_operation(manifest, batch_id)
             planner = self._planner_factory(api_key, manifest["models"]["interpreter"])
             image_provider = self._image_provider_factory(api_key, manifest["models"]["concept"])
@@ -2389,6 +2390,7 @@ class GenerationCoordinator:
                     manifest["prompt"],
                     _batch(manifest, batch_id)["requested_count"],
                     deadline,
+                    spec=spec,
                 )
                 self._complete_plan(job_id, batch_id, planner_operation, plan_result)
             except ProviderError as error:
