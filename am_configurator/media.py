@@ -321,6 +321,7 @@ def download_video(
     published = False
     backup_path = destination_path.with_name(destination_path.name + ".previous")
     backup_created = False
+    preserve_backup = False
     try:
         _content_length(response)
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
@@ -390,7 +391,17 @@ def download_video(
                 _fsync_directory(destination_path.parent)
             except OSError:
                 if backup_created:
-                    os.replace(backup_path, destination_path)
+                    rollback_failure: MediaError | None = None
+                    try:
+                        os.replace(backup_path, destination_path)
+                    except OSError:
+                        preserve_backup = True
+                        rollback_failure = MediaError(
+                            "io",
+                            "video publication rollback failed; previous file was preserved",
+                        )
+                    if rollback_failure is not None:
+                        raise rollback_failure from None
                     backup_created = False
                 else:
                     destination_path.unlink(missing_ok=True)
@@ -430,7 +441,7 @@ def download_video(
                 part_path.unlink(missing_ok=True)
             except OSError:
                 pass
-        if backup_created:
+        if backup_created and not preserve_backup:
             try:
                 backup_path.unlink(missing_ok=True)
             except OSError:

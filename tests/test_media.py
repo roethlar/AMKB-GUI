@@ -357,6 +357,44 @@ class VideoDownloaderTests(unittest.TestCase):
             self.assertFalse((Path(tmp) / "source.mp4.part").exists())
             self.assertFalse((Path(tmp) / "source.mp4.previous").exists())
 
+    def test_failed_rollback_preserves_previous_destination_backup(self) -> None:
+        real_fsync = os.fsync
+        real_replace = os.replace
+        fsync_calls = 0
+        replace_calls = 0
+
+        def fail_directory_sync(fd: int) -> None:
+            nonlocal fsync_calls
+            fsync_calls += 1
+            if fsync_calls == 1:
+                real_fsync(fd)
+                return
+            raise OSError("directory sync failure")
+
+        def fail_rollback(source, destination) -> None:
+            nonlocal replace_calls
+            replace_calls += 1
+            if replace_calls == 2:
+                raise OSError("rollback failure")
+            real_replace(source, destination)
+
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            media.os, "fsync", side_effect=fail_directory_sync
+        ), patch.object(media.os, "replace", side_effect=fail_rollback):
+            destination = Path(tmp) / "source.mp4"
+            destination.write_bytes(b"existing")
+            with self.assertRaises(media.MediaError):
+                media.download_video(
+                    self._URL,
+                    destination,
+                    self._deadline(),
+                    opener=_Opener(_Response(_mp4_bytes())),
+                )
+            self.assertEqual(
+                (Path(tmp) / "source.mp4.previous").read_bytes(), b"existing"
+            )
+            self.assertFalse((Path(tmp) / "source.mp4.part").exists())
+
     def test_success_is_private_and_fsyncs_before_atomic_publication(self) -> None:
         real_fsync = os.fsync
         calls: list[int] = []
