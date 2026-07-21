@@ -37,6 +37,16 @@
   was rebuilt through the versioned builder, passed frozen smoke, and launched
   with the Relic profile for owner visual inspection. No provider or hardware
   call was made.
+- The temporary legacy 1–8 animation-frame adapter was removed from Generate in
+  `78e236f`. Generate now treats 1–8 as separately banked still-concept outputs
+  (saved default four), uses the durable Concepts job and authenticated asset
+  routes, keeps candidate slots stable while polling, makes selection local
+  only, and never exposes provider-call counts or auto-applies. Accepted paid
+  jobs are persisted before status polling; transient/stale polls and concurrent
+  asset loads fail safely. The full verification entry point passed at
+  `78e236f` with 256 Python tests and 27 browser tests. Versioned macOS build
+  `0.1.15` passed frozen smoke and was visually checked at 1440×920 and 520×720
+  with the Relic profile; no provider or hardware call was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -61,8 +71,9 @@
 ## Next
 
 - Continue Task 11 with the native library-folder bridge and full
-  Provider/Models/Storage/Costs Settings page. Do not separately repair the
-  legacy `previous_plan` path.
+  Provider/Models/Storage/Costs Settings page, then finish Task 12's explicit
+  selected-concept handoff into Animate. Do not separately repair the legacy
+  `previous_plan` path.
 - A paid live xAI video acceptance check remains optional and needs a separate
   explicit go after the offline video pipeline is implemented.
 - Carried over: address any failures surfaced by the committed CI and
