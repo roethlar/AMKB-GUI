@@ -181,6 +181,24 @@ test("job projection never exposes a prior animation attempt's result", () => {
   assert.equal(projectLightingJob(manifest).resultAssetId, "new-result");
 });
 
+test("a new animation attempt on the same job leaves Review for Animate", () => {
+  const reviewed = reduceLightingState(createLightingState(), {
+    type: "JOB_SYNCED",
+    job: readyJob(),
+  }).state;
+  const restarted = reduceLightingState(reviewed, {
+    type: "JOB_SYNCED",
+    job: readyJob({
+      status: "in_progress",
+      phase: "video_planning",
+      resultAssetId: null,
+      progress: null,
+    }),
+  }).state;
+  assert.equal(restarted.create.stage, STAGES.ANIMATE);
+  assert.equal(restarted.activeJob.resultAssetId, null);
+});
+
 test("hash routing round-trips safe routes and opaque job IDs", () => {
   for (const route of Object.values(ROUTES)) {
     assert.deepEqual(parseLightingHash(formatLightingHash(route, JOB_ID)), {route, jobId: JOB_ID});

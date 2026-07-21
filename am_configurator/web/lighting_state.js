@@ -163,12 +163,19 @@
           : null;
         const becameReady = sameJob && !state.activeJob?.resultAssetId && activeJob?.resultAssetId;
         const beganAnimation = sameJob && !state.activeJob?.selectedCandidateId && activeJob?.selectedCandidateId;
+        const phase = String(activeJob?.phase || "").toLowerCase();
+        const restartedAnimation = sameJob
+          && state.activeJob?.resultAssetId
+          && !activeJob?.resultAssetId
+          && (phase.includes("video") || phase.includes("animat") || phase.includes("process"));
         return result({
           ...state,
           create: {
             stage: !activeJob
               ? STAGES.CONCEPTS
-              : (!sameJob || becameReady || beganAnimation ? jobStage(activeJob) : state.create.stage),
+              : (!sameJob || becameReady || beganAnimation || restartedAnimation
+                ? jobStage(activeJob)
+                : state.create.stage),
             selectedCandidateId,
           },
           activeJob,
