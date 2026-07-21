@@ -40,6 +40,14 @@ test("Lighting Create, Library, and Edit are semantic roving tabs", () => {
   for (const key of ["ArrowLeft", "ArrowRight", "Home", "End"]) assert.match(js, new RegExp(key));
 });
 
+test("Lighting tab activation keeps focus within the roving tablist", () => {
+  const start = js.indexOf("$$('[data-lighting-route]')");
+  const end = js.indexOf("$$('[data-lighting-slot]')", start);
+  const wiring = js.slice(start, end);
+  assert.ok(start >= 0 && end > start);
+  assert.doesNotMatch(wiring, /focusHeading/);
+});
+
 test("Library and Settings have document-independent routed surfaces", () => {
   assert.match(html, /id="lighting-library-panel"/);
   assert.match(html, /id="settings-screen"/);

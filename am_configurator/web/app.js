@@ -1841,7 +1841,7 @@ $("#settings-clear-key").addEventListener("click",clearSettingsKey);
 $("#settings-test-key").addEventListener("click",testSettingsKey);
 $$('.nav-item').forEach(item=>item.addEventListener('click',()=>navigateTo(item.dataset.route, {focusHeading: true})));
 $$('[data-lighting-route]').forEach(tab => {
-  tab.addEventListener('click', () => navigateTo(tab.dataset.lightingRoute, {focusHeading: true}));
+  tab.addEventListener('click', () => navigateTo(tab.dataset.lightingRoute));
   tab.addEventListener('keydown', event => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
