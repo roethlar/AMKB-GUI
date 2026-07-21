@@ -129,6 +129,30 @@ test("Library and Settings have document-independent routed surfaces", () => {
   assert.match(js, /function renderRoute\s*\(/);
 });
 
+test("Library browses banked manifests and authenticated local assets", () => {
+  for (const id of [
+    "lighting-library-toolbar",
+    "library-search",
+    "library-refresh",
+    "library-reveal",
+    "library-status",
+    "library-content",
+  ]) assert.match(html, new RegExp(`id="${id}"`));
+  assert.match(html, /data-library-filter="all"/);
+  assert.match(html, /data-library-filter="concept"/);
+  assert.match(html, /data-library-filter="video"/);
+  assert.match(html, /data-library-filter="partial"/);
+  assert.match(js, /api\(`\/api\/lighting\/library\?/);
+  assert.match(js, /api\(`\/api\/lighting\/library\/\$\{encodeURIComponent\(jobId\)\}`/);
+  assert.match(js, /fetch\(`\/api\/lighting\/assets\/\$\{encodeURIComponent\(jobId\)\}\/\$\{encodeURIComponent\(assetId\)\}`[\s\S]*"X-AM-Token":token/);
+  assert.match(js, /URL\.createObjectURL/);
+  assert.match(js, /clearLibraryAssetUrls/);
+  assert.match(js, /URL\.revokeObjectURL/);
+  assert.match(js, /function renderLibrary/);
+  assert.match(js, /function openLibraryJob/);
+  assert.doesNotMatch(js, /src=["'`]\/api\/lighting\/assets/);
+});
+
 test("Settings is a complete saveable route with storage and an explicit exit", () => {
   assert.match(html, /id="settings-save"[^>]*>Save changes</);
   assert.match(html, /id="settings-done"[^>]*>Done</);

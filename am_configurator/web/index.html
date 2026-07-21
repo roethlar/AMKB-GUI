@@ -125,11 +125,20 @@
             </section>
 
             <section id="lighting-library-panel" role="tabpanel" aria-labelledby="lighting-library-tab" hidden>
-              <div class="lighting-panel-body library-welcome">
-                <p class="eyebrow">Local library</p>
-                <h2>Saved lighting media</h2>
-                <p>Generated stills, videos, previews, and device-ready results will remain available here.</p>
-                <button type="button" class="button ghost" data-library-create>Generate…</button>
+              <div class="lighting-panel-body library-browser">
+                <div id="lighting-library-toolbar" class="library-toolbar">
+                  <div class="library-filters" role="group" aria-label="Library filter">
+                    <button type="button" class="active" data-library-filter="all" aria-pressed="true">All</button>
+                    <button type="button" data-library-filter="concept" aria-pressed="false">Stills</button>
+                    <button type="button" data-library-filter="video" aria-pressed="false">Videos</button>
+                    <button type="button" data-library-filter="partial" aria-pressed="false">Partial</button>
+                  </div>
+                  <label class="library-search"><span class="sr-only">Search prompts</span><input id="library-search" class="text-field" type="search" placeholder="Search Library"></label>
+                  <button id="library-refresh" type="button" class="button ghost">Refresh</button>
+                  <button id="library-reveal" type="button" class="button ghost">Reveal folder</button>
+                </div>
+                <p id="library-status" class="library-status" aria-live="polite"></p>
+                <div id="library-content" class="library-content"></div>
               </div>
             </section>
           </section>

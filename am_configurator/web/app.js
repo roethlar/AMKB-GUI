@@ -69,6 +69,22 @@ const state = {
   conceptAssetUrls: new Map(),
   conceptAssetLoads: new Set(),
   conceptDestination: null,
+  library: {
+    jobs: [],
+    details: new Map(),
+    detailLoads: new Set(),
+    assetUrls: new Map(),
+    assetLoads: new Set(),
+    filter: "all",
+    query: "",
+    selectedJobId: null,
+    loaded: false,
+    loading: false,
+    error: "",
+    warnings: [],
+    epoch: 0,
+    searchTimer: null,
+  },
   aiFrameCount: 6,
   aiError: "",
   generation: null,
@@ -657,6 +673,168 @@ function clearConceptAssetUrls() {
   state.conceptAssetUrls.clear();
 }
 
+function clearLibraryAssetUrls() {
+  for(const url of state.library.assetUrls.values())URL.revokeObjectURL(url);
+  state.library.assetUrls.clear();
+}
+
+function libraryFilterQuery() {
+  const params=new URLSearchParams({page:"1",limit:"24"});
+  if(state.library.filter==="concept")params.set("kind","concept");
+  else if(state.library.filter==="video")params.set("kind","source_video");
+  else if(state.library.filter==="partial")params.set("status","partial");
+  if(state.library.query.trim())params.set("query",state.library.query.trim());
+  return params.toString();
+}
+
+function libraryDate(value) {
+  const date=new Date(value);
+  return Number.isNaN(date.valueOf())?"Unknown date":date.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+}
+
+function libraryStatusLabel(value) {
+  const label=String(value||"saved").replaceAll("_"," ");
+  return label.charAt(0).toUpperCase()+label.slice(1);
+}
+
+function libraryCoverAsset(detail) {
+  const selected=detail?.candidates?.find(candidate=>candidate.candidate_id===detail.selected_candidate_id);
+  const first=selected||detail?.candidates?.[0];
+  if(first?.asset_id)return {asset_id:first.asset_id,mime_type:first.mime_type||"image/png"};
+  return detail?.assets?.find(asset=>asset.kind==="preview_poster")
+    || detail?.assets?.find(asset=>["preview_animation","source_video"].includes(asset.kind))
+    || null;
+}
+
+async function loadLibraryAsset(jobId,assetId) {
+  const key=`${jobId}:${assetId}`;
+  if(state.library.assetUrls.has(key)||state.library.assetLoads.has(key))return;
+  state.library.assetLoads.add(key);
+  try{
+    const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load asset (${response.status})`);}
+    const url=URL.createObjectURL(await response.blob());
+    const previous=state.library.assetUrls.get(key);
+    if(previous&&previous!==url)URL.revokeObjectURL(previous);
+    state.library.assetUrls.set(key,url);
+    if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
+  }catch(error){
+    state.library.error=error.message;
+    if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
+  }finally{state.library.assetLoads.delete(key);}
+}
+
+async function ensureLibraryJobDetail(jobId) {
+  if(state.library.details.has(jobId)||state.library.detailLoads.has(jobId))return;
+  const epoch=state.library.epoch;
+  state.library.detailLoads.add(jobId);
+  try{
+    const detail=await api(`/api/lighting/library/${encodeURIComponent(jobId)}`);
+    if(epoch!==state.library.epoch)return;
+    state.library.details.set(jobId,detail);
+    const cover=libraryCoverAsset(detail);
+    if(cover)void loadLibraryAsset(jobId,cover.asset_id);
+    if(state.library.selectedJobId===jobId){
+      for(const asset of detail.assets||[]){
+        if(["concept","selected_still","preview_poster","preview_animation","source_video"].includes(asset.kind))void loadLibraryAsset(jobId,asset.asset_id);
+      }
+    }
+    if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
+  }catch(error){
+    if(epoch===state.library.epoch){state.library.error=error.message;if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();}
+  }finally{state.library.detailLoads.delete(jobId);}
+}
+
+async function loadLibrary({force=false}={}) {
+  if(state.library.loading||(!force&&state.library.loaded))return;
+  state.library.loading=true;
+  state.library.error="";
+  const epoch=++state.library.epoch;
+  if(force){clearLibraryAssetUrls();state.library.details.clear();state.library.selectedJobId=null;}
+  renderLibrary();
+  try{
+    const result=await api(`/api/lighting/library?${libraryFilterQuery()}`);
+    if(epoch!==state.library.epoch)return;
+    state.library.jobs=result.jobs||[];
+    state.library.warnings=result.errors||[];
+    state.library.loaded=true;
+    for(const job of state.library.jobs)void ensureLibraryJobDetail(job.job_id);
+  }catch(error){
+    if(epoch===state.library.epoch){state.library.jobs=[];state.library.error=error.message;state.library.loaded=true;}
+  }finally{
+    if(epoch===state.library.epoch){state.library.loading=false;renderLibrary();}
+  }
+}
+
+function libraryEmptyMarkup() {
+  if(state.library.loading)return '<div class="library-empty"><div class="loader"></div><strong>Loading your Library…</strong></div>';
+  if(state.library.error)return `<div class="library-empty"><strong>Library could not be loaded.</strong><p>${esc(state.library.error)}</p><button type="button" class="button ghost" data-library-retry>Try again</button></div>`;
+  if(!state.settings?.library?.current_root)return '<div class="library-empty"><strong>Choose a Library folder to save generated media.</strong><p>Settings controls where every still and video is banked.</p><button type="button" class="button primary" data-library-settings>Open Settings</button></div>';
+  return '<div class="library-empty"><strong>Nothing here yet.</strong><p>Generated stills and videos will appear here as they are saved.</p><button type="button" class="button ghost" data-library-create>Generate…</button></div>';
+}
+
+function libraryCardMarkup(job) {
+  const detail=state.library.details.get(job.job_id);
+  const cover=libraryCoverAsset(detail);
+  const url=cover&&state.library.assetUrls.get(`${job.job_id}:${cover.asset_id}`);
+  const kind=detail?.assets?.some(asset=>["source_video","preview_animation"].includes(asset.kind))?"Video":"Stills";
+  return `<button type="button" class="library-card" data-library-job="${esc(job.job_id)}">
+    <span class="library-card-poster">${url?`<img src="${esc(url)}" alt="">`:'<span class="library-card-placeholder" aria-hidden="true">✦</span>'}</span>
+    <span class="library-card-copy"><strong>${esc(job.prompt)}</strong><span>${kind} · ${libraryStatusLabel(job.status)} · ${libraryDate(job.updated_at)}</span><small>${job.candidate_count} still${job.candidate_count===1?"":"s"} · ${job.asset_count} saved asset${job.asset_count===1?"":"s"}</small></span>
+  </button>`;
+}
+
+function libraryMediaMarkup(jobId,asset,index) {
+  const url=state.library.assetUrls.get(`${jobId}:${asset.asset_id}`);
+  const label=asset.kind.replaceAll("_"," ");
+  if(!url)return `<div class="library-media-card loading"><span class="library-card-placeholder">Loading…</span><small>${esc(label)}</small></div>`;
+  if(asset.mime_type==="video/mp4")return `<figure class="library-media-card"><video src="${esc(url)}" controls muted playsinline preload="metadata"></video><figcaption>${esc(label)}</figcaption></figure>`;
+  return `<figure class="library-media-card"><img src="${esc(url)}" alt="Saved lighting asset ${index+1}"><figcaption>${esc(label)}</figcaption></figure>`;
+}
+
+function libraryDetailMarkup(jobId) {
+  const summary=state.library.jobs.find(job=>job.job_id===jobId);
+  const detail=state.library.details.get(jobId);
+  if(!detail)return '<div class="library-empty"><div class="loader"></div><strong>Loading saved media…</strong></div>';
+  const media=(detail.assets||[]).filter(asset=>["concept","selected_still","preview_poster","preview_animation","source_video"].includes(asset.kind));
+  return `<section class="library-detail" aria-labelledby="library-detail-title">
+    <button type="button" class="library-back" data-library-back>← Library</button>
+    <header><div><p class="eyebrow">${esc(libraryStatusLabel(detail.status))}</p><h2 id="library-detail-title">${esc(detail.prompt)}</h2><p>${libraryDate(detail.created_at)} · ${media.length} saved media item${media.length===1?"":"s"}</p></div><span class="pill ${detail.status==="partial"?"muted":""}">${esc(libraryStatusLabel(detail.phase||detail.status))}</span></header>
+    <div class="library-media-grid">${media.length?media.map((asset,index)=>libraryMediaMarkup(jobId,asset,index)).join(""):'<p class="library-no-media">This job has no viewable media yet.</p>'}</div>
+    ${summary?.costs?.actual_incomplete?'<p class="library-warning">Provider cost reporting is incomplete for this item.</p>':""}
+  </section>`;
+}
+
+function wireLibraryContent() {
+  $$("[data-library-job]",$("#library-content")).forEach(card=>card.addEventListener("click",()=>openLibraryJob(card.dataset.libraryJob)));
+  $("[data-library-back]",$("#library-content"))?.addEventListener("click",()=>{state.library.selectedJobId=null;renderLibrary();});
+  $("[data-library-retry]",$("#library-content"))?.addEventListener("click",()=>loadLibrary({force:true}));
+  $("[data-library-settings]",$("#library-content"))?.addEventListener("click",openSettings);
+  $("[data-library-create]",$("#library-content"))?.addEventListener("click",()=>navigateTo(ROUTES.CREATE));
+}
+
+function openLibraryJob(jobId) {
+  state.library.selectedJobId=jobId;
+  renderLibrary();
+  void ensureLibraryJobDetail(jobId);
+}
+
+function renderLibrary() {
+  const content=$("#library-content");
+  if(!content)return;
+  const selected=state.library.selectedJobId;
+  if(selected)content.innerHTML=libraryDetailMarkup(selected);
+  else if(state.library.jobs.length)content.innerHTML=`<div class="library-grid">${state.library.jobs.map(libraryCardMarkup).join("")}</div>`;
+  else content.innerHTML=libraryEmptyMarkup();
+  const status=$("#library-status");
+  status.textContent=state.library.loading?"Refreshing Library…":state.library.warnings.length?"Some previously recorded Library items could not be read.":state.library.jobs.length?`${state.library.jobs.length} saved job${state.library.jobs.length===1?"":"s"}`:"";
+  status.classList.toggle("warning",Boolean(state.library.warnings.length));
+  $("#library-reveal").disabled=!state.settings?.library?.current_root;
+  $$("[data-library-filter]").forEach(button=>{const active=button.dataset.libraryFilter===state.library.filter;button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active));});
+  wireLibraryContent();
+  if(!state.library.loaded&&!state.library.loading)void loadLibrary();
+}
+
 async function loadConceptAsset(jobId,assetId) {
   const key=`${jobId}:${assetId}`;
   if(state.conceptAssetUrls.has(key)||state.conceptAssetLoads.has(key))return;
@@ -809,6 +987,7 @@ function renderLightingShell() {
       $("#lighting-edit-content").innerHTML = documentRequirementMarkup("Edit works directly on the custom lighting slots in an open document.");
     } else renderLightingEdit();
   }
+  if (route === ROUTES.LIBRARY) renderLibrary();
   $("#lighting-generate-open").disabled = !state.config || Boolean(state.pendingGeneration);
   renderGenerationDialog();
   if (route === ROUTES.CREATE) setTimeout(openGenerationDialog, 0);
@@ -1630,6 +1809,7 @@ async function loadAiConfig() {
 
 function refreshAiGate() {
   if (state.lighting.route === ROUTES.SETTINGS) populateSettings();
+  else if (state.lighting.route === ROUTES.LIBRARY) renderLibrary();
   else if ([ROUTES.EDIT, ROUTES.CREATE].includes(state.lighting.route) && !state.generation && !state.pendingGeneration) renderScreen();
 }
 
@@ -2240,6 +2420,26 @@ $("#settings-reveal-library").addEventListener("click",revealLibraryFolder);
 $("#settings-candidate-count").addEventListener("change",populateSettingsCostSummary);
 $("#settings-concept-model").addEventListener("change",populateSettingsCostSummary);
 $("#settings-video-model").addEventListener("change",populateSettingsCostSummary);
+$("#library-refresh").addEventListener("click",()=>loadLibrary({force:true}));
+$("#library-reveal").addEventListener("click",async()=>{
+  const path=state.settings?.library?.current_root;
+  if(!path){openSettings();return;}
+  const bridge=window.pywebview?.api;
+  if(!bridge?.reveal_library_path){toast("Reveal is available in the Mac app","Your Library folder is shown in Settings.");return;}
+  try{if(!await bridge.reveal_library_path(path))throw new Error("The folder is unavailable.");}
+  catch(error){toast("Could not reveal Library",error.message||String(error),"error");}
+});
+$$("[data-library-filter]").forEach(button=>button.addEventListener("click",()=>{
+  if(state.library.filter===button.dataset.libraryFilter)return;
+  state.library.filter=button.dataset.libraryFilter;
+  state.library.loaded=false;
+  void loadLibrary({force:true});
+}));
+$("#library-search").addEventListener("input",event=>{
+  state.library.query=event.target.value;
+  if(state.library.searchTimer)clearTimeout(state.library.searchTimer);
+  state.library.searchTimer=setTimeout(()=>{state.library.loaded=false;void loadLibrary({force:true});},280);
+});
 $("#lighting-generate-open").addEventListener("click",openGenerationDialog);
 $("#lighting-generate-dialog").addEventListener("close",handleGenerationDialogClose);
 $$('.nav-item').forEach(item=>item.addEventListener('click',()=>navigateTo(item.dataset.route, {focusHeading: true})));
@@ -2264,7 +2464,6 @@ $$('[data-lighting-slot]').forEach(button=>button.addEventListener('click',()=>{
   state.ledPixel=0;
   renderLightingShell();
 }));
-$("[data-library-create]").addEventListener("click", () => navigateTo(ROUTES.CREATE));
 $("#lighting-job-view").addEventListener("click", () => navigateTo(ROUTES.CREATE, {focusHeading: true}));
 $("#lighting-job-cancel").addEventListener("click", cancelLightingJob);
 window.addEventListener("popstate", () => {
@@ -2283,6 +2482,7 @@ document.addEventListener('keydown',event=>{
 document.addEventListener('keyup',event=>{if(state.recording)recordEvent(event,false);});
 window.addEventListener('beforeunload',event=>{if(state.dirty){event.preventDefault();event.returnValue='';}});
 window.addEventListener('pagehide',clearConceptAssetUrls);
+window.addEventListener('pagehide',clearLibraryAssetUrls);
 
 (async function boot(){
   updateMeta();
