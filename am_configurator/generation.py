@@ -1209,7 +1209,12 @@ class GenerationCoordinator:
                         datetime.now(timezone.utc)
                         + timedelta(seconds=self._poll_interval_seconds)
                     ).isoformat()
-                    if not background:
+                    if cancelled.is_set() or manifest["cancel_requested_at"] is not None:
+                        manifest["status"] = "cancelled"
+                        manifest["phase"] = "background_retrieval"
+                        attempt["status"] = "cancelled"
+                        attempt["phase"] = "background_retrieval"
+                    elif not background:
                         manifest["status"] = "in_progress"
                         manifest["phase"] = "video_polling"
                         attempt["phase"] = "video_polling"

@@ -1219,6 +1219,53 @@ class DurableVideoGenerationTests(unittest.TestCase):
             self.library.resolve_asset(manifest["job_id"], videos[0]["asset_id"]).path.is_file()
         )
 
+    def test_cancel_during_blocking_poll_cannot_revert_visible_cancelled_state(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        poll_entered = threading.Event()
+        poll_release = threading.Event()
+        sleep_entered = threading.Event()
+        sleep_release = threading.Event()
+
+        def blocking_sleep(seconds: float) -> None:
+            self.clock.sleep(seconds)
+            if not sleep_entered.is_set():
+                sleep_entered.set()
+                self.assertTrue(sleep_release.wait(5))
+
+        self.coordinator = self._coordinator(sleeper=blocking_sleep)
+        self.video.poll_outcomes = [
+            VideoStatus(
+                request_id=self.video.request_id,
+                status="pending",
+                usage=ProviderUsage(None, False),
+            ),
+            VideoStatus(
+                request_id=self.video.request_id,
+                status="done",
+                usage=ProviderUsage(47, True),
+                video_url="https://vidgen.x.ai/generated/cancel-race.mp4",
+                duration=1,
+            ),
+        ]
+
+        def block_poll() -> None:
+            if not poll_entered.is_set():
+                poll_entered.set()
+                self.assertTrue(poll_release.wait(5))
+
+        self.video.before_poll = block_poll
+        started = self._start_animation(manifest, candidate_id)
+        self.assertTrue(poll_entered.wait(5))
+        self.coordinator.cancel(manifest["job_id"])
+        poll_release.set()
+        self.assertTrue(sleep_entered.wait(5))
+        visible = self.library.load_manifest(manifest["job_id"])
+        self.assertEqual("cancelled", visible["status"])
+        self.assertEqual("background_retrieval", visible["phase"])
+        sleep_release.set()
+        final = self.coordinator.wait(started["job_id"], timeout=10)
+        self.assertEqual("cancelled_saved", final["status"])
+
     def test_cancel_before_worker_start_prevents_the_paid_video_plan(self) -> None:
         manifest, candidate_id = self._selectable_job()
         self.coordinator = self._coordinator(
