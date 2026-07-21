@@ -1380,6 +1380,39 @@ class DurableVideoGenerationTests(unittest.TestCase):
             (len(self.planner.calls), len(self.video.submit_calls), len(self.video.poll_calls)),
         )
 
+    def test_startup_adoption_ignores_duplicate_partial_frame_origins(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        started = self._start_animation(manifest, candidate_id)
+        complete = self.coordinator.wait(started["job_id"], timeout=10)
+        attempt = complete["animation_attempts"][-1]
+        first_frame = self.library.resolve_asset(
+            manifest["job_id"], attempt["frame_asset_ids"][0]
+        )
+        self.library.bank_asset(
+            manifest["job_id"],
+            kind="frame",
+            data=first_frame.path.read_bytes(),
+            mime_type="image/png",
+            origin=f"local_frame:{attempt['attempt_id']}:0",
+        )
+
+        def simulate_interruption(current: dict) -> None:
+            current_attempt = current["animation_attempts"][-1]
+            current_attempt["status"] = "processing"
+            current_attempt["phase"] = "local_processing"
+            current_attempt["frame_asset_ids"] = []
+            current_attempt["preview_asset_id"] = None
+            current_attempt["mapped_result_asset_id"] = None
+            current_attempt["completed_at"] = None
+            current["status"] = "in_progress"
+            current["phase"] = "local_processing"
+
+        self.library.update_manifest(manifest["job_id"], simulate_interruption)
+        self.coordinator.reconcile_startup()
+        recovered = self.library.load_manifest(manifest["job_id"])
+        self.assertEqual("ready", recovered["status"])
+        self.assertEqual(80, len(recovered["animation_attempts"][-1]["frame_asset_ids"]))
+
     def test_every_loop_and_device_family_uses_exact_cap_and_mapping_parity(self) -> None:
         cases = (
             (TARGET, "smooth", 80),

@@ -1792,13 +1792,27 @@ class GenerationCoordinator:
             return
 
         frame_count = MODEL_FRAME_CAPS[manifest["target"]["family"]]
+        frames_by_index: dict[int, dict] = {}
+        frame_origin_prefix = f"local_frame:{attempt_id}:"
+        for asset in manifest["assets"]:
+            if asset["kind"] != "frame" or not asset["origin"].startswith(
+                frame_origin_prefix
+            ):
+                continue
+            try:
+                index = int(asset["origin"][len(frame_origin_prefix) :])
+            except ValueError:
+                continue
+            if 0 <= index < frame_count:
+                # Retried local processing appends a newer complete sequence;
+                # one retained asset per exact index keeps earlier partial
+                # publications from poisoning crash adoption.
+                frames_by_index[index] = asset
         frames = [
-            asset
-            for asset in manifest["assets"]
-            if asset["kind"] == "frame"
-            and asset["origin"].startswith(f"local_frame:{attempt_id}:")
+            frames_by_index[index]
+            for index in range(frame_count)
+            if index in frames_by_index
         ]
-        frames.sort(key=lambda asset: int(asset["origin"].rsplit(":", 1)[1]))
         preview = next(
             (
                 asset
