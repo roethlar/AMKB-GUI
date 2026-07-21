@@ -20,8 +20,11 @@
   target-validation fixes through `b243d22`; Task 8's durable video, recovery,
   exact-frame local processing, mapping, and cancellation orchestration landed
   in `9ece907` and passed architecture review after focused durability fixes
-  through `bd5f121`. The full repository verification entry point passed at
-  `bd5f121` with 244 tests, including the prepared real FFmpeg runtime
+  through `bd5f121`; Task 9's authenticated durable Lighting and Library API
+  landed in `cf393b5` and passed architecture/security review after startup
+  recovery, shared admission, error-redaction, and deferred-reconciliation
+  fixes through `9751f72`. The full repository verification entry point passed
+  at `9751f72` with 256 tests, including the prepared real FFmpeg runtime
   integration check for every supported device frame cap. No provider or
   hardware call was made.
 - A Grok whole-change openreview of
@@ -48,8 +51,8 @@
 ## Next
 
 - Execute the approved video-first Lighting Studio plan in order with
-  tests-first commits, beginning Task 9 with authenticated Lighting and Library
-  endpoints. Do not separately repair the legacy `previous_plan` path.
+  tests-first commits, beginning Task 10 with the Lighting shell and testable
+  browser state. Do not separately repair the legacy `previous_plan` path.
 - A paid live xAI video acceptance check remains optional and needs a separate
   explicit go after the offline video pipeline is implemented.
 - Carried over: address any failures surfaced by the committed CI and
