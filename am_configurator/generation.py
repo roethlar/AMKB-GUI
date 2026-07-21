@@ -840,10 +840,21 @@ class GenerationCoordinator:
             api_key=api_key,
         )
 
-    def _finish_before_video_submit(self, job_id: str, attempt_id: str) -> None:
+    def _finish_before_video_submit(
+        self,
+        job_id: str,
+        attempt_id: str,
+        unsubmitted_operation: str | None = None,
+    ) -> None:
         timestamp = _now_iso()
 
         def update(manifest: dict) -> None:
+            if unsubmitted_operation is not None:
+                manifest["provider_requests"].pop(unsubmitted_operation, None)
+                manifest["costs"]["actual_by_operation"].pop(
+                    unsubmitted_operation, None
+                )
+                _refresh_cost_completeness(manifest)
             attempt = _animation_attempt(manifest, attempt_id)
             attempt["status"] = "cancelled"
             attempt["phase"] = "video_cancelled"
@@ -869,6 +880,11 @@ class GenerationCoordinator:
             mime_type = owned.record["mime_type"]
             spec, _targets = self._video_spec(manifest)
             attempt = _animation_attempt(manifest, attempt_id)
+            if cancelled.is_set():
+                self._finish_before_video_submit(
+                    job_id, attempt_id, unsubmitted_operation=plan_operation
+                )
+                return
             planner = self._video_planner_factory(
                 api_key, manifest["models"]["interpreter"]
             )

@@ -756,6 +756,20 @@ class _AdvancingClock:
         self.value += seconds
 
 
+class _DeferredWorker:
+    def __init__(self, target) -> None:
+        self._target = target
+        self._ran = False
+
+    def join(self, _timeout=None) -> None:
+        if not self._ran:
+            self._ran = True
+            self._target()
+
+    def is_alive(self) -> bool:
+        return False
+
+
 class DurableVideoGenerationTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -1052,6 +1066,19 @@ class DurableVideoGenerationTests(unittest.TestCase):
         self.assertTrue(
             self.library.resolve_asset(manifest["job_id"], videos[0]["asset_id"]).path.is_file()
         )
+
+    def test_cancel_before_worker_start_prevents_the_paid_video_plan(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        self.coordinator = self._coordinator(
+            launcher=lambda target: _DeferredWorker(target)
+        )
+        started = self._start_animation(manifest, candidate_id)
+        self.coordinator.cancel(manifest["job_id"])
+        final = self.coordinator.wait(started["job_id"], timeout=10)
+        self.assertEqual("cancelled", final["status"])
+        self.assertEqual("video_cancelled", final["phase"])
+        self.assertEqual([], self.planner.calls)
+        self.assertEqual([], self.video.submit_calls)
 
     def test_local_failure_retains_mp4_and_explicit_retry_makes_no_provider_call(self) -> None:
         manifest, candidate_id = self._selectable_job()
