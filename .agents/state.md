@@ -80,6 +80,17 @@
   The full verification entry point passed at `a94f86d` with 267 Python tests
   and 29 browser-state/static tests. Versioned macOS build `0.1.20` passed frozen
   smoke and DMG verification. No provider or hardware call was made.
+- Task 13's missing concept-to-animation handoff and complete Review/Apply flow
+  landed in `dc807e2`. Selecting a saved concept now exposes an explicit local
+  transition into motion and loop controls; only Generate animation starts the
+  paid video operation. Polling carries the same durable job through saved-video
+  local retry, exact LED/source/frame review, compatibility revalidation, and a
+  single undoable document-only Apply. Task 15's verified current-platform
+  FFmpeg preparation, native bundling, signed macOS re-attestation, and offline
+  real-MP4 frozen smoke landed in `624cccc`. The full verification entry point
+  passed at `624cccc` with 269 Python tests and 30 browser tests. Versioned macOS
+  build `0.1.23` passed DMG verification and processed the fixture at all three
+  device frame caps from the frozen app. No provider or hardware call was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -103,10 +114,10 @@
 
 ## Next
 
-- Finish Task 12's explicit selected-concept handoff into Animate, implement
-  Task 13's video/review/apply workflow, then expand the landed read-only
-  Library browser to Task 14's remaining resume/retry/animate/apply actions. Do
-  not separately repair the legacy `previous_plan` path.
+- Expand the landed read-only Library browser to Task 14's remaining
+  resume/retry/animate/apply actions, then remove the superseded inline
+  generator in Task 16. Do not separately repair the legacy `previous_plan`
+  path.
 - A paid live xAI video acceptance check remains optional and needs a separate
   explicit go after the offline video pipeline is implemented.
 - Carried over: address any failures surfaced by the committed CI and
