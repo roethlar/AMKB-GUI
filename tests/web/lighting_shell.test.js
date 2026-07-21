@@ -30,13 +30,16 @@ test("persistent job strip is a stable sibling outside routed content", () => {
   assert.doesNotMatch(openingTag, /aria-live|role="status"/);
 });
 
-test("Lighting Create, Library, and Edit are semantic roving tabs", () => {
-  assert.match(html, /role="tablist"[^>]*aria-label="Lighting Studio"/);
-  for (const name of ["create", "library", "edit"]) {
+test("Lighting opens in a compact Workspace with Library secondary", () => {
+  assert.match(html, /data-route="lighting\/edit"/);
+  assert.match(html, /role="tablist"[^>]*aria-label="Lighting views"/);
+  for (const name of ["edit", "library"]) {
     assert.match(html, new RegExp(`id="lighting-${name}-tab"[^>]*role="tab"[^>]*aria-controls="lighting-${name}-panel"`));
     assert.match(html, new RegExp(`id="lighting-${name}-tab"[^>]*aria-selected="(?:true|false)"[^>]*tabindex="(?:0|-1)"`));
     assert.match(html, new RegExp(`id="lighting-${name}-panel"[^>]*role="tabpanel"[^>]*aria-labelledby="lighting-${name}-tab"`));
   }
+  assert.ok(html.indexOf('id="lighting-edit-tab"') < html.indexOf('id="lighting-library-tab"'));
+  assert.doesNotMatch(html, /id="lighting-create-tab"|class="lighting-hero"|class="studio-welcome|class="concept-skeleton/);
   for (const key of ["ArrowLeft", "ArrowRight", "Home", "End"]) assert.match(js, new RegExp(key));
 });
 
@@ -48,12 +51,51 @@ test("Lighting tab activation keeps focus within the roving tablist", () => {
   assert.doesNotMatch(wiring, /focusHeading/);
 });
 
-test("destination selectors expose their selected value without relying on color", () => {
+test("destination selectors expose their selected value and lock during review", () => {
   assert.match(html, /class="segmented compact" role="group" aria-label="Custom slot"/);
   assert.match(html, /data-lighting-slot="5"[^>]*aria-pressed="true"[^>]*aria-label="Custom slot 1"/);
   assert.match(html, /id="lighting-target-controls"[^>]*role="group"/);
   assert.match(js, /setAttribute\("aria-pressed"/);
   assert.match(js, /data-lighting-target=.*aria-pressed=/);
+  assert.match(js, /destinationLocked\s*=\s*Boolean\(state\.generation\s*\|\|\s*state\.pendingGeneration\)/);
+  assert.match(js, /slot:\s*state\.ledSlot/);
+  assert.match(js, /productFamily:\s*productFamily\(productId\(\)\)/);
+  assert.match(js, /getPage\(pending\.slot\)/);
+});
+
+test("global Open and Devices controls are not duplicated in routed content", () => {
+  assert.equal((html.match(/id="open-button"/g) || []).length, 1);
+  assert.equal((html.match(/id="device-button"/g) || []).length, 1);
+  assert.doesNotMatch(html, /id="empty-open"|data-requirement-open|data-requirement-devices/);
+  assert.doesNotMatch(js, /empty-open|data-requirement-open|data-requirement-devices/);
+  assert.match(js, /\$\("#device-button"\)\.addEventListener\("click",showDeviceDialog\)/);
+});
+
+test("AI generation is contained in a closed secondary dialog", () => {
+  const trigger = html.indexOf('id="lighting-generate-open"');
+  const routeContent = html.indexOf('id="route-content"');
+  const routeEnd = html.indexOf("</main>", routeContent);
+  const dialog = html.indexOf('id="lighting-generate-dialog"');
+  assert.ok(trigger >= 0, "secondary Generate trigger is missing");
+  assert.ok(dialog > routeEnd, "generation dialog must live outside routed content");
+  assert.match(html, /id="lighting-generate-dialog"[^>]*aria-labelledby="lighting-generate-title"/);
+  assert.doesNotMatch(html.slice(dialog, html.indexOf(">", dialog) + 1), /\sopen(?:\s|=|>)/);
+
+  const open = js.match(/function openGenerationDialog\s*\([^)]*\)\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(open, /showModal\(\)/);
+  assert.doesNotMatch(open, /api\(|startGeneration|cancelGeneration|applyGeneration|mutate\(/);
+  const close = js.match(/function handleGenerationDialogClose\s*\([^)]*\)\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  assert.doesNotMatch(close, /api\(|cancelGeneration|discardGeneration|applyGeneration|mutate\(/);
+
+  const editorBody = js.slice(js.indexOf("const editorBody="), js.indexOf('$("#lighting-edit-content").innerHTML', js.indexOf("const editorBody=")));
+  assert.doesNotMatch(editorBody, /ai-prompt|generate-ai|\$\{aiPanel\}/);
+  assert.match(js, /function renderGenerationDialog\s*\(/);
+  assert.match(js, /id="ai-prompt"/);
+  assert.match(js, /id="generate-ai"/);
+
+  const start = js.slice(js.indexOf("async function startGeneration"), js.indexOf("async function pollGeneration"));
+  assert.ok(start.indexOf("state.generation =") < start.indexOf('api("/api/led/generate"'), "generation must lock before the paid request");
+  assert.match(start, /jobId:\s*null/);
 });
 
 test("Library and Settings have document-independent routed surfaces", () => {

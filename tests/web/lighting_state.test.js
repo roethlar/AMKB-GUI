@@ -61,9 +61,9 @@ function compatibleDocument(overrides = {}) {
   };
 }
 
-test("defaults to Lighting Create at the Concepts stage", () => {
+test("defaults to the manual Lighting workspace at the Concepts stage", () => {
   assert.deepEqual(createLightingState(), {
-    route: ROUTES.CREATE,
+    route: ROUTES.EDIT,
     create: {stage: STAGES.CONCEPTS, selectedCandidateId: null},
     activeJob: null,
   });
@@ -204,7 +204,7 @@ test("hash routing round-trips safe routes and opaque job IDs", () => {
     assert.deepEqual(parseLightingHash(formatLightingHash(route, JOB_ID)), {route, jobId: JOB_ID});
   }
   assert.deepEqual(parseLightingHash("#/not-a-route?job=prompt-text"), {
-    route: ROUTES.CREATE,
+    route: ROUTES.EDIT,
     jobId: null,
   });
   assert.deepEqual(parseLightingHash("#/lighting/library?job=../../manifest.json"), {

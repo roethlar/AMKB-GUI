@@ -582,7 +582,7 @@ function renderRoute() {
 
   $$(".nav-item").forEach(item => {
     const active = item.dataset.route === route
-      || (item.dataset.route === ROUTES.CREATE && route.startsWith("lighting/"));
+      || (item.dataset.route === ROUTES.EDIT && route.startsWith("lighting/"));
     item.classList.toggle("active", active);
     if (active) item.setAttribute("aria-current", "page");
     else item.removeAttribute("aria-current");
@@ -672,16 +672,16 @@ async function cancelLightingJob() {
 }
 
 function documentRequirementMarkup(message) {
-  return `<div class="route-requirement"><span class="route-requirement-icon" aria-hidden="true">⌨</span><div><strong>Open a keyboard configuration first.</strong><p>${esc(message)}</p></div><div class="route-requirement-actions"><button type="button" class="button ghost" data-requirement-open>Open JSON</button><button type="button" class="button primary" data-requirement-devices>Devices</button></div></div>`;
+  return `<div class="route-requirement"><span class="route-requirement-icon" aria-hidden="true">⌨</span><div><strong>Open a keyboard configuration first.</strong><p>${esc(message)} Use Open or Devices in the toolbar above.</p></div></div>`;
 }
 
 function renderLightingShell() {
   const route = state.lighting.route;
   const available = routeAvailability(route, documentDescriptor());
-  const routes = [ROUTES.CREATE, ROUTES.LIBRARY, ROUTES.EDIT];
-  const names = ["create", "library", "edit"];
+  const routes = [ROUTES.EDIT, ROUTES.LIBRARY];
+  const names = ["edit", "library"];
   routes.forEach((candidate, index) => {
-    const selected = route === candidate;
+    const selected = route === candidate || (candidate === ROUTES.EDIT && route === ROUTES.CREATE);
     const tab = $(`#lighting-${names[index]}-tab`);
     const panel = $(`#lighting-${names[index]}-panel`);
     tab.setAttribute("aria-selected", String(selected));
@@ -692,47 +692,40 @@ function renderLightingShell() {
   $("#lighting-destination-product").textContent = state.config
     ? `${productLabel(productId())} · ${productId()}`
     : "No document open";
+  const destinationLocked = Boolean(state.generation || state.pendingGeneration);
   $$('[data-lighting-slot]').forEach(button => {
     const selected = Number(button.dataset.lightingSlot) === state.ledSlot;
     button.classList.toggle("active", selected);
     button.setAttribute("aria-pressed", String(selected));
-    button.disabled = !state.config;
+    button.disabled = !state.config || destinationLocked;
   });
 
   const targetHost = $("#lighting-target-controls");
   const targets = state.config ? activeLedModel().targets : [];
   if (targets.length && !targets.some(target => target.key === state.ledTarget)) state.ledTarget = targets[0].key;
   targetHost.innerHTML = targets.length
-    ? targets.map(target => `<button type="button" data-lighting-target="${esc(target.key)}" aria-pressed="${target.key === state.ledTarget}" class="${target.key === state.ledTarget ? "active" : ""}">${esc(target.label)}</button>`).join("")
+    ? targets.map(target => `<button type="button" data-lighting-target="${esc(target.key)}" aria-pressed="${target.key === state.ledTarget}" class="${target.key === state.ledTarget ? "active" : ""} ${destinationLocked ? "disabled" : ""}>${esc(target.label)}</button>`).join("")
     : '<button type="button" disabled>Open document</button>';
+  if (destinationLocked) $$('[data-lighting-target]', targetHost).forEach(button => { button.disabled = true; });
   $$('[data-lighting-target]', targetHost).forEach(button => button.addEventListener("click", () => {
     state.ledTarget = button.dataset.lightingTarget;
     state.ledFrame = 0;
     renderLightingShell();
   }));
 
-  const createContent = $("#lighting-create-content");
-  createContent.querySelector(".route-requirement")?.remove();
-  if (route === ROUTES.CREATE && !available.available) {
-    createContent.insertAdjacentHTML("afterbegin", documentRequirementMarkup("A document supplies the exact LED geometry and maximum frame count for generation."));
-    wireRequirementActions(createContent);
-  }
   $$("[data-lighting-stage]").forEach(step => {
     if (step.dataset.lightingStage === state.lighting.create.stage) step.setAttribute("aria-current", "step");
     else step.removeAttribute("aria-current");
   });
 
-  if (route === ROUTES.EDIT) {
+  if (route === ROUTES.EDIT || route === ROUTES.CREATE) {
     if (!available.available) {
       $("#lighting-edit-content").innerHTML = documentRequirementMarkup("Edit works directly on the custom lighting slots in an open document.");
-      wireRequirementActions($("#lighting-edit-content"));
     } else renderLightingEdit();
   }
-}
-
-function wireRequirementActions(root) {
-  $("[data-requirement-open]", root)?.addEventListener("click", () => $("#open-input").click());
-  $("[data-requirement-devices]", root)?.addEventListener("click", showDeviceDialog);
+  $("#lighting-generate-open").disabled = !state.config || Boolean(state.pendingGeneration);
+  renderGenerationDialog();
+  if (route === ROUTES.CREATE) setTimeout(openGenerationDialog, 0);
 }
 
 function renderKeymap() {
@@ -1076,7 +1069,6 @@ function renderLightingEdit() {
     return;
   }
   const previewing=Boolean(state.pendingGeneration);
-  const busy=Boolean(state.generation);
   const page = ledSourcePage();
   const model=activeLedModel();
   const targets=model.targets;
@@ -1110,18 +1102,6 @@ function renderLightingEdit() {
   const relicGifOption=relicKeyTarget?`<label class="check-row"><input id="relic-gif-edges" type="checkbox" ${state.relicGifEdges?'checked':''}><span>Also derive edge lights from this GIF</span></label>`:"";
   const edgeTools=edgeAutomation?`<div class="control-group"><label class="control-label">Whole edge animation</label><div class="button-row"><button id="edge-static" class="button ghost">Static color</button><button id="edge-pulse" class="button ghost">Pulse color</button></div><button id="edge-hold" class="button ghost wide-button">Hold painted frame</button><small class="control-help">Generates ${keyFrameCount} edge frames automatically to match the key animation. “Hold” preserves the seven colors painted in the current frame.</small></div>`:"";
   const targetLabel=targets.find(t=>t.key===state.ledTarget)?.label||state.ledTarget;
-  const keySet=Boolean(state.settings?.llm?.keys?.xai?.set);
-  const capsReady=Boolean(state.capabilities);
-  const generateDisabled=busy||previewing||!keySet||!capsReady||!state.aiPrompt.trim();
-  const aiPanel=`<div class="control-group ai-panel"><label class="control-label" for="ai-prompt">Generate with AI</label>
-        <textarea id="ai-prompt" class="text-field ai-prompt" rows="3" placeholder="Describe an effect, e.g. pac-man chased by a blue ghost…" ${busy?'disabled':''}>${esc(state.aiPrompt)}</textarea>
-        <div class="ai-meta"><label class="ai-frames">Frames <select id="ai-frame-count" class="select-field" ${busy?'disabled':''}>${[1,2,3,4,5,6,7,8].map(n=>`<option value="${n}" ${n===state.aiFrameCount?'selected':''}>${n}</option>`).join("")}</select></label><span class="ai-calls">1 + ${state.aiFrameCount} API calls</span></div>
-        <div class="ai-target-note">Target: ${esc(targetLabel)}${pairsRelicGif?' + edge lights':''}</div>
-        <div class="button-row ai-actions"><button id="generate-ai" class="button primary" ${generateDisabled?'disabled':''}>${busy?'Generating…':'Generate'}</button><button id="cancel-ai" class="button ghost" ${busy?'':'hidden'}>Cancel</button></div>
-        <p id="ai-busy" class="ai-busy" ${busy?'':'hidden'}>${esc(aiPhaseLabel(state.generation?.phase))}</p>
-        ${!keySet?`<p class="ai-hint">Add an xAI API key in <button type="button" id="ai-open-settings" class="link-button">Settings</button> to enable AI generation.</p>`:''}
-        ${state.aiError?`<p class="ai-error" role="alert">${esc(state.aiError)}</p>`:''}
-        <small class="control-help">Your prompt and the target’s raster size are sent to xAI to render frames in the cloud; a paid xAI key and internet are required. xAI retains API data per its policy.</small></div>`;
   const plan=state.pendingGeneration?.plan||{};
   const usage=state.pendingGeneration?.usage||{};
   const previewBody=`<div class="card-body"><div class="control-group ai-result"><label class="control-label">AI result ready</label>
@@ -1133,7 +1113,6 @@ function renderLightingEdit() {
   const editorBody=`<div class="card-body">
         <div class="control-group"><label class="control-label">Animation source</label><input id="gif-input" type="file" accept="image/gif,.gif" hidden><div class="gif-import-row"><button id="import-gif" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="GIF resize method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
         ${edgeTools}
-        ${aiPanel}
         <div class="control-group"><label class="control-label">Paint color</label><input id="led-color" class="color-picker" type="color" value="${state.ledColor}"><input id="led-color-text" class="text-field" value="${state.ledColor}"></div>
         <div class="control-group"><label class="control-label">Brush</label><div class="button-row"><button id="fill-led" class="button ghost">Fill all</button><button id="clear-led" class="button ghost">Clear</button></div></div>
         <div class="control-group"><label class="control-label">Brightness</label><div class="range-row"><input id="brightness" type="range" min="0" max="100" value="${Number(page?.lightness??100)}"><span class="range-value">${Number(page?.lightness??100)}%</span></div></div>
@@ -1182,13 +1161,52 @@ function wireLedEditor() {
   $("#brightness").addEventListener("change",event=>mutate(()=>{getPage(state.ledSlot).lightness=Number(event.target.value);}));
   $("#speed").addEventListener("change",event=>mutate(()=>{getPage(state.ledSlot).speed_ms=Number(event.target.value);}));
   $("#play-led").addEventListener("click",()=>state.playing?stopPlayback():startPlayback());
+}
+
+function renderGenerationDialog() {
+  const content = $("#lighting-generate-content");
+  if (!state.config || !pageData().length) {
+    content.innerHTML = documentRequirementMarkup("Generation needs the document's LED geometry and frame limits.");
+    return;
+  }
+  if (state.pendingGeneration) {
+    content.innerHTML = '<div class="generation-ready"><strong>A generated result is ready in the Workspace.</strong><p>Review it there, then Apply, Refine, or Discard explicitly.</p></div>';
+    return;
+  }
+  const busy = Boolean(state.generation);
+  const model = activeLedModel();
+  const target = model.targets.find(item => item.key === state.ledTarget) || model.targets[0];
+  const pairsRelicGif = model === LED_MODELS["80"] && target.key === "keyframes" && state.relicGifEdges;
+  const keySet = Boolean(state.settings?.llm?.keys?.xai?.set);
+  const capsReady = Boolean(state.capabilities);
+  const generateDisabled = busy || !keySet || !capsReady || !state.aiPrompt.trim();
+  content.innerHTML = `<div class="ai-dialog-content"><label class="control-label" for="ai-prompt">Describe the effect</label>
+    <textarea id="ai-prompt" class="text-field ai-prompt" rows="4" placeholder="For example: pac-man chased by a blue ghost…" ${busy?'disabled':''}>${esc(state.aiPrompt)}</textarea>
+    <div class="ai-meta"><label class="ai-frames">Frames <select id="ai-frame-count" class="select-field" ${busy?'disabled':''}>${[1,2,3,4,5,6,7,8].map(number=>`<option value="${number}" ${number===state.aiFrameCount?'selected':''}>${number}</option>`).join("")}</select></label><span class="ai-calls">1 + ${state.aiFrameCount} API calls</span></div>
+    <div class="ai-target-note">Destination: Slot ${state.ledSlot - 4} · ${esc(target.label)}${pairsRelicGif?' + edge lights':''}</div>
+    <div class="button-row ai-actions"><button id="generate-ai" type="button" class="button primary" ${generateDisabled?'disabled':''}>${busy?'Generating…':'Generate'}</button><button id="cancel-ai" type="button" class="button ghost" ${busy?'':'hidden'} ${state.generation?.jobId?'':'disabled'}>Cancel</button></div>
+    <p id="ai-busy" class="ai-busy" ${busy?'':'hidden'}>${esc(aiPhaseLabel(state.generation?.phase))}</p>
+    ${!keySet?`<p class="ai-hint">Add an xAI API key in <button type="button" id="ai-open-settings" class="link-button">Settings</button> to enable generation.</p>`:''}
+    ${state.aiError?`<p class="ai-error" role="alert">${esc(state.aiError)}</p>`:''}
+    <small class="control-help">Your prompt and the target raster are sent to xAI. Nothing is applied automatically.</small></div>`;
   wireAiPanel();
+}
+
+function openGenerationDialog() {
+  const dialog = $("#lighting-generate-dialog");
+  renderGenerationDialog();
+  if (!dialog.open) dialog.showModal();
+}
+
+function handleGenerationDialogClose() {
+  if (state.lighting.route === ROUTES.CREATE) navigateTo(ROUTES.EDIT);
+  else $("#lighting-generate-open")?.focus();
 }
 
 function wireAiPanel() {
   $("#ai-prompt")?.addEventListener("input",event=>{state.aiPrompt=event.target.value;const button=$("#generate-ai");if(button)button.disabled=Boolean(state.generation)||!state.settings?.llm?.keys?.xai?.set||!state.capabilities||!state.aiPrompt.trim();});
   $("#ai-frame-count")?.addEventListener("change",event=>{state.aiFrameCount=Number(event.target.value)||6;const calls=$(".ai-calls");if(calls)calls.textContent=`1 + ${state.aiFrameCount} API calls`;});
-  $("#ai-open-settings")?.addEventListener("click",openSettings);
+  $("#ai-open-settings")?.addEventListener("click",()=>{$("#lighting-generate-dialog").close();openSettings();});
   $("#generate-ai")?.addEventListener("click",startGeneration);
   $("#cancel-ai")?.addEventListener("click",cancelGeneration);
 }
@@ -1322,7 +1340,7 @@ async function loadAiConfig() {
 
 function refreshAiGate() {
   if (state.lighting.route === ROUTES.SETTINGS) populateSettings();
-  else if (state.lighting.route === ROUTES.EDIT && !state.generation && !state.pendingGeneration) renderScreen();
+  else if ([ROUTES.EDIT, ROUTES.CREATE].includes(state.lighting.route) && !state.generation && !state.pendingGeneration) renderScreen();
 }
 
 async function startGeneration() {
@@ -1338,12 +1356,26 @@ async function startGeneration() {
   if (state.previousPlan) body.previous_plan = state.previousPlan;
   state.previousPlan = null;
   state.aiError = "";
+  const generation = {
+    jobId: null,
+    phase: "starting",
+    target,
+    slot: state.ledSlot,
+    productFamily: productFamily(productId()),
+    pairsRelicGif,
+    prompt,
+    timer: null,
+  };
+  state.generation = generation;
+  renderScreen();
   try {
     const result = await api("/api/led/generate", {method: "POST", body: JSON.stringify(body)});
-    state.generation = {jobId: result.job_id, phase: "starting", target, pairsRelicGif, prompt, timer: null};
+    if (state.generation !== generation) return;
+    generation.jobId = result.job_id;
     renderScreen();
     pollGeneration(result.job_id);
   } catch (error) {
+    if (state.generation === generation) state.generation = null;
     state.aiError = aiErrorMessage(error);
     renderScreen();
   }
@@ -1382,7 +1414,7 @@ function updateAiBusy(phase) {
 
 async function cancelGeneration() {
   const gen = state.generation;
-  if (!gen) return;
+  if (!gen?.jobId) return;
   updateAiBusy("cancelling…");
   const cancel = $("#cancel-ai");
   if (cancel) cancel.disabled = true;
@@ -1399,7 +1431,7 @@ function finishGenerationError(error) {
 function receiveGeneration(result) {
   const gen = state.generation;
   state.generation = null;
-  const base = getPage(state.ledSlot);
+  const base = getPage(gen.slot);
   if (!base) { state.aiError = "This LED slot is no longer available."; renderScreen(); return; }
   const previewPage = clone(base);
   applyLedResultToPage(previewPage, result, gen.target, gen.pairsRelicGif);
@@ -1407,23 +1439,29 @@ function receiveGeneration(result) {
     page: previewPage,
     result,
     target: gen.target,
+    slot: gen.slot,
+    productFamily: gen.productFamily,
     pairsRelicGif: gen.pairsRelicGif,
     prompt: gen.prompt,
     plan: result.plan || {},
     usage: result.usage || {},
   };
+  state.ledSlot = gen.slot;
   state.ledTarget = gen.target;
   state.ledFrame = 0;
   state.aiError = "";
   renderScreen();
+  const dialog = $("#lighting-generate-dialog");
+  if (dialog.open) dialog.close();
 }
 
 function applyGeneration() {
   const pending = state.pendingGeneration;
-  if (!pending || !getPage(state.ledSlot)) return;
+  if (!pending || !getPage(pending.slot)) return;
   state.pendingGeneration = null;
   mutate(() => {
-    applyLedResultToPage(getPage(state.ledSlot), pending.result, pending.target, pending.pairsRelicGif);
+    state.ledSlot = pending.slot;
+    applyLedResultToPage(getPage(pending.slot), pending.result, pending.target, pending.pairsRelicGif);
     state.ledFrame = 0;
   });
   toast("AI effect applied", `${pending.plan.frame_count || ""} frames · ${pending.plan.subject || "generated effect"}`, "success");
@@ -1442,7 +1480,7 @@ function refineGeneration() {
   }
   state.pendingGeneration = null;
   renderScreen();
-  setTimeout(() => $("#ai-prompt")?.focus(), 30);
+  setTimeout(()=>{openGenerationDialog();$("#ai-prompt")?.focus();},30);
 }
 
 // ---- Settings route --------------------------------------------------------
@@ -1813,7 +1851,6 @@ async function confirmDeviceWrite() {
 function showDeviceDialog(){const dialog=$("#device-dialog");if(!dialog.open)dialog.showModal();scanDevices();}
 
 $("#open-button").addEventListener("click",()=>$("#open-input").click());
-$("#empty-open").addEventListener("click",()=>$("#open-input").click());
 $("#merge-button").addEventListener("click",()=>$("#merge-input").click());
 $("#open-input").addEventListener("change",event=>readFiles(event.currentTarget,false));
 $("#merge-input").addEventListener("change",event=>readFiles(event.currentTarget,true));
@@ -1841,6 +1878,8 @@ $("#settings-xai-key").addEventListener("keydown",event=>{if(event.key==='Enter'
 $("#settings-save-key").addEventListener("click",saveSettingsKey);
 $("#settings-clear-key").addEventListener("click",clearSettingsKey);
 $("#settings-test-key").addEventListener("click",testSettingsKey);
+$("#lighting-generate-open").addEventListener("click",openGenerationDialog);
+$("#lighting-generate-dialog").addEventListener("close",handleGenerationDialogClose);
 $$('.nav-item').forEach(item=>item.addEventListener('click',()=>navigateTo(item.dataset.route, {focusHeading: true})));
 $$('[data-lighting-route]').forEach(tab => {
   tab.addEventListener('click', () => navigateTo(tab.dataset.lightingRoute));
@@ -1862,7 +1901,7 @@ $$('[data-lighting-slot]').forEach(button=>button.addEventListener('click',()=>{
   state.ledFrame=0;
   renderLightingShell();
 }));
-$("[data-library-create]").addEventListener("click", () => navigateTo(ROUTES.CREATE, {focusHeading: true}));
+$("[data-library-create]").addEventListener("click", () => navigateTo(ROUTES.CREATE));
 $("#lighting-job-view").addEventListener("click", () => navigateTo(ROUTES.CREATE, {focusHeading: true}));
 $("#lighting-job-cancel").addEventListener("click", cancelLightingJob);
 window.addEventListener("popstate", () => {

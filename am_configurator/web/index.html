@@ -56,7 +56,7 @@
           <button class="nav-item" data-route="macros">
             <span class="nav-icon">⏺</span><span>Macros</span><small id="nav-macros">—</small>
           </button>
-          <button class="nav-item" data-route="lighting/create">
+          <button class="nav-item" data-route="lighting/edit">
             <span class="nav-icon">✦</span><span>Lighting</span><small id="nav-leds">—</small>
           </button>
         </nav>
@@ -88,83 +88,49 @@
             <p class="eyebrow">Local keyboard studio</p>
             <h1 id="empty-title">Open a configuration to begin.</h1>
             <p id="empty-description">Connect by USB and choose <code>Devices → Read keymap &amp; macros</code>, or open an existing JSON to preserve every lighting page.</p>
-            <button id="empty-open" class="button primary large">Open configuration</button>
           </section>
 
           <section id="screen" hidden></section>
 
           <section id="lighting-shell" class="lighting-shell" hidden aria-labelledby="lighting-title">
-            <header class="lighting-hero">
-              <div class="lighting-title-block">
-                <p class="eyebrow">Image-first workflow</p>
-                <h1 id="lighting-title" tabindex="-1">Lighting Studio</h1>
-                <p>Shape a visual direction, animate the one you love, then apply it to a keyboard only when you choose.</p>
+            <header class="lighting-toolbar">
+              <div class="lighting-heading">
+                <h1 id="lighting-title" tabindex="-1">Lighting</h1>
+                <span id="lighting-destination-product">No document open</span>
               </div>
-              <div class="destination-card" aria-label="Lighting destination">
-                <div class="destination-context">
-                  <span>Destination</span>
-                  <strong id="lighting-destination-product">No document</strong>
-                </div>
-                <div class="destination-controls">
-                  <div>
-                    <span class="control-caption">Custom slot</span>
-                    <div class="segmented compact" role="group" aria-label="Custom slot">
-                      <button type="button" data-lighting-slot="5" aria-pressed="true" aria-label="Custom slot 1" class="active">1</button>
-                      <button type="button" data-lighting-slot="6" aria-pressed="false" aria-label="Custom slot 2">2</button>
-                      <button type="button" data-lighting-slot="7" aria-pressed="false" aria-label="Custom slot 3">3</button>
-                    </div>
-                  </div>
-                  <div>
-                    <span class="control-caption">Target</span>
-                    <div id="lighting-target-controls" class="segmented compact" role="group" aria-label="Lighting target"></div>
-                  </div>
-                </div>
+              <div class="lighting-view-tabs" role="tablist" aria-label="Lighting views">
+                <button id="lighting-edit-tab" role="tab" aria-controls="lighting-edit-panel" aria-selected="true" tabindex="0" data-lighting-route="lighting/edit">Workspace</button>
+                <button id="lighting-library-tab" role="tab" aria-controls="lighting-library-panel" aria-selected="false" tabindex="-1" data-lighting-route="lighting/library">Library</button>
               </div>
+              <button id="lighting-generate-open" type="button" class="button ghost" aria-haspopup="dialog" aria-controls="lighting-generate-dialog">Generate…</button>
             </header>
 
-            <div class="lighting-tabs" role="tablist" aria-label="Lighting Studio">
-              <button id="lighting-create-tab" role="tab" aria-controls="lighting-create-panel" aria-selected="true" tabindex="0" data-lighting-route="lighting/create">
-                <span>Create</span><small>Concept to motion</small>
-              </button>
-              <button id="lighting-library-tab" role="tab" aria-controls="lighting-library-panel" aria-selected="false" tabindex="-1" data-lighting-route="lighting/library">
-                <span>Library</span><small>Everything saved</small>
-              </button>
-              <button id="lighting-edit-tab" role="tab" aria-controls="lighting-edit-panel" aria-selected="false" tabindex="-1" data-lighting-route="lighting/edit">
-                <span>Edit</span><small>Frames &amp; paint</small>
-              </button>
-            </div>
-
-            <section id="lighting-create-panel" role="tabpanel" aria-labelledby="lighting-create-tab">
-              <div id="lighting-create-content" class="lighting-panel-body">
-                <ol class="create-steps" aria-label="Creation stages">
-                  <li data-lighting-stage="concepts" aria-current="step"><span>1</span><strong>Concepts</strong></li>
-                  <li data-lighting-stage="animate"><span>2</span><strong>Animate</strong></li>
-                  <li data-lighting-stage="review"><span>3</span><strong>Review</strong></li>
-                </ol>
-                <div class="studio-welcome card">
-                  <div class="studio-welcome-copy">
-                    <p class="eyebrow">Start with the look</p>
-                    <h2>Explore still concepts before spending on motion.</h2>
-                    <p>Describe the atmosphere, subject, and movement you want. You’ll compare every generated still and choose the one that becomes the animation.</p>
-                    <button type="button" class="button primary" disabled>Concept tools arrive next</button>
-                  </div>
-                  <div class="concept-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div class="lighting-context" aria-label="Lighting destination">
+              <div class="lighting-context-group">
+                <span class="control-caption">Custom slot</span>
+                <div class="segmented compact" role="group" aria-label="Custom slot">
+                  <button type="button" data-lighting-slot="5" aria-pressed="true" aria-label="Custom slot 1" class="active">1</button>
+                  <button type="button" data-lighting-slot="6" aria-pressed="false" aria-label="Custom slot 2">2</button>
+                  <button type="button" data-lighting-slot="7" aria-pressed="false" aria-label="Custom slot 3">3</button>
                 </div>
               </div>
+              <div class="lighting-context-group target-context">
+                <span class="control-caption">Target</span>
+                <div id="lighting-target-controls" class="segmented compact" role="group" aria-label="Lighting target"></div>
+              </div>
+            </div>
+
+            <section id="lighting-edit-panel" role="tabpanel" aria-labelledby="lighting-edit-tab">
+              <div id="lighting-edit-content"></div>
             </section>
 
             <section id="lighting-library-panel" role="tabpanel" aria-labelledby="lighting-library-tab" hidden>
               <div class="lighting-panel-body library-welcome">
-                <div class="library-mark" aria-hidden="true">✦</div>
-                <p class="eyebrow">Local by design</p>
-                <h2>Your generated work will live here.</h2>
-                <p>Every still, source video, preview, and device-ready result stays banked in the folder you choose.</p>
-                <button type="button" class="button primary" data-library-create>Create something</button>
+                <p class="eyebrow">Local library</p>
+                <h2>Saved lighting media</h2>
+                <p>Generated stills, videos, previews, and device-ready results will remain available here.</p>
+                <button type="button" class="button ghost" data-library-create>Generate…</button>
               </div>
-            </section>
-
-            <section id="lighting-edit-panel" role="tabpanel" aria-labelledby="lighting-edit-tab" hidden>
-              <div id="lighting-edit-content"></div>
             </section>
           </section>
 
@@ -198,6 +164,21 @@
       </main>
     </div>
   </div>
+
+  <dialog id="lighting-generate-dialog" class="dialog generation-dialog" aria-labelledby="lighting-generate-title">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Optional tool</p><h2 id="lighting-generate-title">Generate lighting</h2></div>
+        <button class="dialog-close" value="cancel" aria-label="Close generation">×</button>
+      </div>
+      <ol class="create-steps" aria-label="Generation stages">
+        <li data-lighting-stage="concepts" aria-current="step"><span>1</span><strong>Concepts</strong></li>
+        <li data-lighting-stage="animate"><span>2</span><strong>Animate</strong></li>
+        <li data-lighting-stage="review"><span>3</span><strong>Review</strong></li>
+      </ol>
+      <div id="lighting-generate-content"></div>
+    </form>
+  </dialog>
 
   <dialog id="device-dialog" class="dialog">
     <form method="dialog" class="dialog-card">
