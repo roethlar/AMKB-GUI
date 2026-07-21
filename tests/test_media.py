@@ -77,10 +77,12 @@ class _Opener:
 class _ProductionShapedResponse:
     """Models HTTPResponse clearing ``fp`` when Content-Length is exhausted."""
 
-    def __init__(self, body: bytes) -> None:
+    def __init__(self, body: bytes, *, declared_length: bool = True) -> None:
         self.body = body
         self.status = 200
-        self.headers = {"Content-Length": str(len(body))}
+        self.headers = (
+            {"Content-Length": str(len(body))} if declared_length else {}
+        )
         self.socket_timeouts: list[float] = []
         sock = SimpleNamespace(settimeout=self.socket_timeouts.append)
         self.fp = SimpleNamespace(raw=SimpleNamespace(_sock=sock))
@@ -357,6 +359,20 @@ class VideoDownloaderTests(unittest.TestCase):
             self.assertEqual(result.size_bytes, len(payload))
             self.assertTrue(response.socket_timeouts)
             self.assertTrue(response.closed)
+
+    def test_closed_chunked_response_is_recognized_as_eof(self) -> None:
+        payload = _mp4_bytes()
+        response = _ProductionShapedResponse(payload, declared_length=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "source.mp4"
+            result = media.download_video(
+                self._URL,
+                destination,
+                self._deadline(),
+                opener=_Opener(response),
+            )
+            self.assertEqual(destination.read_bytes(), payload)
+            self.assertEqual(result.size_bytes, len(payload))
 
     def test_cancellation_before_or_during_stream_preserves_destination(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

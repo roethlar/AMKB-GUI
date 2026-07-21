@@ -247,6 +247,17 @@ def _set_response_timeout(response: object, timeout: float) -> None:
     raise MediaError("bad_response", "video response did not expose timeout control")
 
 
+def _response_is_closed(response: object) -> bool:
+    isclosed = getattr(response, "isclosed", None)
+    if callable(isclosed):
+        try:
+            if isclosed():
+                return True
+        except (OSError, ValueError):
+            pass
+    return hasattr(response, "fp") and getattr(response, "fp", None) is None
+
+
 def _looks_like_mp4(prefix: bytes, total_size: int) -> bool:
     if total_size < 16 or len(prefix) < 16 or prefix[4:8] != b"ftyp":
         return False
@@ -368,6 +379,8 @@ def download_video(
                 except OSError:
                     raise MediaError("io", "video temporary file write failed") from None
                 if expected_size is not None and total == expected_size:
+                    break
+                if _response_is_closed(response):
                     break
 
             _check_cancel(cancelled)
