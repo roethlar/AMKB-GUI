@@ -108,15 +108,15 @@
                 <div class="destination-controls">
                   <div>
                     <span class="control-caption">Custom slot</span>
-                    <div class="segmented compact" aria-label="Custom slot">
-                      <button type="button" data-lighting-slot="5" class="active">1</button>
-                      <button type="button" data-lighting-slot="6">2</button>
-                      <button type="button" data-lighting-slot="7">3</button>
+                    <div class="segmented compact" role="group" aria-label="Custom slot">
+                      <button type="button" data-lighting-slot="5" aria-pressed="true" aria-label="Custom slot 1" class="active">1</button>
+                      <button type="button" data-lighting-slot="6" aria-pressed="false" aria-label="Custom slot 2">2</button>
+                      <button type="button" data-lighting-slot="7" aria-pressed="false" aria-label="Custom slot 3">3</button>
                     </div>
                   </div>
                   <div>
                     <span class="control-caption">Target</span>
-                    <div id="lighting-target-controls" class="segmented compact" aria-label="Lighting target"></div>
+                    <div id="lighting-target-controls" class="segmented compact" role="group" aria-label="Lighting target"></div>
                   </div>
                 </div>
               </div>

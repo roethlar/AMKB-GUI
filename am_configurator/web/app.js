@@ -693,7 +693,9 @@ function renderLightingShell() {
     ? `${productLabel(productId())} · ${productId()}`
     : "No document open";
   $$('[data-lighting-slot]').forEach(button => {
-    button.classList.toggle("active", Number(button.dataset.lightingSlot) === state.ledSlot);
+    const selected = Number(button.dataset.lightingSlot) === state.ledSlot;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
     button.disabled = !state.config;
   });
 
@@ -701,7 +703,7 @@ function renderLightingShell() {
   const targets = state.config ? activeLedModel().targets : [];
   if (targets.length && !targets.some(target => target.key === state.ledTarget)) state.ledTarget = targets[0].key;
   targetHost.innerHTML = targets.length
-    ? targets.map(target => `<button type="button" data-lighting-target="${esc(target.key)}" class="${target.key === state.ledTarget ? "active" : ""}">${esc(target.label)}</button>`).join("")
+    ? targets.map(target => `<button type="button" data-lighting-target="${esc(target.key)}" aria-pressed="${target.key === state.ledTarget}" class="${target.key === state.ledTarget ? "active" : ""}">${esc(target.label)}</button>`).join("")
     : '<button type="button" disabled>Open document</button>';
   $$('[data-lighting-target]', targetHost).forEach(button => button.addEventListener("click", () => {
     state.ledTarget = button.dataset.lightingTarget;

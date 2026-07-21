@@ -48,6 +48,14 @@ test("Lighting tab activation keeps focus within the roving tablist", () => {
   assert.doesNotMatch(wiring, /focusHeading/);
 });
 
+test("destination selectors expose their selected value without relying on color", () => {
+  assert.match(html, /class="segmented compact" role="group" aria-label="Custom slot"/);
+  assert.match(html, /data-lighting-slot="5"[^>]*aria-pressed="true"[^>]*aria-label="Custom slot 1"/);
+  assert.match(html, /id="lighting-target-controls"[^>]*role="group"/);
+  assert.match(js, /setAttribute\("aria-pressed"/);
+  assert.match(js, /data-lighting-target=.*aria-pressed=/);
+});
+
 test("Library and Settings have document-independent routed surfaces", () => {
   assert.match(html, /id="lighting-library-panel"/);
   assert.match(html, /id="settings-screen"/);
