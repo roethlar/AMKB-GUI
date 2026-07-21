@@ -216,6 +216,37 @@ def _content_length(response: object) -> int | None:
     return value
 
 
+def _set_response_timeout(response: object, timeout: float) -> None:
+    paths = (
+        (),
+        ("fp",),
+        ("fp", "raw"),
+        ("fp", "raw", "_sock"),
+        ("fp", "_sock"),
+        ("raw", "_sock"),
+        ("_sock",),
+    )
+    for path in paths:
+        candidate = response
+        try:
+            for attribute in path:
+                candidate = getattr(candidate, attribute)
+        except (AttributeError, ValueError):
+            continue
+        setter = getattr(candidate, "settimeout", None)
+        if not callable(setter):
+            continue
+        failure: MediaError | None = None
+        try:
+            setter(timeout)
+        except (OSError, ValueError):
+            failure = MediaError("unavailable", "video response timeout could not be set")
+        if failure is not None:
+            raise failure from None
+        return
+    raise MediaError("bad_response", "video response did not expose timeout control")
+
+
 def _looks_like_mp4(prefix: bytes, total_size: int) -> bool:
     if total_size < 12 or len(prefix) < 12 or prefix[4:8] != b"ftyp":
         return False
@@ -307,7 +338,8 @@ def download_video(
         with os.fdopen(fd, "wb") as stream:
             while True:
                 _check_cancel(cancelled)
-                _remaining_timeout(deadline)
+                read_timeout = _remaining_timeout(deadline)
+                _set_response_timeout(response, read_timeout)
                 amount = min(_READ_CHUNK_BYTES, MAX_VIDEO_BYTES - total + 1)
                 read_failure: MediaError | None = None
                 try:
@@ -336,6 +368,7 @@ def download_video(
                     raise MediaError("io", "video temporary file write failed") from None
 
             _check_cancel(cancelled)
+            _remaining_timeout(deadline)
             if not _looks_like_mp4(bytes(prefix), total):
                 raise MediaError("bad_response", "video response was not an MP4 file")
             try:

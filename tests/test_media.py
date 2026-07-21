@@ -38,6 +38,7 @@ class _Response:
         self.headers = headers or {}
         self.read_error = read_error
         self.read_calls = 0
+        self.timeout_values: list[float] = []
         self.closed = False
 
     def getcode(self) -> int:
@@ -55,6 +56,9 @@ class _Response:
 
     def close(self) -> None:
         self.closed = True
+
+    def settimeout(self, value: float) -> None:
+        self.timeout_values.append(value)
 
 
 class _Opener:
@@ -247,6 +251,40 @@ class VideoDownloaderTests(unittest.TestCase):
             self.assertEqual(destination.read_bytes(), b"existing")
             self.assertFalse((Path(tmp) / "source.mp4.part").exists())
             self.assertTrue(response.closed)
+
+    def test_stream_timeout_tracks_deadline_and_eof_cannot_publish_late(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "source.mp4"
+            response = _Response(_mp4_bytes())
+            with patch.object(
+                media.time, "monotonic", side_effect=(0.0, 0.0, 9.75, 10.1)
+            ):
+                with self.assertRaises(media.MediaError) as ctx:
+                    media.download_video(
+                        self._URL,
+                        destination,
+                        10.0,
+                        opener=_Opener(response),
+                    )
+            self.assertEqual(ctx.exception.code, "timeout")
+            self.assertEqual(response.timeout_values, [0.25])
+            self.assertFalse(destination.exists())
+
+            late_eof = _Response(_mp4_bytes())
+            with patch.object(
+                media.time,
+                "monotonic",
+                side_effect=(0.0, 0.0, 0.0, 0.0, 10.1),
+            ):
+                with self.assertRaises(media.MediaError) as ctx:
+                    media.download_video(
+                        self._URL,
+                        destination,
+                        10.0,
+                        opener=_Opener(late_eof),
+                    )
+            self.assertEqual(ctx.exception.code, "timeout")
+            self.assertFalse(destination.exists())
 
     def test_cancellation_before_or_during_stream_preserves_destination(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
