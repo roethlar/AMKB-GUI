@@ -1518,6 +1518,9 @@ class GenerationCoordinator:
 
             frame_assets = []
             for index, path in enumerate(processed.frame_paths):
+                if cancelled.is_set():
+                    self._finish_cancelled_saved(job_id, attempt_id)
+                    return
                 frame_assets.append(
                     self._library.bank_asset(
                         job_id,
@@ -1527,6 +1530,9 @@ class GenerationCoordinator:
                         origin=f"local_frame:{attempt_id}:{index}",
                     )
                 )
+                if cancelled.is_set():
+                    self._finish_cancelled_saved(job_id, attempt_id)
+                    return
             preview_asset = self._library.bank_asset(
                 job_id,
                 kind="preview_poster",
@@ -1534,6 +1540,9 @@ class GenerationCoordinator:
                 mime_type="image/png",
                 origin=f"local_preview:{attempt_id}",
             )
+            if cancelled.is_set():
+                self._finish_cancelled_saved(job_id, attempt_id)
+                return
             mapped_asset = self._library.bank_asset(
                 job_id,
                 kind="mapped_result",
@@ -1552,6 +1561,14 @@ class GenerationCoordinator:
                 ]
                 attempt["preview_asset_id"] = preview_asset["asset_id"]
                 attempt["mapped_result_asset_id"] = mapped_asset["asset_id"]
+                if cancelled.is_set() or current["cancel_requested_at"] is not None:
+                    attempt["status"] = "cancelled_saved"
+                    attempt["phase"] = "cancelled_saved"
+                    attempt["completed_at"] = completed_at
+                    current["status"] = "cancelled_saved"
+                    current["phase"] = "cancelled_saved"
+                    current["cancelled_at"] = completed_at
+                    return
                 attempt["status"] = "complete"
                 attempt["phase"] = "ready_for_review"
                 attempt["completed_at"] = completed_at
@@ -1819,12 +1836,22 @@ class GenerationCoordinator:
             current_attempt = _animation_attempt(current, attempt_id)
             current_attempt["source_video_asset_id"] = source["asset_id"]
             current["recovery"]["source_video_asset_id"] = source["asset_id"]
+            was_cancelled = (
+                current["cancel_requested_at"] is not None
+                or current["status"] in {"cancelled", "cancelled_saved"}
+            )
             if complete:
                 current_attempt["frame_asset_ids"] = [
                     asset["asset_id"] for asset in frames
                 ]
                 current_attempt["preview_asset_id"] = preview["asset_id"]
                 current_attempt["mapped_result_asset_id"] = mapped_asset["asset_id"]
+                if was_cancelled:
+                    current_attempt["status"] = "cancelled_saved"
+                    current_attempt["phase"] = "cancelled_saved"
+                    current["status"] = "cancelled_saved"
+                    current["phase"] = "cancelled_saved"
+                    return
                 current_attempt["status"] = "complete"
                 current_attempt["phase"] = "ready_for_review"
                 current_attempt["completed_at"] = timestamp
@@ -1834,7 +1861,7 @@ class GenerationCoordinator:
                     "completed": frame_count,
                     "total": frame_count,
                 }
-            elif current["cancel_requested_at"] is not None or current["status"] == "cancelled":
+            elif was_cancelled:
                 current_attempt["status"] = "cancelled_saved"
                 current_attempt["phase"] = "cancelled_saved"
                 current["status"] = "cancelled_saved"

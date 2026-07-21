@@ -1314,6 +1314,33 @@ class DurableVideoGenerationTests(unittest.TestCase):
         self.assertEqual(80 * 34, mapped["source_duration_ms"])
         self.assertFalse(mapped["timing_resampled"])
 
+    def test_cancel_during_frame_banking_cannot_publish_ready(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        original_bank = self.library.bank_asset
+        cancelled_during_bank = False
+
+        def cancel_after_first_frame(job_id: str, **kwargs):
+            nonlocal cancelled_during_bank
+            asset = original_bank(job_id, **kwargs)
+            if kwargs.get("kind") == "frame" and not cancelled_during_bank:
+                cancelled_during_bank = True
+                self.coordinator.cancel(job_id)
+            return asset
+
+        with patch.object(self.library, "bank_asset", side_effect=cancel_after_first_frame):
+            started = self._start_animation(manifest, candidate_id)
+            final = self.coordinator.wait(started["job_id"], timeout=10)
+        self.assertTrue(cancelled_during_bank)
+        self.assertEqual("cancelled_saved", final["status"])
+        self.assertEqual("cancelled_saved", final["phase"])
+        self.assertEqual([], [asset for asset in final["assets"] if asset["kind"] == "mapped_result"])
+        self.assertGreaterEqual(
+            len([asset for asset in final["assets"] if asset["kind"] == "frame"]), 1
+        )
+        self.assertLess(
+            len([asset for asset in final["assets"] if asset["kind"] == "frame"]), 80
+        )
+
     def test_startup_adopts_banked_frames_and_mapping_after_final_manifest_interruption(self) -> None:
         manifest, candidate_id = self._selectable_job()
         started = self._start_animation(manifest, candidate_id)
