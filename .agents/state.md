@@ -56,13 +56,19 @@
   authenticated local thumbnails and detail media as Blob URLs, and works
   without a document. A malformed-effective-key redaction hole found during
   live acceptance testing was closed in `2e4d474`.
-- The full repository verification entry point passed at `2e4d474` with 262
-  Python tests and 29 browser-state/static tests. Versioned macOS build
-  `0.1.18` passed frozen smoke and DMG verification and was launched with the
-  Relic profile. A one-output live xAI Concepts acceptance check completed with
-  one still banked locally, visible/selectable in Concepts, browsable in
-  Library detail, and retained across Settings → Done. Provider-reported cost
-  was $0.0227244. No key was persisted and no video or hardware call was made.
+- The folder picker's packaged-page dependency on the injected JavaScript
+  bridge was removed in `7ac492f`; Choose folder and Reveal now dispatch through
+  authenticated native loopback routes, retaining the injected bridge only as
+  a browser-only fallback. The production page and route opened a real macOS
+  folder panel in a source-build probe. The full repository verification entry
+  point passed at `7ac492f` with 263 Python tests and 29 browser-state/static
+  tests. Versioned macOS build `0.1.19` passed frozen smoke and DMG verification
+  and was launched with the Relic profile; host accessibility policy prevented
+  an automated click in the frozen GUI. The preceding `0.1.18` live xAI
+  Concepts acceptance check completed with one still banked locally,
+  visible/selectable in Concepts, browsable in Library detail, and retained
+  across Settings → Done. Provider-reported cost was $0.0227244. No key was
+  persisted and no video or hardware call was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
