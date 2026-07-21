@@ -77,13 +77,14 @@ def _models(value: object) -> dict[str, str]:
     return normalized
 
 
-def _target_snapshot(value: object) -> dict:
+def canonical_target_snapshot(value: object) -> dict:
+    """Validate a durable target against the app's canonical device layouts."""
     if not isinstance(value, Mapping):
         raise GenerationValidationError("target must be an object")
     allowed = {"family", "product_id", "raster", "targets", "frame_cap"}
-    if not {"family", "raster", "targets"}.issubset(value) or not set(value).issubset(
-        allowed
-    ):
+    if not {"family", "product_id", "raster", "targets"}.issubset(value) or not set(
+        value
+    ).issubset(allowed):
         raise GenerationValidationError("target snapshot is incomplete")
     family = value["family"]
     if not isinstance(family, str) or family not in MODEL_FRAME_CAPS:
@@ -117,22 +118,41 @@ def _target_snapshot(value: object) -> dict:
     expected_cap = MODEL_FRAME_CAPS[family]
     if "frame_cap" in value and value["frame_cap"] != expected_cap:
         raise GenerationValidationError("target frame cap does not match its family")
-    product_id = value.get("product_id")
-    if product_id is not None and (
+    product_id = value["product_id"]
+    if (
         not isinstance(product_id, str)
         or not product_id
         or len(product_id) > 200
         or any(character.isspace() for character in product_id)
     ):
         raise GenerationValidationError("target product ID is invalid")
+    try:
+        # Imported lazily so server.py can inject this coordinator in Task 9
+        # without creating an import-time cycle.
+        from .server import generation_spec
+
+        spec, resolved_targets = generation_spec(product_id, list(targets), None)
+    except (TypeError, ValueError):
+        raise GenerationValidationError(
+            "the product and LED targets are not a supported generation layout"
+        ) from None
+    if (
+        spec.model != family
+        or spec.width != width
+        or spec.height != height
+        or spec.max_frames != expected_cap
+        or resolved_targets != list(targets)
+    ):
+        raise GenerationValidationError(
+            "the target snapshot does not match the product's generation layout"
+        )
     snapshot = {
         "family": family,
+        "product_id": product_id,
         "raster": {"width": width, "height": height},
-        "targets": list(targets),
+        "targets": resolved_targets,
         "frame_cap": expected_cap,
     }
-    if product_id is not None:
-        snapshot["product_id"] = product_id
     return snapshot
 
 
@@ -155,7 +175,7 @@ def _request_values(
             f"prompt must be a non-empty string of at most {MAX_CONCEPT_PROMPT_CHARS} characters"
         )
     count = _candidate_count(candidate_count)
-    snapshot = _target_snapshot(target)
+    snapshot = canonical_target_snapshot(target)
     selected_models = _models(models)
     if not isinstance(loop_mode, str) or loop_mode not in VIDEO_LOOP_MODES:
         raise GenerationValidationError("loop_mode is unsupported")
@@ -895,5 +915,6 @@ __all__ = [
     "GenerationValidationError",
     "MAX_CONCEPT_CANDIDATES",
     "OperationGate",
+    "canonical_target_snapshot",
     "estimate_concept_batch_ticks",
 ]

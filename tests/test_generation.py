@@ -25,9 +25,9 @@ from am_configurator.llm import (
 
 TARGET = {
     "family": "CB",
-    "product_id": "AM_CYBERBOARD",
+    "product_id": "CB_TEST",
     "raster": {"width": 40, "height": 5},
-    "targets": ["display"],
+    "targets": ["frames"],
 }
 MODELS = {
     "interpreter": "grok-4.5",
@@ -217,6 +217,29 @@ class DurableConceptGenerationTests(unittest.TestCase):
         self.assertEqual([("super-secret-key", "grok-4.5")], self.planner_factory_calls)
         self.assertEqual(
             [("super-secret-key", "grok-imagine-image")], self.image_factory_calls
+        )
+
+    def test_target_snapshot_must_match_the_canonical_product_layout(self) -> None:
+        invalid_targets = (
+            {key: value for key, value in TARGET.items() if key != "product_id"},
+            {**TARGET, "product_id": "AM21"},
+            {**TARGET, "targets": ["not_a_real_target"]},
+            {**TARGET, "raster": {"width": 41, "height": 5}},
+            {**TARGET, "frame_cap": 200},
+            {
+                "family": "CB",
+                "product_id": "CB_TEST",
+                "raster": {"width": 40, "height": 6},
+                "targets": ["frames", "keyframes"],
+            },
+        )
+        for target in invalid_targets:
+            with self.subTest(target=target):
+                with self.assertRaises(generation.GenerationValidationError):
+                    generation.canonical_target_snapshot(target)
+        self.assertEqual(
+            {**TARGET, "frame_cap": 80},
+            generation.canonical_target_snapshot(TARGET),
         )
 
     def test_single_flight_sequential_calls_and_banking_before_the_next_call(self) -> None:

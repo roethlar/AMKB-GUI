@@ -1210,7 +1210,7 @@ def _capabilities() -> dict[str, Any]:
     }
 
 
-def _generation_spec(
+def generation_spec(
     product_id: str,
     targets: list[str] | tuple[str, ...],
     frame_count: int | None,
@@ -1285,6 +1285,10 @@ def _generation_spec(
         max_frames=max_frames,
     )
     return spec, requested
+
+
+# Compatibility alias for the legacy endpoint/tests until Task 16 removes it.
+_generation_spec = generation_spec
 
 
 def _default_llm_factories() -> dict[str, Any]:
