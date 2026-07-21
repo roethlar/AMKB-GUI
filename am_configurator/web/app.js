@@ -1319,7 +1319,8 @@ async function loadAiConfig() {
 }
 
 function refreshAiGate() {
-  if (state.lighting.route === ROUTES.EDIT && !state.generation && !state.pendingGeneration) renderScreen();
+  if (state.lighting.route === ROUTES.SETTINGS) populateSettings();
+  else if (state.lighting.route === ROUTES.EDIT && !state.generation && !state.pendingGeneration) renderScreen();
 }
 
 async function startGeneration() {

@@ -48,6 +48,12 @@ test("Library and Settings have document-independent routed surfaces", () => {
   assert.match(js, /function renderRoute\s*\(/);
 });
 
+test("a restored Settings route refreshes after persisted settings load", () => {
+  const refresh = js.match(/function refreshAiGate\s*\(\)\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(refresh, /ROUTES\.SETTINGS/);
+  assert.match(refresh, /populateSettings\(\)/);
+});
+
 test("shell supports narrow windows, zoom, focus, and reduced motion", () => {
   assert.doesNotMatch(css, /min-width:\s*880px/);
   assert.match(css, /textarea:focus-visible/);
