@@ -629,6 +629,25 @@ class GenerationCoordinator:
             return "video_plan"
         return f"video_plan:{attempt_id}"
 
+    @staticmethod
+    def _has_unresolved_video_request(manifest: dict) -> bool:
+        request = manifest["provider_requests"].get("video")
+        if not isinstance(request, dict) or not isinstance(request.get("request_id"), str):
+            return False
+        if request.get("status") in {"failed", "expired"}:
+            return False
+        request_id = request["request_id"]
+        matching_attempts = [
+            attempt
+            for attempt in manifest["animation_attempts"]
+            if attempt.get("request_id") == request_id
+        ]
+        source_ids = {
+            attempt.get("source_video_asset_id") for attempt in matching_attempts
+        }
+        source_ids.add(manifest["recovery"].get("source_video_asset_id"))
+        return not any(isinstance(asset_id, str) for asset_id in source_ids)
+
     def _launch_video_worker(
         self,
         job_id: str,
@@ -691,6 +710,10 @@ class GenerationCoordinator:
         _models(original["models"])
         self._video_spec(original)
         self._candidate_asset(original, candidate_id)
+        if self._has_unresolved_video_request(original):
+            raise GenerationValidationError(
+                "this job still has an accepted video request to retrieve"
+            )
         if original["status"] == "in_progress":
             raise GenerationValidationError("this job already has an active operation")
 
@@ -701,6 +724,10 @@ class GenerationCoordinator:
             if current["status"] == "in_progress":
                 raise GenerationBusyError("the generation job changed before animation started")
             self._candidate_asset(current, candidate_id)
+            if self._has_unresolved_video_request(current):
+                raise GenerationValidationError(
+                    "this job still has an accepted video request to retrieve"
+                )
             attempt_id = str(uuid.uuid4())
             operation = self._video_plan_operation(current, attempt_id)
             timestamp = _now_iso()

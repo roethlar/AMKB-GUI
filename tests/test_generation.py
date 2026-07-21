@@ -968,6 +968,22 @@ class DurableVideoGenerationTests(unittest.TestCase):
         self.assertEqual([], self.coordinator.reconcile_startup(api_key="video-secret-key"))
         self.assertEqual(1, len(self.video.submit_calls))
 
+    def test_paused_accepted_request_blocks_a_new_paid_animation_attempt(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        self.video.poll_outcomes = [
+            ProviderError("unavailable", "poll unavailable")
+        ]
+        started = self._start_animation(manifest, candidate_id)
+        paused = self.coordinator.wait(started["job_id"], timeout=10)
+        self.assertEqual("interrupted", paused["status"])
+        self.assertEqual(self.video.request_id, paused["provider_requests"]["video"]["request_id"])
+        with self.assertRaises(generation.GenerationValidationError):
+            self._start_animation(paused, candidate_id)
+        current = self.library.load_manifest(manifest["job_id"])
+        self.assertEqual(1, len(current["animation_attempts"]))
+        self.assertEqual(self.video.request_id, current["provider_requests"]["video"]["request_id"])
+        self.assertEqual(1, len(self.video.submit_calls))
+
     def test_startup_resumes_accepted_request_without_replaying_paid_posts(self) -> None:
         manifest, candidate_id = self._selectable_job()
         attempt_id = str(uuid.uuid4())
