@@ -928,6 +928,23 @@ class DurableVideoGenerationTests(unittest.TestCase):
         self.assertNotIn("signature", json.dumps(final).lower())
         self.assertNotEqual(other["job_id"], manifest["job_id"])
 
+    def test_selected_concept_is_banked_as_a_pixel_reduced_video_source(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        started = self._start_animation(manifest, candidate_id)
+        final = self.coordinator.wait(started["job_id"], timeout=10)
+
+        selected = [asset for asset in final["assets"] if asset["kind"] == "selected_still"]
+        self.assertEqual(1, len(selected))
+        attempt = final["animation_attempts"][0]
+        self.assertEqual(selected[0]["asset_id"], attempt["selected_still_asset_id"])
+        payload = self.library.resolve_asset(
+            manifest["job_id"], selected[0]["asset_id"]
+        ).path.read_bytes()
+        self.assertEqual(payload, self.planner.calls[0][2])
+        self.assertEqual("image/png", self.planner.calls[0][3])
+        self.assertEqual(payload, self.video.submit_calls[0][1])
+        self.assertEqual("image/png", self.video.submit_calls[0][2])
+
     def test_request_id_is_persisted_before_poll_and_poll_cost_replaces_observations(self) -> None:
         manifest, candidate_id = self._selectable_job()
         self.video.poll_outcomes = [

@@ -36,6 +36,7 @@ from .llm import (
     VideoStatus,
     VideoSubmission,
     XaiVideoProvider,
+    prepare_led_video_source,
 )
 from .media import (
     DownloadedVideo,
@@ -787,6 +788,7 @@ class GenerationCoordinator:
                         "motion": normalized_motion,
                         "plan": None,
                         "request_id": None,
+                        "selected_still_asset_id": None,
                         "source_video_asset_id": None,
                         "frame_asset_ids": [],
                         "preview_asset_id": None,
@@ -959,6 +961,26 @@ class GenerationCoordinator:
             )
             provider = self._video_provider_factory(api_key, manifest["models"]["video"])
             try:
+                image_bytes = prepare_led_video_source(image_bytes, mime_type, spec)
+                mime_type = "image/png"
+                selected_still = self._library.bank_asset(
+                    job_id,
+                    kind="selected_still",
+                    data=image_bytes,
+                    mime_type=mime_type,
+                    origin=f"led_source:{attempt_id}",
+                )
+
+                def record_selected_still(current: dict) -> None:
+                    current_attempt = _animation_attempt(current, attempt_id)
+                    current_attempt["selected_still_asset_id"] = selected_still["asset_id"]
+
+                self._library.update_manifest(job_id, record_selected_still)
+                if cancelled.is_set():
+                    self._finish_before_video_submit(
+                        job_id, attempt_id, unsubmitted_operation=plan_operation
+                    )
+                    return
                 result = planner.plan(
                     manifest["prompt"],
                     attempt["motion"],

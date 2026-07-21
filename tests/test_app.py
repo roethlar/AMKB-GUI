@@ -1926,6 +1926,28 @@ class GrokVideoProviderTests(unittest.TestCase):
         Image.new("RGB", (20, 9), (11, 22, 33)).save(buffer, "PNG")
         return buffer.getvalue()
 
+    def test_video_source_is_reduced_to_the_actual_led_information_budget(self) -> None:
+        from PIL import Image
+
+        source = Image.new("RGB", (180, 70))
+        source.putdata(
+            [
+                ((x * 7 + y) % 256, (x + y * 11) % 256, (x * 3 + y * 5) % 256)
+                for y in range(70)
+                for x in range(180)
+            ]
+        )
+        buffer = io.BytesIO()
+        source.save(buffer, "PNG")
+        prepared = llm.prepare_led_video_source(
+            buffer.getvalue(), "image/png", self._spec()
+        )
+
+        with Image.open(io.BytesIO(prepared)) as image:
+            self.assertEqual(image.format, "PNG")
+            self.assertEqual(image.size, source.size)
+            self.assertLessEqual(len(image.getcolors(maxcolors=source.width * source.height)), 18 * 7)
+
     def test_video_plan_is_strict_bounded_and_requires_all_locks(self) -> None:
         plan = llm.video_animation_plan_from_json(self._plan_dict())
         self.assertEqual(plan.subject_lock, self._plan_dict()["subject_lock"])
@@ -1964,7 +1986,13 @@ class GrokVideoProviderTests(unittest.TestCase):
             self._future_deadline(),
         )
 
-        self.assertEqual(result.plan.video_prompt, self._plan_dict()["video_prompt"])
+        self.assertIn(self._plan_dict()["video_prompt"], result.plan.video_prompt)
+        self.assertIn("NON-NEGOTIABLE KEYBOARD LED LOOP", result.plan.video_prompt)
+        self.assertIn("not conventional video", result.plan.video_prompt)
+        self.assertIn("cover-downsampled to 18x7", result.plan.video_prompt)
+        self.assertIn("first and final frames must match", result.plan.video_prompt)
+        self.assertIn("reversible bounded motion", result.plan.video_prompt)
+        self.assertLessEqual(len(result.plan.video_prompt), llm.MAX_VIDEO_PLAN_STRING)
         self.assertEqual(result.usage.cost_in_usd_ticks, 41_000_000)
         self.assertEqual(len(transport.calls), 1)
         call = transport.calls[0]
@@ -1993,6 +2021,8 @@ class GrokVideoProviderTests(unittest.TestCase):
         self.assertIn("ping_pong", input_text)
         self.assertIn("exactly one second", input_text)
         self.assertIn("locked camera", input_text.lower())
+        self.assertIn("functional LED loop", input_text)
+        self.assertIn("not a shot, scene, or miniature movie", input_text)
         self.assertEqual(
             input_image,
             "data:image/png;base64," + base64.b64encode(original).decode("ascii"),
@@ -2029,6 +2059,33 @@ class GrokVideoProviderTests(unittest.TestCase):
                     ).plan(*args, self._future_deadline())
                 self.assertEqual(ctx.exception.code, "config")
                 self.assertEqual(invalid_transport.calls, [])
+
+    def test_every_video_mode_receives_a_closed_cycle_instruction(self) -> None:
+        expected = {
+            "smooth": "one gentle periodic motion cycle",
+            "none": "There is no transition padding",
+            "ping_pong": "reversible bounded motion",
+        }
+        for loop_mode, phrase in expected.items():
+            with self.subTest(loop_mode=loop_mode):
+                transport = _FakeTransport(
+                    response=self._video_response(self._plan_dict())
+                )
+                result = llm.GrokVideoPlanner(
+                    _FAKE_KEY, transport=transport
+                ).plan(
+                    "an amber comet",
+                    None,
+                    self._png_bytes(),
+                    "image/png",
+                    self._spec(),
+                    loop_mode,
+                    self._future_deadline(),
+                )
+                self.assertIn(phrase, result.plan.video_prompt)
+                self.assertIn(
+                    "first and final frames must match", result.plan.video_prompt
+                )
 
     def test_submit_is_one_paid_call_with_curated_model_and_fixed_payload(self) -> None:
         original = self._png_bytes()

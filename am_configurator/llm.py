@@ -1222,6 +1222,75 @@ def _selected_image_data_uri(original_bytes: object, mime_type: object) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
+def prepare_led_video_source(
+    image_bytes: object,
+    mime_type: object,
+    spec: object,
+) -> bytes:
+    """Pixel-reduce a selected concept before it reaches image-to-video.
+
+    The provider still receives a normal full-size PNG, but its information
+    budget already matches the device raster. This prevents it from inventing
+    motion around photographic detail that the keyboard will discard.
+    """
+    _video_raster_context(spec)
+    _selected_image_data_uri(image_bytes, mime_type)
+    if not isinstance(spec, RasterSpec) or not isinstance(image_bytes, bytes):
+        raise ProviderError("config", "selected LED source inputs are invalid")
+
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    source = None
+    try:
+        source = Image.open(io.BytesIO(image_bytes))
+        source.load()
+        rgb = source.convert("RGB")
+        width, height = rgb.size
+        coarse_width = min(width, spec.width)
+        coarse_height = min(
+            height,
+            max(min(spec.height, height), round(coarse_width * height / width)),
+        )
+        coarse = ImageOps.fit(
+            rgb,
+            (coarse_width, coarse_height),
+            method=Image.Resampling.LANCZOS,
+            centering=(0.5, 0.5),
+        )
+        if spec.mapped_positions:
+            masked = Image.new("RGB", coarse.size, (0, 0, 0))
+            visible_height = min(coarse_height, spec.height)
+            top = max(0, (coarse_height - visible_height) // 2)
+            for x, y in spec.mapped_positions:
+                source_x = min(
+                    coarse_width - 1,
+                    round(x * (coarse_width - 1) / max(1, spec.width - 1)),
+                )
+                source_y = min(
+                    coarse_height - 1,
+                    top
+                    + round(y * (visible_height - 1) / max(1, spec.height - 1)),
+                )
+                masked.putpixel(
+                    (source_x, source_y), coarse.getpixel((source_x, source_y))
+                )
+            coarse = masked
+        prepared = coarse.resize((width, height), Image.Resampling.NEAREST)
+        output = io.BytesIO()
+        prepared.save(output, format="PNG", optimize=False)
+        payload = output.getvalue()
+        if not payload or len(payload) > MAX_IMAGE_BYTES:
+            raise ProviderError("config", "prepared LED source exceeds the image byte cap")
+        return payload
+    except ProviderError:
+        raise
+    except (Image.DecompressionBombError, UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ProviderError("config", "selected still could not be prepared for LEDs") from exc
+    finally:
+        if source is not None:
+            source.close()
+
+
 def _video_raster_context(spec: object) -> str:
     if not isinstance(spec, RasterSpec):
         raise ProviderError("config", "validated device geometry is required")
@@ -1256,6 +1325,56 @@ def _video_raster_context(spec: object) -> str:
         f"raster={spec.width}x{spec.height}; output_len={spec.output_len}; "
         f"max_frames={spec.max_frames}; mapped_positions={mapped}"
     )
+
+
+def _steered_video_prompt(
+    creative_prompt: str,
+    spec: RasterSpec,
+    loop_mode: str,
+) -> str:
+    """Bind a planner's creative motion to the non-negotiable LED contract."""
+    _video_raster_context(spec)
+    loop_instruction = {
+        "smooth": (
+            "Use one gentle periodic motion cycle whose phase returns naturally "
+            "to its starting state; reserve the ending for a very short local blend."
+        ),
+        "none": (
+            "There is no transition padding, so complete one closed cycle and "
+            "make the last state meet the first without a cut."
+        ),
+        "ping_pong": (
+            "Use reversible bounded motion that remains convincing when the sampled "
+            "frames play forward and then backward; nothing may enter or leave frame."
+        ),
+    }.get(loop_mode)
+    if loop_instruction is None:
+        raise ProviderError("config", "video loop mode is invalid")
+    constraints = (
+        "NON-NEGOTIABLE KEYBOARD LED LOOP: Generate a functional addressable-keyboard "
+        "LED loop, not conventional video. The full frame is a flat 2D emission "
+        "texture; do not depict a keyboard, device, photographed scene, landscape, "
+        "horizon, or physical environment. Treat the supplied still only as a palette "
+        "and symbolic light motif. "
+        f"Every frame will be cover-downsampled to {spec.width}x{spec.height} and only "
+        f"{spec.output_len} primary samples survive. Use broad high-contrast luminous "
+        "fields, bold silhouettes, and trails at least one final raster cell thick. "
+        "Keep the frame coordinates, composition, and camera perfectly fixed: no pan, "
+        "tilt, zoom, roll, parallax, depth motion, reframing, cut, focus pull, shake, "
+        "object reveal, or new element. Motion is limited to local 2D brightness, hue, "
+        "and shape-phase changes. Complete exactly one closed cycle in one second; the "
+        "first and final frames must match in subject position, composition, shape, "
+        f"color, and brightness. {loop_instruction}"
+    )
+    prefix = "Creative motion motif: "
+    separator = "\n\n"
+    available = MAX_VIDEO_PLAN_STRING - len(prefix) - len(separator) - len(constraints)
+    if available <= 1:
+        raise ProviderError("config", "video steering prompt exceeds its safe bound")
+    creative = creative_prompt.strip()
+    if len(creative) > available:
+        creative = creative[: available - 1].rstrip() + "…"
+    return f"{prefix}{creative}{separator}{constraints}"
 
 
 class GrokVideoPlanner:
@@ -1308,7 +1427,10 @@ class GrokVideoPlanner:
             f"Device geometry: {geometry}\n"
             f"Loop mode: {loop_mode}\n"
             "Duration: exactly one second.\n"
-            "Camera: locked camera with no pan, tilt, zoom, roll, cut, or reframing."
+            "Camera: locked camera with no pan, tilt, zoom, roll, cut, or reframing.\n"
+            "Output purpose: a functional LED loop, not a shot, scene, or miniature movie.\n"
+            "Raster behavior: the full frame is a 2D light-emission texture that must "
+            "remain legible after the stated tiny-raster reduction."
         )
         payload = {
             "model": self._model,
@@ -1317,13 +1439,16 @@ class GrokVideoPlanner:
                 {
                     "role": "system",
                     "content": (
-                        "You plan a one-second image-to-video animation from the supplied "
-                        "selected still. Preserve its subject identity, composition, palette, "
-                        "rendering style, and texture. The camera is locked. Return a subject "
-                        "lock, a style lock, and exactly one concrete standalone video prompt. "
-                        "Describe only motion that can complete in one second and respect the "
-                        "requested loop mode and small target raster. Do not introduce new "
-                        "subjects, scene cuts, camera movement, text, borders, or watermarks."
+                        "You plan a one-second addressable-keyboard LED texture animation "
+                        "from the supplied selected still. This is a functional cyclic light "
+                        "map, never a conventional video scene. Preserve the still's symbolic "
+                        "subject motif and palette, but flatten it into broad emissive 2D "
+                        "forms that survive the stated raster. The camera and composition are "
+                        "locked. Return a subject lock, a style lock, and exactly one concrete "
+                        "standalone video prompt. Describe one complete closed motion cycle "
+                        "whose final state matches its start and respect the requested loop "
+                        "mode. Do not introduce scenery, physical depth, new subjects, cuts, "
+                        "camera movement, text, borders, or watermarks."
                     ),
                 },
                 {
@@ -1351,6 +1476,13 @@ class GrokVideoPlanner:
             text = self._extract_output_text(response)
             parsed = json.loads(text)
             plan = video_animation_plan_from_json(parsed)
+            plan = VideoAnimationPlan(
+                subject_lock=plan.subject_lock,
+                style_lock=plan.style_lock,
+                video_prompt=_steered_video_prompt(
+                    plan.video_prompt, spec, loop_mode
+                ),
+            )
         except ProviderError as exc:
             raise ProviderError(
                 exc.code,
