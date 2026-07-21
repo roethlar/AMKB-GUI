@@ -23,10 +23,16 @@
   through `bd5f121`; Task 9's authenticated durable Lighting and Library API
   landed in `cf393b5` and passed architecture/security review after startup
   recovery, shared admission, error-redaction, and deferred-reconciliation
-  fixes through `9751f72`. The full repository verification entry point passed
-  at `9751f72` with 256 tests, including the prepared real FFmpeg runtime
-  integration check for every supported device frame cap. No provider or
-  hardware call was made.
+  fixes through `9751f72`; Task 10's routable, responsive Lighting
+  Create/Library/Edit shell, persistent job surface, extracted manual editor,
+  and pure browser state landed in `39cd7ca` and passed state and visual review
+  after focused fixes through `14423bd`. The full repository verification entry
+  point passed at `14423bd` with 256 Python tests and 21 browser-state/static
+  tests, including the prepared real FFmpeg runtime integration check for every
+  supported device frame cap. The macOS app bundle was rebuilt, passed frozen
+  smoke, launched its loopback server, and served the new bundled state module.
+  Create, Library, Settings, Edit, and the 720px/200%-zoom equivalent were
+  visually inspected. No provider or hardware call was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -51,8 +57,9 @@
 ## Next
 
 - Execute the approved video-first Lighting Studio plan in order with
-  tests-first commits, beginning Task 10 with the Lighting shell and testable
-  browser state. Do not separately repair the legacy `previous_plan` path.
+  tests-first commits, beginning Task 11 with the native library-folder bridge
+  and full Provider/Models/Storage/Costs Settings page. Do not separately
+  repair the legacy `previous_plan` path.
 - A paid live xAI video acceptance check remains optional and needs a separate
   explicit go after the offline video pipeline is implemented.
 - Carried over: address any failures surfaced by the committed CI and
