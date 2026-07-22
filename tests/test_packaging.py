@@ -265,6 +265,7 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("get_local_ai_runtime", smoke)
         self.assertIn("rglob(\"*.gguf\")", smoke)
         self.assertIn("_run_api_recipe_smoke", smoke)
+        self.assertIn("_run_ollama_recipe_smoke", smoke)
         self.assertIn("_run_local_recipe_smoke", smoke)
         self.assertIn("_run_disabled_ai_smoke", smoke)
         self.assertIn("build_tools.finalize_llama_bundle", macos)
@@ -275,6 +276,7 @@ class ReleaseInfoTests(unittest.TestCase):
         # Both production recipe adapters must reach deterministic render and
         # mapping through injected fake transports, never model/provider hosts.
         self.assertIn("XaiRecipeProvider", smoke)
+        self.assertIn("OllamaRecipeProvider", smoke)
         self.assertIn("ManagedLocalRecipeProvider", smoke)
         self.assertIn("render_recipe", smoke)
         self.assertIn("map_frames_to_led_tracks", smoke)

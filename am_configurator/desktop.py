@@ -297,8 +297,74 @@ def _run_api_recipe_smoke() -> None:
         raise SystemExit("Desktop smoke test failed: fake API recipe generation was invalid.")
 
 
+def _run_ollama_recipe_smoke() -> None:
+    """Exercise the primary local recipe adapter through an offline client."""
+    from . import procedural
+    from .ollama_client import OllamaModel
+    from .recipe_provider import OllamaRecipeProvider, RecipeRequest
+
+    recipe = _smoke_recipe()
+
+    class FakeOllamaClient:
+        calls: list[dict] = []
+
+        def chat(self, payload: dict, *, deadline: float, cancelled) -> dict:
+            del deadline
+            if cancelled():
+                raise AssertionError("Ollama smoke was unexpectedly cancelled")
+            self.calls.append(payload)
+            return {"message": {"content": json.dumps(recipe)}}
+
+    client = FakeOllamaClient()
+    provider = OllamaRecipeProvider(
+        OllamaModel(
+            model_id="smoke:latest",
+            digest="a" * 64,
+            size_bytes=1,
+            parameter_size=None,
+            quantization=None,
+        ),
+        client=client,
+    )
+    result = provider.generate(
+        RecipeRequest(
+            prompt="offline Ollama smoke test",
+            width=18,
+            height=7,
+            frame_count=32,
+            density_default="dense",
+        ),
+        time.monotonic() + 10,
+        lambda: False,
+    )
+    frames = procedural.render_recipe(
+        result.recipe,
+        width=18,
+        height=7,
+        frame_count=32,
+    )
+    mapped = procedural.map_frames_to_led_tracks(
+        frames,
+        duration_ms=34,
+        product_id="AM21",
+        targets=["keyframes", "spotlight_frames"],
+    )
+    if (
+        result.backend != "local"
+        or result.provider != "ollama"
+        or result.model_id != "smoke:latest"
+        or len(client.calls) != 1
+        or client.calls[0].get("model") != "smoke:latest"
+        or mapped.get("source_frames") != 32
+        or mapped.get("duration_ms") != 34
+    ):
+        raise SystemExit(
+            "Desktop smoke test failed: fake Ollama recipe generation was invalid."
+        )
+
+
 def _run_local_recipe_smoke() -> None:
-    """Exercise the production local recipe adapter through a fake runtime."""
+    """Exercise the advanced direct-GGUF adapter through a fake runtime."""
     from . import procedural
     from .recipe_provider import (
         ManagedLocalRecipeProvider,
@@ -432,6 +498,7 @@ def run_smoke_test() -> int:
     _assert_no_bundled_models()
     _run_disabled_ai_smoke()
     _run_api_recipe_smoke()
+    _run_ollama_recipe_smoke()
     _run_local_recipe_smoke()
     _run_ffmpeg_media_smoke()
     if os.environ.get("AM_SMOKE_NET") == "1":
