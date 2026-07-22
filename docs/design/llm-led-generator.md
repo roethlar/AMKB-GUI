@@ -1,23 +1,21 @@
 # Design: LLM-Backed LED Effect Generator
 
-Status: implemented legacy path; superseded for future work (v3, 2026-07-20)
+Status: historical design; runtime path removed 2026-07-22 (v3, 2026-07-20)
 Author: Claude Code session, 2026-07-20
 
 ## Implementation status
 
-The approved implementation plan is complete. Offline verification covers the
-full repository verification entry point, focused fake-provider checks for the
-happy path and mapped failure paths, and the frozen macOS app's fake-transport
-generation smoke test with network access disabled. No live xAI request or
-device write was part of final verification.
+The inline interpreter/image-renderer path described below was removed after
+the local-first procedural replacement passed its offline, packaged, and visual
+acceptance gates. `EffectPlan`, the 16-render tween pipeline, its in-memory
+worker and pending/refine browser state, and their dead tests no longer ship.
+The authenticated `/api/led/generate`, `/cancel`, and `/status` URLs remain only
+as stable local `410` tombstones. The old `previous_plan` forwarding gap is
+therefore closed by removal rather than repair.
 
-One planned refinement behavior is incomplete in the legacy path: the browser includes
-`previous_plan` in a refinement request, and `GrokInterpreter` can consume it,
-but `/api/led/generate` and `generate_effect` do not yet validate or forward
-that value. Refine therefore preserves the editable prompt but does not give
-the interpreter the prior structured plan. The superseding plan below removes
-this legacy path after its replacement is operational rather than repairing it
-as a separate follow-up.
+Shared components remain active where the current application still needs
+them: typed provider errors, bounded xAI transport, validated image decoding,
+device `RasterSpec`/frame caps, manual GIF import, and the shared LED mapper.
 
 The owner subsequently approved a video-first Lighting Studio with durable
 local asset banking. Its product decisions are recorded in
@@ -25,8 +23,8 @@ local asset banking. Its product decisions are recorded in
 `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. That plan
 supersedes this design's MP4/FFmpeg non-goal, zero-runtime-dependency goal,
 16-render primary path, partial-discard behavior, ephemeral job model, inline
-AI panel, and `previous_plan` follow-up. This document remains the record of the
-implemented legacy path until the replacement plan removes it.
+AI panel, and `previous_plan` follow-up. This document remains only as the
+historical record of the removed path.
 
 ## Context
 

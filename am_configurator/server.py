@@ -1147,36 +1147,17 @@ def _xai_get(url: str, payload: Any, api_key: str, deadline: float) -> dict[str,
 
 
 def _settings_view() -> dict[str, Any]:
-    """Temporary legacy UI projection over credential-free schema v3."""
-    from . import ai_catalog, llm, store
+    """Return the active credential-free settings schema used by the UI."""
+    from . import store
 
     settings = store.load_settings()
-    credential = store.credential_status()
-    keys: dict[str, Any] = {}
-    for provider in llm.KEY_PROVIDERS:
-        keys[provider] = {
-            "set": credential["configured"] if provider == "xai" else False,
-            # Schema v3 reports presence only; no credential-derived substring
-            # crosses the loopback boundary.
-            "last4": "",
-        }
     return {
         "schema_version": settings["schema_version"],
-        "llm": {
-            "models": dict(ai_catalog.DEFAULT_MODELS),
-            "keys": keys,
-            # Temporary aliases for the unchanged settings dialog. Schema v3
-            # intentionally dropped the legacy still/video model preferences;
-            # the old provider registries still expose only ``grok``.
-            "interpreter": "grok",
-            "renderer": "grok",
-        },
         "library": {
             "current_root": settings["library"]["current_root"],
             "roots": list(settings["library"]["roots"]),
         },
         "generation": {
-            "candidate_count": store.LEGACY_CANDIDATE_COUNT,
             "loop_mode": settings["generation"]["loop_mode"],
             "privacy_ack_version": settings["ai"]["api"]["disclosure_version"],
             "privacy_ack_at": settings["ai"]["api"]["disclosure_at"],
@@ -1216,14 +1197,7 @@ def _capabilities() -> dict[str, Any]:
     return {
         "ai_catalog": ai_catalog.catalog_view(),
         "privacy_disclosure_version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
-        "providers": {
-            "interpreters": list(llm.INTERPRETER_PROVIDERS),
-            "renderers": list(llm.RENDERER_PROVIDERS),
-            "keys": list(llm.KEY_PROVIDERS),
-        },
-        "models": dict(llm.XAI_MODELS),
         "model_frame_caps": dict(llm.MODEL_FRAME_CAPS),
-        "max_rendered_keyframes": llm.MAX_RENDERED_KEYFRAMES,
         "targets": targets,
     }
 
@@ -1305,35 +1279,12 @@ def generation_spec(
     return spec, requested
 
 
-# Compatibility alias for the legacy endpoint/tests until Task 16 removes it.
-_generation_spec = generation_spec
-
-
-def _default_llm_factories() -> dict[str, Any]:
-    """Resolve the legacy interpreter/renderer provider implementations.
-
-    Returns the ``{"interpreter", "renderer"}`` factory map ``generate_effect``
-    expects. Curated v2 values are model IDs, not registry keys; the superseded
-    generator continues using its sole ``grok`` providers until Task 16 removes
-    it. Tests inject their own map via ``_State.llm_factories``.
-    """
-    from . import llm
-
-    interpreter_cls = llm.INTERPRETERS["grok"]
-    renderer_cls = llm.RENDERERS["grok"]
-    return {
-        "interpreter": lambda api_key: interpreter_cls(api_key),
-        "renderer": lambda api_key: renderer_cls(api_key),
-    }
-
-
 class _State:
     def __init__(
         self,
         config: dict[str, Any] | None,
         token: str,
         llm_transport: Any = None,
-        llm_factories: dict[str, Any] | None = None,
         lighting_library: Any = None,
         lighting_coordinator: Any = None,
         lighting_dependencies: dict[str, Any] | None = None,
@@ -1354,10 +1305,6 @@ class _State:
         # the ``llm._xai_request`` contract). ``None`` uses the real ``_xai_get``
         # GET probe; tests inject a fake so no request ever leaves the machine.
         self.llm_transport = llm_transport
-        # Interpreter/renderer factory map for ``llm.generate_effect``. ``None``
-        # resolves the real registry classes via ``_default_llm_factories``;
-        # tests inject fakes so no request ever leaves the machine.
-        self.llm_factories = llm_factories
         # Native desktop builds attach a narrow chooser/reveal bridge after
         # creating the loopback server. Browser-only launches leave it unset.
         self.desktop_bridge: Any = None
@@ -1381,12 +1328,6 @@ class _State:
         self._lighting_reconcile_signature: tuple[int, bytes | None] | None = None
         self._lighting_reconcile_pending = False
         self._lighting_reconcile_worker: threading.Thread | None = None
-        # Single-flight generation worker. Only one job runs at a time; the job
-        # dict (id/phase/status/cancel/result/error) is held until read or
-        # replaced by the next start. Guarded by ``_job_lock``.
-        self._job_lock = threading.Lock()
-        self._job: dict[str, Any] | None = None
-        self._worker: threading.Thread | None = None
 
     def ai_services(self) -> tuple[Any, Any]:
         """Return one capability service and the model manager it owns."""
@@ -1574,102 +1515,6 @@ class _State:
         if remaining > 0:
             time.sleep(remaining)
 
-    def start_generation(self, run: Any) -> str | None:
-        """Start ``run(job)`` on the worker thread, or ``None`` if one is busy.
-
-        Enforces single-flight: a start is refused (returns ``None`` → HTTP 409)
-        while a previous job is still ``running``. The returned job id lets the
-        caller poll status. ``run`` is the closure that performs the generation
-        and must call :meth:`finish_generation` exactly once when it ends.
-        """
-        from .generation import GenerationBusyError
-
-        with self._job_lock:
-            if self._job is not None and self._job["status"] == "running":
-                return None
-            job_id = secrets.token_urlsafe(18)
-            try:
-                operation_token, cancelled = self._generation_gate.begin(job_id)
-            except GenerationBusyError:
-                return None
-            job: dict[str, Any] = {
-                "id": job_id,
-                "phase": "starting",
-                "status": "running",
-                "cancel": cancelled,
-                "result": None,
-                "error": None,
-            }
-
-            def guarded_run() -> None:
-                try:
-                    run(job)
-                finally:
-                    self._generation_gate.finish(operation_token)
-
-            self._job = job
-            self._worker = threading.Thread(
-                target=guarded_run, name="am-led-generation", daemon=True
-            )
-            try:
-                self._worker.start()
-            except BaseException:
-                self._job = None
-                self._worker = None
-                self._generation_gate.finish(operation_token)
-                raise
-            return job_id
-
-    def finish_generation(
-        self,
-        job: dict[str, Any],
-        *,
-        status: str,
-        result: dict[str, Any] | None = None,
-        error: Exception | None = None,
-    ) -> None:
-        """Record a job's terminal outcome (``done`` / ``cancelled`` / ``error``)."""
-        with self._job_lock:
-            job["status"] = status
-            job["phase"] = status
-            job["result"] = result
-            job["error"] = error
-
-    def generation_status(self, job_id: str | None) -> dict[str, Any] | None:
-        """Snapshot the named job, or ``None`` if it is unknown or has been replaced."""
-        with self._job_lock:
-            job = self._job
-            if job is None or not job_id or job["id"] != job_id:
-                return None
-            return {
-                "status": job["status"],
-                "phase": job["phase"],
-                "result": job["result"],
-                "error": job["error"],
-            }
-
-    def cancel_generation(self, job_id: str | None = None) -> bool:
-        """Flag the current running job for cancellation; ``True`` if one was flagged.
-
-        With no ``job_id`` the current job is targeted (the single-flight case);
-        a mismatched id or a job that is not running is a no-op returning ``False``.
-        """
-        with self._job_lock:
-            job = self._job
-            if job is None or job["status"] != "running":
-                return False
-            if job_id is not None and job["id"] != job_id:
-                return False
-            job["cancel"].set()
-            return True
-
-    def join_generation(self, timeout: float = 5.0) -> None:
-        """Join the generation worker thread (test synchronization helper)."""
-        worker = self._worker
-        if worker is not None:
-            worker.join(timeout)
-
-
 class _Handler(BaseHTTPRequestHandler):
     server_version = f"AMConfigurator/{__version__}"
 
@@ -1835,7 +1680,7 @@ class _Handler(BaseHTTPRequestHandler):
                 elif path.startswith("/api/lighting/"):
                     self._lighting_get(path, parsed.query)
                 elif path == "/api/led/generate/status":
-                    self._generation_status(parsed.query)
+                    self._retired_ai_mutation()
                 else:
                     self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
             except Exception as exc:  # noqa: BLE001 - API boundary
@@ -1894,8 +1739,6 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(text_to_macro_events(body.get("text"), body.get("delay_ms", 10)))
             elif path == "/api/led/gif":
                 self._convert_gif(body)
-            elif path == "/api/settings":
-                self._save_settings(body)
             elif path == "/api/settings/key":
                 self._save_settings_key(body)
             elif path == "/api/settings/preferences":
@@ -2398,22 +2241,6 @@ class _Handler(BaseHTTPRequestHandler):
             )
         self._json(result)
 
-    def _save_settings(self, body: dict[str, Any]) -> None:
-        """Temporary whole-object compatibility route for the current UI.
-
-        It accepts only the legacy provider/key shape and changes only the key;
-        all v2 preferences survive. The split routes below are canonical.
-        """
-        from . import store
-
-        if "schema_version" in body:
-            raise ValueError(
-                "The legacy settings route accepts provider key changes only."
-            )
-        store.save_settings(body)
-        self.state.reconcile_lighting(force=True)
-        self._json(_settings_view())
-
     def _save_settings_key(self, body: dict[str, Any]) -> None:
         from . import store
 
@@ -2503,134 +2330,6 @@ class _Handler(BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001 - native UI boundary
             revealed = False
         self._json({"revealed": revealed})
-
-    def _start_generation(self, body: dict[str, Any]) -> None:
-        """Validate a generation request and start the single-flight worker.
-
-        Validation happens synchronously and up front (design §3): the prompt,
-        the product/target raster (via :func:`_generation_spec`, which enforces
-        the single-CyberBoard-target rule and clamps ``frame_count``), then the
-        configured key — each a ``ValueError`` mapped to HTTP 400 by ``do_POST``,
-        so no provider is ever contacted for a malformed request or a missing
-        key. Only then does a background job start; a second start while one is
-        running returns 409. The paid work runs on the worker thread; this
-        handler returns ``{"job_id"}`` immediately.
-        """
-        from . import llm, store
-
-        prompt = body.get("prompt")
-        if not isinstance(prompt, str) or not prompt.strip():
-            raise ValueError("A prompt describing the effect is required.")
-        product_id = str(body.get("product_id") or "")
-        targets = body.get("targets")
-        if (
-            not isinstance(targets, list)
-            or not targets
-            or not all(isinstance(target, str) for target in targets)
-        ):
-            raise ValueError(
-                "Generation targets must be a non-empty list of LED track names."
-            )
-        frame_count = body.get("frame_count")
-        if frame_count is not None and (
-            isinstance(frame_count, bool) or not isinstance(frame_count, int)
-        ):
-            raise ValueError("frame_count must be an integer when supplied.")
-
-        spec, resolved_targets = _generation_spec(product_id, targets, frame_count)
-
-        key = store.resolve_xai_key()
-        if not key:
-            raise ValueError(
-                "No xAI API key is configured. Add your key in Settings, then generate."
-            )
-        factories = self.state.llm_factories or _default_llm_factories()
-        state = self.state
-
-        def run(job: dict[str, Any]) -> None:
-            def progress(phase: str) -> None:
-                job["phase"] = phase
-
-            def cancelled() -> bool:
-                return job["cancel"].is_set()
-
-            try:
-                result = llm.generate_effect(
-                    prompt, spec, resolved_targets, product_id, key, factories,
-                    progress, cancelled,
-                )
-            except llm.Cancelled:
-                state.finish_generation(job, status="cancelled")
-            except llm.ProviderError as exc:
-                state.finish_generation(job, status="error", error=exc)
-            except Exception as exc:  # noqa: BLE001 - surfaced as a job error
-                state.finish_generation(job, status="error", error=exc)
-            else:
-                state.finish_generation(job, status="done", result=result)
-
-        job_id = self.state.start_generation(run)
-        if job_id is None:
-            self._json(
-                {
-                    "error": "A generation is already running. Wait for it to "
-                    "finish or cancel it."
-                },
-                HTTPStatus.CONFLICT,
-            )
-            return
-        self._json({"job_id": job_id})
-
-    def _generation_status(self, query: str) -> None:
-        """Report a generation job's phase while running, or its outcome once done.
-
-        A running job returns ``{"status": "running", "phase": ...}``; a finished
-        job returns the full ``/api/led/gif``-shaped result merged with
-        ``{"status": "done"}`` plus ``plan``/``usage``. Cancellation reports
-        ``{"status": "cancelled"}``. A typed provider failure is mapped to its
-        design HTTP status (auth→400, rate_limited→429 with ``retry_after``,
-        timeout→504, offline→503, bad_response/unavailable→502); any other
-        failure is a 500. An unknown or replaced job id is a 404.
-        """
-        from . import llm
-
-        params = parse_qs(query)
-        job_id = (params.get("job") or [None])[0]
-        snapshot = self.state.generation_status(job_id)
-        if snapshot is None:
-            self._json({"error": "Unknown or expired generation job."}, HTTPStatus.NOT_FOUND)
-            return
-        status = snapshot["status"]
-        if status == "running":
-            self._json({"status": "running", "phase": snapshot["phase"]})
-            return
-        if status == "cancelled":
-            self._json({"status": "cancelled"})
-            return
-        if status == "error":
-            error = snapshot["error"]
-            if isinstance(error, llm.ProviderError):
-                http_status = _PROVIDER_ERROR_HTTP.get(error.code, HTTPStatus.BAD_GATEWAY)
-                payload: dict[str, Any] = {
-                    "status": "error", "code": error.code, "error": error.message,
-                }
-                if error.retry_after is not None:
-                    payload["retry_after"] = error.retry_after
-                self._json(payload, http_status)
-            else:
-                self._json(
-                    {"status": "error", "error": str(error)},
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-            return
-        payload = {"status": "done"}
-        payload.update(snapshot["result"] or {})
-        self._json(payload)
-
-    def _cancel_generation(self, body: dict[str, Any]) -> None:
-        """Flag the current generation for cancellation (honored between calls)."""
-        job_id = body.get("job") if isinstance(body, dict) else None
-        cancelled = self.state.cancel_generation(str(job_id) if job_id else None)
-        self._json({"cancelled": bool(cancelled)})
 
     def _read_device(self, body: dict[str, Any]) -> None:
         from . import macros as macro_protocol
@@ -2810,7 +2509,6 @@ def create_server(
     config_paths: list[str] | None = None,
     *,
     port: int = 0,
-    llm_factories: dict[str, Any] | None = None,
     lighting_library: Any = None,
     lighting_coordinator: Any = None,
     lighting_dependencies: dict[str, Any] | None = None,
@@ -2821,11 +2519,9 @@ def create_server(
 ) -> tuple[_Server, str]:
     """Create the loopback configurator server without starting its event loop.
 
-    ``llm_factories`` overrides the legacy interpreter/renderer factory map.
-    Tests may inject complete legacy/procedural coordinators, the capability
+    Tests may inject complete durable/procedural coordinators, the capability
     service, model manager, and credential store, or just dependency maps for
-    production construction. These seams keep endpoint tests offline while
-    production resolves real providers.
+    production construction. These seams keep endpoint tests offline.
     """
     configs: list[dict[str, Any]] = []
     for raw_path in config_paths or []:
@@ -2842,7 +2538,6 @@ def create_server(
     state = _State(
         merge_configs(configs),
         token,
-        llm_factories=llm_factories,
         lighting_library=lighting_library,
         lighting_coordinator=lighting_coordinator,
         lighting_dependencies=lighting_dependencies,

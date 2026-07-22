@@ -432,22 +432,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .range-value { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
 .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
-/* Generate-with-AI panel + pending preview */
-.ai-panel { background: rgba(131, 88, 255, .05); border: 1px solid rgba(131, 88, 255, .2); border-radius: 10px; padding: 12px; margin-bottom: 16px; }
-.ai-panel .control-label { margin-bottom: 8px; }
-.ai-prompt { min-height: 62px; resize: vertical; line-height: 1.45; padding: 8px 10px; margin-bottom: 8px; }
-.ai-target-note { color: var(--muted); font-size: 11px; margin-bottom: 8px; }
-.ai-actions { display: flex; gap: 6px; margin-bottom: 6px; }
-.ai-actions .button { flex: 1; }
-.ai-busy { color: var(--violet-2); font-size: 12px; margin: 6px 0 0; min-height: 16px; }
-.ai-hint { color: var(--muted); font-size: 11px; line-height: 1.45; margin: 8px 0 0; }
 .ai-error { color: #ff8999; background: rgba(255, 93, 114, .09); border: 1px solid rgba(255, 93, 114, .32); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.45; margin: 8px 0 0; }
-.link-button { border: 0; background: transparent; color: var(--violet-2); cursor: pointer; padding: 0; font: inherit; text-decoration: underline; }
-.ai-result .ai-summary { margin: 0 0 12px; color: var(--text); font-size: 13px; line-height: 1.4; }
-.ai-plan { display: grid; gap: 6px; margin: 0 0 14px; }
-.ai-plan > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.ai-plan dt { color: var(--muted); font-size: 11px; }
-.ai-plan dd { margin: 0; font-size: 12px; font-variant-numeric: tabular-nums; }
 
 /* Settings dialog */
 .settings-dialog { width: min(520px, calc(100vw - 40px)); }

@@ -81,13 +81,6 @@ _DEFAULT_SETTINGS = {
     "library": {"current_root": None, "roots": []},
     "generation": {"loop_mode": "smooth"},
 }
-_LEGACY_MODELS = {
-    "interpreter": "grok-4.5",
-    "concept": "grok-imagine-image",
-    "video": "grok-imagine-video-1.5",
-}
-
-
 class _ScopedTestCredentialStore:
     """Keep test credentials isolated by each test's temporary data root."""
 
@@ -314,7 +307,7 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertIsNone(store.resolve_xai_key())
         self.assertEqual(settings["library"]["current_root"], str(root.resolve()))
 
-    def test_v2_model_preferences_are_discarded_without_breaking_legacy_factories(self) -> None:
+    def test_v2_model_preferences_are_discarded_during_migration(self) -> None:
         path = store.settings_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({
@@ -336,9 +329,6 @@ class SettingsStoreTests(unittest.TestCase):
             },
         }), encoding="utf-8")
         self.assertNotIn("llm", store.load_settings())
-        factories = server._default_llm_factories()
-        self.assertIsInstance(factories["interpreter"]("sk-test"), llm.GrokInterpreter)
-        self.assertIsInstance(factories["renderer"]("sk-test"), llm.GrokImagineRenderer)
 
     def test_library_root_history_is_canonical_and_deduplicated(self) -> None:
         first = Path(self._tmp) / "first"
@@ -947,8 +937,6 @@ class FramesToLedTracksTests(unittest.TestCase):
             )
 
 
-_DROP = object()  # sentinel: mutate() removes the field entirely
-
 # A sentinel API key used only in transport tests. It is deliberately
 # distinctive so redaction assertions can prove it never reaches an error
 # string or log line. It is not a real credential.
@@ -1074,116 +1062,12 @@ def _encode_image(image, fmt: str = "PNG") -> str:
 
 
 class GrokTransportTests(unittest.TestCase):
-    """Task 3 subset: shared constants, drift guards, and EffectPlan validation.
-
-    Later tasks extend this class with the xAI transport and the concrete
-    interpreter/renderer paths (all with injected fakes, never the network).
-    """
-
-    def _spec(self, **overrides) -> "llm.RasterSpec":
-        base = dict(
-            model="CB",
-            target="display",
-            extra_targets=(),
-            width=40,
-            height=5,
-            mapped_positions=None,
-            output_len=200,
-            max_frames=80,
-        )
-        base.update(overrides)
-        return llm.RasterSpec(**base)
-
-    def _good_plan(self) -> dict:
-        return {
-            "subject": "pac-man",
-            "palette": "yellow dot on black",
-            "motion": "chomps left to right",
-            "frame_count": 6,
-            "frame_ms": 100,
-            "keyframe_prompts": ["open mouth", "closed mouth", "open again"],
-            "tween": "crossfade",
-            "notes": "loops seamlessly",
-        }
+    """Shared speed constants and bounded xAI transport behavior."""
 
     def test_speed_steps_match_server(self) -> None:
         # Single source of truth: llm duplicates the tuple so it need not import
         # server; this guard fails loudly if the two ever drift apart.
         self.assertEqual(llm.LED_SPEEDS_MS, server._LED_SPEEDS_MS)
-
-    def test_provider_names_match_store_allowlists(self) -> None:
-        # store.py must stay stdlib-core-only and cannot import llm, so it keeps
-        # its own allowlists. This guard keeps the canonical names in sync.
-        self.assertEqual(
-            set(llm.INTERPRETER_PROVIDERS), set(store._KNOWN_INTERPRETERS)
-        )
-        self.assertEqual(set(llm.RENDERER_PROVIDERS), set(store._KNOWN_RENDERERS))
-        self.assertEqual(set(llm.KEY_PROVIDERS), set(store._KNOWN_KEY_PROVIDERS))
-
-    def test_plan_validation_accepts_good_plan(self) -> None:
-        plan = llm.plan_from_json(self._good_plan(), self._spec())
-        self.assertIsInstance(plan, llm.EffectPlan)
-        self.assertEqual(plan.subject, "pac-man")
-        self.assertEqual(plan.frame_count, 6)
-        self.assertEqual(plan.frame_ms, 100)
-        self.assertEqual(plan.tween, "crossfade")
-        self.assertEqual(
-            plan.keyframe_prompts, ("open mouth", "closed mouth", "open again")
-        )
-        self.assertIsInstance(plan.keyframe_prompts, tuple)
-
-    def test_plan_validation_rejects_bad_plans(self) -> None:
-        spec = self._spec()
-
-        def mutate(**changes) -> dict:
-            data = self._good_plan()
-            for key, value in changes.items():
-                if value is _DROP:
-                    data.pop(key, None)
-                else:
-                    data[key] = value
-            return data
-
-        cases = {
-            "missing_field": mutate(subject=_DROP),
-            "wrong_type_int": mutate(frame_count="6"),
-            "wrong_type_str": mutate(subject=123),
-            "wrong_type_prompts": mutate(keyframe_prompts="not a list"),
-            "prompt_entry_not_str": mutate(keyframe_prompts=["ok", 7]),
-            "bool_not_int": mutate(frame_count=True),
-            "frame_ms_not_a_speed_step": mutate(frame_ms=101),
-            "frame_count_too_low": mutate(frame_count=0),
-            "frame_count_over_cap": mutate(frame_count=spec.max_frames + 1),
-            "no_prompts": mutate(keyframe_prompts=[]),
-            "too_many_prompts": mutate(
-                frame_count=4, keyframe_prompts=["a", "b", "c", "d", "e"]
-            ),
-            "over_keyframe_ceiling": mutate(
-                frame_count=80,
-                keyframe_prompts=[
-                    f"f{i}" for i in range(llm.MAX_RENDERED_KEYFRAMES + 1)
-                ],
-            ),
-            "bad_tween": mutate(tween="fade"),
-            "empty_prompt": mutate(keyframe_prompts=["ok", ""]),
-            "oversized_prompt": mutate(keyframe_prompts=["x" * 2001]),
-            "oversized_subject": mutate(subject="x" * 2001),
-        }
-        for name, data in cases.items():
-            with self.subTest(case=name):
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm.plan_from_json(data, spec)
-                self.assertEqual(ctx.exception.code, "bad_response")
-
-    def test_plan_from_json_rejects_non_object(self) -> None:
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm.plan_from_json(["not", "a", "dict"], self._spec())
-        self.assertEqual(ctx.exception.code, "bad_response")
-
-    # --- xAI transport (llm._xai_request) ---------------------------------
-    #
-    # All transport tests inject a fake opener; the real urllib opener
-    # (``opener=None``) is never exercised here.
 
     _URL = "https://api.x.ai/v1/responses"
 
@@ -1415,164 +1299,6 @@ class GrokTransportTests(unittest.TestCase):
                 )
             self.assertNotIn(_FAKE_KEY, str(ctx.exception))
             self.assertNotIn(_FAKE_KEY, ctx.exception.message)
-
-
-class GrokInterpreterTests(unittest.TestCase):
-    """Task 5: ``GrokInterpreter`` request building, output extraction, refusal
-    handling, and the Refine flow — all through an injected fake transport."""
-
-    _RESPONSES_URL = "https://api.x.ai/v1/responses"
-
-    def _future_deadline(self) -> float:
-        return time.monotonic() + 30.0
-
-    def _spec(self, **overrides) -> "llm.RasterSpec":
-        base = dict(
-            model="CB",
-            target="display",
-            extra_targets=(),
-            width=40,
-            height=5,
-            mapped_positions=None,
-            output_len=200,
-            max_frames=80,
-        )
-        base.update(overrides)
-        return llm.RasterSpec(**base)
-
-    def _good_plan(self) -> dict:
-        return {
-            "subject": "pac-man",
-            "palette": "yellow dot on black",
-            "motion": "chomps left to right",
-            "frame_count": 6,
-            "frame_ms": 100,
-            "keyframe_prompts": ["open mouth", "closed mouth", "open again"],
-            "tween": "crossfade",
-            "notes": "loops seamlessly",
-        }
-
-    @staticmethod
-    def _system(payload: dict) -> str:
-        for message in payload["input"]:
-            if message.get("role") == "system":
-                return message["content"]
-        raise AssertionError("payload has no system message")
-
-    @staticmethod
-    def _user(payload: dict) -> str:
-        for message in payload["input"]:
-            if message.get("role") == "user":
-                return message["content"]
-        raise AssertionError("payload has no user message")
-
-    def test_interpret_happy_path(self) -> None:
-        spec = self._spec()
-        transport = _FakeTransport(response=_responses_envelope(self._good_plan()))
-        interpreter = llm.GrokInterpreter(_FAKE_KEY, transport=transport)
-
-        plan = interpreter.interpret(
-            "pac-man chased by a blue ghost", spec, self._future_deadline()
-        )
-
-        self.assertIsInstance(plan, llm.EffectPlan)
-        self.assertEqual(plan.subject, "pac-man")
-        self.assertEqual(
-            plan.keyframe_prompts, ("open mouth", "closed mouth", "open again")
-        )
-
-        # Exactly one upstream call, carrying the sentinel key and the endpoint.
-        self.assertEqual(len(transport.calls), 1)
-        call = transport.calls[0]
-        self.assertEqual(call["url"], self._RESPONSES_URL)
-        self.assertEqual(call["api_key"], _FAKE_KEY)
-
-        payload = call["payload"]
-        self.assertIs(payload["store"], False)
-        self.assertEqual(payload["model"], llm.XAI_MODELS["interpreter"])
-        fmt = payload["text"]["format"]
-        self.assertEqual(fmt["type"], "json_schema")
-        self.assertIs(fmt["strict"], True)
-        self.assertIs(fmt["schema"]["additionalProperties"], False)
-
-        system = self._system(payload)
-        self.assertIn(f"{spec.width}x{spec.height}", system)  # raster size
-        self.assertIn(str(spec.max_frames), system)  # frame cap
-        self.assertIn("limit, not a goal", system)  # cap is a ceiling, not a target
-        self.assertIn(", ".join(str(s) for s in llm.LED_SPEEDS_MS), system)  # speed steps
-        # No sparse mask language when the spec carries no mask.
-        self.assertNotIn("Only the following", system)
-
-        # The sparse-position mask appears only when the spec provides one.
-        masked = self._spec(
-            model="80",
-            target="spotlight_frames",
-            max_frames=200,
-            mapped_positions=((0, 0), (3, 2), (6, 4)),
-        )
-        masked_transport = _FakeTransport(
-            response=_responses_envelope(self._good_plan())
-        )
-        llm.GrokInterpreter(_FAKE_KEY, transport=masked_transport).interpret(
-            "edge glow", masked, self._future_deadline()
-        )
-        masked_system = self._system(masked_transport.calls[0]["payload"])
-        self.assertIn("(0, 0)", masked_system)
-        self.assertIn("(6, 4)", masked_system)
-
-    def test_schema_valid_but_inconsistent_fails(self) -> None:
-        # A plan that satisfies the JSON schema shape but violates the
-        # independent plan_from_json rules (more prompts than frame_count) must
-        # fail as bad_response — never leaking through to a paid render call.
-        spec = self._spec()
-        bad = self._good_plan()
-        bad["frame_count"] = 4
-        bad["keyframe_prompts"] = ["a", "b", "c", "d", "e"]
-        transport = _FakeTransport(response=_responses_envelope(bad))
-        interpreter = llm.GrokInterpreter(_FAKE_KEY, transport=transport)
-
-        with self.assertRaises(llm.ProviderError) as ctx:
-            interpreter.interpret("x", spec, self._future_deadline())
-        self.assertEqual(ctx.exception.code, "bad_response")
-
-    def test_moderation_refusal(self) -> None:
-        spec = self._spec()
-        refusal = {
-            "output": [
-                {
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [
-                        {"type": "refusal", "refusal": "I can't help with that."}
-                    ],
-                }
-            ]
-        }
-        transport = _FakeTransport(response=refusal)
-        interpreter = llm.GrokInterpreter(_FAKE_KEY, transport=transport)
-
-        with self.assertRaises(llm.ProviderError) as ctx:
-            interpreter.interpret("something disallowed", spec, self._future_deadline())
-        self.assertEqual(ctx.exception.code, "moderation")
-
-    def test_previous_plan_included(self) -> None:
-        spec = self._spec()
-        previous = llm.plan_from_json(self._good_plan(), spec)
-        transport = _FakeTransport(response=_responses_envelope(self._good_plan()))
-        interpreter = llm.GrokInterpreter(_FAKE_KEY, transport=transport)
-
-        interpreter.interpret(
-            "make the ghost redder",
-            spec,
-            self._future_deadline(),
-            previous_plan=previous,
-        )
-
-        user = self._user(transport.calls[0]["payload"])
-        # The prior plan summary and the new instruction both reach the model.
-        self.assertIn(previous.subject, user)
-        self.assertIn(previous.motion, user)
-        self.assertIn("make the ghost redder", user)
 
 
 class GrokConceptProviderTests(unittest.TestCase):
@@ -2423,604 +2149,6 @@ class GrokVideoProviderTests(unittest.TestCase):
         self.assertEqual(expired.calls, [])
 
 
-class GrokImagineRendererTests(unittest.TestCase):
-    """Task 6: ``GrokImagineRenderer`` sequential per-keyframe rendering, the full
-    response validation chain (shape → base64 → byte cap → format whitelist →
-    pixel cap → load), partial-failure discard, and cancellation — all through an
-    injected fake transport with tiny in-memory images and zero network I/O."""
-
-    _IMAGES_URL = "https://api.x.ai/v1/images/generations"
-
-    def _future_deadline(self) -> float:
-        return time.monotonic() + 30.0
-
-    def _spec(self, **overrides) -> "llm.RasterSpec":
-        base = dict(
-            model="CB",
-            target="display",
-            extra_targets=(),
-            width=40,
-            height=5,
-            mapped_positions=None,
-            output_len=200,
-            max_frames=80,
-        )
-        base.update(overrides)
-        return llm.RasterSpec(**base)
-
-    def _plan(self, prompts) -> "llm.EffectPlan":
-        prompts = tuple(prompts)
-        return llm.EffectPlan(
-            subject="pac-man",
-            palette="yellow dot on black",
-            motion="chomps left to right",
-            frame_count=max(6, len(prompts)),
-            frame_ms=100,
-            keyframe_prompts=prompts,
-            tween="crossfade",
-            notes="",
-        )
-
-    def test_render_happy_path(self) -> None:
-        from PIL import Image
-
-        b64 = _encode_image(Image.new("RGB", (8, 4), (10, 20, 30)))
-        prompts = ["open mouth", "closed mouth", "open again"]
-        transport = _FakeTransport(response=_image_envelope(b64))
-        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
-
-        result = renderer.render(
-            self._plan(prompts), self._spec(), self._future_deadline()
-        )
-
-        self.assertIsInstance(result, llm.RenderedFrames)
-        self.assertEqual(len(result.images), len(prompts))
-        for image in result.images:
-            self.assertEqual(image.mode, "RGB")
-            self.assertEqual(image.size, (8, 4))
-
-        # One sequential upstream call per keyframe prompt, in order, each
-        # carrying the pinned renderer model, n=1, and the b64_json mode.
-        self.assertEqual(len(transport.calls), len(prompts))
-        for prompt, call in zip(prompts, transport.calls):
-            self.assertEqual(call["url"], self._IMAGES_URL)
-            self.assertEqual(call["api_key"], _FAKE_KEY)
-            payload = call["payload"]
-            self.assertEqual(payload["model"], llm.XAI_MODELS["renderer"])
-            self.assertEqual(payload["n"], 1)
-            self.assertEqual(payload["response_format"], "b64_json")
-            self.assertIn(prompt, payload["prompt"])  # per-keyframe, in order
-
-    def test_url_fields_ignored(self) -> None:
-        # A response carrying only a URL (never the requested b64_json) is a
-        # malformed response, not something to fetch: URL mode is never fetched.
-        transport = _FakeTransport(
-            response={"data": [{"url": "https://x.example/frame.png"}]}
-        )
-        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
-
-        with self.assertRaises(llm.ProviderError) as ctx:
-            renderer.render(self._plan(["a"]), self._spec(), self._future_deadline())
-        self.assertEqual(ctx.exception.code, "bad_response")
-        self.assertEqual(len(transport.calls), 1)
-
-    def test_invalid_base64(self) -> None:
-        transport = _FakeTransport(response=_image_envelope("@not@base64@"))
-        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
-
-        with self.assertRaises(llm.ProviderError) as ctx:
-            renderer.render(self._plan(["a"]), self._spec(), self._future_deadline())
-        self.assertEqual(ctx.exception.code, "bad_response")
-        # The base64 stage rejects it — not a downstream Pillow failure. This
-        # pins the guard: strict base64 validation, so bad input never reaches
-        # the decoder.
-        self.assertIn("base64", ctx.exception.message)
-
-    def test_oversized_decoded_image(self) -> None:
-        # Byte-size cap fires before Pillow ever opens the payload, so oversized
-        # bytes are rejected without a decode attempt.
-        big = base64.b64encode(b"\x00" * (llm.MAX_IMAGE_BYTES + 1)).decode("ascii")
-        transport = _FakeTransport(response=_image_envelope(big))
-        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
-
-        with self.assertRaises(llm.ProviderError) as ctx:
-            renderer.render(self._plan(["a"]), self._spec(), self._future_deadline())
-        self.assertEqual(ctx.exception.code, "bad_response")
-        # Pin the guard to the byte cap specifically: without it, these bytes
-        # would instead fail later at Pillow open with a different message.
-        self.assertIn("byte cap", ctx.exception.message)
-
-    def test_pixel_cap(self) -> None:
-        from PIL import Image
-
-        # 2100x2100 = 4,410,000 px > 4 MP cap, but a solid PNG stays far under
-        # the byte cap — so this exercises the pixel cap specifically.
-        side = 2100
-        b64 = _encode_image(Image.new("RGB", (side, side), (1, 2, 3)))
-        self.assertLess(len(base64.b64decode(b64)), llm.MAX_IMAGE_BYTES)
-        transport = _FakeTransport(response=_image_envelope(b64))
-        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
-
-        with self.assertRaises(llm.ProviderError) as ctx:
-            renderer.render(self._plan(["a"]), self._spec(), self._future_deadline())
-        self.assertEqual(ctx.exception.code, "bad_response")
-
-    def test_format_whitelist(self) -> None:
-        from PIL import Image
-
-        # A GIF payload is rejected by the format whitelist...
-        gif_b64 = _encode_image(Image.new("RGB", (8, 4), (5, 5, 5)), "GIF")
-        gif_transport = _FakeTransport(response=_image_envelope(gif_b64))
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm.GrokImagineRenderer(_FAKE_KEY, transport=gif_transport).render(
-                self._plan(["a"]), self._spec(), self._future_deadline()
-            )
-        self.assertEqual(ctx.exception.code, "bad_response")
-
-        # ...while PNG and JPEG both decode to RGB images.
-        for fmt in ("PNG", "JPEG"):
-            b64 = _encode_image(Image.new("RGB", (8, 4), (9, 9, 9)), fmt)
-            transport = _FakeTransport(response=_image_envelope(b64))
-            result = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport).render(
-                self._plan(["a"]), self._spec(), self._future_deadline()
-            )
-            self.assertEqual(len(result.images), 1)
-            self.assertEqual(result.images[0].mode, "RGB")
-
-    def test_partial_failure_discards(self) -> None:
-        from PIL import Image
-
-        good = _image_envelope(_encode_image(Image.new("RGB", (8, 4), (7, 8, 9))))
-        # Keyframe 1 succeeds; keyframe 2 fails; keyframe 3 must never be called.
-        outcomes = [good, llm.ProviderError("unavailable", "boom"), good]
-        calls: list[dict] = []
-
-        def transport(url, payload, api_key, deadline):
-            calls.append({"url": url, "payload": payload})
-            outcome = outcomes[len(calls) - 1]
-            if isinstance(outcome, BaseException):
-                raise outcome
-            return outcome
-
-        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
-        with self.assertRaises(llm.ProviderError) as ctx:
-            renderer.render(
-                self._plan(["a", "b", "c"]), self._spec(), self._future_deadline()
-            )
-        self.assertEqual(ctx.exception.code, "unavailable")
-        # Failed at keyframe 2 of 3: exactly two calls, no partial result leaks.
-        self.assertEqual(len(calls), 2)
-
-    def test_cancel_between_calls(self) -> None:
-        from PIL import Image
-
-        good = _image_envelope(_encode_image(Image.new("RGB", (8, 4), (2, 4, 6))))
-        transport = _FakeTransport(response=good)
-        renderer = llm.GrokImagineRenderer(_FAKE_KEY, transport=transport)
-
-        # Cancel becomes true once the first keyframe has been requested, so the
-        # predicate is consulted between calls and stops the second render.
-        cancelled = lambda: len(transport.calls) >= 1  # noqa: E731
-
-        with self.assertRaises(llm.Cancelled):
-            renderer.render(
-                self._plan(["a", "b", "c"]),
-                self._spec(),
-                self._future_deadline(),
-                cancelled=cancelled,
-            )
-        self.assertEqual(len(transport.calls), 1)
-
-
-class _FakeGenInterpreter:
-    """Fake Interpreter matching the ``interpret`` protocol; records its calls.
-
-    Returns a pre-built :class:`llm.EffectPlan` (constructed directly, so a test
-    can deliberately hand ``generate_effect`` a plan that violates the budget the
-    real interpreter's ``plan_from_json`` would have rejected) or raises a
-    supplied error.
-    """
-
-    def __init__(self, plan=None, error: BaseException | None = None) -> None:
-        self._plan = plan
-        self._error = error
-        self.calls: list[dict] = []
-
-    def interpret(self, prompt, spec, deadline, previous_plan=None):
-        self.calls.append(
-            {"prompt": prompt, "spec": spec, "deadline": deadline,
-             "previous_plan": previous_plan}
-        )
-        if self._error is not None:
-            raise self._error
-        return self._plan
-
-
-class _FakeGenRenderer:
-    """Fake Renderer matching the ``render`` protocol and the Task 6 renderer's
-    between-keyframe cancel contract: it polls ``cancelled()`` once *before* each
-    keyframe, so ``generate_effect``'s progress/cancel gate is exercised exactly
-    as the real ``GrokImagineRenderer`` drives it. Records one entry per
-    ``render`` call so a test can prove render was (or was never) started."""
-
-    def __init__(self, image_for=None, error: BaseException | None = None,
-                 error_at: int | None = None) -> None:
-        self._image_for = image_for
-        self._error = error
-        self._error_at = error_at
-        self.calls: list[float] = []
-
-    def render(self, plan, spec, deadline, cancelled=None):
-        self.calls.append(deadline)
-        images = []
-        for index in range(len(plan.keyframe_prompts)):
-            if cancelled is not None and cancelled():
-                raise llm.Cancelled("cancelled between keyframes")
-            if self._error is not None and (
-                self._error_at is None or self._error_at == index
-            ):
-                raise self._error
-            images.append(self._image_for(index))
-        return llm.RenderedFrames(images=tuple(images))
-
-
-def _gen_factories(interpreter, renderer) -> dict:
-    """Resolved interpreter/renderer factory pair for ``generate_effect``:
-    each value is a ``callable(api_key) -> provider`` as the registry classes
-    are in production."""
-    return {
-        "interpreter": lambda api_key: interpreter,
-        "renderer": lambda api_key: renderer,
-    }
-
-
-class _BlockingGenInterpreter:
-    """Fake Interpreter that blocks inside ``interpret`` until released.
-
-    Lets the generation-endpoint tests observe a job while it is genuinely
-    running — for the single-flight 409 and the cancel path — with no timing
-    races: ``started`` is set on entry and the call then waits on ``release``
-    before returning the pre-built plan. ``calls`` records each invocation so a
-    test can prove the (single) provider call happened."""
-
-    def __init__(self, plan, started, release) -> None:
-        self._plan = plan
-        self._started = started
-        self._release = release
-        self.calls: list[dict] = []
-
-    def interpret(self, prompt, spec, deadline, previous_plan=None):
-        self.calls.append({"prompt": prompt, "spec": spec, "deadline": deadline,
-                           "previous_plan": previous_plan})
-        self._started.set()
-        if not self._release.wait(timeout=5):
-            raise AssertionError("blocking interpreter was never released")
-        return self._plan
-
-
-class GenerateEffectTests(unittest.TestCase):
-    """Task 7: keyframe tweening and the ``generate_effect`` orchestrator that
-    wires interpreter -> renderer -> tween -> frame mapping under one monotonic
-    deadline, with budget enforcement, cancellation, progress phases, and typed
-    error propagation — all with injected fakes and zero network I/O."""
-
-    def _spec(self, **overrides) -> "llm.RasterSpec":
-        base = dict(
-            model="CB",
-            target="frames",
-            extra_targets=(),
-            width=40,
-            height=5,
-            mapped_positions=None,
-            output_len=200,
-            max_frames=80,
-        )
-        base.update(overrides)
-        return llm.RasterSpec(**base)
-
-    def _plan(self, **overrides) -> "llm.EffectPlan":
-        base = dict(
-            subject="pac-man",
-            palette="yellow dot on black",
-            motion="chomps left to right",
-            frame_count=6,
-            frame_ms=100,
-            keyframe_prompts=("open", "closed", "open again"),
-            tween="crossfade",
-            notes="",
-        )
-        base.update(overrides)
-        return llm.EffectPlan(**base)
-
-    # -- tween expansion ---------------------------------------------------
-
-    def test_expand_step_and_crossfade(self) -> None:
-        try:
-            from PIL import Image
-        except ModuleNotFoundError:
-            self.skipTest("Pillow is provided by the led extra")
-
-        dark = Image.new("RGB", (1, 1), (0, 0, 0))
-        bright = Image.new("RGB", (1, 1), (30, 60, 90))
-
-        # K == frame_count is the identity: the exact input objects come back.
-        identity = llm.expand_keyframes([dark, bright], 2, "crossfade")
-        self.assertEqual(len(identity), 2)
-        self.assertIs(identity[0], dark)
-        self.assertIs(identity[1], bright)
-
-        # K == 1 repeats the single keyframe for every output frame.
-        repeated = llm.expand_keyframes([bright], 4, "crossfade")
-        self.assertEqual(len(repeated), 4)
-        for frame in repeated:
-            self.assertEqual(frame.getpixel((0, 0)), (30, 60, 90))
-
-        # crossfade: two keyframes -> four frames blend at 0, 1/3, 2/3, 1 with
-        # Image.blend, giving exact intermediate pixels.
-        cross = llm.expand_keyframes([dark, bright], 4, "crossfade")
-        self.assertEqual(
-            [frame.getpixel((0, 0)) for frame in cross],
-            [(0, 0, 0), (10, 20, 30), (20, 40, 60), (30, 60, 90)],
-        )
-
-        # step: hold the nearest keyframe at or to the left of each position.
-        stepped = llm.expand_keyframes([dark, bright], 4, "step")
-        self.assertEqual(
-            [frame.getpixel((0, 0)) for frame in stepped],
-            [(0, 0, 0), (0, 0, 0), (0, 0, 0), (30, 60, 90)],
-        )
-
-    # -- full pipeline -----------------------------------------------------
-
-    def test_generate_effect_pipeline(self) -> None:
-        try:
-            from PIL import Image
-        except ModuleNotFoundError:
-            self.skipTest("Pillow is provided by the led extra")
-
-        plan = self._plan(frame_count=6, frame_ms=100,
-                          keyframe_prompts=("open", "closed", "open again"))
-        # Rendered keyframes deliberately differ in size: the orchestrator must
-        # normalize each to the generation raster before the crossfade blend and
-        # the mapping, or Image.blend would refuse mismatched sizes.
-        sizes = [(120, 30), (80, 80), (64, 40)]
-        colors = [(90, 0, 0), (0, 90, 0), (0, 0, 90)]
-        renderer = _FakeGenRenderer(
-            image_for=lambda i: Image.new("RGB", sizes[i], colors[i])
-        )
-        interpreter = _FakeGenInterpreter(plan=plan)
-
-        result = llm.generate_effect(
-            "pac-man chased by a blue ghost",
-            self._spec(),
-            ["frames"],
-            "CB04",
-            _FAKE_KEY,
-            _gen_factories(interpreter, renderer),
-        )
-
-        # /api/led/gif-shaped result, mapped through frames_to_led_tracks.
-        self.assertIn("tracks", result)
-        self.assertEqual(result["tracks"]["frames"]["frame_count"], 6)
-        self.assertEqual(result["model"], "CB")
-        # Generated-path GIF-shape fields (design §3): defined by the generation
-        # parameters, not decode leftovers.
-        self.assertEqual(result["source_frames"], 6)
-        self.assertEqual(result["decoded_frames"], 6)
-        self.assertEqual(result["source_duration_ms"], 6 * 100)
-        self.assertIs(result["timing_resampled"], False)
-        # duration_ms is the per-frame firmware speed (consumed as speed_ms by
-        # the UI), so it is frame_ms — not the total loop duration.
-        self.assertEqual(result["duration_ms"], 100)
-
-        # Plan + usage summaries for the UI.
-        self.assertEqual(result["plan"]["subject"], "pac-man")
-        self.assertEqual(result["plan"]["frame_count"], 6)
-        self.assertEqual(result["plan"]["rendered_keyframes"], 3)
-        self.assertEqual(result["plan"]["tween"], "crossfade")
-        self.assertEqual(result["plan"]["frame_ms"], 100)
-        self.assertEqual(result["usage"]["provider_calls"], 1 + 3)
-        self.assertEqual(result["usage"]["rendered_keyframes"], 3)
-        self.assertEqual(result["usage"]["output_frames"], 6)
-
-        # One interpret call, one render call over the three keyframes.
-        self.assertEqual(len(interpreter.calls), 1)
-        self.assertEqual(len(renderer.calls), 1)
-
-    def test_progress_phases(self) -> None:
-        try:
-            from PIL import Image
-        except ModuleNotFoundError:
-            self.skipTest("Pillow is provided by the led extra")
-
-        plan = self._plan(frame_count=6, keyframe_prompts=("a", "b", "c"))
-        renderer = _FakeGenRenderer(
-            image_for=lambda i: Image.new("RGB", (40, 5), (i, i, i))
-        )
-        interpreter = _FakeGenInterpreter(plan=plan)
-        phases: list[str] = []
-
-        llm.generate_effect(
-            "p", self._spec(), ["frames"], "CB04", _FAKE_KEY,
-            _gen_factories(interpreter, renderer), progress=phases.append,
-        )
-
-        self.assertEqual(
-            phases,
-            ["interpreting", "rendering 1/3", "rendering 2/3", "rendering 3/3",
-             "tweening", "mapping"],
-        )
-
-    def test_deadline_spans_phases(self) -> None:
-        try:
-            from PIL import Image
-        except ModuleNotFoundError:
-            self.skipTest("Pillow is provided by the led extra")
-
-        plan = self._plan(keyframe_prompts=("a", "b"))
-        renderer = _FakeGenRenderer(
-            image_for=lambda i: Image.new("RGB", (40, 5), (1, 2, 3))
-        )
-        interpreter = _FakeGenInterpreter(plan=plan)
-
-        before = time.monotonic()
-        llm.generate_effect(
-            "p", self._spec(), ["frames"], "CB04", _FAKE_KEY,
-            _gen_factories(interpreter, renderer),
-        )
-        after = time.monotonic()
-
-        interp_deadline = interpreter.calls[0]["deadline"]
-        render_deadline = renderer.calls[0]
-        # One monotonic deadline created from LLM_TOTAL_BUDGET, shared verbatim
-        # across both provider phases.
-        self.assertEqual(interp_deadline, render_deadline)
-        self.assertGreaterEqual(interp_deadline, before + llm.LLM_TOTAL_BUDGET)
-        self.assertLessEqual(interp_deadline, after + llm.LLM_TOTAL_BUDGET)
-
-    # -- cancellation ------------------------------------------------------
-
-    def test_cancel_between_phases(self) -> None:
-        # Cancel becomes true once interpret has run: the orchestrator must honor
-        # it before the paid render phase ever starts.
-        plan = self._plan(keyframe_prompts=("a", "b"))
-        renderer = _FakeGenRenderer(image_for=lambda i: None)
-        interpreter = _FakeGenInterpreter(plan=plan)
-        cancelled = lambda: len(interpreter.calls) >= 1  # noqa: E731
-
-        with self.assertRaises(llm.Cancelled):
-            llm.generate_effect(
-                "p", self._spec(), ["frames"], "CB04", _FAKE_KEY,
-                _gen_factories(interpreter, renderer), cancelled=cancelled,
-            )
-        # render() was never entered, so no paid image call was made.
-        self.assertEqual(len(renderer.calls), 0)
-
-    def test_cancel_during_render(self) -> None:
-        try:
-            from PIL import Image
-        except ModuleNotFoundError:
-            self.skipTest("Pillow is provided by the led extra")
-
-        plan = self._plan(keyframe_prompts=("a", "b", "c"))
-        rendered: list[int] = []
-
-        def image_for(index):
-            rendered.append(index)
-            return Image.new("RGB", (40, 5), (index, index, index))
-
-        renderer = _FakeGenRenderer(image_for=image_for)
-        interpreter = _FakeGenInterpreter(plan=plan)
-        cancelled = lambda: len(rendered) >= 1  # noqa: E731
-
-        with self.assertRaises(llm.Cancelled):
-            llm.generate_effect(
-                "p", self._spec(), ["frames"], "CB04", _FAKE_KEY,
-                _gen_factories(interpreter, renderer), cancelled=cancelled,
-            )
-        # First keyframe rendered; the second was gated off between keyframes.
-        self.assertEqual(rendered, [0])
-
-    # -- budget enforcement (mutation-proofed) -----------------------------
-
-    def test_budget_rejects_excess_keyframes(self) -> None:
-        # A rogue/faked interpreter returns more keyframes than
-        # MAX_RENDERED_KEYFRAMES; the orchestrator must reject before any paid
-        # render, capping spend regardless of provider behavior.
-        over = llm.MAX_RENDERED_KEYFRAMES + 1
-        plan = self._plan(
-            frame_count=over, keyframe_prompts=tuple(f"k{i}" for i in range(over))
-        )
-        renderer = _FakeGenRenderer(image_for=lambda i: None)
-        interpreter = _FakeGenInterpreter(plan=plan)
-
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm.generate_effect(
-                "p", self._spec(max_frames=200), ["frames"], "CB04", _FAKE_KEY,
-                _gen_factories(interpreter, renderer),
-            )
-        self.assertEqual(ctx.exception.code, "bad_response")
-        self.assertEqual(len(renderer.calls), 0)
-
-    def test_budget_rejects_excess_frame_count(self) -> None:
-        # frame_count over the per-model MODEL_FRAME_CAPS ceiling is rejected
-        # before any paid render.
-        plan = self._plan(frame_count=81, keyframe_prompts=("a", "b"))
-        renderer = _FakeGenRenderer(image_for=lambda i: None)
-        interpreter = _FakeGenInterpreter(plan=plan)
-
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm.generate_effect(
-                "p", self._spec(max_frames=80), ["frames"], "CB04", _FAKE_KEY,
-                _gen_factories(interpreter, renderer),
-            )
-        self.assertEqual(ctx.exception.code, "bad_response")
-        self.assertEqual(len(renderer.calls), 0)
-
-    def test_budget_rejects_global_frame_ceiling(self) -> None:
-        try:
-            from PIL import Image  # noqa: F401
-        except ModuleNotFoundError:
-            self.skipTest("Pillow is provided by the led extra")
-
-        # Even with an implausibly large per-model cap, MAX_LLM_FRAMES is the
-        # hard global ceiling on output frames; frame_count above it is rejected
-        # before any paid render (real images so the guard's removal would
-        # silently succeed instead of erroring elsewhere).
-        over = llm.MAX_LLM_FRAMES + 1
-        plan = self._plan(frame_count=over, keyframe_prompts=("a", "b"))
-        renderer = _FakeGenRenderer(
-            image_for=lambda i: Image.new("RGB", (40, 5), (0, 0, 0))
-        )
-        interpreter = _FakeGenInterpreter(plan=plan)
-
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm.generate_effect(
-                "p", self._spec(max_frames=10_000), ["frames"], "CB04", _FAKE_KEY,
-                _gen_factories(interpreter, renderer),
-            )
-        self.assertEqual(ctx.exception.code, "bad_response")
-        self.assertEqual(len(renderer.calls), 0)
-
-    # -- typed error propagation -------------------------------------------
-
-    def test_interpreter_error_propagates(self) -> None:
-        interpreter = _FakeGenInterpreter(
-            error=llm.ProviderError("rate_limited", "slow down", retry_after=7)
-        )
-        renderer = _FakeGenRenderer(image_for=lambda i: None)
-
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm.generate_effect(
-                "p", self._spec(), ["frames"], "CB04", _FAKE_KEY,
-                _gen_factories(interpreter, renderer),
-            )
-        self.assertEqual(ctx.exception.code, "rate_limited")
-        self.assertEqual(ctx.exception.retry_after, 7)
-        self.assertEqual(len(renderer.calls), 0)
-
-    def test_renderer_error_propagates(self) -> None:
-        try:
-            from PIL import Image
-        except ModuleNotFoundError:
-            self.skipTest("Pillow is provided by the led extra")
-
-        plan = self._plan(keyframe_prompts=("a", "b", "c"))
-        renderer = _FakeGenRenderer(
-            image_for=lambda i: Image.new("RGB", (40, 5), (0, 0, 0)),
-            error=llm.ProviderError("unavailable", "boom"),
-            error_at=1,
-        )
-        interpreter = _FakeGenInterpreter(plan=plan)
-
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm.generate_effect(
-                "p", self._spec(), ["frames"], "CB04", _FAKE_KEY,
-                _gen_factories(interpreter, renderer),
-            )
-        self.assertEqual(ctx.exception.code, "unavailable")
-
-
 class LedGenerateEndpointTests(unittest.TestCase):
     """Task 8: settings + capabilities HTTP endpoints on the loopback server.
 
@@ -3083,8 +2211,8 @@ class LedGenerateEndpointTests(unittest.TestCase):
     def _save_key(self, value: str) -> None:
         status, _ = self._request(
             "POST",
-            "/api/settings",
-            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": value}}},
+            "/api/settings/key",
+            {"provider": "xai", "key": value},
         )
         self.assertEqual(status, 200)
 
@@ -3092,34 +2220,27 @@ class LedGenerateEndpointTests(unittest.TestCase):
         key = "sk-secret-9WXYZ7788"
         status, saved = self._request(
             "POST",
-            "/api/settings",
-            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": key}}},
+            "/api/settings/key",
+            {"provider": "xai", "key": key},
         )
         self.assertEqual(status, 200)
         # Even the POST response must never echo the raw key back to the browser.
         self.assertNotIn(key, json.dumps(saved))
+        self.assertNotIn("llm", saved)
+        self.assertNotIn("candidate_count", saved["generation"])
+        self.assertEqual(store.resolve_xai_key(), key)
 
         status, data = self._request("GET", "/api/settings")
         self.assertEqual(status, 200)
-        self.assertEqual(data["llm"]["keys"]["xai"], {"set": True, "last4": ""})
         self.assertEqual(data["schema_version"], 3)
-        self.assertEqual(data["llm"]["models"], _LEGACY_MODELS)
-        self.assertEqual(data["llm"]["interpreter"], "grok")
-        self.assertEqual(data["llm"]["renderer"], "grok")
+        self.assertNotIn("llm", data)
+        self.assertNotIn("candidate_count", data["generation"])
         # The raw key never returns to the browser, anywhere in the payload.
         self.assertNotIn(key, json.dumps(data))
 
         # Posting the display mask sentinel can never round-trip into storage.
         status, _ = self._request(
-            "POST",
-            "/api/settings",
-            {
-                "llm": {
-                    "interpreter": "grok",
-                    "renderer": "grok",
-                    "keys": {"xai": store.KEY_MASK},
-                }
-            },
+            "POST", "/api/settings/key", {"provider": "xai", "key": store.KEY_MASK}
         )
         self.assertEqual(status, 400)
 
@@ -3130,37 +2251,8 @@ class LedGenerateEndpointTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertNotIn(key, json.dumps(saved))
-        self.assertEqual(saved["llm"]["keys"]["xai"], {"set": True, "last4": ""})
-
-    def test_settings_strict_validation(self) -> None:
-        # Unknown top-level field.
-        status, _ = self._request(
-            "POST",
-            "/api/settings",
-            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}}, "bogus": 1},
-        )
-        self.assertEqual(status, 400)
-        # Unknown provider name.
-        status, _ = self._request(
-            "POST",
-            "/api/settings",
-            {"llm": {"interpreter": "nope", "renderer": "grok", "keys": {}}},
-        )
-        self.assertEqual(status, 400)
-        # Unknown API-key provider.
-        status, _ = self._request(
-            "POST",
-            "/api/settings",
-            {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {"bogus": "x"}}},
-        )
-        self.assertEqual(status, 400)
-        # The compatibility route cannot bypass the split privacy/preferences
-        # routes by accepting a forged v3 whole object.
-        forged = copy.deepcopy(_DEFAULT_SETTINGS)
-        status, _ = self._request("POST", "/api/settings", forged)
-        self.assertEqual(status, 400)
-        # Nothing was persisted by any rejected save.
-        self.assertFalse(store.settings_path().exists())
+        self.assertNotIn("llm", saved)
+        self.assertEqual(store.resolve_xai_key(), key)
 
     def test_split_settings_routes_update_sections_independently(self) -> None:
         from am_configurator import ai_catalog
@@ -3171,7 +2263,8 @@ class LedGenerateEndpointTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertNotIn(key, json.dumps(data))
-        self.assertEqual(data["llm"]["keys"]["xai"], {"set": True, "last4": ""})
+        self.assertNotIn("llm", data)
+        self.assertEqual(store.resolve_xai_key(), key)
 
         status, data = self._request("POST", "/api/settings/preferences", {
             "models": {
@@ -3183,10 +2276,9 @@ class LedGenerateEndpointTests(unittest.TestCase):
             "loop_mode": "ping_pong",
         })
         self.assertEqual(status, 200)
-        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.5")
-        self.assertEqual(data["generation"]["candidate_count"], 4)
+        self.assertNotIn("candidate_count", data["generation"])
         self.assertEqual(data["generation"]["loop_mode"], "ping_pong")
-        self.assertTrue(data["llm"]["keys"]["xai"]["set"])
+        self.assertEqual(store.resolve_xai_key(), key)
 
         library = Path(self._tmp) / "generated-library"
         status, data = self._request(
@@ -3194,8 +2286,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(data["library"]["current_root"], str(library.resolve()))
-        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.5")
-        self.assertTrue(data["llm"]["keys"]["xai"]["set"])
+        self.assertEqual(store.resolve_xai_key(), key)
 
         status, data = self._request("POST", "/api/settings/privacy", {
             "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
@@ -3206,29 +2297,13 @@ class LedGenerateEndpointTests(unittest.TestCase):
             ai_catalog.PRIVACY_DISCLOSURE_VERSION,
         )
         self.assertTrue(data["generation"]["privacy_ack_at"])
-        self.assertTrue(data["llm"]["keys"]["xai"]["set"])
+        self.assertEqual(store.resolve_xai_key(), key)
 
         status, data = self._request(
             "POST", "/api/settings/key", {"provider": "xai", "key": ""}
         )
         self.assertEqual(status, 200)
-        self.assertFalse(data["llm"]["keys"]["xai"]["set"])
-        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.5")
-        self.assertEqual(data["library"]["current_root"], str(library.resolve()))
-
-        # The unchanged dialog can still use its legacy key-save route without
-        # resetting the active v3 loop or storage choice.
-        legacy_key = "sk-legacy-dialog-87654321"
-        status, data = self._request("POST", "/api/settings", {
-            "llm": {
-                "interpreter": "grok",
-                "renderer": "grok",
-                "keys": {"xai": legacy_key},
-            }
-        })
-        self.assertEqual(status, 200)
-        self.assertNotIn(legacy_key, json.dumps(data))
-        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.5")
+        self.assertIsNone(store.resolve_xai_key())
         self.assertEqual(data["library"]["current_root"], str(library.resolve()))
 
     def test_split_settings_routes_are_strict_and_never_echo_secrets(self) -> None:
@@ -3267,14 +2342,10 @@ class LedGenerateEndpointTests(unittest.TestCase):
             data["privacy_disclosure_version"],
             ai_catalog.PRIVACY_DISCLOSURE_VERSION,
         )
-        self.assertEqual(data["models"], dict(llm.XAI_MODELS))
         self.assertEqual(data["model_frame_caps"], dict(llm.MODEL_FRAME_CAPS))
-        self.assertEqual(data["max_rendered_keyframes"], llm.MAX_RENDERED_KEYFRAMES)
-        self.assertEqual(
-            data["providers"]["interpreters"], list(llm.INTERPRETER_PROVIDERS)
-        )
-        self.assertEqual(data["providers"]["renderers"], list(llm.RENDERER_PROVIDERS))
-        self.assertEqual(data["providers"]["keys"], list(llm.KEY_PROVIDERS))
+        self.assertNotIn("models", data)
+        self.assertNotIn("providers", data)
+        self.assertNotIn("max_rendered_keyframes", data)
 
         # Single-CB-target rule: CB's two targets are different rasters, so exactly
         # one may be generated at a time and neither pairs with the other.
@@ -3372,11 +2443,6 @@ class LedGenerateEndpointTests(unittest.TestCase):
             ("GET", "/api/settings", None),
             ("GET", "/api/led/capabilities", None),
             ("GET", "/api/led/generate/status?job=x", None),
-            (
-                "POST",
-                "/api/settings",
-                {"llm": {"interpreter": "grok", "renderer": "grok", "keys": {}}},
-            ),
             ("POST", "/api/settings/key", {"provider": "xai", "key": "x"}),
             ("POST", "/api/settings/preferences", {"candidate_count": 4}),
             ("POST", "/api/settings/library", {"current_root": None}),
@@ -3394,47 +2460,21 @@ class LedGenerateEndpointTests(unittest.TestCase):
                 status, _ = self._request(method, path, body, token=None)
                 self.assertEqual(status, 403)
 
-    # -- Task 9: background generation job endpoints ----------------------
-
-    def _plan(self) -> "llm.EffectPlan":
-        return llm.EffectPlan(
-            subject="pac-man", palette="yellow on black", motion="chomps",
-            frame_count=6, frame_ms=100,
-            keyframe_prompts=("open", "closed", "open again"),
-            tween="crossfade", notes="",
+    def test_legacy_generation_routes_are_retired(self) -> None:
+        cases = (
+            ("GET", "/api/led/generate/status?job=old", None),
+            (
+                "POST",
+                "/api/led/generate",
+                {"prompt": "old", "product_id": "CB04", "targets": ["frames"]},
+            ),
+            ("POST", "/api/led/generate/cancel", {}),
         )
-
-    def _install_fakes(self, interpreter, renderer) -> None:
-        """Inject fake interpreter/renderer factories exactly as the registry
-        classes are wired in production (``callable(api_key) -> provider``)."""
-        self._server.state.llm_factories = _gen_factories(interpreter, renderer)
-
-    def _generate(self, **overrides):
-        body = {"prompt": "pac-man chased by a blue ghost",
-                "product_id": "CB04", "targets": ["frames"]}
-        body.update(overrides)
-        return self._request("POST", "/api/led/generate", body)
-
-    def test_legacy_generation_mutations_are_retired(self) -> None:
-        self._save_key("sk-gen-ABCD1234")
-        interpreter = _FakeGenInterpreter(plan=self._plan())
-        renderer = _FakeGenRenderer(image_for=lambda _index: None)
-        self._install_fakes(interpreter, renderer)
-
-        for path, body in (
-            ("/api/led/generate", {
-                "prompt": "pac-man",
-                "product_id": "CB04",
-                "targets": ["frames"],
-            }),
-            ("/api/led/generate/cancel", {}),
-        ):
-            with self.subTest(path=path):
-                status, data = self._request("POST", path, body)
+        for method, path, body in cases:
+            with self.subTest(method=method, path=path):
+                status, data = self._request(method, path, body)
                 self.assertEqual(410, status)
                 self.assertEqual("retired", data["code"])
-        self.assertEqual([], interpreter.calls)
-        self.assertEqual([], renderer.calls)
 
 
 class _LightingEndpointCoordinator:

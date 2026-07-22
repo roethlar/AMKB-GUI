@@ -97,11 +97,6 @@ const state = {
     epoch: 0,
     searchTimer: null,
   },
-  aiFrameCount: 6,
-  aiError: "",
-  generation: null,
-  pendingGeneration: null,
-  previousPlan: null,
 };
 let incompatibleResolver = null;
 
@@ -973,7 +968,7 @@ function renderLightingShell() {
   $("#lighting-destination-product").textContent = state.config
     ? `${productLabel(productId())} · ${productId()}`
     : "No document open";
-  const destinationLocked = Boolean(state.generation || state.pendingGeneration || state.lighting.activeJob);
+  const destinationLocked = Boolean(state.lighting.activeJob);
   $$('[data-lighting-slot]').forEach(button => {
     const selected = Number(button.dataset.lightingSlot) === state.ledSlot;
     button.classList.toggle("active", selected);
@@ -1010,7 +1005,7 @@ function renderLightingShell() {
   if (route === ROUTES.LIBRARY) renderLibrary();
   const generateOpen=$("#lighting-generate-open");
   generateOpen.hidden=!aiReady();
-  generateOpen.disabled = !state.config || !pageData().length || !aiReady() || Boolean(state.pendingGeneration);
+  generateOpen.disabled = !state.config || !pageData().length || !aiReady();
   renderGenerationDialog();
   if (route === ROUTES.CREATE && (aiReady() || state.lighting.activeJob)) setTimeout(openGenerationDialog, 0);
 }
@@ -1279,15 +1274,8 @@ function createLedPages() {
   });
 }
 
-// During a pending AI generation the LED canvas, frame list, and playback read
-// from the preview page held in state instead of the live document page, so the
-// generated animation can be examined before any Apply mutates the config.
-function ledSourcePage() {
-  return state.pendingGeneration ? state.pendingGeneration.page : getPage(state.ledSlot);
-}
-
 function trackInfo() {
-  const page = ledSourcePage();
+  const page = getPage(state.ledSlot);
   const lengths = {frames:200,keyframes:90,spotlight_frames:24};
   return {page, track:page?.[state.ledTarget], length:lengths[state.ledTarget]};
 }
@@ -1359,8 +1347,7 @@ function renderLightingEdit() {
     $("#create-led").addEventListener("click",createLedPages);
     return;
   }
-  const previewing=Boolean(state.pendingGeneration);
-  const page = ledSourcePage();
+  const page = getPage(state.ledSlot);
   const model=activeLedModel();
   const targets=model.targets;
   if (!targets.some(target=>target.key===state.ledTarget)) state.ledTarget=targets[0].key;
@@ -1403,13 +1390,6 @@ function renderLightingEdit() {
   const relicGifOption=relicKeyTarget?`<label class="check-row"><input id="relic-gif-edges" type="checkbox" ${state.relicGifEdges?'checked':''}><span>Also derive edge lights from this GIF</span></label>`:"";
   const edgeTools=edgeAutomation?`<div class="control-group"><label class="control-label">Whole edge animation</label><div class="button-row"><button id="edge-static" class="button ghost">Static color</button><button id="edge-pulse" class="button ghost">Pulse color</button></div><button id="edge-hold" class="button ghost wide-button">Hold painted frame</button><small class="control-help">Generates ${keyFrameCount} edge frames automatically to match the key animation. “Hold” preserves the seven colors painted in the current frame.</small></div>`:"";
   const targetLabel=targets.find(t=>t.key===state.ledTarget)?.label||state.ledTarget;
-  const plan=state.pendingGeneration?.plan||{};
-  const previewBody=`<div class="card-body"><div class="control-group ai-result"><label class="control-label">AI result ready</label>
-        <p class="ai-summary">${esc(plan.subject||"Generated effect")}</p>
-        <dl class="ai-plan"><div><dt>Frames</dt><dd>${Number(plan.frame_count||frames.length)}</dd></div><div><dt>Rendered</dt><dd>${Number(plan.rendered_keyframes||0)} keyframes</dd></div><div><dt>Tween</dt><dd>${esc(plan.tween||"—")}</dd></div><div><dt>Speed</dt><dd>${Number(plan.frame_ms||0)} ms</dd></div></dl>
-        <div class="button-row ai-actions"><button id="apply-generation" class="button primary">Apply to page</button><button id="discard-generation" class="button ghost">Discard</button></div>
-        <button id="refine-generation" class="button ghost wide-button">Refine prompt</button>
-        <small class="control-help">Preview the animation to the left. Apply replaces this slot’s ${esc(targetLabel)} track (one undo step); nothing is written to your keyboard.</small></div></div>`;
   const editorBody=`<div class="card-body">
         <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Animation source</h3><input id="gif-input" type="file" accept="image/gif,.gif" hidden><div class="gif-import-row"><button id="import-gif" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="GIF resize method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
         ${edgeTools}
@@ -1419,12 +1399,11 @@ function renderLightingEdit() {
         <div class="control-group"><label class="control-label" for="speed">Frame duration</label><select id="speed" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===encodedSpeed?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select><small class="control-help">These are the timing steps exposed by Angry Miao firmware.</small></div>
       </div>`;
   $("#lighting-edit-content").innerHTML=`<div class="lighting-edit-shell"><div class="led-layout">
-      <aside class="card frame-list" aria-label="Animation frames"><div class="card-header"><strong>${previewing?'AI preview frames':'Frames'}</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${esc(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?(previewing?'Preview':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div>${previewing?'':`<div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div>`}</aside>
+      <aside class="card frame-list" aria-label="Animation frames"><div class="card-header"><strong>Frames</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${esc(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?'Editing':'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div></aside>
       <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header"><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}</small></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''}" role="region" aria-label="Paint the selected animation frame">${pixelCanvas}</div></section>
-      <aside class="card led-controls" aria-label="Lighting controls"><div class="card-header"><strong>${previewing?'AI preview':'Frame controls'}</strong><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div>${previewing?previewBody:editorBody}</aside>
+      <aside class="card led-controls" aria-label="Lighting controls"><div class="card-header"><strong>Frame controls</strong><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div>${editorBody}</aside>
     </div></div>`;
-  if(previewing)wireLedPreview();
-  else wireLedEditor(columns);
+  wireLedEditor(columns);
 }
 
 function focusSelectedFrame() {
@@ -1492,18 +1471,10 @@ function wireLedEditor(gridColumns) {
   $("#play-led").addEventListener("click",toggleLightingPlayback);
 }
 
-function wireLedPreview() {
-  $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>selectLightingFrame(button.dataset.frame)));
-  $("#play-led")?.addEventListener("click",toggleLightingPlayback);
-  $("#apply-generation")?.addEventListener("click",applyGeneration);
-  $("#discard-generation")?.addEventListener("click",discardGeneration);
-  $("#refine-generation")?.addEventListener("click",refineGeneration);
-}
-
-// Write the GIF/AI mapping result (same `/api/led/gif` shape from either source)
+// Write a GIF/procedural mapping result (the shared `/api/led/gif` shape)
 // into a page object in place: replace each returned track, retime a paired or
 // existing Relic edge animation to the key track, and adopt the per-frame speed.
-// Used by both GIF import and AI-generation apply/preview so they stay identical.
+// Manual import and generated Apply therefore stay identical.
 function applyLedResultToPage(page,result,primaryTarget,pairsRelicGif) {
   page.valid=1;
   for(const [trackName,trackResult] of Object.entries(result.tracks)){
@@ -1555,7 +1526,7 @@ function startPlayback() {
     $$('.pixel').forEach(pixel=>{const color=frame.frame_RGB[Number(pixel.dataset.pixel)]||'#000000';pixel.style.background=color;pixel.style.setProperty('--pixel-color',color);});
     $$('.frame-item').forEach((node,i)=>{const selected=i===state.ledFrame;node.classList.toggle('active',selected);node.setAttribute('aria-pressed',String(selected));node.setAttribute('aria-label',`Frame ${i+1}${selected?', selected':''}`);});
   };
-  state.playTimer=setInterval(tick,Math.max(12,Number(ledSourcePage()?.speed_ms||90)));
+  state.playTimer=setInterval(tick,Math.max(12,Number(getPage(state.ledSlot)?.speed_ms||90)));
 }
 
 function toggleLightingPlayback() {
