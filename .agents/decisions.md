@@ -2,20 +2,26 @@
 
 ## 2026-07-21 — Optional AI capability and recipe backends
 
-Status: approved by the owner on 2026-07-21.
+Status: approved by the owner on 2026-07-21; amended the same day to make local
+inference primary with user-selected models and no application model downloads.
 
 - Manual lighting is the complete default product. Outside Settings, every AI
   control, route, setup warning, and AI-specific empty-state action is hidden
   unless the user explicitly enabled AI and the selected backend passed its
   production setup check. A later invalid setup hides those entry points again
   and exposes repair only in Settings.
-- Settings offers interchangeable Local model and API model setup. Local AI
-  requires a supported GPU, sufficient usable memory, an app-managed runtime,
-  and an explicitly downloaded and validated model; Ollama is not a release
-  requirement and there is no supported CPU fallback. API AI requires no local
-  GPU, but does require a curated provider/model, an OS-stored credential, and
-  explicit privacy/cost acknowledgment plus a successful structured-output
-  test.
+- Settings presents Local model as the primary setup and API model as a
+  secondary option. Local AI requires a supported GPU, sufficient usable
+  memory, an app-managed runtime, and a GGUF file chosen through a native file
+  picker; Ollama is not a release requirement and there is no supported CPU
+  fallback. The application never downloads, copies, modifies, or deletes model
+  weights. API AI requires no local GPU, but does require a curated
+  provider/model, an OS-stored credential, explicit privacy/cost acknowledgment,
+  and a successful structured-output test.
+- A user-selected local model needs one production schema-valid setup result;
+  corpus qualification remains developer evidence and never gates the local
+  feature. A model-specific setup or generation failure preserves local release
+  scope and lets the user select another model.
 - Both backends produce the same strict procedural animation recipe. Rendering,
   exact device-frame generation, preview, mapping, banking, review, and Apply
   remain local and backend-independent. Nothing is applied automatically.

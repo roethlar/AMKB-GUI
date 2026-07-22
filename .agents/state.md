@@ -158,7 +158,11 @@
   `docs/verification/2026-07-21-qwen3-4b-q4-k-m/`. Full verification passed at
   `9780945` with 288 Python tests (one prepared-runtime integration skip) and 32
   browser tests. No provider call, UI change, app build, or hardware write was
-  made. No further implementation is authorized yet.
+  made. The owner then clarified that corpus qualification must not gate local
+  AI: local inference is the primary backend, the application must never
+  download model weights, and users choose their own GGUF file. The amended
+  durable plan makes Task 3 the pinned runtime and private user-selected model
+  flow; its implementation is authorized.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -182,12 +186,12 @@
 
 ## Next
 
-- Await an explicit go on Task 3 of
-  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: move optional API
-  credentials into fail-closed OS storage and migrate settings to v3. Do not
-  start that work, select another local-model candidate, initiate a paid API
-  call, expose or package AI UI, or write hardware without the corresponding
-  authorized implementation slice.
+- Implement Task 3 of
+  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: pin and attest the
+  app-owned local runtime, then add private native GGUF selection, verification,
+  attestation, clearing, GPU/full-offload probing, and bounded process handling.
+  Do not download, copy, modify, or delete model weights; do not initiate a paid
+  API call or write hardware.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON
@@ -195,9 +199,6 @@
 
 ## Blockers
 
-- Local AI has no qualified release model. The pinned Qwen3 4B Q4_K_M candidate
-  failed 6 of 12 corpus cases under the fixed qualification gate; selecting and
-  evaluating a different candidate requires a new approved task.
 - Hardware checks require corresponding owner-supplied devices; they are not
   required for the offline suite.
 - Native Windows ACL verification for a pre-existing library `jobs` directory

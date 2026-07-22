@@ -1,13 +1,19 @@
 # Optional AI Backends and Procedural Lighting Generation
 
-**Status:** Product decisions approved on 2026-07-21. Task 1 was separately authorized and implemented in `d7eedc2`; Tasks 2–9 require another explicit go.
+**Status:** Product decisions approved on 2026-07-21. Tasks 1 and 2 landed in
+`d7eedc2` and `9780945`. The owner amended and authorized the remaining
+direction on 2026-07-21: local inference is primary, the application never
+downloads model weights, users select their own local GGUF model, and model
+qualification evidence does not gate the feature.
 
 ## Objective
 
 Replace the visible xAI still/video proof flow with one optional prompt-to-procedural-animation capability. AI is off by default and absent from the normal application UI unless the user has explicitly enabled it and the selected backend has passed setup. The two supported backend classes are:
 
-1. An app-managed local GPU model, downloaded only after opt-in.
-2. A curated API model, initially xAI, with its key stored in the operating-system credential store.
+1. The primary app-managed local GPU runtime using a GGUF model selected by the
+   user from local storage.
+2. A secondary curated API model, initially xAI, with its key stored in the
+   operating-system credential store.
 
 Both backends return the same strict animation-recipe object. All animation rendering, exact device-frame generation, previewing, mapping, banking, review, and Apply behavior remains local and backend-independent.
 
@@ -17,7 +23,13 @@ Both backends return the same strict animation-recipe object. All animation rend
 - Settings always exposes one collapsed **Optional AI features** setup section. The user explicitly chooses Local model or API model.
 - Local AI requires a supported GPU and enough usable GPU or unified memory. There is no supported CPU fallback.
 - Ollama is not a release dependency. The application owns the local runtime lifecycle. The existing Ollama CLI proof remains developer tooling until deliberately removed.
-- The local model is not included in the application installer. Settings discloses its exact download size, source, hash, and license before an explicit download.
+- The local model is neither bundled nor downloaded by the application. The
+  user selects an existing local GGUF file through a native file picker and may
+  replace that selection at any time.
+- Corpus qualification is developer evidence, not a release catalog gate. A
+  selected model becomes usable after the production runtime proves it can
+  return one schema-valid recipe; later recipe or quality failures are normal
+  per-generation failures and do not disable local AI globally.
 - API mode does not require local GPU support. It requires a curated provider and model, an OS-stored credential, and an explicit privacy/cost acknowledgment and setup test.
 - A backend is configured only after it produces a valid recipe through the production schema. Merely finding a binary, model file, or API key is not enough.
 - If a previously configured backend becomes invalid, AI entry points disappear from the main UI and Settings shows a repair state. A transient API network outage is an operational error, not automatic configuration loss; authentication or removed-model failures invalidate setup.
@@ -40,7 +52,7 @@ Both backends return the same strict animation-recipe object. All animation rend
 Settings only while disabled
         |
         +-- Local setup ----------------------------+
-        |   GPU probe -> model download -> test     |
+        |   GPU probe -> choose local GGUF -> test  |
         |                                            v
         +-- API setup -----------------------> RecipeProvider
             key vault -> acknowledgment -> test     |
@@ -75,8 +87,8 @@ Add `am_configurator/ai_capability.py`. It owns the only computation of whether 
     "supported": false,
     "gpu_backend": null,
     "runtime_verified": false,
-    "model_id": "qwen3-4b-q4_k_m",
-    "model_installed": false,
+    "model_selected": false,
+    "model_filename": null,
     "model_verified": false,
     "setup_tested": false
   },
@@ -105,7 +117,6 @@ Replace active `llm` settings with an `ai` section:
     "enabled": false,
     "backend": null,
     "local": {
-      "model_id": "qwen3-4b-q4_k_m",
       "setup_fingerprint": null
     },
     "api": {
@@ -224,13 +235,16 @@ API setup uses an explicit **Test and enable** action. It performs one minimal s
 
 #### Local provider
 
-Implement `ManagedLocalRecipeProvider` against the app-owned runtime. It performs no external network access. The provider accepts only an attested runtime path and an attested model path from the model manager; caller-supplied paths and endpoints are not supported.
+Implement `ManagedLocalRecipeProvider` against the app-owned runtime. It
+performs no external network access. The provider accepts only the current
+model selection resolved from the model manager's private attestation; HTTP
+callers cannot supply paths, endpoints, or model identifiers.
 
 Use grammar-constrained JSON output in addition to semantic validation. Bound context, output tokens, response bytes, wall time, GPU layers, and concurrent requests. Cancellation terminates and then kills the child process using argument arrays, never a shell. Keep a verified runtime warm only while the app is open and only after AI use; stop it after a short idle interval and always during application exit.
 
 ### Managed Local Runtime
 
-Use `llama.cpp` release candidate `b9637` at commit `aedb2a5` because its official runtime supports Metal, CUDA/Vulkan, an OpenAI-compatible local server, and grammar-constrained output. Task 2 must use that candidate and may not silently track `main` or a newer release. Before promoting it, check the official security-advisory record; a vulnerable pin requires a documented plan amendment and requalification. Mirror the existing FFmpeg supply-chain pattern:
+Use `llama.cpp` release candidate `b9637` at commit `aedb2a5` because its official runtime supports Metal, CUDA/Vulkan, an OpenAI-compatible local server, and grammar-constrained output. Task 2 exercised that exact runtime; implementation may not silently track `main` or a newer release. Before promoting it, check the official security-advisory record; a vulnerable pin requires a documented plan amendment and runtime requalification. Mirror the existing FFmpeg supply-chain pattern:
 
 - `packaging/llama_runtime_manifest.json` owns source URL, immutable revision, archive SHA-256, MIT license metadata, build flags, runtime capabilities, and per-platform artifact names.
 - `build_tools/build_llama_runtime.py` verifies the source archive before extraction, rejects unsafe members, builds offline from the verified source, and writes a runtime attestation.
@@ -239,27 +253,41 @@ Use `llama.cpp` release candidate `b9637` at commit `aedb2a5` because its offici
 - Runtime launch binds only to `127.0.0.1`, uses an app-generated per-process bearer token, disables the bundled web UI, allows one slot, uses a small fixed context, and requests full GPU offload. A CPU-only or partial-offload setup test fails local eligibility.
 - Runtime stdout/stderr is bounded and sanitized. The random port, token, model path, and raw diagnostics never enter the browser or Library.
 
-The installer contains the runtime and its notices but no model weights. Native CI builds and frozen smoke tests verify runtime location, attestation, launch arguments, and fake inference without downloading a release model.
+The installer contains the runtime and its notices but no model weights. Native
+CI builds and frozen smoke tests verify runtime location, attestation, launch
+arguments, native model selection, and fake inference without downloading a
+model.
 
-### Local Model Qualification and Download
+### User-Selected Local Models
 
-The first candidate is the official Apache-2.0 `Qwen/Qwen3-4B-GGUF` `Q4_K_M` artifact at immutable revision `bc640142c66e1fdd12af0bd68f40445458f3869b`:
+The Qwen3 4B Q4_K_M qualification in
+`docs/verification/2026-07-21-qwen3-4b-q4-k-m/` remains useful evidence about
+the corpus, renderer, and runtime, but its failed cases do not select or reject
+models for users. There is no release model catalog.
 
-- filename: `Qwen3-4B-Q4_K_M.gguf`
-- size: 2.5 GB as published by the model repository;
-- SHA-256: `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5`.
+Settings exposes **Choose model file** through a native picker restricted to
+regular `.gguf` files. Browser requests never contain a path. The model manager
+stores a private local attestation containing the canonical selected path,
+basename, size, file identity, modification time, and SHA-256. It re-hashes
+after identity or metadata changes and rejects missing files, symlinks,
+non-regular files, and files outside conservative size bounds.
 
-This is a candidate, not a release default, until it passes the qualification gate. Add `build_tools/qualify_recipe_model.py` and a committed prompt corpus covering at least:
+Selecting a file makes it available for testing but does not enable AI. **Test
+and enable** launches only the pinned app runtime, requests full GPU offload,
+and asks the selected model for one minimal recipe through the production JSON
+grammar and semantic validator. Success stores a fingerprint of runtime
+attestation, model SHA-256, recipe-schema version, and setup-test version.
+Changing the file invalidates the fingerprint. Failure keeps the selection and
+shows a pathless reason so the user can select another model.
 
-- all supported raster geometries and device frame caps;
-- sparse, balanced, and dense effects;
-- colors, direction, speed, layering, fire/noise, waves, pulses, sweeps, comets, sparkles, and orbits;
-- adversarial prompts asking for video, cameras, text, scenery, unsupported primitives, excessive layers, or invalid colors;
-- short, long, ambiguous, and multilingual prompts.
+The committed qualification corpus remains a repeatable developer comparison
+tool for any locally available model. It never triggers a download, never
+changes the user's selection, and is not required for local UI availability or
+release packaging.
 
-The candidate passes only if every corpus item returns a schema-valid recipe within the local retry budget, renders deterministic exact frames, meets its density/brightness/motion/seam class, and completes within the declared setup and generation budgets on the owner's supported macOS machine. Before declaring cross-platform local support, repeat the runtime/model health test on at least one Windows Vulkan machine. A failed candidate leaves local AI unreleased; API mode and manual lighting remain unaffected.
-
-Settings downloads only the one pinned file from the pinned Hugging Face revision after explicit consent. Implement bounded streaming to a private `.part` file, strict host/redirect validation, expected size and free-space checks, SHA-256 verification, file and directory fsync, and atomic publication into an app-owned model directory. Cancellation or failure preserves an already verified model and removes only the new partial file. Store a local attestation containing only catalog ID, size, hash, and file identity. Re-hash after metadata changes. Provide an explicit Remove model action using a recoverable, narrowly resolved deletion path.
+**Clear selection** removes only the private attestation and setup fingerprint.
+The application never copies, moves, modifies, downloads, or deletes the
+user's model file.
 
 ### Durable Procedural Generation
 
@@ -295,9 +323,10 @@ Keep all routes behind the existing loopback token and strict exact-body validat
 - `POST /api/settings/ai` — save selected backend/configuration or disable AI; cannot force readiness.
 - `POST /api/settings/credential` — set/clear one curated provider credential in the OS store.
 - `POST /api/ai/test` — explicit selected-backend production health test; API mode may spend only after the Settings disclosure confirmation.
-- `POST /api/ai/local/install` — start the one pinned model download.
-- `POST /api/ai/local/cancel` — cancel only that install.
-- `POST /api/ai/local/remove` — remove only the attested model after confirmation.
+- `POST /api/ai/local/select` — open the native GGUF picker and attest the
+  selected local file; no caller-supplied path is accepted.
+- `POST /api/ai/local/clear` — clear only the app's selection and attestation;
+  never delete or modify the model file.
 - `POST /api/lighting/effects` — create one durable procedural job.
 - Existing job, Library, asset, cancel, and Apply/read endpoints remain the polling and review surfaces.
 
@@ -318,7 +347,14 @@ When AI is not ready:
 - no persistent AI job strip appears unless an already-running durable job must finish banking;
 - no key/model/provider/cost warnings appear outside Settings.
 
-Settings begins with one disabled **Optional AI features** switch. Turning it on reveals backend choice but does not expose main-UI generation. Local setup shows GPU/runtime status, model source/license/size, download progress, Test, and Remove. API setup shows provider, curated recipe model, password input, credential-store status, privacy/cost disclosure, Test and enable, and Remove credential. Setup failures stay on this route with one actionable repair reason.
+Settings begins with one disabled **Optional AI features** switch and presents
+Local model first. Turning it on reveals backend choice but does not expose
+main-UI generation. Local setup shows GPU/runtime status, selected GGUF
+filename/size, Choose model file, Test and enable, and Clear selection. API
+setup remains secondary and shows provider, curated recipe model, password
+input, credential-store status, privacy/cost disclosure, Test and enable, and
+Remove credential. Setup failures stay on this route with one actionable repair
+reason.
 
 The generation dialog becomes a single flow:
 
@@ -345,18 +381,32 @@ Files: `am_configurator/procedural.py`, `am_configurator/local_animation.py`, `t
 
 Commit: `feat: establish procedural animation contract`.
 
-### Task 2 — Qualify and pin the first local model
+### Task 2 — Benchmark the first local model candidate
 
-Files: qualification corpus/results under `docs/verification/`, `am_configurator/local_ai_catalog.py`, model license/notice metadata.
+Files: qualification corpus/results under `docs/verification/` and qualification tooling.
 
 - Evaluate the pinned Qwen candidate through the production grammar/schema and committed corpus.
 - Record machine, runtime revision, per-case result, latency, density/motion metrics, and gallery paths without committing model weights.
-- If it fails, stop this task and select no release local model; do not weaken schema or metrics merely to pass.
-- If it passes, make the pin the sole initial local catalog choice.
+- Preserve the result as comparative evidence without weakening schema or
+  metrics. Do not create a release model catalog or make the result a gate on
+  user-selected local inference.
 
-Commit: `docs: qualify local recipe model` plus the catalog pin only after successful evidence.
+Commit: `docs: reject local recipe model`.
 
-### Task 3 — Secure credential store and settings v3
+### Task 3 — Pinned local runtime and user-selected model
+
+Files: runtime manifest/license, build helper, `am_configurator/local_ai_runtime.py`, `am_configurator/local_model.py`, packaging and focused tests.
+
+- Mirror verified FFmpeg source/build/runtime resolution.
+- Implement GPU/full-offload probe, bounded subprocess lifecycle, private native
+  GGUF selection/verification/attestation/clear, and pathless public status.
+- Add malicious archive, caller-path, symlink, non-regular file, wrong-extension,
+  size-bound, tamper, no-GPU, partial-offload, and process-timeout tests. Prove
+  selection and clearing never copy, modify, download, or delete model weights.
+
+Commit: `feat: manage local GPU recipe runtime`.
+
+### Task 4 — Secure credential store and settings v3
 
 Files: `pyproject.toml`, lockfile, frozen spec, `am_configurator/credentials.py`, `am_configurator/store.py`, settings tests.
 
@@ -366,23 +416,15 @@ Files: `pyproject.toml`, lockfile, frozen spec, `am_configurator/credentials.py`
 
 Commit: `feat: move AI credentials to OS storage`.
 
-### Task 4 — Pinned local runtime and model manager
-
-Files: runtime manifest/license, build helper, `am_configurator/local_ai_runtime.py`, `am_configurator/local_model.py`, packaging and focused tests.
-
-- Mirror verified FFmpeg source/build/runtime resolution.
-- Implement GPU/full-offload probe, bounded subprocess lifecycle, model download/verify/attest/cancel/remove, and pathless public status.
-- Add malicious archive, redirect, symlink, tamper, partial-download, cancellation, disk-space, no-GPU, partial-offload, and process-timeout tests.
-
-Commit: `feat: manage local GPU recipe runtime`.
-
 ### Task 5 — Recipe providers and capability service
 
 Files: `am_configurator/recipe_provider.py`, `am_configurator/ai_capability.py`, `am_configurator/ai_catalog.py`, provider/capability tests.
 
-- Implement managed-local and xAI providers behind the shared protocol.
+- Implement the primary managed-local provider and secondary xAI provider behind
+  the shared protocol.
 - Implement setup fingerprints, exact readiness reasons, local retry policy, one-call API policy, typed errors, usage/cost accounting, and invalidation rules.
-- Prove disabled/unready states perform no subprocess launch, download, network request, or credential lookup beyond the capability check required.
+- Prove disabled/unready states perform no subprocess launch, file mutation,
+  network request, or credential lookup beyond the capability check required.
 
 Commit: `feat: add interchangeable recipe backends`.
 
@@ -425,7 +467,9 @@ Files: build scripts, native workflows, frozen spec, notices, smoke tests, docs/
 
 - Bundle and attest the platform runtime without model weights.
 - Add installer checks that AI-disabled launch never starts the runtime or contacts model/provider hosts.
-- Run frozen fake local/API generation smokes, real local qualification on supported hardware, historical Library acceptance, and manual visual checks.
+- Run frozen fake local/API generation smokes, a real user-selected local-model
+  setup/generation smoke on each platform claimed as local-capable, historical
+  Library acceptance, and manual visual checks.
 - Build through `python build.py --skip-sync` so the native build version advances; never invoke PyInstaller directly.
 - Update state with exact passed platforms and leave unsupported local platforms API-only.
 
@@ -453,24 +497,32 @@ Native release verification additionally requires:
 - frozen fake local and fake API setup/generation paths;
 - runtime attestation and license presence;
 - proof that the installer contains no model weights or credential values;
-- real local model qualification on every platform claimed as local-AI supported;
+- real user-selected local-model setup/generation smoke on every platform
+  claimed as local-AI supported;
 - manual checks at wide, narrow, and zoomed layouts for both disabled and ready states;
 - no provider call or hardware write without a separate explicit owner go.
 
 ## Non-Goals
 
 - No CPU local inference fallback.
-- No user-supplied model paths, arbitrary Hugging Face repositories, custom API base URLs, or arbitrary provider model IDs.
+- No browser-supplied model paths, model downloads, arbitrary Hugging Face
+  repositories, custom API base URLs, or arbitrary provider model IDs. Local
+  model paths enter only through the native GGUF picker.
 - No bundled model weights in installers.
 - No image-generation, image-to-video, or direct frame-by-frame generative GIF path in the new flow.
 - No multiple generated variations in one action until the single procedural result proves useful across the qualification corpus.
-- No automatic Apply, keyboard write, paid retry, API setup probe, model download, or model removal.
+- No automatic Apply, keyboard write, paid retry, API setup probe, model
+  download, model copy, or model deletion.
 - No deletion or conversion of historical Library jobs.
 
 ## Rollback and Failure Behavior
 
-- If no local model passes qualification, ship API mode only and leave the local toggle unavailable with an honest unsupported explanation.
+- If a selected local model fails setup or generation, retain the selection,
+  show a pathless actionable error, and allow immediate reselection. One model's
+  failure never disables the local feature or changes release scope.
 - If the secure credential backend is unavailable, local AI remains usable; API setup is unavailable and no plaintext fallback appears.
 - If the selected backend loses readiness, hide only AI entry points. Manual editing and Library access continue.
-- If runtime/model packaging fails on one platform, that platform remains API-only rather than blocking the application release.
+- If runtime packaging fails on one platform, that platform remains API-only
+  rather than blocking the application release; model weights are never a
+  packaging input.
 - If the new procedural flow fails acceptance, keep it disabled by default and retain the isolated CLI proof; do not restore the rejected still/video UI as a fallback.
