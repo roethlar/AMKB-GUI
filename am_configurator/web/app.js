@@ -55,6 +55,7 @@ const state = {
   capabilities: null,
   settings: null,
   aiStatus: null,
+  localModels: {available:null,models:[],loading:false},
   settingsReturnRoute: null,
   settingsReturnDialog: false,
   settingsSaveBusy: false,
@@ -2121,10 +2122,12 @@ function applyReviewedLighting() {
 }
 
 async function loadAiConfig() {
-  const requests=await Promise.allSettled([api("/api/led/capabilities"),api("/api/settings"),api("/api/ai/status")]);
+  const requests=await Promise.allSettled([api("/api/led/capabilities"),api("/api/settings"),api("/api/ai/status"),api("/api/ai/local/models")]);
   if(requests[0].status==="fulfilled")state.capabilities=requests[0].value;
   if(requests[1].status==="fulfilled")state.settings=requests[1].value;
   if(requests[2].status==="fulfilled")state.aiStatus=requests[2].value;
+  if(requests[3].status==="fulfilled")state.localModels=normalizeLocalModels(requests[3].value);
+  else state.localModels={available:false,models:[],loading:false};
   if(["smooth","none","ping_pong"].includes(state.settings?.generation?.loop_mode))state.animationLoopMode=state.settings.generation.loop_mode;
   refreshAiGate();
 }
@@ -2144,10 +2147,45 @@ function refreshAiGate() {
   else renderScreen();
 }
 
-function aiReasonText(reason) {
+function aiReasonText(reason,status=state.aiStatus) {
+  const source=status?.local?.source||"ollama";
   return ({
-    disabled:"Optional generation is off.",backend_unselected:"Choose a backend.",gpu_unsupported:"This computer does not expose a supported local GPU backend.",runtime_unavailable:"The verified local runtime is unavailable.",model_missing:"Choose an existing GGUF model file.",model_invalid:"The selected GGUF changed or could not be verified. Choose it again or select another model.",setup_required:"Run the setup test to enable this backend.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_missing:"Save an API credential.",disclosure_required:"Accept the API data disclosure.",ready:"Ready.",
+    disabled:"Optional generation is off.",backend_unselected:"Choose a backend.",gpu_unsupported:"This computer does not expose a supported local GPU backend.",runtime_unavailable:"The verified direct-model runtime is unavailable.",ollama_unavailable:"Start Ollama on this computer, then refresh the installed models.",model_missing:source==="ollama"?"Choose one of the models already installed in Ollama.":"Choose an existing direct GGUF model file.",model_invalid:"The selected direct GGUF changed or could not be verified. Choose it again or select another model.",model_unavailable:source==="ollama"?"The selected Ollama model is no longer installed with the same identity. Refresh and choose it again.":"The selected model is unavailable.",setup_required:"Run the setup test to enable this backend.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_missing:"Save an API credential.",disclosure_required:"Accept the API data disclosure.",auth_invalid:"The API credential was rejected.",ready:"Ready.",
   })[reason]||"Setup needs attention.";
+}
+
+function normalizeLocalModels(value) {
+  const models=Array.isArray(value?.models)?value.models.filter(model=>model&&typeof model.model_id==="string"&&typeof model.digest==="string"):[];
+  return {available:value?.available===true,models,loading:false};
+}
+
+function populateLocalModelSelect(local) {
+  const select=$("#settings-local-model-select");
+  const previous=select.value;
+  const selected=local.source==="ollama"?local.model_id:null;
+  const models=state.localModels.models;
+  select.replaceChildren();
+  const placeholder=document.createElement("option");
+  placeholder.value="";
+  placeholder.textContent=state.localModels.loading?"Checking installed models…":state.localModels.available?(models.length?"Choose an installed model":"No eligible local models found"):"Ollama is not available";
+  select.append(placeholder);
+  models.forEach(model=>{
+    const option=document.createElement("option");
+    option.value=model.model_id;
+    const details=[model.parameter_size,model.quantization].filter(Boolean).join(" · ");
+    option.textContent=details?`${model.model_id} — ${details}`:model.model_id;
+    select.append(option);
+  });
+  if(selected&&!models.some(model=>model.model_id===selected)){
+    const missing=document.createElement("option");
+    missing.value=selected;
+    missing.textContent=`${selected} — not currently available`;
+    missing.disabled=true;
+    select.append(missing);
+  }
+  const preferred=[previous,selected].find(value=>value&&[...select.options].some(option=>option.value===value))||"";
+  select.value=preferred;
+  select.disabled=state.localModels.loading||!state.localModels.available||models.length===0;
 }
 
 async function openSettings({returnToGeneration=false}={}) {
@@ -2170,12 +2208,43 @@ function populateSettings() {
   $("#settings-local-panel").hidden=backend!=="local";
   $("#settings-api-panel").hidden=backend!=="api";
   const local=status?.local||{};
-  $("#settings-local-runtime").textContent=local.runtime_verified?`${String(local.gpu_backend||"GPU").toUpperCase()} ready`:local.supported?"Runtime unavailable":"Unsupported";
-  $("#settings-local-runtime").className=`pill ${local.runtime_verified?"":"muted"}`;
-  $("#settings-local-state").textContent=backend==="local"?aiReasonText(status?.reason):"Choose a GGUF file stored on this computer.";
-  $("#settings-local-model").textContent=local.model_selected?`Selected: ${local.model_filename}${local.model_verified?" · verified":" · verification required"}`:"No GGUF selected.";
-  $("#settings-local-clear").disabled=!local.model_selected;
-  $("#settings-local-test").disabled=!local.runtime_verified||!local.model_selected;
+  const source=local.source||"ollama";
+  const ollamaAvailable=state.localModels.available===true;
+  $("#settings-local-runtime").textContent=state.localModels.loading?"Checking":ollamaAvailable?"Ollama ready":"Not running";
+  $("#settings-local-runtime").className=`pill ${ollamaAvailable?"":"muted"}`;
+  let localGuidance="Choose an installed Ollama model for local generation.";
+  if(backend==="local"&&source==="ollama"){
+    if(!ollamaAvailable)localGuidance="Start Ollama on this computer, then refresh the installed models.";
+    else if(!local.model_selected)localGuidance="Choose one of the models already installed in Ollama.";
+    else if(!local.model_verified)localGuidance="The selected model is no longer available. Refresh and choose it again.";
+    else if(!local.setup_tested)localGuidance="Run Test & enable to verify this model can create lighting recipes.";
+    else localGuidance=status?.enabled?"Ready.":"This model passed setup. Turn on Optional AI features to use it.";
+  }else if(backend==="local"&&source==="gguf")localGuidance="The advanced direct GGUF backend is active. Choose an Ollama model below to return to normal local setup.";
+  $("#settings-local-state").textContent=localGuidance;
+  populateLocalModelSelect(local);
+  $("#settings-local-model").textContent=source==="ollama"&&local.model_selected?`Selected in Ollama: ${local.model_id}${local.model_verified?" · installed":" · no longer available"}`:"No Ollama model selected.";
+  const picker=$("#settings-local-model-select");
+  $("#settings-local-refresh").disabled=state.localModels.loading;
+  $("#settings-local-select").disabled=picker.disabled||!picker.value||!state.localModels.models.some(model=>model.model_id===picker.value);
+  $("#settings-local-clear").disabled=source!=="ollama"||!local.model_selected;
+  $("#settings-local-test").disabled=source!=="ollama"||!local.model_verified;
+  const advanced=local.advanced||{};
+  if(source==="gguf")$("#settings-local-advanced").open=true;
+  $("#settings-gguf-runtime").textContent=advanced.runtime_verified?`${String(advanced.gpu_backend||"GPU").toUpperCase()} ready`:advanced.supported?"Runtime unavailable":"Unsupported";
+  $("#settings-gguf-runtime").className=`pill ${advanced.runtime_verified?"":"muted"}`;
+  let ggufGuidance="Use this only when Ollama is not the right runtime for your setup.";
+  if(source==="gguf"&&backend==="local"){
+    if(!advanced.supported)ggufGuidance="This computer does not expose a supported local GPU backend.";
+    else if(!advanced.runtime_verified)ggufGuidance="The verified direct-model runtime is unavailable.";
+    else if(!advanced.model_selected)ggufGuidance="Choose an existing direct GGUF model file.";
+    else if(!advanced.model_verified)ggufGuidance="The selected file changed or could not be verified. Choose it again.";
+    else if(!local.setup_tested)ggufGuidance="Run Test & enable direct model to verify it can create lighting recipes.";
+    else ggufGuidance=status?.enabled?"Ready.":"This direct model passed setup. Turn on Optional AI features to use it.";
+  }
+  $("#settings-gguf-state").textContent=ggufGuidance;
+  $("#settings-gguf-model").textContent=advanced.model_selected?`Selected direct file: ${advanced.model_filename||"unavailable"}${advanced.model_verified?" · verified":" · verification required"}`:"No direct GGUF selected.";
+  $("#settings-gguf-test").disabled=source!=="gguf"||!advanced.runtime_verified||!advanced.model_verified;
+  $("#settings-gguf-clear").disabled=source!=="gguf"||!advanced.model_selected;
   const apiState=status?.api||{};
   $("#settings-api-credential-state").textContent=apiState.credential_set?"A credential is stored securely.":"No credential is configured.";
   $("#settings-api-remove").disabled=!apiState.credential_set;
@@ -2201,24 +2270,45 @@ async function selectAiBackend(backend) {
     state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled:false,backend})});
     populateSettings();
     refreshAiGate();
-    setSettingsStatus(backend==="local"?"Local backend selected. Choose and test any compatible GGUF.":"API backend selected. Save a credential, accept the disclosure, and test.");
+    setSettingsStatus(backend==="local"?"Local backend selected. Choose an installed Ollama model, then test it.":"API backend selected. Save a credential, accept the disclosure, and test.");
   }catch(error){setSettingsStatus(error.message,"error");}
 }
 
-async function chooseLocalModel() {
-  setSettingsStatus("Waiting for a GGUF selection…","working");
-  try{state.aiStatus=await api("/api/ai/local/select",{method:"POST",body:"{}"});populateSettings();setSettingsStatus(state.aiStatus.local.model_selected?"Model selected. Run Test & enable.":"No model was selected.");}
+async function refreshLocalModels({quiet=false}={}) {
+  state.localModels={...state.localModels,loading:true};
+  populateSettings();
+  if(!quiet)setSettingsStatus("Checking models already installed in Ollama…","working");
+  try{
+    state.localModels=normalizeLocalModels(await api("/api/ai/local/models"));
+    populateSettings();
+    if(!quiet)setSettingsStatus(state.localModels.available?(state.localModels.models.length?`${state.localModels.models.length} local Ollama model${state.localModels.models.length===1?"":"s"} available.`:"Ollama is running, but it has no eligible local models installed."):"Ollama is not running. Start Ollama, then refresh models.",state.localModels.available?"":"error");
+  }catch(error){state.localModels={available:false,models:[],loading:false};populateSettings();if(!quiet)setSettingsStatus("Ollama could not be reached on this computer.","error");}
+}
+
+async function selectOllamaModel() {
+  const modelId=$("#settings-local-model-select").value;
+  if(!modelId){setSettingsStatus("Choose an installed Ollama model first.","error");return;}
+  setSettingsStatus(`Selecting ${modelId}…`,"working");
+  try{state.aiStatus=await api("/api/ai/local/select",{method:"POST",body:JSON.stringify({model_id:modelId})});populateSettings();refreshAiGate();setSettingsStatus(`${modelId} selected. Run Test & enable.`);}
+  catch(error){setSettingsStatus(error.message,"error");}
+}
+
+async function chooseAdvancedLocalModel() {
+  setSettingsStatus("Waiting for a direct GGUF selection…","working");
+  try{state.aiStatus=await api("/api/ai/local/gguf/select",{method:"POST",body:"{}"});populateSettings();refreshAiGate();setSettingsStatus(state.aiStatus.local.source==="gguf"&&state.aiStatus.local.model_selected?"Direct model selected. Run its Test & enable action.":"No model was selected.");}
   catch(error){setSettingsStatus(error.message,"error");}
 }
 
 async function clearLocalModel() {
+  const source=state.aiStatus?.local?.source||"ollama";
   setSettingsStatus("Clearing selection…","working");
-  try{state.aiStatus=await api("/api/ai/local/clear",{method:"POST",body:"{}"});populateSettings();refreshAiGate();setSettingsStatus("Local model selection cleared. No model file was deleted.");}
+  try{state.aiStatus=await api("/api/ai/local/clear",{method:"POST",body:"{}"});populateSettings();refreshAiGate();setSettingsStatus(source==="ollama"?"Ollama model selection cleared. No installed model was changed or removed.":"Direct model selection cleared. The file was not changed or deleted.");}
   catch(error){setSettingsStatus(error.message,"error");}
 }
 
 async function testAiBackend(backend) {
-  setSettingsStatus(backend==="local"?"Testing the selected model on the local GPU…":"Testing the API backend…","working");
+  const localSource=state.aiStatus?.local?.source||"ollama";
+  setSettingsStatus(backend==="local"?(localSource==="ollama"?"Testing the selected model through local Ollama…":"Testing the direct model on the local GPU…"):"Testing the API backend…","working");
   try{
     state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled:false,backend,provider:"xai",model_id:"grok-4.5"})});
     if(backend==="api"){
@@ -2233,7 +2323,7 @@ async function testAiBackend(backend) {
     }
     state.aiStatus=await api("/api/ai/test",{method:"POST",body:JSON.stringify({backend})});
     await refreshSettingsData();
-    setSettingsStatus(backend==="local"?"Local generation is enabled with the selected GGUF.":"API generation is enabled.");
+    setSettingsStatus(backend==="local"?(localSource==="ollama"?"Local generation is enabled with the selected Ollama model.":"Local generation is enabled with the advanced direct model."):"API generation is enabled.");
   }catch(error){
     try{state.aiStatus=await api("/api/ai/status");populateSettings();refreshAiGate();}catch(refreshError){}
     setSettingsStatus(aiErrorMessage(error),"error");
@@ -2309,9 +2399,14 @@ $("#settings-done").addEventListener("click",()=>saveSettings({exit:true}));
 $("#settings-ai-enabled").addEventListener("change",event=>{if(!event.target.checked)void selectAiBackend(selectedAiBackend());});
 $("#settings-ai-local").addEventListener("change",()=>selectAiBackend("local"));
 $("#settings-ai-api").addEventListener("change",()=>selectAiBackend("api"));
-$("#settings-local-choose").addEventListener("click",chooseLocalModel);
+$("#settings-local-refresh").addEventListener("click",()=>refreshLocalModels());
+$("#settings-local-model-select").addEventListener("change",populateSettings);
+$("#settings-local-select").addEventListener("click",selectOllamaModel);
 $("#settings-local-test").addEventListener("click",()=>testAiBackend("local"));
 $("#settings-local-clear").addEventListener("click",clearLocalModel);
+$("#settings-gguf-choose").addEventListener("click",chooseAdvancedLocalModel);
+$("#settings-gguf-test").addEventListener("click",()=>testAiBackend("local"));
+$("#settings-gguf-clear").addEventListener("click",clearLocalModel);
 $("#settings-api-key").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();saveApiCredential();}});
 $("#settings-api-save-key").addEventListener("click",saveApiCredential);
 $("#settings-api-test").addEventListener("click",()=>testAiBackend("api"));

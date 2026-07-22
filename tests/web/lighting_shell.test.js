@@ -38,21 +38,33 @@ test("disabled first paint exposes no generation control outside Settings", () =
   assert.match(js,/route===ROUTES\.CREATE&&!aiReady\(\)&&!state\.lighting\.activeJob/);
 });
 
-test("Settings makes Local primary and lets the user select any existing GGUF", () => {
+test("Settings makes installed Ollama models primary and keeps GGUF advanced", () => {
   const local=html.indexOf('id="settings-ai-local"');
   const api=html.indexOf('id="settings-ai-api"');
   assert.ok(local>=0&&local<api);
   for(const id of [
     "settings-ai-enabled","settings-ai-local","settings-ai-api","settings-local-state",
-    "settings-local-model","settings-local-choose","settings-local-test","settings-local-clear",
+    "settings-local-model","settings-local-model-select","settings-local-refresh",
+    "settings-local-select","settings-local-test","settings-local-clear",
+    "settings-local-advanced","settings-gguf-state","settings-gguf-model",
+    "settings-gguf-choose","settings-gguf-test","settings-gguf-clear",
     "settings-api-provider","settings-api-model","settings-api-key","settings-api-credential-state",
     "settings-api-disclosure-ack","settings-api-test","settings-api-remove",
   ])assert.match(html,new RegExp(`id="${id}"`));
   assert.match(html,/never downloads model weights/);
+  const localPanel=html.slice(html.indexOf('id="settings-local-panel"'),html.indexOf('id="settings-api-panel"'));
+  const advanced=localPanel.indexOf('id="settings-local-advanced"');
+  assert.ok(advanced>0);
+  assert.match(localPanel.slice(0,advanced),/Ollama/);
+  assert.doesNotMatch(localPanel.slice(0,advanced),/GGUF/);
+  assert.match(localPanel.slice(advanced),/Advanced: direct GGUF/);
+  assert.match(js,/api\("\/api\/ai\/local\/models"/);
   assert.match(js,/api\("\/api\/ai\/local\/select"/);
+  assert.match(js,/JSON\.stringify\(\{model_id/);
+  assert.match(js,/api\("\/api\/ai\/local\/gguf\/select"/);
   assert.match(js,/api\("\/api\/ai\/local\/clear"/);
   assert.match(js,/api\("\/api\/ai\/test"/);
-  assert.match(js,/model_filename/);
+  assert.match(js,/model_id/);
   assert.match(css,/\.check-row\s*>\s*span\s*\{[^}]*display:\s*grid[^}]*gap:/);
   const effect=js.slice(js.indexOf("async function startProceduralGeneration"),js.indexOf("function applyReviewedLighting",js.indexOf("async function startProceduralGeneration")));
   assert.match(effect,/JSON\.stringify\(\{prompt,backend:state\.aiStatus\.backend,loop_mode:state\.animationLoopMode\}\)/);

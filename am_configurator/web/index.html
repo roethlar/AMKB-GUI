@@ -152,18 +152,32 @@
             </header>
             <div class="settings-route-card card">
               <section class="settings-section" aria-labelledby="settings-ai-title">
-                <div class="settings-section-heading"><div><h2 id="settings-ai-title">Optional AI features</h2><p>Off by default. Local generation uses a GGUF file you choose and never downloads model weights.</p></div><span id="settings-ai-state" class="pill muted">Off</span></div>
+                <div class="settings-section-heading"><div><h2 id="settings-ai-title">Optional AI features</h2><p>Off by default. Local generation uses models already installed in Ollama and never downloads model weights.</p></div><span id="settings-ai-state" class="pill muted">Off</span></div>
                 <label class="settings-row" for="settings-ai-enabled"><span><strong>Enable after setup passes</strong><small>Turning this off immediately hides generation without affecting the manual editor or Library.</small></span><input id="settings-ai-enabled" type="checkbox"></label>
                 <fieldset id="settings-ai-panels" class="settings-ai-panels">
                   <legend>Backend</legend>
-                  <label class="check-row"><input id="settings-ai-local" type="radio" name="settings-ai-backend" value="local"><span><strong>Local</strong><small>Primary option. Runs the selected GGUF on a supported GPU.</small></span></label>
+                  <label class="check-row"><input id="settings-ai-local" type="radio" name="settings-ai-backend" value="local"><span><strong>Local</strong><small>Primary option. Uses a model already installed in Ollama on this computer.</small></span></label>
                   <label class="check-row"><input id="settings-ai-api" type="radio" name="settings-ai-backend" value="api"><span><strong>API</strong><small>Secondary option. Sends the prompt and raster dimensions to xAI.</small></span></label>
                 </fieldset>
                 <div id="settings-local-panel" class="settings-backend-panel">
-                  <div class="settings-section-heading"><div><h3>Local model</h3><p id="settings-local-state">Checking local runtime…</p></div><span id="settings-local-runtime" class="pill muted">Checking</span></div>
-                  <p id="settings-local-model" class="settings-key-state">No GGUF selected.</p>
-                  <div class="button-row"><button id="settings-local-choose" type="button" class="button ghost">Choose GGUF…</button><button id="settings-local-test" type="button" class="button primary">Test &amp; enable</button><button id="settings-local-clear" type="button" class="button ghost">Clear selection</button></div>
-                  <p class="control-help">A failed model stays selected so you can inspect the error or immediately choose another. It does not disable local support.</p>
+                  <div class="settings-section-heading"><div><h3>Ollama model</h3><p id="settings-local-state">Checking Ollama…</p></div><span id="settings-local-runtime" class="pill muted">Checking</span></div>
+                  <div class="settings-local-picker">
+                    <label for="settings-local-model-select"><span class="control-label">Installed model</span><select id="settings-local-model-select" class="select-field"><option value="">Checking installed models…</option></select></label>
+                    <button id="settings-local-refresh" type="button" class="button ghost">Refresh models</button>
+                    <button id="settings-local-select" type="button" class="button ghost">Use selected model</button>
+                  </div>
+                  <p id="settings-local-model" class="settings-key-state">No Ollama model selected.</p>
+                  <div class="button-row settings-local-actions"><button id="settings-local-test" type="button" class="button primary">Test &amp; enable</button><button id="settings-local-clear" type="button" class="button ghost">Clear selection</button></div>
+                  <p class="control-help">AM Configurator only lists local models Ollama already has. It never pulls or removes a model.</p>
+                  <details id="settings-local-advanced" class="settings-local-advanced">
+                    <summary>Advanced: direct GGUF</summary>
+                    <div class="settings-local-advanced-content">
+                      <div class="settings-section-heading"><div><h3>Direct model file</h3><p id="settings-gguf-state">Use this only when Ollama is not the right runtime for your setup.</p></div><span id="settings-gguf-runtime" class="pill muted">Checking</span></div>
+                      <p id="settings-gguf-model" class="settings-key-state">No direct GGUF selected.</p>
+                      <div class="button-row settings-gguf-actions"><button id="settings-gguf-choose" type="button" class="button ghost">Choose GGUF…</button><button id="settings-gguf-test" type="button" class="button primary">Test &amp; enable direct model</button><button id="settings-gguf-clear" type="button" class="button ghost">Clear selection</button></div>
+                      <p class="control-help">This fallback runs a raw GGUF file through the bundled llama.cpp runtime on a supported GPU. Choosing a file never copies, changes, or deletes it.</p>
+                    </div>
+                  </details>
                 </div>
                 <div id="settings-api-panel" class="settings-backend-panel" hidden>
                   <div class="settings-rows">

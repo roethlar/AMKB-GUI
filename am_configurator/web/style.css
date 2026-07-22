@@ -302,6 +302,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .settings-cost-details { margin-top: 10px; border-top: 1px solid rgba(255,255,255,.045); padding-top: 10px; color: var(--muted); font-size: 11px; }
 .settings-cost-details summary { width: max-content; color: #d8d8de; cursor: pointer; }
 .settings-cost-details p { margin: 8px 0 0; line-height: 1.55; }
+.settings-local-picker { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 8px; align-items: end; }
+.settings-local-picker label { min-width: 0; }
+.settings-local-picker .control-label { display: block; margin-bottom: 5px; }
+.settings-local-actions { grid-template-columns: minmax(150px, 1fr) minmax(130px, auto); max-width: 420px; }
+.settings-local-advanced { margin-top: 16px; border-top: 1px solid rgba(255,255,255,.06); padding-top: 12px; color: var(--muted); font-size: 11px; }
+.settings-local-advanced summary { width: max-content; max-width: 100%; color: #d8d8de; cursor: pointer; font-weight: 650; }
+.settings-local-advanced-content { margin-top: 12px; padding: 12px; border: 1px solid rgba(255,255,255,.06); border-radius: 10px; background: rgba(255,255,255,.015); }
+.settings-gguf-actions { grid-template-columns: auto minmax(180px, 1fr) auto; }
 .settings-route-status { min-height: 20px; margin: 10px 2px 0; }
 
 .editor-grid { display: grid; grid-template-columns: minmax(620px, 1fr) 300px; gap: 18px; align-items: start; }
@@ -593,6 +601,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .settings-header-actions .button { flex: 1; }
   .settings-section { padding: 16px 14px; }
   .settings-key-row, .settings-library-row, .settings-row { grid-template-columns: 1fr; }
+  .settings-local-picker, .settings-gguf-actions { grid-template-columns: 1fr; }
+  .settings-local-actions { max-width: none; }
   .settings-key-actions { margin-bottom: 0; }
   .settings-row { gap: 8px; padding: 10px 0; }
   .settings-library-row .button { width: 100%; }
