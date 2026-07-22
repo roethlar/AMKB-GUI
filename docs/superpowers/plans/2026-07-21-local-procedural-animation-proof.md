@@ -1,6 +1,6 @@
 # Local Procedural Animation Proof
 
-**Status:** Approved by the owner on 2026-07-21: build only an isolated proof using the already-installed Ollama model, a validated recipe, and a local renderer; do not change the application UI or call xAI.
+**Status:** Implemented in `c6d46cc` and corrected in `2078a0b`. The proof remains isolated from the application UI.
 
 ## Goal
 
@@ -24,3 +24,10 @@ Prove that a local language model can translate a natural-language lighting prom
 2. Run the repository verification entry point from `.agents/repo-guidance.md`.
 3. Run the local proof with `gemma4:12b-mlx` and inspect the emitted artifact metadata and GIF dimensions/frame counts.
 4. Commit the implementation as one isolated proof slice, then record its result in `.agents/state.md`.
+
+## Outcome
+
+- `gemma4:12b-mlx` ignored Ollama's requested JSON schema and did not produce a usable recipe after correction attempts.
+- `ornith:latest` produced a semantically valid recipe after the bounded retry path and is therefore the proof's default model.
+- The saved shooting-stars recipe rendered as an exact 18×7, 200-frame, 6.8-second loop and mapped through the existing Relic 80 frame conversion without a cloud provider call or device write.
+- Visual inspection exposed and then closed an unsafe width interpretation that originally turned the effect into a full-board wash. The guarded rerender is a dark, sparse sequence of bright comet trails with an ordinary final-to-first frame step.

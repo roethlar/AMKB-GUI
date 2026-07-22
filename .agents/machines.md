@@ -4,7 +4,7 @@ Per-machine facts that do not belong in the portable `state.md`.
 
 ## michael-mac (macOS arm64)
 
-_Last verified: 2026-07-20_
+_Last verified: 2026-07-21_
 
 - Repo checkout: `/Users/michael/Dev/am`, shell `zsh`, Darwin 25.5.0
   (macOS 26.5.2).
@@ -12,6 +12,10 @@ _Last verified: 2026-07-20_
   `.venv/bin/python -m unittest` (system `python3` also 3.13).
 - Local macOS arm64 PyInstaller bundle builds here and its frozen
   `--smoke-test` passes.
+- Ollama is installed locally. On 2026-07-21, `ornith:latest` successfully
+  produced the strict procedural-animation recipe after a bounded semantic
+  retry; `gemma4:12b-mlx` ignored the requested JSON schema and failed the same
+  task. The proof therefore defaults to `ornith:latest` on this machine.
 - `/usr/bin/cc` reports Apple clang 21.0.0. The Task 6 helper produced two
   byte-identical FFmpeg 8.1.2 runtimes with SHA-256
   `18664dd97929bd0e155339150cb4491a8032c5585760270dc028e20ee12b8a3a`;

@@ -120,6 +120,18 @@
   32 browser tests. Versioned macOS build `0.1.26` passed frozen media smoke and
   DMG verification and was launched without a document to reproduce the
   owner's Library context. No provider or hardware call was made.
+- The owner rejected the visual usefulness of the xAI video result and approved
+  an isolated local procedural-animation proof, with no application UI work.
+  The approved plan landed in `8d33771`; the strict Ollama recipe client,
+  deterministic periodic renderer, exact GIF/LED artifacts, and offline guards
+  landed in `c6d46cc`, followed by the proven-model default correction in
+  `2078a0b`. `gemma4:12b-mlx` ignored the structured-output contract;
+  `ornith:latest` produced the validated shooting-stars recipe. Visual
+  inspection caught and closed a full-board wash failure: the same recipe now
+  renders sparse bright comet trails on black at exactly 18×7, 200 frames, and
+  34 ms per frame, with an ordinary loop seam. Full verification passed at
+  `2078a0b` with 276 Python tests (one prepared-runtime integration skip) and
+  32 browser tests. No xAI call, UI change, app build, or device write was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -143,12 +155,11 @@
 
 ## Next
 
-- Await the owner's result from macOS build `0.1.26` using the single proof path:
-  Generate, generate one still, click that still, then Generate animation. On
-  failure, inspect that job's banked manifest and assets before changing UI;
-  isolate and fix only the failed provider, download, FFmpeg, mapping, or review
-  boundary. Do not resume Library, editor, or broader UI work until this path is
-  proven. The agent must not initiate a paid xAI call without a separate go.
+- Await the owner's visual ruling on the isolated local shooting-stars proof.
+  Do not integrate it into the application, resume broader UI work, download a
+  Hugging Face model, or initiate another paid xAI call without an approved next
+  slice. If the procedural result is useful, the next plan should define only
+  the smallest app integration needed to test prompt-to-preview locally.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON
