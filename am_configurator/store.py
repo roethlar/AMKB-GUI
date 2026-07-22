@@ -290,17 +290,16 @@ def snapshot(product_id: str, ir: dict) -> Path:
 
 # --- App-level settings -------------------------------------------------------
 #
-# App-scoped configuration in one settings.json under the store root. Keys are
-# stored in plaintext (0600 where the OS supports it), disclosed as such in the
-# UI; an XAI_API_KEY environment override is honoured without ever being written
-# to disk. The v2 write contract is strict and each UI section mutates only its
-# own fields, so a model or library change can never erase a key.
+# App-scoped configuration in one settings.json under the store root. Schema v3
+# never contains credentials. Existing v1/v2 plaintext keys migrate to a
+# verified OS credential store before the old file is atomically replaced.
 
-KEY_MASK = "•" * 8  # UI display mask; never a legal stored key value
-SETTINGS_SCHEMA_VERSION = 2
+KEY_MASK = "•" * 8  # Legacy UI display mask; never a legal credential value
+SETTINGS_SCHEMA_VERSION = 3
 LOOP_MODES = ("smooth", "none", "ping_pong")
 MIN_CANDIDATE_COUNT = 1
 MAX_CANDIDATE_COUNT = 8
+LEGACY_CANDIDATE_COUNT = 4
 _LEGACY_INTERPRETERS = ("grok",)
 _LEGACY_RENDERERS = ("grok",)
 # Kept until the superseded provider-registry generator is removed in Task 16.
@@ -310,15 +309,36 @@ _KNOWN_KEY_PROVIDERS = ("xai",)
 
 
 def _default_settings() -> dict:
-    """A fresh copy of the default app settings (no key configured)."""
+    """A fresh copy of the credential-free schema v3 defaults."""
+    return {
+        "schema_version": SETTINGS_SCHEMA_VERSION,
+        "ai": {
+            "enabled": False,
+            "backend": None,
+            "local": {"setup_fingerprint": None},
+            "api": {
+                "provider": "xai",
+                "model_id": "grok-4.5",
+                "setup_fingerprint": None,
+                "disclosure_version": None,
+                "disclosure_at": None,
+            },
+        },
+        "library": {"current_root": None, "roots": []},
+        "generation": {"loop_mode": "smooth"},
+    }
+
+
+def _default_v2_settings() -> dict:
+    """Legacy shape used only to validate and project an on-disk migration."""
     from . import ai_catalog
 
     return {
-        "schema_version": SETTINGS_SCHEMA_VERSION,
+        "schema_version": 2,
         "llm": {"models": dict(ai_catalog.DEFAULT_MODELS), "keys": {}},
         "library": {"current_root": None, "roots": []},
         "generation": {
-            "candidate_count": 4,
+            "candidate_count": LEGACY_CANDIDATE_COUNT,
             "loop_mode": "smooth",
             "privacy_ack_version": None,
             "privacy_ack_at": None,
@@ -422,7 +442,7 @@ def _validate_legacy_settings(values: object) -> dict:
     if unknown_llm:
         raise ValueError(f"unknown llm settings field(s): {sorted(unknown_llm)}")
 
-    result = _default_settings()
+    result = _default_v2_settings()
     if "interpreter" in llm:
         interpreter = llm["interpreter"]
         if interpreter not in _LEGACY_INTERPRETERS:
@@ -435,7 +455,7 @@ def _validate_legacy_settings(values: object) -> dict:
     return result
 
 
-def _validate_settings(values: object) -> dict:
+def _validate_v2_settings(values: object) -> dict:
     """Strict-validate and normalize a v2 settings object."""
     from . import ai_catalog
 
@@ -446,9 +466,9 @@ def _validate_settings(values: object) -> dict:
         "settings",
     )
     version = settings.get("schema_version")
-    if type(version) is not int or version != SETTINGS_SCHEMA_VERSION:
+    if type(version) is not int or version != 2:
         raise ValueError("unsupported settings schema_version")
-    result = _default_settings()
+    result = _default_v2_settings()
 
     llm = _object(settings.get("llm", {}), "settings 'llm'")
     _reject_unknown(llm, {"models", "keys"}, "llm settings")
@@ -507,15 +527,159 @@ def _validate_settings(values: object) -> dict:
     return result
 
 
-def _decode_settings(values: object) -> tuple[dict, bool]:
-    """Return ``(normalized_v2, migrated_from_v1)``."""
-    if isinstance(values, dict) and values.get("schema_version") == SETTINGS_SCHEMA_VERSION:
-        return _validate_settings(values), False
-    if isinstance(values, dict) and "schema_version" in values:
+def _fingerprint(value: object, label: str) -> str | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{label} must be a lowercase SHA-256 value or null")
+    return value
+
+
+def _optional_text(value: object, label: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or len(value) > 200:
+        raise ValueError(f"{label} must be a non-empty bounded string or null")
+    return value
+
+
+def _validate_library(values: object) -> dict:
+    library = _object(values, "settings 'library'")
+    _reject_unknown(library, {"current_root", "roots"}, "library settings")
+    current_root = _canonical_library_root(library.get("current_root"))
+    roots = library.get("roots", [])
+    if not isinstance(roots, list):
+        raise ValueError("settings 'library.roots' must be a JSON array")
+    normalized_roots: list[str] = []
+    for root in roots:
+        canonical = _canonical_library_root(root)
+        if canonical is None:
+            raise ValueError("settings 'library.roots' entries must be absolute paths")
+        if canonical not in normalized_roots:
+            normalized_roots.append(canonical)
+    return {"current_root": current_root, "roots": normalized_roots}
+
+
+def _validate_settings(values: object) -> dict:
+    """Strict-validate and normalize the credential-free v3 settings shape."""
+
+    settings = _object(values, "settings")
+    _reject_unknown(
+        settings,
+        {"schema_version", "ai", "library", "generation"},
+        "settings",
+    )
+    if settings.get("schema_version") != SETTINGS_SCHEMA_VERSION:
+        raise ValueError("unsupported settings schema_version")
+    result = _default_settings()
+
+    ai = _object(settings.get("ai", {}), "settings 'ai'")
+    _reject_unknown(ai, {"enabled", "backend", "local", "api"}, "ai settings")
+    enabled = ai.get("enabled", False)
+    backend = ai.get("backend")
+    if type(enabled) is not bool:
+        raise ValueError("ai enabled must be true or false")
+    if backend not in {None, "local", "api"}:
+        raise ValueError("ai backend must be local, api, or null")
+    if enabled and backend is None:
+        raise ValueError("enabled AI requires a selected backend")
+
+    local = _object(ai.get("local", {}), "settings 'ai.local'")
+    _reject_unknown(local, {"setup_fingerprint"}, "local AI settings")
+    local_fingerprint = _fingerprint(
+        local.get("setup_fingerprint"), "local setup_fingerprint"
+    )
+
+    api = _object(ai.get("api", {}), "settings 'ai.api'")
+    _reject_unknown(
+        api,
+        {
+            "provider",
+            "model_id",
+            "setup_fingerprint",
+            "disclosure_version",
+            "disclosure_at",
+        },
+        "API AI settings",
+    )
+    if api.get("provider", "xai") != "xai":
+        raise ValueError("API AI provider is unsupported")
+    if api.get("model_id", "grok-4.5") != "grok-4.5":
+        raise ValueError("API AI model is unsupported")
+    api_fingerprint = _fingerprint(
+        api.get("setup_fingerprint"), "API setup_fingerprint"
+    )
+    disclosure_version = _optional_text(
+        api.get("disclosure_version"), "API disclosure_version"
+    )
+    disclosure_at = _optional_text(api.get("disclosure_at"), "API disclosure_at")
+    if (disclosure_version is None) != (disclosure_at is None):
+        raise ValueError("API disclosure version and timestamp must be set together")
+
+    result["ai"] = {
+        "enabled": enabled,
+        "backend": backend,
+        "local": {"setup_fingerprint": local_fingerprint},
+        "api": {
+            "provider": "xai",
+            "model_id": "grok-4.5",
+            "setup_fingerprint": api_fingerprint,
+            "disclosure_version": disclosure_version,
+            "disclosure_at": disclosure_at,
+        },
+    }
+    result["library"] = _validate_library(settings.get("library", {}))
+    generation = _object(settings.get("generation", {}), "settings 'generation'")
+    _reject_unknown(generation, {"loop_mode"}, "generation settings")
+    loop_mode = generation.get("loop_mode", "smooth")
+    if loop_mode not in LOOP_MODES:
+        raise ValueError("loop_mode must be smooth, none, or ping_pong")
+    result["generation"] = {"loop_mode": loop_mode}
+    return result
+
+
+def _project_v2_settings(settings: dict) -> dict:
+    result = _default_settings()
+    result["library"] = {
+        "current_root": settings["library"]["current_root"],
+        "roots": list(settings["library"]["roots"]),
+    }
+    result["generation"]["loop_mode"] = settings["generation"]["loop_mode"]
+    result["ai"]["api"]["disclosure_version"] = settings["generation"][
+        "privacy_ack_version"
+    ]
+    result["ai"]["api"]["disclosure_at"] = settings["generation"][
+        "privacy_ack_at"
+    ]
+    return result
+
+
+def _decode_settings(values: object) -> tuple[dict, str | None, bool]:
+    """Return ``(normalized_v3, legacy_xai_key, migration_required)``."""
+
+    if isinstance(values, dict):
         version = values.get("schema_version")
-        if type(version) is not int or version != 1:
+        if version == SETTINGS_SCHEMA_VERSION:
+            return _validate_settings(values), None, False
+        if version == 2:
+            legacy = _validate_v2_settings(values)
+            return (
+                _project_v2_settings(legacy),
+                legacy["llm"]["keys"].get("xai"),
+                True,
+            )
+        if "schema_version" in values and version != 1:
             raise ValueError("unsupported settings schema_version")
-    return _validate_legacy_settings(values), True
+    legacy = _validate_legacy_settings(values)
+    return (
+        _project_v2_settings(legacy),
+        legacy["llm"]["keys"].get("xai"),
+        True,
+    )
 
 
 def _quarantine_settings(path: Path) -> None:
@@ -524,7 +688,7 @@ def _quarantine_settings(path: Path) -> None:
         os.replace(path, path.with_name(path.name + ".bad"))
 
 
-def _read_settings_file(path: Path) -> tuple[dict, bool] | None:
+def _read_settings_file(path: Path) -> tuple[dict, str | None, bool] | None:
     raw = _read_json(path)
     if raw is None:
         return None
@@ -538,88 +702,171 @@ def _write_settings_file(path: Path, settings: dict) -> None:
             os.chmod(path, 0o600)
 
 
-def load_settings() -> dict:
-    """App settings, recovering to defaults on a missing/corrupt/invalid file.
+def _resolved_credential_store(credential_store=None):
+    if credential_store is not None:
+        return credential_store
+    from .credentials import default_credential_store
 
-    A missing file yields the defaults without writing anything. A file that is
-    invalid JSON or structurally invalid is quarantined to ``settings.json.bad``
-    and the defaults are returned — a bad settings file is never a hard error.
-    """
+    return default_credential_store()
+
+
+def _restore_credential(vault, previous: str | None) -> None:
+    with contextlib.suppress(Exception):
+        if previous is None:
+            vault.delete("xai")
+        else:
+            vault.set("xai", previous)
+
+
+def _migrate_legacy_settings(
+    path: Path,
+    settings: dict,
+    legacy_key: str | None,
+    *,
+    credential_store=None,
+) -> tuple[dict, str | None]:
+    """Migrate under the settings lock without risking the only key copy."""
+
+    if legacy_key is None:
+        try:
+            _write_settings_file(path, settings)
+        except OSError:
+            return settings, "settings_unavailable"
+        return settings, None
+
+    vault = _resolved_credential_store(credential_store)
+    previous: str | None = None
+    previous_known = False
+    changed = False
+    try:
+        if not vault.available():
+            return settings, "credential_store_unavailable"
+        previous = vault.get("xai")
+        previous_known = True
+        changed = previous != legacy_key
+        if changed:
+            vault.set("xai", legacy_key)
+        if vault.get("xai") != legacy_key:
+            if changed:
+                _restore_credential(vault, previous)
+            return settings, "credential_store_unavailable"
+        try:
+            _write_settings_file(path, settings)
+        except OSError:
+            if changed:
+                _restore_credential(vault, previous)
+            return settings, "credential_store_unavailable"
+    except Exception:
+        if previous_known and changed:
+            _restore_credential(vault, previous)
+        return settings, "credential_store_unavailable"
+    return settings, None
+
+
+def load_settings_with_status(*, credential_store=None) -> tuple[dict, str | None]:
+    """Return schema v3 settings and a pathless migration-retry reason."""
+
     path = settings_path()
     try:
         loaded = _read_settings_file(path)
-    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError):
         _quarantine_settings(path)
-        return _default_settings()
-    except ValueError:
-        _quarantine_settings(path)
-        return _default_settings()
+        return _default_settings(), None
     if loaded is None:
-        return _default_settings()
-    normalized, migrated = loaded
-    if not migrated:
-        return normalized
+        return _default_settings(), None
+    normalized, _legacy_key, migration_required = loaded
+    if not migration_required:
+        return normalized, None
 
-    # Re-read under the lock before migrating so a concurrent valid write is
-    # never overwritten by a stale v1 snapshot.
+    # Re-read under the lock so a concurrent migration or v3 update wins.
     with _settings_lock():
         try:
             current = _read_settings_file(path)
         except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError):
             _quarantine_settings(path)
-            return _default_settings()
+            return _default_settings(), None
         if current is None:
-            return _default_settings()
-        normalized, migrated = current
-        if migrated:
-            _write_settings_file(path, normalized)
-        return normalized
+            return _default_settings(), None
+        normalized, legacy_key, migration_required = current
+        if not migration_required:
+            return normalized, None
+        return _migrate_legacy_settings(
+            path,
+            normalized,
+            legacy_key,
+            credential_store=credential_store,
+        )
 
 
-def _settings_for_update(path: Path) -> dict:
+def load_settings(*, credential_store=None) -> dict:
+    """Load credential-free schema v3 settings, retrying safe migrations."""
+
+    return load_settings_with_status(credential_store=credential_store)[0]
+
+
+def _settings_for_update(path: Path, *, credential_store=None) -> dict:
     try:
         loaded = _read_settings_file(path)
     except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError):
         _quarantine_settings(path)
         return _default_settings()
-    return _default_settings() if loaded is None else loaded[0]
+    if loaded is None:
+        return _default_settings()
+    normalized, legacy_key, migration_required = loaded
+    if migration_required:
+        normalized, reason = _migrate_legacy_settings(
+            path,
+            normalized,
+            legacy_key,
+            credential_store=credential_store,
+        )
+        if reason is not None:
+            raise ValueError(
+                "Settings migration requires secure credential storage."
+            )
+    return normalized
 
 
-def _mutate_settings(mutator) -> dict:
+def _mutate_settings(mutator, *, credential_store=None) -> dict:
     path = settings_path()
     with _settings_lock():
-        settings = _settings_for_update(path)
+        settings = _settings_for_update(
+            path, credential_store=credential_store
+        )
         mutator(settings)
         normalized = _validate_settings(settings)
         _write_settings_file(path, normalized)
     return normalized
 
 
-def save_settings(values: dict) -> dict:
-    """Persist v2 settings, or merge the legacy UI's v1 key-only payload.
+def save_settings(
+    values: dict,
+    *,
+    credential_store=None,
+    ready: bool = False,
+) -> dict:
+    """Persist strict v3 settings or accept the temporary legacy key form."""
 
-    The temporary v1 compatibility form validates ``grok`` provider aliases and
-    updates only stored keys, preserving all v2 preferences. Task 11 removes
-    the unchanged UI's reliance on this form.
-    """
-    path = settings_path()
-    if isinstance(values, dict) and values.get("schema_version") == SETTINGS_SCHEMA_VERSION:
+    if isinstance(values, dict) and values.get("schema_version") == 3:
         normalized = _validate_settings(values)
+        if normalized["ai"]["enabled"] and not ready:
+            raise ValueError("AI cannot be enabled until setup is ready.")
+        path = settings_path()
         with _settings_lock():
+            _settings_for_update(path, credential_store=credential_store)
             _write_settings_file(path, normalized)
         return normalized
 
     legacy = _validate_legacy_settings(values)
-    with _settings_lock():
-        normalized = _settings_for_update(path)
-        normalized["llm"]["keys"] = legacy["llm"]["keys"]
-        normalized = _validate_settings(normalized)
-        _write_settings_file(path, normalized)
-    return normalized
+    return update_api_key(
+        {"provider": "xai", "key": legacy["llm"]["keys"].get("xai", "")},
+        credential_store=credential_store,
+    )
 
 
-def update_api_key(values: object) -> dict:
-    """Set or clear one provider key without changing any preferences."""
+def update_api_key(values: object, *, credential_store=None) -> dict:
+    """Set or clear one OS credential and invalidate API setup atomically."""
+
     body = _object(values, "API key settings")
     _reject_unknown(body, {"provider", "key"}, "API key settings")
     if set(body) != {"provider", "key"}:
@@ -628,56 +875,135 @@ def update_api_key(values: object) -> dict:
     if provider not in _KNOWN_KEY_PROVIDERS:
         raise ValueError("unknown API key provider")
     normalized = _validate_keys({provider: body["key"]})
+    desired = normalized.get(provider)
+    vault = _resolved_credential_store(credential_store)
+    path = settings_path()
+    with _settings_lock():
+        settings = _settings_for_update(path, credential_store=vault)
+        previous: str | None = None
+        previous_known = False
+        changed = False
+        try:
+            if not vault.available():
+                raise ValueError("Secure credential storage is unavailable.")
+            previous = vault.get(provider)
+            previous_known = True
+            changed = previous != desired
+            if changed:
+                if desired is None:
+                    vault.delete(provider)
+                else:
+                    vault.set(provider, desired)
+            if vault.get(provider) != desired:
+                raise ValueError("Secure credential verification failed.")
+            settings["ai"]["api"]["setup_fingerprint"] = None
+            normalized_settings = _validate_settings(settings)
+            _write_settings_file(path, normalized_settings)
+        except Exception:
+            if previous_known and changed:
+                _restore_credential(vault, previous)
+            raise ValueError("Secure credential storage is unavailable.") from None
+    return normalized_settings
+
+
+def update_ai_settings(
+    values: object,
+    *,
+    ready: bool = False,
+    credential_store=None,
+) -> dict:
+    """Update explicit AI intent/backend without allowing readiness forgery."""
+
+    body = _object(values, "AI settings")
+    _reject_unknown(body, {"enabled", "backend", "provider", "model_id"}, "AI settings")
+    if not body:
+        raise ValueError("AI settings must include a value")
+    if "enabled" in body and type(body["enabled"]) is not bool:
+        raise ValueError("AI enabled must be true or false")
+    if "backend" in body and body["backend"] not in {None, "local", "api"}:
+        raise ValueError("AI backend must be local, api, or null")
+    if "provider" in body and body["provider"] != "xai":
+        raise ValueError("API AI provider is unsupported")
+    if "model_id" in body and body["model_id"] != "grok-4.5":
+        raise ValueError("API AI model is unsupported")
 
     def mutate(settings: dict) -> None:
-        if provider in normalized:
-            settings["llm"]["keys"][provider] = normalized[provider]
-        else:
-            settings["llm"]["keys"].pop(provider, None)
+        if "backend" in body:
+            settings["ai"]["backend"] = body["backend"]
+        if "enabled" in body:
+            settings["ai"]["enabled"] = body["enabled"]
+        if settings["ai"]["enabled"] and not ready:
+            raise ValueError("AI cannot be enabled until setup is ready.")
 
-    return _mutate_settings(mutate)
+    return _mutate_settings(mutate, credential_store=credential_store)
 
 
-def update_preferences(values: object) -> dict:
-    """Update curated models and generation defaults without touching keys."""
+def set_ai_setup_fingerprint(
+    backend: str,
+    fingerprint: str | None,
+    *,
+    credential_store=None,
+) -> dict:
+    if backend not in {"local", "api"}:
+        raise ValueError("AI backend must be local or api")
+    normalized = _fingerprint(fingerprint, "setup fingerprint")
+
+    def mutate(settings: dict) -> None:
+        settings["ai"][backend]["setup_fingerprint"] = normalized
+
+    return _mutate_settings(mutate, credential_store=credential_store)
+
+
+def update_generation_settings(values: object, *, credential_store=None) -> dict:
+    body = _object(values, "generation settings")
+    _reject_unknown(body, {"loop_mode"}, "generation settings")
+    if set(body) != {"loop_mode"} or body["loop_mode"] not in LOOP_MODES:
+        raise ValueError("loop_mode must be smooth, none, or ping_pong")
+
+    def mutate(settings: dict) -> None:
+        settings["generation"]["loop_mode"] = body["loop_mode"]
+
+    return _mutate_settings(mutate, credential_store=credential_store)
+
+
+def update_preferences(values: object, *, credential_store=None) -> dict:
+    """Temporary validation bridge for the legacy Settings route.
+
+    Obsolete model and still-count preferences are accepted only so the current
+    UI remains operable during migration; schema v3 deliberately does not
+    persist them. Loop mode remains active and durable.
+    """
+
     from . import ai_catalog
 
     body = _object(values, "preference settings")
     _reject_unknown(body, {"models", "candidate_count", "loop_mode"}, "preference settings")
     if not body:
         raise ValueError("preference settings must include a value")
-    updates: dict[str, object] = {}
     if "models" in body:
         models = _object(body["models"], "preference models")
         _reject_unknown(models, set(ai_catalog.MODEL_IDS), "model preference")
         if not models:
             raise ValueError("preference models must include a model")
-        updates["models"] = {
-            role: ai_catalog.validate_model(role, model_id)
-            for role, model_id in models.items()
-        }
+        for role, model_id in models.items():
+            ai_catalog.validate_model(role, model_id)
     if "candidate_count" in body:
         count = body["candidate_count"]
         if type(count) is not int or not MIN_CANDIDATE_COUNT <= count <= MAX_CANDIDATE_COUNT:
             raise ValueError("candidate_count must be an integer from 1 through 8")
-        updates["candidate_count"] = count
     if "loop_mode" in body:
         loop_mode = body["loop_mode"]
         if loop_mode not in LOOP_MODES:
             raise ValueError("loop_mode must be smooth, none, or ping_pong")
-        updates["loop_mode"] = loop_mode
 
     def mutate(settings: dict) -> None:
-        settings["llm"]["models"].update(updates.get("models", {}))
-        if "candidate_count" in updates:
-            settings["generation"]["candidate_count"] = updates["candidate_count"]
-        if "loop_mode" in updates:
-            settings["generation"]["loop_mode"] = updates["loop_mode"]
+        if "loop_mode" in body:
+            settings["generation"]["loop_mode"] = body["loop_mode"]
 
-    return _mutate_settings(mutate)
+    return _mutate_settings(mutate, credential_store=credential_store)
 
 
-def update_library_root(values: object) -> dict:
+def update_library_root(values: object, *, credential_store=None) -> dict:
     """Change the root for future jobs while retaining canonical old roots."""
     body = _object(values, "library settings")
     _reject_unknown(body, {"current_root"}, "library settings")
@@ -694,10 +1020,10 @@ def update_library_root(values: object) -> dict:
             library["roots"].append(previous)
         library["current_root"] = new_root
 
-    return _mutate_settings(mutate)
+    return _mutate_settings(mutate, credential_store=credential_store)
 
 
-def acknowledge_privacy(values: object) -> dict:
+def acknowledge_privacy(values: object, *, credential_store=None) -> dict:
     """Record explicit acknowledgment of only the current data-flow disclosure."""
     from . import ai_catalog
 
@@ -709,22 +1035,47 @@ def acknowledge_privacy(values: object) -> dict:
         raise ValueError("only the current privacy disclosure can be acknowledged")
 
     def mutate(settings: dict) -> None:
-        settings["generation"]["privacy_ack_version"] = ai_catalog.PRIVACY_DISCLOSURE_VERSION
-        settings["generation"]["privacy_ack_at"] = _now_iso()
+        settings["ai"]["api"][
+            "disclosure_version"
+        ] = ai_catalog.PRIVACY_DISCLOSURE_VERSION
+        settings["ai"]["api"]["disclosure_at"] = _now_iso()
+        settings["ai"]["api"]["setup_fingerprint"] = None
 
-    return _mutate_settings(mutate)
+    return _mutate_settings(mutate, credential_store=credential_store)
 
 
-def resolve_xai_key() -> str | None:
-    """The xAI API key: the ``XAI_API_KEY`` env override wins, else the stored key.
+def credential_status(*, credential_store=None) -> dict[str, bool]:
+    env = os.environ.get("XAI_API_KEY")
+    vault = _resolved_credential_store(credential_store)
+    try:
+        available = bool(vault.available())
+        stored = vault.get("xai") if available and not env else None
+    except Exception:
+        available = False
+        stored = None
+    return {
+        "available": available,
+        "configured": bool(env or stored),
+        "external": bool(env),
+    }
 
-    The environment override is never written to disk.
-    """
+
+def resolve_xai_key(*, credential_store=None) -> str | None:
+    """Resolve the explicit environment override, then the secure OS vault."""
+
     env = os.environ.get("XAI_API_KEY")
     if env:
         return env
-    key = load_settings()["llm"]["keys"].get("xai")
-    return key or None
+    _settings, reason = load_settings_with_status(
+        credential_store=credential_store
+    )
+    if reason is not None:
+        return None
+    vault = _resolved_credential_store(credential_store)
+    try:
+        return vault.get("xai") if vault.available() else None
+    except Exception:
+        return None
 
 
 def _check(cond: bool, msg: str) -> None:

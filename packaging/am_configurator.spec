@@ -12,6 +12,7 @@ app_version = project_version(project)
 ffmpeg_binary = get_ffmpeg_runtime()
 ffmpeg_metadata = project / "packaging" / "ffmpeg"
 hidden_imports = [
+    "am_configurator.credentials",
     "am_configurator.device",
     "am_configurator.llm",
     "am_configurator.macros",
@@ -22,11 +23,17 @@ hidden_imports = [
     "am_configurator.writer",
 ]
 if sys.platform == "darwin":
-    hidden_imports.append("webview.platforms.cocoa")
+    hidden_imports.extend(("webview.platforms.cocoa", "keyring.backends.macOS"))
 elif sys.platform == "win32":
-    hidden_imports.extend(("webview.platforms.winforms", "webview.platforms.edgechromium"))
+    hidden_imports.extend(
+        (
+            "webview.platforms.winforms",
+            "webview.platforms.edgechromium",
+            "keyring.backends.Windows",
+        )
+    )
 else:
-    hidden_imports.append("webview.platforms.qt")
+    hidden_imports.extend(("webview.platforms.qt", "keyring.backends.SecretService"))
 executable_icon = (
     str(project / "assets" / "am-configurator.ico")
     if sys.platform == "win32"

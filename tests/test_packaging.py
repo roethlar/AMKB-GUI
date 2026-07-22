@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tomllib
 import unittest
 from pathlib import Path
 from subprocess import CalledProcessError
@@ -215,6 +216,15 @@ class ReleaseInfoTests(unittest.TestCase):
         # the frozen app cannot generate effects.
         self.assertIn("hidden_imports", spec)
         self.assertIn('"am_configurator.llm"', spec)
+
+    def test_secure_credential_dependency_and_os_backends_are_frozen(self) -> None:
+        metadata = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text("utf-8")
+
+        self.assertIn("keyring==25.7.0", metadata["project"]["dependencies"])
+        self.assertIn('"am_configurator.credentials"', spec)
+        for backend in ("macOS", "SecretService", "Windows"):
+            self.assertIn(f'"keyring.backends.{backend}"', spec)
 
     def test_native_bundle_contains_verified_ffmpeg_and_real_media_smoke(self) -> None:
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")

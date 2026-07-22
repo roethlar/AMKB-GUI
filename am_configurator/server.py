@@ -1147,36 +1147,27 @@ def _xai_get(url: str, payload: Any, api_key: str, deadline: float) -> dict[str,
 
 
 def _settings_view() -> dict[str, Any]:
-    """Load app settings for the browser with every API key masked.
-
-    The raw key never leaves the server: each known key provider reports only
-    ``{"set": bool, "last4": str}``, derived from the effective key (the
-    ``XAI_API_KEY`` env override or the stored value) so the UI can show whether
-    a usable key is present without ever receiving it.
-    """
-    from . import llm, store
+    """Temporary legacy UI projection over credential-free schema v3."""
+    from . import ai_catalog, llm, store
 
     settings = store.load_settings()
+    credential = store.credential_status()
     keys: dict[str, Any] = {}
     for provider in llm.KEY_PROVIDERS:
-        if provider == "xai":
-            effective = store.resolve_xai_key()
-        else:  # pragma: no cover - single provider today; kept general for follow-ups
-            effective = settings["llm"]["keys"].get(provider) or None
         keys[provider] = {
-            "set": bool(effective),
-            # Never let a short malformed/test key escape in full merely
-            # because its entire value fits inside the last-four display.
-            "last4": effective[-4:] if effective and len(effective) > 4 else "",
+            "set": credential["configured"] if provider == "xai" else False,
+            # Schema v3 reports presence only; no credential-derived substring
+            # crosses the loopback boundary.
+            "last4": "",
         }
     return {
         "schema_version": settings["schema_version"],
         "llm": {
-            "models": dict(settings["llm"]["models"]),
+            "models": dict(ai_catalog.DEFAULT_MODELS),
             "keys": keys,
-            # Temporary aliases for the unchanged settings dialog. Model IDs
-            # are separate v2 preferences; the legacy provider registries still
-            # contain only the xAI-backed ``grok`` implementation.
+            # Temporary aliases for the unchanged settings dialog. Schema v3
+            # intentionally dropped the legacy still/video model preferences;
+            # the old provider registries still expose only ``grok``.
             "interpreter": "grok",
             "renderer": "grok",
         },
@@ -1184,7 +1175,12 @@ def _settings_view() -> dict[str, Any]:
             "current_root": settings["library"]["current_root"],
             "roots": list(settings["library"]["roots"]),
         },
-        "generation": dict(settings["generation"]),
+        "generation": {
+            "candidate_count": store.LEGACY_CANDIDATE_COUNT,
+            "loop_mode": settings["generation"]["loop_mode"],
+            "privacy_ack_version": settings["ai"]["api"]["disclosure_version"],
+            "privacy_ack_at": settings["ai"]["api"]["disclosure_at"],
+        },
     }
 
 
@@ -1835,9 +1831,9 @@ class _Handler(BaseHTTPRequestHandler):
         settings = store.load_settings()
         key = store.resolve_xai_key() or ""
         acknowledged = (
-            settings["generation"]["privacy_ack_version"]
+            settings["ai"]["api"]["disclosure_version"]
             == ai_catalog.PRIVACY_DISCLOSURE_VERSION
-            and isinstance(settings["generation"]["privacy_ack_at"], str)
+            and isinstance(settings["ai"]["api"]["disclosure_at"], str)
         )
         if require_key and not key:
             raise ValueError("Add an xAI API key in Settings before generation.")
@@ -1867,6 +1863,8 @@ class _Handler(BaseHTTPRequestHandler):
         }
 
     def _lighting_post(self, path: str, body: dict[str, Any]) -> None:
+        from . import ai_catalog, store
+
         library, coordinator = self.state.lighting_services()
         if path == "/api/lighting/concepts":
             self._strict_body(
@@ -1882,14 +1880,14 @@ class _Handler(BaseHTTPRequestHandler):
             )
             settings, key, acknowledged = self._lighting_settings(require_key=True)
             candidate_count = body.get(
-                "candidate_count", settings["generation"]["candidate_count"]
+                "candidate_count", store.LEGACY_CANDIDATE_COUNT
             )
             loop_mode = body.get("loop_mode", settings["generation"]["loop_mode"])
             manifest = coordinator.start_concepts(
                 prompt=body["prompt"],
                 candidate_count=candidate_count,
                 target=self._lighting_target(body["product_id"], body["targets"]),
-                models=settings["llm"]["models"],
+                models=ai_catalog.DEFAULT_MODELS,
                 loop_mode=loop_mode,
                 api_key=key,
                 privacy_acknowledged=acknowledged,
@@ -1911,7 +1909,7 @@ class _Handler(BaseHTTPRequestHandler):
             manifest = coordinator.more_like_this(
                 job_id,
                 candidate_count=body.get(
-                    "candidate_count", settings["generation"]["candidate_count"]
+                    "candidate_count", store.LEGACY_CANDIDATE_COUNT
                 ),
                 api_key=key,
                 privacy_acknowledged=acknowledged,

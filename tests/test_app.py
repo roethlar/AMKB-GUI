@@ -56,7 +56,7 @@ from am_configurator.device import candidate_ports
 from am_configurator.protocol import exclusive_serial_kwargs
 from am_configurator.macros import macro_frames, parse_macro_frames
 from am_configurator.writer import car_light_data_frames, car_light_info_frames
-from am_configurator import llm, server, store
+from am_configurator import credentials, llm, server, store
 from am_configurator import generation
 from am_configurator.library import (
     GeneratedAssetLibrary,
@@ -65,27 +65,73 @@ from am_configurator.library import (
 
 
 _DEFAULT_SETTINGS = {
-    "schema_version": 2,
-    "llm": {
-        "models": {
-            "interpreter": "grok-4.5",
-            "concept": "grok-imagine-image",
-            "video": "grok-imagine-video-1.5",
+    "schema_version": 3,
+    "ai": {
+        "enabled": False,
+        "backend": None,
+        "local": {"setup_fingerprint": None},
+        "api": {
+            "provider": "xai",
+            "model_id": "grok-4.5",
+            "setup_fingerprint": None,
+            "disclosure_version": None,
+            "disclosure_at": None,
         },
-        "keys": {},
     },
     "library": {"current_root": None, "roots": []},
-    "generation": {
-        "candidate_count": 4,
-        "loop_mode": "smooth",
-        "privacy_ack_version": None,
-        "privacy_ack_at": None,
-    },
+    "generation": {"loop_mode": "smooth"},
+}
+_LEGACY_MODELS = {
+    "interpreter": "grok-4.5",
+    "concept": "grok-imagine-image",
+    "video": "grok-imagine-video-1.5",
 }
 
 
+class _ScopedTestCredentialStore:
+    """Keep test credentials isolated by each test's temporary data root."""
+
+    def __init__(self) -> None:
+        self.values: dict[tuple[str, str], str] = {}
+
+    @staticmethod
+    def _key(provider: str) -> tuple[str, str]:
+        return (str(store.store_root()), provider)
+
+    def available(self) -> bool:
+        return True
+
+    def get(self, provider: str) -> str | None:
+        return self.values.get(self._key(provider))
+
+    def set(self, provider: str, value: str) -> None:
+        self.values[self._key(provider)] = value
+
+    def delete(self, provider: str) -> None:
+        self.values.pop(self._key(provider), None)
+
+
+_TEST_CREDENTIALS = _ScopedTestCredentialStore()
+_CREDENTIAL_PATCHER = None
+
+
+def setUpModule() -> None:
+    global _CREDENTIAL_PATCHER
+    _CREDENTIAL_PATCHER = patch.object(
+        credentials,
+        "default_credential_store",
+        return_value=_TEST_CREDENTIALS,
+    )
+    _CREDENTIAL_PATCHER.start()
+
+
+def tearDownModule() -> None:
+    if _CREDENTIAL_PATCHER is not None:
+        _CREDENTIAL_PATCHER.stop()
+
+
 class SettingsStoreTests(unittest.TestCase):
-    """Strict v2 settings, lossless v1 migration, and curated AI catalog."""
+    """Strict v3 settings, safe legacy migration, and curated AI catalog."""
 
     def setUp(self) -> None:
         self._tmp = tempfile.mkdtemp(prefix="am_settings_test_")
@@ -187,23 +233,18 @@ class SettingsStoreTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(legacy), encoding="utf-8")
 
-        self.assertEqual(store.load_settings(), {
-            **_DEFAULT_SETTINGS,
-            "llm": {**_DEFAULT_SETTINGS["llm"], "keys": {"xai": "sk-existing"}},
-        })
+        self.assertEqual(store.load_settings(), _DEFAULT_SETTINGS)
+        self.assertEqual("sk-existing", store.resolve_xai_key())
         self.assertFalse(path.with_name(path.name + ".bad").exists())
-        self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["schema_version"], 2)
-        self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["llm"]["keys"]["xai"], "sk-existing")
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(saved["schema_version"], 3)
+        self.assertNotIn("llm", saved)
+        self.assertNotIn("sk-existing", path.read_text(encoding="utf-8"))
 
-    def test_v2_round_trip(self) -> None:
+    def test_v3_round_trip(self) -> None:
         payload = copy.deepcopy(_DEFAULT_SETTINGS)
-        payload["llm"]["models"] = {
-            "interpreter": "grok-4.3",
-            "concept": "grok-imagine-image-quality",
-            "video": "grok-imagine-video",
-        }
-        payload["llm"]["keys"] = {"xai": "sk-test"}
-        payload["generation"]["candidate_count"] = 8
+        payload["ai"]["backend"] = "local"
+        payload["ai"]["local"]["setup_fingerprint"] = "a" * 64
         payload["generation"]["loop_mode"] = "ping_pong"
         store.save_settings(payload)
         self.assertEqual(store.load_settings(), payload)
@@ -245,10 +286,10 @@ class SettingsStoreTests(unittest.TestCase):
     def test_empty_key_clears(self) -> None:
         store.update_api_key({"provider": "xai", "key": "sk-test"})
         store.update_api_key({"provider": "xai", "key": ""})
-        self.assertEqual(store.load_settings()["llm"]["keys"], {})
+        self.assertNotIn("sk-test", store.settings_path().read_text("utf-8"))
         self.assertIsNone(store.resolve_xai_key())
 
-    def test_independent_updates_preserve_keys_models_and_library(self) -> None:
+    def test_independent_updates_preserve_key_loop_mode_and_library(self) -> None:
         root = Path(self._tmp) / "library"
         store.update_api_key({"provider": "xai", "key": "sk-stays-put"})
         store.update_preferences({
@@ -258,9 +299,9 @@ class SettingsStoreTests(unittest.TestCase):
         })
         store.update_library_root({"current_root": str(root)})
         settings = store.load_settings()
-        self.assertEqual(settings["llm"]["keys"]["xai"], "sk-stays-put")
-        self.assertEqual(settings["llm"]["models"]["interpreter"], "grok-4.3")
-        self.assertEqual(settings["generation"]["candidate_count"], 7)
+        self.assertEqual(store.resolve_xai_key(), "sk-stays-put")
+        self.assertNotIn("llm", settings)
+        self.assertNotIn("candidate_count", settings["generation"])
         self.assertEqual(settings["generation"]["loop_mode"], "none")
         self.assertEqual(settings["library"]["current_root"], str(root.resolve()))
 
@@ -270,18 +311,31 @@ class SettingsStoreTests(unittest.TestCase):
             "llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": ""}}
         })
         settings = store.load_settings()
-        self.assertEqual(settings["llm"]["keys"], {})
-        self.assertEqual(settings["llm"]["models"]["interpreter"], "grok-4.3")
+        self.assertIsNone(store.resolve_xai_key())
         self.assertEqual(settings["library"]["current_root"], str(root.resolve()))
 
-    def test_v2_model_preferences_do_not_break_legacy_generation_factories(self) -> None:
-        store.update_preferences({
-            "models": {
-                "interpreter": "grok-4.3",
-                "concept": "grok-imagine-image-quality",
-                "video": "grok-imagine-video",
-            }
-        })
+    def test_v2_model_preferences_are_discarded_without_breaking_legacy_factories(self) -> None:
+        path = store.settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "schema_version": 2,
+            "llm": {
+                "models": {
+                    "interpreter": "grok-4.3",
+                    "concept": "grok-imagine-image-quality",
+                    "video": "grok-imagine-video",
+                },
+                "keys": {},
+            },
+            "library": {"current_root": None, "roots": []},
+            "generation": {
+                "candidate_count": 8,
+                "loop_mode": "smooth",
+                "privacy_ack_version": None,
+                "privacy_ack_at": None,
+            },
+        }), encoding="utf-8")
+        self.assertNotIn("llm", store.load_settings())
         factories = server._default_llm_factories()
         self.assertIsInstance(factories["interpreter"]("sk-test"), llm.GrokInterpreter)
         self.assertIsInstance(factories["renderer"]("sk-test"), llm.GrokImagineRenderer)
@@ -319,14 +373,14 @@ class SettingsStoreTests(unittest.TestCase):
             "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
         })
         self.assertEqual(
-            saved["generation"]["privacy_ack_version"],
+            saved["ai"]["api"]["disclosure_version"],
             ai_catalog.PRIVACY_DISCLOSURE_VERSION,
         )
         self.assertRegex(
-            saved["generation"]["privacy_ack_at"],
+            saved["ai"]["api"]["disclosure_at"],
             r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$",
         )
-        self.assertEqual(saved["llm"]["keys"]["xai"], "sk-private")
+        self.assertEqual(store.resolve_xai_key(), "sk-private")
 
     def test_corrupt_file_recovers(self) -> None:
         path = store.settings_path()
@@ -343,7 +397,8 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(store.resolve_xai_key(), "sk-env")
         # The env override is never persisted; disk content is untouched.
         self.assertEqual(store.settings_path().read_text(encoding="utf-8"), before)
-        self.assertEqual(store.load_settings()["llm"]["keys"]["xai"], "sk-disk")
+        os.environ.pop("XAI_API_KEY")
+        self.assertEqual(store.resolve_xai_key(), "sk-disk")
 
     def test_error_message_omits_secret(self) -> None:
         secret = "sk-super-secret-should-never-be-logged"
@@ -3046,9 +3101,9 @@ class LedGenerateEndpointTests(unittest.TestCase):
 
         status, data = self._request("GET", "/api/settings")
         self.assertEqual(status, 200)
-        self.assertEqual(data["llm"]["keys"]["xai"], {"set": True, "last4": "7788"})
-        self.assertEqual(data["schema_version"], 2)
-        self.assertEqual(data["llm"]["models"], _DEFAULT_SETTINGS["llm"]["models"])
+        self.assertEqual(data["llm"]["keys"]["xai"], {"set": True, "last4": ""})
+        self.assertEqual(data["schema_version"], 3)
+        self.assertEqual(data["llm"]["models"], _LEGACY_MODELS)
         self.assertEqual(data["llm"]["interpreter"], "grok")
         self.assertEqual(data["llm"]["renderer"], "grok")
         # The raw key never returns to the browser, anywhere in the payload.
@@ -3100,10 +3155,8 @@ class LedGenerateEndpointTests(unittest.TestCase):
         )
         self.assertEqual(status, 400)
         # The compatibility route cannot bypass the split privacy/preferences
-        # routes by accepting a forged v2 whole object.
+        # routes by accepting a forged v3 whole object.
         forged = copy.deepcopy(_DEFAULT_SETTINGS)
-        forged["generation"]["privacy_ack_version"] = "forged"
-        forged["generation"]["privacy_ack_at"] = "2026-07-20T00:00:00+00:00"
         status, _ = self._request("POST", "/api/settings", forged)
         self.assertEqual(status, 400)
         # Nothing was persisted by any rejected save.
@@ -3118,7 +3171,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertNotIn(key, json.dumps(data))
-        self.assertEqual(data["llm"]["keys"]["xai"], {"set": True, "last4": "5678"})
+        self.assertEqual(data["llm"]["keys"]["xai"], {"set": True, "last4": ""})
 
         status, data = self._request("POST", "/api/settings/preferences", {
             "models": {
@@ -3130,8 +3183,8 @@ class LedGenerateEndpointTests(unittest.TestCase):
             "loop_mode": "ping_pong",
         })
         self.assertEqual(status, 200)
-        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.3")
-        self.assertEqual(data["generation"]["candidate_count"], 8)
+        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.5")
+        self.assertEqual(data["generation"]["candidate_count"], 4)
         self.assertEqual(data["generation"]["loop_mode"], "ping_pong")
         self.assertTrue(data["llm"]["keys"]["xai"]["set"])
 
@@ -3141,7 +3194,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(data["library"]["current_root"], str(library.resolve()))
-        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.3")
+        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.5")
         self.assertTrue(data["llm"]["keys"]["xai"]["set"])
 
         status, data = self._request("POST", "/api/settings/privacy", {
@@ -3160,11 +3213,11 @@ class LedGenerateEndpointTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertFalse(data["llm"]["keys"]["xai"]["set"])
-        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.3")
+        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.5")
         self.assertEqual(data["library"]["current_root"], str(library.resolve()))
 
         # The unchanged dialog can still use its legacy key-save route without
-        # resetting any v2 preference or storage choice.
+        # resetting the active v3 loop or storage choice.
         legacy_key = "sk-legacy-dialog-87654321"
         status, data = self._request("POST", "/api/settings", {
             "llm": {
@@ -3175,7 +3228,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
         })
         self.assertEqual(status, 200)
         self.assertNotIn(legacy_key, json.dumps(data))
-        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.3")
+        self.assertEqual(data["llm"]["models"]["interpreter"], "grok-4.5")
         self.assertEqual(data["library"]["current_root"], str(library.resolve()))
 
     def test_split_settings_routes_are_strict_and_never_echo_secrets(self) -> None:
