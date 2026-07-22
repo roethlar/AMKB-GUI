@@ -141,8 +141,16 @@
   an app-managed local GPU model or a curated API model passes setup. The
   durable implementation plan is
   `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`, committed with
-  the approved decision record in `ca13f11`; no implementation is authorized
-  yet.
+  the approved decision record in `ca13f11`. Task 1's shared versioned recipe
+  contract, deterministic renderer, density/brightness/motion/seam quality
+  gate, exact GIF/device mapping adapters, qualification corpus, and offline
+  qualification helper landed in `d7eedc2`. The extracted renderer produced
+  200 byte-identical frames against the prior implementation for the saved
+  Ornith aurora, which passed the new dense quality gate and both Relic mapping
+  tracks without inference. Full verification passed at `d7eedc2` with 285
+  Python tests (one prepared-runtime integration skip) and 32 browser tests.
+  No model download, provider call, UI change, app build, or hardware write was
+  made. No further implementation is authorized yet.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -166,12 +174,12 @@
 
 ## Next
 
-- Await an explicit go on
-  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`. Start with its
-  shared procedural contract and quality corpus, then qualify the pinned local
-  model before exposing or packaging any AI UI. Do not download the candidate
-  model, change application code, initiate a paid API call, or write hardware
-  without the corresponding authorized implementation slice.
+- Await an explicit go on Task 2 of
+  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: qualify the
+  pinned local-model candidate against the committed corpus before exposing or
+  packaging any AI UI. Do not download the candidate model, change application
+  code, initiate a paid API call, or write hardware without the corresponding
+  authorized implementation slice.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON
