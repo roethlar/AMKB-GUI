@@ -1,9 +1,13 @@
 # Video-First Lighting Studio — Implementation Plan
 
 - **Date**: 2026-07-20
-- **Status**: approved by the owner on 2026-07-20; implementation authorized.
-  The owner approved an editor-first UI reset on 2026-07-21 before Task 11.
-  Product decisions are recorded in `.agents/decisions.md`.
+- **Status**: implemented through Task 17 on 2026-07-22. The owner approved an
+  editor-first UI reset on 2026-07-21 before Task 11, then approved the
+  local-first procedural direction recorded in
+  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`. That later plan
+  supersedes this plan's visible still/video generation flow while preserving
+  its durable Library, compatibility, manual editor, mapping, and explicit
+  Apply foundations. Product decisions are recorded in `.agents/decisions.md`.
 - **Branch**: `llm-led-generator`
 - **Starting commit**: `137dbc85d2f731aeef1ce4b93c512c21792c42d5`
 - **Goal**: keep the manual Lighting editor as the primary product workspace
@@ -772,6 +776,33 @@ them as maintained evidence.
 4. Record exact verification evidence, remaining platform/live-provider risks,
    and the separate premium-GIF follow-up. Commit
    `docs: mark video-first lighting studio implemented`.
+
+## Final acceptance — 2026-07-22
+
+- Task 16 landed in `a441ecf`. The superseded `EffectPlan` interpreter/image
+  renderer, 16-keyframe tween pipeline, in-memory worker, operational legacy
+  status route, pending/refine UI state, and dead tests are absent. The three
+  authenticated `/api/led/generate*` routes remain stable local `410`
+  tombstones. Shared transport, image validation, `RasterSpec`/frame caps,
+  manual GIF import, LED mapping, and the settings key probe remain covered.
+- The repository gate passed on the Task 16 tree: 316 Python tests with two
+  prepared-runtime integration skips, Python compile checks, 22 browser tests,
+  both JavaScript syntax checks, and source/wheel builds.
+- The versioned builder produced macOS arm64 `0.1.28`. Its signed app and DMG
+  passed bundled runtime checks, DMG verification, and frozen offline smoke
+  with fake local/API recipe adapters and real local media processing.
+- Playwright acceptance for the final optional-AI UI passed in disabled and
+  ready states at 1440×920, 520×720, and a 150%-equivalent zoom viewport, plus
+  the Library gate. There were no console errors, horizontal overflow, or
+  clipped controls; disabled generation stayed absent and ready generation was
+  exposed. The only observed label-spacing defect was fixed in `f264f31` and
+  its regression was proven red before the fix. Repository screenshots are not
+  maintained as product evidence, so none were added.
+- No external provider request, production credential write, model download,
+  or hardware write was made. Windows/Linux native evidence remains pending the
+  outward CI run; native Windows pre-existing-directory ACL validation and
+  owner-supplied hardware checks remain release gates. The premium direct
+  frame-by-frame GIF generator remains a separate unapproved follow-up.
 
 ## Completion criteria
 

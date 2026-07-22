@@ -265,24 +265,21 @@
   added a regression proven red before the fix. The same Playwright matrix and
   full repository gate passed afterward. No external provider call, production
   credential write, model download, or hardware write was made.
+- Task 16 removed the superseded inline xAI generator in `a441ecf`. The
+  interpreter/image renderer, 16-keyframe tween path, ephemeral worker,
+  operational status route, pending/refine browser state, and dead tests are
+  gone; authenticated legacy generation routes remain stable local `410`
+  tombstones. Shared provider transport/image validation, manual GIF import,
+  device mapping, settings key test, procedural generation, and frozen smoke
+  remain covered. The full repository gate passed on that tree with 316 Python
+  tests (two prepared-runtime integration skips) and 22 browser tests. Versioned
+  macOS arm64 build `0.1.28` passed signed-app/runtime checks, DMG verification,
+  and frozen offline smoke. The video-first plan is complete through Task 17;
+  the later optional-AI plan owns the shipped local-first product direction.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
   `.agents/review/outcomes.md`.
-- Branch `llm-led-generator`: the approved plan
-  `docs/superpowers/plans/2026-07-20-llm-led-generator.md` is complete through
-  Task 12. The design's implementation status and final offline verification
-  record live in `docs/design/llm-led-generator.md`.
-- The generator now includes app settings, the shared frame-mapping core,
-  bounded Grok interpreter and renderer providers, local tweening, a
-  single-flight generation API, pending-preview UI, packaging support, and an
-  offline frozen-app generation smoke test.
-- A separate owner-authorized live xAI check completed successfully through
-  Grok 4.5 interpretation, Imagine still generation, image decode, and mapping;
-  no key was persisted and no video or hardware request was made.
-- The legacy implementation's `previous_plan` forwarding gap is superseded by
-  the proposed replacement plan, which removes the legacy inline generator
-  after the durable video workflow is operational.
 - The nested `cyberboard-cli/` checkout remains ignored reference material
   and is not part of the application.
 

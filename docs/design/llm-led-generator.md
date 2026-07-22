@@ -16,6 +16,9 @@ therefore closed by removal rather than repair.
 Shared components remain active where the current application still needs
 them: typed provider errors, bounded xAI transport, validated image decoding,
 device `RasterSpec`/frame caps, manual GIF import, and the shared LED mapper.
+Before removal, an owner-authorized live xAI check completed through Grok 4.5
+interpretation, Imagine still generation, image decode, and mapping; no key was
+persisted and no video or hardware request was made.
 
 The owner subsequently approved a video-first Lighting Studio with durable
 local asset banking. Its product decisions are recorded in
