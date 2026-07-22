@@ -15,6 +15,10 @@ CATALOG_SCHEMA_VERSION = 1
 PRICING_AS_OF = "2026-07-20"
 USD_TICKS_PER_DOLLAR = 10_000_000_000
 PRIVACY_DISCLOSURE_VERSION = "2026-07-20-xai-v1"
+# Conservative upper estimate for the bounded prompt, shared system guidance,
+# and strict schema. Tokens cannot outnumber the request's bounded UTF-8 bytes.
+RECIPE_API_MAX_INPUT_TOKENS = 32_768
+RECIPE_API_MAX_OUTPUT_TOKENS = 1536
 
 
 MODEL_CATALOG: dict[str, dict[str, Any]] = {
@@ -113,3 +117,28 @@ def validate_model(role: str, model_id: object) -> str:
         # contain secrets supplied by a confused client.
         raise ValueError(f"unknown {role} model")
     return model_id
+
+
+def recipe_max_cost_usd_ticks(provider: str, model_id: object) -> int:
+    """Return the dated worst-case recipe request estimate in integer ticks."""
+
+    if provider != "xai":
+        raise ValueError("unknown recipe API provider")
+    normalized = validate_model("interpreter", model_id)
+    choice = next(
+        item
+        for item in MODEL_CATALOG["interpreter"]["choices"]
+        if item["id"] == normalized
+    )
+    pricing = choice["pricing"]
+    input_ticks = (
+        RECIPE_API_MAX_INPUT_TOKENS
+        * pricing["input_per_million_tokens_usd_ticks"]
+        + 999_999
+    ) // 1_000_000
+    output_ticks = (
+        RECIPE_API_MAX_OUTPUT_TOKENS
+        * pricing["output_per_million_tokens_usd_ticks"]
+        + 999_999
+    ) // 1_000_000
+    return int(input_ticks + output_ticks)
