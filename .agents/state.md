@@ -304,12 +304,13 @@
 
 ## Next
 
-- Treat macOS arm64 as the currently native-package-verified platform. Run the
-  committed desktop workflow when an outward push is authorized to verify the
-  Windows x86_64 and Linux x86_64 packages, including Ollama and the pinned
-  advanced GGUF runtime; if either native runtime fails its packaging/smoke
-  gate, ship that platform without direct-GGUF support rather than weakening
-  verification or changing the no-weights rule.
+- No Ollama-first implementation work remains locally. Treat macOS arm64 as
+  the currently native-package-verified platform. The next action, once an
+  outward push is authorized, is to run the committed desktop workflow and
+  verify the Windows x86_64 and Linux x86_64 packages, including Ollama and the
+  pinned advanced GGUF runtime; if either native runtime fails its packaging/
+  smoke gate, ship that platform without direct-GGUF support rather than
+  weakening verification or changing the no-weights rule.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON
