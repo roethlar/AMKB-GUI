@@ -143,7 +143,9 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         manifest = self._create_job()
         job_id = manifest["job_id"]
         self.assertEqual(job_id, str(uuid.UUID(job_id)))
-        self.assertEqual(1, manifest["schema_version"])
+        self.assertEqual(2, manifest["schema_version"])
+        self.assertEqual("legacy_video", manifest["pipeline"])
+        self.assertEqual([], manifest["procedural_attempts"])
         self.assertEqual("created", manifest["status"])
         self.assertEqual("preflight", manifest["phase"])
         self.assertEqual("smooth", manifest["loop_mode"])
@@ -173,6 +175,64 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                 stat.S_IMODE((job_dir / "manifest.json").stat().st_mode),
             )
             self.assertEqual(0o600, stat.S_IMODE((job_dir / ".lock").stat().st_mode))
+
+    def test_v1_manifest_normalizes_in_memory_without_rewriting_disk(self) -> None:
+        job = self._create_job()
+        asset = self.library.bank_asset(
+            job["job_id"],
+            kind="concept",
+            data=b"\x89PNG\r\n\x1a\nlegacy-browseable",
+            mime_type="image/png",
+            origin="xai",
+        )
+        path = self._job_dir(job["job_id"]) / "manifest.json"
+        legacy = json.loads(path.read_text("utf-8"))
+        legacy["schema_version"] = 1
+        legacy.pop("pipeline")
+        legacy.pop("procedural_attempts")
+        path.write_text(json.dumps(legacy, indent=2) + "\n", encoding="utf-8")
+        before = path.read_bytes()
+
+        loaded = self.library.load_manifest(job["job_id"])
+        scanned = self.library.scan()["jobs"][0]
+
+        self.assertEqual(2, loaded["schema_version"])
+        self.assertEqual("legacy_video", loaded["pipeline"])
+        self.assertEqual([], loaded["procedural_attempts"])
+        self.assertEqual("legacy_video", scanned["pipeline"])
+        self.assertEqual(
+            b"\x89PNG\r\n\x1a\nlegacy-browseable",
+            self.library.resolve_asset(job["job_id"], asset["asset_id"]).path.read_bytes(),
+        )
+        self.assertEqual(before, path.read_bytes())
+
+    def test_procedural_manifest_accepts_only_new_local_artifact_kinds(self) -> None:
+        job = self._create_job(
+            pipeline="procedural",
+            models={
+                "backend": "local",
+                "provider": "llama.cpp",
+                "model_id": "chosen.gguf",
+            },
+        )
+        recipe = self.library.bank_asset(
+            job["job_id"],
+            kind="recipe",
+            data=b'{"schema_version":1}\n',
+            mime_type="application/json",
+            origin="procedural:recipe",
+        )
+        raster = self.library.bank_asset(
+            job["job_id"],
+            kind="raster_animation",
+            data=b"GIF89a-local-raster",
+            mime_type="image/gif",
+            origin="procedural:raster",
+        )
+
+        manifest = self.library.load_manifest(job["job_id"])
+        self.assertEqual("procedural", manifest["pipeline"])
+        self.assertEqual({"recipe", "raster_animation"}, {recipe["kind"], raster["kind"]})
 
     @unittest.skipIf(os.name == "nt", "directory fsync is not exposed on Windows")
     def test_directory_fsync_surfaces_real_io_errors_only(self) -> None:

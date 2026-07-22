@@ -323,6 +323,9 @@ class OperationGate:
 
 
 _PROCESS_OPERATION_GATE = OperationGate()
+# Shared by legacy and procedural coordinators so paid/local work remains
+# single-flight across both pipelines during the transition.
+PROCESS_OPERATION_GATE = _PROCESS_OPERATION_GATE
 
 
 def _default_planner_factory(api_key: str, model: str):

@@ -5,8 +5,9 @@ only local durability and recovery metadata; callers decide whether a returned
 ``resume_video_poll`` action is scheduled.  Reconciliation never invokes paid
 or local processing work itself.
 
-Manifest schema version 1 uses a fixed top-level shape covering the complete
-video-first lineage contract.  Future stages mutate those existing containers
+Manifest schema version 2 adds a pipeline discriminator and procedural attempt
+records while normalizing version 1 video manifests in memory without rewriting
+them. Future stages mutate those existing containers
 (``concept_batches``, ``animation_attempts``, ``provider_requests``, ``costs``,
 and ``recovery``) instead of adding ad-hoc top-level keys.  Assets are internal
 relative paths in the manifest, but public views expose only opaque job and
@@ -26,6 +27,7 @@ import errno
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import shutil
@@ -45,7 +47,7 @@ else:
     import fcntl
 
 
-MANIFEST_SCHEMA_VERSION = 1
+MANIFEST_SCHEMA_VERSION = 2
 DEFAULT_MINIMUM_FREE_BYTES = 256 * 1024 * 1024
 _DIRECTORIES = ("concepts", "video", "frames", "preview", "result", ".work")
 _ASSET_LAYOUT = {
@@ -56,6 +58,8 @@ _ASSET_LAYOUT = {
     "preview_poster": ("preview", {"image/png": ".png", "image/jpeg": ".jpg"}),
     "preview_animation": ("preview", {"image/gif": ".gif", "video/mp4": ".mp4"}),
     "mapped_result": ("result", {"application/json": ".json"}),
+    "recipe": ("result", {"application/json": ".json"}),
+    "raster_animation": ("frames", {"image/gif": ".gif"}),
 }
 _ASSET_STATUSES = {"complete", "partial", "cancelled_saved"}
 _LOOP_MODES = {"smooth", "none", "ping_pong"}
@@ -127,6 +131,47 @@ _PROVIDER_REQUEST_COUNTS = {
     "poll_failures",
     "download_failures",
     "retry_after_seconds",
+}
+_MANIFEST_V1_FIELDS = {
+    "schema_version",
+    "job_id",
+    "created_at",
+    "updated_at",
+    "prompt",
+    "target",
+    "concept_batches",
+    "candidates",
+    "selected_candidate_id",
+    "animation_attempts",
+    "loop_mode",
+    "models",
+    "provider_requests",
+    "status",
+    "phase",
+    "progress",
+    "assets",
+    "costs",
+    "cancel_requested_at",
+    "cancelled_at",
+    "errors",
+    "recovery",
+}
+_MANIFEST_V2_FIELDS = _MANIFEST_V1_FIELDS | {"pipeline", "procedural_attempts"}
+_PIPELINES = {"legacy_video", "procedural"}
+_PROCEDURAL_ATTEMPT_FIELDS = {
+    "attempt_id",
+    "index",
+    "status",
+    "phase",
+    "started_at",
+    "completed_at",
+    "recipe_asset_id",
+    "raster_asset_id",
+    "preview_asset_id",
+    "mapped_result_asset_id",
+    "quality",
+    "usage",
+    "error_code",
 }
 _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS = {
     errno.EINVAL,
@@ -466,36 +511,22 @@ def _validate_request_ids(value: object) -> None:
 def _validate_manifest(value: object, *, expected_job_id: str | None = None) -> dict:
     if not isinstance(value, dict):
         raise ManifestError("The job manifest is invalid.")
+    value = copy.deepcopy(value)
+    version = value.get("schema_version")
+    if version == 1:
+        if set(value) != _MANIFEST_V1_FIELDS:
+            raise ManifestError("The job manifest has an unsupported schema.")
+        value["schema_version"] = MANIFEST_SCHEMA_VERSION
+        value["pipeline"] = "legacy_video"
+        value["procedural_attempts"] = []
+    elif version != MANIFEST_SCHEMA_VERSION:
+        raise ManifestError("The job manifest schema is unsupported.")
     _validate_request_ids(value)
     _validate_no_sensitive_values(value)
-    required = {
-        "schema_version",
-        "job_id",
-        "created_at",
-        "updated_at",
-        "prompt",
-        "target",
-        "concept_batches",
-        "candidates",
-        "selected_candidate_id",
-        "animation_attempts",
-        "loop_mode",
-        "models",
-        "provider_requests",
-        "status",
-        "phase",
-        "progress",
-        "assets",
-        "costs",
-        "cancel_requested_at",
-        "cancelled_at",
-        "errors",
-        "recovery",
-    }
-    if set(value) != required:
+    if set(value) != _MANIFEST_V2_FIELDS:
         raise ManifestError("The job manifest has an unsupported schema.")
-    if value["schema_version"] != MANIFEST_SCHEMA_VERSION:
-        raise ManifestError("The job manifest schema is unsupported.")
+    if value["pipeline"] not in _PIPELINES:
+        raise ManifestError("The job manifest pipeline is unsupported.")
     job_id = _canonical_uuid(value["job_id"], "job ID")
     if expected_job_id is not None and job_id != expected_job_id:
         raise ManifestError("The job manifest does not own this directory.")
@@ -508,9 +539,18 @@ def _validate_manifest(value: object, *, expected_job_id: str | None = None) -> 
     for name in ("target", "models", "provider_requests", "progress", "costs", "recovery"):
         if not isinstance(value[name], dict):
             raise ManifestError(f"The job manifest {name} field is invalid.")
-    for name in ("concept_batches", "candidates", "animation_attempts", "assets", "errors"):
+    for name in (
+        "concept_batches",
+        "candidates",
+        "animation_attempts",
+        "procedural_attempts",
+        "assets",
+        "errors",
+    ):
         if not isinstance(value[name], list):
             raise ManifestError(f"The job manifest {name} field is invalid.")
+    if value["pipeline"] == "legacy_video" and value["procedural_attempts"]:
+        raise ManifestError("A legacy job cannot contain procedural attempts.")
     for name in ("status", "phase"):
         if not isinstance(value[name], str) or not _SAFE_TEXT_ID.fullmatch(value[name]):
             raise ManifestError(f"The job manifest {name} is invalid.")
@@ -519,6 +559,90 @@ def _validate_manifest(value: object, *, expected_job_id: str | None = None) -> 
     for name in ("cancel_requested_at", "cancelled_at"):
         if value[name] is not None and not isinstance(value[name], str):
             raise ManifestError(f"The job manifest {name} is invalid.")
+
+    seen_attempt_ids: set[str] = set()
+    seen_attempt_indexes: set[int] = set()
+    quality_fields = {
+        "width",
+        "height",
+        "frame_count",
+        "density",
+        "minimum_lit_ratio",
+        "maximum_lit_ratio",
+        "peak_brightness",
+        "maximum_adjacent_difference",
+        "seam_difference",
+    }
+    for attempt in value["procedural_attempts"]:
+        if not isinstance(attempt, dict) or set(attempt) != _PROCEDURAL_ATTEMPT_FIELDS:
+            raise ManifestError("A procedural attempt has an unsupported schema.")
+        attempt_id = _canonical_uuid(attempt["attempt_id"], "procedural attempt ID")
+        index = attempt["index"]
+        if (
+            attempt_id in seen_attempt_ids
+            or type(index) is not int
+            or not 0 <= index <= 2
+            or index in seen_attempt_indexes
+        ):
+            raise ManifestError("A procedural attempt identity is invalid.")
+        seen_attempt_ids.add(attempt_id)
+        seen_attempt_indexes.add(index)
+        for name in ("status", "phase"):
+            if not isinstance(attempt[name], str) or not _SAFE_TEXT_ID.fullmatch(
+                attempt[name]
+            ):
+                raise ManifestError("A procedural attempt state is invalid.")
+        if not isinstance(attempt["started_at"], str) or (
+            attempt["completed_at"] is not None
+            and not isinstance(attempt["completed_at"], str)
+        ):
+            raise ManifestError("A procedural attempt timestamp is invalid.")
+        for name in (
+            "recipe_asset_id",
+            "raster_asset_id",
+            "preview_asset_id",
+            "mapped_result_asset_id",
+        ):
+            if attempt[name] is not None:
+                _canonical_uuid(attempt[name], "procedural asset ID")
+        error_code = attempt["error_code"]
+        if error_code is not None and (
+            not isinstance(error_code, str) or not _SAFE_ERROR_CODE.fullmatch(error_code)
+        ):
+            raise ManifestError("A procedural attempt error code is invalid.")
+        usage = attempt["usage"]
+        if usage is not None and (
+            not isinstance(usage, dict)
+            or set(usage) != {"cost_in_usd_ticks"}
+            or type(usage["cost_in_usd_ticks"]) is not int
+            or usage["cost_in_usd_ticks"] < 0
+        ):
+            raise ManifestError("A procedural attempt usage record is invalid.")
+        quality = attempt["quality"]
+        if quality is not None:
+            if not isinstance(quality, dict) or set(quality) != quality_fields:
+                raise ManifestError("A procedural quality record is invalid.")
+            if (
+                any(type(quality[name]) is not int or quality[name] < 1 for name in ("width", "height", "frame_count"))
+                or type(quality["peak_brightness"]) is not int
+                or not 0 <= quality["peak_brightness"] <= 255
+                or quality["density"] not in {"sparse", "balanced", "dense"}
+            ):
+                raise ManifestError("A procedural quality record is invalid.")
+            for name in (
+                "minimum_lit_ratio",
+                "maximum_lit_ratio",
+                "maximum_adjacent_difference",
+                "seam_difference",
+            ):
+                metric = quality[name]
+                if (
+                    isinstance(metric, bool)
+                    or not isinstance(metric, (int, float))
+                    or not math.isfinite(float(metric))
+                    or metric < 0
+                ):
+                    raise ManifestError("A procedural quality record is invalid.")
 
     for operation, request in value["provider_requests"].items():
         if not isinstance(operation, str) or not _SAFE_TEXT_ID.fullmatch(operation):
@@ -645,6 +769,15 @@ def _validate_manifest(value: object, *, expected_job_id: str | None = None) -> 
             raise ManifestError("An asset timestamp is invalid.")
         if record["status"] not in _ASSET_STATUSES:
             raise ManifestError("An asset status is invalid.")
+    for attempt in value["procedural_attempts"]:
+        for name in (
+            "recipe_asset_id",
+            "raster_asset_id",
+            "preview_asset_id",
+            "mapped_result_asset_id",
+        ):
+            if attempt[name] is not None and attempt[name] not in seen_assets:
+                raise ManifestError("A procedural attempt references a missing asset.")
     return copy.deepcopy(value)
 
 
@@ -817,8 +950,11 @@ class GeneratedAssetLibrary:
         target: Mapping[str, object] | None = None,
         models: Mapping[str, object] | None = None,
         loop_mode: str = "smooth",
+        pipeline: str = "legacy_video",
     ) -> dict:
         """Create an owner-private UUID job and its initial manifest."""
+        if pipeline not in _PIPELINES:
+            raise ManifestError("The job pipeline is unsupported.")
         root = self.preflight()
         jobs_dir = root / "jobs"
         job_dir: Path | None = None
@@ -846,6 +982,7 @@ class GeneratedAssetLibrary:
             timestamp = _now_iso()
             manifest = {
                 "schema_version": MANIFEST_SCHEMA_VERSION,
+                "pipeline": pipeline,
                 "job_id": job_id,
                 "created_at": timestamp,
                 "updated_at": timestamp,
@@ -855,6 +992,7 @@ class GeneratedAssetLibrary:
                 "candidates": [],
                 "selected_candidate_id": None,
                 "animation_attempts": [],
+                "procedural_attempts": [],
                 "loop_mode": loop_mode,
                 "models": copy.deepcopy(dict(models or {})),
                 "provider_requests": {},
