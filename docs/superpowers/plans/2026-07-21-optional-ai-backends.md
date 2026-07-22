@@ -11,6 +11,12 @@ passed on macOS arm64. Playwright visual inspection passed for disabled and
 ready states at wide, narrow, and 150%-equivalent zoom layouts after the backend
 label-spacing fix in `f264f31`.
 
+**Superseded local setup:** The 2026-07-22 owner correction replaces this
+plan's direct-GGUF onboarding and Ollama exclusion with the approved
+Ollama-first implementation in
+`docs/superpowers/plans/2026-07-22-ollama-first-local-setup.md`. The managed
+GGUF runtime remains only as that plan's advanced fallback.
+
 ## Objective
 
 Replace the visible xAI still/video proof flow with one optional prompt-to-procedural-animation capability. AI is off by default and absent from the normal application UI unless the user has explicitly enabled it and the selected backend has passed setup. The two supported backend classes are:

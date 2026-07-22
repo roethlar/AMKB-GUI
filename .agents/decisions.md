@@ -1,9 +1,33 @@
 # Repository Decisions
 
+## 2026-07-22 — Ollama-first local model setup
+
+Status: approved by the owner on 2026-07-22. This supersedes the direct-GGUF
+onboarding and Ollama release-exclusion portions of the 2026-07-21 Optional AI
+decision; its hidden-by-default capability boundary, strict recipe contract,
+local rendering, explicit review/Apply boundary, and secondary API backend
+remain authoritative.
+
+- Local AI normally connects only to Ollama's fixed unauthenticated loopback
+  service, discovers models already installed there, and lets the user select
+  one by its Ollama name. The application never pulls, creates, downloads,
+  copies, modifies, or deletes model weights.
+- Remote and cloud-backed Ollama entries are not eligible for Local AI. The app
+  does not accept a configurable Ollama endpoint, so Local setup cannot redirect
+  prompts to another host.
+- A selected Ollama model must pass the same production schema-valid setup test
+  as every other recipe backend. Readiness is bound to the selected model name
+  and digest; removal or replacement requires another explicit setup test.
+- Direct selection of a GGUF file and the app-managed llama.cpp runtime remain
+  available only as a clearly labelled advanced fallback. Ordinary setup does
+  not mention GGUF or require users to locate raw model-weight files.
+
 ## 2026-07-21 — Optional AI capability and recipe backends
 
 Status: approved by the owner on 2026-07-21; amended the same day to make local
 inference primary with user-selected models and no application model downloads.
+The 2026-07-22 Ollama-first decision supersedes this decision's direct-GGUF
+onboarding and Ollama release-exclusion details.
 
 - Manual lighting is the complete default product. Outside Settings, every AI
   control, route, setup warning, and AI-specific empty-state action is hidden
