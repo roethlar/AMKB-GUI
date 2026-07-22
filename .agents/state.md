@@ -132,6 +132,16 @@
   34 ms per frame, with an ordinary loop seam. Full verification passed at
   `2078a0b` with 276 Python tests (one prepared-runtime integration skip) and
   32 browser tests. No xAI call, UI change, app build, or device write was made.
+- A second local proof used the unchanged Ornith-to-procedural pipeline for a
+  six-layer dense aurora field. The exact 18×7, 200-frame result kept at least
+  91.3% of raster positions above the visible threshold in every frame, showing
+  that the local recipe path can produce full-board motion rather than leaving
+  most keys dark. The owner approved a release direction in which AI is off and
+  absent from the main UI by default, then becomes available only after either
+  an app-managed local GPU model or a curated API model passes setup. The
+  durable implementation plan is
+  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`; no implementation
+  is authorized yet.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -155,11 +165,12 @@
 
 ## Next
 
-- Await the owner's visual ruling on the isolated local shooting-stars proof.
-  Do not integrate it into the application, resume broader UI work, download a
-  Hugging Face model, or initiate another paid xAI call without an approved next
-  slice. If the procedural result is useful, the next plan should define only
-  the smallest app integration needed to test prompt-to-preview locally.
+- Await an explicit go on
+  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`. Start with its
+  shared procedural contract and quality corpus, then qualify the pinned local
+  model before exposing or packaging any AI UI. Do not download the candidate
+  model, change application code, initiate a paid API call, or write hardware
+  without the corresponding authorized implementation slice.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON

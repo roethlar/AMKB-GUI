@@ -1,5 +1,28 @@
 # Repository Decisions
 
+## 2026-07-21 — Optional AI capability and recipe backends
+
+Status: approved by the owner on 2026-07-21.
+
+- Manual lighting is the complete default product. Outside Settings, every AI
+  control, route, setup warning, and AI-specific empty-state action is hidden
+  unless the user explicitly enabled AI and the selected backend passed its
+  production setup check. A later invalid setup hides those entry points again
+  and exposes repair only in Settings.
+- Settings offers interchangeable Local model and API model setup. Local AI
+  requires a supported GPU, sufficient usable memory, an app-managed runtime,
+  and an explicitly downloaded and validated model; Ollama is not a release
+  requirement and there is no supported CPU fallback. API AI requires no local
+  GPU, but does require a curated provider/model, an OS-stored credential, and
+  explicit privacy/cost acknowledgment plus a successful structured-output
+  test.
+- Both backends produce the same strict procedural animation recipe. Rendering,
+  exact device-frame generation, preview, mapping, banking, review, and Apply
+  remain local and backend-independent. Nothing is applied automatically.
+- Disabling AI never hides or deletes previously generated Library content.
+  Historical still/video jobs remain browseable even though the new generation
+  flow does not use image generation or image-to-video.
+
 ## 2026-07-21 — Editor-first Lighting workspace
 
 Status: approved by the owner on 2026-07-21.
@@ -7,7 +30,9 @@ Status: approved by the owner on 2026-07-21.
 - Lighting opens directly into the manual device workspace. AI generation is
   an optional secondary action contained in a dialog or drawer; it is not the
   default route, a landing page, or the product's visual emphasis. Library is
-  a secondary view alongside the workspace.
+  a secondary view alongside the workspace. The later Optional AI capability
+  decision further requires that action to be absent until setup is enabled
+  and valid.
 - The global Open and Devices controls are the only file/device entry
   affordances. Routed empty states and document requirements explain what is
   needed without duplicating those buttons.
@@ -27,6 +52,10 @@ Status: approved by the owner on 2026-07-20.
   Review & Apply workflow and a full Library. The 2026-07-21 editor-first
   decision supersedes this decision's original full-width, Create-first UI
   hierarchy; provider-call and price details still stay out of generation.
+  The later 2026-07-21 Optional AI capability decision supersedes Concepts,
+  image generation, and image-to-video as the path for new work; the durable
+  Library, historical recovery, explicit Apply boundary, and retained assets
+  remain authoritative.
 - Concept generation defaults to four candidates and has a server-enforced
   maximum of eight per batch. Every completed candidate is banked immediately.
   “More like this” is a separate explicit paid batch. Selection never applies
