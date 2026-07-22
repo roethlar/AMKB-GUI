@@ -23,6 +23,14 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+
+.settings-ai-panels { border: 0; margin: 0; padding: 0; }
+.settings-ai-panels legend { margin-bottom: 10px; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.settings-backend-panel { margin-top: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-2); }
+.settings-backend-panel h3 { margin: 0; }
+.generation-progress { align-items: center; text-align: center; padding-block: 30px; }
+.generation-progress progress { width: min(100%, 420px); }
+.review-media img { display: block; width: 100%; image-rendering: pixelated; border-radius: 12px; background: #050507; }
 html, body { margin: 0; min-width: 0; min-height: 100%; background: var(--bg); color: var(--text); }
 body { overflow: hidden; }
 #app { height: 100vh; display: flex; flex-direction: column; }

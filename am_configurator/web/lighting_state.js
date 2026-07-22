@@ -15,8 +15,8 @@
     SETTINGS: "settings",
   });
   const STAGES = Object.freeze({
-    CONCEPTS: "concepts",
-    ANIMATE: "animate",
+    PROMPT: "prompt",
+    PROGRESS: "progress",
     REVIEW: "review",
   });
   const VALID_ROUTES = new Set(Object.values(ROUTES));
@@ -28,7 +28,7 @@
   }
 
   function normalizedStage(value) {
-    return Object.values(STAGES).includes(value) ? value : STAGES.CONCEPTS;
+    return Object.values(STAGES).includes(value) ? value : STAGES.PROMPT;
   }
 
   function nextGridIndex(index, key, count, columns) {
@@ -55,11 +55,10 @@
 
   function copyTarget(value) {
     if (!value || typeof value !== "object") return null;
-    const targets = Array.isArray(value.targets) ? value.targets.map(String) : [];
     return {
       family: String(value.family || value.productFamily || value.product_family || ""),
       productId: String(value.productId || value.product_id || ""),
-      targets,
+      targets: Array.isArray(value.targets) ? value.targets.map(String) : [],
       frameCap: Number(value.frameCap ?? value.frame_cap ?? 0) || 0,
     };
   }
@@ -71,22 +70,24 @@
       status: String(value.status || ""),
       phase: String(value.phase || ""),
       progress: copyProgress(value.progress),
-      selectedCandidateId: value.selectedCandidateId == null ? null : String(value.selectedCandidateId),
       resultAssetId: value.resultAssetId == null ? null : String(value.resultAssetId),
+      previewAssetId: value.previewAssetId == null ? null : String(value.previewAssetId),
+      recipeAssetId: value.recipeAssetId == null ? null : String(value.recipeAssetId),
       target: copyTarget(value.target),
     };
+  }
+
+  function jobStage(job) {
+    if (job?.resultAssetId) return STAGES.REVIEW;
+    if (job && ["in_progress", "accepted", "processing"].includes(job.status)) return STAGES.PROGRESS;
+    return STAGES.PROMPT;
   }
 
   function createLightingState(saved = {}) {
     const activeJob = copyJob(saved.activeJob);
     return {
       route: normalizedRoute(saved.route),
-      create: {
-        stage: normalizedStage(saved.create?.stage),
-        selectedCandidateId: saved.create?.selectedCandidateId == null
-          ? (activeJob?.selectedCandidateId || null)
-          : String(saved.create.selectedCandidateId),
-      },
+      create: {stage: activeJob ? jobStage(activeJob) : normalizedStage(saved.create?.stage)},
       activeJob,
     };
   }
@@ -99,19 +100,13 @@
     return id;
   }
 
-  function jobStage(job) {
-    if (job?.resultAssetId) return STAGES.REVIEW;
-    const phase = String(job?.phase || "").toLowerCase();
-    if (job?.selectedCandidateId || phase.includes("video") || phase.includes("animat") || phase.includes("process")) {
-      return STAGES.ANIMATE;
-    }
-    return STAGES.CONCEPTS;
-  }
-
-  function routeAvailability(route, document) {
+  function routeAvailability(route, document, options = {}) {
     const candidate = normalizedRoute(route);
     if (DOCUMENT_ROUTES.has(candidate) && !document) {
       return {available: false, reason: "document-required"};
+    }
+    if (candidate === ROUTES.CREATE && options.aiReady !== true && !options.hasActiveJob) {
+      return {available: false, reason: "ai-not-ready"};
     }
     return {available: true, reason: null};
   }
@@ -119,23 +114,19 @@
   function applyCompatibility(job, document, destination) {
     if (!document) return {compatible: false, reason: "document-required"};
     if (!job?.resultAssetId) return {compatible: false, reason: "result-not-ready"};
-
     const jobTarget = job.target || {};
     const jobFamily = canonicalFamily(jobTarget.family || jobTarget.productId);
     const documentFamily = canonicalFamily(document.family || document.productId);
     if (!jobFamily || jobFamily !== documentFamily) return {compatible: false, reason: "family-mismatch"};
-
     const slot = Number(destination?.slot);
     if (!Array.isArray(document.slots) || !document.slots.map(Number).includes(slot)) {
       return {compatible: false, reason: "slot-unavailable"};
     }
-
     const targets = Array.isArray(jobTarget.targets) ? jobTarget.targets.map(String) : [];
     const destinationTarget = String(destination?.target || "");
     if (!targets.length || targets[0] !== destinationTarget) {
       return {compatible: false, reason: "target-mismatch"};
     }
-
     const supported = new Set(Array.isArray(document.supportedTargets) ? document.supportedTargets.map(String) : []);
     if (targets.some(target => !supported.has(target))) {
       return {compatible: false, reason: "target-unsupported"};
@@ -148,15 +139,16 @@
   }
 
   function projectLightingJob(manifest) {
-    const attempts = Array.isArray(manifest?.animation_attempts) ? manifest.animation_attempts : [];
+    const attempts = Array.isArray(manifest?.procedural_attempts) ? manifest.procedural_attempts : [];
     const latestAttempt = attempts.length ? attempts[attempts.length - 1] : null;
     return {
       id: manifest?.job_id,
       status: manifest?.status,
       phase: manifest?.phase,
       progress: manifest?.progress,
-      selectedCandidateId: manifest?.selected_candidate_id,
       resultAssetId: latestAttempt?.mapped_result_asset_id || null,
+      previewAssetId: latestAttempt?.preview_asset_id || null,
+      recipeAssetId: latestAttempt?.recipe_asset_id || null,
       target: manifest?.target,
     };
   }
@@ -166,51 +158,21 @@
     switch (event.type) {
       case "NAVIGATE": {
         const route = normalizedRoute(event.route);
-        if (route === state.route) return result(state);
-        return result({...state, route});
+        return route === state.route ? result(state) : result({...state, route});
       }
       case "JOB_SYNCED": {
         const activeJob = copyJob(event.job);
-        const sameJob = Boolean(activeJob && activeJob.id === state.activeJob?.id);
-        const selectedCandidateId = activeJob
-          ? (activeJob.selectedCandidateId || (sameJob ? state.create.selectedCandidateId : null))
-          : null;
-        const becameReady = sameJob && !state.activeJob?.resultAssetId && activeJob?.resultAssetId;
-        const beganAnimation = sameJob && !state.activeJob?.selectedCandidateId && activeJob?.selectedCandidateId;
-        const phase = String(activeJob?.phase || "").toLowerCase();
-        const restartedAnimation = sameJob
-          && state.activeJob?.resultAssetId
-          && !activeJob?.resultAssetId
-          && (phase.includes("video") || phase.includes("animat") || phase.includes("process"));
-        return result({
-          ...state,
-          create: {
-            stage: !activeJob
-              ? STAGES.CONCEPTS
-              : (!sameJob || becameReady || beganAnimation || restartedAnimation
-                ? jobStage(activeJob)
-                : state.create.stage),
-            selectedCandidateId,
-          },
-          activeJob,
-        });
+        return result({...state, create: {stage: activeJob ? jobStage(activeJob) : STAGES.PROMPT}, activeJob});
       }
-      case "SELECT_CANDIDATE": {
-        const selectedCandidateId = event.candidateId == null ? null : String(event.candidateId);
-        if (selectedCandidateId === state.create.selectedCandidateId) return result(state);
-        return result({...state, create: {...state.create, selectedCandidateId}});
-      }
-      case "SHOW_CONCEPTS":
-        if (state.create.stage === STAGES.CONCEPTS) return result(state);
-        return result({...state, create: {...state.create, stage: STAGES.CONCEPTS}});
-      case "SHOW_ANIMATE":
-        if (!state.create.selectedCandidateId) return result(state, "selection-required");
-        if (state.create.stage === STAGES.ANIMATE) return result(state);
-        return result({...state, create: {...state.create, stage: STAGES.ANIMATE}});
+      case "SHOW_PROMPT":
+        return state.create.stage === STAGES.PROMPT
+          ? result(state)
+          : result({...state, create: {stage: STAGES.PROMPT}});
       case "SHOW_REVIEW":
         if (!state.activeJob?.resultAssetId) return result(state, "result-not-ready");
-        if (state.create.stage === STAGES.REVIEW) return result(state);
-        return result({...state, create: {...state.create, stage: STAGES.REVIEW}});
+        return state.create.stage === STAGES.REVIEW
+          ? result(state)
+          : result({...state, create: {stage: STAGES.REVIEW}});
       case "APPLY_REQUESTED": {
         const compatibility = applyCompatibility(state.activeJob, context.document, context.destination);
         if (!compatibility.compatible) return result(state, compatibility.reason);
