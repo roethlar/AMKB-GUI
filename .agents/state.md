@@ -2,6 +2,14 @@
 
 ## Now
 
+- The holistic branch review was committed in `e2ba095`, and its complete
+  remediation ledger was committed in `8faa962`. The owner then corrected the
+  release direction: shipped AI is fixed-loopback Ollama or curated API only.
+  Direct GGUF selection, bundled or application-managed llama.cpp, GPU
+  qualification, and every associated build/package/release path are
+  superseded and must be removed. The durable decision and remediation plan now
+  own that correction. No remediation implementation is authorized until the
+  revised plan receives explicit approval.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -282,9 +290,11 @@
   `.agents/review/outcomes.md`.
 - Ollama-first Local AI landed in `57fb05a`, `440c5ac`, `6815337`, `8021ecf`,
   and `9f2174a`. Settings now discovers eligible models already installed in
-  fixed-loopback Ollama, lets the user select one by name, and keeps direct
-  GGUF under a collapsed advanced fallback. Cloud aliases are excluded, model
-  selection is bound to Ollama's current digest, production code has no model-
+  fixed-loopback Ollama and lets the user select one by name. That landed slice
+  kept direct GGUF under a collapsed advanced fallback; the current first
+  `## Now` entry supersedes that historical product scope. Cloud aliases are
+  excluded, model selection is bound to Ollama's current digest, and production
+  code has no model-
   management operation, and Ollama readiness is independent of the bundled
   llama.cpp runtime and GPU probe. A real temporary setup and full procedural
   generation through the already-installed `ornith:latest` model recovered
@@ -304,13 +314,14 @@
 
 ## Next
 
-- No Ollama-first implementation work remains locally. Treat macOS arm64 as
-  the currently native-package-verified platform. The next action, once an
-  outward push is authorized, is to run the committed desktop workflow and
-  verify the Windows x86_64 and Linux x86_64 packages, including Ollama and the
-  pinned advanced GGUF runtime; if either native runtime fails its packaging/
-  smoke gate, ship that platform without direct-GGUF support rather than
-  weakening verification or changing the no-weights rule.
+- Obtain explicit approval for the revised holistic remediation plan, then
+  implement its one-finding commits beginning with the unconditional removal
+  of direct-GGUF product state and surface. Do not push or dispatch workflows
+  before the local remediation and verification gates pass.
+- After remediation and a separate outward authorization, verify Windows
+  x86_64 and Linux x86_64 packages as Ollama/API-only builds and prove they
+  contain no llama binary, GGUF execution path, model picker, model-selection
+  private state, or model weight.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON

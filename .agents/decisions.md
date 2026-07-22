@@ -1,5 +1,27 @@
 # Repository Decisions
 
+## 2026-07-22 — Ollama/API-only AI backends
+
+Status: approved by the owner on 2026-07-22. This supersedes every product,
+plan, packaging, and release statement that retains direct GGUF selection or an
+application-managed llama.cpp runtime, including the advanced-fallback portion
+of the earlier Ollama-first decision below.
+
+- The only shipped AI backends are the fixed-loopback Ollama integration and
+  the curated API integration. Ollama remains primary and uses eligible models
+  that the user has already installed through Ollama; the application never
+  downloads, creates, copies, modifies, deletes, or otherwise manages models.
+- The product has no GGUF picker, direct-GGUF setup or generation path,
+  application-managed llama.cpp process, bundled llama runtime, local-model
+  attestation store, GPU qualification gate, or llama-specific package,
+  signing, licensing, build, smoke, or release path.
+- Existing GGUF/runtime qualification artifacts remain historical evidence
+  only. They do not describe a supported product path and must not be invoked
+  by normal verification, packaging, or release workflows.
+- The manual editor, hidden-until-ready AI boundary, strict recipe contract,
+  local deterministic rendering, durable Library, and explicit Review/Apply
+  boundary remain unchanged.
+
 ## 2026-07-22 — Ollama-first local model setup
 
 Status: approved by the owner on 2026-07-22. This supersedes the direct-GGUF
@@ -18,9 +40,9 @@ remain authoritative.
 - A selected Ollama model must pass the same production schema-valid setup test
   as every other recipe backend. Readiness is bound to the selected model name
   and digest; removal or replacement requires another explicit setup test.
-- Direct selection of a GGUF file and the app-managed llama.cpp runtime remain
-  available only as a clearly labelled advanced fallback. Ordinary setup does
-  not mention GGUF or require users to locate raw model-weight files.
+- This decision originally retained direct GGUF and app-managed llama.cpp as an
+  advanced fallback. The Ollama/API-only decision above supersedes and removes
+  that fallback; it is historical implementation context, not current scope.
 
 ## 2026-07-21 — Optional AI capability and recipe backends
 

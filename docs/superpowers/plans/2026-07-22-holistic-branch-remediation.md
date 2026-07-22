@@ -2,8 +2,10 @@
 
 **Status:** Drafted on 2026-07-22 from the committed holistic review at
 `.agents/review/2026-07-22-holistic-branch-review.md`. The owner authorized a
-plan covering every actionable item. Implementation remains blocked until the
-pending owner decisions below are recorded and the resulting plan is approved.
+plan covering every actionable item, then corrected the product scope to
+Ollama/API-only. This revision contains no pending product decision.
+Implementation remains blocked until the owner explicitly approves the revised
+plan.
 
 ## Objective
 
@@ -11,8 +13,9 @@ Bring `llm-led-generator` from review head `89d194d` to a releasable state by
 closing every actionable defect, regression gap, architecture debt, packaging
 risk, documentation drift item, and residual hygiene issue recorded by the
 2026-07-22 holistic review. Preserve the approved editor-first, hidden-until-
-ready, local-first product direction and every device, credential, model-weight,
-durability, and explicit-Apply safety boundary.
+ready product direction and every device, credential, model-weight, durability,
+and explicit-Apply safety boundary. The only shipped AI backends are
+fixed-loopback Ollama and the curated API.
 
 This plan is the canonical closure ledger. The review report remains immutable
 evidence. Each checklist item is updated in the same commit that closes that
@@ -39,47 +42,38 @@ left after their overstated security outcomes were refuted.
   device safety, and toolkit-owned artifacts.
 - `.agents/decisions.md` owns approved product behavior.
 - `docs/superpowers/plans/2026-07-21-optional-ai-backends.md` and
-  `docs/superpowers/plans/2026-07-22-ollama-first-local-setup.md` own the shipped
-  optional-AI architecture, except where a later approved decision supersedes
-  them.
+  `docs/superpowers/plans/2026-07-22-ollama-first-local-setup.md` record the
+  implemented optional-AI architecture. The current decision and this plan
+  supersede every direct-GGUF or managed-llama release instruction in them.
 - `.agents/review/2026-07-22-holistic-branch-review.md` owns the finding text,
   evidence, severity, refutations, and polish inventory.
 - Current code and focused reproductions are evidence for behavior. If a
   finding cannot be reproduced or its cited code has changed before its slice,
   stop that slice and record the evidence instead of manufacturing a change.
 
-## Pending Owner Decisions
+## Release Backend Correction
 
-The plan cannot become approved until these decisions are resolved one at a
-time in chat and their approved wording is recorded in `.agents/decisions.md`
-and this status block.
+The 2026-07-22 Ollama/API-only decision is unconditional:
 
-### D1 — Direct-GGUF integrity versus latency
+- Remove direct-GGUF selection, setup, generation, private model state,
+  attestation, and model-file handling from the active product.
+- Remove the managed llama.cpp provider/server, GPU qualification, bundled
+  binaries, builders, manifests, notices, signing rules, workflow setup, frozen
+  smokes, and release branches. Retain FFmpeg and its independent provenance
+  boundary.
+- Keep historical GGUF qualification evidence as explicitly superseded history
+  only. No normal test, build, package, or release command may invoke it.
+- Keep fixed-loopback Ollama as the primary backend and the curated API as the
+  secondary backend. The application never manages Ollama models.
+- Disable environment proxies and reject redirects for curated API transport;
+  do not add configurable endpoints or proxy settings.
+- Remove loop-mode choice from new procedural generation UI and requests
+  because the renderer is inherently periodic. Preserve stored legacy values
+  and historical video behavior for compatibility.
 
-F11 requires status reads to stop synchronously hashing large GGUF files, while
-F49 requires changed model bytes to invalidate readiness even when filesystem
-identity metadata is forged or coarse. The recommended design keeps status
-cheap but performs a full SHA-256 immediately before every direct-GGUF setup
-test and generation, then rechecks file identity after the runtime loads it.
-This can add tens of seconds for very large models but never copies or mutates
-weights.
-
-### D2 — API proxy policy
-
-F22 requires an explicit policy for xAI HTTPS transport. The recommended design
-disables environment proxies and rejects every redirect, matching the fixed-
-provider credential boundary. API mode would therefore be unavailable to users
-whose network requires an HTTPS proxy; no custom endpoint or proxy setting
-would be added.
-
-### D3 — Procedural loop-mode behavior
-
-P05 records that Smooth, No transition, and Ping-pong are persisted but ignored
-by the inherently periodic procedural renderer. The recommended design removes
-the loop-mode control and request field from new procedural generation while
-preserving the stored value and historical video behavior for compatibility.
-The alternative is new local post-processing behavior that materially changes
-the approved exact periodic output.
+Every review concern tied to GGUF or managed llama is closed by deletion or by
+evidence that the deleted path cannot enter a release artifact, not by adding a
+new fallback or hardening that obsolete path.
 
 ## Non-Negotiable Execution Rules
 
@@ -134,6 +128,43 @@ uv run --frozen python build.py --skip-sync
 The build's normal signed-app/installer verification must pass. Windows and
 Linux claims remain unverified until the committed desktop workflow runs on
 those hosts after separate outward authorization.
+
+## Phase 0 — Remove the Superseded Direct-GGUF Product
+
+Complete these deletion slices first, keeping the full repository gate green
+after each commit. Historical evidence remains readable, but no active product,
+build, or release path may depend on it.
+
+- [ ] **F49 — Remove direct-GGUF product state and surface.** Delete the native
+  GGUF chooser, setup/generation routes, browser controls, capability source,
+  local-model selection/attestation writes, and active settings fields. Advance
+  the settings schema only if current evidence requires it; migrate an existing
+  GGUF selection to an unselected Ollama state with AI not ready while
+  preserving Library roots, API configuration/disclosure, loop compatibility,
+  and all unrelated settings. Never open, hash, copy, mutate, or delete the
+  user's model file during migration. Add migration, API-absence, first-paint,
+  and no-file-touch regressions. Commit: `refactor: remove direct gguf product surface`.
+
+- [ ] **F20 — Remove the managed llama runtime.** Delete
+  `ManagedLlamaServer`, `ManagedLocalRecipeProvider`, runtime/model manager
+  production wiring, GPU probe, process lifecycle, and their now-dead tests and
+  settings adapters. Ollama remains the sole local provider; curated API remains
+  secondary. Prove startup, shutdown, cancellation, and capability status create
+  no llama process. Commit: `refactor: remove managed llama runtime`.
+
+- [ ] **F21 — Prove no llama credential or process remains.** After F20, search
+  executable code and frozen smoke plans for llama bearer-token, child-process,
+  and argv construction paths. Add a focused negative architecture test where
+  it guards against reintroduction, and close the original argv leak as removed
+  rather than relocating the secret. Commit: `test: prohibit managed llama processes`.
+
+- [ ] **F34 — Remove llama from every package and workflow.** Delete the llama
+  builder, runtime manifest/attestation/notice, package data, signing and
+  finalization branches, Vulkan/MSYS setup used only for llama, GGUF feature
+  switches, and advanced-local frozen smokes. Every platform package supports
+  Ollama/API only. Add artifact and workflow guards proving zero llama binaries,
+  GGUF execution code, picker routes, model-selection files, or weights. Keep
+  FFmpeg packaging and provenance intact. Commit: `build: remove direct gguf runtime`.
 
 ## Phase 1 — Core Product Release Blockers
 
@@ -249,19 +280,6 @@ local no-provider browser acceptance at the end of the phase.
   and prevent a late response from publishing. Give setup tests the same
   cancellation contract. Commit: `fix: abort cancelled ollama requests`.
 
-- [ ] **F20 — Supervise the managed llama server across hard exits.** Introduce
-  a packaged cross-platform supervisor or equivalent OS primitive that owns the
-  child, terminates it when the app parent disappears, and preserves bounded
-  stdout/stderr and normal idle reuse. Add startup cleanup for a narrowly
-  authenticated stale private process record as defense in depth. Test normal
-  close, crash simulation, stale PID reuse, unrelated PID refusal, and cleanup
-  timeout. Commit: `fix: bind llama server lifetime to the app`.
-
-- [ ] **F21 — Remove the llama bearer token from argv.** Supply the pinned
-  runtime's supported API-key environment variable through a child-only
-  environment, scrub it from diagnostics, and assert process arguments and
-  process listings contain no token. Commit: `fix: hide llama server credentials from argv`.
-
 - [ ] **F25 — Admit procedural reconciliation through the shared gate.** Make
   direct `ProceduralGenerationCoordinator.reconcile_startup()` calls acquire
   and release the same `OperationGate`, with busy behavior matching the legacy
@@ -281,10 +299,11 @@ local no-provider browser acceptance at the end of the phase.
   `fix: preserve admission after procedural launch`.
 
 - [ ] **F28 — Synchronize lazy AI service/provider construction.** Protect
-  `_State.ai_services` and `AICapabilityService._managed_local_provider` with
+  `_State.ai_services` and the remaining Ollama/API provider construction with
   locks or eager immutable construction. Concurrent setup/generation requests
-  must observe one capability service, provider, and managed server. Commit:
-  `fix: serialize local ai service construction`.
+  must observe one capability service and one provider instance per configured
+  backend. Prove no managed-local singleton remains after F20. Commit:
+  `fix: serialize ai service construction`.
 
 - [ ] **F33 — Bound and cancel render, quality, encode, and mapping.** Thread a
   monotonic deadline and cancellation callback through rendering and artifact
@@ -295,12 +314,11 @@ local no-provider browser acceptance at the end of the phase.
 
 ## Phase 4 — Capability, Transport, and Security Boundaries
 
-- [ ] **F11 — Make capability status source-aware and cheap.** When AI is
-  disabled, return disabled status without runtime/model/network probes. When
-  source is Ollama, do not resolve/hash GGUF components. Cache verified bundled
-  runtime identity by strong immutable file identity and invalidate on change;
-  never rehash a known-bad GGUF on polling. Commit:
-  `fix: avoid unrelated ai capability hashing`.
+- [ ] **F11 — Make capability status backend-aware and cheap.** When AI is
+  disabled, return disabled status without filesystem or network probes. With
+  AI enabled, inspect only the selected Ollama or curated API backend. Assert
+  capability polling contains no GGUF hash, runtime resolution, GPU probe, or
+  model-file access after Phase 0. Commit: `fix: avoid disabled ai capability probes`.
 
 - [ ] **F14 — Handle non-ASCII auth headers cleanly.** Convert candidate/header
   tokens to a single byte representation with explicit ASCII rejection before
@@ -319,11 +337,12 @@ local no-provider browser acceptance at the end of the phase.
   history before F42 removes the obsolete surface. Commit:
   `fix: harden legacy credential routes`.
 
-- [ ] **F22 — Harden xAI transport under D2.** Use a dedicated opener that
-  implements the approved proxy policy, rejects redirects, pins HTTPS host and
-  port, bounds responses/deadlines, and never forwards Authorization to another
-  origin. Cover redirect codes, proxy environment, DNS/timeout, and secret
-  redaction. Commit: `fix: pin xai api transport`.
+- [ ] **F22 — Harden xAI transport.** Use a dedicated opener that disables
+  environment proxies, rejects redirects, pins HTTPS host and port, bounds
+  responses/deadlines, and never forwards Authorization to another origin. Do
+  not add a custom endpoint or proxy setting. Cover redirect codes, proxy
+  environment, DNS/timeout, and secret redaction. Commit:
+  `fix: pin xai api transport`.
 
 - [ ] **F43 — Diagnose unsupported Ollama discovery contracts.** Preserve the
   approved two-endpoint boundary: do not add `/api/show`. Distinguish a service
@@ -332,20 +351,13 @@ local no-provider browser acceptance at the end of the phase.
   and explain that Ollama must be upgraded. Commit:
   `fix: explain incompatible ollama discovery`.
 
-- [ ] **F49 — Revalidate direct-GGUF bytes under D1.** Keep status reads
-  metadata-only, but at each direct-GGUF test/generation open and hash the
-  selected regular file, compare the active fingerprint, retain the verified
-  handle/identity through runtime load where supported, and recheck identity
-  after load. Any mismatch clears readiness and launches no inference. Cover
-  same-size rewrite, restored/coarse mtime, zero inode/device, and load-race
-  cases. Commit: `fix: revalidate gguf bytes before inference`.
-
 ## Phase 5 — Browser Behavior and Executable Coverage
 
 - [ ] **F08 — Make proxy-disable tests non-vacuous.** Construct openers under a
-  patched proxy environment and assert actual loopback requests cannot reach a
-  sentinel proxy for both Ollama and managed llama transports. Commit:
-  `test: prove local ai ignores environment proxies`.
+  patched proxy environment and assert actual Ollama requests cannot reach a
+  sentinel proxy. Include the curated API transport's no-environment-proxy
+  policy without permitting a real external request. Commit:
+  `test: prove ai transports ignore environment proxies`.
 
 - [ ] **F09 — Behavior-test the Ollama model picker.** Extract normalization,
   preferred-selection restoration, missing-model projection, and transient
@@ -354,9 +366,10 @@ local no-provider browser acceptance at the end of the phase.
   transient-failure states. Commit: `test: exercise ollama model picker behavior`.
 
 - [ ] **F36 — Execute every offline desktop smoke in tests.** Invoke disabled,
-  API, Ollama, and advanced-GGUF smoke helpers in-process with injected fakes;
-  assert no external network, real credential, model mutation, or hardware
-  access. Commit: `test: execute offline desktop ai smokes`.
+  API, and Ollama smoke helpers in-process with injected fakes; assert no
+  external network, real credential, model mutation, managed runtime, or
+  hardware access. Assert no advanced-GGUF smoke remains. Commit:
+  `test: execute offline desktop ai smokes`.
 
 - [ ] **F37 — Replace smoke source assertions with failure-sensitive guards.**
   Remove substring-only packaging checks and add tests proving each smoke's
@@ -379,9 +392,10 @@ local no-provider browser acceptance at the end of the phase.
   setup test. Commit: `test: invalidate replaced ollama models`.
 
 - [ ] **F41 — Prove the coordinator retry ceiling.** Feed three consecutive
-  schema/quality failures through both Ollama and managed-local coordinator
-  paths, assert exactly initial plus two retries, terminal failure, distinct
-  deterministic seeds/corrections, and no fourth call. Commit:
+  schema/quality failures through Ollama, assert exactly initial plus two
+  retries, terminal failure, distinct deterministic seeds/corrections, and no
+  fourth call. Separately assert curated API generation remains exactly one paid
+  request with no automatic retry. Commit:
   `test: enforce procedural retry ceiling`.
 
 - [ ] **F44 — Record non-vacuous Ollama regression evidence.** After F08, F09,
@@ -389,10 +403,11 @@ local no-provider browser acceptance at the end of the phase.
   with exact commands/commits rather than unsupported blanket completion text.
   Commit: `docs: record ollama regression guard proofs`.
 
-- [ ] **F50 — Exercise local model/runtime attestation rejection.** Add bounded,
-  corrupt, truncated, symlinked, exact-key, schema, revision, capability,
-  recipe-hash, compiler, self-heal, and field-type cases for both attestations.
-  Commit: `test: cover local ai attestation validation`.
+- [ ] **F50 — Prove local model/runtime attestations are gone.** After Phase 0,
+  verify no model/runtime attestation reader, writer, schema, package data, or
+  capability dependency remains. Add an artifact/architecture regression that
+  fails if those paths return; FFmpeg attestation rejection remains covered by
+  F51/F54. Commit: `test: prohibit local model attestations`.
 
 - [ ] **F54 — Prove GPG fingerprint pinning rejects bad signatures.** Test wrong,
   absent, malformed, and multiple `VALIDSIG` records even when GPG exits zero;
@@ -427,24 +442,16 @@ local no-provider browser acceptance at the end of the phase.
   profile that is disabled. Add workflow static/plan tests. Commit:
   `fix: locate msys2 tools in windows builds`.
 
-- [ ] **F07 — Export the installed Vulkan SDK.** After Chocolatey installation,
-  resolve the exact SDK directory and append `VULKAN_SDK` plus required bin
-  directory to `GITHUB_ENV`/`GITHUB_PATH`. Fail early with a diagnostic if
-  headers, loader library, or `glslc` is missing. Commit:
-  `fix: expose vulkan sdk to windows builds`.
+- [ ] **F07 — Remove obsolete Vulkan workflow setup.** After F34 deletes the
+  llama build, remove Vulkan SDK installation, environment export, cache, and
+  validation from Windows workflows. Add a static workflow guard proving no
+  Vulkan dependency remains. Close the finding by deletion rather than making
+  the obsolete setup work. Commit: `build: remove llama vulkan setup`.
 
-- [ ] **F12 — Give llama configure a realistic timeout.** Split configure from
-  short command timeout and use a bounded ten-minute configure budget,
-  retaining the longer build budget and typed timeout error. Test command-plan
-  propagation. Commit: `fix: bound llama configure separately`.
-
-- [ ] **F34 — Implement a verified GGUF-less package mode.** Add an explicit
-  build capability selected before packaging, conditionally omit llama binaries
-  and notice only when direct GGUF is disabled, make capability status report
-  GGUF unavailable while Ollama/API remain supported, and run a dedicated
-  frozen smoke proving no direct-GGUF entry or runtime resolution. Native jobs
-  may select this mode only after the direct-GGUF gate fails; they may not skip
-  verification silently. Commit: `build: support packages without direct gguf`.
+- [ ] **F12 — Remove obsolete llama configure timeouts.** After F34 deletes the
+  llama builder, verify no configure/build timeout or command-plan branch for
+  llama remains. Add a static architecture guard if needed and close the
+  finding as deletion evidence. Commit: `test: prohibit llama build commands`.
 
 - [ ] **F35 — Pin appimagetool to immutable release assets.** Replace the
   `continuous` URL with an immutable version/revision and per-architecture hash,
@@ -454,21 +461,23 @@ local no-provider browser acceptance at the end of the phase.
 - [ ] **F52 — Exercise actual native webview policy per platform.** Add a frozen
   smoke/acceptance helper that launches the selected renderer and verifies
   private mode, token-history cleanup, hidden underscore bridge methods,
-  downloads, CSP, and loopback loading. Run it in each desktop matrix leg; keep
-  Playwright external. Commit: `test: verify native webview policy`.
+  downloads, CSP, loopback loading, and Ollama/API-only Settings. Run it in each
+  desktop matrix leg; keep Playwright external. Commit:
+  `test: verify native webview policy`.
 
 - [ ] **F53 — Reject Windows drive and ADS archive members.** Reject `:` in every
-  tar path segment plus all drive-qualified/UNC/ADS forms in both FFmpeg and
-  llama extractors before path construction. Add malicious Windows-path cases.
-  Commit: `fix: reject drive-qualified runtime archives`.
+  tar path segment plus all drive-qualified/UNC/ADS forms in the remaining
+  FFmpeg extractor before path construction. Add malicious Windows-path cases
+  and prove no llama extractor remains. Commit:
+  `fix: reject drive-qualified runtime archives`.
 
 - [ ] **F55 — Preserve provenance through macOS signing.** Before finalization,
-  verify the assembled binary against the prepared runtime attestation; after
-  signing, record a signed-artifact relationship that includes the original
-  verified hash, signed hash, code-signing identity/CDHash, and unchanged
-  manifest/build capabilities. Finalization must refuse an unrecognized
-  pre-sign binary rather than blessing behavior-only replacements. Apply the
-  same design to FFmpeg and llama. Commit:
+  verify the assembled FFmpeg binary against its prepared runtime attestation;
+  after signing, record a signed-artifact relationship that includes the
+  original verified hash, signed hash, code-signing identity/CDHash, and
+  unchanged manifest/build capabilities. Finalization must refuse an
+  unrecognized pre-sign binary rather than blessing behavior-only replacements.
+  Prove llama finalization is absent. Commit:
   `build: bind signed runtimes to verified provenance`.
 
 - [ ] **F57 — Detect Windows junctions on every supported Python.** Implement a
@@ -482,24 +491,26 @@ local no-provider browser acceptance at the end of the phase.
   before job creation. Cover boundary lengths with long-path support on and off.
   Commit: `fix: validate windows library path depth`.
 
-- [ ] **F60 — Derive qualification provenance.** Read runtime revision from the
-  committed manifest and verify it against `llama-cli --version`; derive model
-  identity from the exact file hash and label any human-entered revision as an
-  unverified note rather than attestation. Commit:
-  `fix: verify recipe qualification provenance`.
+- [ ] **F60 — Retire executable GGUF qualification tooling.** Remove normal
+  test/build entry points that invoke llama or a GGUF model. Preserve existing
+  result artifacts as historical evidence with an explicit supersession note;
+  if a helper remains for archaeology, it must be clearly non-production and
+  unreachable from verification and release commands. Commit:
+  `docs: retire gguf qualification tooling`.
 
 After local completion and a separate outward authorization, publish the branch
-and manually dispatch the desktop workflow. Windows and Linux direct-GGUF legs
-must pass or deliberately re-run in the verified GGUF-less mode. A normal CI
-failure is fixed in a new one-finding commit; no gate is weakened.
+and manually dispatch the desktop workflow. Windows and Linux packages must
+pass as unconditional Ollama/API-only builds and the artifact guards must prove
+that no llama/GGUF product path was reintroduced. A normal CI failure is fixed
+in a new one-finding commit; no gate is weakened.
 
 ## Phase 8 — Library and Attestation Hardening
 
-- [ ] **F51 — Consolidate bounded attestation verification.** Extract one
+- [ ] **F51 — Consolidate remaining bounded attestation verification.** After
+  Phase 0 removes llama and local-model attestations, extract or retain one
   no-follow, regular-file, pre-read-size-bounded, identity-rechecked JSON/hash
-  primitive and use it for FFmpeg, llama runtime, local model, and capability
-  identity. Preserve each schema's exact validation. Commit:
-  `refactor: unify runtime attestation verification`.
+  primitive for the remaining FFmpeg readers. Delete obsolete generic branches
+  instead of preserving them. Commit: `refactor: unify ffmpeg attestation verification`.
 
 - [ ] **F56 — Prevent Windows read/replace sharing races.** Coordinate manifest
   reads with job locks or add bounded sharing-violation retry around atomic
@@ -535,10 +546,11 @@ failure is fixed in a new one-finding commit; no gate is weakened.
 
 - [ ] **F46 — Use one production recipe sampling contract.** Centralize local
   generation options, deterministic seeds, retry correction, and message shape.
-  Production Ollama, developer CLI, direct-GGUF qualification, and corpus tools
-  must either use it exactly or label an intentional experiment as non-production
-  evidence. Regenerate only metadata affected by the correction; never invoke or
-  download a model without separate authorization. Commit:
+  Production Ollama and any retained developer recipe CLI must either use it
+  exactly or label an intentional experiment as non-production evidence. GGUF
+  qualification/corpus tools are historical-only under F60. Regenerate only
+  metadata affected by the correction; never invoke or download a model without
+  separate authorization. Commit:
   `refactor: unify recipe inference parameters`.
 
 ## Phase 10 — Polish Items
@@ -563,9 +575,11 @@ Each polish item is a separate commit despite its size.
   refresh must revoke its new Blob URL and may not reinsert stale state. Commit:
   `fix: discard stale library asset loads`.
 
-- [ ] **P05 — Resolve procedural loop mode under D3.** Implement the approved
-  choice, preserve historical compatibility, and add request/UI/manifest tests.
-  Commit: `fix: resolve procedural loop mode behavior`.
+- [ ] **P05 — Remove loop mode from new procedural generation.** Remove the
+  ignored control and request field from new procedural generation while
+  preserving stored legacy values and historical video behavior. Add request,
+  UI, migration, and manifest compatibility tests. Commit:
+  `fix: remove ignored procedural loop mode`.
 
 - [ ] **P06 — Validate mapped procedural results before banking.** Apply the
   canonical timeline/target/track validation used by recovery before asset
@@ -575,13 +589,14 @@ Each polish item is a separate commit despite its size.
   enforce native-command exit handling so any `node --test` failure fails the
   step immediately. Commit: `fix: propagate windows browser test failures`.
 
-- [ ] **P08 — Disable UPX for attested binaries.** Set `upx=False` and assert
-  packaged runtime bytes/attestations remain valid. Commit:
+- [ ] **P08 — Disable UPX for the remaining attested runtime.** Set `upx=False`
+  for FFmpeg and assert its packaged bytes/attestation remain valid. Prove no
+  llama binary is present to compress. Commit:
   `build: preserve attested runtime bytes`.
 
 - [ ] **P09 — Avoid disabled-state AI probes.** Make first-paint capability
-  status static/pathless while disabled; probe Ollama or GGUF only when Settings
-  explicitly requests setup details or AI is enabled. Commit:
+  status static/pathless while disabled; probe Ollama only when Settings
+  explicitly requests setup details or Ollama AI is enabled. Commit:
   `fix: defer optional ai readiness probes`.
 
 - [ ] **P10 — Restore the missing push-policy artifact through governance.** Do
@@ -604,9 +619,11 @@ Each polish item is a separate commit despite its size.
   module before the final retired-pipeline deletion, with import-cycle tests.
   Commit: `refactor: extract generation admission primitives`.
 
-- [ ] **P14 — Reuse one hardened loopback opener/exchange.** Consolidate the
-  Ollama and managed-llama proxy/redirect/cancellation transport primitives
-  without coupling their response schemas. Commit:
+- [ ] **P14 — Reuse hardened loopback exchange primitives where applicable.**
+  Consolidate only the remaining Ollama and authenticated app-loopback
+  proxy/redirect/cancellation mechanics whose contracts genuinely match; if
+  Phase 0 removes the reported duplication, close this item with search and
+  executable evidence instead of inventing abstraction. Commit:
   `refactor: share hardened loopback transport`.
 
 - [ ] **P15 — Disable proxies for media downloads.** Retain explicit validated
@@ -618,13 +635,15 @@ Each polish item is a separate commit despite its size.
   through validation, assembly, and publication and roll back atomically at
   every late boundary. Commit: `fix: enforce media deadline through publication`.
 
-- [ ] **P17 — Close rare local-runtime resource leaks.** If reader-thread start
-  or `fdopen` fails, close descriptors and terminate/kill the probe child before
-  raising a typed pathless error. Commit: `fix: close local runtime setup failures`.
+- [ ] **P17 — Prove local-runtime leak paths are deleted.** After F20, verify the
+  reader-thread, descriptor, probe-child, and managed-runtime setup paths no
+  longer exist. Add an architecture guard if source search alone would be too
+  weak. Commit: `test: prohibit local runtime setup processes`.
 
-- [ ] **P18 — Parse GPU evidence without model-path text.** Inspect structured or
-  whitelisted runtime diagnostic lines only; never decide full offload from an
-  arbitrary model path substring. Commit: `fix: parse local gpu offload evidence`.
+- [ ] **P18 — Prove GPU-offload parsing is deleted.** Remove any surviving
+  model-path or runtime-diagnostic offload parser after F20 and guard that
+  capability readiness depends only on Ollama or curated API state. Commit:
+  `test: prohibit local gpu qualification`.
 
 - [ ] **P19 — Isolate GPG for the direct bundle CLI.** Create a private temporary
   GNUPGHOME, import only the pinned key, verify, and remove it for every CLI path
@@ -635,13 +654,15 @@ Each polish item is a separate commit despite its size.
   parent directory on supported platforms while preserving Windows behavior.
   Commit: `fix: durably publish settings files`.
 
-- [ ] **P21 — Clean local-model temp files on every failure.** Broaden cleanup
-  to `BaseException` with careful re-raise and distinguish post-publication chmod
-  failure from write failure. Commit: `fix: clean local model attestation failures`.
+- [ ] **P21 — Remove local-model attestation temp flows.** After F49/F20, prove
+  no temporary local-model metadata, chmod/publication, or cleanup path remains
+  and no migration touches the user's GGUF file. Commit:
+  `test: prohibit local model attestation writes`.
 
 - [ ] **P22 — Add a forward pointer to superseded qualification evidence.** The
-  Qwen qualification README must say it is comparative evidence, not a release
-  gate, and point to the Ollama-first decision/plan. Commit:
+  Qwen qualification README must say it is historical comparative evidence,
+  not a supported product or release path, and point to the Ollama/API-only
+  decision and remediation plan. Commit:
   `docs: contextualize qwen qualification evidence`.
 
 ## Phase 11 — Residual Hygiene from Refuted Findings
@@ -670,8 +691,10 @@ The plan is complete only when:
    Ollama Settings states, procedural Review/Apply, paint undo, Library retry,
    and narrow/zoom layouts.
 6. After separate outward authorization, Windows and Linux desktop workflows
-   pass their selected direct-GGUF or verified GGUF-less modes. Native failures
-   are fixed rather than hidden.
+   pass as Ollama/API-only builds. Artifact inspection proves they contain no
+   llama binary, GGUF execution path, model picker, model-selection private
+   state, qualification invocation, or model weight. Native failures are fixed
+   rather than hidden.
 7. A final goal-first whole-change review finds no material issue.
 8. `drift` reconciles plan, decisions, state, history archive, machines, and
    governance pointers without duplicating volatile counts or push status.

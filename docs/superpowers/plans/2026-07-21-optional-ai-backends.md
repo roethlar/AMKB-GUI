@@ -11,11 +11,13 @@ passed on macOS arm64. Playwright visual inspection passed for disabled and
 ready states at wide, narrow, and 150%-equivalent zoom layouts after the backend
 label-spacing fix in `f264f31`.
 
-**Superseded local setup:** The 2026-07-22 owner correction replaces this
-plan's direct-GGUF onboarding and Ollama exclusion with the approved
-Ollama-first implementation in
-`docs/superpowers/plans/2026-07-22-ollama-first-local-setup.md`. The managed
-GGUF runtime remains only as that plan's advanced fallback.
+**Superseded local setup:** The final 2026-07-22 owner correction makes the
+shipped backends fixed-loopback Ollama and the curated API only. It removes
+direct GGUF, the managed llama.cpp runtime, GPU qualification, and their build,
+packaging, signing, licensing, and smoke paths entirely. The implementation
+details below remain historical evidence, not current product or release scope.
+Current remediation is owned by
+`docs/superpowers/plans/2026-07-22-holistic-branch-remediation.md`.
 
 ## Objective
 

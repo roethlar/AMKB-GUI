@@ -5,14 +5,20 @@
 2026-07-22 Ollama-first local model decision and supersedes the direct-GGUF
 onboarding portions of the 2026-07-21 Optional AI plan.
 
+**Current scope correction:** A later owner decision on 2026-07-22 removes the
+advanced direct-GGUF fallback and every bundled or application-managed
+llama.cpp path. The shipped backends are fixed-loopback Ollama and the curated
+API only. Direct-GGUF language below is retained solely as historical
+implementation context; the holistic remediation plan owns its deletion.
+
 ## Objective
 
 Restore the proven Ollama recipe path as the normal Local AI experience. When
 the user opens Optional AI Settings, the application discovers models already
 installed in the fixed local Ollama service, presents those models by name, and
 lets the user test and enable one. The application has no model-download path.
-The existing private GGUF picker and pinned llama.cpp runtime remain available
-only inside a labelled advanced fallback.
+The private GGUF picker and pinned llama.cpp runtime described by the original
+plan are superseded historical implementation and are not release scope.
 
 ## Product and Safety Boundaries
 
