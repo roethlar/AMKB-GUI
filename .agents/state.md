@@ -242,7 +242,25 @@
   New first-paint and procedural-projection regressions were each proven red
   with their implementation temporarily removed. No model was downloaded or
   invoked; no external provider call, production credential-store write,
-  native app build, or hardware write was made.
+  native app build, or hardware write was made. Task 9's native llama.cpp
+  packaging and offline release checks landed in `8c9017e`. The versioned
+  builder produced macOS arm64 `0.1.27`; the signed app and DMG passed frozen
+  smoke with AI disabled, fake local and API recipe adapters, deterministic
+  render/mapping, real FFmpeg media processing, and loopback UI loading. The
+  bundle's final signed `llama-cli` and `llama-server` bytes match their
+  attestation, the pinned manifest and MIT notice are present, and direct scans
+  found zero GGUF weights, private settings/model-selection files, or credential
+  patterns. The already-present Qwen3 4B Q4_K_M file then passed a non-gating
+  real local smoke through temporary private selection, 37/37 Metal layer
+  offload, strict recipe generation, exact rendering, and Relic mapping; the
+  model file was not downloaded, copied, changed, or deleted. Full repository
+  verification passed at `8c9017e` with 341 Python tests (two prepared-runtime
+  integration skips) and 22 browser tests. Historical Library acceptance is
+  covered by those Python and browser suites. Manual wide, narrow, and zoomed
+  visual inspection remains unrun because the host denied both display capture
+  and Safari automation; automated browser checks cover disabled/ready
+  visibility, narrow layout, zoom-safe controls, and reduced motion. No external
+  provider call, production credential write, or hardware write was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -266,13 +284,14 @@
 
 ## Next
 
-- Implement Task 9 of
-  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: bundle and attest
-  the platform runtime without model weights, add disabled-launch network and
-  process checks, exercise frozen fake local/API generation, and record exact
-  platform support. A native versioned build and any real selected-model smoke
-  remain separate release verification; do not initiate a paid API call,
-  download a model, or write hardware.
+- Treat macOS arm64 as the currently native-verified local-AI platform. Run the
+  committed desktop workflow when an outward push is authorized to verify the
+  pinned Windows x86_64 and Linux x86_64 runtime builds; if either native runtime
+  fails its own packaging/smoke gate, ship that platform API-only rather than
+  weakening verification or changing the no-weights rule.
+- Complete manual wide, narrow, and zoomed visual inspection for disabled and
+  ready states on a host that permits display capture or browser automation;
+  this is acceptance evidence, not a gate on user-selected model support.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON

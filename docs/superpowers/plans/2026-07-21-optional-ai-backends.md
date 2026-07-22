@@ -1,11 +1,14 @@
 # Optional AI Backends and Procedural Lighting Generation
 
-**Status:** Product decisions approved on 2026-07-21. Tasks 1–8 landed in
+**Status:** Product decisions approved on 2026-07-21. Tasks 1–9 landed in
 `d7eedc2`, `9780945`, `d748898`, `8721681`, `07260ea`, `2c5b6b6`, and
-`f45d529`, with the hidden-by-default UI in `5e6e8c4`. The owner amended and authorized the
-remaining direction on 2026-07-21: local inference is primary, the application
-never downloads model weights, users select their own local GGUF model, and
-model qualification evidence does not gate the feature.
+`f45d529`, with the hidden-by-default UI in `5e6e8c4` and native runtime
+packaging in `8c9017e`. The owner amended and authorized the remaining direction
+on 2026-07-21: local inference is primary, the application never downloads
+model weights, users select their own local GGUF model, and model qualification
+evidence does not gate the feature. Automated and native release verification
+passed on macOS arm64; manual visual inspection remains pending because the
+verification host denied display capture and Safari automation.
 
 ## Objective
 
