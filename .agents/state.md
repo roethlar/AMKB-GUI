@@ -149,7 +149,15 @@
   Ornith aurora, which passed the new dense quality gate and both Relic mapping
   tracks without inference. Full verification passed at `d7eedc2` with 285
   Python tests (one prepared-runtime integration skip) and 32 browser tests.
-  No model download, provider call, UI change, app build, or hardware write was
+  Task 2's pinned Qwen3 4B Q4_K_M candidate qualification landed in `9780945`.
+  The exact 2,497,280,256-byte model and llama.cpp `b9637` runtime were verified
+  and run offline with all 37 model layers on the owner's M4 Max GPU. Only 6 of
+  12 corpus cases passed the unchanged schema and quality gate within two
+  retries, so the candidate is rejected and no release local-model catalog was
+  created. The machine-readable results and exact-raster pass galleries live in
+  `docs/verification/2026-07-21-qwen3-4b-q4-k-m/`. Full verification passed at
+  `9780945` with 288 Python tests (one prepared-runtime integration skip) and 32
+  browser tests. No provider call, UI change, app build, or hardware write was
   made. No further implementation is authorized yet.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
@@ -174,11 +182,11 @@
 
 ## Next
 
-- Await an explicit go on Task 2 of
-  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: qualify the
-  pinned local-model candidate against the committed corpus before exposing or
-  packaging any AI UI. Do not download the candidate model, change application
-  code, initiate a paid API call, or write hardware without the corresponding
+- Await an explicit go on Task 3 of
+  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: move optional API
+  credentials into fail-closed OS storage and migrate settings to v3. Do not
+  start that work, select another local-model candidate, initiate a paid API
+  call, expose or package AI UI, or write hardware without the corresponding
   authorized implementation slice.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
@@ -187,6 +195,9 @@
 
 ## Blockers
 
+- Local AI has no qualified release model. The pinned Qwen3 4B Q4_K_M candidate
+  failed 6 of 12 corpus cases under the fixed qualification gate; selecting and
+  evaluating a different candidate requires a new approved task.
 - Hardware checks require corresponding owner-supplied devices; they are not
   required for the offline suite.
 - Native Windows ACL verification for a pre-existing library `jobs` directory
