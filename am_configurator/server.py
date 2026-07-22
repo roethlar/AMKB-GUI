@@ -1337,6 +1337,10 @@ class _State:
         lighting_library: Any = None,
         lighting_coordinator: Any = None,
         lighting_dependencies: dict[str, Any] | None = None,
+        ai_capability: Any = None,
+        local_model_manager: Any = None,
+        credential_store: Any = None,
+        procedural_coordinator: Any = None,
     ) -> None:
         if (lighting_library is None) != (lighting_coordinator is None):
             raise ValueError(
@@ -1361,6 +1365,13 @@ class _State:
         self._lighting_library = lighting_library
         self._lighting_coordinator = lighting_coordinator
         self._lighting_dependencies = dict(lighting_dependencies or {})
+        self._ai_capability = ai_capability
+        self._local_model_manager = local_model_manager
+        self._credential_store = credential_store
+        self._procedural_coordinator = procedural_coordinator
+        self._procedural_library_identity: int | None = (
+            id(lighting_library) if procedural_coordinator is not None else None
+        )
         from .generation import _PROCESS_OPERATION_GATE
 
         self._generation_gate = self._lighting_dependencies.get(
@@ -1377,6 +1388,72 @@ class _State:
         self._job: dict[str, Any] | None = None
         self._worker: threading.Thread | None = None
 
+    def ai_services(self) -> tuple[Any, Any]:
+        """Return one capability service and the model manager it owns."""
+        if self._local_model_manager is None:
+            from .local_model import LocalModelManager
+
+            self._local_model_manager = LocalModelManager()
+        if self._ai_capability is None:
+            from . import store
+            from .ai_capability import AICapabilityService
+
+            credential_store = self._credential_store
+            self._ai_capability = AICapabilityService(
+                settings_loader=lambda: store.load_settings(
+                    credential_store=credential_store
+                ),
+                model_manager=self._local_model_manager,
+                credential_status_loader=lambda: store.credential_status(
+                    credential_store=credential_store
+                ),
+                credential_resolver=lambda: store.resolve_xai_key(
+                    credential_store=credential_store
+                ),
+                fingerprint_writer=lambda backend, fingerprint: (
+                    store.set_ai_setup_fingerprint(
+                        backend,
+                        fingerprint,
+                        credential_store=credential_store,
+                    )
+                ),
+                ai_settings_writer=lambda values, **kwargs: store.update_ai_settings(
+                    values,
+                    credential_store=credential_store,
+                    **kwargs,
+                ),
+            )
+        return self._ai_capability, self._local_model_manager
+
+    def procedural_services(self) -> tuple[Any, Any]:
+        """Return the current Library and its local-first procedural coordinator."""
+        from .library import GeneratedAssetLibrary
+
+        library, _legacy = self.lighting_services()
+        if (
+            self._procedural_coordinator is not None
+            and self._procedural_library_identity == id(library)
+        ):
+            return library, self._procedural_coordinator
+        if not isinstance(library, GeneratedAssetLibrary):
+            raise RuntimeError("Procedural generation services are unavailable.")
+        from .procedural_generation import ProceduralGenerationCoordinator
+
+        capability, _manager = self.ai_services()
+        self._procedural_coordinator = ProceduralGenerationCoordinator(
+            library,
+            capability,
+            operation_gate=self._generation_gate,
+        )
+        self._procedural_library_identity = id(library)
+        return library, self._procedural_coordinator
+
+    def close(self) -> None:
+        capability = self._ai_capability
+        close = getattr(capability, "close", None)
+        if callable(close):
+            close()
+
     def lighting_services(self) -> tuple[Any, Any]:
         """Return durable services, refreshing idle production roots from Settings."""
         if self._lighting_root_signature is None and self._lighting_library is not None:
@@ -1391,9 +1468,16 @@ class _State:
         signature = (current_root, *roots)
         with self._lighting_lock:
             active = getattr(self._lighting_coordinator, "active_job_id", None)
+            procedural_active = getattr(
+                self._procedural_coordinator, "active_job_id", None
+            )
             if (
                 self._lighting_library is not None
-                and (self._lighting_root_signature == signature or active is not None)
+                and (
+                    self._lighting_root_signature == signature
+                    or active is not None
+                    or procedural_active is not None
+                )
             ):
                 return self._lighting_library, self._lighting_coordinator
             library = GeneratedAssetLibrary(current_root, roots)
@@ -1415,7 +1499,9 @@ class _State:
             return []
 
         _library, coordinator = self.lighting_services()
-        api_key = store.resolve_xai_key()
+        api_key = store.resolve_xai_key(
+            credential_store=self._credential_store
+        )
         key_fingerprint = (
             hashlib.sha256(api_key.encode("utf-8")).digest() if api_key else None
         )
@@ -1428,7 +1514,12 @@ class _State:
             # claim, allowing the next safe trigger to retry.
             self._lighting_reconcile_signature = signature
         try:
-            return coordinator.reconcile_startup(api_key=api_key)
+            actions = coordinator.reconcile_startup(api_key=api_key)
+            try:
+                _procedural_library, procedural = self.procedural_services()
+            except RuntimeError:
+                return actions
+            return [*actions, *procedural.reconcile_startup()]
         except GenerationBusyError:
             with self._lighting_lock:
                 if self._lighting_reconcile_signature == signature:
@@ -1636,6 +1727,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _lighting_error(self, exc: Exception) -> bool:
         from . import llm
+        from .ai_capability import AICapabilityError
         from .generation import (
             GenerationBusyError,
             GenerationNotActiveError,
@@ -1647,6 +1739,17 @@ class _Handler(BaseHTTPRequestHandler):
             LibraryRootError,
             ManifestError,
         )
+        from .local_model import LocalModelError
+
+        if isinstance(exc, AICapabilityError):
+            self._json(
+                {"code": exc.reason, "error": "Optional AI is not ready."},
+                HTTPStatus.CONFLICT,
+            )
+            return True
+        if isinstance(exc, LocalModelError):
+            self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return True
 
         if isinstance(exc, llm.ProviderError):
             payload: dict[str, Any] = {
@@ -1687,8 +1790,23 @@ class _Handler(BaseHTTPRequestHandler):
             HTTPStatus.INTERNAL_SERVER_ERROR,
         )
 
+    @staticmethod
+    def _is_ai_path(path: str) -> bool:
+        return path.startswith("/api/ai/") or path in {
+            "/api/settings/ai",
+            "/api/settings/credential",
+        }
+
+    def _ai_internal_error(self, exc: Exception) -> None:
+        self.log_error("Unhandled optional AI request error: %s", type(exc).__name__)
+        self._json(
+            {"error": "The optional AI request failed unexpectedly."},
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+        )
+
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path.startswith("/api/"):
             if not self._authorized():
                 self._json({"error": "Unauthorized local request."}, HTTPStatus.FORBIDDEN)
@@ -1707,16 +1825,26 @@ class _Handler(BaseHTTPRequestHandler):
                     self._json(_settings_view())
                 elif path == "/api/led/capabilities":
                     self._json(_capabilities())
+                elif path == "/api/ai/status":
+                    if parsed.query:
+                        raise ValueError(
+                            "The optional AI status route does not accept query fields."
+                        )
+                    capability, _manager = self.state.ai_services()
+                    self._json(capability.status())
                 elif path.startswith("/api/lighting/"):
-                    self._lighting_get(path, urlparse(self.path).query)
+                    self._lighting_get(path, parsed.query)
                 elif path == "/api/led/generate/status":
-                    self._generation_status(urlparse(self.path).query)
+                    self._generation_status(parsed.query)
                 else:
                     self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
             except Exception as exc:  # noqa: BLE001 - API boundary
-                if path.startswith("/api/lighting/"):
+                if path.startswith("/api/lighting/") or self._is_ai_path(path):
                     if not self._lighting_error(exc):
-                        self._lighting_internal_error(exc)
+                        if self._is_ai_path(path):
+                            self._ai_internal_error(exc)
+                        else:
+                            self._lighting_internal_error(exc)
                 else:
                     self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return
@@ -1778,18 +1906,30 @@ class _Handler(BaseHTTPRequestHandler):
                 self._save_settings_privacy(body)
             elif path == "/api/settings/test":
                 self._test_settings_key(body)
+            elif path == "/api/settings/ai":
+                self._save_ai_settings(body)
+            elif path == "/api/settings/credential":
+                self._save_ai_credential(body)
+            elif path == "/api/ai/test":
+                self._test_ai_backend(body)
+            elif path == "/api/ai/local/select":
+                self._select_local_model(body)
+            elif path == "/api/ai/local/clear":
+                self._clear_local_model(body)
             elif path == "/api/native/choose-library":
                 self._native_choose_library(body)
             elif path == "/api/native/reveal-library":
                 self._native_reveal_library(body)
+            elif path == "/api/lighting/effects":
+                self._start_procedural_effect(body)
             elif path == "/api/lighting/concepts" or path.startswith(
                 "/api/lighting/jobs/"
             ):
                 self._lighting_post(path, body)
             elif path == "/api/led/generate":
-                self._start_generation(body)
+                self._retired_ai_mutation()
             elif path == "/api/led/generate/cancel":
-                self._cancel_generation(body)
+                self._retired_ai_mutation()
             elif path == "/api/device/read":
                 self._read_device(body)
             elif path == "/api/device/write":
@@ -1806,9 +1946,12 @@ class _Handler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
         except Exception as exc:  # noqa: BLE001 - API boundary
-            if path.startswith("/api/lighting/"):
+            if path.startswith("/api/lighting/") or self._is_ai_path(path):
                 if not self._lighting_error(exc):
-                    self._lighting_internal_error(exc)
+                    if self._is_ai_path(path):
+                        self._ai_internal_error(exc)
+                    else:
+                        self._lighting_internal_error(exc)
             else:
                 self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
@@ -1823,6 +1966,173 @@ class _Handler(BaseHTTPRequestHandler):
         missing = required - set(body)
         if unknown or missing:
             raise ValueError("The lighting request body has unsupported fields.")
+
+    def _require_ai_idle(self) -> None:
+        if self.state._generation_gate.is_active:
+            from .generation import GenerationBusyError
+
+            raise GenerationBusyError("another generation operation is already active")
+
+    def _save_ai_settings(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(
+            body,
+            allowed={"enabled", "backend", "provider", "model_id"},
+        )
+        if not body:
+            raise ValueError("The optional AI settings request is empty.")
+        self._require_ai_idle()
+        capability, _manager = self.state.ai_services()
+        current = capability.status()
+        selected_backend = body.get("backend", current["backend"])
+        selected_provider = body.get("provider", current["api"]["provider"])
+        selected_model = body.get("model_id", current["api"]["model_id"])
+        ready = (
+            current["ready"] is True
+            and selected_backend == current["backend"]
+            and selected_provider == current["api"]["provider"]
+            and selected_model == current["api"]["model_id"]
+        )
+        store.update_ai_settings(
+            body,
+            ready=ready,
+            credential_store=self.state._credential_store,
+        )
+        self._json(capability.status())
+
+    def _save_ai_credential(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(
+            body,
+            allowed={"provider", "key"},
+            required={"provider", "key"},
+        )
+        self._require_ai_idle()
+        store.update_api_key(
+            body,
+            credential_store=self.state._credential_store,
+        )
+        capability, _manager = self.state.ai_services()
+        self._json(capability.status())
+
+    def _test_ai_backend(self, body: dict[str, Any]) -> None:
+        self._strict_body(
+            body,
+            allowed={"backend"},
+            required={"backend"},
+        )
+        capability, _manager = self.state.ai_services()
+        token, cancelled = self.state._generation_gate.begin("ai-setup-test")
+        try:
+            status = capability.test_and_enable(
+                body["backend"],
+                deadline=time.monotonic() + 180.0,
+                cancelled=cancelled.is_set,
+            )
+        finally:
+            self.state._generation_gate.finish(token)
+        self._json(status)
+
+    def _select_local_model(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(body, allowed=set())
+        self._require_ai_idle()
+        bridge = self.state.desktop_bridge
+        chooser = getattr(bridge, "_choose_local_model", None)
+        if not callable(chooser):
+            self._json(
+                {"error": "The native local-model chooser is unavailable."},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+        selected = chooser()
+        capability, manager = self.state.ai_services()
+        if selected is not None:
+            capability.close()
+            manager.select(selected)
+            store.set_ai_setup_fingerprint(
+                "local",
+                None,
+                credential_store=self.state._credential_store,
+            )
+        self._json(capability.status())
+
+    def _clear_local_model(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(body, allowed=set())
+        self._require_ai_idle()
+        capability, manager = self.state.ai_services()
+        capability.close()
+        manager.clear()
+        store.set_ai_setup_fingerprint(
+            "local",
+            None,
+            credential_store=self.state._credential_store,
+        )
+        self._json(capability.status())
+
+    def _active_procedural_target(self) -> dict:
+        config = self.state.config
+        product = config.get("product_info") if isinstance(config, dict) else None
+        product_id = product.get("product_id") if isinstance(product, dict) else None
+        if not isinstance(product_id, str) or not product_id:
+            raise ValueError(
+                "Open or read a compatible device profile before generation."
+            )
+        model = _led_model(product_id)
+        if model == "CB":
+            targets = ["frames"]
+        elif model == "80":
+            targets = ["keyframes", "spotlight_frames"]
+        else:
+            targets = ["keyframes"]
+        return self._lighting_target(product_id, targets)
+
+    def _start_procedural_effect(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(
+            body,
+            allowed={"prompt", "backend", "loop_mode"},
+            required={"prompt", "backend"},
+        )
+        capability, _manager = self.state.ai_services()
+        status = capability.require_ready()
+        if body["backend"] != status["backend"]:
+            self._json(
+                {
+                    "code": "backend_mismatch",
+                    "error": "The selected AI backend changed before generation.",
+                },
+                HTTPStatus.CONFLICT,
+            )
+            return
+        settings = store.load_settings(
+            credential_store=self.state._credential_store
+        )
+        target = self._active_procedural_target()
+        _library, coordinator = self.state.procedural_services()
+        manifest = coordinator.start_effect(
+            prompt=body["prompt"],
+            target=target,
+            loop_mode=body.get(
+                "loop_mode", settings["generation"]["loop_mode"]
+            ),
+        )
+        self._json({"job_id": manifest["job_id"]}, HTTPStatus.ACCEPTED)
+
+    def _retired_ai_mutation(self) -> None:
+        self._json(
+            {
+                "code": "retired",
+                "error": "This legacy AI generation route is retired.",
+            },
+            HTTPStatus.GONE,
+        )
 
     @staticmethod
     def _lighting_settings(*, require_key: bool) -> tuple[dict, str, bool]:
@@ -1863,36 +2173,9 @@ class _Handler(BaseHTTPRequestHandler):
         }
 
     def _lighting_post(self, path: str, body: dict[str, Any]) -> None:
-        from . import ai_catalog, store
-
         library, coordinator = self.state.lighting_services()
         if path == "/api/lighting/concepts":
-            self._strict_body(
-                body,
-                allowed={
-                    "prompt",
-                    "product_id",
-                    "targets",
-                    "candidate_count",
-                    "loop_mode",
-                },
-                required={"prompt", "product_id", "targets"},
-            )
-            settings, key, acknowledged = self._lighting_settings(require_key=True)
-            candidate_count = body.get(
-                "candidate_count", store.LEGACY_CANDIDATE_COUNT
-            )
-            loop_mode = body.get("loop_mode", settings["generation"]["loop_mode"])
-            manifest = coordinator.start_concepts(
-                prompt=body["prompt"],
-                candidate_count=candidate_count,
-                target=self._lighting_target(body["product_id"], body["targets"]),
-                models=ai_catalog.DEFAULT_MODELS,
-                loop_mode=loop_mode,
-                api_key=key,
-                privacy_acknowledged=acknowledged,
-            )
-            self._json({"job_id": manifest["job_id"]}, HTTPStatus.ACCEPTED)
+            self._retired_ai_mutation()
             return
 
         parts = path.strip("/").split("/")
@@ -1900,46 +2183,19 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
             return
         job_id, action = parts[3], parts[4]
+        if action in {"concepts", "animate", "process"}:
+            self._retired_ai_mutation()
+            return
         # Resolve through the manifest boundary before any coordinator action;
         # this validates canonical IDs and historical-root ownership uniformly.
-        library.load_manifest(job_id)
-        if action == "concepts":
-            self._strict_body(body, allowed={"candidate_count"})
-            settings, key, acknowledged = self._lighting_settings(require_key=True)
-            manifest = coordinator.more_like_this(
-                job_id,
-                candidate_count=body.get(
-                    "candidate_count", store.LEGACY_CANDIDATE_COUNT
-                ),
-                api_key=key,
-                privacy_acknowledged=acknowledged,
-            )
-            status = HTTPStatus.ACCEPTED
-        elif action == "animate":
-            self._strict_body(
-                body,
-                allowed={"candidate_id", "motion", "loop_mode"},
-                required={"candidate_id"},
-            )
-            settings, key, acknowledged = self._lighting_settings(require_key=True)
-            manifest = coordinator.start_animation(
-                job_id,
-                candidate_id=body["candidate_id"],
-                motion=body.get("motion"),
-                loop_mode=body.get(
-                    "loop_mode", settings["generation"]["loop_mode"]
-                ),
-                api_key=key,
-                privacy_acknowledged=acknowledged,
-            )
-            status = HTTPStatus.ACCEPTED
-        elif action == "process":
+        manifest = library.load_manifest(job_id)
+        if action == "cancel":
             self._strict_body(body, allowed=set())
-            manifest = coordinator.retry_local(job_id)
-            status = HTTPStatus.ACCEPTED
-        elif action == "cancel":
-            self._strict_body(body, allowed=set())
-            manifest = coordinator.cancel(job_id)
+            if manifest.get("pipeline") == "procedural":
+                _procedural_library, procedural = self.state.procedural_services()
+                manifest = procedural.cancel(job_id)
+            else:
+                manifest = coordinator.cancel(job_id)
             status = HTTPStatus.OK
         else:
             self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
@@ -2543,6 +2799,12 @@ class _Server(ThreadingHTTPServer):
         self.server_name = "localhost"
         self.server_port = int(self.server_address[1])
 
+    def server_close(self) -> None:
+        try:
+            self.state.close()
+        finally:
+            super().server_close()
+
 
 def create_server(
     config_paths: list[str] | None = None,
@@ -2552,13 +2814,18 @@ def create_server(
     lighting_library: Any = None,
     lighting_coordinator: Any = None,
     lighting_dependencies: dict[str, Any] | None = None,
+    ai_capability: Any = None,
+    local_model_manager: Any = None,
+    credential_store: Any = None,
+    procedural_coordinator: Any = None,
 ) -> tuple[_Server, str]:
     """Create the loopback configurator server without starting its event loop.
 
     ``llm_factories`` overrides the legacy interpreter/renderer factory map.
-    Lighting tests may inject a complete ``lighting_library``/coordinator pair,
-    or just ``lighting_dependencies`` for the production coordinator. These
-    seams keep endpoint tests offline while production resolves real providers.
+    Tests may inject complete legacy/procedural coordinators, the capability
+    service, model manager, and credential store, or just dependency maps for
+    production construction. These seams keep endpoint tests offline while
+    production resolves real providers.
     """
     configs: list[dict[str, Any]] = []
     for raw_path in config_paths or []:
@@ -2579,6 +2846,10 @@ def create_server(
         lighting_library=lighting_library,
         lighting_coordinator=lighting_coordinator,
         lighting_dependencies=lighting_dependencies,
+        ai_capability=ai_capability,
+        local_model_manager=local_model_manager,
+        credential_store=credential_store,
+        procedural_coordinator=procedural_coordinator,
     )
     state.reconcile_lighting(force=True)
     server = _Server(("127.0.0.1", port), state)

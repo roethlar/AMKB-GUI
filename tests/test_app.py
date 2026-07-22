@@ -3415,186 +3415,26 @@ class LedGenerateEndpointTests(unittest.TestCase):
         body.update(overrides)
         return self._request("POST", "/api/led/generate", body)
 
-    def test_generate_lifecycle(self) -> None:
-        try:
-            from PIL import Image
-        except ModuleNotFoundError:
-            self.skipTest("Pillow is provided by the led extra")
+    def test_legacy_generation_mutations_are_retired(self) -> None:
         self._save_key("sk-gen-ABCD1234")
-        interp = _FakeGenInterpreter(plan=self._plan())
-        rend = _FakeGenRenderer(
-            image_for=lambda i: Image.new("RGB", (40, 5), (i * 20, 0, 0))
-        )
-        self._install_fakes(interp, rend)
+        interpreter = _FakeGenInterpreter(plan=self._plan())
+        renderer = _FakeGenRenderer(image_for=lambda _index: None)
+        self._install_fakes(interpreter, renderer)
 
-        status, data = self._generate()
-        self.assertEqual(status, 200)
-        job_id = data["job_id"]
-        self.assertTrue(job_id)
-
-        # Deterministic: join the worker, then read the final status once.
-        self._server.state.join_generation(5)
-        status, data = self._request(
-            "GET", f"/api/led/generate/status?job={job_id}"
-        )
-        self.assertEqual(status, 200)
-        self.assertEqual(data["status"], "done")
-        # Result-shape parity with /api/led/gif plus plan + usage (design §3).
-        self.assertEqual(data["tracks"]["frames"]["frame_count"], 6)
-        self.assertEqual(data["model"], "CB")
-        self.assertEqual(data["source_frames"], 6)
-        self.assertEqual(data["decoded_frames"], 6)
-        self.assertEqual(data["duration_ms"], 100)
-        self.assertEqual(data["source_duration_ms"], 6 * 100)
-        self.assertIs(data["timing_resampled"], False)
-        self.assertEqual(data["plan"]["subject"], "pac-man")
-        self.assertEqual(data["plan"]["rendered_keyframes"], 3)
-        self.assertEqual(data["usage"]["provider_calls"], 1 + 3)
-        # Exactly one interpret call and one render call for this generation.
-        self.assertEqual(len(interp.calls), 1)
-        self.assertEqual(len(rend.calls), 1)
-
-    def test_single_flight(self) -> None:
-        self._save_key("sk-gen-ABCD1234")
-        started, release = threading.Event(), threading.Event()
-        interp = _BlockingGenInterpreter(self._plan(), started, release)
-        rend = _FakeGenRenderer(image_for=lambda i: None)
-        self._install_fakes(interp, rend)
-        try:
-            status, _ = self._generate()
-            self.assertEqual(status, 200)
-            self.assertTrue(started.wait(2))
-            # A second start while the first job is still running → 409.
-            status, _ = self._generate(prompt="second")
-            self.assertEqual(status, 409)
-        finally:
-            release.set()
-        self._server.state.join_generation(5)
-        # Only the first job's provider call ever happened.
-        self.assertEqual(len(interp.calls), 1)
-
-    def test_cancel(self) -> None:
-        self._save_key("sk-gen-ABCD1234")
-        started, release = threading.Event(), threading.Event()
-        interp = _BlockingGenInterpreter(self._plan(), started, release)
-        rend = _FakeGenRenderer(image_for=lambda i: None)
-        self._install_fakes(interp, rend)
-
-        status, data = self._generate()
-        self.assertEqual(status, 200)
-        job_id = data["job_id"]
-        self.assertTrue(started.wait(2))
-
-        status, _ = self._request("POST", "/api/led/generate/cancel", {})
-        self.assertEqual(status, 200)
-        release.set()  # interpret returns; generate_effect then sees the cancel flag
-        self._server.state.join_generation(5)
-
-        status, data = self._request(
-            "GET", f"/api/led/generate/status?job={job_id}"
-        )
-        self.assertEqual(status, 200)
-        self.assertEqual(data["status"], "cancelled")
-        # Cancel fired before any keyframe render, and nothing page-affecting moved.
-        self.assertEqual(rend.calls, [])
-        self.assertIsNone(self._server.state.config)
-
-    def test_validation_first(self) -> None:
-        self._save_key("sk-gen-ABCD1234")
-        interp = _FakeGenInterpreter(plan=self._plan())
-        rend = _FakeGenRenderer(image_for=lambda i: None)
-        self._install_fakes(interp, rend)
-
-        # Mixed CyberBoard targets span two rasters → 400 before any provider call.
-        status, _ = self._generate(targets=["frames", "keyframes"])
-        self.assertEqual(status, 400)
-        # Unknown target → 400.
-        status, _ = self._generate(targets=["bogus"])
-        self.assertEqual(status, 400)
-        # A rejected request never reaches the interpreter.
-        self.assertEqual(interp.calls, [])
-
-        # frame_count above the model cap is clamped to MODEL_FRAME_CAPS[model].
-        try:
-            from PIL import Image
-        except ModuleNotFoundError:
-            self.skipTest("Pillow is provided by the led extra")
-        interp = _FakeGenInterpreter(plan=self._plan())
-        rend = _FakeGenRenderer(
-            image_for=lambda i: Image.new("RGB", (40, 5), (0, 0, 0))
-        )
-        self._install_fakes(interp, rend)
-        status, _ = self._generate(frame_count=9999)
-        self.assertEqual(status, 200)
-        self._server.state.join_generation(5)
-        self.assertEqual(len(interp.calls), 1)
-        self.assertEqual(
-            interp.calls[0]["spec"].max_frames, llm.MODEL_FRAME_CAPS["CB"]
-        )
-
-    def test_missing_key_hint(self) -> None:
-        # setUp cleared XAI_API_KEY and points at a temp data dir: no key exists.
-        self.assertIsNone(store.resolve_xai_key())
-        interp = _FakeGenInterpreter(plan=self._plan())
-        rend = _FakeGenRenderer(image_for=lambda i: None)
-        self._install_fakes(interp, rend)
-        status, data = self._generate()
-        self.assertEqual(status, 400)
-        self.assertIn("Settings", data["error"])
-        # The guard fires before any provider work.
-        self.assertEqual(interp.calls, [])
-
-    def test_provider_error_mapping(self) -> None:
-        self._save_key("sk-gen-ABCD1234")
-        cases = [
-            (llm.ProviderError("rate_limited", "slow down", retry_after=7), 429, 7),
-            (llm.ProviderError("timeout", "too slow"), 504, None),
-            (llm.ProviderError("offline", "no network"), 503, None),
-            (llm.ProviderError("bad_response", "garbage"), 502, None),
-        ]
-        for error, http_status, retry in cases:
-            with self.subTest(code=error.code):
-                interp = _FakeGenInterpreter(error=error)
-                rend = _FakeGenRenderer(image_for=lambda i: None)
-                self._install_fakes(interp, rend)
-                status, data = self._generate()
-                self.assertEqual(status, 200)
-                job_id = data["job_id"]
-                self._server.state.join_generation(5)
-                status, data = self._request(
-                    "GET", f"/api/led/generate/status?job={job_id}"
-                )
-                self.assertEqual(status, http_status)
-                self.assertEqual(data["status"], "error")
-                self.assertEqual(data["code"], error.code)
-                if retry is not None:
-                    self.assertEqual(data["retry_after"], retry)
-
-    def test_no_device_writes(self) -> None:
-        try:
-            from PIL import Image
-        except ModuleNotFoundError:
-            self.skipTest("Pillow is provided by the led extra")
-        self._save_key("sk-gen-ABCD1234")
-        interp = _FakeGenInterpreter(plan=self._plan())
-        rend = _FakeGenRenderer(
-            image_for=lambda i: Image.new("RGB", (40, 5), (0, 0, 0))
-        )
-        self._install_fakes(interp, rend)
-        with patch("am_configurator.writer.write_config") as write_config, \
-                patch("am_configurator.macros.write_macros") as write_macros, \
-                patch("am_configurator.reader.read_keymap") as read_keymap, \
-                patch.object(server, "_probe_keyboard") as probe:
-            status, data = self._generate()
-            self.assertEqual(status, 200)
-            job_id = data["job_id"]
-            self._server.state.join_generation(5)
-            self._request("GET", f"/api/led/generate/status?job={job_id}")
-            self._request("POST", "/api/led/generate/cancel", {})
-            write_config.assert_not_called()
-            write_macros.assert_not_called()
-            read_keymap.assert_not_called()
-            probe.assert_not_called()
+        for path, body in (
+            ("/api/led/generate", {
+                "prompt": "pac-man",
+                "product_id": "CB04",
+                "targets": ["frames"],
+            }),
+            ("/api/led/generate/cancel", {}),
+        ):
+            with self.subTest(path=path):
+                status, data = self._request("POST", path, body)
+                self.assertEqual(410, status)
+                self.assertEqual("retired", data["code"])
+        self.assertEqual([], interpreter.calls)
+        self.assertEqual([], renderer.calls)
 
 
 class _LightingEndpointCoordinator:
@@ -3729,7 +3569,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
             manifest["job_id"], {"status": status, "phase": status}
         )
 
-    def test_routes_are_authenticated_and_create_uses_settings_without_echoing_key(self) -> None:
+    def test_routes_are_authenticated_and_legacy_creation_is_retired(self) -> None:
         paths = (
             ("POST", "/api/lighting/concepts", {"prompt": "p", "product_id": "CB04", "targets": ["frames"]}),
             ("GET", "/api/lighting/library", None),
@@ -3757,15 +3597,10 @@ class LightingStudioEndpointTests(unittest.TestCase):
                     "loop_mode": "smooth",
                 },
             )
-        self.assertEqual(202, status)
-        self.assertEqual({"job_id"}, set(data))
+        self.assertEqual(410, status)
+        self.assertEqual("retired", data["code"])
         self.assertNotIn("sk-lighting-secret", json.dumps(data))
-        name, _args, kwargs = self.coordinator.calls[-1]
-        self.assertEqual("start_concepts", name)
-        self.assertEqual(3, kwargs["candidate_count"])
-        self.assertEqual("sk-lighting-secret", kwargs["api_key"])
-        self.assertTrue(kwargs["privacy_acknowledged"])
-        self.assertEqual(80, kwargs["target"]["frame_cap"])
+        self.assertEqual([], self.coordinator.calls)
         write_config.assert_not_called()
 
     def test_startup_reconciliation_retries_when_a_key_becomes_available(self) -> None:
@@ -3828,35 +3663,12 @@ class LightingStudioEndpointTests(unittest.TestCase):
             time.sleep(0.01)
         self.assertEqual(["sk-deferred-secret"], coordinator.reconcile_calls)
 
-    def test_legacy_and_durable_generation_share_one_admission_gate(self) -> None:
-        try:
-            from PIL import Image
-        except ModuleNotFoundError:
-            self.skipTest("Pillow is provided by the led extra")
-
+    def test_retired_generation_stays_gone_while_admission_is_busy(self) -> None:
         gate = generation.OperationGate()
-        started = threading.Event()
-        release = threading.Event()
-        plan = llm.EffectPlan(
-            subject="violet pulse",
-            palette="violet on black",
-            motion="pulse",
-            frame_count=1,
-            frame_ms=100,
-            keyframe_prompts=("violet pulse",),
-            tween="step",
-            notes="",
-        )
-        interpreter = _BlockingGenInterpreter(plan, started, release)
-        renderer = _FakeGenRenderer(
-            image_for=lambda _index: Image.new("RGB", (40, 5), (20, 0, 40))
-        )
-
         self._server.shutdown()
         self._server.server_close()
         self._thread.join(timeout=2)
         self._server, url = create_server(
-            llm_factories=_gen_factories(interpreter, renderer),
             lighting_dependencies={"operation_gate": gate},
         )
         self._token = parse_qs(urlparse(url).query)["token"][0]
@@ -3872,80 +3684,58 @@ class LightingStudioEndpointTests(unittest.TestCase):
 
         durable_token, _cancelled = gate.begin("durable-test-job")
         try:
-            status, _ = self._request("POST", "/api/led/generate", legacy_body)
+            status, data = self._request("POST", "/api/led/generate", legacy_body)
         finally:
             gate.finish(durable_token)
-        if status != 409:
-            release.set()
-            self._server.state.join_generation(5)
-        self.assertEqual(409, status)
+        self.assertEqual(410, status)
+        self.assertEqual("retired", data["code"])
 
-        status, legacy = self._request("POST", "/api/led/generate", legacy_body)
-        self.assertEqual(200, status)
-        self.assertTrue(started.wait(timeout=2))
-        try:
-            status, _ = self._request(
-                "POST",
-                "/api/lighting/concepts",
-                {"prompt": "p", "product_id": "CB04", "targets": ["frames"]},
-            )
-            self.assertEqual(409, status)
-        finally:
-            self._request(
-                "POST", "/api/led/generate/cancel", {"job": legacy["job_id"]}
-            )
-            release.set()
-            self._server.state.join_generation(5)
-
-    def test_all_mutating_routes_are_strict_and_dispatch_without_device_writes(self) -> None:
+    def test_retired_mutations_and_legacy_cancel_dispatch_without_device_writes(self) -> None:
         job = self._job()
         job_id = job["job_id"]
-        routes = (
-            (f"/api/lighting/jobs/{job_id}/concepts", {"candidate_count": 2}, "more_like_this"),
+        retired = (
+            ("/api/lighting/concepts", {"prompt": "old"}),
+            (f"/api/lighting/jobs/{job_id}/concepts", {"candidate_count": 2}),
             (
                 f"/api/lighting/jobs/{job_id}/animate",
                 {"candidate_id": "00000000-0000-4000-8000-000000000001", "motion": "pulse", "loop_mode": "none"},
-                "start_animation",
             ),
-            (f"/api/lighting/jobs/{job_id}/process", {}, "retry_local"),
-            (f"/api/lighting/jobs/{job_id}/cancel", {}, "cancel"),
+            (f"/api/lighting/jobs/{job_id}/process", {}),
         )
         with patch("am_configurator.writer.write_config") as write_config:
-            for path, body, expected in routes:
+            for path, body in retired:
                 with self.subTest(path=path):
                     status, data = self._request("POST", path, body)
-                    self.assertEqual(202 if expected != "cancel" else 200, status)
-                    self.assertEqual(job_id, data["job_id"])
-                    self.assertEqual(expected, self.coordinator.calls[-1][0])
+                    self.assertEqual(410, status)
+                    self.assertEqual("retired", data["code"])
+            status, data = self._request(
+                "POST", f"/api/lighting/jobs/{job_id}/cancel", {}
+            )
+            self.assertEqual(200, status)
+            self.assertEqual(job_id, data["job_id"])
+            self.assertEqual("cancel", self.coordinator.calls[-1][0])
             write_config.assert_not_called()
 
-        bad_bodies = (
-            ("/api/lighting/concepts", {"prompt": "p", "product_id": "CB04", "targets": ["frames"], "extra": True}),
-            (f"/api/lighting/jobs/{job_id}/concepts", {"candidate_count": 2, "extra": True}),
-            (f"/api/lighting/jobs/{job_id}/animate", {"candidate_id": "x", "extra": True}),
-            (f"/api/lighting/jobs/{job_id}/process", {"extra": True}),
-            (f"/api/lighting/jobs/{job_id}/cancel", {"extra": True}),
-        )
         before = len(self.coordinator.calls)
-        for path, body in bad_bodies:
-            with self.subTest(path=path):
-                status, _ = self._request("POST", path, body)
-                self.assertEqual(400, status)
+        status, _ = self._request(
+            "POST", f"/api/lighting/jobs/{job_id}/cancel", {"extra": True}
+        )
+        self.assertEqual(400, status)
         status, _ = self._request(
             "POST", "/api/lighting/jobs/not-a-job/cancel", {}
         )
         self.assertEqual(400, status)
         self.assertEqual(before, len(self.coordinator.calls))
 
-    def test_generation_errors_map_to_safe_http_statuses(self) -> None:
+    def test_retired_creation_never_dispatches_provider_errors(self) -> None:
         cases = (
-            (LibraryRootError("library unavailable"), 400),
-            (generation.GenerationBusyError("busy"), 409),
-            (generation.GenerationNotActiveError("not active"), 409),
-            (llm.ProviderError("rate_limited", "slow", retry_after=9), 429),
-            (llm.ProviderError("unavailable", "provider unavailable"), 502),
+            LibraryRootError("library unavailable"),
+            generation.GenerationBusyError("busy"),
+            generation.GenerationNotActiveError("not active"),
+            llm.ProviderError("rate_limited", "slow", retry_after=9),
+            llm.ProviderError("unavailable", "provider unavailable"),
         )
-        for error, expected in cases:
+        for error in cases:
             with self.subTest(error=type(error).__name__):
                 self.coordinator.failure = error
                 status, data = self._request(
@@ -3953,25 +3743,14 @@ class LightingStudioEndpointTests(unittest.TestCase):
                     "/api/lighting/concepts",
                     {"prompt": "p", "product_id": "CB04", "targets": ["frames"]},
                 )
-                self.assertEqual(expected, status)
+                self.assertEqual(410, status)
+                self.assertEqual("retired", data["code"])
                 self.assertNotIn("sk-lighting-secret", json.dumps(data))
-                if isinstance(error, llm.ProviderError):
-                    self.assertEqual(error.code, data["code"])
+                self.assertEqual([], self.coordinator.calls)
         self.coordinator.failure = None
 
     def test_unexpected_lighting_errors_never_expose_local_paths(self) -> None:
         secret_path = self.root / "jobs" / "private-video.mp4"
-        self.coordinator.failure = OSError(f"cannot read {secret_path}")
-        status, response = self._request(
-            "POST",
-            "/api/lighting/concepts",
-            {"prompt": "p", "product_id": "CB04", "targets": ["frames"]},
-        )
-        self.assertEqual(500, status)
-        self.assertNotIn(str(self.root), json.dumps(response))
-        self.assertEqual("The Lighting request failed unexpectedly.", response["error"])
-        self.coordinator.failure = None
-
         job_id = "00000000-0000-4000-8000-000000000000"
         asset_id = "00000000-0000-4000-8000-000000000001"
         with patch.object(
@@ -4118,63 +3897,17 @@ class LightingStudioEndpointTests(unittest.TestCase):
         )
         self.assertEqual(404, status)
 
-    def test_create_server_injects_the_complete_offline_generation_stack(self) -> None:
-        try:
-            from PIL import Image
-        except ModuleNotFoundError:
-            self.skipTest("Pillow is provided by the led extra")
-
+    def test_retired_creation_never_constructs_the_injected_legacy_stack(self) -> None:
         planner_calls = []
         image_calls = []
-        png = io.BytesIO()
-        with Image.new("RGB", (20, 9), (10, 20, 30)) as source:
-            source.save(png, format="PNG")
-        png_bytes = png.getvalue()
-
-        class Planner:
-            def plan(self, prompt, count, deadline, *, spec=None):
-                planner_calls.append((prompt, count, deadline, spec))
-                return llm.ConceptPlanResult(
-                    llm.ConceptPlan("one brief", tuple(f"candidate {i}" for i in range(count))),
-                    llm.ProviderUsage(10, True),
-                )
-
-        class Images:
-            def generate_one(self, prompt, deadline):
-                image_calls.append((prompt, deadline))
-                return llm.ConceptImageResult(
-                    original_bytes=png_bytes,
-                    metadata=llm.ImageMetadata(
-                        format="PNG",
-                        mime_type="image/png",
-                        width=20,
-                        height=9,
-                        revised_prompt=None,
-                    ),
-                    image=Image.open(io.BytesIO(png_bytes)).convert("RGB"),
-                    usage=llm.ProviderUsage(20, True),
-                )
-
-        class CompletedWorker:
-            def join(self, _timeout=None):
-                return None
-
-            def is_alive(self):
-                return False
-
-        def immediate(target):
-            target()
-            return CompletedWorker()
-
         self._server.shutdown()
         self._server.server_close()
         self._thread.join(timeout=2)
         self._server, url = create_server(
             lighting_dependencies={
-                "planner_factory": lambda _key, _model: Planner(),
-                "image_provider_factory": lambda _key, _model: Images(),
+                "planner_factory": lambda *_args: planner_calls.append(_args),
+                "image_provider_factory": lambda *_args: image_calls.append(_args),
                 "operation_gate": generation.OperationGate(),
-                "launcher": immediate,
             }
         )
         self._token = parse_qs(urlparse(url).query)["token"][0]
@@ -4182,29 +3915,13 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
 
-        with patch("am_configurator.writer.write_config") as write_config:
-            status, started = self._request(
-                "POST",
-                "/api/lighting/concepts",
-                {
-                    "prompt": "offline violet",
-                    "product_id": "CB04",
-                    "targets": ["frames"],
-                    "candidate_count": 1,
-                },
-            )
-            self.assertEqual(202, status)
-            status, snapshot = self._request(
-                "GET", f"/api/lighting/jobs/{started['job_id']}"
-            )
-        self.assertEqual(200, status)
-        self.assertEqual("awaiting_selection", snapshot["status"])
-        self.assertEqual(1, len(snapshot["candidates"]))
-        self.assertEqual(1, len(planner_calls))
-        self.assertIsInstance(planner_calls[0][3], llm.RasterSpec)
-        self.assertEqual((40, 5), (planner_calls[0][3].width, planner_calls[0][3].height))
-        self.assertEqual(1, len(image_calls))
-        write_config.assert_not_called()
+        status, response = self._request(
+            "POST", "/api/lighting/concepts", {"prompt": "offline violet"}
+        )
+        self.assertEqual(410, status)
+        self.assertEqual("retired", response["code"])
+        self.assertEqual([], planner_calls)
+        self.assertEqual([], image_calls)
 
     def test_static_csp_allows_only_local_media(self) -> None:
         request = Request(self._base + "/", method="GET")

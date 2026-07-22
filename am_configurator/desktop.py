@@ -29,6 +29,13 @@ def _folder_dialog_type() -> Any:
     return webview.FileDialog.FOLDER
 
 
+def _model_dialog_type() -> Any:
+    """Resolve pywebview's file-open enum without making it a base install."""
+    import webview
+
+    return webview.FileDialog.OPEN
+
+
 def _open_reveal_target(target: Path) -> None:
     """Open a validated target in the platform file manager."""
     system = platform.system()
@@ -51,11 +58,11 @@ def _open_reveal_target(target: Path) -> None:
 
 
 class DesktopBridge:
-    """Narrow native bridge for choosing and revealing library locations.
+    """Narrow native bridge for model/library selection and Library reveal.
 
     Settings persistence intentionally remains behind the authenticated loopback
-    HTTP API. Only these two public methods are exposed to JavaScript by
-    pywebview.
+    HTTP API. Only these narrow chooser/reveal methods are exposed to JavaScript
+    by pywebview.
     """
 
     def __init__(
@@ -88,6 +95,37 @@ class DesktopBridge:
         try:
             path = Path(raw).expanduser()
             if not path.is_absolute() or not path.is_dir():
+                return None
+            return str(path.resolve(strict=True))
+        except (OSError, RuntimeError):
+            return None
+
+    def _choose_local_model(self) -> str | None:
+        """Return a native-picked GGUF path only to the loopback server.
+
+        The leading underscore keeps pywebview from exposing this path-returning
+        method to browser JavaScript.
+        """
+        if self._window is None:
+            return None
+        selected = self._window.create_file_dialog(
+            dialog_type=_model_dialog_type(),
+            allow_multiple=False,
+            file_types=("GGUF model (*.gguf)",),
+        )
+        if not selected:
+            return None
+        raw = selected if isinstance(selected, str) else selected[0]
+        if not isinstance(raw, str) or not raw:
+            return None
+        try:
+            path = Path(raw).expanduser()
+            if (
+                not path.is_absolute()
+                or path.suffix.lower() != ".gguf"
+                or path.is_symlink()
+                or not path.is_file()
+            ):
                 return None
             return str(path.resolve(strict=True))
         except (OSError, RuntimeError):
@@ -217,6 +255,104 @@ def _run_llm_generation_smoke() -> None:
         raise SystemExit("Desktop smoke test failed: offline LLM generation was invalid.")
 
 
+def _run_local_recipe_smoke() -> None:
+    """Exercise the production local recipe adapter through a fake runtime."""
+    from . import procedural
+    from .recipe_provider import (
+        ManagedLocalRecipeProvider,
+        RecipeRequest,
+    )
+
+    recipe = {
+        "schema_version": 1,
+        "name": "Offline local smoke",
+        "density": "dense",
+        "background": "#080810",
+        "palette": ["#00E5C9", "#8B4FFF"],
+        "layers": [{
+            "kind": "wave",
+            "color_index": 0,
+            "secondary_color_index": 1,
+            "speed": 1,
+            "phase": 0.25,
+            "direction_degrees": 45.0,
+            "center_x": 0.5,
+            "center_y": 0.5,
+            "scale": 1.2,
+            "width": 0.8,
+            "trail": 0.6,
+            "count": 3,
+            "intensity": 1.0,
+            "seed": 42,
+        }],
+    }
+    runtime = object()
+
+    class ModelManager:
+        @staticmethod
+        def resolve_selected():
+            return type("SmokeModel", (), {"filename": "smoke.gguf"})()
+
+    class FakeRuntime:
+        calls: list[tuple] = []
+        closed = False
+
+        def complete(self, *args):
+            self.calls.append(args)
+            return {
+                "choices": [{
+                    "message": {"content": json.dumps(recipe)}
+                }]
+            }
+
+        def close(self):
+            self.closed = True
+
+    fake_runtime = FakeRuntime()
+    provider = ManagedLocalRecipeProvider(
+        model_manager=ModelManager(),
+        runtime_resolver=lambda: runtime,
+        server=fake_runtime,
+    )
+    try:
+        result = provider.generate(
+            RecipeRequest(
+                prompt="offline local smoke test",
+                width=18,
+                height=7,
+                frame_count=32,
+                density_default="dense",
+            ),
+            time.monotonic() + 10,
+            lambda: False,
+        )
+        frames = procedural.render_recipe(
+            result.recipe,
+            width=18,
+            height=7,
+            frame_count=32,
+        )
+        mapped = procedural.map_frames_to_led_tracks(
+            frames,
+            duration_ms=34,
+            product_id="AM21",
+            targets=["keyframes", "spotlight_frames"],
+        )
+        if (
+            result.model_id != "smoke.gguf"
+            or len(fake_runtime.calls) != 1
+            or mapped.get("source_frames") != 32
+            or mapped.get("duration_ms") != 34
+        ):
+            raise SystemExit(
+                "Desktop smoke test failed: fake local recipe generation was invalid."
+            )
+    finally:
+        provider.close()
+    if not fake_runtime.closed:
+        raise SystemExit("Desktop smoke test failed: fake local runtime stayed open.")
+
+
 def _run_ffmpeg_media_smoke() -> None:
     """Resolve the bundled runtime and process real MP4 frames fully offline."""
     from .ffmpeg_runtime import get_ffmpeg_runtime
@@ -274,6 +410,7 @@ def run_smoke_test() -> int:
 
     tls_context = ssl.create_default_context()
     _run_llm_generation_smoke()
+    _run_local_recipe_smoke()
     _run_ffmpeg_media_smoke()
     if os.environ.get("AM_SMOKE_NET") == "1":
         request = Request("https://example.com/", method="HEAD")
