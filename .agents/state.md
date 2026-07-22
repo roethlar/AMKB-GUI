@@ -226,7 +226,23 @@
   passed at `f45d529` with 338 Python tests (two prepared-runtime integration
   skips) and 32 browser tests. No model was downloaded or invoked; no external
   provider call, production credential-store write, native app build, or
-  hardware write was made.
+  hardware write was made. Task 8's hidden-by-default setup and procedural UI
+  landed in `5e6e8c4`. Disabled first paint exposes no generation control
+  outside Settings; Local is the primary setup panel and accepts any existing
+  user-selected GGUF through the private native chooser, with no model catalog
+  or download action. The secondary API panel keeps credential, disclosure,
+  provider, and model repair state in Settings. Ready users get one prompt,
+  durable progress that can be closed without cancellation, an animated exact-
+  raster review with recipe summary, and one explicit undoable document-only
+  Apply. A failed selected model remains selected and can be retried or replaced
+  without disabling local support. Historical Library media remains browseable,
+  while the retired still/video browser calls and continuation UI are removed.
+  The full repository verification entry point passed at `5e6e8c4` with 338
+  Python tests (two prepared-runtime integration skips) and 22 browser tests.
+  New first-paint and procedural-projection regressions were each proven red
+  with their implementation temporarily removed. No model was downloaded or
+  invoked; no external provider call, production credential-store write,
+  native app build, or hardware write was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -250,12 +266,13 @@
 
 ## Next
 
-- Implement Task 8 of
-  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: make optional AI
-  hidden by default outside Settings, add local/API setup and repair states, and
-  replace the legacy still/video creation flow with procedural prompt, progress,
-  review, and explicit Apply. Keep browser tests offline; do not initiate a paid
-  API call, download or invoke a model, or write hardware.
+- Implement Task 9 of
+  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: bundle and attest
+  the platform runtime without model weights, add disabled-launch network and
+  process checks, exercise frozen fake local/API generation, and record exact
+  platform support. A native versioned build and any real selected-model smoke
+  remain separate release verification; do not initiate a paid API call,
+  download a model, or write hardware.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON
