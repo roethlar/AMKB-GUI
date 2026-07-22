@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import importlib.util
 import json
 import os
@@ -14,12 +13,37 @@ import tempfile
 import threading
 import time
 from collections.abc import Sequence
-from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable
 from urllib.request import Request, urlopen
 
 from .server import create_server
+
+
+def _smoke_recipe() -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "name": "Offline procedural smoke",
+        "density": "dense",
+        "background": "#080810",
+        "palette": ["#00E5C9", "#8B4FFF"],
+        "layers": [{
+            "kind": "wave",
+            "color_index": 0,
+            "secondary_color_index": 1,
+            "speed": 1,
+            "phase": 0.25,
+            "direction_degrees": 45.0,
+            "center_x": 0.5,
+            "center_y": 0.5,
+            "scale": 1.2,
+            "width": 0.8,
+            "trail": 0.6,
+            "count": 3,
+            "intensity": 1.0,
+            "seed": 42,
+        }],
+    }
 
 
 def _folder_dialog_type() -> Any:
@@ -171,88 +195,106 @@ class DesktopBridge:
         return path.resolve(strict=False)
 
 
-def _run_llm_generation_smoke() -> None:
-    """Drive the real LLM providers and LED mapper through an offline transport."""
-    from PIL import Image
+def _assert_no_bundled_models() -> None:
+    frozen_root = getattr(sys, "_MEIPASS", None)
+    if frozen_root is None:
+        return
+    root = Path(frozen_root)
+    if any(root.rglob("*.gguf")):
+        raise SystemExit("Desktop smoke test failed: application bundle contains model weights.")
 
-    from .llm import (
-        XAI_IMAGES_URL,
-        XAI_RESPONSES_URL,
-        GrokImagineRenderer,
-        GrokInterpreter,
-        RasterSpec,
-        generate_effect,
-    )
 
-    plan = {
-        "subject": "two-color smoke test",
-        "palette": "red and blue on black",
-        "motion": "crossfade",
-        "frame_count": 2,
-        "frame_ms": 100,
-        "keyframe_prompts": ["solid red band", "solid blue band"],
-        "tween": "crossfade",
-        "notes": "offline frozen-bundle verification",
-    }
-    interpreter_response = {
-        "output": [
-            {
-                "type": "message",
-                "role": "assistant",
-                "content": [
-                    {"type": "output_text", "text": json.dumps(plan)}
-                ],
-            }
-        ]
-    }
+def _run_disabled_ai_smoke() -> None:
+    """Verify disabled startup attests files without constructing a provider."""
+    from unittest.mock import patch
 
-    image_bytes = BytesIO()
-    Image.new("RGB", (40, 5), (255, 0, 0)).save(image_bytes, format="PNG")
-    image_response = {
-        "data": [
-            {"b64_json": base64.b64encode(image_bytes.getvalue()).decode("ascii")}
-        ]
-    }
+    from . import store
+    from .ai_capability import AICapabilityService
+    from .credentials import MemoryCredentialStore
+    from .local_ai_runtime import get_local_ai_runtime
+    from .local_model import LocalModelManager
+
+    runtime = get_local_ai_runtime()
+    provider_calls: list[str] = []
+
+    def provider_created(*_args):
+        provider_calls.append("created")
+        raise AssertionError("disabled AI constructed an inference provider")
+
+    with tempfile.TemporaryDirectory(prefix="am-disabled-ai-smoke-") as temporary:
+        credentials = MemoryCredentialStore()
+        with patch.dict(os.environ, {"AM_CONFIGURATOR_DATA_DIR": temporary}):
+            service = AICapabilityService(
+                settings_loader=lambda: store.load_settings(
+                    credential_store=credentials
+                ),
+                model_manager=LocalModelManager(Path(temporary) / "model"),
+                runtime_resolver=lambda: runtime,
+                credential_status_loader=lambda: store.credential_status(
+                    credential_store=credentials
+                ),
+                credential_resolver=lambda: None,
+                local_provider_factory=provider_created,
+                api_provider_factory=provider_created,
+            )
+            try:
+                status = service.status()
+            finally:
+                service.close()
+    if status.get("enabled") or status.get("ready") or provider_calls:
+        raise SystemExit("Desktop smoke test failed: disabled AI started a backend.")
+
+
+def _run_api_recipe_smoke() -> None:
+    """Exercise the production API recipe adapter through an offline transport."""
+    from . import procedural
+    from .recipe_provider import RecipeRequest, XaiRecipeProvider
+
+    recipe = _smoke_recipe()
+    calls: list[tuple[str, dict]] = []
 
     def fake_transport(url: str, payload: dict, api_key: str, deadline: float) -> dict:
         del deadline
         if api_key != "smoke-test-key":
-            raise AssertionError("smoke generation used an unexpected API key")
-        if url == XAI_RESPONSES_URL:
-            return interpreter_response
-        if url == XAI_IMAGES_URL and payload.get("response_format") == "b64_json":
-            return image_response
-        raise AssertionError(f"smoke generation made an unexpected request: {url}")
+            raise AssertionError("API smoke used an unexpected credential")
+        calls.append((url, payload))
+        return {
+            "output": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": json.dumps(recipe)}],
+            }]
+        }
 
-    factories = {
-        "interpreter": lambda api_key: GrokInterpreter(
-            api_key, transport=fake_transport
+    result = XaiRecipeProvider(
+        "smoke-test-key", transport=fake_transport
+    ).generate(
+        RecipeRequest(
+            prompt="offline API smoke test",
+            width=18,
+            height=7,
+            frame_count=32,
+            density_default="dense",
         ),
-        "renderer": lambda api_key: GrokImagineRenderer(
-            api_key, transport=fake_transport
-        ),
-    }
-    spec = RasterSpec(
-        model="CB",
-        target="frames",
-        extra_targets=(),
-        width=40,
-        height=5,
-        mapped_positions=None,
-        output_len=200,
-        max_frames=80,
+        time.monotonic() + 10,
+        lambda: False,
     )
-    result = generate_effect(
-        "offline frozen smoke test",
-        spec,
-        ["frames"],
-        "CB04",
-        "smoke-test-key",
-        factories,
+    frames = procedural.render_recipe(
+        result.recipe, width=18, height=7, frame_count=32
     )
-    track = result.get("tracks", {}).get("frames", {})
-    if result.get("plan", {}).get("frame_count") != 2 or track.get("frame_count") != 2:
-        raise SystemExit("Desktop smoke test failed: offline LLM generation was invalid.")
+    mapped = procedural.map_frames_to_led_tracks(
+        frames,
+        duration_ms=34,
+        product_id="AM21",
+        targets=["keyframes", "spotlight_frames"],
+    )
+    if (
+        result.backend != "api"
+        or result.model_id != "grok-4.5"
+        or len(calls) != 1
+        or mapped.get("source_frames") != 32
+    ):
+        raise SystemExit("Desktop smoke test failed: fake API recipe generation was invalid.")
 
 
 def _run_local_recipe_smoke() -> None:
@@ -263,29 +305,7 @@ def _run_local_recipe_smoke() -> None:
         RecipeRequest,
     )
 
-    recipe = {
-        "schema_version": 1,
-        "name": "Offline local smoke",
-        "density": "dense",
-        "background": "#080810",
-        "palette": ["#00E5C9", "#8B4FFF"],
-        "layers": [{
-            "kind": "wave",
-            "color_index": 0,
-            "secondary_color_index": 1,
-            "speed": 1,
-            "phase": 0.25,
-            "direction_degrees": 45.0,
-            "center_x": 0.5,
-            "center_y": 0.5,
-            "scale": 1.2,
-            "width": 0.8,
-            "trail": 0.6,
-            "count": 3,
-            "intensity": 1.0,
-            "seed": 42,
-        }],
-    }
+    recipe = _smoke_recipe()
     runtime = object()
 
     class ModelManager:
@@ -409,7 +429,9 @@ def run_smoke_test() -> int:
         raise SystemExit(f"Desktop smoke test failed: {backend} is unavailable.")
 
     tls_context = ssl.create_default_context()
-    _run_llm_generation_smoke()
+    _assert_no_bundled_models()
+    _run_disabled_ai_smoke()
+    _run_api_recipe_smoke()
     _run_local_recipe_smoke()
     _run_ffmpeg_media_smoke()
     if os.environ.get("AM_SMOKE_NET") == "1":

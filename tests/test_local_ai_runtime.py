@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -11,7 +12,7 @@ import unittest
 from pathlib import Path
 
 from am_configurator import local_ai_runtime, local_model
-from build_tools import llama_bundle
+from build_tools import llama_bundle, prepare_llama
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -130,6 +131,52 @@ class LlamaBundleTests(unittest.TestCase):
                 ),
             )
 
+    def test_prepare_reuses_attested_cache_and_refuses_invalid_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            metadata = root / "packaging" / "llama"
+            metadata.mkdir(parents=True)
+            shutil.copy2(MANIFEST_PATH, metadata / "manifest.json")
+            cache = root / "build" / "llama" / llama_bundle.cache_key(
+                self.manifest, "macos", "arm64"
+            )
+            binary_root = cache / "bin"
+            binary_root.mkdir(parents=True)
+            runtime = _runtime_files(binary_root)
+            inspection = {
+                "runtime_version": self.manifest["runtime_version"],
+                "revision": self.manifest["revision"],
+                "capabilities": {
+                    **{f"cli:{flag}": True for flag in self.manifest["required_cli_flags"]},
+                    **{f"server:{flag}": True for flag in self.manifest["required_server_flags"]},
+                },
+            }
+            llama_bundle.emit_runtime_attestation(
+                runtime,
+                binary_root / "llama-runtime.json",
+                self.manifest,
+                inspection,
+                compiler_identity="test compiler",
+                platform_name="macos",
+                architecture="arm64",
+            )
+            original_target = prepare_llama._host_target
+            prepare_llama._host_target = lambda: ("macos", "arm64")
+            try:
+                self.assertEqual(
+                    local_ai_runtime.RuntimePaths(
+                        cli=runtime.cli.resolve(), server=runtime.server.resolve()
+                    ),
+                    prepare_llama.prepare_runtime(root),
+                )
+                runtime.cli.write_bytes(b"tampered")
+                with self.assertRaisesRegex(
+                    llama_bundle.BundleError, "remove it only after investigating"
+                ):
+                    prepare_llama.prepare_runtime(root)
+            finally:
+                prepare_llama._host_target = original_target
+
     def test_runtime_attestation_binds_both_binaries_and_never_searches_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -188,6 +235,61 @@ class LlamaBundleTests(unittest.TestCase):
                     manifest=self.manifest,
                     environment={"PATH": str(root)},
                     development_root=root / "unused",
+                    platform_name="macos",
+                    architecture="arm64",
+                )
+
+    @unittest.skipIf(os.name == "nt", "macOS bundle symlink layout is POSIX-only")
+    def test_frozen_bundle_accepts_only_confined_metadata_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            contents = Path(directory) / "Contents"
+            binary_root = contents / "Frameworks" / "llama"
+            metadata_root = contents / "Resources" / "llama"
+            binary_root.mkdir(parents=True)
+            metadata_root.mkdir(parents=True)
+            runtime = _runtime_files(binary_root)
+            inspection = {
+                "runtime_version": self.manifest["runtime_version"],
+                "revision": self.manifest["revision"],
+                "capabilities": {
+                    **{f"cli:{flag}": True for flag in self.manifest["required_cli_flags"]},
+                    **{f"server:{flag}": True for flag in self.manifest["required_server_flags"]},
+                },
+            }
+            llama_bundle.emit_runtime_attestation(
+                runtime,
+                metadata_root / "llama-runtime.json",
+                self.manifest,
+                inspection,
+                compiler_identity="test compiler",
+                platform_name="macos",
+                architecture="arm64",
+            )
+            (binary_root / "llama-runtime.json").symlink_to(
+                metadata_root / "llama-runtime.json"
+            )
+
+            resolved = local_ai_runtime.resolve_runtime(
+                manifest=self.manifest,
+                bundle_root=contents / "Frameworks",
+                platform_name="macos",
+                architecture="arm64",
+            )
+            self.assertEqual(
+                local_ai_runtime.RuntimePaths(
+                    cli=runtime.cli.resolve(), server=runtime.server.resolve()
+                ),
+                resolved,
+            )
+
+            outside = Path(directory) / "outside.json"
+            outside.write_bytes((metadata_root / "llama-runtime.json").read_bytes())
+            (binary_root / "llama-runtime.json").unlink()
+            (binary_root / "llama-runtime.json").symlink_to(outside)
+            with self.assertRaises(local_ai_runtime.LocalRuntimeError):
+                local_ai_runtime.resolve_runtime(
+                    manifest=self.manifest,
+                    bundle_root=contents / "Frameworks",
                     platform_name="macos",
                     architecture="arm64",
                 )

@@ -14,6 +14,7 @@ fi
 # changes the prepared FFmpeg hash. Re-attest those final bytes, then refresh
 # only the outer app seal; the already signed nested executable is unchanged.
 uv run --frozen python -m build_tools.finalize_ffmpeg_bundle "$app_path"
+uv run --frozen python -m build_tools.finalize_llama_bundle "$app_path"
 codesign --force --sign - "$app_path"
 codesign --verify --deep --strict "$app_path"
 

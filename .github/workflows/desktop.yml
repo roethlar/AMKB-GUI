@@ -40,7 +40,7 @@ jobs:
             artifact: Linux-x86_64-AppImage
             installer: dist/*.AppImage
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 35
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Install uv and Python
@@ -52,10 +52,14 @@ jobs:
         run: uv sync --locked --extra desktop --extra build
       - name: Install FFmpeg build prerequisites (macOS)
         if: matrix.platform == 'macos'
-        run: brew install gnupg
+        run: brew install gnupg cmake
       - name: Install FFmpeg build prerequisites (Linux)
         if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential zlib1g-dev gnupg
+        run: sudo apt-get update && sudo apt-get install -y build-essential zlib1g-dev gnupg cmake ninja-build libvulkan-dev glslc
+      - name: Install local-AI build prerequisites (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: choco install vulkan-sdk -y --no-progress
       - name: Install FFmpeg build prerequisites (Windows)
         if: matrix.platform == 'windows'
         uses: msys2/setup-msys2@v2
@@ -73,12 +77,22 @@ jobs:
         with:
           path: build/ffmpeg/ffmpeg-*
           key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packaging/ffmpeg/manifest.json') }}
+      - name: Cache verified llama.cpp runtime
+        uses: actions/cache@v4
+        with:
+          path: build/llama/llama-*
+          key: llama-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packaging/llama/manifest.json') }}
       - name: Stage pinned FFmpeg source
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/ffmpeg/sources | Out-Null
           Invoke-WebRequest https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz -OutFile build/ffmpeg/sources/ffmpeg-8.1.2.tar.xz
           Invoke-WebRequest https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz.asc -OutFile build/ffmpeg/sources/ffmpeg-8.1.2.tar.xz.asc
+      - name: Stage pinned llama.cpp source
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/llama/sources | Out-Null
+          Invoke-WebRequest https://github.com/ggml-org/llama.cpp/archive/aedb2a5e9ca3d4064148bbb919e0ddc0c1b70ab3.tar.gz -OutFile build/llama/sources/aedb2a5e9ca3d4064148bbb919e0ddc0c1b70ab3.tar.gz
       - name: Prepare verified FFmpeg runtime (macOS/Linux)
         if: matrix.platform != 'windows'
         run: uv run --frozen python -m build_tools.prepare_ffmpeg
@@ -92,6 +106,8 @@ jobs:
           --ar C:/msys64/mingw64/bin/ar.exe
           --ranlib C:/msys64/mingw64/bin/ranlib.exe
           --strip C:/msys64/mingw64/bin/strip.exe
+      - name: Prepare verified llama.cpp runtime
+        run: uv run --frozen python -m build_tools.prepare_llama
       - name: Stamp unique build version
         id: build_version
         run: uv run --frozen python build_tools/release_info.py stamp --build-number ${{ github.run_number }} --github-output

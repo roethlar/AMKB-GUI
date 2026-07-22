@@ -80,8 +80,9 @@ class ReleaseInfoTests(unittest.TestCase):
             self.assertEqual("uv", commands[0][0])
             self.assertIn("sync", commands[0])
             self.assertIn("build_tools.prepare_ffmpeg", commands[1])
-            self.assertIn("pyinstaller", commands[2])
-            self.assertTrue(commands[3][-1].endswith("build_dmg.sh"))
+            self.assertIn("build_tools.prepare_llama", commands[2])
+            self.assertIn("pyinstaller", commands[3])
+            self.assertTrue(commands[4][-1].endswith("build_dmg.sh"))
 
     def test_build_script_restores_the_version_after_a_failed_build(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -161,8 +162,9 @@ class ReleaseInfoTests(unittest.TestCase):
             "${{ matrix.artifact }}",
             workflow,
         )
-        self.assertNotIn(".zip", workflow)
-        self.assertNotIn(".tar.gz", workflow)
+        upload = workflow.split("- name: Upload native installer", 1)[1]
+        self.assertNotIn(".zip", upload)
+        self.assertNotIn(".tar.gz", upload)
 
         for path in (
             "assets/am-configurator.png",
@@ -236,7 +238,7 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("build_tools.prepare_ffmpeg", build_script)
         self.assertIn("build_tools.prepare_ffmpeg", workflow)
         self.assertIn("get_ffmpeg_runtime", spec)
-        self.assertRegex(spec, r"binaries\s*=\s*\[\(str\(ffmpeg_binary\),\s*\"ffmpeg\"\)\]")
+        self.assertIn('(str(ffmpeg_binary), "ffmpeg")', spec)
         for name in ("manifest.json", "ffmpeg-runtime.json", "LGPL-2.1.txt", "README.md"):
             self.assertIn(name, spec)
         self.assertIn("tiny-motion.mp4", spec)
@@ -246,15 +248,36 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("build_tools.finalize_ffmpeg_bundle", macos)
         self.assertIn("codesign --force --sign -", macos)
 
-    def test_frozen_smoke_test_runs_a_fake_transport_generation(self) -> None:
+    def test_native_bundle_contains_attested_llama_runtime_without_models(self) -> None:
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text("utf-8")
+        build_script = (ROOT / "build.py").read_text("utf-8")
+        smoke = (ROOT / "am_configurator" / "desktop.py").read_text("utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text("utf-8")
+        macos = (ROOT / "packaging" / "macos" / "build_dmg.sh").read_text("utf-8")
+
+        self.assertIn("build_tools.prepare_llama", build_script)
+        self.assertIn("build_tools.prepare_llama", workflow)
+        self.assertIn("get_local_ai_runtime", spec)
+        self.assertIn("llama-runtime.json", spec)
+        self.assertIn('project / "packaging" / "llama"', spec)
+        self.assertIn("MIT.txt", spec)
+        self.assertNotIn(".gguf", spec.lower())
+        self.assertIn("get_local_ai_runtime", smoke)
+        self.assertIn("rglob(\"*.gguf\")", smoke)
+        self.assertIn("_run_api_recipe_smoke", smoke)
+        self.assertIn("_run_local_recipe_smoke", smoke)
+        self.assertIn("_run_disabled_ai_smoke", smoke)
+        self.assertIn("build_tools.finalize_llama_bundle", macos)
+
+    def test_frozen_smoke_test_runs_fake_recipe_backends_offline(self) -> None:
         smoke = (ROOT / "am_configurator" / "desktop.py").read_text(encoding="utf-8")
 
-        # The frozen smoke test must exercise the whole LLM generation pipeline
-        # offline: a fake transport feeds the real Grok providers so the
-        # base64/Pillow decode chain and frames_to_led_tracks mapping run inside
-        # the bundle with no network and no API key.
-        self.assertIn("generate_effect", smoke)
-        self.assertIn("b64_json", smoke)
+        # Both production recipe adapters must reach deterministic render and
+        # mapping through injected fake transports, never model/provider hosts.
+        self.assertIn("XaiRecipeProvider", smoke)
+        self.assertIn("ManagedLocalRecipeProvider", smoke)
+        self.assertIn("render_recipe", smoke)
+        self.assertIn("map_frames_to_led_tracks", smoke)
         # ssl context creation is verified without a socket; the real-TLS reach
         # test is opt-in only, so a CI/offline smoke run never touches network.
         self.assertIn("create_default_context", smoke)

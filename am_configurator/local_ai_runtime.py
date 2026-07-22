@@ -269,6 +269,7 @@ def verify_runtime_attestation(
     *,
     platform_name: str,
     architecture: str,
+    metadata_symlink_root: Path | str | None = None,
 ) -> RuntimePaths:
     validated = validate_manifest(dict(manifest))
     _target_key(platform_name, architecture)
@@ -289,7 +290,16 @@ def verify_runtime_attestation(
             raise LocalRuntimeError("Local runtime binary is not executable.")
     attestation_path = root_path / "llama-runtime.json"
     if attestation_path.is_symlink():
-        raise LocalRuntimeError("Local runtime attestation is invalid.")
+        if metadata_symlink_root is None:
+            raise LocalRuntimeError("Local runtime attestation is invalid.")
+        try:
+            allowed_root = Path(metadata_symlink_root).resolve(strict=True)
+            resolved_attestation = attestation_path.resolve(strict=True)
+        except OSError:
+            raise LocalRuntimeError("Local runtime attestation is invalid.") from None
+        if allowed_root != resolved_attestation and allowed_root not in resolved_attestation.parents:
+            raise LocalRuntimeError("Local runtime attestation is invalid.")
+        attestation_path = resolved_attestation
     attestation = _read_runtime_attestation(attestation_path)
     capabilities = attestation.get("capabilities")
     files = attestation.get("files")
@@ -354,28 +364,31 @@ def resolve_runtime(
     architecture = _host_architecture() if architecture is None else architecture
     _target_key(platform_name, architecture)
     environment = os.environ if environment is None else environment
-    candidates: list[Path] = []
+    candidates: list[tuple[Path, Path | None]] = []
     if injected is not None:
-        candidates.append(Path(injected))
+        candidates.append((Path(injected), None))
     else:
         override = environment.get("AM_CONFIGURATOR_LLAMA_RUNTIME")
         if override:
-            candidates.append(Path(override))
+            candidates.append((Path(override), None))
         if development_root is not None:
-            candidates.append(
+            candidates.append((
                 Path(development_root)
                 / cache_key(validated, platform_name, architecture)
-                / "bin"
-            )
+                / "bin",
+                None,
+            ))
         if bundle_root is not None:
-            candidates.append(Path(bundle_root) / "llama")
-    for candidate in candidates:
+            bundle = Path(bundle_root)
+            candidates.append((bundle / "llama", bundle.parent))
+    for candidate, metadata_root in candidates:
         if candidate.exists() or candidate.is_symlink():
             return verify_runtime_attestation(
                 candidate,
                 validated,
                 platform_name=platform_name,
                 architecture=architecture,
+                metadata_symlink_root=metadata_root,
             )
     raise LocalRuntimeError("Verified local runtime is unavailable.")
 
