@@ -7,8 +7,9 @@ packaging in `8c9017e`. The owner amended and authorized the remaining direction
 on 2026-07-21: local inference is primary, the application never downloads
 model weights, users select their own local GGUF model, and model qualification
 evidence does not gate the feature. Automated and native release verification
-passed on macOS arm64; manual visual inspection remains pending because the
-verification host denied display capture and Safari automation.
+passed on macOS arm64. Playwright visual inspection passed for disabled and
+ready states at wide, narrow, and 150%-equivalent zoom layouts after the backend
+label-spacing fix in `f264f31`.
 
 ## Objective
 

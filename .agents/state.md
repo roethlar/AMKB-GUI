@@ -254,13 +254,17 @@
   real local smoke through temporary private selection, 37/37 Metal layer
   offload, strict recipe generation, exact rendering, and Relic mapping; the
   model file was not downloaded, copied, changed, or deleted. Full repository
-  verification passed at `8c9017e` with 341 Python tests (two prepared-runtime
-  integration skips) and 22 browser tests. Historical Library acceptance is
-  covered by those Python and browser suites. Manual wide, narrow, and zoomed
-  visual inspection remains unrun because the host denied both display capture
-  and Safari automation; automated browser checks cover disabled/ready
-  visibility, narrow layout, zoom-safe controls, and reduced motion. No external
-  provider call, production credential write, or hardware write was made.
+  verification passed with 341 Python tests (two prepared-runtime integration
+  skips) and 22 browser tests. Historical Library acceptance is covered by
+  those Python and browser suites. Headless Playwright then rendered disabled
+  and ready Settings at 1440×920, 520×720, and a 150%-equivalent zoom viewport,
+  plus the Library gate in both states. It found no console errors, horizontal
+  overflow, or clipped interactive controls and confirmed Generate is absent
+  when disabled and present when ready. Visual inspection found the Local/API
+  labels touching their descriptions; `f264f31` separated those label lines and
+  added a regression proven red before the fix. The same Playwright matrix and
+  full repository gate passed afterward. No external provider call, production
+  credential write, model download, or hardware write was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -289,9 +293,6 @@
   pinned Windows x86_64 and Linux x86_64 runtime builds; if either native runtime
   fails its own packaging/smoke gate, ship that platform API-only rather than
   weakening verification or changing the no-weights rule.
-- Complete manual wide, narrow, and zoomed visual inspection for disabled and
-  ready states on a host that permits display capture or browser automation;
-  this is acceptance evidence, not a gate on user-selected model support.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON
