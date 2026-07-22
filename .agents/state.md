@@ -184,7 +184,25 @@
   substring. Full repository verification passed at `8721681` with 309 Python
   tests (one prepared-runtime integration skip) and 32 browser tests. Tests
   used injected memory storage; no production credential read/write, provider
-  call, model download, native app build, or hardware write was made.
+  call, model download, native app build, or hardware write was made. Task 5's
+  local-first recipe providers and sole capability/readiness gate landed in
+  `07260ea`. The managed local provider launches only the pinned authenticated
+  loopback runtime with the current private model attestation, disables proxies
+  and redirects, permits one slot, bounds output/lifetime, terminates on
+  cancellation, stays warm only for a short idle, and exposes a coordinator-
+  owned maximum of two deterministic retries. The secondary xAI provider makes
+  exactly one bounded strict-schema request and retains exact reported cost,
+  including after cancellation. Setup fingerprints bind runtime/model or
+  provider/model/credential/disclosure identity; a later bad local recipe is a
+  per-generation failure and leaves local readiness intact, while transient API
+  failures do not invalidate prior setup. Full repository verification passed
+  at `07260ea` with 326 Python tests (two prepared-runtime integration skips)
+  and 32 browser tests. A separate prepared-runtime smoke used the already-
+  present Qwen file only to prove authenticated grammar-constrained server I/O
+  and clean shutdown; it did not qualify the model, alter the user's selection,
+  or gate the feature. No model was downloaded, copied, modified, or deleted;
+  no external provider call, credential-store write, native app build, or
+  hardware write was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -208,11 +226,12 @@
 
 ## Next
 
-- Implement Task 5 of
-  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: add the primary
-  managed-local recipe provider, secondary xAI recipe provider, and shared
-  capability/readiness service. Keep all tests offline; do not initiate a paid
-  API call, download a model, or write hardware.
+- Implement Task 6 of
+  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: extend the
+  generated-asset manifest for procedural jobs and add durable generation,
+  retry, cancellation, recovery, exact-render, mapping, and artifact banking.
+  Keep tests offline; do not initiate a paid API call, download a model, or
+  write hardware.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON
