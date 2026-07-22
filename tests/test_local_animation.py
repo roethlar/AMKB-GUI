@@ -19,7 +19,9 @@ from am_configurator.local_animation import (
 
 def _recipe() -> dict:
     return {
+        "schema_version": 1,
         "name": "Blue shooting stars",
+        "density": "sparse",
         "background": "#000000",
         "palette": ["#BDEBFF", "#3A8DFF", "#FFFFFF"],
         "layers": [
@@ -33,7 +35,7 @@ def _recipe() -> dict:
                 "center_x": 0.1,
                 "center_y": 0.32,
                 "scale": 0.55,
-                "width": 0.11,
+                "width": 0.8,
                 "trail": 0.48,
                 "count": 3,
                 "intensity": 0.92,
@@ -158,6 +160,8 @@ class OllamaRecipeClientTests(unittest.TestCase):
         self.assertEqual("http://127.0.0.1:11434/api/chat", observed["url"])
         self.assertFalse(observed["body"]["stream"])
         self.assertEqual("object", observed["body"]["format"]["type"])
+        self.assertIn("density", observed["body"]["format"]["required"])
+        self.assertIn("Default to balanced", observed["body"]["messages"][0]["content"])
         self.assertEqual("ornith:latest", observed["body"]["model"])
         self.assertGreater(observed["timeout"], 0)
 
