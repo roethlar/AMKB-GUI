@@ -13,9 +13,11 @@ from pathlib import Path
 from am_configurator import ai_catalog, llm, procedural, recipe_provider
 from am_configurator.local_ai_runtime import RuntimePaths, get_local_ai_runtime
 from am_configurator.local_model import LocalModelManager, SelectedModel
+from am_configurator.ollama_client import OllamaModel
 from am_configurator.recipe_provider import (
     ManagedLlamaServer,
     ManagedLocalRecipeProvider,
+    OllamaRecipeProvider,
     RecipeRequest,
     XaiRecipeProvider,
 )
@@ -149,6 +151,72 @@ class XaiRecipeProviderTests(unittest.TestCase):
 
         self.assertEqual("unavailable", captured.exception.code)
         self.assertEqual(456, captured.exception.usage.cost_in_usd_ticks)
+
+
+class _OllamaClient:
+    def __init__(self, response: dict) -> None:
+        self.response = response
+        self.calls: list[tuple] = []
+
+    def chat(self, payload, *, deadline, cancelled):
+        self.calls.append((payload, deadline, cancelled))
+        return self.response
+
+
+class OllamaRecipeProviderTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.model = OllamaModel(
+            model_id="ornith:latest",
+            digest="a" * 64,
+            size_bytes=5_629_110_568,
+            parameter_size="9.0B",
+            quantization="Q4_K_M",
+        )
+
+    def test_strict_recipe_request_uses_selected_installed_model(self) -> None:
+        client = _OllamaClient({"message": {"content": json.dumps(_recipe())}})
+        provider = OllamaRecipeProvider(self.model, client=client)
+
+        result = provider.generate(_request(), time.monotonic() + 10, lambda: False)
+
+        self.assertEqual(1, len(client.calls))
+        payload, _deadline, _cancelled = client.calls[0]
+        self.assertEqual("ornith:latest", payload["model"])
+        self.assertIs(payload["stream"], False)
+        self.assertEqual(procedural.recipe_schema(), payload["format"])
+        self.assertEqual(1536, payload["options"]["num_predict"])
+        self.assertIn("18x7", payload["messages"][0]["content"])
+        self.assertEqual(_recipe(), result.recipe)
+        self.assertEqual("local", result.backend)
+        self.assertEqual("ollama", result.provider)
+        self.assertEqual("ornith:latest", result.model_id)
+        self.assertIsNone(result.usage)
+
+    def test_retry_changes_seed_adds_bounded_reason_and_rejects_bad_output(self) -> None:
+        client = _OllamaClient({"message": {"content": json.dumps(_recipe())}})
+        provider = OllamaRecipeProvider(self.model, client=client)
+        provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        provider.generate_attempt(
+            _request(),
+            time.monotonic() + 10,
+            lambda: False,
+            attempt=1,
+            validation_reason="peak brightness was too low /private/model.gguf",
+        )
+
+        first, second = (call[0] for call in client.calls)
+        self.assertNotEqual(first["options"]["seed"], second["options"]["seed"])
+        self.assertIn("peak brightness was too low", second["messages"][1]["content"])
+        self.assertNotIn("/private/model.gguf", second["messages"][1]["content"])
+
+        invalid = OllamaRecipeProvider(
+            self.model,
+            client=_OllamaClient({"message": {"content": '{"private":"secret"}'}}),
+        )
+        with self.assertRaises(llm.ProviderError) as captured:
+            invalid.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertEqual("bad_response", captured.exception.code)
+        self.assertNotIn("secret", str(captured.exception))
 
 
 class _ModelManager:

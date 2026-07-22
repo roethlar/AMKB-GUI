@@ -25,6 +25,7 @@ from .local_ai_runtime import (
     get_local_ai_runtime,
 )
 from .local_model import LocalModelError, LocalModelManager, SelectedModel
+from .ollama_client import OllamaClient, OllamaError, OllamaModel
 
 
 MAX_RECIPE_PROMPT_CHARS = 4000
@@ -600,6 +601,126 @@ def _local_output_text(response: dict[str, Any]) -> str:
     return message["content"]
 
 
+def _ollama_output_text(response: dict[str, Any]) -> str:
+    message = response.get("message")
+    if not isinstance(message, dict) or not isinstance(message.get("content"), str):
+        raise llm.ProviderError("bad_response", "Local recipe response contained no text.")
+    return message["content"]
+
+
+def _local_retry_content(prompt: str, attempt: int, validation_reason: str | None) -> str:
+    if type(attempt) is not int or not 0 <= attempt <= LOCAL_MAX_RETRIES:
+        raise llm.ProviderError("config", "Local recipe attempt is invalid.")
+    if attempt == 0:
+        if validation_reason is not None:
+            raise llm.ProviderError("config", "Initial recipe attempt is invalid.")
+        return prompt
+    if not isinstance(validation_reason, str) or not validation_reason.strip():
+        raise llm.ProviderError("config", "Local recipe retry reason is missing.")
+    reason = "".join(
+        character
+        for character in validation_reason.strip()[:200]
+        if character.isalnum() or character in " .,:;_()-"
+    ).strip()
+    if not reason:
+        reason = "the recipe did not pass validation"
+    return (
+        prompt
+        + "\n\nRetry correction: the previous recipe failed because "
+        + f"{reason}. Return a different corrected recipe."
+    )
+
+
+def _local_seed(request: RecipeRequest, attempt: int) -> int:
+    material = (
+        f"{request.prompt.strip()}\0{request.width}\0{request.height}\0"
+        f"{request.frame_count}\0{attempt}"
+    ).encode("utf-8")
+    return int.from_bytes(hashlib.sha256(material).digest()[:4], "big") & 0x7FFF_FFFF
+
+
+class OllamaRecipeProvider:
+    """Generate strict recipes through one already-installed local Ollama model."""
+
+    def __init__(
+        self,
+        model: OllamaModel,
+        *,
+        client: OllamaClient | None = None,
+    ) -> None:
+        if not isinstance(model, OllamaModel):
+            raise llm.ProviderError("config", "The selected Ollama model is invalid.")
+        self._model = model
+        self._client = OllamaClient() if client is None else client
+
+    def generate(
+        self,
+        request: RecipeRequest,
+        deadline: float,
+        cancelled: Callable[[], bool],
+    ) -> RecipeResult:
+        return self.generate_attempt(
+            request,
+            deadline,
+            cancelled,
+            attempt=0,
+            validation_reason=None,
+        )
+
+    def generate_attempt(
+        self,
+        request: RecipeRequest,
+        deadline: float,
+        cancelled: Callable[[], bool],
+        *,
+        attempt: int,
+        validation_reason: str | None,
+    ) -> RecipeResult:
+        prompt, system_prompt, schema = _request_parts(request)
+        _check_start(deadline, cancelled)
+        user_content = _local_retry_content(prompt, attempt, validation_reason)
+        payload = {
+            "model": self._model.model_id,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            "stream": False,
+            "format": schema,
+            "options": {
+                "temperature": 0.2,
+                "seed": _local_seed(request, attempt),
+                "num_predict": LOCAL_OUTPUT_TOKENS,
+            },
+        }
+        try:
+            response = self._client.chat(
+                payload,
+                deadline=deadline,
+                cancelled=cancelled,
+            )
+        except OllamaError as error:
+            codes = {
+                "timeout": "timeout",
+                "cancelled": "unavailable",
+                "model_unavailable": "config",
+                "bad_response": "bad_response",
+                "unavailable": "offline",
+            }
+            raise llm.ProviderError(
+                codes.get(error.code, "unavailable"),
+                "Local Ollama recipe generation failed.",
+            ) from None
+        recipe = _validated_recipe_text(_ollama_output_text(response))
+        return RecipeResult(
+            recipe=recipe,
+            backend="local",
+            provider="ollama",
+            model_id=self._model.model_id,
+            usage=None,
+        )
+
+
 class ManagedLocalRecipeProvider:
     """Generate through the pinned runtime and current private model selection."""
 
@@ -641,13 +762,6 @@ class ManagedLocalRecipeProvider:
     ) -> RecipeResult:
         """Run one of at most three coordinator-owned local attempts."""
 
-        if type(attempt) is not int or not 0 <= attempt <= LOCAL_MAX_RETRIES:
-            raise llm.ProviderError("config", "Local recipe attempt is invalid.")
-        if attempt == 0:
-            if validation_reason is not None:
-                raise llm.ProviderError("config", "Initial recipe attempt is invalid.")
-        elif not isinstance(validation_reason, str) or not validation_reason.strip():
-            raise llm.ProviderError("config", "Local recipe retry reason is missing.")
         prompt, system_prompt, schema = _request_parts(request)
         _check_start(deadline, cancelled)
         try:
@@ -660,26 +774,7 @@ class ManagedLocalRecipeProvider:
             raise llm.ProviderError(
                 "config", "Verified local inference components are unavailable."
             )
-        user_content = prompt
-        if attempt:
-            reason = "".join(
-                character
-                for character in validation_reason.strip()[:200]
-                if character.isalnum() or character in " .,:;_()-"
-            ).strip()
-            if not reason:
-                reason = "the recipe did not pass validation"
-            user_content += (
-                "\n\nRetry correction: the previous recipe failed because "
-                f"{reason}. Return a different corrected recipe."
-            )
-        seed_material = (
-            f"{prompt}\0{request.width}\0{request.height}\0"
-            f"{request.frame_count}\0{attempt}"
-        ).encode("utf-8")
-        deterministic_seed = int.from_bytes(
-            hashlib.sha256(seed_material).digest()[:4], "big"
-        ) & 0x7FFF_FFFF
+        user_content = _local_retry_content(prompt, attempt, validation_reason)
         payload = {
             "model": "local",
             "messages": [
@@ -688,7 +783,7 @@ class ManagedLocalRecipeProvider:
             ],
             "stream": False,
             "temperature": 0.2,
-            "seed": deterministic_seed,
+            "seed": _local_seed(request, attempt),
             "max_tokens": LOCAL_OUTPUT_TOKENS,
             "response_format": {
                 "type": "json_schema",
@@ -729,6 +824,7 @@ __all__ = [
     "MAX_RECIPE_PROMPT_CHARS",
     "ManagedLlamaServer",
     "ManagedLocalRecipeProvider",
+    "OllamaRecipeProvider",
     "RecipeProvider",
     "RecipeRequest",
     "RecipeResult",

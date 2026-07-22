@@ -10,12 +10,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
+import time
 from pathlib import Path
 from typing import Any, Callable, Sequence
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
 from .procedural import (
     DEFAULT_DURATION_MS,
@@ -29,13 +26,12 @@ from .procedural import (
     validate_recipe,
     write_animation_artifacts,
 )
+from .ollama_client import OLLAMA_BASE_URL, OllamaClient, OllamaError, valid_model_id
 
 
 DEFAULT_MODEL = "ornith:latest"
-DEFAULT_ENDPOINT = "http://127.0.0.1:11434"
+DEFAULT_ENDPOINT = OLLAMA_BASE_URL
 MAX_RESPONSE_BYTES = 1_000_000
-
-_MODEL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 
 # Preserve the proof helper's public name while keeping its implementation in
 # the backend-neutral module.
@@ -49,48 +45,26 @@ class OllamaRecipeClient:
         self,
         *,
         endpoint: str = DEFAULT_ENDPOINT,
-        opener: Callable[..., Any] = urlopen,
+        opener: Callable[..., Any] | Any = None,
         timeout_seconds: float = 180,
     ) -> None:
-        parsed = urlparse(endpoint)
-        if (
-            parsed.scheme != "http"
-            or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
-            or parsed.username
-            or parsed.password
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("Ollama endpoint must be an unauthenticated loopback HTTP URL.")
+        if endpoint.rstrip("/") != DEFAULT_ENDPOINT:
+            raise ValueError("Ollama endpoint is fixed to the local service.")
         if timeout_seconds <= 0 or timeout_seconds > 600:
             raise ValueError("Ollama timeout must be between 0 and 600 seconds.")
-        self.endpoint = endpoint.rstrip("/")
-        self.opener = opener
+        self.endpoint = DEFAULT_ENDPOINT
+        self.client = OllamaClient() if opener is None else OllamaClient(opener=opener)
         self.timeout_seconds = float(timeout_seconds)
 
     def _request(self, body: dict[str, Any]) -> dict[str, Any]:
-        request = Request(
-            f"{self.endpoint}/api/chat",
-            data=json.dumps(body, separators=(",", ":")).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
         try:
-            with self.opener(request, timeout=self.timeout_seconds) as response:
-                payload = response.read(MAX_RESPONSE_BYTES + 1)
-        except HTTPError as exc:
-            raise RecipeError(f"Ollama returned HTTP {exc.code}.") from None
-        except (OSError, TimeoutError, URLError):
-            raise RecipeError("Could not reach the local Ollama service.") from None
-        if len(payload) > MAX_RESPONSE_BYTES:
-            raise RecipeError("Ollama response exceeded the local size limit.")
-        try:
-            parsed = json.loads(payload)
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise RecipeError("Ollama returned malformed JSON.") from None
-        if not isinstance(parsed, dict):
-            raise RecipeError("Ollama returned an invalid response object.")
-        return parsed
+            return self.client.chat(
+                body,
+                deadline=time.monotonic() + self.timeout_seconds,
+                cancelled=lambda: False,
+            )
+        except OllamaError:
+            raise RecipeError("Could not use the local Ollama service.") from None
 
     def generate(
         self,
@@ -105,7 +79,7 @@ class OllamaRecipeClient:
         clean_prompt = str(prompt).strip()
         if not 1 <= len(clean_prompt) <= 4000:
             raise RecipeError("Prompt must contain 1 to 4000 characters.")
-        if not _MODEL_NAME.fullmatch(model):
+        if not valid_model_id(model):
             raise RecipeError("Ollama model name is invalid.")
         system_prompt = recipe_system_prompt(
             width,
