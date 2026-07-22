@@ -162,7 +162,19 @@
   AI: local inference is the primary backend, the application must never
   download model weights, and users choose their own GGUF file. The amended
   durable plan makes Task 3 the pinned runtime and private user-selected model
-  flow; its implementation is authorized.
+  flow. Task 3 landed in `d748898`: the exact llama.cpp `b9637` source recipe,
+  static GPU builds, runtime attestation, private user-owned GGUF selection,
+  tamper detection, pathless status, bounded process handling, and strict
+  full-offload probe are implemented without a model catalog or weight
+  lifecycle. The verified-source build produced an attested macOS arm64
+  runtime, and the already-present Qwen file was used only as a runtime smoke;
+  Metal reported all 37 layers offloaded. The official llama.cpp advisory list
+  was checked on 2026-07-21: `b9637` is beyond all published fixed-version
+  boundaries, and the remaining unpatched RPC advisory is outside the compiled
+  build because `GGML_RPC=OFF`. Full repository verification passed at
+  `d748898` with 298 Python tests (one prepared-runtime integration skip) and 32
+  browser tests. No model was downloaded, copied, modified, or deleted; no
+  provider call or hardware write was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -186,12 +198,11 @@
 
 ## Next
 
-- Implement Task 3 of
-  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: pin and attest the
-  app-owned local runtime, then add private native GGUF selection, verification,
-  attestation, clearing, GPU/full-offload probing, and bounded process handling.
-  Do not download, copy, modify, or delete model weights; do not initiate a paid
-  API call or write hardware.
+- Implement Task 4 of
+  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: migrate settings
+  to schema v3 and move API credentials to the operating-system credential
+  store without plaintext fallback. Preserve Library roots and loop mode, keep
+  local AI primary, and do not initiate a paid API call or write hardware.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON

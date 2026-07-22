@@ -1,10 +1,10 @@
 # Optional AI Backends and Procedural Lighting Generation
 
-**Status:** Product decisions approved on 2026-07-21. Tasks 1 and 2 landed in
-`d7eedc2` and `9780945`. The owner amended and authorized the remaining
-direction on 2026-07-21: local inference is primary, the application never
-downloads model weights, users select their own local GGUF model, and model
-qualification evidence does not gate the feature.
+**Status:** Product decisions approved on 2026-07-21. Tasks 1–3 landed in
+`d7eedc2`, `9780945`, and `d748898`. The owner amended and authorized the
+remaining direction on 2026-07-21: local inference is primary, the application
+never downloads model weights, users select their own local GGUF model, and
+model qualification evidence does not gate the feature.
 
 ## Objective
 
