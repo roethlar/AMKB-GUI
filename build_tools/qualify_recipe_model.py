@@ -8,8 +8,10 @@ it or perform network access.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +22,8 @@ from am_configurator.procedural import (
     QualityError,
     RecipeError,
     map_frames_to_led_tracks,
+    recipe_schema,
+    recipe_system_prompt,
     render_recipe,
     validate_quality,
     validate_recipe,
@@ -30,7 +34,11 @@ from am_configurator.procedural import (
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CORPUS = ROOT / "tests" / "fixtures" / "procedural_prompt_cases.json"
 MAX_CORPUS_BYTES = 1_000_000
+MAX_MODEL_OUTPUT_BYTES = 1_000_000
+LOCAL_MODEL_ATTEMPTS = 3
+LOCAL_MODEL_SEED = 7319
 _CASE_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _ROOT_KEYS = {"schema_version", "cases"}
 _CASE_KEYS = {
     "id",
@@ -56,6 +64,143 @@ class PromptCase:
     height: int
     frame_count: int
     tags: tuple[str, ...]
+
+
+class LlamaCliRecipeClient:
+    """Bounded offline llama.cpp adapter for release-model qualification."""
+
+    def __init__(
+        self,
+        runtime: Path | str,
+        model: Path | str,
+        *,
+        runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+        timeout_seconds: float = 180,
+    ) -> None:
+        runtime_path = Path(runtime).resolve()
+        model_path = Path(model).resolve()
+        if not runtime_path.is_file():
+            raise ValueError("llama.cpp runtime must be an existing regular file.")
+        if not model_path.is_file():
+            raise ValueError("Local model must be an existing regular file.")
+        if timeout_seconds <= 0 or timeout_seconds > 600:
+            raise ValueError("llama.cpp timeout must be between 0 and 600 seconds.")
+        self.runtime = runtime_path
+        self.model = model_path
+        self.runner = runner
+        self.timeout_seconds = float(timeout_seconds)
+
+    def generate(
+        self,
+        case: PromptCase,
+        attempt: int = 0,
+        feedback: str | None = None,
+    ) -> dict[str, Any]:
+        """Generate one schema-constrained recipe from local immutable inputs."""
+
+        if isinstance(attempt, bool) or not 0 <= attempt < LOCAL_MODEL_ATTEMPTS:
+            raise ValueError("Local model attempt must be 0, 1, or 2.")
+        user_prompt = case.prompt
+        if feedback:
+            user_prompt += (
+                "\n\nThe previous recipe failed validation: "
+                f"{feedback} Return a corrected complete recipe."
+            )
+        user_prompt += "\n/no_think"
+        arguments = (
+            str(self.runtime),
+            "--model",
+            str(self.model),
+            "--offline",
+            "--ctx-size",
+            "4096",
+            "--batch-size",
+            "512",
+            "--ubatch-size",
+            "512",
+            "--predict",
+            "1536",
+            "--gpu-layers",
+            "all",
+            "--fit",
+            "off",
+            "--flash-attn",
+            "on",
+            "--temp",
+            "0.7",
+            "--top-k",
+            "20",
+            "--top-p",
+            "0.8",
+            "--min-p",
+            "0",
+            "--presence-penalty",
+            "1.5",
+            "--seed",
+            str(LOCAL_MODEL_SEED + attempt),
+            "--json-schema",
+            json.dumps(recipe_schema(), separators=(",", ":")),
+            "--system-prompt",
+            recipe_system_prompt(
+                case.width,
+                case.height,
+                case.frame_count,
+                density_default=case.density,
+            ),
+            "--prompt",
+            user_prompt,
+            "--reasoning",
+            "off",
+            "--reasoning-budget",
+            "0",
+            # b9637's Jinja path prefills Qwen's closed thinking block into the
+            # JSON grammar and aborts sampler initialization. Its built-in
+            # model template keeps the same chat contract without that prefill.
+            "--no-jinja",
+            "--single-turn",
+            "--simple-io",
+            "--no-display-prompt",
+            "--no-show-timings",
+            "--log-disable",
+        )
+        try:
+            completed = self.runner(
+                arguments,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            raise RecipeError("Local model inference timed out.") from None
+        except OSError:
+            raise RecipeError("Local model runtime could not be executed.") from None
+        stdout = completed.stdout
+        stderr = completed.stderr
+        if not isinstance(stdout, str) or not isinstance(stderr, str):
+            raise RecipeError("Local model runtime returned invalid process output.")
+        if (
+            len(stdout.encode("utf-8")) > MAX_MODEL_OUTPUT_BYTES
+            or len(stderr.encode("utf-8")) > MAX_MODEL_OUTPUT_BYTES
+        ):
+            raise RecipeError("Local model output exceeded the size limit.")
+        if completed.returncode != 0:
+            raise RecipeError(
+                f"Local model runtime exited with status {completed.returncode}."
+            )
+        recipe_text = stdout.strip()
+        prompt_marker = f"\n> {user_prompt}\n\n"
+        exit_marker = "\n\n\nExiting..."
+        if prompt_marker in stdout:
+            recipe_text = stdout.rpartition(prompt_marker)[2]
+            if exit_marker not in recipe_text:
+                raise RecipeError("Local model output framing was invalid.")
+            recipe_text = recipe_text.rpartition(exit_marker)[0].strip()
+        try:
+            recipe = json.loads(recipe_text)
+        except json.JSONDecodeError:
+            raise RecipeError("Local model output was not valid JSON.") from None
+        return validate_recipe(recipe)
 
 
 def _exact_dict(value: Any, keys: set[str], label: str) -> dict[str, Any]:
@@ -240,6 +385,85 @@ def qualify_recipe(
 
 
 RecipeGenerator = Callable[[PromptCase], dict[str, Any]]
+RetryRecipeGenerator = Callable[[PromptCase, int, str | None], dict[str, Any]]
+
+
+def qualify_local_case(
+    case: PromptCase,
+    generate: RetryRecipeGenerator,
+    *,
+    output_directory: Path | None = None,
+) -> dict[str, Any]:
+    """Generate and qualify one case with at most two corrective retries."""
+
+    attempts: list[dict[str, Any]] = []
+    feedback: str | None = None
+    total_generation_seconds = 0.0
+    result: dict[str, Any] = {
+        "case_id": case.case_id,
+        "passed": False,
+        "error": "Local model did not return a usable recipe.",
+    }
+    for attempt in range(LOCAL_MODEL_ATTEMPTS):
+        generation_started = time.monotonic()
+        try:
+            recipe = generate(case, attempt, feedback)
+        except RecipeError as exc:
+            generation_seconds = round(
+                time.monotonic() - generation_started, 6
+            )
+            total_generation_seconds += generation_seconds
+            result = {
+                "case_id": case.case_id,
+                "passed": False,
+                "error": str(exc),
+            }
+        else:
+            generation_seconds = round(
+                time.monotonic() - generation_started, 6
+            )
+            total_generation_seconds += generation_seconds
+            result = qualify_recipe(
+                case,
+                recipe,
+                output_directory=output_directory,
+            )
+        attempt_result: dict[str, Any] = {
+            "attempt": attempt + 1,
+            "seed": LOCAL_MODEL_SEED + attempt,
+            "generation_seconds": generation_seconds,
+            "passed": result["passed"],
+        }
+        if not result["passed"]:
+            attempt_result["error"] = result["error"]
+            if "quality" in result:
+                attempt_result["quality"] = result["quality"]
+        attempts.append(attempt_result)
+        if result["passed"]:
+            break
+        feedback = result["error"]
+
+    result["attempt_count"] = len(attempts)
+    result["generation_seconds"] = round(total_generation_seconds, 6)
+    result["attempts"] = attempts
+    return result
+
+
+def qualify_local_model(
+    cases: Sequence[PromptCase],
+    generate: RetryRecipeGenerator,
+    *,
+    output_directory: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Qualify a local model sequentially with the production retry policy."""
+
+    results = []
+    for case in cases:
+        case_output = output_directory / case.case_id if output_directory else None
+        results.append(
+            qualify_local_case(case, generate, output_directory=case_output)
+        )
+    return results
 
 
 def qualify_model(
@@ -281,8 +505,22 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model", default="ornith:latest")
     parser.add_argument("--endpoint", default="http://127.0.0.1:11434")
+    parser.add_argument("--llama-cli", type=Path)
+    parser.add_argument("--model-file", type=Path)
+    parser.add_argument("--runtime-revision")
+    parser.add_argument("--model-revision")
+    parser.add_argument("--model-sha256")
+    parser.add_argument("--timeout", type=float, default=180)
     parser.add_argument("--case", action="append", dest="case_ids")
     return parser
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as model_file:
+        for block in iter(lambda: model_file.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -294,26 +532,69 @@ def main(argv: Sequence[str] | None = None) -> int:
             cases = tuple(case for case in cases if case.case_id in selected)
             if {case.case_id for case in cases} != selected:
                 raise ValueError("One or more requested qualification cases do not exist.")
-        from am_configurator.local_animation import OllamaRecipeClient
-
-        client = OllamaRecipeClient(endpoint=args.endpoint)
-
-        def generate(case: PromptCase) -> dict[str, Any]:
-            return client.generate(
-                case.prompt,
-                model=args.model,
-                width=case.width,
-                height=case.height,
-                frame_count=case.frame_count,
-                density_default=case.density,
-            )
-
         output = args.output.resolve()
         output.mkdir(parents=True, exist_ok=True)
-        results = qualify_model(cases, generate, output_directory=output)
+        local_requested = args.llama_cli is not None or args.model_file is not None
+        if local_requested:
+            if args.llama_cli is None or args.model_file is None:
+                raise ValueError("--llama-cli and --model-file must be used together.")
+            if not args.runtime_revision or not args.model_revision:
+                raise ValueError(
+                    "Local qualification requires runtime and model revisions."
+                )
+            if not args.model_sha256 or not _SHA256.fullmatch(args.model_sha256):
+                raise ValueError(
+                    "Local qualification requires a lowercase expected model SHA-256."
+                )
+            model_path = args.model_file.resolve()
+            if not model_path.is_file():
+                raise ValueError("Local model must be an existing regular file.")
+            actual_sha256 = _sha256(model_path)
+            if actual_sha256 != args.model_sha256:
+                raise ValueError("Local model SHA-256 does not match the expected value.")
+            client = LlamaCliRecipeClient(
+                args.llama_cli,
+                model_path,
+                timeout_seconds=args.timeout,
+            )
+            results = qualify_local_model(
+                cases,
+                client.generate,
+                output_directory=output,
+            )
+            provider = {
+                "kind": "llama.cpp",
+                "runtime_revision": args.runtime_revision,
+                "model_filename": model_path.name,
+                "model_revision": args.model_revision,
+                "model_sha256": actual_sha256,
+                "model_size_bytes": model_path.stat().st_size,
+                "retry_limit": LOCAL_MODEL_ATTEMPTS - 1,
+            }
+        else:
+            from am_configurator.local_animation import OllamaRecipeClient
+
+            client = OllamaRecipeClient(endpoint=args.endpoint)
+
+            def generate(case: PromptCase) -> dict[str, Any]:
+                return client.generate(
+                    case.prompt,
+                    model=args.model,
+                    width=case.width,
+                    height=case.height,
+                    frame_count=case.frame_count,
+                    density_default=case.density,
+                )
+
+            results = qualify_model(cases, generate, output_directory=output)
+            provider = {
+                "kind": "ollama-development",
+                "model": args.model,
+                "endpoint": args.endpoint,
+            }
         report = {
             "schema_version": 1,
-            "model": args.model,
+            "provider": provider,
             "passed": all(result["passed"] for result in results),
             "results": results,
         }
