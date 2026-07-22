@@ -1,8 +1,9 @@
 # Ollama-First Local Model Setup
 
-**Status:** Approved and authorized by the owner on 2026-07-22. This plan
-implements the 2026-07-22 Ollama-first local model decision and supersedes the
-direct-GGUF onboarding portions of the 2026-07-21 Optional AI plan.
+**Status:** Complete on 2026-07-22. The approved work landed in `57fb05a`,
+`440c5ac`, `6815337`, `8021ecf`, and `9f2174a`. This plan implements the
+2026-07-22 Ollama-first local model decision and supersedes the direct-GGUF
+onboarding portions of the 2026-07-21 Optional AI plan.
 
 ## Objective
 

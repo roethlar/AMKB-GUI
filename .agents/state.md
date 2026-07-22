@@ -280,16 +280,36 @@
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
   `.agents/review/outcomes.md`.
+- Ollama-first Local AI landed in `57fb05a`, `440c5ac`, `6815337`, `8021ecf`,
+  and `9f2174a`. Settings now discovers eligible models already installed in
+  fixed-loopback Ollama, lets the user select one by name, and keeps direct
+  GGUF under a collapsed advanced fallback. Cloud aliases are excluded, model
+  selection is bound to Ollama's current digest, production code has no model-
+  management operation, and Ollama readiness is independent of the bundled
+  llama.cpp runtime and GPU probe. A real temporary setup and full procedural
+  generation through the already-installed `ornith:latest` model recovered
+  from one malformed response with the bounded retry, then banked a dense
+  200-frame Relic result with recipe, raster, preview, and mapped assets; the
+  seven-model eligible inventory was unchanged before and after. External
+  Playwright checks at 1440×920 and 520×720 covered available, selected, and
+  unavailable states without console errors, clipping, or horizontal overflow;
+  Playwright is not an application dependency. Full verification passed with
+  324 Python tests (two prepared-runtime integration skips) and 22 browser
+  tests. Versioned macOS arm64 build `0.1.29` passed signed runtime checks, DMG
+  verification, and frozen smoke of the offline Ollama, advanced GGUF, API,
+  media, and loopback UI paths. No model was downloaded, copied, changed, or
+  deleted, and no hardware write was made.
 - The nested `cyberboard-cli/` checkout remains ignored reference material
   and is not part of the application.
 
 ## Next
 
-- Treat macOS arm64 as the currently native-verified local-AI platform. Run the
+- Treat macOS arm64 as the currently native-package-verified platform. Run the
   committed desktop workflow when an outward push is authorized to verify the
-  pinned Windows x86_64 and Linux x86_64 runtime builds; if either native runtime
-  fails its own packaging/smoke gate, ship that platform API-only rather than
-  weakening verification or changing the no-weights rule.
+  Windows x86_64 and Linux x86_64 packages, including Ollama and the pinned
+  advanced GGUF runtime; if either native runtime fails its packaging/smoke
+  gate, ship that platform without direct-GGUF support rather than weakening
+  verification or changing the no-weights rule.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON
