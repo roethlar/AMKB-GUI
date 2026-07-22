@@ -202,7 +202,18 @@
   and clean shutdown; it did not qualify the model, alter the user's selection,
   or gate the feature. No model was downloaded, copied, modified, or deleted;
   no external provider call, credential-store write, native app build, or
-  hardware write was made.
+  hardware write was made. Task 6's read-compatible manifest v2 and durable
+  procedural coordinator landed in `2c5b6b6`. Historical v1 manifests normalize
+  only in memory and remain byte-preserved and browseable until a real update;
+  procedural jobs bank the exact recipe, 200-frame fastest-duration raster,
+  preview, mapped LED result, quality evidence, and usage record. Local schema
+  or quality failures may retry twice within that generation and never revoke
+  readiness. API work remains one-call, and startup recovery adopts fully
+  banked artifacts without replaying an interrupted API request. Full repository
+  verification passed at `2c5b6b6` with 335 Python tests (two prepared-runtime
+  integration skips) and 32 browser tests. No model was downloaded or invoked;
+  no provider call, credential-store write, native app build, or hardware write
+  was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -226,12 +237,12 @@
 
 ## Next
 
-- Implement Task 6 of
-  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: extend the
-  generated-asset manifest for procedural jobs and add durable generation,
-  retry, cancellation, recovery, exact-render, mapping, and artifact banking.
-  Keep tests offline; do not initiate a paid API call, download a model, or
-  write hardware.
+- Implement Task 7 of
+  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: expose strict
+  authenticated capability, local model selection/test, API credential/test,
+  procedural effect, cancellation, job, and asset routes while retaining the
+  sole server-side capability gate. Keep tests offline; do not initiate a paid
+  API call, download or invoke a model, or write hardware.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON
