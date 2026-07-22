@@ -109,6 +109,17 @@
   tests. Versioned macOS build `0.1.25` passed frozen media smoke and DMG
   verification and was launched with the owner's Relic profile. No provider or
   hardware call was made.
+- Library acceptance exposed two false UI stalls in `0.1.25`: Animate required
+  an open document even though a saved job owns a complete device-target
+  snapshot, and a failed media fetch remained visually stuck at Loading.
+  Commit `6b9ff3f` permits saved-still animation without a document while
+  retaining document compatibility as an Apply-only gate; Library assets now
+  retry once and then expose an explicit Retry action. Both JPEGs in job
+  `ef25e4ab-c0f3-4791-a11c-e6d209ec61c9` were verified present with matching
+  sizes and SHA-256 hashes. Full verification passed with 269 Python tests and
+  32 browser tests. Versioned macOS build `0.1.26` passed frozen media smoke and
+  DMG verification and was launched without a document to reproduce the
+  owner's Library context. No provider or hardware call was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -132,7 +143,7 @@
 
 ## Next
 
-- Await the owner's result from macOS build `0.1.25` using the single proof path:
+- Await the owner's result from macOS build `0.1.26` using the single proof path:
   Generate, generate one still, click that still, then Generate animation. On
   failure, inspect that job's banked manifest and assets before changing UI;
   isolate and fix only the failed provider, download, FFmpeg, mapping, or review
