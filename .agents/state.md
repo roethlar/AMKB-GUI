@@ -174,7 +174,17 @@
   build because `GGML_RPC=OFF`. Full repository verification passed at
   `d748898` with 298 Python tests (one prepared-runtime integration skip) and 32
   browser tests. No model was downloaded, copied, modified, or deleted; no
-  provider call or hardware write was made.
+  provider call or hardware write was made. Task 4's schema-v3 settings and
+  secure credential boundary landed in `8721681`: Library roots and loop mode
+  survive migration, obsolete model/count preferences are removed, and valid
+  v1/v2 plaintext credentials move to a fixed platform OS credential backend
+  only after exact read-back. Failed migration or final settings publication
+  leaves the original v2 bytes untouched and restores any prior vault value;
+  active settings and browser responses contain no key or credential-derived
+  substring. Full repository verification passed at `8721681` with 309 Python
+  tests (one prepared-runtime integration skip) and 32 browser tests. Tests
+  used injected memory storage; no production credential read/write, provider
+  call, model download, native app build, or hardware write was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -198,11 +208,11 @@
 
 ## Next
 
-- Implement Task 4 of
-  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: migrate settings
-  to schema v3 and move API credentials to the operating-system credential
-  store without plaintext fallback. Preserve Library roots and loop mode, keep
-  local AI primary, and do not initiate a paid API call or write hardware.
+- Implement Task 5 of
+  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: add the primary
+  managed-local recipe provider, secondary xAI recipe provider, and shared
+  capability/readiness service. Keep all tests offline; do not initiate a paid
+  API call, download a model, or write hardware.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
   CyberBoard, Relic 80, and AFA firmware variants using portable JSON
