@@ -1,6 +1,6 @@
 # Optional AI Backends and Procedural Lighting Generation
 
-**Status:** Drafted on 2026-07-21 from owner-approved product decisions. Implementation requires a separate explicit go.
+**Status:** Product decisions approved on 2026-07-21. Task 1 was separately authorized and implemented in `d7eedc2`; Tasks 2–9 require another explicit go.
 
 ## Objective
 
