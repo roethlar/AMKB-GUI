@@ -140,8 +140,9 @@
   absent from the main UI by default, then becomes available only after either
   an app-managed local GPU model or a curated API model passes setup. The
   durable implementation plan is
-  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`; no implementation
-  is authorized yet.
+  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`, committed with
+  the approved decision record in `ca13f11`; no implementation is authorized
+  yet.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
