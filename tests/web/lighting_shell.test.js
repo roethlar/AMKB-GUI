@@ -196,6 +196,20 @@ test("a banked Library concept can resume directly in Animate without a provider
   assert.match(resume, /type:\s*"SHOW_ANIMATE"/);
   assert.match(resume, /openGenerationDialog\(\)/);
   assert.doesNotMatch(resume, /\/animate|method:\s*"POST"|startLightingAnimation/);
+  const availability = js.slice(js.indexOf("function libraryConceptAvailability"), js.indexOf("function libraryMediaMarkup"));
+  assert.doesNotMatch(availability, /if\(!document\)return/);
+  assert.match(availability, /if\(document/);
+  const dialog = js.slice(js.indexOf("function renderGenerationDialog"), js.indexOf("function openGenerationDialog"));
+  assert.match(dialog, /STAGES\.CONCEPTS/);
+  assert.doesNotMatch(dialog, /if \(!state\.config \|\| !pageData\(\)\.length\)/);
+});
+
+test("Library media failures retry once and become actionable instead of loading forever", () => {
+  assert.match(js, /assetErrors:\s*new Map\(\)/);
+  assert.match(js, /data-library-asset-retry=/);
+  assert.match(js, /loadLibraryAsset\(jobId,assetId,\{retry:true\}\)/);
+  assert.match(js, /assetErrors\.set\(key/);
+  assert.match(js, /assetErrors\.delete\(key\)/);
 });
 
 test("Settings is a complete saveable route with storage and an explicit exit", () => {

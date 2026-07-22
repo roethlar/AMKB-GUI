@@ -83,6 +83,7 @@ const state = {
     detailLoads: new Set(),
     assetUrls: new Map(),
     assetLoads: new Set(),
+    assetErrors: new Map(),
     filter: "all",
     query: "",
     selectedJobId: null,
@@ -686,6 +687,7 @@ function clearConceptAssetUrls() {
 function clearLibraryAssetUrls() {
   for(const url of state.library.assetUrls.values())URL.revokeObjectURL(url);
   state.library.assetUrls.clear();
+  state.library.assetErrors.clear();
 }
 
 function libraryFilterQuery() {
@@ -716,10 +718,11 @@ function libraryCoverAsset(detail) {
     || null;
 }
 
-async function loadLibraryAsset(jobId,assetId) {
+async function loadLibraryAsset(jobId,assetId,{retry=false}={}) {
   const key=`${jobId}:${assetId}`;
   if(state.library.assetUrls.has(key)||state.library.assetLoads.has(key))return;
   state.library.assetLoads.add(key);
+  state.library.assetErrors.delete(key);
   try{
     const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
     if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load asset (${response.status})`);}
@@ -729,9 +732,15 @@ async function loadLibraryAsset(jobId,assetId) {
     state.library.assetUrls.set(key,url);
     if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
   }catch(error){
-    state.library.error=error.message;
+    if(retry)state.library.assetErrors.set(key,error.message);
+    else{
+      state.library.assetErrors.set(key,"Retrying…");
+      setTimeout(()=>loadLibraryAsset(jobId,assetId,{retry:true}),250);
+    }
+  }finally{
+    state.library.assetLoads.delete(key);
     if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
-  }finally{state.library.assetLoads.delete(key);}
+  }
 }
 
 async function ensureLibraryJobDetail(jobId) {
@@ -796,12 +805,14 @@ function libraryCardMarkup(job) {
 
 function libraryConceptAvailability(detail,candidate) {
   if(!candidate)return {available:false,reason:"This saved image is not an animation concept."};
-  const document=documentDescriptor();
-  if(!document)return {available:false,reason:"Open a compatible keyboard configuration to animate this concept."};
   const target=detail?.target||{};
-  if(!sameProductFamily(target.family||target.product_id,document.family||document.productId))return {available:false,reason:`This concept was made for ${productLabel(target.family||target.product_id)}.`};
   const targets=Array.isArray(target.targets)?target.targets:[];
-  if(!targets.length||targets.some(item=>!document.supportedTargets.includes(item)))return {available:false,reason:"This concept uses a lighting target the open configuration does not support."};
+  const model=LED_MODELS[productFamily(target.family||target.product_id)];
+  const modelTargets=new Set(model?.targets?.map(item=>item.key)||[]);
+  if(!model||!targets.length||targets.some(item=>!modelTargets.has(item)))return {available:false,reason:"This concept does not contain a supported device target."};
+  const document=documentDescriptor();
+  if(document&&!sameProductFamily(target.family||target.product_id,document.family||document.productId))return {available:false,reason:`This concept was made for ${productLabel(target.family||target.product_id)}.`};
+  if(document&&targets.some(item=>!document.supportedTargets.includes(item)))return {available:false,reason:"This concept uses a lighting target the open configuration does not support."};
   const running=state.lighting.activeJob?.status==="in_progress"&&state.lighting.activeJob.id!==detail.job_id;
   if(running)return {available:false,reason:"Finish or cancel the current generation first."};
   return {available:true,reason:"Open this saved concept in Animate. No provider request is made yet."};
@@ -810,7 +821,9 @@ function libraryConceptAvailability(detail,candidate) {
 function libraryMediaMarkup(jobId,asset,index,detail) {
   const url=state.library.assetUrls.get(`${jobId}:${asset.asset_id}`);
   const label=asset.kind.replaceAll("_"," ");
-  if(!url)return `<div class="library-media-card loading"><span class="library-card-placeholder">Loading…</span><small>${esc(label)}</small></div>`;
+  const loadError=state.library.assetErrors.get(`${jobId}:${asset.asset_id}`);
+  if(!url&&loadError&&loadError!=="Retrying…")return `<div class="library-media-card failed"><strong>Could not load this ${esc(label)}.</strong><small>${esc(loadError)}</small><button type="button" class="button ghost" data-library-asset-retry="${esc(asset.asset_id)}" data-library-asset-job="${esc(jobId)}">Retry</button></div>`;
+  if(!url)return `<div class="library-media-card loading"><span class="library-card-placeholder">${loadError||"Loading…"}</span><small>${esc(label)}</small></div>`;
   if(asset.mime_type==="video/mp4")return `<figure class="library-media-card"><video src="${esc(url)}" controls muted playsinline preload="metadata"></video><figcaption>${esc(label)}</figcaption></figure>`;
   const candidate=asset.kind==="concept"?detail?.candidates?.find(item=>item.asset_id===asset.asset_id):null;
   const availability=candidate?libraryConceptAvailability(detail,candidate):null;
@@ -834,6 +847,7 @@ function libraryDetailMarkup(jobId) {
 function wireLibraryContent() {
   $$("[data-library-job]",$("#library-content")).forEach(card=>card.addEventListener("click",()=>openLibraryJob(card.dataset.libraryJob)));
   $$("[data-library-animate-job]",$("#library-content")).forEach(button=>button.addEventListener("click",()=>continueLibraryConcept(button.dataset.libraryAnimateJob,button.dataset.libraryAnimateCandidate)));
+  $$("[data-library-asset-retry]",$("#library-content")).forEach(button=>button.addEventListener("click",()=>loadLibraryAsset(button.dataset.libraryAssetJob,button.dataset.libraryAssetRetry,{retry:true})));
   $("[data-library-back]",$("#library-content"))?.addEventListener("click",()=>{state.library.selectedJobId=null;renderLibrary();});
   $("[data-library-retry]",$("#library-content"))?.addEventListener("click",()=>loadLibrary({force:true}));
   $("[data-library-settings]",$("#library-content"))?.addEventListener("click",openSettings);
@@ -1552,8 +1566,9 @@ function wireLedEditor(gridColumns) {
 }
 
 function generationDialogContext() {
-  const model = activeLedModel();
   const manifest = state.conceptManifest?.job_id === state.lighting.activeJob?.id ? state.conceptManifest : null;
+  const manifestFamily=productFamily(manifest?.target?.family||manifest?.target?.product_id);
+  const model = LED_MODELS[manifestFamily]||activeLedModel();
   const targetKey=manifest?.target?.targets?.[0]||state.conceptDestination?.target||state.ledTarget;
   const target = model.targets.find(item => item.key === targetKey) || model.targets[0];
   const pairsRelicGif = (manifest?.target?.targets||[]).includes("spotlight_frames") || (model === LED_MODELS["80"] && target.key === "keyframes" && state.relicGifEdges);
@@ -1708,7 +1723,8 @@ function renderReviewStage(context) {
 
 function renderGenerationDialog() {
   const content = $("#lighting-generate-content");
-  if (!state.config || !pageData().length) {
+  const needsDocument=state.lighting.create.stage===STAGES.CONCEPTS;
+  if (needsDocument&&(!state.config||!pageData().length)) {
     content.innerHTML = documentRequirementMarkup("Generation needs the document's LED geometry and frame limits.");
     return;
   }
