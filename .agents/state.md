@@ -213,7 +213,20 @@
   verification passed at `2c5b6b6` with 335 Python tests (two prepared-runtime
   integration skips) and 32 browser tests. No model was downloaded or invoked;
   no provider call, credential-store write, native app build, or hardware write
-  was made.
+  was made. Task 7's authenticated optional-AI setup and procedural-effect API
+  landed in `f45d529`. The native picker accepts an existing regular GGUF but
+  its path-returning method is private to the loopback server and cannot enter
+  browser JavaScript; setup and generation share one admission gate. The server
+  owns backend verification and derives each active device family's raster,
+  mapping targets, maximum frame count, fastest duration, and selected model.
+  Historical job, Library, asset, and cancellation surfaces remain; obsolete
+  xAI still/video mutations return stable local `410` responses without calling
+  their providers. The frozen smoke path now exercises the production managed-
+  local recipe adapter against a fake runtime. Full repository verification
+  passed at `f45d529` with 338 Python tests (two prepared-runtime integration
+  skips) and 32 browser tests. No model was downloaded or invoked; no external
+  provider call, production credential-store write, native app build, or
+  hardware write was made.
 - A Grok whole-change openreview of
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`
   reported no material issue; provenance is recorded in
@@ -237,11 +250,11 @@
 
 ## Next
 
-- Implement Task 7 of
-  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: expose strict
-  authenticated capability, local model selection/test, API credential/test,
-  procedural effect, cancellation, job, and asset routes while retaining the
-  sole server-side capability gate. Keep tests offline; do not initiate a paid
+- Implement Task 8 of
+  `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`: make optional AI
+  hidden by default outside Settings, add local/API setup and repair states, and
+  replace the legacy still/video creation flow with procedural prompt, progress,
+  review, and explicit Apply. Keep browser tests offline; do not initiate a paid
   API call, download or invoke a model, or write hardware.
 - Carried over: address any failures surfaced by the committed CI and
   desktop-installer workflows; continue hardware verification across
