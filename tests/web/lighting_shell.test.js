@@ -53,6 +53,7 @@ test("Settings makes Local primary and lets the user select any existing GGUF", 
   assert.match(js,/api\("\/api\/ai\/local\/clear"/);
   assert.match(js,/api\("\/api\/ai\/test"/);
   assert.match(js,/model_filename/);
+  assert.match(css,/\.check-row\s*>\s*span\s*\{[^}]*display:\s*grid[^}]*gap:/);
   const effect=js.slice(js.indexOf("async function startProceduralGeneration"),js.indexOf("function applyReviewedLighting",js.indexOf("async function startProceduralGeneration")));
   assert.match(effect,/JSON\.stringify\(\{prompt,backend:state\.aiStatus\.backend,loop_mode:state\.animationLoopMode\}\)/);
   assert.doesNotMatch(effect,/model_path|model_id|frame_count|product_id:/);
