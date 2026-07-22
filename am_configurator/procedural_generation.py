@@ -132,13 +132,18 @@ class ProceduralGenerationCoordinator:
     def _model_record(status: dict[str, Any]) -> dict[str, str]:
         backend = status["backend"]
         if backend == "local":
-            filename = status["local"].get("model_filename")
-            if not isinstance(filename, str) or not filename:
+            model_id = status["local"].get("model_id")
+            provider = status["local"].get("provider")
+            if (
+                not isinstance(model_id, str)
+                or not model_id
+                or provider not in {"ollama", "llama.cpp"}
+            ):
                 raise GenerationValidationError("the selected local model is unavailable")
             return {
                 "backend": "local",
-                "provider": "llama.cpp",
-                "model_id": filename,
+                "provider": provider,
+                "model_id": model_id,
             }
         if backend == "api":
             return {

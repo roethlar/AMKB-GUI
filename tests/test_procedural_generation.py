@@ -96,7 +96,10 @@ class _Capability:
             "enabled": True,
             "ready": True,
             "backend": backend,
-            "local": {"model_filename": "chosen.gguf"},
+            "local": {
+                "model_id": "chosen.gguf",
+                "provider": "llama.cpp",
+            },
             "api": {"provider": "xai", "model_id": "grok-4.5"},
         }
 

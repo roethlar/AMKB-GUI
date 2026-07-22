@@ -19,8 +19,10 @@ from .local_ai_runtime import (
     probe_full_gpu_offload,
 )
 from .local_model import LocalModelManager, SelectedModel
+from .ollama_client import OllamaClient, OllamaError, OllamaModel, valid_model_digest, valid_model_id
 from .recipe_provider import (
     ManagedLocalRecipeProvider,
+    OllamaRecipeProvider,
     RecipeRequest,
     XaiRecipeProvider,
 )
@@ -34,6 +36,7 @@ _ALLOWED_REASONS = {
     "backend_unselected",
     "gpu_unsupported",
     "runtime_unavailable",
+    "ollama_unavailable",
     "model_missing",
     "model_invalid",
     "credential_store_unavailable",
@@ -84,6 +87,20 @@ def local_setup_fingerprint(runtime_identity: str, model_sha256: str) -> str:
             runtime_identity, "runtime identity"
         ),
         "model_sha256": _digest(model_sha256, "model identity"),
+        "recipe_schema_version": procedural.SCHEMA_VERSION,
+        "setup_test_version": SETUP_TEST_VERSION,
+    })
+
+
+def ollama_setup_fingerprint(model_id: str, model_digest: str) -> str:
+    """Bind readiness to one installed fixed-loopback Ollama model identity."""
+
+    if not valid_model_id(model_id) or not valid_model_digest(model_digest):
+        raise ValueError("Ollama model identity is invalid")
+    return _sha256_object({
+        "kind": "ollama-loopback-v1",
+        "model_id": model_id,
+        "model_digest": model_digest,
         "recipe_schema_version": procedural.SCHEMA_VERSION,
         "setup_test_version": SETUP_TEST_VERSION,
     })
@@ -175,6 +192,8 @@ class AICapabilityService:
         gpu_probe=None,
         local_provider_factory=None,
         api_provider_factory=None,
+        ollama_client: OllamaClient | None = None,
+        ollama_provider_factory=None,
     ) -> None:
         self._settings_loader = store.load_settings if settings_loader is None else settings_loader
         self._model_manager = LocalModelManager() if model_manager is None else model_manager
@@ -214,6 +233,12 @@ class AICapabilityService:
             if api_provider_factory is None
             else api_provider_factory
         )
+        self._ollama_client = OllamaClient() if ollama_client is None else ollama_client
+        self._ollama_provider_factory = (
+            self._default_ollama_provider
+            if ollama_provider_factory is None
+            else ollama_provider_factory
+        )
         self._local_provider_instance = None
         self._failure_reasons: dict[str, tuple[str, str]] = {}
 
@@ -227,12 +252,15 @@ class AICapabilityService:
     def _default_api_provider(key: str, model_id: str):
         return XaiRecipeProvider(key, model_id=model_id)
 
+    def _default_ollama_provider(self, model: OllamaModel):
+        return OllamaRecipeProvider(model, client=self._ollama_client)
+
     def _managed_local_provider(self):
         if self._local_provider_instance is None:
             self._local_provider_instance = self._local_provider_factory()
         return self._local_provider_instance
 
-    def _local_components(self) -> dict[str, Any]:
+    def _gguf_components(self) -> dict[str, Any]:
         try:
             supported, gpu_backend = self._host_capability()
         except Exception:
@@ -289,6 +317,88 @@ class AICapabilityService:
             "expected": expected,
         }
 
+    def discover_local_models(self) -> dict[str, Any]:
+        """Return a bounded public list of eligible fixed-loopback models."""
+
+        try:
+            models = self._ollama_client.list_models(deadline=time.monotonic() + 5.0)
+        except (OllamaError, OSError, RuntimeError):
+            return {"available": False, "models": []}
+        if not isinstance(models, tuple) or any(
+            not isinstance(model, OllamaModel) for model in models
+        ):
+            return {"available": False, "models": []}
+        return {
+            "available": True,
+            "models": [model.public() for model in models],
+        }
+
+    def _ollama_components(self, settings: dict[str, Any]) -> dict[str, Any]:
+        local = settings["ai"]["local"]
+        selected_id = local["model_id"]
+        selected_digest = local["model_digest"]
+        try:
+            models = self._ollama_client.list_models(deadline=time.monotonic() + 5.0)
+            if not isinstance(models, tuple) or any(
+                not isinstance(model, OllamaModel) for model in models
+            ):
+                raise OllamaError("bad_response", "Invalid local model list.")
+            available = True
+        except (OllamaError, OSError, RuntimeError):
+            models = ()
+            available = False
+        model = next(
+            (
+                candidate
+                for candidate in models
+                if candidate.model_id == selected_id
+                and candidate.digest == selected_digest
+            ),
+            None,
+        )
+        expected = None
+        if model is not None:
+            try:
+                expected = ollama_setup_fingerprint(model.model_id, model.digest)
+            except ValueError:
+                expected = None
+        return {
+            "available": available,
+            "selected": selected_id is not None and selected_digest is not None,
+            "model_id": selected_id,
+            "model": model,
+            "verified": model is not None,
+            "expected": expected,
+        }
+
+    def _local_components(self, settings: dict[str, Any]) -> dict[str, Any]:
+        source = settings["ai"]["local"]["source"]
+        gguf = self._gguf_components()
+        if source == "ollama":
+            ollama = self._ollama_components(settings)
+            return {
+                "source": source,
+                "service_available": ollama["available"],
+                "selected": ollama["selected"],
+                "model_id": ollama["model_id"],
+                "verified": ollama["verified"],
+                "model": ollama["model"],
+                "expected": ollama["expected"],
+                "provider": "ollama",
+                "gguf": gguf,
+            }
+        return {
+            "source": "gguf",
+            "service_available": None,
+            "selected": gguf["selected"],
+            "model_id": gguf["filename"],
+            "verified": gguf["verified"],
+            "model": gguf["model"],
+            "expected": gguf["expected"],
+            "provider": "llama.cpp",
+            "gguf": gguf,
+        }
+
     def _api_components(self, settings: dict[str, Any]) -> dict[str, Any]:
         api = settings["ai"]["api"]
         try:
@@ -339,7 +449,7 @@ class AICapabilityService:
     def status(self) -> dict[str, Any]:
         try:
             settings = self._settings_loader()
-            local = self._local_components()
+            local = self._local_components(settings)
             api = self._api_components(settings)
             enabled = settings["ai"]["enabled"] is True
             backend = settings["ai"]["backend"]
@@ -358,14 +468,16 @@ class AICapabilityService:
             elif backend is None:
                 reason = "backend_unselected"
             elif backend == "local":
-                if not local["supported"]:
+                if local["source"] == "ollama" and not local["service_available"]:
+                    reason = "ollama_unavailable"
+                elif local["source"] == "gguf" and not local["gguf"]["supported"]:
                     reason = "gpu_unsupported"
-                elif not local["runtime_verified"]:
+                elif local["source"] == "gguf" and not local["gguf"]["runtime_verified"]:
                     reason = "runtime_unavailable"
                 elif not local["selected"]:
                     reason = "model_missing"
                 elif not local["verified"]:
-                    reason = "model_invalid"
+                    reason = "model_unavailable" if local["source"] == "ollama" else "model_invalid"
                 else:
                     reason = self._remembered_reason("local", local["expected"])
                     if reason is None and not local_tested:
@@ -400,13 +512,21 @@ class AICapabilityService:
                 "ready": ready,
                 "reason": reason,
                 "local": {
-                    "supported": local["supported"],
-                    "gpu_backend": local["gpu_backend"],
-                    "runtime_verified": local["runtime_verified"],
+                    "source": local["source"],
+                    "service_available": local["service_available"],
                     "model_selected": local["selected"],
-                    "model_filename": local["filename"],
+                    "model_id": local["model_id"],
                     "model_verified": local["verified"],
                     "setup_tested": local_tested,
+                    "provider": local["provider"],
+                    "advanced": {
+                        "supported": local["gguf"]["supported"],
+                        "gpu_backend": local["gguf"]["gpu_backend"],
+                        "runtime_verified": local["gguf"]["runtime_verified"],
+                        "model_selected": local["gguf"]["selected"],
+                        "model_filename": local["gguf"]["filename"],
+                        "model_verified": local["gguf"]["verified"],
+                    },
                 },
                 "api": {
                     "provider": settings["ai"]["api"]["provider"],
@@ -427,13 +547,21 @@ class AICapabilityService:
                 "ready": False,
                 "reason": "setup_required",
                 "local": {
-                    "supported": False,
-                    "gpu_backend": None,
-                    "runtime_verified": False,
+                    "source": "ollama",
+                    "service_available": False,
                     "model_selected": False,
-                    "model_filename": None,
+                    "model_id": None,
                     "model_verified": False,
                     "setup_tested": False,
+                    "provider": "ollama",
+                    "advanced": {
+                        "supported": False,
+                        "gpu_backend": None,
+                        "runtime_verified": False,
+                        "model_selected": False,
+                        "model_filename": None,
+                        "model_verified": False,
+                    },
                 },
                 "api": {
                     "provider": "xai",
@@ -457,6 +585,13 @@ class AICapabilityService:
 
         status = self.require_ready()
         if status["backend"] == "local":
+            settings = self._settings_loader()
+            components = self._local_components(settings)
+            if components["source"] == "ollama":
+                model = components["model"]
+                if not isinstance(model, OllamaModel):
+                    raise AICapabilityError("model_unavailable")
+                return self._ollama_provider_factory(model)
             return self._managed_local_provider()
         settings = self._settings_loader()
         components = self._api_components(settings)
@@ -491,35 +626,41 @@ class AICapabilityService:
         )
 
         if backend == "local":
-            components = self._local_components()
-            if not components["supported"]:
-                raise llm.ProviderError("config", "Local GPU support is unavailable.")
-            runtime = components["runtime"]
-            model = components["model"]
+            components = self._local_components(settings)
             fingerprint = components["expected"]
-            if runtime is None or model is None or fingerprint is None:
-                raise llm.ProviderError(
-                    "config", "Verified local inference components are unavailable."
-                )
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise llm.ProviderError("timeout", "Local setup test timed out.")
-            try:
-                probe = self._gpu_probe(
-                    runtime,
-                    model,
-                    timeout_seconds=min(180.0, remaining),
-                )
-            except Exception:
-                probe = None
-            if (
-                not isinstance(probe, GpuProbe)
-                or probe.total_layers < 1
-                or probe.offloaded_layers != probe.total_layers
-            ):
-                self._failure_reasons["local"] = ("setup_required", fingerprint)
-                raise llm.ProviderError("config", "Full local GPU offload failed.")
-            provider = self._managed_local_provider()
+            model = components["model"]
+            if fingerprint is None or model is None:
+                raise llm.ProviderError("config", "The selected local model is unavailable.")
+            if components["source"] == "ollama":
+                provider = self._ollama_provider_factory(model)
+            else:
+                gguf = components["gguf"]
+                if not gguf["supported"]:
+                    raise llm.ProviderError("config", "Local GPU support is unavailable.")
+                runtime = gguf["runtime"]
+                if runtime is None:
+                    raise llm.ProviderError(
+                        "config", "Verified local inference components are unavailable."
+                    )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise llm.ProviderError("timeout", "Local setup test timed out.")
+                try:
+                    probe = self._gpu_probe(
+                        runtime,
+                        model,
+                        timeout_seconds=min(180.0, remaining),
+                    )
+                except Exception:
+                    probe = None
+                if (
+                    not isinstance(probe, GpuProbe)
+                    or probe.total_layers < 1
+                    or probe.offloaded_layers != probe.total_layers
+                ):
+                    self._failure_reasons["local"] = ("setup_required", fingerprint)
+                    raise llm.ProviderError("config", "Full local GPU offload failed.")
+                provider = self._managed_local_provider()
         else:
             components = self._api_components(settings)
             api = settings["ai"]["api"]
@@ -573,5 +714,6 @@ __all__ = [
     "api_setup_fingerprint",
     "host_gpu_capability",
     "local_setup_fingerprint",
+    "ollama_setup_fingerprint",
     "runtime_identity",
 ]

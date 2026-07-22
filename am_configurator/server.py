@@ -1292,6 +1292,7 @@ class _State:
         local_model_manager: Any = None,
         credential_store: Any = None,
         procedural_coordinator: Any = None,
+        ollama_client: Any = None,
     ) -> None:
         if (lighting_library is None) != (lighting_coordinator is None):
             raise ValueError(
@@ -1316,6 +1317,7 @@ class _State:
         self._local_model_manager = local_model_manager
         self._credential_store = credential_store
         self._procedural_coordinator = procedural_coordinator
+        self._ollama_client = ollama_client
         self._procedural_library_identity: int | None = (
             id(lighting_library) if procedural_coordinator is not None else None
         )
@@ -1363,6 +1365,7 @@ class _State:
                     credential_store=credential_store,
                     **kwargs,
                 ),
+                ollama_client=self._ollama_client,
             )
         return self._ai_capability, self._local_model_manager
 
@@ -1677,6 +1680,13 @@ class _Handler(BaseHTTPRequestHandler):
                         )
                     capability, _manager = self.state.ai_services()
                     self._json(capability.status())
+                elif path == "/api/ai/local/models":
+                    if parsed.query:
+                        raise ValueError(
+                            "The local model route does not accept query fields."
+                        )
+                    capability, _manager = self.state.ai_services()
+                    self._json(capability.discover_local_models())
                 elif path.startswith("/api/lighting/"):
                     self._lighting_get(path, parsed.query)
                 elif path == "/api/led/generate/status":
@@ -1757,6 +1767,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._test_ai_backend(body)
             elif path == "/api/ai/local/select":
                 self._select_local_model(body)
+            elif path == "/api/ai/local/gguf/select":
+                self._select_advanced_local_model(body)
             elif path == "/api/ai/local/clear":
                 self._clear_local_model(body)
             elif path == "/api/native/choose-library":
@@ -1881,6 +1893,43 @@ class _Handler(BaseHTTPRequestHandler):
     def _select_local_model(self, body: dict[str, Any]) -> None:
         from . import store
 
+        self._strict_body(body, allowed={"model_id"}, required={"model_id"})
+        self._require_ai_idle()
+        model_id = body["model_id"]
+        if not isinstance(model_id, str):
+            raise ValueError("The Ollama model name is invalid.")
+        capability, _manager = self.state.ai_services()
+        discovered = capability.discover_local_models()
+        if discovered.get("available") is not True:
+            self._json(
+                {"error": "The local Ollama service is unavailable."},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+        match = next(
+            (
+                model
+                for model in discovered.get("models", [])
+                if isinstance(model, dict) and model.get("model_id") == model_id
+            ),
+            None,
+        )
+        if match is None:
+            raise ValueError("The selected Ollama model is not installed locally.")
+        store.update_local_ai_settings(
+            {
+                "source": "ollama",
+                "model_id": match["model_id"],
+                "model_digest": match["digest"],
+            },
+            credential_store=self.state._credential_store,
+        )
+        capability.close()
+        self._json(capability.status())
+
+    def _select_advanced_local_model(self, body: dict[str, Any]) -> None:
+        from . import store
+
         self._strict_body(body, allowed=set())
         self._require_ai_idle()
         bridge = self.state.desktop_bridge
@@ -1896,9 +1945,8 @@ class _Handler(BaseHTTPRequestHandler):
         if selected is not None:
             capability.close()
             manager.select(selected)
-            store.set_ai_setup_fingerprint(
-                "local",
-                None,
+            store.update_local_ai_settings(
+                {"source": "gguf"},
                 credential_store=self.state._credential_store,
             )
         self._json(capability.status())
@@ -1909,13 +1957,19 @@ class _Handler(BaseHTTPRequestHandler):
         self._strict_body(body, allowed=set())
         self._require_ai_idle()
         capability, manager = self.state.ai_services()
-        capability.close()
-        manager.clear()
-        store.set_ai_setup_fingerprint(
-            "local",
-            None,
-            credential_store=self.state._credential_store,
-        )
+        settings = store.load_settings(credential_store=self.state._credential_store)
+        if settings["ai"]["local"]["source"] == "gguf":
+            capability.close()
+            manager.clear()
+            store.update_local_ai_settings(
+                {"source": "gguf"},
+                credential_store=self.state._credential_store,
+            )
+        else:
+            store.update_local_ai_settings(
+                {"source": "ollama", "model_id": None, "model_digest": None},
+                credential_store=self.state._credential_store,
+            )
         self._json(capability.status())
 
     def _active_procedural_target(self) -> dict:
@@ -2516,6 +2570,7 @@ def create_server(
     local_model_manager: Any = None,
     credential_store: Any = None,
     procedural_coordinator: Any = None,
+    ollama_client: Any = None,
 ) -> tuple[_Server, str]:
     """Create the loopback configurator server without starting its event loop.
 
@@ -2545,6 +2600,7 @@ def create_server(
         local_model_manager=local_model_manager,
         credential_store=credential_store,
         procedural_coordinator=procedural_coordinator,
+        ollama_client=ollama_client,
     )
     state.reconcile_lighting(force=True)
     server = _Server(("127.0.0.1", port), state)

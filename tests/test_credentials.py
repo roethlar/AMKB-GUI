@@ -30,6 +30,29 @@ V3_DEFAULTS = {
     "generation": {"loop_mode": "smooth"},
 }
 
+V4_DEFAULTS = {
+    "schema_version": 4,
+    "ai": {
+        "enabled": False,
+        "backend": None,
+        "local": {
+            "source": "ollama",
+            "model_id": None,
+            "model_digest": None,
+            "setup_fingerprint": None,
+        },
+        "api": {
+            "provider": "xai",
+            "model_id": "grok-4.5",
+            "setup_fingerprint": None,
+            "disclosure_version": None,
+            "disclosure_at": None,
+        },
+    },
+    "library": {"current_root": None, "roots": []},
+    "generation": {"loop_mode": "smooth"},
+}
+
 
 def _v2_settings(*, key: str | None = None, root: Path | None = None) -> dict:
     keys = {} if key is None else {"xai": key}
@@ -151,7 +174,7 @@ class CredentialAdapterTests(unittest.TestCase):
         self.assertNotIn("sk-secret", str(captured.exception))
 
 
-class SettingsV3Tests(unittest.TestCase):
+class SettingsV4Tests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = Path(tempfile.mkdtemp(prefix="am-settings-v3-"))
         self.saved = {
@@ -182,7 +205,7 @@ class SettingsV3Tests(unittest.TestCase):
         settings, reason = store.load_settings_with_status(
             credential_store=self.vault
         )
-        self.assertEqual(V3_DEFAULTS, settings)
+        self.assertEqual(V4_DEFAULTS, settings)
         self.assertIsNone(reason)
         self.assertFalse(store.settings_path().exists())
 
@@ -196,7 +219,7 @@ class SettingsV3Tests(unittest.TestCase):
         )
         self.assertIsNone(reason)
         self.assertEqual("sk-only-copy", self.vault.get("xai"))
-        self.assertEqual(3, settings["schema_version"])
+        self.assertEqual(4, settings["schema_version"])
         self.assertFalse(settings["ai"]["enabled"])
         self.assertIsNone(settings["ai"]["backend"])
         self.assertEqual(str(library.resolve()), settings["library"]["current_root"])
@@ -209,6 +232,47 @@ class SettingsV3Tests(unittest.TestCase):
         self.assertNotIn("sk-only-copy", disk)
         self.assertNotIn('"llm"', disk)
         self.assertNotIn("candidate_count", disk)
+
+    def test_v3_local_readiness_migrates_to_schema_v4_advanced_gguf(self) -> None:
+        legacy = copy.deepcopy(V3_DEFAULTS)
+        legacy["ai"].update({"enabled": True, "backend": "local"})
+        legacy["ai"]["local"]["setup_fingerprint"] = "a" * 64
+        self._write(legacy)
+
+        settings, reason = store.load_settings_with_status(
+            credential_store=self.vault
+        )
+
+        self.assertIsNone(reason)
+        self.assertEqual(4, settings["schema_version"])
+        self.assertEqual(
+            {
+                "source": "gguf",
+                "model_id": None,
+                "model_digest": None,
+                "setup_fingerprint": "a" * 64,
+            },
+            settings["ai"]["local"],
+        )
+        self.assertEqual(4, json.loads(store.settings_path().read_text())["schema_version"])
+
+    def test_ollama_selection_is_strict_and_invalidates_local_setup(self) -> None:
+        updated = store.update_local_ai_settings(
+            {
+                "source": "ollama",
+                "model_id": "ornith:latest",
+                "model_digest": "b" * 64,
+            },
+            credential_store=self.vault,
+        )
+        self.assertEqual("ornith:latest", updated["ai"]["local"]["model_id"])
+        self.assertIsNone(updated["ai"]["local"]["setup_fingerprint"])
+
+        with self.assertRaises(ValueError):
+            store.update_local_ai_settings(
+                {"source": "ollama", "model_id": "cloud:cloud", "model_digest": None},
+                credential_store=self.vault,
+            )
 
     def test_unavailable_or_unverified_vault_preserves_the_only_v2_copy(self) -> None:
         original = self._write(_v2_settings(key="sk-only-copy"))
@@ -241,7 +305,7 @@ class SettingsV3Tests(unittest.TestCase):
         )
         self.assertIsNone(reason)
         self.assertEqual("sk-only-copy", self.vault.get("xai"))
-        self.assertEqual(3, settings["schema_version"])
+        self.assertEqual(4, settings["schema_version"])
         self.assertNotIn("sk-only-copy", store.settings_path().read_text("utf-8"))
 
     def test_failed_final_migration_write_restores_the_previous_vault_value(self) -> None:
@@ -259,7 +323,7 @@ class SettingsV3Tests(unittest.TestCase):
         self.assertEqual(original, store.settings_path().read_bytes())
 
     def test_strict_updates_never_persist_credentials_and_invalidate_setup(self) -> None:
-        configured = copy.deepcopy(V3_DEFAULTS)
+        configured = copy.deepcopy(V4_DEFAULTS)
         configured["ai"]["backend"] = "api"
         configured["ai"]["api"]["setup_fingerprint"] = "a" * 64
         store.save_settings(configured, credential_store=self.vault)
@@ -295,7 +359,7 @@ class SettingsV3Tests(unittest.TestCase):
         self.assertEqual("none", updated["generation"]["loop_mode"])
 
     def test_failed_key_update_restores_the_previous_vault_value(self) -> None:
-        configured = copy.deepcopy(V3_DEFAULTS)
+        configured = copy.deepcopy(V4_DEFAULTS)
         configured["ai"]["backend"] = "api"
         configured["ai"]["api"]["setup_fingerprint"] = "a" * 64
         store.save_settings(configured, credential_store=self.vault)
@@ -315,7 +379,7 @@ class SettingsV3Tests(unittest.TestCase):
         self.assertEqual(before, store.settings_path().read_bytes())
 
     def test_environment_override_is_external_and_never_written(self) -> None:
-        store.save_settings(copy.deepcopy(V3_DEFAULTS), credential_store=self.vault)
+        store.save_settings(copy.deepcopy(V4_DEFAULTS), credential_store=self.vault)
         before = store.settings_path().read_bytes()
         os.environ["XAI_API_KEY"] = "sk-environment-only"
 

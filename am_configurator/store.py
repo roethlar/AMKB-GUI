@@ -290,12 +290,12 @@ def snapshot(product_id: str, ir: dict) -> Path:
 
 # --- App-level settings -------------------------------------------------------
 #
-# App-scoped configuration in one settings.json under the store root. Schema v3
+# App-scoped configuration in one settings.json under the store root. Schema v4
 # never contains credentials. Existing v1/v2 plaintext keys migrate to a
 # verified OS credential store before the old file is atomically replaced.
 
 KEY_MASK = "•" * 8  # Legacy UI display mask; never a legal credential value
-SETTINGS_SCHEMA_VERSION = 3
+SETTINGS_SCHEMA_VERSION = 4
 LOOP_MODES = ("smooth", "none", "ping_pong")
 MIN_CANDIDATE_COUNT = 1
 MAX_CANDIDATE_COUNT = 8
@@ -309,13 +309,18 @@ _KNOWN_KEY_PROVIDERS = ("xai",)
 
 
 def _default_settings() -> dict:
-    """A fresh copy of the credential-free schema v3 defaults."""
+    """A fresh copy of the credential-free schema v4 defaults."""
     return {
         "schema_version": SETTINGS_SCHEMA_VERSION,
         "ai": {
             "enabled": False,
             "backend": None,
-            "local": {"setup_fingerprint": None},
+            "local": {
+                "source": "ollama",
+                "model_id": None,
+                "model_digest": None,
+                "setup_fingerprint": None,
+            },
             "api": {
                 "provider": "xai",
                 "model_id": "grok-4.5",
@@ -327,6 +332,14 @@ def _default_settings() -> dict:
         "library": {"current_root": None, "roots": []},
         "generation": {"loop_mode": "smooth"},
     }
+
+
+def _default_v3_settings() -> dict:
+    """Former credential-free shape used only for strict v3 migration."""
+    result = _default_settings()
+    result["schema_version"] = 3
+    result["ai"]["local"] = {"setup_fingerprint": None}
+    return result
 
 
 def _default_v2_settings() -> dict:
@@ -564,8 +577,8 @@ def _validate_library(values: object) -> dict:
     return {"current_root": current_root, "roots": normalized_roots}
 
 
-def _validate_settings(values: object) -> dict:
-    """Strict-validate and normalize the credential-free v3 settings shape."""
+def _validate_v3_settings(values: object) -> dict:
+    """Strict-validate and normalize the former credential-free v3 shape."""
 
     settings = _object(values, "settings")
     _reject_unknown(
@@ -573,9 +586,9 @@ def _validate_settings(values: object) -> dict:
         {"schema_version", "ai", "library", "generation"},
         "settings",
     )
-    if settings.get("schema_version") != SETTINGS_SCHEMA_VERSION:
+    if settings.get("schema_version") != 3:
         raise ValueError("unsupported settings schema_version")
-    result = _default_settings()
+    result = _default_v3_settings()
 
     ai = _object(settings.get("ai", {}), "settings 'ai'")
     _reject_unknown(ai, {"enabled", "backend", "local", "api"}, "ai settings")
@@ -642,6 +655,109 @@ def _validate_settings(values: object) -> dict:
     return result
 
 
+def _validate_settings(values: object) -> dict:
+    """Strict-validate and normalize the credential-free v4 settings shape."""
+
+    settings = _object(values, "settings")
+    _reject_unknown(
+        settings,
+        {"schema_version", "ai", "library", "generation"},
+        "settings",
+    )
+    if settings.get("schema_version") != SETTINGS_SCHEMA_VERSION:
+        raise ValueError("unsupported settings schema_version")
+    result = _default_settings()
+
+    ai = _object(settings.get("ai", {}), "settings 'ai'")
+    _reject_unknown(ai, {"enabled", "backend", "local", "api"}, "ai settings")
+    enabled = ai.get("enabled", False)
+    backend = ai.get("backend")
+    if type(enabled) is not bool:
+        raise ValueError("ai enabled must be true or false")
+    if backend not in {None, "local", "api"}:
+        raise ValueError("ai backend must be local, api, or null")
+    if enabled and backend is None:
+        raise ValueError("enabled AI requires a selected backend")
+
+    from .ollama_client import valid_model_digest, valid_model_id
+
+    local = _object(ai.get("local", {}), "settings 'ai.local'")
+    _reject_unknown(
+        local,
+        {"source", "model_id", "model_digest", "setup_fingerprint"},
+        "local AI settings",
+    )
+    source = local.get("source", "ollama")
+    model_id = local.get("model_id")
+    model_digest = local.get("model_digest")
+    if source not in {"ollama", "gguf"}:
+        raise ValueError("local AI source must be ollama or gguf")
+    if source == "ollama":
+        if (model_id is None) != (model_digest is None):
+            raise ValueError("Ollama model identity must be complete or empty")
+        if model_id is not None and not valid_model_id(model_id):
+            raise ValueError("Ollama model_id is invalid")
+        if model_digest is not None and not valid_model_digest(model_digest):
+            raise ValueError("Ollama model_digest is invalid")
+    elif model_id is not None or model_digest is not None:
+        raise ValueError("GGUF local AI cannot store an Ollama model identity")
+    local_fingerprint = _fingerprint(
+        local.get("setup_fingerprint"), "local setup_fingerprint"
+    )
+
+    api = _object(ai.get("api", {}), "settings 'ai.api'")
+    _reject_unknown(
+        api,
+        {
+            "provider",
+            "model_id",
+            "setup_fingerprint",
+            "disclosure_version",
+            "disclosure_at",
+        },
+        "API AI settings",
+    )
+    if api.get("provider", "xai") != "xai":
+        raise ValueError("API AI provider is unsupported")
+    if api.get("model_id", "grok-4.5") != "grok-4.5":
+        raise ValueError("API AI model is unsupported")
+    api_fingerprint = _fingerprint(
+        api.get("setup_fingerprint"), "API setup_fingerprint"
+    )
+    disclosure_version = _optional_text(
+        api.get("disclosure_version"), "API disclosure_version"
+    )
+    disclosure_at = _optional_text(api.get("disclosure_at"), "API disclosure_at")
+    if (disclosure_version is None) != (disclosure_at is None):
+        raise ValueError("API disclosure version and timestamp must be set together")
+
+    result["ai"] = {
+        "enabled": enabled,
+        "backend": backend,
+        "local": {
+            "source": source,
+            "model_id": model_id,
+            "model_digest": model_digest,
+            "setup_fingerprint": local_fingerprint,
+        },
+        "api": {
+            "provider": "xai",
+            "model_id": "grok-4.5",
+            "setup_fingerprint": api_fingerprint,
+            "disclosure_version": disclosure_version,
+            "disclosure_at": disclosure_at,
+        },
+    }
+    result["library"] = _validate_library(settings.get("library", {}))
+    generation = _object(settings.get("generation", {}), "settings 'generation'")
+    _reject_unknown(generation, {"loop_mode"}, "generation settings")
+    loop_mode = generation.get("loop_mode", "smooth")
+    if loop_mode not in LOOP_MODES:
+        raise ValueError("loop_mode must be smooth, none, or ping_pong")
+    result["generation"] = {"loop_mode": loop_mode}
+    return result
+
+
 def _project_v2_settings(settings: dict) -> dict:
     result = _default_settings()
     result["library"] = {
@@ -658,13 +774,34 @@ def _project_v2_settings(settings: dict) -> dict:
     return result
 
 
+def _project_v3_settings(settings: dict) -> dict:
+    result = _default_settings()
+    result["ai"]["enabled"] = settings["ai"]["enabled"]
+    result["ai"]["backend"] = settings["ai"]["backend"]
+    local_fingerprint = settings["ai"]["local"]["setup_fingerprint"]
+    if local_fingerprint is not None:
+        result["ai"]["local"].update({
+            "source": "gguf",
+            "setup_fingerprint": local_fingerprint,
+        })
+    result["ai"]["api"] = dict(settings["ai"]["api"])
+    result["library"] = {
+        "current_root": settings["library"]["current_root"],
+        "roots": list(settings["library"]["roots"]),
+    }
+    result["generation"] = dict(settings["generation"])
+    return result
+
+
 def _decode_settings(values: object) -> tuple[dict, str | None, bool]:
-    """Return ``(normalized_v3, legacy_xai_key, migration_required)``."""
+    """Return ``(normalized_v4, legacy_xai_key, migration_required)``."""
 
     if isinstance(values, dict):
         version = values.get("schema_version")
         if version == SETTINGS_SCHEMA_VERSION:
             return _validate_settings(values), None, False
+        if version == 3:
+            return _project_v3_settings(_validate_v3_settings(values)), None, True
         if version == 2:
             legacy = _validate_v2_settings(values)
             return (
@@ -764,7 +901,7 @@ def _migrate_legacy_settings(
 
 
 def load_settings_with_status(*, credential_store=None) -> tuple[dict, str | None]:
-    """Return schema v3 settings and a pathless migration-retry reason."""
+    """Return schema v4 settings and a pathless migration-retry reason."""
 
     path = settings_path()
     try:
@@ -778,7 +915,7 @@ def load_settings_with_status(*, credential_store=None) -> tuple[dict, str | Non
     if not migration_required:
         return normalized, None
 
-    # Re-read under the lock so a concurrent migration or v3 update wins.
+    # Re-read under the lock so a concurrent migration or v4 update wins.
     with _settings_lock():
         try:
             current = _read_settings_file(path)
@@ -799,7 +936,7 @@ def load_settings_with_status(*, credential_store=None) -> tuple[dict, str | Non
 
 
 def load_settings(*, credential_store=None) -> dict:
-    """Load credential-free schema v3 settings, retrying safe migrations."""
+    """Load credential-free schema v4 settings, retrying safe migrations."""
 
     return load_settings_with_status(credential_store=credential_store)[0]
 
@@ -845,9 +982,9 @@ def save_settings(
     credential_store=None,
     ready: bool = False,
 ) -> dict:
-    """Persist strict v3 settings or accept the temporary legacy key form."""
+    """Persist strict v4 settings or accept the temporary legacy key form."""
 
-    if isinstance(values, dict) and values.get("schema_version") == 3:
+    if isinstance(values, dict) and values.get("schema_version") == SETTINGS_SCHEMA_VERSION:
         normalized = _validate_settings(values)
         if normalized["ai"]["enabled"] and not ready:
             raise ValueError("AI cannot be enabled until setup is ready.")
@@ -938,6 +1075,31 @@ def update_ai_settings(
     return _mutate_settings(mutate, credential_store=credential_store)
 
 
+def update_local_ai_settings(values: object, *, credential_store=None) -> dict:
+    """Select an Ollama identity or the advanced GGUF source and invalidate setup."""
+
+    body = _object(values, "local AI settings")
+    _reject_unknown(body, {"source", "model_id", "model_digest"}, "local AI settings")
+    if "source" not in body:
+        raise ValueError("local AI settings require source")
+    source = body["source"]
+    if source not in {"ollama", "gguf"}:
+        raise ValueError("local AI source must be ollama or gguf")
+    if source == "ollama" and set(body) != {"source", "model_id", "model_digest"}:
+        raise ValueError("Ollama selection requires model_id and model_digest")
+    if source == "gguf" and set(body) != {"source"}:
+        raise ValueError("GGUF selection accepts only its source")
+
+    def mutate(settings: dict) -> None:
+        local = settings["ai"]["local"]
+        local["source"] = source
+        local["model_id"] = body.get("model_id")
+        local["model_digest"] = body.get("model_digest")
+        local["setup_fingerprint"] = None
+
+    return _mutate_settings(mutate, credential_store=credential_store)
+
+
 def set_ai_setup_fingerprint(
     backend: str,
     fingerprint: str | None,
@@ -970,7 +1132,7 @@ def update_preferences(values: object, *, credential_store=None) -> dict:
     """Temporary validation bridge for the legacy Settings route.
 
     Obsolete model and still-count preferences are accepted only so the current
-    UI remains operable during migration; schema v3 deliberately does not
+    UI remains operable during migration; schema v4 deliberately does not
     persist them. Loop mode remains active and durable.
     """
 

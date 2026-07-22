@@ -34,13 +34,21 @@ def _ready_status() -> dict:
         "ready": True,
         "reason": "ready",
         "local": {
-            "supported": True,
-            "gpu_backend": "metal",
-            "runtime_verified": True,
+            "source": "ollama",
+            "service_available": True,
             "model_selected": True,
-            "model_filename": "chosen.gguf",
+            "model_id": "ornith:latest",
             "model_verified": True,
             "setup_tested": True,
+            "provider": "ollama",
+            "advanced": {
+                "supported": True,
+                "gpu_backend": "metal",
+                "runtime_verified": True,
+                "model_selected": False,
+                "model_filename": None,
+                "model_verified": False,
+            },
         },
         "api": {
             "provider": "xai",
@@ -61,8 +69,8 @@ class _Provider:
         return RecipeResult(
             recipe=json.loads(_RECIPE.read_text("utf-8")),
             backend="local",
-            provider="llama.cpp",
-            model_id="chosen.gguf",
+            provider="ollama",
+            model_id="ornith:latest",
             usage=None,
         )
 
@@ -85,6 +93,20 @@ class _Capability:
     def test_and_enable(self, backend, *, deadline, cancelled):
         self.test_calls.append(backend)
         return self.status()
+
+    def discover_local_models(self):
+        return {
+            "available": True,
+            "models": [
+                {
+                    "model_id": "ornith:latest",
+                    "digest": "a" * 64,
+                    "size_bytes": 5_629_110_568,
+                    "parameter_size": "9.0B",
+                    "quantization": "Q4_K_M",
+                }
+            ],
+        }
 
     def close(self):
         self.closed = True
@@ -193,10 +215,12 @@ class OptionalAIRouteTests(unittest.TestCase):
     def test_status_and_all_new_mutations_require_authentication(self) -> None:
         cases = (
             ("GET", "/api/ai/status", None),
+            ("GET", "/api/ai/local/models", None),
             ("POST", "/api/settings/ai", {"enabled": False, "backend": "local"}),
             ("POST", "/api/settings/credential", {"provider": "xai", "key": "secret"}),
             ("POST", "/api/ai/test", {"backend": "local"}),
-            ("POST", "/api/ai/local/select", {}),
+            ("POST", "/api/ai/local/select", {"model_id": "ornith:latest"}),
+            ("POST", "/api/ai/local/gguf/select", {}),
             ("POST", "/api/ai/local/clear", {}),
             ("POST", "/api/lighting/effects", {"prompt": "aurora", "backend": "local"}),
         )
@@ -210,6 +234,12 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual(_ready_status(), capability)
         status, _response = self._request("GET", "/api/ai/status?extra=true")
+        self.assertEqual(400, status)
+
+        status, models = self._request("GET", "/api/ai/local/models")
+        self.assertEqual(200, status)
+        self.assertEqual(["ornith:latest"], [item["model_id"] for item in models["models"]])
+        status, _response = self._request("GET", "/api/ai/local/models?host=other")
         self.assertEqual(400, status)
 
         secret = "sk-route-secret-12345678"
@@ -239,7 +269,16 @@ class OptionalAIRouteTests(unittest.TestCase):
         )
         self.assertEqual(400, status)
         self.assertEqual([], self.models.selected)
-        status, response = self._request("POST", "/api/ai/local/select", {})
+        status, response = self._request(
+            "POST", "/api/ai/local/select", {"model_id": "ornith:latest"}
+        )
+        self.assertEqual(200, status)
+        self.assertEqual([], self.models.selected)
+        local = store.load_settings(credential_store=self.credentials)["ai"]["local"]
+        self.assertEqual("ollama", local["source"])
+        self.assertEqual("ornith:latest", local["model_id"])
+
+        status, response = self._request("POST", "/api/ai/local/gguf/select", {})
         self.assertEqual(200, status)
         self.assertEqual(["/private/chosen.gguf"], self.models.selected)
         self.assertNotIn("/private", json.dumps(response))
@@ -432,7 +471,11 @@ class OptionalAIRouteTests(unittest.TestCase):
             )
             self.assertEqual(409, status)
             status, _response = self._request(
-                "POST", "/api/ai/local/select", {}
+                "POST", "/api/ai/local/select", {"model_id": "ornith:latest"}
+            )
+            self.assertEqual(409, status)
+            status, _response = self._request(
+                "POST", "/api/ai/local/gguf/select", {}
             )
             self.assertEqual(409, status)
         finally:
@@ -459,7 +502,7 @@ class OptionalAIRouteTests(unittest.TestCase):
                 OSError(f"failed at {secret_path}")
             )
         )
-        status, response = self._request("POST", "/api/ai/local/select", {})
+        status, response = self._request("POST", "/api/ai/local/gguf/select", {})
         self.assertEqual(500, status)
         self.assertNotIn(secret_path, json.dumps(response))
 
