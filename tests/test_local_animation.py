@@ -150,7 +150,6 @@ class OllamaRecipeClientTests(unittest.TestCase):
 
         result = OllamaRecipeClient(opener=opener).generate(
             "shooting stars on a black background",
-            model="gemma4:12b-mlx",
             width=18,
             height=7,
             frame_count=200,
@@ -159,7 +158,7 @@ class OllamaRecipeClientTests(unittest.TestCase):
         self.assertEqual("http://127.0.0.1:11434/api/chat", observed["url"])
         self.assertFalse(observed["body"]["stream"])
         self.assertEqual("object", observed["body"]["format"]["type"])
-        self.assertEqual("gemma4:12b-mlx", observed["body"]["model"])
+        self.assertEqual("ornith:latest", observed["body"]["model"])
         self.assertGreater(observed["timeout"], 0)
 
     def test_semantic_retry_changes_seed_and_includes_the_validation_error(self) -> None:

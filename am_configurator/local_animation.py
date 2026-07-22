@@ -22,7 +22,7 @@ from urllib.request import Request, urlopen
 from PIL import Image
 
 
-DEFAULT_MODEL = "gemma4:12b-mlx"
+DEFAULT_MODEL = "ornith:latest"
 DEFAULT_ENDPOINT = "http://127.0.0.1:11434"
 DEFAULT_WIDTH = 18
 DEFAULT_HEIGHT = 7
