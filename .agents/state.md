@@ -283,8 +283,15 @@
   layouts, frame caps, timing, generation specs, and frame-to-LED conversion.
   The HTTP server and lower-level generation, procedural, recovery, media, and
   qualification paths delegate directly to that module, while an architecture
-  guard prevents reverse imports from those lower layers into the server. The
-  next slice is Phase 9 / F46's unified production recipe sampling contract.
+  guard prevents reverse imports from those lower layers into the server. F46
+  is complete on the current tree: one pure recipe-inference module now owns
+  Ollama temperature, output cap, prompt-derived per-attempt seeds, sanitized
+  retry correction, and the fresh two-message request shape. Both the shipped
+  provider and retained Ollama developer/qualification client use its exact
+  payload, with an anti-drift guard against redeclared parameters. The new
+  contract test was proven red before implementation by the missing module;
+  no model was invoked or downloaded. The next slice is Phase 10 / P01's
+  evidence-only closure of the duplicate raw-key helper finding.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -594,7 +601,8 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 9 / F46's unified production recipe sampling contract.
+  continuing with Phase 10 / P01's evidence-only closure of the duplicate
+  raw-key helper finding.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

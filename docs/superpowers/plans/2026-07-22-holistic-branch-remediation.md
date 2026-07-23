@@ -543,7 +543,7 @@ in a new one-finding commit; no gate is weakened.
   recovery, qualification, and tests to use it; remove reverse lazy imports.
   Commit: `refactor: extract device lighting mapping core`.
 
-- [ ] **F46 — Use one production recipe sampling contract.** Centralize local
+- [x] **F46 — Use one production recipe sampling contract.** Centralize local
   generation options, deterministic seeds, retry correction, and message shape.
   Production Ollama and any retained developer recipe CLI must either use it
   exactly or label an intentional experiment as non-production evidence. GGUF

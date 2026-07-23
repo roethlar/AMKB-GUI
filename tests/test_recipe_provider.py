@@ -6,6 +6,7 @@ import unittest
 
 from am_configurator import ai_catalog, llm, procedural
 from am_configurator.ollama_client import OllamaModel
+from am_configurator.recipe_inference import build_ollama_recipe_payload
 from am_configurator.recipe_provider import (
     OllamaRecipeProvider,
     RecipeRequest,
@@ -171,6 +172,26 @@ class OllamaRecipeProviderTests(unittest.TestCase):
 
         self.assertEqual(1, len(client.calls))
         payload, _deadline, _cancelled = client.calls[0]
+        request = _request()
+        self.assertEqual(
+            build_ollama_recipe_payload(
+                model_id="ornith:latest",
+                prompt=request.prompt,
+                system_prompt=procedural.recipe_system_prompt(
+                    request.width,
+                    request.height,
+                    request.frame_count,
+                    density_default=request.density_default,
+                ),
+                schema=procedural.recipe_schema(),
+                width=request.width,
+                height=request.height,
+                frame_count=request.frame_count,
+                attempt=0,
+                validation_reason=None,
+            ),
+            payload,
+        )
         self.assertEqual("ornith:latest", payload["model"])
         self.assertIs(payload["stream"], False)
         self.assertEqual(procedural.recipe_schema(), payload["format"])
@@ -195,6 +216,35 @@ class OllamaRecipeProviderTests(unittest.TestCase):
         )
 
         first, second = (call[0] for call in client.calls)
+        request = _request()
+        common = {
+            "model_id": self.model.model_id,
+            "prompt": request.prompt,
+            "system_prompt": procedural.recipe_system_prompt(
+                request.width,
+                request.height,
+                request.frame_count,
+                density_default=request.density_default,
+            ),
+            "schema": procedural.recipe_schema(),
+            "width": request.width,
+            "height": request.height,
+            "frame_count": request.frame_count,
+        }
+        self.assertEqual(
+            build_ollama_recipe_payload(
+                **common, attempt=0, validation_reason=None
+            ),
+            first,
+        )
+        self.assertEqual(
+            build_ollama_recipe_payload(
+                **common,
+                attempt=1,
+                validation_reason="peak brightness was too low /private/model.gguf",
+            ),
+            second,
+        )
         self.assertNotEqual(first["options"]["seed"], second["options"]["seed"])
         self.assertIn("peak brightness was too low", second["messages"][1]["content"])
         self.assertNotIn("/private/model.gguf", second["messages"][1]["content"])

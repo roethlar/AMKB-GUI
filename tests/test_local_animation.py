@@ -14,6 +14,8 @@ from am_configurator.local_animation import (
     validate_recipe,
     write_proof_artifacts,
 )
+from am_configurator.procedural import recipe_schema, recipe_system_prompt
+from am_configurator.recipe_inference import build_ollama_recipe_payload
 
 
 def _recipe() -> dict:
@@ -190,6 +192,22 @@ class OllamaRecipeClientTests(unittest.TestCase):
         self.assertIn("density", observed["body"]["format"]["required"])
         self.assertIn("Default to balanced", observed["body"]["messages"][0]["content"])
         self.assertEqual("ornith:latest", observed["body"]["model"])
+        self.assertEqual(
+            build_ollama_recipe_payload(
+                model_id="ornith:latest",
+                prompt="shooting stars on a black background",
+                system_prompt=recipe_system_prompt(
+                    18, 7, 200, density_default="balanced"
+                ),
+                schema=recipe_schema(),
+                width=18,
+                height=7,
+                frame_count=200,
+                attempt=0,
+                validation_reason=None,
+            ),
+            observed["body"],
+        )
         self.assertGreater(observed["timeout"], 0)
 
     def test_semantic_retry_changes_seed_and_includes_the_validation_error(self) -> None:
@@ -205,10 +223,37 @@ class OllamaRecipeClientTests(unittest.TestCase):
         result = OllamaRecipeClient(
             connection_factory=fake_connection_factory(respond)
         ).generate("blue stars", model="ornith:latest")
+        invalid_recipe = _recipe()
+        invalid_recipe["layers"][0]["phase"] = 2
+        with self.assertRaises(RecipeError) as invalid:
+            validate_recipe(invalid_recipe)
+        common = {
+            "model_id": "ornith:latest",
+            "prompt": "blue stars",
+            "system_prompt": recipe_system_prompt(
+                18, 7, 200, density_default="balanced"
+            ),
+            "schema": recipe_schema(),
+            "width": 18,
+            "height": 7,
+            "frame_count": 200,
+        }
         self.assertEqual("Blue shooting stars", result["name"])
         self.assertEqual(2, len(calls))
+        self.assertEqual(
+            build_ollama_recipe_payload(
+                **common, attempt=0, validation_reason=None
+            ),
+            calls[0],
+        )
+        self.assertEqual(
+            build_ollama_recipe_payload(
+                **common, attempt=1, validation_reason=str(invalid.exception)
+            ),
+            calls[1],
+        )
         self.assertNotEqual(calls[0]["options"]["seed"], calls[1]["options"]["seed"])
-        self.assertIn("failed validation", calls[1]["messages"][-1]["content"])
+        self.assertIn("Retry correction:", calls[1]["messages"][-1]["content"])
         self.assertIn("phase", calls[1]["messages"][-1]["content"])
 
     def test_transport_failure_is_typed_and_endpoint_is_fixed_to_loopback(self) -> None:

@@ -27,11 +27,17 @@ from .procedural import (
     write_animation_artifacts,
 )
 from .ollama_client import OLLAMA_BASE_URL, OllamaClient, OllamaError, valid_model_id
+from .recipe_inference import (
+    LOCAL_MAX_RETRIES,
+    MAX_LOCAL_RESPONSE_BYTES,
+    MAX_RECIPE_PROMPT_CHARS,
+    build_ollama_recipe_payload,
+)
 
 
 DEFAULT_MODEL = "ornith:latest"
 DEFAULT_ENDPOINT = OLLAMA_BASE_URL
-MAX_RESPONSE_BYTES = 1_000_000
+MAX_RESPONSE_BYTES = MAX_LOCAL_RESPONSE_BYTES
 
 # Preserve the proof helper's public name while keeping its implementation in
 # the backend-neutral module.
@@ -80,9 +86,11 @@ class OllamaRecipeClient:
         frame_count: int = DEFAULT_FRAME_COUNT,
         density_default: str = "balanced",
     ) -> dict[str, Any]:
-        clean_prompt = str(prompt).strip()
-        if not 1 <= len(clean_prompt) <= 4000:
-            raise RecipeError("Prompt must contain 1 to 4000 characters.")
+        clean_prompt = prompt.strip() if isinstance(prompt, str) else ""
+        if not 1 <= len(clean_prompt) <= MAX_RECIPE_PROMPT_CHARS:
+            raise RecipeError(
+                f"Prompt must contain 1 to {MAX_RECIPE_PROMPT_CHARS} characters."
+            )
         if not valid_model_id(model):
             raise RecipeError("Ollama model name is invalid.")
         system_prompt = recipe_system_prompt(
@@ -91,21 +99,24 @@ class OllamaRecipeClient:
             frame_count,
             density_default=density_default,
         )
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": clean_prompt},
-        ]
         last_error: RecipeError | None = None
-        for attempt in range(3):
-            response = self._request(
-                {
-                    "model": model,
-                    "stream": False,
-                    "format": recipe_schema(),
-                    "options": {"temperature": 0.35, "seed": 7319 + attempt},
-                    "messages": messages,
-                }
-            )
+        schema = recipe_schema()
+        for attempt in range(LOCAL_MAX_RETRIES + 1):
+            try:
+                payload = build_ollama_recipe_payload(
+                    model_id=model,
+                    prompt=clean_prompt,
+                    system_prompt=system_prompt,
+                    schema=schema,
+                    width=width,
+                    height=height,
+                    frame_count=frame_count,
+                    attempt=attempt,
+                    validation_reason=str(last_error) if last_error is not None else None,
+                )
+            except ValueError as exc:
+                raise RecipeError(str(exc)) from None
+            response = self._request(payload)
             content = response.get("message", {}).get("content")
             try:
                 if not isinstance(content, str) or len(content.encode()) > MAX_RESPONSE_BYTES:
@@ -118,16 +129,6 @@ class OllamaRecipeClient:
                     if isinstance(exc, RecipeError)
                     else RecipeError("Ollama recipe was not JSON.")
                 )
-                if attempt < 2:
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                f"The recipe failed validation: {last_error}. "
-                                "Return a corrected complete recipe."
-                            ),
-                        }
-                    )
         raise last_error or RecipeError("Ollama did not return a usable recipe.")
 
 
