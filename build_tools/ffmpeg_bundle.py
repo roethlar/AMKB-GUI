@@ -724,7 +724,12 @@ def build_command_plan(
         "CFLAGS": shlex.join(cflags),
         "LDFLAGS": shlex.join(recipe["ldflags"][platform_name]),
     }
-    make_command = ("make", f"-j{jobs}", recipe["make_target"])
+    make_target = (
+        _runtime_name(platform_name)
+        if platform_name == "windows"
+        else recipe["make_target"]
+    )
+    make_command = ("make", f"-j{jobs}", make_target)
     if platform_name != "windows":
         return (
             CommandSpec((str(source / "configure"), *args), source, environment, 10 * 60),

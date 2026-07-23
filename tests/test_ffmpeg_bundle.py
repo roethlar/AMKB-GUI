@@ -1176,6 +1176,7 @@ class FfmpegBundleTests(unittest.TestCase):
                         "export PATH=/usr/bin:/mingw64/bin:$PATH && cd "
                     )
                 )
+            self.assertTrue(windows_plan[1].args[4].endswith("make -j2 ffmpeg.exe"))
 
             mac_plan = ffmpeg_bundle.build_command_plan(
                 source,
