@@ -479,7 +479,7 @@ local no-provider browser acceptance at the end of the phase.
   Prove llama finalization is absent. Commit:
   `build: bind signed runtimes to verified provenance`.
 
-- [ ] **F57 — Detect Windows junctions on every supported Python.** Implement a
+- [x] **F57 — Detect Windows junctions on every supported Python.** Implement a
   reparse-point fallback for Python 3.11 or raise a clear preflight unsupported
   error before touching a root; retain 3.12 `Path.is_junction` where available.
   Test source-supported 3.11 behavior. Commit:

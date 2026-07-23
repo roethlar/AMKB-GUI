@@ -283,6 +283,10 @@ def _canonical_root(value: str | os.PathLike[str] | None) -> Path | None:
     path = Path(value).expanduser()
     if not path.is_absolute():
         raise LibraryRootError("The library folder must be an absolute path.")
+    if os.name == "nt" and _windows_path_has_reparse_component(path):
+        raise LibraryRootError(
+            "The Windows library path contains a junction or reparse point."
+        )
     try:
         return path.resolve(strict=False)
     except (OSError, RuntimeError) as exc:
@@ -295,9 +299,32 @@ def _is_linklike(path: Path) -> bool:
         if path.is_symlink():
             return True
         is_junction = getattr(path, "is_junction", None)
-        return bool(is_junction is not None and is_junction())
+        if is_junction is not None and is_junction():
+            return True
+        if os.name != "nt":
+            return False
+        attributes = getattr(path.lstat(), "st_file_attributes", None)
+        if not isinstance(attributes, int):
+            return True
+        return bool(attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+    except FileNotFoundError:
+        return False
     except OSError:
         return True
+
+
+def _windows_path_has_reparse_component(path: Path) -> bool:
+    """Inspect each existing raw path component before Windows resolution."""
+    for candidate in (path, *path.parents):
+        try:
+            candidate.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError:
+            return True
+        if _is_linklike(candidate):
+            return True
+    return False
 
 
 def _make_private_directory(path: Path, *, parents: bool = False) -> None:

@@ -270,6 +270,53 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                     library_module._windows_private_mode_supported(version),
                 )
 
+    def test_windows_python_311_detects_reparse_points_without_is_junction(self) -> None:
+        class Python311Path:
+            def __init__(self, attributes: int) -> None:
+                self.attributes = attributes
+
+            def is_symlink(self) -> bool:
+                return False
+
+            def lstat(self):
+                return SimpleNamespace(st_file_attributes=self.attributes)
+
+        reparse = Python311Path(stat.FILE_ATTRIBUTE_REPARSE_POINT)
+        ordinary = Python311Path(0)
+        with patch("am_configurator.library.os.name", "nt"):
+            self.assertTrue(library_module._is_linklike(reparse))
+            self.assertFalse(library_module._is_linklike(ordinary))
+
+    def test_windows_python_312_keeps_the_native_junction_check(self) -> None:
+        class Python312Path:
+            def is_symlink(self) -> bool:
+                return False
+
+            def is_junction(self) -> bool:
+                return True
+
+            def lstat(self):
+                raise AssertionError("native junction detection should win")
+
+        with patch("am_configurator.library.os.name", "nt"):
+            self.assertTrue(library_module._is_linklike(Python312Path()))
+
+    def test_windows_reparse_path_is_rejected_before_root_creation(self) -> None:
+        guarded_root = self.base / "junction-must-not-be-created"
+        guarded = GeneratedAssetLibrary(guarded_root, minimum_free_bytes=1)
+        with (
+            patch("am_configurator.library.os.name", "nt"),
+            patch("am_configurator.library.sys.version_info", (3, 11, 10)),
+            patch("am_configurator.library.Path", return_value=guarded_root),
+            patch(
+                "am_configurator.library._windows_path_has_reparse_component",
+                return_value=True,
+            ),
+            self.assertRaisesRegex(LibraryRootError, "junction or reparse point"),
+        ):
+            guarded.preflight()
+        self.assertFalse(guarded_root.exists())
+
     def test_preflight_rejects_old_windows_before_touching_root(self) -> None:
         guarded_root = self.base / "old-windows-must-not-exist"
         guarded = GeneratedAssetLibrary(guarded_root, minimum_free_bytes=1)

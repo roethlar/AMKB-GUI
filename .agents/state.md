@@ -237,8 +237,11 @@
   signature, and records both hashes, the signing identity/CDHash, recipe,
   configure arguments, capabilities, manifest, and prepared-attestation hash.
   It no longer re-blesses behavior-compatible replacement bytes. The real local
-  signed bundle passed the new relationship check. The next slice is Phase 7 /
-  F57's Windows junction fallback.
+  signed bundle passed the new relationship check. F57 is complete on the
+  current tree: Windows Python 3.11 detects every reparse point through
+  `st_file_attributes`, Python 3.12 retains its native junction check, and
+  preflight rejects a reparse-bearing raw root before resolution or directory
+  creation. The next slice is Phase 7 / F58's Windows path-depth preflight.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -548,7 +551,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 7 / F57's Windows junction fallback.
+  continuing with Phase 7 / F58's Windows path-depth preflight.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows
