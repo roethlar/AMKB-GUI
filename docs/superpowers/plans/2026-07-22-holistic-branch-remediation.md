@@ -658,7 +658,7 @@ Each polish item is a separate commit despite its size.
   and no migration touches the user's GGUF file. Commit:
   `test: prohibit local model attestation writes`.
 
-- [ ] **P22 — Add a forward pointer to superseded qualification evidence.** The
+- [x] **P22 — Add a forward pointer to superseded qualification evidence.** The
   Qwen qualification README must say it is historical comparative evidence,
   not a supported product or release path, and point to the Ollama/API-only
   decision and remediation plan. Commit:

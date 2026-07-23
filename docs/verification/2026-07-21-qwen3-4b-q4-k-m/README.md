@@ -4,7 +4,9 @@
 > supported product, setup, build, verification, or release path. The shipped
 > application is Ollama or curated API only. The recorded JSON and gallery
 > remain unchanged for comparison; normal repo tooling can no longer execute or
-> regenerate the llama/GGUF experiment.
+> regenerate the llama/GGUF experiment. Current authority is the
+> [Ollama/API-only decision](../../../.agents/decisions.md#2026-07-22--ollamaapi-only-ai-backends)
+> and its [holistic remediation plan](../../superpowers/plans/2026-07-22-holistic-branch-remediation.md).
 
 ## Decision
 
