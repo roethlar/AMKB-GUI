@@ -245,8 +245,14 @@
   and removes the deepest real asset-intent atomic temporary path before job
   creation and before further paid work, reports an actionable path-length
   error for Win32 error 206, and is covered at the classic 259/260-character
-  boundary plus a long-path-aware case. The next slice is Phase 7 / F60's
-  retirement of executable GGUF qualification tooling.
+  boundary plus a long-path-aware case. F60 is complete on the current tree:
+  the developer qualification helper no longer imports subprocesses, accepts a
+  direct model file or runtime, or exposes the GGUF retry harness; its remaining
+  explicit CLI is non-production fixed-loopback Ollama only. The direct-model
+  tests are gone, while the rejected Qwen JSON/gallery remain unchanged and
+  their README labels them historical evidence that normal tooling cannot
+  regenerate. The next slice is Phase 8 / F51's consolidation of remaining
+  bounded attestation verification.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -556,8 +562,8 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 7 / F60's retirement of executable GGUF qualification
-  tooling.
+  continuing with Phase 8 / F51's consolidation of remaining bounded
+  attestation verification.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

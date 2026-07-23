@@ -490,7 +490,7 @@ local no-provider browser acceptance at the end of the phase.
   before job creation. Cover boundary lengths with long-path support on and off.
   Commit: `fix: validate windows library path depth`.
 
-- [ ] **F60 — Retire executable GGUF qualification tooling.** Remove normal
+- [x] **F60 — Retire executable GGUF qualification tooling.** Remove normal
   test/build entry points that invoke llama or a GGUF model. Preserve existing
   result artifacts as historical evidence with an explicit supersession note;
   if a helper remains for archaeology, it must be clearly non-production and

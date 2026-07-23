@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import io
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,11 +25,9 @@ from am_configurator.procedural import (
     write_animation_artifacts,
 )
 from am_configurator.server import frames_to_led_tracks
+from build_tools import qualify_recipe_model as qualification_tool
 from build_tools.qualify_recipe_model import (
-    LlamaCliRecipeClient,
-    PromptCase,
     load_prompt_corpus,
-    qualify_local_case,
     qualify_recipe,
 )
 
@@ -428,6 +425,24 @@ class ArtifactAndMappingTests(unittest.TestCase):
 
 
 class QualificationCorpusTests(unittest.TestCase):
+    def test_developer_qualification_tool_has_no_direct_model_entry_point(self) -> None:
+        option_names = {action.dest for action in qualification_tool._parser()._actions}
+        self.assertTrue(
+            {
+                "llama_cli",
+                "model_file",
+                "runtime_revision",
+                "model_revision",
+                "model_sha256",
+            }.isdisjoint(option_names)
+        )
+        self.assertFalse(hasattr(qualification_tool, "LlamaCliRecipeClient"))
+        self.assertFalse(hasattr(qualification_tool, "qualify_local_case"))
+        source = Path(qualification_tool.__file__).read_text("utf-8")
+        self.assertNotIn("import subprocess", source)
+        self.assertNotIn("--llama-cli", source)
+        self.assertNotIn("--model-file", source)
+
     def test_committed_corpus_covers_devices_densities_effects_and_adversarial_prompts(self) -> None:
         cases = load_prompt_corpus(FIXTURE)
         self.assertEqual(
@@ -474,140 +489,6 @@ class QualificationCorpusTests(unittest.TestCase):
         self.assertEqual(
             {"keyframes": 200, "spotlight_frames": 200}, result["mapped_tracks"]
         )
-
-
-class LocalModelQualificationTests(unittest.TestCase):
-    def test_llama_cli_client_uses_pinned_bounded_offline_invocation(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            runtime = root / "llama-cli"
-            model = root / "model.gguf"
-            runtime.write_bytes(b"runtime")
-            model.write_bytes(b"model")
-            calls = []
-
-            def runner(args, **kwargs):
-                calls.append((args, kwargs))
-                prompt = args[args.index("--prompt") + 1]
-                return subprocess.CompletedProcess(
-                    args,
-                    0,
-                    stdout=(
-                        "\nLoading model...\n\navailable commands:\n\n"
-                        f"> {prompt}\n\n"
-                        f"{json.dumps(_recipe())}\n\n\nExiting...\n"
-                    ),
-                    stderr="",
-                )
-
-            case = next(
-                case
-                for case in load_prompt_corpus(FIXTURE)
-                if case.case_id == "relic-sparse-comets"
-            )
-            client = LlamaCliRecipeClient(runtime, model, runner=runner)
-            recipe = client.generate(
-                case,
-                attempt=1,
-                feedback="Animation failed quality checks: density.",
-            )
-
-            self.assertEqual(_recipe(), recipe)
-            self.assertEqual(1, len(calls))
-            args, kwargs = calls[0]
-            self.assertEqual(str(runtime.resolve()), args[0])
-            self.assertEqual(str(model.resolve()), args[args.index("--model") + 1])
-            self.assertIn("--offline", args)
-            self.assertEqual("all", args[args.index("--gpu-layers") + 1])
-            self.assertEqual("off", args[args.index("--fit") + 1])
-            self.assertEqual("on", args[args.index("--flash-attn") + 1])
-            self.assertIn("--no-jinja", args)
-            self.assertNotIn("--jinja", args)
-            self.assertEqual("7320", args[args.index("--seed") + 1])
-            self.assertEqual(
-                recipe_schema(),
-                json.loads(args[args.index("--json-schema") + 1]),
-            )
-            self.assertIn(
-                "Animation failed quality checks: density.",
-                args[args.index("--prompt") + 1],
-            )
-            self.assertTrue(args[args.index("--prompt") + 1].endswith("/no_think"))
-            self.assertEqual(
-                {
-                    "check": False,
-                    "capture_output": True,
-                    "text": True,
-                    "timeout": 180.0,
-                },
-                kwargs,
-            )
-
-    def test_local_qualification_retries_quality_failure_without_weakening_gate(self) -> None:
-        source = next(
-            case
-            for case in load_prompt_corpus(FIXTURE)
-            if case.case_id == "relic-sparse-comets"
-        )
-        case = PromptCase(
-            case_id=source.case_id,
-            prompt=source.prompt,
-            density=source.density,
-            product_id=source.product_id,
-            targets=source.targets,
-            width=source.width,
-            height=source.height,
-            frame_count=20,
-            tags=source.tags,
-        )
-        calls = []
-
-        def generate(current_case, attempt, feedback):
-            calls.append((current_case.case_id, attempt, feedback))
-            if attempt == 0:
-                invalid = _recipe()
-                invalid["palette"] = ["#000000", "#000000"]
-                invalid["layers"] = [
-                    _layer(color_index=0, secondary_color_index=1)
-                ]
-                return invalid
-            return _recipe()
-
-        result = qualify_local_case(case, generate)
-
-        self.assertTrue(result["passed"], result)
-        self.assertEqual(2, result["attempt_count"])
-        self.assertEqual([False, True], [attempt["passed"] for attempt in result["attempts"]])
-        self.assertEqual((source.case_id, 0, None), calls[0])
-        self.assertIn("brightness", calls[1][2])
-        self.assertIn("motion", calls[1][2])
-
-    def test_local_qualification_stops_after_two_retries(self) -> None:
-        source = next(iter(load_prompt_corpus(FIXTURE)))
-        case = PromptCase(
-            case_id=source.case_id,
-            prompt=source.prompt,
-            density=source.density,
-            product_id=source.product_id,
-            targets=source.targets,
-            width=source.width,
-            height=source.height,
-            frame_count=20,
-            tags=source.tags,
-        )
-        attempts = []
-
-        def generate(_case, attempt, _feedback):
-            attempts.append(attempt)
-            raise RecipeError("Model output was not valid JSON.")
-
-        result = qualify_local_case(case, generate)
-
-        self.assertFalse(result["passed"])
-        self.assertEqual([0, 1, 2], attempts)
-        self.assertEqual(3, result["attempt_count"])
-        self.assertEqual(3, len(result["attempts"]))
-
 
 if __name__ == "__main__":
     unittest.main()

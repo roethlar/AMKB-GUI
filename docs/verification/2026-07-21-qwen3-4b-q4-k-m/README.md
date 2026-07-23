@@ -1,5 +1,11 @@
 # Qwen3 4B Q4_K_M qualification — rejected
 
+> **Historical evidence only.** This rejected direct-GGUF experiment is not a
+> supported product, setup, build, verification, or release path. The shipped
+> application is Ollama or curated API only. The recorded JSON and gallery
+> remain unchanged for comparison; normal repo tooling can no longer execute or
+> regenerate the llama/GGUF experiment.
+
 ## Decision
 
 The pinned Qwen3 4B Q4_K_M candidate is **not qualified as a release local
