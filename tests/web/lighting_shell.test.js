@@ -41,6 +41,10 @@ test("disabled first paint exposes no generation control outside Settings", () =
   assert.doesNotMatch(js,/data-library-create/);
   assert.match(js,/button\.hidden=!aiReady\(\)/);
   assert.match(js,/route===ROUTES\.CREATE&&!aiReady\(\)&&!state\.lighting\.activeJob/);
+  const loader=js.slice(js.indexOf("async function loadAiConfig"),js.indexOf("function refreshAiGate"));
+  assert.match(loader,/shouldDiscoverLocalModels\(state\.lighting\.route,state\.aiStatus\)/);
+  assert.equal((loader.match(/\/api\/ai\/local\/models/g)||[]).length,1);
+  assert.doesNotMatch(loader,/Promise\.allSettled\(\[[^\]]*\/api\/ai\/local\/models/);
 });
 
 test("Settings exposes only installed Ollama models and the curated API", () => {
@@ -81,7 +85,7 @@ test("Settings exposes only installed Ollama models and the curated API", () => 
 });
 
 test("Settings explains incompatible Ollama discovery without adding show", () => {
-  assert.match(js,/normalizeLocalModels\(requests\[3\]\.value\)/);
+  assert.match(js,/normalizeLocalModels\(await api\("\/api\/ai\/local\/models"\)\)/);
   assert.match(js,/Ollama must be upgraded before local AI can discover installed models/);
   assert.match(js,/Upgrade Ollama to use local AI/);
   assert.doesNotMatch(js,/\/api\/show/);

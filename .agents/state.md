@@ -324,8 +324,13 @@
   validated in-bundle macOS links, and the frozen smoke uses a temporary data
   root, in-memory credentials, and an offline Ollama inventory. Its regressions
   were proven red, and the versioned current-host build plus frozen smoke passed.
-  No llama or GGUF runtime is present. The next slice is Phase 10 / P09's
-  deferral of disabled-state AI readiness probes.
+  No llama or GGUF runtime is present. P09 is complete on the current tree:
+  disabled first paint performs only static capability, settings, and status
+  reads; Ollama inventory discovery is deferred until Settings is open or the
+  enabled backend is local. The pure browser decision and adapter wiring were
+  proven red, while the server regression confirms disabled status touches
+  neither Ollama nor the credential store. The next slice is Phase 10 / P10's
+  governed restoration of the missing push-policy artifact.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -635,8 +640,8 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P09's deferral of disabled-state AI readiness
-  probes.
+  continuing with Phase 10 / P10's governed restoration of the missing
+  push-policy artifact.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

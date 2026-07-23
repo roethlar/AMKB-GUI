@@ -100,6 +100,11 @@
     return {...normalized, available: false, reason: "refresh_failed", loading: false};
   }
 
+  function shouldDiscoverLocalModels(route, status) {
+    return route === ROUTES.SETTINGS
+      || (status?.enabled === true && status?.backend === "local");
+  }
+
   function projectLocalModelPicker(inventory, local = {}, previousValue = "") {
     const models = Array.isArray(inventory?.models) ? inventory.models : [];
     const loading = inventory?.loading === true;
@@ -369,5 +374,6 @@
     projectLightingJob,
     reduceLightingState,
     routeAvailability,
+    shouldDiscoverLocalModels,
   });
 });

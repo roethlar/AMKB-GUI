@@ -593,7 +593,7 @@ Each polish item is a separate commit despite its size.
   llama binary is present to compress. Commit:
   `build: preserve attested runtime bytes`.
 
-- [ ] **P09 — Avoid disabled-state AI probes.** Make first-paint capability
+- [x] **P09 — Avoid disabled-state AI probes.** Make first-paint capability
   status static/pathless while disabled; probe Ollama only when Settings
   explicitly requests setup details or Ollama AI is enabled. Commit:
   `fix: defer optional ai readiness probes`.

@@ -9,7 +9,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch]));
-const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability} = LightingState;
+const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, shouldDiscoverLocalModels} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, renderTargetControls} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
@@ -2157,12 +2157,14 @@ function applyReviewedLighting() {
 }
 
 async function loadAiConfig() {
-  const requests=await Promise.allSettled([api("/api/led/capabilities"),api("/api/settings"),api("/api/ai/status"),api("/api/ai/local/models")]);
+  const requests=await Promise.allSettled([api("/api/led/capabilities"),api("/api/settings"),api("/api/ai/status")]);
   if(requests[0].status==="fulfilled")state.capabilities=requests[0].value;
   if(requests[1].status==="fulfilled")state.settings=requests[1].value;
   if(requests[2].status==="fulfilled")state.aiStatus=requests[2].value;
-  if(requests[3].status==="fulfilled")state.localModels=normalizeLocalModels(requests[3].value);
-  else state.localModels={available:false,models:[],reason:null,loading:false};
+  if(shouldDiscoverLocalModels(state.lighting.route,state.aiStatus)){
+    try{state.localModels=normalizeLocalModels(await api("/api/ai/local/models"));}
+    catch(error){state.localModels=localModelRefreshFailed(state.localModels);}
+  }else state.localModels={available:null,models:[],reason:null,loading:false};
   refreshAiGate();
 }
 

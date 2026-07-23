@@ -19,6 +19,7 @@ const {
   projectLocalModelPicker,
   reduceLightingState,
   routeAvailability,
+  shouldDiscoverLocalModels,
 } = require("../../am_configurator/web/lighting_state.js");
 
 const JOB_ID = "4d36e96e-e2aa-4e72-8808-4d03b5ba7e61";
@@ -42,6 +43,17 @@ class FakeEventTarget {
     for (const listener of [...(this.listeners.get(type) || [])]) listener();
   }
 }
+
+test("Ollama discovery is deferred until Settings or an enabled local backend", () => {
+  const disabled={enabled:false,backend:"local"};
+  const localEnabled={enabled:true,backend:"local"};
+  const apiEnabled={enabled:true,backend:"api"};
+  assert.equal(shouldDiscoverLocalModels(ROUTES.EDIT,disabled),false);
+  assert.equal(shouldDiscoverLocalModels(ROUTES.EDIT,null),false);
+  assert.equal(shouldDiscoverLocalModels(ROUTES.EDIT,apiEnabled),false);
+  assert.equal(shouldDiscoverLocalModels(ROUTES.EDIT,localEnabled),true);
+  assert.equal(shouldDiscoverLocalModels(ROUTES.SETTINGS,disabled),true);
+});
 
 test("epoch load ownership lets refresh supersede an in-flight asset safely", () => {
   const registry=createEpochLoadRegistry();
