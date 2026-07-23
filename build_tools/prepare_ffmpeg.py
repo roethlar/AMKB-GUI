@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -38,15 +39,54 @@ def _host_target() -> tuple[str, str]:
     return platform_name, architecture
 
 
-def _runner_with_environment(extra_environment: Mapping[str, str]):
+def _runner_with_environment(
+    extra_environment: Mapping[str, str],
+    *,
+    msys2_bash: Path | None = None,
+    msys2_gpg: Path | None = None,
+):
     def run(args, *, cwd=None, env=None, timeout=ffmpeg_bundle.COMMAND_TIMEOUT_SECONDS):
         environment = dict(os.environ)
         environment.update(extra_environment)
         if env is not None:
             environment.update(env)
+        command = tuple(str(value) for value in args)
+        if (
+            msys2_bash is not None
+            and msys2_gpg is not None
+            and command
+            and Path(command[0]) == msys2_gpg
+        ):
+            gpg_arguments = tuple(
+                ffmpeg_bundle._msys_path(Path(value))
+                if Path(value).is_absolute()
+                else value
+                for value in command[1:]
+            )
+            gnupg_home = ffmpeg_bundle._msys_path(
+                Path(environment["GNUPGHOME"])
+            )
+            command = (
+                str(msys2_bash),
+                "--noprofile",
+                "--norc",
+                "-lc",
+                (
+                    "export PATH=/usr/bin:/mingw64/bin:$PATH && "
+                    f"export GNUPGHOME={shlex.quote(gnupg_home)} && "
+                    "exec "
+                    + " ".join(
+                        shlex.quote(value)
+                        for value in (
+                            ffmpeg_bundle._msys_path(msys2_gpg),
+                            *gpg_arguments,
+                        )
+                    )
+                ),
+            )
         try:
             completed = subprocess.run(
-                tuple(str(value) for value in args),
+                command,
                 cwd=cwd,
                 env=environment,
                 timeout=timeout,
@@ -107,7 +147,11 @@ def prepare_current_host(
         temporary_root = Path(temporary)
         gnupg_home = temporary_root / "gnupg"
         gnupg_home.mkdir(mode=0o700)
-        runner = _runner_with_environment({"GNUPGHOME": str(gnupg_home)})
+        runner = _runner_with_environment(
+            {"GNUPGHOME": str(gnupg_home)},
+            msys2_bash=msys2_bash if platform_name == "windows" else None,
+            msys2_gpg=Path(gpg_path) if platform_name == "windows" else None,
+        )
         imported = runner((str(gpg_path), "--batch", "--import", str(public_key)))
         if imported.returncode != 0:
             raise ffmpeg_bundle.BundleError("FFmpeg release public key could not be imported")

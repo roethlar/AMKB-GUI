@@ -18,7 +18,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from am_configurator import ffmpeg_runtime
-from build_tools import ffmpeg_bundle, finalize_ffmpeg_bundle
+from build_tools import ffmpeg_bundle, finalize_ffmpeg_bundle, prepare_ffmpeg
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -363,6 +363,39 @@ class FfmpegBundleTests(unittest.TestCase):
 
             self.assertEqual(1, len(observed_flags))
             self.assertTrue(observed_flags[0] & binary_flag)
+
+    def test_windows_gpg_runs_inside_the_profileless_msys2_shell(self) -> None:
+        completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+        with patch.object(
+            prepare_ffmpeg.subprocess,
+            "run",
+            return_value=completed,
+        ) as run:
+            runner = prepare_ffmpeg._runner_with_environment(
+                {"GNUPGHOME": "/private/gnupg"},
+                msys2_bash=Path("/msys2/usr/bin/bash.exe"),
+                msys2_gpg=Path("/msys2/usr/bin/gpg.exe"),
+            )
+            result = runner(
+                (
+                    "/msys2/usr/bin/gpg.exe",
+                    "--batch",
+                    "--import",
+                    "/workspace/ffmpeg-devel.asc",
+                )
+            )
+
+        self.assertEqual(0, result.returncode)
+        command = run.call_args.args[0]
+        self.assertEqual("/msys2/usr/bin/bash.exe", command[0])
+        self.assertEqual(("--noprofile", "--norc", "-lc"), command[1:4])
+        self.assertIn("export PATH=/usr/bin:/mingw64/bin:$PATH", command[4])
+        self.assertIn("export GNUPGHOME=/private/gnupg", command[4])
+        self.assertIn(
+            "exec /msys2/usr/bin/gpg.exe --batch --import "
+            "/workspace/ffmpeg-devel.asc",
+            command[4],
+        )
 
     def test_build_readers_delegate_to_the_shared_ffmpeg_verifier(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
