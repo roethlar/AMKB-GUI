@@ -313,7 +313,7 @@ local no-provider browser acceptance at the end of the phase.
 
 ## Phase 4 — Capability, Transport, and Security Boundaries
 
-- [ ] **F11 — Make capability status backend-aware and cheap.** When AI is
+- [x] **F11 — Make capability status backend-aware and cheap.** When AI is
   disabled, return disabled status without filesystem or network probes. With
   AI enabled, inspect only the selected Ollama or curated API backend. Assert
   capability polling contains no GGUF hash, runtime resolution, GPU probe, or

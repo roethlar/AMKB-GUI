@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import threading
 import time
 import unittest
 
-from am_configurator import ai_catalog, llm
+from am_configurator import ai_capability, ai_catalog, llm
 from am_configurator.ai_capability import (
     AICapabilityError,
     AICapabilityService,
@@ -170,7 +171,7 @@ class CapabilityTests(unittest.TestCase):
                 "ready": False,
                 "reason": "disabled",
                 "local": {
-                    "service_available": True,
+                    "service_available": False,
                     "model_selected": False,
                     "model_id": None,
                     "model_verified": False,
@@ -190,6 +191,94 @@ class CapabilityTests(unittest.TestCase):
         with self.assertRaises(AICapabilityError):
             service.provider_for_generation()
         self.assertEqual(0, provider.calls)
+
+    def test_disabled_or_unselected_status_performs_no_backend_probe(self) -> None:
+        ollama = _OllamaClient([self.ollama_model])
+        credential_calls = 0
+
+        def credential_status():
+            nonlocal credential_calls
+            credential_calls += 1
+            raise AssertionError("disabled status probed the credential store")
+
+        service = AICapabilityService(
+            settings_loader=lambda: copy.deepcopy(self.settings),
+            credential_status_loader=credential_status,
+            credential_resolver=lambda: (_ for _ in ()).throw(
+                AssertionError("disabled status resolved a credential")
+            ),
+            ollama_client=ollama,
+        )
+
+        self.assertEqual("disabled", service.status()["reason"])
+        self.settings["ai"]["enabled"] = True
+        self.assertEqual("backend_unselected", service.status()["reason"])
+        self.assertEqual(0, ollama.calls)
+        self.assertEqual(0, credential_calls)
+
+    def test_enabled_status_probes_only_the_selected_backend(self) -> None:
+        local = self.settings["ai"]["local"]
+        local.update({
+            "model_id": self.ollama_model.model_id,
+            "model_digest": self.ollama_model.digest,
+            "setup_fingerprint": ollama_setup_fingerprint(
+                self.ollama_model.model_id,
+                self.ollama_model.digest,
+            ),
+        })
+        self.settings["ai"].update({"enabled": True, "backend": "local"})
+        ollama = _OllamaClient([self.ollama_model])
+        credential_calls = 0
+
+        def credential_status():
+            nonlocal credential_calls
+            credential_calls += 1
+            return {
+                "available": True,
+                "configured": True,
+                "external": False,
+                "invalid": False,
+            }
+
+        service = AICapabilityService(
+            settings_loader=lambda: copy.deepcopy(self.settings),
+            credential_status_loader=credential_status,
+            credential_resolver=lambda: "sk-selected-backend-only",
+            ollama_client=ollama,
+        )
+        self.assertTrue(service.status()["ready"])
+        self.assertEqual(1, ollama.calls)
+        self.assertEqual(0, credential_calls)
+
+        self.credential = "sk-selected-backend-only"
+        api = self.settings["ai"]["api"]
+        api["disclosure_version"] = ai_catalog.PRIVACY_DISCLOSURE_VERSION
+        api["disclosure_at"] = "2026-07-22T00:00:00+00:00"
+        api["setup_fingerprint"] = api_setup_fingerprint(
+            api["provider"],
+            api["model_id"],
+            self.credential,
+            api["disclosure_version"],
+            api["disclosure_at"],
+        )
+        self.settings["ai"]["backend"] = "api"
+        self.assertTrue(service.status()["ready"])
+        self.assertEqual(1, ollama.calls)
+        self.assertEqual(1, credential_calls)
+
+    def test_capability_polling_has_no_managed_model_or_runtime_path(self) -> None:
+        source = inspect.getsource(ai_capability)
+        for forbidden in (
+            ".gguf",
+            "local_ai_runtime",
+            "from .local_model",
+            "import local_model",
+            "runtime_resolver",
+            "verify_runtime_attestation",
+            "model_path",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, source.lower())
 
     def test_readiness_reasons_are_exact_and_invocation_fails_closed(self) -> None:
         self.settings["ai"]["enabled"] = True

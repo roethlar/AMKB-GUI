@@ -238,6 +238,20 @@ class AICapabilityService:
             "provider": "ollama",
         }
 
+    @staticmethod
+    def _unprobed_local_components(settings: dict[str, Any]) -> dict[str, Any]:
+        local = settings["ai"]["local"]
+        selected = local["model_id"] is not None and local["model_digest"] is not None
+        return {
+            "service_available": False,
+            "selected": selected,
+            "model_id": local["model_id"],
+            "verified": False,
+            "model": None,
+            "expected": None,
+            "provider": "ollama",
+        }
+
     def _api_components(self, settings: dict[str, Any]) -> dict[str, Any]:
         api = settings["ai"]["api"]
         try:
@@ -281,6 +295,24 @@ class AICapabilityService:
             "expected": expected,
         }
 
+    @staticmethod
+    def _unprobed_api_components(settings: dict[str, Any]) -> dict[str, Any]:
+        api = settings["ai"]["api"]
+        disclosure_current = (
+            api["disclosure_version"] == ai_catalog.PRIVACY_DISCLOSURE_VERSION
+            and isinstance(api["disclosure_at"], str)
+            and bool(api["disclosure_at"])
+        )
+        return {
+            "available": False,
+            "configured": False,
+            "external": False,
+            "invalid": False,
+            "credential": None,
+            "disclosure_current": disclosure_current,
+            "expected": None,
+        }
+
     def _remembered_reason(self, backend: str, component: str | None) -> str | None:
         remembered = self._failure_reasons.get(backend)
         if remembered is None or component is None or remembered[1] != component:
@@ -290,18 +322,27 @@ class AICapabilityService:
     def status(self) -> dict[str, Any]:
         try:
             settings = self._settings_loader()
-            local = self._local_components(settings)
-            api = self._api_components(settings)
             enabled = settings["ai"]["enabled"] is True
             backend = settings["ai"]["backend"]
-            local_tested = (
-                local["expected"] is not None
-                and settings["ai"]["local"]["setup_fingerprint"] == local["expected"]
-            )
-            api_tested = (
-                api["expected"] is not None
-                and settings["ai"]["api"]["setup_fingerprint"] == api["expected"]
-            )
+            local = self._unprobed_local_components(settings)
+            api = self._unprobed_api_components(settings)
+            local_tested = False
+            api_tested = False
+
+            if enabled and backend == "local":
+                local = self._local_components(settings)
+                local_tested = (
+                    local["expected"] is not None
+                    and settings["ai"]["local"]["setup_fingerprint"]
+                    == local["expected"]
+                )
+            elif enabled and backend == "api":
+                api = self._api_components(settings)
+                api_tested = (
+                    api["expected"] is not None
+                    and settings["ai"]["api"]["setup_fingerprint"]
+                    == api["expected"]
+                )
 
             ready = False
             if not enabled:

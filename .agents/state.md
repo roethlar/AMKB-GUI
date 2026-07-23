@@ -108,8 +108,13 @@
   and cancellation predicate. Cancellation and timeout release admission from
   inside local frame work, and durable `rendering`, `quality_check`, and
   `banking` phases publish throttled frame-relative progress while provider work
-  remains indeterminate. The next slice is F11's disabled and selected-backend
-  capability-probe boundary.
+  remains indeterminate. F11 is complete on the current tree: disabled and
+  backend-unselected capability status performs no backend probe, while enabled
+  status contacts only the selected fixed-loopback Ollama or curated API
+  credential backend. Unprobed public fields remain schema-compatible and
+  conservatively unverified, and a source guard excludes every managed model or
+  runtime path from capability polling. The next slice is F14's malformed local
+  authentication-header rejection.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
