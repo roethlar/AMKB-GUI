@@ -55,7 +55,7 @@ jobs:
         run: brew install gnupg
       - name: Install FFmpeg build prerequisites (Linux)
         if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential zlib1g-dev gnupg
+        run: sudo apt-get update && sudo apt-get install -y build-essential zlib1g-dev gnupg xvfb xauth
       - name: Install FFmpeg build prerequisites (Windows)
         if: matrix.platform == 'windows'
         id: msys2
@@ -110,6 +110,16 @@ jobs:
         run: uv run --frozen python build_tools/release_info.py stamp --build-number ${{ github.run_number }} --github-output
       - name: Build native application
         run: uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
+      - name: Verify native webview policy (macos)
+        if: matrix.platform == 'macos'
+        run: '"dist/AM Configurator.app/Contents/MacOS/AM Configurator" --native-policy-smoke'
+      - name: Verify native webview policy (windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: '& "dist/AM Configurator/AM Configurator.exe" --native-policy-smoke'
+      - name: Verify native webview policy (linux)
+        if: matrix.platform == 'linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" "dist/AM Configurator/AM Configurator" --native-policy-smoke
       - name: Build and test macOS DMG
         if: matrix.platform == 'macos'
         run: packaging/macos/build_dmg.sh

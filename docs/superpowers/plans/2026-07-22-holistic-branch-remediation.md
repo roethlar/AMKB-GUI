@@ -457,7 +457,7 @@ local no-provider browser acceptance at the end of the phase.
   reject unsupported architectures explicitly, and cache by version+hash.
   Commit: `build: pin appimagetool release assets`.
 
-- [ ] **F52 — Exercise actual native webview policy per platform.** Add a frozen
+- [x] **F52 — Exercise actual native webview policy per platform.** Add a frozen
   smoke/acceptance helper that launches the selected renderer and verifies
   private mode, token-history cleanup, hidden underscore bridge methods,
   downloads, CSP, loopback loading, and Ollama/API-only Settings. Run it in each

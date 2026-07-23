@@ -178,6 +178,20 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file())
 
+    def test_desktop_workflow_runs_frozen_native_policy_on_every_platform(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertEqual(3, workflow.count("--native-policy-smoke"))
+        for platform_name in ("macos", "windows", "linux"):
+            with self.subTest(platform=platform_name):
+                self.assertIn(
+                    f"Verify native webview policy ({platform_name})",
+                    workflow,
+                )
+        self.assertIn("xvfb-run", workflow)
+
     def test_windows_ffmpeg_uses_the_setup_msys2_installation(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
             encoding="utf-8"

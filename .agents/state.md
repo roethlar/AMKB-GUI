@@ -221,7 +221,13 @@
   F35 is complete on the current tree: Linux packaging downloads immutable
   appimagetool 1.9.1 assets, verifies the official per-architecture digests,
   rejects unsupported architectures explicitly, and caches by version plus
-  digest. The next slice is Phase 7 / F52's native webview policy acceptance.
+  digest. F52 is complete on the current tree: each frozen platform build runs
+  two isolated real-renderer probes against one private loopback origin to
+  verify private storage, token-history cleanup, an empty browser bridge,
+  downloads, CSP, loopback loading, and Ollama/API-only Settings. Authenticated
+  loopback handlers now own native actions without exposing pywebview methods
+  to page scope. The actual local WKWebView probe passed. The next slice is
+  Phase 7 / F53's Windows drive/ADS archive-member rejection.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -531,8 +537,8 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 7 / F52's native webview policy acceptance. Do not
-  push or dispatch workflows before the local remediation and verification
+  continuing with Phase 7 / F53's Windows drive/ADS archive-member rejection.
+  Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows
   x86_64 and Linux x86_64 packages as Ollama/API-only builds and prove they

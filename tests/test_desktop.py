@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import sys
+import json
 import socket
 import tempfile
 import types
 import unittest
 from pathlib import Path
+from urllib.parse import quote
 from unittest import mock
 
 from am_configurator import desktop
@@ -275,7 +277,7 @@ class DesktopSmokeTests(unittest.TestCase):
 
 
 class DesktopWindowTests(unittest.TestCase):
-    def test_run_desktop_injects_and_binds_the_native_bridge(self) -> None:
+    def test_run_desktop_binds_native_actions_only_to_loopback_server(self) -> None:
         created: dict = {}
 
         class _ClosedEvent:
@@ -317,12 +319,145 @@ class DesktopWindowTests(unittest.TestCase):
         ):
             self.assertEqual(desktop.run_desktop(debug=True), 0)
 
-        bridge = created["kwargs"]["js_api"]
+        self.assertNotIn("js_api", created["kwargs"])
+        bridge = fake_server.state.desktop_bridge
         self.assertIsInstance(bridge, desktop.DesktopBridge)
         self.assertIs(bridge._window, window)
         self.assertIs(fake_server.state.desktop_bridge, bridge)
         self.assertTrue(created["shutdown"])
         self.assertTrue(created["server_close"])
+
+
+class DesktopNativePolicyTests(unittest.TestCase):
+    def test_probe_script_checks_the_real_browser_policy_surface(self) -> None:
+        script = desktop._native_policy_probe_script("verify")
+
+        for required in (
+            "localStorage",
+            "sessionStorage",
+            "location.search",
+            "window.pywebview",
+            "choose_library_folder",
+            "_bind_window",
+            "ALLOW_DOWNLOADS",
+            "Content-Security-Policy",
+            "script-src",
+            "settings-local-panel",
+            "settings-api-panel",
+            "GGUF",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, script)
+
+    def test_native_probe_uses_private_mode_and_the_selected_renderer(self) -> None:
+        payload = {name: True for name in desktop._NATIVE_POLICY_VERIFY_KEYS}
+        payload["csp"] = "default-src 'self'; script-src 'self'"
+        created: dict = {}
+
+        class _Window:
+            events = types.SimpleNamespace(
+                loaded=types.SimpleNamespace(wait=lambda timeout: bool(timeout))
+            )
+
+            def run_js(self, script):
+                created["script"] = script
+                created["current_url"] = (
+                    "http://127.0.0.1:43111/#/__native_policy__/"
+                    + quote(json.dumps(payload), safe="")
+                )
+
+            def get_current_url(self):
+                return created.get("current_url", "http://127.0.0.1:43111/")
+
+            def destroy(self):
+                created["destroyed"] = True
+
+        window = _Window()
+
+        def start(func, args, **kwargs):
+            created["start"] = kwargs
+            func(*args)
+
+        def create_window(*args, **kwargs):
+            created["window_kwargs"] = kwargs
+            return window
+
+        fake_webview = types.SimpleNamespace(
+            renderer="qtwebengine",
+            settings={},
+            create_window=create_window,
+            start=start,
+        )
+        with tempfile.TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            (root / "probe.json").write_text(
+                json.dumps({"url": "http://127.0.0.1:43111/?token=test-token"}),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.dict(sys.modules, {"webview": fake_webview}),
+                mock.patch.object(desktop.platform, "system", return_value="Linux"),
+                mock.patch.object(desktop.importlib.util, "find_spec", return_value=object()),
+            ):
+                self.assertEqual(desktop._run_native_policy_probe("verify", root), 0)
+
+            result = json.loads((root / "verify.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(result["ok"])
+        self.assertEqual("qt", created["start"]["gui"])
+        self.assertTrue(created["start"]["private_mode"])
+        self.assertTrue(fake_webview.settings["ALLOW_DOWNLOADS"])
+        self.assertNotIn("js_api", created["window_kwargs"])
+        self.assertTrue(created["destroyed"])
+
+    def test_smoke_runs_seed_and_verify_children_against_one_origin(self) -> None:
+        observed: list[tuple[str, str]] = []
+        lifecycle: list[str] = []
+
+        class _Server:
+            def serve_forever(self, **kwargs):
+                lifecycle.append(f"serve:{kwargs['poll_interval']}")
+
+            def shutdown(self):
+                lifecycle.append("shutdown")
+
+            def server_close(self):
+                lifecycle.append("close")
+
+        def run_child(command, **kwargs):
+            del kwargs
+            phase = command[command.index("--native-policy-probe") + 1]
+            root = Path(command[command.index("--native-policy-dir") + 1])
+            descriptor = json.loads(
+                (root / "probe.json").read_text(encoding="utf-8")
+            )
+            observed.append((phase, descriptor["url"]))
+            desktop._write_native_policy_result(
+                root,
+                phase,
+                {"ok": True, "renderer": "wkwebview"},
+            )
+            return types.SimpleNamespace(returncode=0)
+
+        with (
+            mock.patch.object(
+                desktop,
+                "create_server",
+                return_value=(
+                    _Server(),
+                    "http://127.0.0.1:43111/?token=private-token",
+                ),
+            ),
+            mock.patch.object(desktop, "_assert_ollama_api_only_bundle"),
+            mock.patch.object(desktop.subprocess, "run", side_effect=run_child),
+            mock.patch.object(desktop.platform, "system", return_value="Darwin"),
+        ):
+            self.assertEqual(desktop.run_native_policy_smoke(), 0)
+
+        self.assertEqual(["seed", "verify"], [phase for phase, _url in observed])
+        self.assertEqual(1, len({url for _phase, url in observed}))
+        self.assertIn("shutdown", lifecycle)
+        self.assertIn("close", lifecycle)
 
 
 if __name__ == "__main__":

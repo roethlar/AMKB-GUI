@@ -15,9 +15,30 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import parse_qs, unquote, urlsplit
 from urllib.request import Request, urlopen
 
 from .server import create_server
+
+
+_NATIVE_WEBVIEW_POLICIES = {
+    "Darwin": ("webview.platforms.cocoa", None, "wkwebview"),
+    "Windows": ("webview.platforms.winforms", None, "edgechromium"),
+    "Linux": ("webview.platforms.qt", "qt", "qtwebengine"),
+}
+_NATIVE_POLICY_PHASES = ("seed", "verify")
+_NATIVE_POLICY_MARKER = "am-native-private-probe"
+_NATIVE_POLICY_VERIFY_KEYS = (
+    "private_storage_clean",
+    "token_history_clean",
+    "token_session_present",
+    "bridge_methods_hidden",
+    "downloads_supported",
+    "csp_enforced",
+    "loopback_loaded",
+    "settings_ollama_api_only",
+)
+_NATIVE_POLICY_TIMEOUT_SECONDS = 45
 
 
 def _smoke_recipe() -> dict[str, Any]:
@@ -78,8 +99,9 @@ class DesktopBridge:
     """Narrow native bridge for Library selection and reveal.
 
     Settings persistence intentionally remains behind the authenticated loopback
-    HTTP API. Only these narrow chooser/reveal methods are exposed to JavaScript
-    by pywebview.
+    HTTP API. Browser JavaScript reaches these methods only through those
+    authenticated handlers; the pywebview ``js_api`` surface stays empty so
+    private Python methods can never be injected into page scope.
     """
 
     def __init__(
@@ -155,6 +177,333 @@ class DesktopBridge:
         if not path.is_absolute():
             return None
         return path.resolve(strict=False)
+
+
+def _native_webview_policy() -> tuple[str, str | None, str]:
+    try:
+        return _NATIVE_WEBVIEW_POLICIES[platform.system()]
+    except KeyError:
+        raise SystemExit(
+            "Native webview policy smoke failed: unsupported platform."
+        ) from None
+
+
+def _native_policy_probe_script(phase: str) -> str:
+    if phase not in _NATIVE_POLICY_PHASES:
+        raise ValueError("Native policy phase is invalid.")
+    if phase == "seed":
+        return f"""
+(() => {{
+  const marker = {json.dumps(_NATIVE_POLICY_MARKER)};
+  const report = value => history.replaceState(
+    {{}}, "", `${{location.pathname}}#/__native_policy__/${{encodeURIComponent(JSON.stringify(value))}}`
+  );
+  localStorage.setItem(marker, "seeded");
+  document.cookie = `${{marker}}=seeded; Path=/; SameSite=Strict`;
+  report({{
+    seeded: localStorage.getItem(marker) === "seeded" &&
+      document.cookie.includes(`${{marker}}=seeded`)
+  }});
+}})()
+""".strip()
+    return f"""
+(() => {{
+  const marker = {json.dumps(_NATIVE_POLICY_MARKER)};
+  const api = window.pywebview && window.pywebview.api
+    ? window.pywebview.api : {{}};
+  const report = value => history.replaceState(
+    {{}}, "", `${{location.pathname}}#/__native_policy__/${{encodeURIComponent(JSON.stringify(value))}}`
+  );
+  const bridgeKeys = Object.keys(api).sort();
+  const settings = document.querySelector("#settings-screen");
+  const localPanel = document.querySelector("#settings-local-panel");
+  const apiPanel = document.querySelector("#settings-api-panel");
+  const settingsText = settings ? settings.textContent : "";
+  const backendValues = settings
+    ? Array.from(settings.querySelectorAll(
+        'input[name="settings-ai-backend"]'
+      )).map(input => input.value).sort()
+    : [];
+  const anchor = document.createElement("a");
+  const ALLOW_DOWNLOADS = "download" in anchor &&
+    typeof Blob === "function" &&
+    typeof URL.createObjectURL === "function";
+
+  let csp = "";
+  try {{
+    const request = new XMLHttpRequest();
+    request.open("GET", "/", false);
+    request.send(null);
+    csp = request.getResponseHeader("Content-Security-Policy") || "";
+  }} catch (_error) {{
+    csp = "";
+  }}
+  window.__amNativeCspProbe = false;
+  const inlineScript = document.createElement("script");
+  inlineScript.textContent = "window.__amNativeCspProbe = true;";
+  document.head.appendChild(inlineScript);
+  inlineScript.remove();
+  const inlineBlocked = window.__amNativeCspProbe === false;
+  delete window.__amNativeCspProbe;
+
+  report({{
+    private_storage_clean: localStorage.getItem(marker) === null &&
+      !document.cookie.includes(`${{marker}}=`),
+    token_history_clean: location.search === "" &&
+      !location.href.includes("token="),
+    token_session_present: Boolean(
+      sessionStorage.getItem("am-configurator-token")
+    ),
+    bridge_methods_hidden:
+      bridgeKeys.length === 0 &&
+      !bridgeKeys.includes("choose_library_folder") &&
+      !bridgeKeys.includes("reveal_library_path") &&
+      !bridgeKeys.includes("_bind_window") &&
+      bridgeKeys.every(name => !name.startsWith("_")),
+    downloads_supported: ALLOW_DOWNLOADS &&
+      Boolean(document.querySelector("#save-button")),
+    csp_enforced: csp.includes("default-src 'self'") &&
+      csp.includes("script-src 'self'") && inlineBlocked,
+    loopback_loaded: location.protocol === "http:" &&
+      location.hostname === "127.0.0.1" &&
+      document.title.includes("AM Configurator") && Boolean(settings),
+    settings_ollama_api_only:
+      backendValues.join(",") === "api,local" &&
+      /Ollama/.test(settingsText) && /xAI/.test(settingsText) &&
+      !/(GGUF|llama\\.cpp|direct model)/i.test(settingsText) &&
+      Boolean(localPanel) && Boolean(apiPanel) &&
+      !settings.querySelector('input[type="file"]'),
+    csp
+  }});
+}})()
+""".strip()
+
+
+def _native_policy_descriptor_url(root: Path) -> str:
+    descriptor = root / "probe.json"
+    try:
+        if descriptor.is_symlink() or descriptor.stat().st_size > 4096:
+            raise ValueError
+        value = json.loads(descriptor.read_text(encoding="utf-8"))
+        url = value["url"]
+        if not isinstance(url, str):
+            raise ValueError
+        parsed = urlsplit(url)
+        token_values = parse_qs(parsed.query, strict_parsing=True).get("token", [])
+        if (
+            parsed.scheme != "http"
+            or parsed.hostname != "127.0.0.1"
+            or parsed.port is None
+            or parsed.path != "/"
+            or len(token_values) != 1
+            or not token_values[0]
+        ):
+            raise ValueError
+        return url
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        raise SystemExit(
+            "Native webview policy smoke failed: invalid private descriptor."
+        ) from None
+
+
+def _write_native_policy_result(root: Path, phase: str, result: dict[str, Any]) -> None:
+    target = root / f"{phase}.json"
+    temporary = root / f".{phase}-{os.getpid()}.tmp"
+    temporary.write_text(json.dumps(result, sort_keys=True), encoding="utf-8")
+    os.replace(temporary, target)
+
+
+def _read_native_policy_result(root: Path, phase: str) -> dict[str, Any]:
+    try:
+        path = root / f"{phase}.json"
+        if path.is_symlink() or path.stat().st_size > 4096:
+            raise ValueError
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(value, dict) or set(value) - {"ok", "reason", "renderer"}:
+            raise ValueError
+        return value
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return {"ok": False, "reason": "result_invalid"}
+
+
+def _run_native_policy_probe(phase: str, raw_root: str | Path) -> int:
+    """Drive one real renderer process for the frozen policy acceptance."""
+    if phase not in _NATIVE_POLICY_PHASES:
+        raise SystemExit("Native webview policy smoke failed: invalid probe phase.")
+    root = Path(raw_root)
+    url = _native_policy_descriptor_url(root)
+    backend, renderer_choice, expected_renderer = _native_webview_policy()
+    if importlib.util.find_spec(backend) is None:
+        raise SystemExit(
+            "Native webview policy smoke failed: platform backend is unavailable."
+        )
+    try:
+        import webview
+    except ModuleNotFoundError:
+        raise SystemExit(
+            "Native webview policy smoke failed: pywebview is unavailable."
+        ) from None
+
+    webview.settings["ALLOW_DOWNLOADS"] = True
+    window = webview.create_window(
+        "AM Configurator native policy probe",
+        url,
+        width=1000,
+        height=680,
+        min_size=(1000, 680),
+        hidden=True,
+    )
+    if window is None:
+        raise SystemExit(
+            "Native webview policy smoke failed: renderer window was not created."
+        )
+
+    def inspect_policy() -> None:
+        result: dict[str, Any] = {"ok": False, "reason": "probe_failed"}
+        stage = "renderer"
+        try:
+            actual_renderer = getattr(webview, "renderer", None)
+            stage = "load"
+            if not window.events.loaded.wait(15):
+                raise TimeoutError("Native renderer did not finish loading.")
+            stage = "inject"
+            window.run_js(_native_policy_probe_script(phase))
+            stage = "report"
+            deadline = time.monotonic() + 10
+            current_url = ""
+            raw = None
+            while time.monotonic() < deadline:
+                current_url = window.get_current_url() or ""
+                fragment = urlsplit(current_url).fragment
+                prefix = "/__native_policy__/"
+                if fragment.startswith(prefix):
+                    raw = unquote(fragment[len(prefix):])
+                    break
+                time.sleep(0.05)
+            if raw is None:
+                raise TimeoutError("Native renderer did not report its policy result.")
+            stage = "decode"
+            payload = json.loads(raw)
+            current = urlsplit(current_url)
+            required = ("seeded",) if phase == "seed" else _NATIVE_POLICY_VERIFY_KEYS
+            stage = "validate"
+            if actual_renderer != expected_renderer:
+                result["reason"] = "renderer_mismatch"
+            elif webview.settings.get("ALLOW_DOWNLOADS") is not True:
+                result["reason"] = "downloads_disabled"
+            elif not isinstance(payload, dict) or any(
+                payload.get(name) is not True for name in required
+            ):
+                result["reason"] = "browser_policy_failed"
+            elif current.query or "token=" in current_url:
+                result["reason"] = "token_history_failed"
+            else:
+                result = {"ok": True, "renderer": actual_renderer}
+        except Exception:
+            result = {"ok": False, "reason": f"{stage}_failed"}
+        finally:
+            try:
+                _write_native_policy_result(root, phase, result)
+            finally:
+                window.destroy()
+
+    try:
+        webview.start(
+            inspect_policy,
+            args=(),
+            gui=renderer_choice,
+            debug=False,
+            private_mode=True,
+        )
+    except Exception:
+        if not (root / f"{phase}.json").exists():
+            _write_native_policy_result(
+                root,
+                phase,
+                {"ok": False, "reason": "renderer_start_failed"},
+            )
+    result = _read_native_policy_result(root, phase)
+    if result.get("ok") is not True:
+        reason = result.get("reason", "unknown")
+        raise SystemExit(f"Native webview policy smoke failed: {reason}.")
+    return 0
+
+
+def _native_policy_child_command(phase: str, root: Path) -> list[str]:
+    prefix = [sys.executable]
+    if not getattr(sys, "frozen", False):
+        prefix.extend(("-m", "am_configurator.desktop"))
+    return [*prefix, "--native-policy-probe", phase, "--native-policy-dir", str(root)]
+
+
+class _OfflineOllamaInventory:
+    def list_models(self, *, deadline: float) -> tuple:
+        del deadline
+        return ()
+
+
+def run_native_policy_smoke() -> int:
+    """Verify native renderer policy in two isolated frozen child processes."""
+    from .credentials import MemoryCredentialStore
+
+    _assert_ollama_api_only_bundle()
+    prior_data_dir = os.environ.get("AM_CONFIGURATOR_DATA_DIR")
+    with tempfile.TemporaryDirectory(prefix="am-native-policy-") as raw_root:
+        root = Path(raw_root)
+        os.environ["AM_CONFIGURATOR_DATA_DIR"] = str(root / "data")
+        server = None
+        server_thread = None
+        try:
+            server, url = create_server(
+                ollama_client=_OfflineOllamaInventory(),
+                credential_store=MemoryCredentialStore(),
+            )
+            server_thread = threading.Thread(
+                target=server.serve_forever,
+                kwargs={"poll_interval": 0.05},
+                name="am-native-policy-api",
+                daemon=True,
+            )
+            server_thread.start()
+            descriptor = root / "probe.json"
+            descriptor.write_text(json.dumps({"url": url}), encoding="utf-8")
+            descriptor.chmod(0o600)
+            for phase in _NATIVE_POLICY_PHASES:
+                try:
+                    completed = subprocess.run(
+                        _native_policy_child_command(phase, root),
+                        stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=_NATIVE_POLICY_TIMEOUT_SECONDS,
+                        check=False,
+                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    raise SystemExit(
+                        f"Native webview policy smoke failed: {phase} process failed."
+                    ) from None
+                result = _read_native_policy_result(root, phase)
+                if completed.returncode != 0 or result.get("ok") is not True:
+                    reason = result.get("reason", "process_failed")
+                    raise SystemExit(
+                        f"Native webview policy smoke failed: {phase} {reason}."
+                    )
+        finally:
+            if server is not None:
+                server.shutdown()
+                server.server_close()
+            if server_thread is not None:
+                server_thread.join(timeout=2)
+            if prior_data_dir is None:
+                os.environ.pop("AM_CONFIGURATOR_DATA_DIR", None)
+            else:
+                os.environ["AM_CONFIGURATOR_DATA_DIR"] = prior_data_dir
+
+    print(
+        f"Native webview policy smoke passed ({platform.system()}, "
+        f"{_native_webview_policy()[2]})."
+    )
+    return 0
 
 
 def _assert_ollama_api_only_bundle() -> None:
@@ -375,12 +724,8 @@ def run_smoke_test() -> int:
     except ModuleNotFoundError:
         raise SystemExit("Desktop smoke test failed: pywebview is unavailable.") from None
 
-    backend = {
-        "Darwin": "webview.platforms.cocoa",
-        "Windows": "webview.platforms.winforms",
-        "Linux": "webview.platforms.qt",
-    }.get(platform.system())
-    if backend and importlib.util.find_spec(backend) is None:
+    backend, _renderer_choice, _expected_renderer = _native_webview_policy()
+    if importlib.util.find_spec(backend) is None:
         raise SystemExit(f"Desktop smoke test failed: {backend} is unavailable.")
 
     tls_context = ssl.create_default_context()
@@ -465,11 +810,10 @@ def run_desktop(config_paths: list[str] | None = None, *, debug: bool = False) -
         background_color="#0d0d0f",
         text_select=True,
         zoomable=True,
-        js_api=bridge,
     )
     bridge._bind_window(window)
     window.events.closed += stop_server
-    renderer = "qt" if platform.system() == "Linux" else None
+    _backend, renderer, _expected_renderer = _native_webview_policy()
     try:
         webview.start(gui=renderer, debug=debug, private_mode=True)
     finally:
@@ -497,9 +841,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--native-policy-smoke",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--native-policy-probe",
+        choices=_NATIVE_POLICY_PHASES,
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--native-policy-dir",
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args(argv)
     if args.smoke_test:
         return run_smoke_test()
+    if args.native_policy_smoke:
+        if args.native_policy_probe or args.native_policy_dir:
+            parser.error("native policy modes cannot be combined")
+        return run_native_policy_smoke()
+    if args.native_policy_probe:
+        if not args.native_policy_dir:
+            parser.error("--native-policy-dir is required for a native policy probe")
+        return _run_native_policy_probe(
+            args.native_policy_probe,
+            args.native_policy_dir,
+        )
+    if args.native_policy_dir:
+        parser.error("--native-policy-dir requires --native-policy-probe")
     return run_desktop(args.config, debug=args.debug)
 
 
