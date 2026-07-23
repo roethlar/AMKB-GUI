@@ -11,6 +11,7 @@ import urllib.request
 from unittest.mock import patch
 
 from am_configurator.ollama_client import (
+    MAX_OLLAMA_MODELS,
     MAX_OLLAMA_RESPONSE_BYTES,
     OLLAMA_CHAT_URL,
     OLLAMA_MODELS_URL,
@@ -127,17 +128,12 @@ def _model(
 
 
 class OllamaClientTests(unittest.TestCase):
-    def test_discovery_is_fixed_bounded_and_filters_remote_or_invalid_entries(self) -> None:
+    def test_discovery_is_fixed_and_returns_sorted_public_models(self) -> None:
         calls = []
         payload = {
             "models": [
                 _model("ornith:latest", "a" * 64),
                 _model("ornith:35b", "b" * 64, size=21_000_000),
-                _model("glm-5.2:cloud", "c" * 64, remote=True),
-                _model("bad name", "d" * 64),
-                _model("no-digest:latest", "short"),
-                _model("no-size:latest", "e" * 64, size=0),
-                _model("embedding:latest", "f" * 64, capabilities=["embedding"]),
             ]
         }
 
@@ -157,6 +153,70 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual(OLLAMA_MODELS_URL, request.full_url)
         self.assertEqual("GET", request.get_method())
         self.assertGreater(timeout, 0)
+
+    def test_each_ineligible_inventory_entry_is_filtered_independently(self) -> None:
+        def changed(**values) -> dict:
+            model = _model("candidate:latest", "a" * 64)
+            model.update(values)
+            return model
+
+        cases = {
+            "name/model mismatch": changed(model="different:latest"),
+            "cloud suffix without remote metadata": _model(
+                "candidate:cloud", "b" * 64
+            ),
+            "remote_model field": changed(remote_model="candidate:latest"),
+            "remote_host field": changed(remote_host="https://ollama.com:443"),
+            "completion capability absent": changed(capabilities=["embedding"]),
+            "malformed size": changed(size=True),
+            "non-positive size": changed(size=0),
+            "malformed digest": changed(digest="short"),
+            "malformed name": changed(name="bad name", model="bad name"),
+        }
+        for name, candidate in cases.items():
+            with self.subTest(exclusion=name):
+                client = OllamaClient(
+                    opener=lambda *_args, candidate=candidate, **_kwargs: _Response(
+                        {"models": [candidate]}
+                    )
+                )
+                self.assertEqual(
+                    (),
+                    client.list_models(deadline=time.monotonic() + 10),
+                )
+
+    def test_inventory_accepts_512_entries_rejects_513_and_maps_404(self) -> None:
+        models = [
+            _model(f"model-{index}:latest", f"{index:064x}")
+            for index in range(MAX_OLLAMA_MODELS + 1)
+        ]
+        accepted = OllamaClient(
+            opener=lambda *_args, **_kwargs: _Response(
+                {"models": models[:MAX_OLLAMA_MODELS]}
+            )
+        ).list_models(deadline=time.monotonic() + 10)
+        self.assertEqual(MAX_OLLAMA_MODELS, len(accepted))
+
+        with self.assertRaises(OllamaError) as oversized:
+            OllamaClient(
+                opener=lambda *_args, **_kwargs: _Response({"models": models})
+            ).list_models(deadline=time.monotonic() + 10)
+        self.assertEqual("bad_response", oversized.exception.code)
+
+        def missing(*_args, **_kwargs):
+            raise urllib.error.HTTPError(
+                OLLAMA_MODELS_URL,
+                404,
+                "not found",
+                {},
+                None,
+            )
+
+        with self.assertRaises(OllamaError) as not_found:
+            OllamaClient(opener=missing).list_models(
+                deadline=time.monotonic() + 10
+            )
+        self.assertEqual("model_unavailable", not_found.exception.code)
 
     def test_older_tags_contract_requires_upgrade_without_show_fallback(self) -> None:
         legacy_model = _model("ornith:latest", "a" * 64)

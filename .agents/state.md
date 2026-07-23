@@ -170,8 +170,11 @@
   selection routes now have an integration regression through the production
   capability service, fixed-loopback client parser, and `OllamaModel.public`
   projection. It covers unavailable and malformed inventories, a missing model,
-  exact public metadata, and persistence of the discovered name and digest. The
-  next slice is F39's independent coverage of every Ollama eligibility defense.
+  exact public metadata, and persistence of the discovered name and digest. F39
+  is complete on the current tree: independent regressions reject name/model
+  mismatch, bare cloud suffixes, each remote marker, missing completion support,
+  malformed size/digest/name, and prove the exact 512-model bound plus discovery
+  404 mapping. The next slice is F40's same-name digest-replacement invalidation.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -477,7 +480,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 5 / F39's Ollama eligibility defenses. Do not
+  continuing with Phase 5 / F40's replaced-model invalidation. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

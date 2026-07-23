@@ -381,7 +381,7 @@ local no-provider browser acceptance at the end of the phase.
   missing selection, exact persisted digest, and malformed contract. Commit:
   `test: integrate ollama discovery and selection`.
 
-- [ ] **F39 — Guard every Ollama eligibility exclusion.** Add independent cases
+- [x] **F39 — Guard every Ollama eligibility exclusion.** Add independent cases
   for name/model mismatch, cloud suffix without remote metadata, each remote
   field, absent completion capability, malformed size/digest/name, 512-item
   bound, and 404 mapping. Commit: `test: cover ollama eligibility defenses`.
