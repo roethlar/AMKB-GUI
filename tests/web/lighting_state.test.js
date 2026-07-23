@@ -7,6 +7,7 @@ const {
   ROUTES,
   STAGES,
   applyCompatibility,
+  createPaintStrokeController,
   createLightingState,
   formatLightingHash,
   nextGridIndex,
@@ -18,6 +19,25 @@ const {
 
 const JOB_ID = "4d36e96e-e2aa-4e72-8808-4d03b5ba7e61";
 const RESULT_ID = "result-asset";
+
+class FakeEventTarget {
+  constructor() {
+    this.listeners = new Map();
+  }
+
+  addEventListener(type, listener) {
+    if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+    this.listeners.get(type).add(listener);
+  }
+
+  removeEventListener(type, listener) {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  dispatch(type) {
+    for (const listener of [...(this.listeners.get(type) || [])]) listener();
+  }
+}
 
 function deepFreeze(value) {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
@@ -73,6 +93,34 @@ test("grid focus movement is bounded and supports arrows plus Home and End", () 
   assert.equal(nextGridIndex(11, "ArrowDown", 12, 4), 11);
   assert.equal(nextGridIndex(7, "Home", 12, 4), 0);
   assert.equal(nextGridIndex(2, "End", 12, 4), 11);
+});
+
+test("three paint strokes create three checkpoints and entry alone never paints", () => {
+  const releaseTarget = new FakeEventTarget();
+  const checkpoints = [];
+  const painted = [];
+  const controller = createPaintStrokeController({
+    releaseTarget,
+    checkpoint: () => checkpoints.push("checkpoint"),
+    paint: pixel => painted.push(pixel),
+  });
+
+  assert.equal(controller.pointerEnter("outside", 1), false);
+  for (let stroke = 0; stroke < 3; stroke += 1) {
+    assert.equal(controller.pointerDown(`start-${stroke}`), true);
+    assert.equal(controller.pointerEnter(`drag-${stroke}`, 1), true);
+    releaseTarget.dispatch("pointerup");
+  }
+
+  assert.equal(checkpoints.length, 3);
+  assert.deepEqual(painted, [
+    "start-0", "drag-0",
+    "start-1", "drag-1",
+    "start-2", "drag-2",
+  ]);
+  assert.equal(controller.pointerEnter("after-release", 1), false);
+  assert.equal(releaseTarget.listeners.get("pointerup")?.size || 0, 0);
+  assert.equal(releaseTarget.listeners.get("pointercancel")?.size || 0, 0);
 });
 
 test("reducer never mutates frozen input", () => {

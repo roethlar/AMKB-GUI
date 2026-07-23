@@ -45,6 +45,40 @@
     return current;
   }
 
+  function createPaintStrokeController({releaseTarget, checkpoint, paint}) {
+    if (!releaseTarget || typeof releaseTarget.addEventListener !== "function" || typeof releaseTarget.removeEventListener !== "function") {
+      throw new TypeError("A paint stroke release target is required.");
+    }
+    if (typeof checkpoint !== "function" || typeof paint !== "function") {
+      throw new TypeError("Paint stroke callbacks are required.");
+    }
+
+    let painting = false;
+    const finish = () => {
+      painting = false;
+      releaseTarget.removeEventListener("pointerup", finish);
+      releaseTarget.removeEventListener("pointercancel", finish);
+    };
+    return Object.freeze({
+      pointerDown(pixel) {
+        if (!painting) {
+          checkpoint();
+          painting = true;
+          releaseTarget.addEventListener("pointerup", finish);
+          releaseTarget.addEventListener("pointercancel", finish);
+        }
+        paint(pixel);
+        return true;
+      },
+      pointerEnter(pixel, buttons) {
+        if (!painting || !buttons) return false;
+        paint(pixel);
+        return true;
+      },
+      teardown: finish,
+    });
+  }
+
   function copyProgress(value) {
     if (!value || typeof value !== "object") return null;
     const completed = Number(value.completed);
@@ -209,6 +243,7 @@
     ROUTES,
     STAGES,
     applyCompatibility,
+    createPaintStrokeController,
     createLightingState,
     formatLightingHash,
     nextGridIndex,

@@ -204,7 +204,7 @@ local no-provider browser acceptance at the end of the phase.
   nothing changed. Test disable, re-enable, changed digest, removed model, and
   invalid credential cases. Commit: `fix: re-enable tested ai backends`.
 
-- [ ] **F31 — Restore per-stroke paint checkpoints.** Register pointer release
+- [x] **F31 — Restore per-stroke paint checkpoints.** Register pointer release
   cleanup for every stroke or keep one persistent listener with explicit
   teardown. Prove three consecutive strokes create three undo boundaries and a
   pointer entering the grid without a grid pointerdown cannot paint. Commit:

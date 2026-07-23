@@ -34,7 +34,10 @@
   backend's fingerprint, and re-enabling recomputes current Ollama model or API
   credential validity server-side without another inference; changed or
   missing models and changed credentials remain invalid. The next slice is
-  F31's per-stroke paint checkpoint restoration.
+  F31 is complete on the current tree: each lighting paint stroke owns fresh
+  pointer-up/cancel cleanup, creates its own undo checkpoint, and cannot be
+  started by merely entering the grid with a held pointer. The next slice is
+  F03's per-job Library reconciliation isolation.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

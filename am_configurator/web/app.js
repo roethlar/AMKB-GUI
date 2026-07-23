@@ -9,10 +9,11 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch]));
-const {ROUTES, STAGES, createLightingState, formatLightingHash, nextGridIndex, parseLightingHash, projectLightingJob, reduceLightingState, routeAvailability} = LightingState;
+const {ROUTES, STAGES, createLightingState, createPaintStrokeController, formatLightingHash, nextGridIndex, parseLightingHash, projectLightingJob, reduceLightingState, routeAvailability} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, renderTargetControls} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
+let activePaintStrokeController = null;
 
 function restoredLightingState() {
   let saved = {};
@@ -1445,6 +1446,8 @@ function selectLightingFrame(index) {
 }
 
 function wireLedEditor(gridColumns) {
+  activePaintStrokeController?.teardown();
+  activePaintStrokeController=null;
   $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>selectLightingFrame(button.dataset.frame)));
   $("#first-frame")?.addEventListener("click",()=>mutate(ensureTrack));
   $("#import-gif").addEventListener("click",()=>$("#gif-input").click());
@@ -1462,10 +1465,11 @@ function wireLedEditor(gridColumns) {
     const track=trackInfo().track;track.frame_data.splice(state.ledFrame,1);track.frame_data.forEach((f,i)=>f.frame_index=i);track.frame_num=track.frame_data.length;state.ledFrame=Math.max(0,state.ledFrame-1);
     if(state.ledTarget==="keyframes"&&activeLedModel()===LED_MODELS["80"]){const page=getPage(state.ledSlot);if(page.spotlight_frames?.frame_data?.length){const data=resampleEdgeAnimation(page.spotlight_frames.frame_data,track.frame_data.length);page.spotlight_frames={...page.spotlight_frames,frame_num:data.length,frame_data:data};}}
   }));
-  let painting=false, checkpointed=false;
   const paint = pixel => {
     const frame=currentFrame();if(!frame)return;const i=Number(pixel.dataset.pixel);frame.frame_RGB[i]=state.ledColor;pixel.style.background=state.ledColor;pixel.style.setProperty('--pixel-color',state.ledColor);pixel.title=`LED ${i} · ${state.ledColor}`;pixel.setAttribute('aria-label',`LED ${i}, ${state.ledColor}`);
   };
+  const strokeController=createPaintStrokeController({releaseTarget:window,checkpoint:pushUndo,paint});
+  activePaintStrokeController=strokeController;
   const pixels=$$('.pixel');
   const focusPixel=index=>{
     const next=Math.min(pixels.length-1,Math.max(0,index));
@@ -1486,10 +1490,9 @@ function wireLedEditor(gridColumns) {
         markDirty();
       }
     });
-    pixel.addEventListener('pointerdown',event=>{event.preventDefault();focusPixel(index);if(!checkpointed){pushUndo();checkpointed=true;}painting=true;paint(pixel);markDirty();});
-    pixel.addEventListener('pointerenter',event=>{if(painting&&event.buttons)paint(pixel);});
+    pixel.addEventListener('pointerdown',event=>{event.preventDefault();focusPixel(index);strokeController.pointerDown(pixel);markDirty();});
+    pixel.addEventListener('pointerenter',event=>{strokeController.pointerEnter(pixel,event.buttons);});
   });
-  window.addEventListener('pointerup',()=>{painting=false;checkpointed=false;},{once:true});
   $("#led-color").addEventListener("input",event=>{state.ledColor=event.target.value.toUpperCase();$("#led-color-text").value=state.ledColor;});
   $("#led-color-text").addEventListener("change",event=>{if(/^#[0-9a-f]{6}$/i.test(event.target.value)){state.ledColor=event.target.value.toUpperCase();renderLightingEdit();}else toast("Invalid color","Use a six-digit hex color such as #8358FF.","error");});
   $("#fill-led").addEventListener("click",()=>mutate(()=>{const track=ensureTrack();track.frame_data[state.ledFrame].frame_RGB.fill(state.ledColor);}));

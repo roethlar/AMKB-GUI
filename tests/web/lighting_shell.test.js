@@ -95,6 +95,14 @@ test("saving Settings lets the server validate backend re-enablement", () => {
   assert.doesNotMatch(save,/enabled\s*&&\s*!aiReady\(\)/);
 });
 
+test("the LED editor delegates every pointer stroke to release-safe state", () => {
+  const wire=js.slice(js.indexOf("function wireLedEditor"),js.indexOf("function showDeviceDialog"));
+  assert.match(wire,/createPaintStrokeController\(/);
+  assert.match(wire,/\.pointerDown\(pixel\)/);
+  assert.match(wire,/\.pointerEnter\(pixel,event\.buttons\)/);
+  assert.doesNotMatch(wire,/pointerup[^\n]*once:true/);
+});
+
 test("generation is one prompt, durable progress, animated review, and explicit Apply", () => {
   const generationSurface=`${js}\n${review}`;
   for(const id of ["effect-prompt","generate-effect","cancel-effect","apply-procedural-effect"]){
