@@ -192,6 +192,22 @@ class ReleaseInfoTests(unittest.TestCase):
                 )
         self.assertIn("xvfb-run", workflow)
 
+    def test_linux_native_webview_prerequisites_are_installed(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+
+        for package in (
+            "libxcb-cursor0",
+            "libxcb-icccm4",
+            "libxcb-keysyms1",
+            "libxcb-shape0",
+            "libxcb-xkb1",
+            "libxkbcommon-x11-0",
+        ):
+            with self.subTest(package=package):
+                self.assertIn(package, workflow)
+
     def test_windows_ffmpeg_uses_the_setup_msys2_installation(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
             encoding="utf-8"

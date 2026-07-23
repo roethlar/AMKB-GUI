@@ -53,9 +53,22 @@ jobs:
       - name: Install FFmpeg build prerequisites (macOS)
         if: matrix.platform == 'macos'
         run: brew install gnupg
-      - name: Install FFmpeg build prerequisites (Linux)
+      - name: Install native build prerequisites (Linux)
         if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential zlib1g-dev gnupg xvfb xauth
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            gnupg \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-keysyms1 \
+            libxcb-shape0 \
+            libxcb-xkb1 \
+            libxkbcommon-x11-0 \
+            xauth \
+            xvfb \
+            zlib1g-dev
       - name: Install FFmpeg build prerequisites (Windows)
         if: matrix.platform == 'windows'
         id: msys2
