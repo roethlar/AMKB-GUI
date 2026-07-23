@@ -293,6 +293,93 @@ class QualityGateTests(unittest.TestCase):
 
 
 class ArtifactAndMappingTests(unittest.TestCase):
+    def test_banked_gifs_preserve_exact_raster_preview_and_mapping_colors(self) -> None:
+        cases = (
+            (40, 5, "CB04", ("frames",)),
+            (15, 6, "CB04", ("keyframes",)),
+            (18, 7, "AM21", ("keyframes", "spotlight_frames")),
+            (16, 5, "ALICE", ("keyframes",)),
+        )
+        for width, height, product_id, targets in cases:
+            with self.subTest(size=(width, height), product_id=product_id):
+                frames = []
+                for offset in (0, 53):
+                    frame = Image.new("RGB", (width, height))
+                    frame.putdata(
+                        [
+                            (
+                                (index + offset) % 256,
+                                (index * 37 + offset * 3) % 256,
+                                (index * 73 + offset * 5) % 256,
+                            )
+                            for index in range(width * height)
+                        ]
+                    )
+                    frames.append(frame)
+
+                raster_output = io.BytesIO()
+                write_gif(frames, raster_output, [40] * len(frames))
+                with Image.open(io.BytesIO(raster_output.getvalue())) as raster:
+                    decoded_raster = []
+                    for frame_index in range(raster.n_frames):
+                        raster.seek(frame_index)
+                        decoded_raster.append(raster.convert("RGB"))
+                self.assertEqual(
+                    [frame.tobytes() for frame in frames],
+                    [frame.tobytes() for frame in decoded_raster],
+                )
+
+                preview_frames = [
+                    frame.resize((width * 40, height * 40), Image.Resampling.NEAREST)
+                    for frame in frames
+                ]
+                preview_output = io.BytesIO()
+                write_gif(preview_frames, preview_output, [40] * len(frames))
+                with Image.open(io.BytesIO(preview_output.getvalue())) as preview:
+                    decoded_preview = []
+                    for frame_index in range(preview.n_frames):
+                        preview.seek(frame_index)
+                        decoded_preview.append(preview.convert("RGB"))
+                self.assertEqual(
+                    [frame.tobytes() for frame in preview_frames],
+                    [frame.tobytes() for frame in decoded_preview],
+                )
+
+                mapped = map_frames_to_led_tracks(
+                    frames,
+                    duration_ms=40,
+                    product_id=product_id,
+                    targets=targets,
+                )
+                self.assertEqual(
+                    mapped,
+                    map_frames_to_led_tracks(
+                        decoded_raster,
+                        duration_ms=40,
+                        product_id=product_id,
+                        targets=targets,
+                    ),
+                )
+                self.assertEqual(
+                    mapped,
+                    map_frames_to_led_tracks(
+                        decoded_preview,
+                        duration_ms=40,
+                        product_id=product_id,
+                        targets=targets,
+                    ),
+                )
+
+    def test_gif_banking_rejects_frames_with_more_than_256_colors(self) -> None:
+        frame = Image.new("RGB", (257, 1))
+        frame.putdata([(index % 256, index // 256, 0) for index in range(257)])
+        output = io.BytesIO()
+
+        with self.assertRaisesRegex(RecipeError, "more than 256 colors"):
+            write_gif([frame], output, [40])
+
+        self.assertEqual(b"", output.getvalue())
+
     def test_mapping_adapter_is_identical_to_existing_shared_mapper(self) -> None:
         frames = render_recipe(_recipe(), width=18, height=7, frame_count=20)
         durations = [34] * len(frames)

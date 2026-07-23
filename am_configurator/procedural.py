@@ -697,6 +697,25 @@ def gif_durations(frame_count: int, duration_ms: int) -> list[int]:
     return result
 
 
+def _exact_gif_frame(frame: Image.Image) -> Image.Image:
+    """Build an indexed frame without changing any source RGB value."""
+
+    rgb = frame.convert("RGB")
+    colors = rgb.getcolors(maxcolors=256)
+    if colors is None:
+        raise RecipeError("GIF frames cannot contain more than 256 colors.")
+    palette_colors = sorted(color for _count, color in colors)
+    palette_indices = {color: index for index, color in enumerate(palette_colors)}
+    palette = [channel for color in palette_colors for channel in color]
+    palette.extend([0] * (768 - len(palette)))
+
+    indexed = Image.new("P", rgb.size)
+    indexed.putpalette(palette)
+    getter = getattr(rgb, "get_flattened_data", rgb.getdata)
+    indexed.putdata([palette_indices[pixel] for pixel in getter()])
+    return indexed
+
+
 def write_gif(
     frames: Sequence[Image.Image],
     path: Path | BinaryIO,
@@ -715,9 +734,7 @@ def write_gif(
     converted = []
     for index, frame in enumerate(materialized):
         _check_work(work)
-        converted.append(
-            frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=128)
-        )
+        converted.append(_exact_gif_frame(frame))
         _report_progress(progress, index + 1, total_work)
 
     destination = path.open("wb") if isinstance(path, Path) else nullcontext(path)

@@ -415,7 +415,7 @@ local no-provider browser acceptance at the end of the phase.
 
 ## Phase 6 — Rendering, Mapping, and Media Correctness
 
-- [ ] **F32 — Make banked GIFs pixel-exact for every device raster.** Use up to
+- [x] **F32 — Make banked GIFs pixel-exact for every device raster.** Use up to
   the GIF format's 256 colors per frame and fail closed if an exact palette
   cannot represent a frame. Prove decoded pixels equal source RGB for 40x5
   CyberBoard, 15x6, 18x7, and 16x5 qualification frames; preview and mapped
