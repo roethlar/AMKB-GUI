@@ -127,8 +127,15 @@
   gate, use the server's injected credential store for every settings, vault,
   and provider operation, and inherit the generic pathless unexpected-failure
   response. The regression fails against the prior production behavior and
-  passes with the hardening restored. The next slice is F22's pinned xAI
-  transport.
+  passes with the hardening restored. F22 is complete on the current tree:
+  every curated API POST, status GET, and legacy key probe now shares one
+  response-bounded and deadline-bounded transport that pins exact
+  `https://api.x.ai` versioned URLs without an explicit port, query,
+  credentials, or fragment. Its dedicated verifying opener ignores environment
+  proxies and refuses 301/302/303/307/308 redirects, so Authorization cannot be
+  forwarded to another origin. The origin/proxy regression fails against the
+  prior transport and passes with the hardening restored. The next slice is
+  F43's incompatible-Ollama discovery diagnosis.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -434,7 +441,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 1 / F22's pinned xAI transport. Do not
+  continuing with Phase 1 / F43's incompatible-Ollama discovery diagnosis. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

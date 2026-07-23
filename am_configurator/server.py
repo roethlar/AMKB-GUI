@@ -12,8 +12,6 @@ import mimetypes
 import secrets
 import threading
 import time
-import urllib.error
-import urllib.request
 import webbrowser
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -1116,53 +1114,7 @@ def _xai_get(url: str, payload: Any, api_key: str, deadline: float) -> dict[str,
         raise llm.ProviderError(
             "auth", "provider could not use this API key; check the key in Settings"
         )
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        raise llm.ProviderError(
-            "timeout", "provider deadline exceeded before the key check"
-        )
-    request = urllib.request.Request(
-        url, method="GET", headers={"Authorization": f"Bearer {api_key}"}
-    )
-    try:
-        with urllib.request.urlopen(
-            request, timeout=min(remaining, _SETTINGS_TEST_TIMEOUT)
-        ) as response:
-            response.read(llm.MAX_PROVIDER_RESPONSE + 1)
-    except urllib.error.HTTPError as exc:
-        code = exc.code
-        retry_after = llm._parse_retry_after(exc.headers.get("Retry-After"))
-        if code in (401, 403):
-            raise llm.ProviderError(
-                "auth", "provider rejected the API key; check the key in Settings"
-            ) from exc
-        if code == 429:
-            raise llm.ProviderError(
-                "rate_limited",
-                "provider rate limit reached; retry later",
-                retry_after=retry_after,
-            ) from exc
-        if 500 <= code <= 599:
-            raise llm.ProviderError(
-                "unavailable", f"provider is temporarily unavailable (HTTP {code})"
-            ) from exc
-        raise llm.ProviderError(
-            "bad_response", f"provider returned an unexpected status (HTTP {code})"
-        ) from exc
-    except (TimeoutError, urllib.error.URLError) as exc:
-        reason = getattr(exc, "reason", exc)
-        if isinstance(reason, TimeoutError):
-            raise llm.ProviderError(
-                "timeout", llm._redact(f"provider request timed out: {exc}", api_key)
-            ) from exc
-        raise llm.ProviderError(
-            "offline", llm._redact(f"could not reach the provider: {exc}", api_key)
-        ) from exc
-    except OSError as exc:
-        raise llm.ProviderError(
-            "offline", llm._redact(f"could not reach the provider: {exc}", api_key)
-        ) from exc
-    return {"ok": True}
+    return llm._xai_get_request(url, api_key, deadline)
 
 
 def _settings_view(*, credential_store=None) -> dict[str, Any]:

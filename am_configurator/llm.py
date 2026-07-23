@@ -16,6 +16,7 @@ import socket
 import ssl
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -49,6 +50,7 @@ _VIDEO_REQUEST_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._~-]{0,199}", re.ASCII
 LED_SPEEDS_MS = (255, 240, 224, 208, 192, 176, 160, 146, 132, 118, 100, 90, 76, 62, 48, 34)
 
 # Pinned xAI endpoints. Bumping a host/path is a deliberate one-line change.
+XAI_API_HOST = "api.x.ai"
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
 XAI_IMAGES_URL = "https://api.x.ai/v1/images/generations"
 XAI_VIDEO_GENERATIONS_URL = "https://api.x.ai/v1/videos/generations"
@@ -391,14 +393,50 @@ def _close_quietly(response: object) -> None:
             pass
 
 
-def _default_opener():
-    """Build the real urllib opener over a default-verifying TLS context.
+class _NoXaiRedirects(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect so Authorization never crosses an origin."""
 
-    Only used when ``opener=None`` in production; tests always inject a fake
-    opener, so this path is never exercised under test.
-    """
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _validate_xai_url(value: object) -> str:
+    """Accept only the fixed xAI HTTPS origin used by curated API calls."""
+    if not isinstance(value, str) or not value:
+        raise ProviderError("config", "provider URL is missing or invalid")
+    if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
+        raise ProviderError("config", "provider URL contains invalid characters")
+    try:
+        parsed = urllib.parse.urlsplit(value)
+    except ValueError:
+        raise ProviderError("config", "provider URL is invalid") from None
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != XAI_API_HOST
+        or parsed.hostname != XAI_API_HOST
+        or parsed.username is not None
+        or parsed.password is not None
+        or not parsed.path.startswith("/v1/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ProviderError("config", "provider URL is not an allowed HTTPS URL")
+    try:
+        if parsed.port is not None:
+            raise ProviderError("config", "provider URL must not specify a port")
+    except ValueError:
+        raise ProviderError("config", "provider URL has an invalid port") from None
+    return value
+
+
+def _default_opener():
+    """Build a verifying, proxy-free opener that refuses every redirect."""
     context = ssl.create_default_context()
-    director = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context))
+    director = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        urllib.request.HTTPSHandler(context=context),
+        _NoXaiRedirects(),
+    )
     return director.open
 
 
@@ -431,6 +469,7 @@ def _xai_request(
             "timeout", "provider deadline exceeded before the request started"
         )
 
+    url = _validate_xai_url(url)
     if opener is None:
         opener = _default_opener()
 
@@ -540,6 +579,7 @@ def _xai_get_request(
             "timeout", "provider deadline exceeded before the request started"
         )
 
+    url = _validate_xai_url(url)
     if opener is None:
         opener = _default_opener()
 

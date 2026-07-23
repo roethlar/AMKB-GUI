@@ -336,7 +336,7 @@ local no-provider browser acceptance at the end of the phase.
   history before F42 removes the obsolete surface. Commit:
   `fix: harden legacy credential routes`.
 
-- [ ] **F22 — Harden xAI transport.** Use a dedicated opener that disables
+- [x] **F22 — Harden xAI transport.** Use a dedicated opener that disables
   environment proxies, rejects redirects, pins HTTPS host and port, bounds
   responses/deadlines, and never forwards Authorization to another origin. Do
   not add a custom endpoint or proxy setting. Cover redirect codes, proxy

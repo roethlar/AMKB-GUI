@@ -1116,6 +1116,95 @@ class GrokTransportTests(unittest.TestCase):
         self.assertLessEqual(timeout, 30.0)
         self.assertGreater(timeout, 0.0)
 
+    def test_xai_transport_pins_origin_and_never_contacts_invalid_urls(self) -> None:
+        invalid_urls = (
+            "http://api.x.ai/v1/responses",
+            "https://api.x.ai:443/v1/responses",
+            "https://api.x.ai.evil.example/v1/responses",
+            "https://api.x.ai@evil.example/v1/responses",
+            "https://api.x.ai/v1/responses?next=https://evil.example",
+            "https://api.x.ai/v1/responses#fragment",
+        )
+        for url in invalid_urls:
+            for method in ("post", "get"):
+                with self.subTest(url=url, method=method):
+                    opener = _RecordingOpener(response=_FakeResponse(b"{}"))
+                    with self.assertRaises(llm.ProviderError) as ctx:
+                        if method == "post":
+                            llm._xai_request(
+                                url,
+                                {},
+                                _FAKE_KEY,
+                                self._future_deadline(),
+                                opener=opener,
+                            )
+                        else:
+                            llm._xai_get_request(
+                                url,
+                                _FAKE_KEY,
+                                self._future_deadline(),
+                                opener=opener,
+                            )
+                    self.assertEqual(ctx.exception.code, "config")
+                    self.assertEqual(opener.calls, [])
+                    self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+
+    def test_default_xai_opener_ignores_proxies_and_refuses_redirects(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "HTTP_PROXY": "http://proxy.invalid:8000",
+                "HTTPS_PROXY": "http://proxy.invalid:8443",
+                "ALL_PROXY": "socks5://proxy.invalid:1080",
+            },
+        ):
+            open_call = llm._default_opener()
+        handlers = open_call.__self__.handlers
+        self.assertFalse(
+            any(isinstance(handler, urllib.request.ProxyHandler) for handler in handlers)
+        )
+        redirect_handler = next(
+            handler
+            for handler in handlers
+            if isinstance(handler, llm._NoXaiRedirects)
+        )
+        request = urllib.request.Request(
+            self._URL,
+            headers={"Authorization": f"Bearer {_FAKE_KEY}"},
+        )
+        for code in (301, 302, 303, 307, 308):
+            with self.subTest(code=code):
+                self.assertIsNone(
+                    redirect_handler.redirect_request(
+                        request,
+                        None,
+                        code,
+                        "redirect",
+                        Message(),
+                        "https://evil.example/collect",
+                    )
+                )
+
+    def test_legacy_key_probe_delegates_to_hardened_get_transport(self) -> None:
+        deadline = self._future_deadline()
+        with patch.object(
+            llm,
+            "_xai_get_request",
+            return_value={"models": []},
+        ) as transport:
+            result = server._xai_get(
+                server._XAI_MODELS_URL,
+                None,
+                _FAKE_KEY,
+                deadline,
+            )
+        self.assertEqual(result, {"models": []})
+        transport.assert_called_once_with(
+            server._XAI_MODELS_URL,
+            _FAKE_KEY,
+            deadline,
+        )
+
     def test_xai_request_auth_error(self) -> None:
         for code in (401, 403):
             with self.subTest(code=code):
