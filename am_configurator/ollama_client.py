@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import http.client
 import json
+import queue
 import re
 import socket
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -15,10 +18,14 @@ from typing import Any, Callable
 OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 OLLAMA_MODELS_URL = f"{OLLAMA_BASE_URL}/api/tags"
 OLLAMA_CHAT_URL = f"{OLLAMA_BASE_URL}/api/chat"
+OLLAMA_HOST = "127.0.0.1"
+OLLAMA_PORT = 11434
+OLLAMA_CHAT_PATH = "/api/chat"
 MAX_OLLAMA_RESPONSE_BYTES = 1_000_000
 MAX_OLLAMA_MODELS = 512
 DISCOVERY_TIMEOUT_SECONDS = 5.0
 CHAT_TIMEOUT_SECONDS = 180.0
+OLLAMA_CANCEL_POLL_SECONDS = 0.05
 
 _MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -123,8 +130,14 @@ def _model_from_tag(value: object) -> OllamaModel | None:
 class OllamaClient:
     """The only production transport to Ollama's fixed local HTTP API."""
 
-    def __init__(self, *, opener: Callable[..., Any] | Any = _OLLAMA_OPENER) -> None:
+    def __init__(
+        self,
+        *,
+        opener: Callable[..., Any] | Any = _OLLAMA_OPENER,
+        connection_factory: Callable[..., Any] = http.client.HTTPConnection,
+    ) -> None:
         self._opener = opener
+        self._connection_factory = connection_factory
 
     @staticmethod
     def _timeout(deadline: float, ceiling: float) -> float:
@@ -140,6 +153,113 @@ class OllamaClient:
         if callable(opener):
             return opener(request, timeout=timeout)
         return opener.open(request, timeout=timeout)
+
+    @staticmethod
+    def _abort_connection(connection: object) -> None:
+        sock = getattr(connection, "sock", None)
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except (AttributeError, OSError, ValueError):
+                pass
+        try:
+            connection.close()
+        except (AttributeError, OSError, ValueError):
+            pass
+
+    def _chat_exchange(
+        self,
+        body: bytes,
+        *,
+        deadline: float,
+        cancelled: Callable[[], bool],
+    ) -> tuple[int, bytes]:
+        if cancelled():
+            raise OllamaError("cancelled", "The local Ollama request was cancelled.")
+        timeout = self._timeout(deadline, CHAT_TIMEOUT_SECONDS)
+        try:
+            connection = self._connection_factory(
+                OLLAMA_HOST,
+                OLLAMA_PORT,
+                timeout=timeout,
+            )
+        except (OSError, ValueError):
+            raise OllamaError(
+                "unavailable", "The local Ollama service is unavailable."
+            ) from None
+
+        outcome: queue.Queue[tuple[object, object, Exception | None]] = queue.Queue(
+            maxsize=1
+        )
+
+        def exchange() -> None:
+            result: tuple[object, object, Exception | None]
+            try:
+                connection.request(
+                    "POST",
+                    OLLAMA_CHAT_PATH,
+                    body=body,
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                )
+                response = connection.getresponse()
+                result = (
+                    getattr(response, "status", None),
+                    response.read(MAX_OLLAMA_RESPONSE_BYTES + 1),
+                    None,
+                )
+            except Exception as error:
+                result = (None, None, error)
+            finally:
+                self._abort_connection(connection)
+            outcome.put_nowait(result)
+
+        worker = threading.Thread(
+            target=exchange,
+            name="ollama-loopback-exchange",
+            daemon=True,
+        )
+        worker.start()
+
+        def stop(code: str, message: str) -> None:
+            self._abort_connection(connection)
+            worker.join(timeout=OLLAMA_CANCEL_POLL_SECONDS * 2)
+            raise OllamaError(code, message)
+
+        while True:
+            if cancelled():
+                stop("cancelled", "The local Ollama request was cancelled.")
+            remaining = float(deadline) - time.monotonic()
+            if remaining <= 0:
+                stop("timeout", "The local Ollama request timed out.")
+            try:
+                status, payload, error = outcome.get(
+                    timeout=min(OLLAMA_CANCEL_POLL_SECONDS, remaining)
+                )
+            except queue.Empty:
+                continue
+            if cancelled():
+                stop("cancelled", "The local Ollama request was cancelled.")
+            if float(deadline) - time.monotonic() <= 0:
+                stop("timeout", "The local Ollama request timed out.")
+            break
+
+        worker.join(timeout=OLLAMA_CANCEL_POLL_SECONDS)
+        if error is not None:
+            if isinstance(error, (TimeoutError, socket.timeout)):
+                raise OllamaError(
+                    "timeout", "The local Ollama request timed out."
+                ) from None
+            raise OllamaError(
+                "unavailable", "The local Ollama service is unavailable."
+            ) from None
+        if type(status) is not int or not isinstance(payload, bytes):
+            raise OllamaError(
+                "bad_response", "The local Ollama response was invalid."
+            )
+        return status, payload
 
     def _request(
         self,
@@ -201,18 +321,29 @@ class OllamaClient:
     ) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise OllamaError("bad_response", "The local Ollama request was invalid.")
-        request = urllib.request.Request(
-            OLLAMA_CHAT_URL,
-            data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-            method="POST",
-        )
-        return self._request(
-            request,
+        try:
+            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        except (TypeError, UnicodeError, ValueError):
+            raise OllamaError(
+                "bad_response", "The local Ollama request was invalid."
+            ) from None
+        status, response = self._chat_exchange(
+            body,
             deadline=deadline,
-            timeout_ceiling=CHAT_TIMEOUT_SECONDS,
             cancelled=cancelled,
         )
+        if not 200 <= status <= 299:
+            code = "model_unavailable" if status == 404 else "unavailable"
+            raise OllamaError(code, "The local Ollama request was rejected.")
+        if len(response) > MAX_OLLAMA_RESPONSE_BYTES:
+            raise OllamaError("bad_response", "The local Ollama response was too large.")
+        try:
+            parsed = json.loads(response)
+        except (UnicodeError, ValueError):
+            parsed = None
+        if not isinstance(parsed, dict):
+            raise OllamaError("bad_response", "The local Ollama response was invalid.")
+        return parsed
 
 
 __all__ = [

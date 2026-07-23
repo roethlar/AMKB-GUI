@@ -45,7 +45,7 @@ class OllamaRecipeClient:
         self,
         *,
         endpoint: str = DEFAULT_ENDPOINT,
-        opener: Callable[..., Any] | Any = None,
+        connection_factory: Callable[..., Any] | None = None,
         timeout_seconds: float = 180,
     ) -> None:
         if endpoint.rstrip("/") != DEFAULT_ENDPOINT:
@@ -53,7 +53,11 @@ class OllamaRecipeClient:
         if timeout_seconds <= 0 or timeout_seconds > 600:
             raise ValueError("Ollama timeout must be between 0 and 600 seconds.")
         self.endpoint = DEFAULT_ENDPOINT
-        self.client = OllamaClient() if opener is None else OllamaClient(opener=opener)
+        self.client = (
+            OllamaClient()
+            if connection_factory is None
+            else OllamaClient(connection_factory=connection_factory)
+        )
         self.timeout_seconds = float(timeout_seconds)
 
     def _request(self, body: dict[str, Any]) -> dict[str, Any]:

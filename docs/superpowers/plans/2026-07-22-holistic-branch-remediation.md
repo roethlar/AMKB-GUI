@@ -272,7 +272,7 @@ local no-provider browser acceptance at the end of the phase.
 
 ## Phase 3 — Admission, Cancellation, and Runtime Lifecycle
 
-- [ ] **F02 — Make Ollama requests abortable.** Replace the blocking urllib
+- [x] **F02 — Make Ollama requests abortable.** Replace the blocking urllib
   chat path with a fixed-loopback, proxy-free, redirect-free HTTP exchange whose
   socket/connection can be closed from a 50 ms cancellation/deadline poll.
   Cancellation must stop the active request, release the shared gate promptly,

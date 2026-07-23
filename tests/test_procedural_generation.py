@@ -14,8 +14,9 @@ from PIL import Image
 from am_configurator.generation import GenerationNotActiveError, OperationGate
 from am_configurator.library import GeneratedAssetLibrary
 from am_configurator.llm import ProviderError
+from am_configurator.ollama_client import OllamaClient, OllamaModel
 from am_configurator.procedural_generation import ProceduralGenerationCoordinator
-from am_configurator.recipe_provider import RecipeResult
+from am_configurator.recipe_provider import OllamaRecipeProvider, RecipeResult
 
 
 TARGET = {
@@ -275,6 +276,80 @@ class ProceduralGenerationTests(unittest.TestCase):
         self.assertEqual([(0, None)], provider.calls)
         self.assertEqual("cancelled", manifest["status"])
         self.assertEqual([], manifest["assets"])
+
+    def test_ollama_cancellation_releases_admission_and_discards_late_output(self) -> None:
+        entered = threading.Event()
+        released = threading.Event()
+        closed = threading.Event()
+        response_bytes = json.dumps(
+            {"message": {"content": json.dumps(_dense_recipe())}}
+        ).encode("utf-8")
+
+        class Response:
+            status = 200
+
+            def read(self, limit):
+                return response_bytes[:limit]
+
+        class Connection:
+            sock = None
+
+            def request(self, method, path, *, body, headers):
+                self.request_values = (method, path, body, headers)
+
+            def getresponse(self):
+                entered.set()
+                released.wait(5)
+                return Response()
+
+            def close(self):
+                closed.set()
+                released.set()
+
+        connection = Connection()
+        client = OllamaClient(
+            connection_factory=lambda host, port, timeout: connection
+        )
+        provider = OllamaRecipeProvider(
+            OllamaModel(
+                model_id="ornith:latest",
+                digest="a" * 64,
+                size_bytes=1,
+                parameter_size="9B",
+                quantization="Q4",
+            ),
+            client=client,
+        )
+        provider.backend = "local"
+        gate = OperationGate()
+        coordinator = ProceduralGenerationCoordinator(
+            self.library,
+            _Capability(provider),
+            operation_gate=gate,
+            operation_timeout_seconds=30,
+        )
+        started = coordinator.start_effect(
+            prompt="Cancel blocked Ollama inference",
+            target=TARGET,
+            loop_mode="smooth",
+        )
+        self.assertTrue(entered.wait(1))
+
+        coordinator.cancel(started["job_id"])
+        idle = threading.Event()
+        waiter = threading.Thread(
+            target=lambda: (gate.wait_until_idle(), idle.set()),
+            daemon=True,
+        )
+        waiter.start()
+        self.assertTrue(idle.wait(1))
+        final = self.library.load_manifest(started["job_id"])
+        replacement_token, _replacement_cancelled = gate.begin("replacement")
+        gate.finish(replacement_token)
+
+        self.assertTrue(closed.is_set())
+        self.assertEqual("cancelled", final["status"])
+        self.assertEqual([], final["assets"])
 
     def test_rejected_cancellation_never_mutates_ready_or_interrupted_jobs(self) -> None:
         provider = _Provider([_dense_recipe()])

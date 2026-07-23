@@ -75,8 +75,14 @@
   current tree: a failed FFmpeg process exposes only a stable typed/pathless
   exception message while retaining its bounded stderr tail solely on the
   in-memory exception, so decoder prose, relative staging names, URLs, local
-  paths, and credentials cannot enter `manifest.json`. The next slice is F02's
-  abortable fixed-loopback Ollama transport.
+  paths, and credentials cannot enter `manifest.json`. F02 is complete on the
+  current tree: Ollama chat and setup inference use a direct fixed-host HTTP
+  connection with no proxy or redirect layer, poll cancellation and deadline
+  every 50 ms, shut down the active socket/connection on either condition, and
+  discard any late response. The real provider/coordinator regression proves
+  cancellation releases the shared gate without banking late output. The next
+  slice is F25's admission of procedural startup reconciliation through that
+  same gate.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

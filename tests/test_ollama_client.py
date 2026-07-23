@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 import unittest
 import urllib.error
@@ -29,6 +30,72 @@ class _Response:
 
     def read(self, limit: int) -> bytes:
         return self._payload[:limit]
+
+
+class _HTTPResponse(_Response):
+    def __init__(
+        self,
+        value: object,
+        *,
+        raw: bytes | None = None,
+        status: int = 200,
+    ) -> None:
+        super().__init__(value, raw=raw)
+        self.status = status
+
+
+class _Connection:
+    def __init__(self, response: _HTTPResponse, observed: dict[str, object]) -> None:
+        self._response = response
+        self._observed = observed
+        self.closed = False
+
+    def request(self, method, path, *, body, headers) -> None:
+        self._observed.update(
+            method=method,
+            path=path,
+            body=json.loads(body),
+            headers=headers,
+        )
+
+    def getresponse(self) -> _HTTPResponse:
+        return self._response
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _BlockingConnection(_Connection):
+    def __init__(self, response: _HTTPResponse, observed: dict[str, object]) -> None:
+        super().__init__(response, observed)
+        self.entered = threading.Event()
+        self.released = threading.Event()
+
+    def getresponse(self) -> _HTTPResponse:
+        self.entered.set()
+        self.released.wait(5)
+        return self._response
+
+    def close(self) -> None:
+        super().close()
+        self.released.set()
+
+
+def _connection_factory(
+    response: _HTTPResponse,
+    observed: dict[str, object],
+    *,
+    blocking: bool = False,
+):
+    connection_type = _BlockingConnection if blocking else _Connection
+
+    def create(host, port, *, timeout):
+        observed["connection"] = (host, port, timeout)
+        connection = connection_type(response, observed)
+        observed["connection_object"] = connection
+        return connection
+
+    return create
 
 
 def _model(
@@ -90,23 +157,33 @@ class OllamaClientTests(unittest.TestCase):
     def test_chat_uses_only_the_fixed_loopback_endpoint_and_rejects_bad_output(self) -> None:
         observed = {}
 
-        def opener(request, timeout):
-            observed.update(url=request.full_url, body=json.loads(request.data), timeout=timeout)
-            return _Response({"message": {"content": "{}"}})
-
         body = {"model": "ornith:latest", "stream": False}
-        response = OllamaClient(opener=opener).chat(
+        response = OllamaClient(
+            connection_factory=_connection_factory(
+                _HTTPResponse({"message": {"content": "{}"}}),
+                observed,
+            )
+        ).chat(
             body,
             deadline=time.monotonic() + 10,
             cancelled=lambda: False,
         )
         self.assertEqual({"message": {"content": "{}"}}, response)
-        self.assertEqual(OLLAMA_CHAT_URL, observed["url"])
+        host, port, timeout = observed["connection"]
+        self.assertEqual(("127.0.0.1", 11434), (host, port))
+        self.assertEqual("POST", observed["method"])
+        self.assertEqual("/api/chat", observed["path"])
         self.assertEqual(body, observed["body"])
-        self.assertGreater(observed["timeout"], 0)
+        self.assertGreater(timeout, 0)
+        self.assertTrue(observed["connection_object"].closed)
 
         with self.assertRaises(OllamaError) as malformed:
-            OllamaClient(opener=lambda *_args, **_kwargs: _Response({}, raw=b"not-json")).chat(
+            OllamaClient(
+                connection_factory=_connection_factory(
+                    _HTTPResponse({}, raw=b"not-json"),
+                    {},
+                )
+            ).chat(
                 body,
                 deadline=time.monotonic() + 10,
                 cancelled=lambda: False,
@@ -115,7 +192,12 @@ class OllamaClientTests(unittest.TestCase):
 
         too_large = b"{" + (b" " * MAX_OLLAMA_RESPONSE_BYTES) + b"}"
         with self.assertRaises(OllamaError) as oversized:
-            OllamaClient(opener=lambda *_args, **_kwargs: _Response({}, raw=too_large)).chat(
+            OllamaClient(
+                connection_factory=_connection_factory(
+                    _HTTPResponse({}, raw=too_large),
+                    {},
+                )
+            ).chat(
                 body,
                 deadline=time.monotonic() + 10,
                 cancelled=lambda: False,
@@ -129,14 +211,13 @@ class OllamaClientTests(unittest.TestCase):
         )
         self.assertTrue(any(isinstance(handler, _NoOllamaRedirects) for handler in handlers))
 
-        def redirected(request, timeout):
-            del request, timeout
-            raise urllib.error.HTTPError(
-                OLLAMA_CHAT_URL, 302, "redirect", {}, None
-            )
-
         with self.assertRaises(OllamaError) as redirect:
-            OllamaClient(opener=redirected).chat(
+            OllamaClient(
+                connection_factory=_connection_factory(
+                    _HTTPResponse({}, status=302),
+                    {},
+                )
+            ).chat(
                 {"model": "ornith:latest"},
                 deadline=time.monotonic() + 10,
                 cancelled=lambda: False,
@@ -151,12 +232,74 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual("timeout", expired.exception.code)
 
         with self.assertRaises(OllamaError) as cancelled:
-            OllamaClient(opener=lambda *_args, **_kwargs: self.fail("opened")).chat(
+            OllamaClient(
+                connection_factory=lambda *_args, **_kwargs: self.fail("opened")
+            ).chat(
                 {"model": "ornith:latest"},
                 deadline=time.monotonic() + 10,
                 cancelled=lambda: True,
             )
         self.assertEqual("cancelled", cancelled.exception.code)
+
+    def test_chat_cancellation_closes_the_exchange_and_discards_a_late_response(self) -> None:
+        observed: dict[str, object] = {}
+        client = OllamaClient(
+            connection_factory=_connection_factory(
+                _HTTPResponse({"message": {"content": "late"}}),
+                observed,
+                blocking=True,
+            )
+        )
+        cancelled = threading.Event()
+        failures: list[OllamaError] = []
+
+        def run() -> None:
+            try:
+                client.chat(
+                    {"model": "ornith:latest", "stream": False},
+                    deadline=time.monotonic() + 10,
+                    cancelled=cancelled.is_set,
+                )
+            except OllamaError as error:
+                failures.append(error)
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        creation_deadline = time.monotonic() + 1
+        while (
+            "connection_object" not in observed
+            and time.monotonic() < creation_deadline
+        ):
+            time.sleep(0.001)
+        self.assertIn("connection_object", observed)
+        connection = observed["connection_object"]
+        self.assertTrue(connection.entered.wait(1))
+        cancelled.set()
+        worker.join(1)
+
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(connection.closed)
+        self.assertEqual(["cancelled"], [error.code for error in failures])
+
+    def test_chat_deadline_closes_an_in_flight_exchange(self) -> None:
+        observed: dict[str, object] = {}
+        client = OllamaClient(
+            connection_factory=_connection_factory(
+                _HTTPResponse({"message": {"content": "late"}}),
+                observed,
+                blocking=True,
+            )
+        )
+
+        with self.assertRaises(OllamaError) as raised:
+            client.chat(
+                {"model": "ornith:latest", "stream": False},
+                deadline=time.monotonic() + 0.1,
+                cancelled=lambda: False,
+            )
+
+        self.assertEqual("timeout", raised.exception.code)
+        self.assertTrue(observed["connection_object"].closed)
 
 
 if __name__ == "__main__":

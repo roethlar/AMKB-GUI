@@ -4,7 +4,6 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from urllib.error import URLError
 
 from PIL import Image, ImageChops, ImageStat
 
@@ -127,6 +126,8 @@ class ProceduralRendererTests(unittest.TestCase):
 
 
 class FakeResponse:
+    status = 200
+
     def __init__(self, payload: dict):
         self.payload = json.dumps(payload).encode()
 
@@ -140,24 +141,50 @@ class FakeResponse:
         return self.payload[:limit]
 
 
+class FakeConnection:
+    def __init__(self, handler, observed: dict | None = None) -> None:
+        self.handler = handler
+        self.observed = {} if observed is None else observed
+        self.body = None
+
+    def request(self, method, path, *, body, headers) -> None:
+        self.body = json.loads(body)
+        self.observed.update(method=method, path=path, body=self.body, headers=headers)
+
+    def getresponse(self):
+        return self.handler(self.body)
+
+    def close(self) -> None:
+        self.observed["closed"] = True
+
+
+def fake_connection_factory(handler, observed: dict | None = None):
+    def create(host, port, *, timeout):
+        if observed is not None:
+            observed.update(host=host, port=port, timeout=timeout)
+        return FakeConnection(handler, observed)
+
+    return create
+
+
 class OllamaRecipeClientTests(unittest.TestCase):
     def test_request_is_loopback_schema_constrained_and_validated(self) -> None:
         observed = {}
 
-        def opener(request, timeout):
-            observed["url"] = request.full_url
-            observed["body"] = json.loads(request.data)
-            observed["timeout"] = timeout
+        def respond(_body):
             return FakeResponse({"message": {"content": json.dumps(_recipe())}})
 
-        result = OllamaRecipeClient(opener=opener).generate(
+        result = OllamaRecipeClient(
+            connection_factory=fake_connection_factory(respond, observed)
+        ).generate(
             "shooting stars on a black background",
             width=18,
             height=7,
             frame_count=200,
         )
         self.assertEqual("Blue shooting stars", result["name"])
-        self.assertEqual("http://127.0.0.1:11434/api/chat", observed["url"])
+        self.assertEqual(("127.0.0.1", 11434), (observed["host"], observed["port"]))
+        self.assertEqual("/api/chat", observed["path"])
         self.assertFalse(observed["body"]["stream"])
         self.assertEqual("object", observed["body"]["format"]["type"])
         self.assertIn("density", observed["body"]["format"]["required"])
@@ -168,16 +195,16 @@ class OllamaRecipeClientTests(unittest.TestCase):
     def test_semantic_retry_changes_seed_and_includes_the_validation_error(self) -> None:
         calls = []
 
-        def opener(request, timeout):
-            del timeout
-            body = json.loads(request.data)
+        def respond(body):
             calls.append(body)
             recipe = _recipe()
             if len(calls) == 1:
                 recipe["layers"][0]["phase"] = 2
             return FakeResponse({"message": {"content": json.dumps(recipe)}})
 
-        result = OllamaRecipeClient(opener=opener).generate("blue stars", model="ornith:latest")
+        result = OllamaRecipeClient(
+            connection_factory=fake_connection_factory(respond)
+        ).generate("blue stars", model="ornith:latest")
         self.assertEqual("Blue shooting stars", result["name"])
         self.assertEqual(2, len(calls))
         self.assertNotEqual(calls[0]["options"]["seed"], calls[1]["options"]["seed"])
@@ -188,12 +215,14 @@ class OllamaRecipeClientTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             OllamaRecipeClient(endpoint="https://example.com")
 
-        def offline(_request, timeout):
+        def offline(_host, _port, *, timeout):
             del timeout
-            raise URLError("offline")
+            raise OSError("offline")
 
         with self.assertRaises(RecipeError):
-            OllamaRecipeClient(opener=offline).generate("blue pulse", model="gemma4:12b-mlx")
+            OllamaRecipeClient(connection_factory=offline).generate(
+                "blue pulse", model="gemma4:12b-mlx"
+            )
 
 
 if __name__ == "__main__":
