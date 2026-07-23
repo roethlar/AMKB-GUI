@@ -10,9 +10,12 @@ const {
   createPaintStrokeController,
   createLightingState,
   formatLightingHash,
+  localModelRefreshFailed,
   nextGridIndex,
+  normalizeLocalModels,
   parseLightingHash,
   projectLightingJob,
+  projectLocalModelPicker,
   reduceLightingState,
   routeAvailability,
 } = require("../../am_configurator/web/lighting_state.js");
@@ -38,6 +41,79 @@ class FakeEventTarget {
     for (const listener of [...(this.listeners.get(type) || [])]) listener();
   }
 }
+
+const MODEL_A = Object.freeze({
+  model_id: "ornith:latest",
+  digest: "a".repeat(64),
+  size_bytes: 5000000,
+  parameter_size: "9.0B",
+  quantization: "Q4_K_M",
+});
+const MODEL_B = Object.freeze({
+  model_id: "small:latest",
+  digest: "b".repeat(64),
+  size_bytes: 3000000,
+  parameter_size: "4.0B",
+  quantization: "Q4_K_M",
+});
+
+test("local model picker distinguishes inventory and selected-model states", () => {
+  const available=normalizeLocalModels({available:true,models:[MODEL_A,MODEL_B,null,{model_id:"bad"}]});
+  assert.deepEqual(available.models.map(model=>model.model_id),["ornith:latest","small:latest"]);
+  assert.equal(projectLocalModelPicker(available,{}).inventoryState,"available");
+  assert.equal(projectLocalModelPicker(available,{}).disabled,false);
+
+  const empty=normalizeLocalModels({available:true,models:[]});
+  assert.equal(projectLocalModelPicker(empty,{}).inventoryState,"empty");
+  assert.equal(projectLocalModelPicker(empty,{}).disabled,true);
+
+  const unavailable=normalizeLocalModels({available:false,models:[]});
+  assert.equal(projectLocalModelPicker(unavailable,{}).inventoryState,"unavailable");
+
+  const selected={model_id:MODEL_A.model_id,model_verified:true};
+  assert.equal(projectLocalModelPicker(available,selected).selectionState,"selected");
+
+  const removed=projectLocalModelPicker(
+    normalizeLocalModels({available:true,models:[MODEL_B]}),
+    {model_id:MODEL_A.model_id,model_verified:false},
+  );
+  assert.equal(removed.selectionState,"removed");
+  assert.equal(removed.value,MODEL_A.model_id);
+  assert.deepEqual(removed.options.at(-1),{
+    value:MODEL_A.model_id,
+    label:"ornith:latest — not currently available",
+    disabled:true,
+  });
+
+  const changed=projectLocalModelPicker(
+    normalizeLocalModels({available:true,models:[{...MODEL_A,digest:"c".repeat(64)}]}),
+    {model_id:MODEL_A.model_id,model_verified:false},
+  );
+  assert.equal(changed.selectionState,"digest_changed");
+  assert.equal(changed.value,MODEL_A.model_id);
+
+  const upgrade=projectLocalModelPicker(
+    normalizeLocalModels({available:true,models:[],reason:"upgrade_required"}),
+    {},
+  );
+  assert.equal(upgrade.inventoryState,"upgrade_required");
+  assert.match(upgrade.placeholder,/Upgrade Ollama/);
+});
+
+test("local model picker preserves a preferred choice after transient refresh failure", () => {
+  const available=normalizeLocalModels({available:true,models:[MODEL_A,MODEL_B]});
+  const failed=localModelRefreshFailed(available);
+  const picker=projectLocalModelPicker(
+    failed,
+    {model_id:MODEL_A.model_id,model_verified:true},
+    MODEL_B.model_id,
+  );
+  assert.equal(picker.inventoryState,"transient_failure");
+  assert.equal(picker.selectionState,"transient_failure");
+  assert.equal(picker.value,MODEL_B.model_id);
+  assert.deepEqual(picker.options.map(option=>option.value),[MODEL_A.model_id,MODEL_B.model_id]);
+  assert.equal(picker.disabled,true);
+});
 
 function deepFreeze(value) {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {

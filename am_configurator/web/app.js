@@ -9,7 +9,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch]));
-const {ROUTES, STAGES, createLightingState, createPaintStrokeController, formatLightingHash, nextGridIndex, parseLightingHash, projectLightingJob, reduceLightingState, routeAvailability} = LightingState;
+const {ROUTES, STAGES, createLightingState, createPaintStrokeController, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, renderTargetControls} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
@@ -2187,40 +2187,26 @@ function aiReasonText(reason,status=state.aiStatus) {
   })[reason]||"Setup needs attention.";
 }
 
-function normalizeLocalModels(value) {
-  const models=Array.isArray(value?.models)?value.models.filter(model=>model&&typeof model.model_id==="string"&&typeof model.digest==="string"):[];
-  const reason=value?.reason==="upgrade_required"?"upgrade_required":null;
-  return {available:value?.available===true,models,reason,loading:false};
-}
-
 function populateLocalModelSelect(local) {
   const select=$("#settings-local-model-select");
-  const previous=select.value;
-  const selected=local.model_id;
-  const models=state.localModels.models;
-  const upgradeRequired=state.localModels.reason==="upgrade_required";
+  const projection=projectLocalModelPicker(state.localModels,local,select.value);
   select.replaceChildren();
   const placeholder=document.createElement("option");
   placeholder.value="";
-  placeholder.textContent=state.localModels.loading?"Checking installed models…":upgradeRequired?"Upgrade Ollama to discover models":state.localModels.available?(models.length?"Choose an installed model":"No eligible local models found"):"Ollama is not available";
+  placeholder.textContent=projection.placeholder;
   select.append(placeholder);
-  models.forEach(model=>{
+  projection.options.forEach(projected=>{
     const option=document.createElement("option");
-    option.value=model.model_id;
-    const details=[model.parameter_size,model.quantization].filter(Boolean).join(" · ");
-    option.textContent=details?`${model.model_id} — ${details}`:model.model_id;
+    option.value=projected.value;
+    option.textContent=projected.label;
+    option.disabled=projected.disabled;
     select.append(option);
   });
-  if(selected&&!models.some(model=>model.model_id===selected)){
-    const missing=document.createElement("option");
-    missing.value=selected;
-    missing.textContent=`${selected} — not currently available`;
-    missing.disabled=true;
-    select.append(missing);
-  }
-  const preferred=[previous,selected].find(value=>value&&[...select.options].some(option=>option.value===value))||"";
-  select.value=preferred;
-  select.disabled=state.localModels.loading||upgradeRequired||!state.localModels.available||models.length===0;
+  select.value=projection.value;
+  select.disabled=projection.disabled;
+  select.dataset.inventoryState=projection.inventoryState;
+  select.dataset.selectionState=projection.selectionState;
+  return projection;
 }
 
 async function openSettings({returnToGeneration=false}={}) {
@@ -2260,6 +2246,7 @@ function populateSettings() {
   $("#settings-local-panel").hidden=backend!=="local";
   $("#settings-api-panel").hidden=backend!=="api";
   const local=status?.local||{};
+  const pickerProjection=populateLocalModelSelect(local);
   const ollamaAvailable=state.localModels.available===true;
   const upgradeRequired=state.localModels.reason==="upgrade_required"||status?.reason==="upgrade_required";
   $("#settings-local-runtime").textContent=state.localModels.loading?"Checking":upgradeRequired?"Upgrade needed":ollamaAvailable?"Ollama ready":"Not running";
@@ -2267,15 +2254,17 @@ function populateSettings() {
   let localGuidance="Choose an installed Ollama model for local generation.";
   if(backend==="local"){
     if(upgradeRequired)localGuidance="Upgrade Ollama to use local AI, then refresh the installed models.";
+    else if(pickerProjection.inventoryState==="transient_failure")localGuidance="Ollama could not be refreshed. The previous model choice is preserved; try Refresh again.";
     else if(!ollamaAvailable)localGuidance="Start Ollama on this computer, then refresh the installed models.";
-    else if(!local.model_selected)localGuidance="Choose one of the models already installed in Ollama.";
-    else if(!local.model_verified)localGuidance="The selected model is no longer available. Refresh and choose it again.";
+    else if(pickerProjection.selectionState==="none")localGuidance="Choose one of the models already installed in Ollama.";
+    else if(pickerProjection.selectionState==="removed")localGuidance="The selected model is no longer installed. Refresh and choose another model.";
+    else if(pickerProjection.selectionState==="digest_changed")localGuidance="The selected model name now has a different identity. Select it again, then rerun setup.";
     else if(!local.setup_tested)localGuidance="Run Test & enable to verify this model can create lighting recipes.";
     else localGuidance=status?.enabled?"Ready.":"This model passed setup. Turn on Optional AI features to use it.";
   }
   $("#settings-local-state").textContent=localGuidance;
-  populateLocalModelSelect(local);
-  $("#settings-local-model").textContent=local.model_selected?`Selected in Ollama: ${local.model_id}${local.model_verified?" · installed":" · no longer available"}`:"No Ollama model selected.";
+  const selectedSuffix=pickerProjection.selectionState==="selected"?" · installed":pickerProjection.selectionState==="removed"?" · no longer installed":pickerProjection.selectionState==="digest_changed"?" · installed identity changed":pickerProjection.selectionState==="transient_failure"?" · refresh needed":"";
+  $("#settings-local-model").textContent=local.model_selected?`Selected in Ollama: ${local.model_id}${selectedSuffix}`:"No Ollama model selected.";
   const picker=$("#settings-local-model-select");
   $("#settings-local-refresh").disabled=state.localModels.loading;
   $("#settings-local-select").disabled=picker.disabled||!picker.value||!state.localModels.models.some(model=>model.model_id===picker.value);
@@ -2318,7 +2307,7 @@ async function refreshLocalModels({quiet=false}={}) {
     state.localModels=normalizeLocalModels(await api("/api/ai/local/models"));
     populateSettings();
     if(!quiet)setSettingsStatus(state.localModels.reason==="upgrade_required"?"Ollama must be upgraded before local AI can discover installed models.":state.localModels.available?(state.localModels.models.length?`${state.localModels.models.length} local Ollama model${state.localModels.models.length===1?"":"s"} available.`:"Ollama is running, but it has no eligible local models installed."):"Ollama is not running. Start Ollama, then refresh models.",state.localModels.reason==="upgrade_required"||!state.localModels.available?"error":"");
-  }catch(error){state.localModels={available:false,models:[],reason:null,loading:false};populateSettings();if(!quiet)setSettingsStatus("Ollama could not be reached on this computer.","error");}
+  }catch(error){state.localModels=localModelRefreshFailed(state.localModels);populateSettings();if(!quiet)setSettingsStatus("Ollama could not be reached on this computer. The previous model choice is preserved; try Refresh again.","error");}
 }
 
 async function selectOllamaModel() {

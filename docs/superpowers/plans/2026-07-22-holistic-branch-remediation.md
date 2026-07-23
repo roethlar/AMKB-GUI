@@ -358,7 +358,7 @@ local no-provider browser acceptance at the end of the phase.
   policy without permitting a real external request. Commit:
   `test: prove ai transports ignore environment proxies`.
 
-- [ ] **F09 — Behavior-test the Ollama model picker.** Extract normalization,
+- [x] **F09 — Behavior-test the Ollama model picker.** Extract normalization,
   preferred-selection restoration, missing-model projection, and transient
   refresh handling into `lighting_state.js` or execute them in a DOM harness.
   Test available, empty, unavailable, selected, removed, digest-changed, and

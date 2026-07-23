@@ -148,8 +148,16 @@
   creation intercepted before network I/O, and the tests prove the attempted
   destinations remain fixed-loopback Ollama and `api.x.ai`, never the sentinel
   proxy ports. Removing either empty `ProxyHandler` makes its regression target
-  the sentinel and fail. The next slice is F09's executable Ollama model-picker
-  behavior coverage.
+  the sentinel and fail. F09 is complete on the current tree: model inventory
+  normalization, picker projection, and refresh-failure handling live in the
+  executable pure browser-state module. The projection distinguishes available,
+  empty, unavailable, upgrade-required, selected, removed, digest-changed, and
+  transient-failure states; retains a valid previous choice and cached model
+  options across a failed refresh; and disables stale choices until discovery
+  succeeds. The adapter renders the projected disabled missing-model option and
+  specific recovery guidance. Removing those branches makes both behavioral
+  regressions fail. The next slice is F36's in-process execution of every
+  offline desktop AI smoke.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -455,7 +463,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 5 / F09's executable Ollama model-picker behavior. Do not
+  continuing with Phase 5 / F36's executable offline desktop AI smokes. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

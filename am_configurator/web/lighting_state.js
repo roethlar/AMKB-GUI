@@ -45,6 +45,96 @@
     return current;
   }
 
+  function normalizeLocalModels(value) {
+    const models = [];
+    const seen = new Set();
+    if (Array.isArray(value?.models)) {
+      for (const candidate of value.models) {
+        const modelId = candidate?.model_id;
+        const digest = candidate?.digest;
+        if (typeof modelId !== "string" || !modelId || typeof digest !== "string" || !digest || seen.has(modelId)) continue;
+        seen.add(modelId);
+        models.push({
+          model_id: modelId,
+          digest,
+          size_bytes: Number(candidate.size_bytes) || 0,
+          parameter_size: typeof candidate.parameter_size === "string" ? candidate.parameter_size : null,
+          quantization: typeof candidate.quantization === "string" ? candidate.quantization : null,
+        });
+      }
+    }
+    return {
+      available: value?.available === true,
+      models,
+      reason: value?.reason === "upgrade_required" ? "upgrade_required" : null,
+      loading: false,
+    };
+  }
+
+  function localModelRefreshFailed(current) {
+    const normalized = normalizeLocalModels(current);
+    return {...normalized, available: false, reason: "refresh_failed", loading: false};
+  }
+
+  function projectLocalModelPicker(inventory, local = {}, previousValue = "") {
+    const models = Array.isArray(inventory?.models) ? inventory.models : [];
+    const loading = inventory?.loading === true;
+    const available = inventory?.available === true;
+    const reason = ["upgrade_required", "refresh_failed"].includes(inventory?.reason) ? inventory.reason : null;
+    const selectedId = typeof local?.model_id === "string" && local.model_id ? local.model_id : null;
+    const installedIds = new Set(models.map(model => model.model_id));
+    let inventoryState = "available";
+    if (loading) inventoryState = "loading";
+    else if (reason === "upgrade_required") inventoryState = "upgrade_required";
+    else if (reason === "refresh_failed") inventoryState = "transient_failure";
+    else if (!available) inventoryState = "unavailable";
+    else if (!models.length) inventoryState = "empty";
+
+    let selectionState = "none";
+    if (selectedId) {
+      if (["loading", "unavailable", "transient_failure"].includes(inventoryState)) selectionState = "transient_failure";
+      else if (!installedIds.has(selectedId)) selectionState = "removed";
+      else if (local.model_verified !== true) selectionState = "digest_changed";
+      else selectionState = "selected";
+    }
+
+    const options = models.map(model => {
+      const details = [model.parameter_size, model.quantization].filter(Boolean).join(" · ");
+      return {
+        value: model.model_id,
+        label: details ? `${model.model_id} — ${details}` : model.model_id,
+        disabled: false,
+      };
+    });
+    if (selectedId && !installedIds.has(selectedId)) {
+      options.push({
+        value: selectedId,
+        label: `${selectedId} — not currently available`,
+        disabled: true,
+      });
+    }
+    const optionValues = new Set(options.map(option => option.value));
+    const previous = typeof previousValue === "string" ? previousValue : "";
+    const value = optionValues.has(previous) ? previous : optionValues.has(selectedId) ? selectedId : "";
+    const placeholder = loading
+      ? "Checking installed models…"
+      : inventoryState === "upgrade_required"
+        ? "Upgrade Ollama to discover models"
+        : available
+          ? models.length ? "Choose an installed model" : "No eligible local models found"
+          : "Ollama is not available";
+    return {
+      available,
+      disabled: loading || inventoryState === "upgrade_required" || !available || models.length === 0,
+      inventoryState,
+      options,
+      placeholder,
+      selectedId,
+      selectionState,
+      value,
+    };
+  }
+
   function createPaintStrokeController({releaseTarget, checkpoint, paint}) {
     if (!releaseTarget || typeof releaseTarget.addEventListener !== "function" || typeof releaseTarget.removeEventListener !== "function") {
       throw new TypeError("A paint stroke release target is required.");
@@ -246,8 +336,11 @@
     createPaintStrokeController,
     createLightingState,
     formatLightingHash,
+    localModelRefreshFailed,
     nextGridIndex,
+    normalizeLocalModels,
     parseLightingHash,
+    projectLocalModelPicker,
     projectLightingJob,
     reduceLightingState,
     routeAvailability,
