@@ -803,27 +803,15 @@ class GenerationCoordinator:
         self._process_local(job_id, attempt_id, asset["asset_id"], api_key, cancelled)
 
     def _validate_mapping(self, mapped: object, manifest: dict, frame_count: int) -> dict:
-        if not isinstance(mapped, dict):
-            raise GenerationError("animation mapping returned an invalid result")
-        if (
-            mapped.get("source_frames") != frame_count
-            or mapped.get("decoded_frames") != frame_count
-            or mapped.get("duration_ms") != ANIMATION_FRAME_DURATION_MS
-            or mapped.get("source_duration_ms")
-            != frame_count * ANIMATION_FRAME_DURATION_MS
-            or mapped.get("timing_resampled") is not False
-            or set(mapped.get("tracks", {})) != set(manifest["target"]["targets"])
-        ):
-            raise GenerationError("animation mapping changed the exact frame timeline")
-        for track in mapped["tracks"].values():
-            if (
-                not isinstance(track, dict)
-                or track.get("frame_count") != frame_count
-                or not isinstance(track.get("frames"), list)
-                or len(track["frames"]) != frame_count
-            ):
-                raise GenerationError("animation mapping changed the exact frame count")
-        return mapped
+        try:
+            return device_mapping.validate_mapped_result(
+                mapped,
+                frame_count=frame_count,
+                duration_ms=ANIMATION_FRAME_DURATION_MS,
+                targets=manifest["target"]["targets"],
+            )
+        except ValueError as error:
+            raise GenerationError(str(error)) from None
 
     def _process_local(
         self,

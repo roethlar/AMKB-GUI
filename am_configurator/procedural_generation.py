@@ -713,6 +713,12 @@ class ProceduralGenerationCoordinator:
                         mapping_offset + completed
                     ),
                 )
+                device_mapping.validate_mapped_result(
+                    mapped,
+                    frame_count=request.frame_count,
+                    duration_ms=FASTEST_FRAME_DURATION_MS,
+                    targets=target["targets"],
+                )
                 mapped_bytes = _json_bytes(mapped, work)
                 work.check()
                 raster_asset = self._library.bank_asset(

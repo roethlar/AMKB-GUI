@@ -324,6 +324,44 @@ def frames_to_led_tracks(
     }
 
 
+def validate_mapped_result(
+    mapped: object,
+    *,
+    frame_count: int,
+    duration_ms: int,
+    targets: list[str] | tuple[str, ...],
+) -> dict[str, Any]:
+    """Validate an exact generated timeline before publication or recovery."""
+
+    if not isinstance(mapped, dict):
+        raise ValueError("animation mapping returned an invalid result")
+    expected_targets = set(targets)
+    tracks = mapped.get("tracks")
+    if (
+        type(frame_count) is not int
+        or frame_count <= 0
+        or type(duration_ms) is not int
+        or duration_ms <= 0
+        or not isinstance(tracks, dict)
+        or mapped.get("source_frames") != frame_count
+        or mapped.get("decoded_frames") != frame_count
+        or mapped.get("duration_ms") != duration_ms
+        or mapped.get("source_duration_ms") != frame_count * duration_ms
+        or mapped.get("timing_resampled") is not False
+        or set(tracks) != expected_targets
+    ):
+        raise ValueError("animation mapping changed the exact frame timeline")
+    for track in tracks.values():
+        if (
+            not isinstance(track, dict)
+            or track.get("frame_count") != frame_count
+            or not isinstance(track.get("frames"), list)
+            or len(track["frames"]) != frame_count
+        ):
+            raise ValueError("animation mapping changed the exact frame count")
+    return mapped
+
+
 def generation_spec(
     product_id: str,
     targets: list[str] | tuple[str, ...],

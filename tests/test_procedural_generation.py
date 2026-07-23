@@ -203,6 +203,30 @@ class ProceduralGenerationTests(unittest.TestCase):
                 phase,
             )
 
+    def test_invalid_mapped_timeline_is_rejected_before_result_assets_are_banked(self) -> None:
+        provider = _Provider([_dense_recipe()])
+        coordinator = self._coordinator(provider)
+        real_mapper = procedural.map_frames_to_led_tracks
+
+        def invalid_mapper(*args, **kwargs):
+            mapped = real_mapper(*args, **kwargs)
+            mapped["tracks"]["keyframes"]["frame_count"] -= 1
+            return mapped
+
+        with patch.object(procedural, "map_frames_to_led_tracks", invalid_mapper):
+            started = coordinator.start_effect(
+                prompt="Reject invalid mapped output",
+                target=TARGET,
+            )
+        manifest = self.library.load_manifest(started["job_id"])
+
+        self.assertEqual("failed", manifest["status"])
+        self.assertEqual("artifact_failed", manifest["errors"][-1]["code"])
+        self.assertEqual(
+            {"recipe"},
+            {asset["kind"] for asset in manifest["assets"]},
+        )
+
     def test_local_quality_failure_retries_twice_at_most_with_reason(self) -> None:
         provider = _Provider([_dim_recipe(), _dense_recipe()])
         coordinator = self._coordinator(provider)

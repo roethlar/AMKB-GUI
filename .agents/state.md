@@ -310,8 +310,13 @@
   calls, and manifests contain no ignored loop-mode control. The strict route
   rejects stale clients that send it; older procedural manifests containing the
   field still load; stored settings and legacy-video processing retain their
-  compatibility value. Route, Library, and browser guards were proven red. The
-  next slice is Phase 10 / P06's mapped-result validation before banking.
+  compatibility value. Route, Library, and browser guards were proven red. P06
+  is complete on the current tree: one device-mapping validator now enforces
+  exact source/decoded counts, duration, target set, and per-track frame counts
+  for both procedural publication and legacy recovery. Invalid procedural
+  mapping is rejected before raster, preview, or mapped assets are banked; its
+  regression was proven red. The next slice is Phase 10 / P07's Windows Node
+  exit-status propagation.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -621,7 +626,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P06's mapped-result validation before banking.
+  continuing with Phase 10 / P07's Windows Node exit-status propagation.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

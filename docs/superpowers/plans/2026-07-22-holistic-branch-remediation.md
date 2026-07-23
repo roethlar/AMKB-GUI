@@ -580,7 +580,7 @@ Each polish item is a separate commit despite its size.
   UI, migration, and manifest compatibility tests. Commit:
   `fix: remove ignored procedural loop mode`.
 
-- [ ] **P06 — Validate mapped procedural results before banking.** Apply the
+- [x] **P06 — Validate mapped procedural results before banking.** Apply the
   canonical timeline/target/track validation used by recovery before asset
   publication. Commit: `fix: validate procedural mapped results`.
 
