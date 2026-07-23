@@ -360,8 +360,11 @@
   direct FFmpeg bundle CLI paths force a private temporary `GNUPGHOME`, import
   only the supplied pinned release-key file, verify/build through that runner,
   and remove the keyring afterward. Ambient keyrings cannot override it; both
-  regressions were proven red. The next slice is Phase 10 / P20's durable
-  settings-directory publication.
+  regressions were proven red. P20 is complete: atomic store publication now
+  fsyncs its containing directory where supported, ignores only explicit
+  unsupported-filesystem errors, and remains a no-op on Windows. The parent
+  publication and Windows regressions were proven red. The next slice is Phase
+  10 / P21's deleted local-model attestation-write proof.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -671,7 +674,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P20's durable settings-directory publication
+  continuing with Phase 10 / P21's deleted local-model attestation-write proof
   while P10 awaits a separately approved legacy bootstrap and P11 remains the
   final remediation-state hygiene pass.
   Do not push or dispatch workflows before the local remediation and verification

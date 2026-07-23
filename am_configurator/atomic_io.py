@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import time
 from collections.abc import Callable
@@ -10,6 +11,36 @@ from collections.abc import Callable
 WINDOWS_REPLACE_ATTEMPTS = 100
 WINDOWS_REPLACE_RETRY_SECONDS = 0.1
 _WINDOWS_SHARING_ERRORS = {5, 32}
+_UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS = {
+    errno.EINVAL,
+    getattr(errno, "ENOTSUP", errno.EINVAL),
+    getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+}
+
+
+def fsync_directory(
+    path: str | os.PathLike[str],
+    *,
+    windows: bool | None = None,
+) -> None:
+    """Durably publish directory entries where the platform supports it."""
+    windows = os.name == "nt" if windows is None else windows
+    if windows:
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        if exc.errno in _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS:
+            return
+        raise
+    try:
+        os.fsync(descriptor)
+    except OSError as exc:
+        if exc.errno not in _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS:
+            raise
+    finally:
+        os.close(descriptor)
 
 
 def replace_file(

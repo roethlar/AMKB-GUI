@@ -40,7 +40,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .atomic_io import replace_file
+from .atomic_io import fsync_directory, replace_file
 
 if os.name == "nt":
     import msvcrt
@@ -170,6 +170,7 @@ def _atomic_write_json(path: Path, obj: object) -> None:
             f.flush()
             os.fsync(f.fileno())
         replace_file(tmp, path)
+        fsync_directory(path.parent)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise

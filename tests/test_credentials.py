@@ -331,6 +331,37 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertEqual("ping_pong", updated["generation"]["loop_mode"])
         self.assertEqual("ping_pong", json.loads(path.read_text("utf-8"))["generation"]["loop_mode"])
 
+    def test_settings_publication_fsyncs_its_parent_directory(self) -> None:
+        self._write(copy.deepcopy(V5_DEFAULTS))
+        path = store.settings_path()
+
+        with patch("am_configurator.store.fsync_directory") as sync_directory:
+            store.update_generation_settings(
+                {"loop_mode": "ping_pong"}, credential_store=self.vault
+            )
+
+        sync_directory.assert_called_once_with(path.parent)
+
+    def test_directory_fsync_preserves_windows_and_syncs_posix(self) -> None:
+        from am_configurator import atomic_io
+
+        directory = Path("/settings")
+        with patch.object(atomic_io.os, "open") as open_directory:
+            atomic_io.fsync_directory(directory, windows=True)
+        open_directory.assert_not_called()
+
+        with (
+            patch.object(atomic_io.os, "open", return_value=47) as open_directory,
+            patch.object(atomic_io.os, "fsync") as fsync,
+            patch.object(atomic_io.os, "close") as close,
+        ):
+            atomic_io.fsync_directory(directory, windows=False)
+
+        open_directory.assert_called_once()
+        self.assertEqual(directory, open_directory.call_args.args[0])
+        fsync.assert_called_once_with(47)
+        close.assert_called_once_with(47)
+
     def test_future_schema_is_reported_without_rename_or_overwrite(self) -> None:
         path = store.settings_path()
         original = self._write(

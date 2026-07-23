@@ -649,7 +649,7 @@ Each polish item is a separate commit despite its size.
   as the prepare wrapper already does. Commit:
   `fix: isolate ffmpeg signature verification keyring`.
 
-- [ ] **P20 — Fsync settings directories.** After atomic replacement, fsync the
+- [x] **P20 — Fsync settings directories.** After atomic replacement, fsync the
   parent directory on supported platforms while preserving Windows behavior.
   Commit: `fix: durably publish settings files`.
 
