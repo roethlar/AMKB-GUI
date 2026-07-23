@@ -328,6 +328,9 @@ class ReleaseInfoTests(unittest.TestCase):
         smoke = (ROOT / "am_configurator" / "desktop.py").read_text(encoding="utf-8")
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(encoding="utf-8")
         macos = (ROOT / "packaging" / "macos" / "build_dmg.sh").read_text(encoding="utf-8")
+        finalizer = (ROOT / "build_tools" / "finalize_ffmpeg_bundle.py").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn("build_tools.prepare_ffmpeg", build_script)
         self.assertIn("build_tools.prepare_ffmpeg", workflow)
@@ -341,6 +344,18 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("get_ffmpeg_runtime", smoke)
         self.assertIn("build_tools.finalize_ffmpeg_bundle", macos)
         self.assertIn("codesign --force --sign -", macos)
+        for field in (
+            "ffmpeg-signing.json",
+            "prepared_binary_sha256",
+            "signed_binary_sha256",
+            "signing_identity",
+            "cdhash",
+            "capabilities",
+        ):
+            with self.subTest(provenance_field=field):
+                self.assertIn(field, finalizer)
+        self.assertIn("verify_runtime_attestation", finalizer)
+        self.assertNotIn("inspect_runtime(", finalizer)
 
     def test_native_packages_are_ollama_api_only(self) -> None:
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text("utf-8")

@@ -470,7 +470,7 @@ local no-provider browser acceptance at the end of the phase.
   and prove no llama extractor remains. Commit:
   `fix: reject drive-qualified runtime archives`.
 
-- [ ] **F55 — Preserve provenance through macOS signing.** Before finalization,
+- [x] **F55 — Preserve provenance through macOS signing.** Before finalization,
   verify the assembled FFmpeg binary against its prepared runtime attestation;
   after signing, record a signed-artifact relationship that includes the
   original verified hash, signed hash, code-signing identity/CDHash, and

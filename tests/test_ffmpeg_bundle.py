@@ -7,6 +7,7 @@ import io
 import json
 import os
 import shlex
+import shutil
 import stat
 import tarfile
 import tempfile
@@ -15,7 +16,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from am_configurator import ffmpeg_runtime
-from build_tools import ffmpeg_bundle
+from build_tools import ffmpeg_bundle, finalize_ffmpeg_bundle
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,11 +52,15 @@ class _FakeRunner:
         missing_filter: str | None = None,
         missing_parser: str | None = None,
         extra_reported_args: tuple[str, ...] = (),
+        platform_name: str = "linux",
+        architecture: str = "x86_64",
     ) -> None:
         self.manifest = manifest
         self.missing_filter = missing_filter
         self.missing_parser = missing_parser
         self.extra_reported_args = extra_reported_args
+        self.platform_name = platform_name
+        self.architecture = architecture
         self.calls: list[tuple[tuple[str, ...], dict]] = []
 
     def __call__(self, args, **kwargs):
@@ -78,9 +83,11 @@ class _FakeRunner:
             reported = [
                 *self.manifest["configure_args"],
                 "--prefix=/usr/local/am-configurator-ffmpeg",
-                "--arch=x86_64",
-                "--disable-x86asm",
-                "--target-os=linux",
+                f"--arch={self.architecture}",
+                *self.manifest["build_recipe"]["architecture_extra_args"][
+                    self.architecture
+                ],
+                self.manifest["build_recipe"]["target_os_args"][self.platform_name],
                 "--cc=/opt/am-tools/cc",
                 "--ar=/opt/am-tools/ar",
                 "--ranlib=/opt/am-tools/ranlib",
@@ -118,6 +125,34 @@ class _FakeRunner:
                 names = ["mov,mp4,m4a,3gp,3g2,mj2"]
             return ffmpeg_bundle.CommandResult(0, _listing(*names), "")
         return ffmpeg_bundle.CommandResult(0, "", "")
+
+
+class _SigningRunner:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, ...]] = []
+
+    def __call__(self, args, **_kwargs):
+        command = tuple(str(value) for value in args)
+        self.calls.append(command)
+        if "-s" in command:
+            binary = Path(command[-1])
+            binary.write_bytes(binary.read_bytes() + b"-signed")
+            return ffmpeg_bundle.CommandResult(0, "", "")
+        if "--verify" in command:
+            return ffmpeg_bundle.CommandResult(0, "", "")
+        if "-d" in command:
+            return ffmpeg_bundle.CommandResult(
+                0,
+                "",
+                "\n".join(
+                    (
+                        "Identifier=ffmpeg-test",
+                        f"CDHash={'a' * 40}",
+                        "Signature=adhoc",
+                    )
+                ),
+            )
+        raise AssertionError(command)
 
 
 class FfmpegBundleTests(unittest.TestCase):
@@ -499,6 +534,123 @@ class FfmpegBundleTests(unittest.TestCase):
                     platform_name="linux",
                     architecture="x86_64",
                 )
+
+    def _macos_finalization_fixture(self, root: Path) -> tuple[Path, Path, Path]:
+        manifest_path = root / "packaging" / "ffmpeg" / "manifest.json"
+        manifest_path.parent.mkdir(parents=True)
+        shutil.copy2(MANIFEST_PATH, manifest_path)
+        cache = (
+            root
+            / "build"
+            / "ffmpeg"
+            / ffmpeg_bundle.cache_key(self.manifest, "macos", "arm64")
+            / "bin"
+        )
+        cache.mkdir(parents=True)
+        prepared = cache / "ffmpeg"
+        prepared.write_bytes(b"verified-prepared-ffmpeg")
+        inspection = ffmpeg_bundle.inspect_runtime(
+            prepared,
+            self.manifest,
+            runner=_FakeRunner(
+                self.manifest,
+                platform_name="macos",
+                architecture="arm64",
+            ),
+        )
+        prepared_attestation = cache / "ffmpeg-runtime.json"
+        ffmpeg_bundle.emit_runtime_attestation(
+            prepared,
+            prepared_attestation,
+            self.manifest,
+            inspection,
+            compiler_identity="synthetic apple clang",
+            platform_name="macos",
+            architecture="arm64",
+        )
+
+        app = root / "dist" / "AM Configurator.app"
+        frameworks = app / "Contents" / "Frameworks" / "ffmpeg"
+        resources = app / "Contents" / "Resources" / "ffmpeg"
+        frameworks.mkdir(parents=True)
+        resources.mkdir(parents=True)
+        bundled = frameworks / "ffmpeg"
+        bundled.write_bytes(prepared.read_bytes() + b"-signed")
+        shutil.copy2(prepared_attestation, resources / "ffmpeg-runtime.json")
+        shutil.copy2(manifest_path, resources / "manifest.json")
+        return app, prepared, bundled
+
+    def test_macos_finalization_binds_prepared_and_signed_runtime_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            app, prepared, bundled = self._macos_finalization_fixture(root)
+            runner = _SigningRunner()
+            with patch.object(
+                finalize_ffmpeg_bundle.platform,
+                "machine",
+                return_value="arm64",
+            ):
+                provenance_path = finalize_ffmpeg_bundle.finalize_macos_app(
+                    app,
+                    root=root,
+                    runner=runner,
+                )
+
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            signed_attestation = ffmpeg_bundle.verify_runtime_attestation(
+                bundled,
+                app / "Contents" / "Resources" / "ffmpeg" / "ffmpeg-runtime.json",
+                self.manifest,
+                platform_name="macos",
+                architecture="arm64",
+            )
+            self.assertEqual(1, provenance["schema_version"])
+            self.assertEqual(
+                hashlib.sha256(prepared.read_bytes()).hexdigest(),
+                provenance["prepared_binary_sha256"],
+            )
+            self.assertEqual(
+                hashlib.sha256(bundled.read_bytes()).hexdigest(),
+                provenance["signed_binary_sha256"],
+            )
+            self.assertEqual("adhoc", provenance["signing_identity"])
+            self.assertEqual("a" * 40, provenance["cdhash"])
+            self.assertEqual(
+                signed_attestation["capabilities"],
+                provenance["capabilities"],
+            )
+            self.assertEqual(
+                signed_attestation["reported_configure_args"],
+                provenance["reported_configure_args"],
+            )
+
+    def test_macos_finalization_rejects_an_unrecognized_signed_binary(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            app, _prepared, bundled = self._macos_finalization_fixture(root)
+            bundled.write_bytes(b"behavior-compatible-replacement-signed")
+            with (
+                patch.object(
+                    finalize_ffmpeg_bundle.platform,
+                    "machine",
+                    return_value="arm64",
+                ),
+                self.assertRaises(ffmpeg_bundle.BundleError),
+            ):
+                finalize_ffmpeg_bundle.finalize_macos_app(
+                    app,
+                    root=root,
+                    runner=_SigningRunner(),
+                )
+            self.assertFalse(
+                (
+                    app
+                    / "Contents"
+                    / "Resources"
+                    / "ffmpeg"
+                    / "ffmpeg-signing.json"
+                ).exists()
+            )
 
     def test_runtime_resolution_has_fixed_order_and_never_searches_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

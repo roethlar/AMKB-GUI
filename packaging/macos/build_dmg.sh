@@ -10,9 +10,9 @@ if [[ ! -d "$app_path" ]]; then
   exit 1
 fi
 
-# PyInstaller ad-hoc signs Mach-O binaries while assembling the .app, which
-# changes the prepared FFmpeg hash. Re-attest those final bytes, then refresh
-# only the outer app seal; the already signed nested executable is unchanged.
+# Prove PyInstaller's nested signature is the exact deterministic transform of
+# the prepared, attested FFmpeg bytes; bind both hashes and the CDHash before
+# refreshing only the outer app seal.
 uv run --frozen python -m build_tools.finalize_ffmpeg_bundle "$app_path"
 codesign --force --sign - "$app_path"
 codesign --verify --deep --strict "$app_path"
