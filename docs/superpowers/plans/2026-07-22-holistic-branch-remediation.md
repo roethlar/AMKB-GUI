@@ -8,6 +8,9 @@ Implementation is authorized under the one-finding-per-commit rules below.
 On 2026-07-23 the owner further corrected the boundary: governance is a
 separate product, updated only in a fresh one-off session. Governance findings
 P10 and P11 are therefore excluded from this product-remediation plan.
+Product remediation and its required release-evidence run are complete as of
+2026-07-23. Hardware acceptance and the pre-existing Windows Library ACL check
+remain external release prerequisites recorded in `.agents/state.md`.
 
 ## Objective
 
@@ -707,6 +710,25 @@ The plan is complete only when:
 7. A final goal-first whole-change review finds no material issue.
 8. Product-remediation state does not claim governance closure or leave
    governance work queued under this plan.
+
+Recorded release evidence (2026-07-23):
+
+- Manually dispatched Desktop installers run
+  [30042504053](https://github.com/roethlar/AMKB-GUI/actions/runs/30042504053)
+  passed at head `b945178e84f876181c13aa499b65bc19f58b6be7` on macOS,
+  Windows x64, and Linux x86-64. Each job built the frozen application, passed
+  its native webview policy probe, built and smoked the platform installer, and
+  uploaded the installer artifact.
+- The Windows smoke installed the generated Inno Setup package before running
+  the frozen application; the Linux smoke ran the generated AppImage. Both
+  frozen smokes recursively rejected GGUF weights, llama executables, and
+  local-runtime/model-selection manifests from the bundle.
+- The real native renderer probe on both platforms found only Ollama and xAI
+  settings, with no GGUF, llama.cpp, direct-model text, or file picker. The
+  final static architecture and packaging regressions prohibit the removed
+  managed-runtime, model-selection, picker-route, and qualification shipping
+  paths. A direct filename inspection of the Linux AppImage contents found none
+  of the prohibited runtime or model artifacts.
 
 No provider request, model mutation, credential write, hardware write, push,
 workflow dispatch, release, or branch cleanup is implied by plan approval.

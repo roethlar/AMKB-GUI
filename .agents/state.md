@@ -2,6 +2,15 @@
 
 ## Now
 
+- Product remediation and its required cross-platform release evidence are
+  complete. Manually dispatched Desktop installers run
+  `30042504053` passed at head
+  `b945178e84f876181c13aa499b65bc19f58b6be7` on macOS, Windows x64,
+  and Linux x86-64. The generated Windows installer and Linux AppImage both
+  passed their installed/frozen smoke and native renderer policy checks; those
+  checks found an Ollama/API-only Settings surface and rejected direct-model
+  runtimes, manifests, and weights from the bundles. The canonical evidence is
+  in `docs/superpowers/plans/2026-07-22-holistic-branch-remediation.md`.
 - The owner corrected the holistic remediation boundary on 2026-07-23:
   governance is a separate product and is updated only in a fresh one-off
   session. P10 and P11 are excluded from the product-remediation plan. The
@@ -709,14 +718,11 @@
 
 - Do not perform governance work under this product-remediation plan. Any
   governance update requires a separate fresh one-off session.
-- After remediation and a separate outward authorization, verify Windows
-  x86_64 and Linux x86_64 packages as Ollama/API-only builds and prove they
-  contain no llama binary, GGUF execution path, model picker, model-selection
-  private state, or model weight.
-- Carried over: address any failures surfaced by the committed CI and
-  desktop-installer workflows; continue hardware verification across
-  CyberBoard, Relic 80, and AFA firmware variants using portable JSON
-  backups.
+- Complete hardware verification across CyberBoard, Relic 80, and AFA firmware
+  variants using portable JSON backups when the corresponding devices are
+  available.
+- Before a Windows release, verify native ACL handling for a pre-existing
+  Library `jobs` directory.
 
 ## Blockers
 
