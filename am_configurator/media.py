@@ -782,6 +782,12 @@ def _check_processing_cancel(cancelled) -> None:
         raise MediaCancelled("animation processing cancelled")
 
 
+def _check_processing_budget(deadline: float, cancelled) -> None:
+    _check_processing_cancel(cancelled)
+    if deadline - time.monotonic() <= 0:
+        raise MediaError("timeout", "animation processing deadline expired")
+
+
 def run_ffmpeg_command(
     command: object,
     *,
@@ -851,17 +857,25 @@ def _validate_png_sequence(
     count: int,
     width: int,
     height: int,
+    *,
+    check=None,
 ) -> tuple[Path, ...]:
     from PIL import Image, UnidentifiedImageError
 
+    if check is not None:
+        check()
     expected = tuple(directory / f"{prefix}-{index:04d}.png" for index in range(1, count + 1))
     try:
         actual = tuple(sorted(directory.iterdir()))
     except OSError:
         raise MediaError("bad_output", "animation frame output could not be inspected") from None
+    if check is not None:
+        check()
     if actual != expected or any(path.is_symlink() for path in expected):
         raise MediaError("bad_output", "animation frame names or count were invalid")
     for path in expected:
+        if check is not None:
+            check()
         try:
             with Image.open(path) as image:
                 if (
@@ -877,6 +891,8 @@ def _validate_png_sequence(
             raise
         except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
             raise MediaError("bad_output", "animation frame image data was invalid") from None
+        if check is not None:
+            check()
     return expected
 
 
@@ -913,18 +929,28 @@ def _assemble_loop_frames(
     destination: Path,
     frame_count: int,
     loop_mode: str,
+    *,
+    check=None,
 ) -> None:
     if loop_mode == "smooth":
         for index, source in enumerate(content_paths, 1):
+            if check is not None:
+                check()
             _write_frame_copy(source, destination / f"frame-{index:04d}.png")
+            if check is not None:
+                check()
         blend_count = frame_count - len(content_paths)
         for offset in range(1, blend_count + 1):
+            if check is not None:
+                check()
             _write_smooth_blend(
                 content_paths[-1],
                 content_paths[0],
                 destination / f"frame-{len(content_paths) + offset:04d}.png",
                 offset / (blend_count + 1),
             )
+            if check is not None:
+                check()
         return
     if loop_mode == "none":
         order = range(len(content_paths))
@@ -933,10 +959,14 @@ def _assemble_loop_frames(
             range(len(content_paths) - 2, 0, -1)
         )
     for output_index, content_index in enumerate(order, 1):
+        if check is not None:
+            check()
         _write_frame_copy(
             content_paths[content_index],
             destination / f"frame-{output_index:04d}.png",
         )
+        if check is not None:
+            check()
 
 
 def _validate_processing_paths(
@@ -970,20 +1000,28 @@ def _validate_processing_paths(
     return source, destination, work
 
 
-def _publish_frame_directory(staged: Path, destination: Path) -> None:
+def _publish_frame_directory(staged: Path, destination: Path, *, check=None) -> None:
     backup = destination.with_name(f".{destination.name}.previous")
     if backup.exists() or backup.is_symlink():
         raise MediaError("io", "animation publication backup is unavailable")
     backup_created = False
     published = False
+    if check is not None:
+        check()
     try:
         if destination.exists():
             os.replace(destination, backup)
             backup_created = True
+            if check is not None:
+                check()
         os.replace(staged, destination)
         published = True
+        if check is not None:
+            check()
         _fsync_directory(destination.parent)
-    except (OSError, MediaError):
+        if check is not None:
+            check()
+    except (OSError, MediaCancelled, MediaError) as failure:
         if published:
             try:
                 os.replace(destination, staged)
@@ -998,6 +1036,8 @@ def _publish_frame_directory(staged: Path, destination: Path) -> None:
                 raise MediaError(
                     "io", "animation publication rollback failed; previous frames were preserved"
                 ) from None
+        if isinstance(failure, (MediaCancelled, MediaError)):
+            raise
         raise MediaError("io", "animation frames could not be published durably") from None
     if backup_created:
         try:
@@ -1052,11 +1092,14 @@ def process_video_frames(
     ):
         raise MediaError("config", "animation frame count is not a device maximum")
     content_count = content_frame_count(frame_count, loop_mode)
-    _check_processing_cancel(cancelled)
-    if deadline - time.monotonic() <= 0:
-        raise MediaError("timeout", "animation processing deadline expired")
+
+    def check_budget() -> None:
+        _check_processing_budget(deadline, cancelled)
+
+    check_budget()
     binary = _absolute_regular_file(ffmpeg_path, "FFmpeg runtime", executable=True)
     _reconcile_frame_publication(destination)
+    check_budget()
     if runner is None:
         runner = run_ffmpeg_command
 
@@ -1086,18 +1129,34 @@ def process_video_frames(
             content_frame_count=content_count,
         )
         runner(command, deadline=deadline, cancelled=cancelled)
-        _check_processing_cancel(cancelled)
+        check_budget()
         content_paths = _validate_png_sequence(
-            content_directory, "content", content_count, width, height
+            content_directory,
+            "content",
+            content_count,
+            width,
+            height,
+            check=check_budget,
         )
         _assemble_loop_frames(
-            content_paths, final_directory, frame_count, loop_mode
+            content_paths,
+            final_directory,
+            frame_count,
+            loop_mode,
+            check=check_budget,
         )
         final_paths = _validate_png_sequence(
-            final_directory, "frame", frame_count, width, height
+            final_directory,
+            "frame",
+            frame_count,
+            width,
+            height,
+            check=check_budget,
         )
+        check_budget()
         _fsync_directory(final_directory)
-        _publish_frame_directory(final_directory, destination)
+        check_budget()
+        _publish_frame_directory(final_directory, destination, check=check_budget)
         published_paths = tuple(destination / path.name for path in final_paths)
         return ProcessedAnimation(
             directory=destination,

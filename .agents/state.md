@@ -346,7 +346,11 @@
   introduced. P15 is complete: the media opener now disables environment
   proxies while retaining explicit same-host redirect validation, and its
   sentinel regression was proven red by an attempted proxy connection before
-  the fix. The next slice is Phase 10 / P16's end-to-end media deadline.
+  the fix. P16 is complete: the shared media budget is enforced after FFmpeg,
+  throughout image validation and loop assembly, and across every reversible
+  publication boundary. Four regressions were proven red, including atomic
+  restoration after cancellation observed the newly swapped directory. The
+  next slice is Phase 10 / P17's deleted-runtime process proof.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -656,7 +660,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P16's end-to-end media deadline
+  continuing with Phase 10 / P17's deleted-runtime process proof
   while P10 awaits a separately approved legacy bootstrap and P11 remains the
   final remediation-state hygiene pass.
   Do not push or dispatch workflows before the local remediation and verification

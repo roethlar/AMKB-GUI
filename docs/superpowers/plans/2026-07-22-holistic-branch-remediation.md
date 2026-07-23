@@ -630,7 +630,7 @@ Each polish item is a separate commit despite its size.
   media URLs. Test under a sentinel proxy. Commit:
   `fix: keep media downloads off environment proxies`.
 
-- [ ] **P16 — Recheck media deadlines after FFmpeg.** Check cancel/deadline
+- [x] **P16 — Recheck media deadlines after FFmpeg.** Check cancel/deadline
   through validation, assembly, and publication and roll back atomically at
   every late boundary. Commit: `fix: enforce media deadline through publication`.
 

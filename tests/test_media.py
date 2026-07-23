@@ -875,6 +875,132 @@ class AnimationProcessorTests(unittest.TestCase):
                 self.assertEqual(marker.read_text(), "preserved")
                 self.assertEqual(list(work.iterdir()), [])
 
+    def test_deadline_expiring_after_ffmpeg_preserves_existing_frames(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            binary, source, work, destination = self._paths(tmp)
+            destination.mkdir()
+            marker = destination / "existing.txt"
+            marker.write_text("preserved")
+            clock = {"now": 99.0}
+            frame_runner = _FrameRunner()
+
+            def expiring_runner(command, *, deadline: float, cancelled=None) -> None:
+                frame_runner(command, deadline=deadline, cancelled=cancelled)
+                clock["now"] = 101.0
+
+            with patch.object(
+                media.time, "monotonic", side_effect=lambda: clock["now"]
+            ):
+                with self.assertRaises(media.MediaError) as raised:
+                    media.process_video_frames(
+                        source,
+                        destination,
+                        work,
+                        ffmpeg_path=binary,
+                        width=20,
+                        height=5,
+                        frame_count=80,
+                        loop_mode="none",
+                        deadline=100.0,
+                        runner=expiring_runner,
+                    )
+
+            self.assertEqual("timeout", raised.exception.code)
+            self.assertEqual("preserved", marker.read_text())
+            self.assertEqual([], list(work.iterdir()))
+
+    def test_mid_validation_cancellation_preserves_existing_frames(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            binary, source, work, destination = self._paths(tmp)
+            destination.mkdir()
+            marker = destination / "existing.txt"
+            marker.write_text("preserved")
+            checks = 0
+
+            def cancelled() -> bool:
+                nonlocal checks
+                checks += 1
+                return checks >= 6
+
+            with self.assertRaises(media.MediaCancelled):
+                media.process_video_frames(
+                    source,
+                    destination,
+                    work,
+                    ffmpeg_path=binary,
+                    width=20,
+                    height=5,
+                    frame_count=80,
+                    loop_mode="none",
+                    deadline=time.monotonic() + 30,
+                    cancelled=cancelled,
+                    runner=_FrameRunner(),
+                )
+
+            self.assertEqual("preserved", marker.read_text())
+            self.assertEqual([], list(work.iterdir()))
+
+    def test_mid_assembly_cancellation_preserves_existing_frames(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            binary, source, work, destination = self._paths(tmp)
+            destination.mkdir()
+            marker = destination / "existing.txt"
+            marker.write_text("preserved")
+
+            def cancelled() -> bool:
+                return any(
+                    len(tuple(final.glob("frame-*.png"))) >= 3
+                    for final in work.glob("animation-*/final")
+                )
+
+            with self.assertRaises(media.MediaCancelled):
+                media.process_video_frames(
+                    source,
+                    destination,
+                    work,
+                    ffmpeg_path=binary,
+                    width=20,
+                    height=5,
+                    frame_count=80,
+                    loop_mode="none",
+                    deadline=time.monotonic() + 30,
+                    cancelled=cancelled,
+                    runner=_FrameRunner(),
+                )
+
+            self.assertEqual("preserved", marker.read_text())
+            self.assertEqual([], list(work.iterdir()))
+
+    def test_publication_cancellation_rolls_back_existing_frames(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            binary, source, work, destination = self._paths(tmp)
+            destination.mkdir()
+            marker = destination / "existing.txt"
+            marker.write_text("preserved")
+
+            def cancelled() -> bool:
+                return (destination / "frame-0001.png").is_file()
+
+            with self.assertRaises(media.MediaCancelled):
+                media.process_video_frames(
+                    source,
+                    destination,
+                    work,
+                    ffmpeg_path=binary,
+                    width=20,
+                    height=5,
+                    frame_count=80,
+                    loop_mode="none",
+                    deadline=time.monotonic() + 30,
+                    cancelled=cancelled,
+                    runner=_FrameRunner(),
+                )
+
+            self.assertEqual("preserved", marker.read_text())
+            self.assertFalse((destination / "frame-0001.png").exists())
+            self.assertFalse(destination.with_name(".frames.previous").exists())
+            self.assertEqual([], list(work.iterdir()))
+
     def test_interrupted_publication_backup_is_restored_before_processing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             binary, source, work, destination = self._paths(tmp)
