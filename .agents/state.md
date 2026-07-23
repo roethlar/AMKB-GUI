@@ -343,7 +343,10 @@
   transport, the surviving recipe provider delegates to the one hardened
   fixed-loopback Ollama client, and source search plus its proxy, redirect,
   cancellation, and selected-model tests pass. No mismatched abstraction was
-  introduced. The next slice is Phase 10 / P15's media proxy hardening.
+  introduced. P15 is complete: the media opener now disables environment
+  proxies while retaining explicit same-host redirect validation, and its
+  sentinel regression was proven red by an attempted proxy connection before
+  the fix. The next slice is Phase 10 / P16's end-to-end media deadline.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -653,7 +656,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P15's media proxy hardening
+  continuing with Phase 10 / P16's end-to-end media deadline
   while P10 awaits a separately approved legacy bootstrap and P11 remains the
   final remediation-state hygiene pass.
   Do not push or dispatch workflows before the local remediation and verification

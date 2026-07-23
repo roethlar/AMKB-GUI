@@ -107,6 +107,34 @@ class VideoDownloaderTests(unittest.TestCase):
     def _deadline(self) -> float:
         return time.monotonic() + 30.0
 
+    def test_default_download_ignores_environment_proxy(self) -> None:
+        sentinel_proxy = ("127.0.0.1", 54323)
+        attempted_connections = []
+
+        def block_network(address, *_args, **_kwargs):
+            attempted_connections.append(address)
+            raise OSError("test socket blocked")
+
+        with patch.dict(
+            os.environ,
+            {"HTTPS_PROXY": f"http://{sentinel_proxy[0]}:{sentinel_proxy[1]}"},
+            clear=True,
+        ):
+            opener = media._default_opener()
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(socket, "create_connection", side_effect=block_network):
+                with self.assertRaises(media.MediaError) as captured:
+                    media.download_video(
+                        self._URL,
+                        Path(tmp) / "source.mp4",
+                        self._deadline(),
+                        opener=opener,
+                    )
+
+        self.assertEqual("unavailable", captured.exception.code)
+        self.assertEqual([(media.VIDEO_MEDIA_HOST, 443)], attempted_connections)
+        self.assertNotIn(sentinel_proxy, attempted_connections)
+
     def test_rejects_unsafe_urls_before_opening_and_never_echoes_them(self) -> None:
         unsafe = (
             "http://vidgen.x.ai/source.mp4",

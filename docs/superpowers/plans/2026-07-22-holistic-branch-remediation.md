@@ -625,7 +625,7 @@ Each polish item is a separate commit despite its size.
   executable evidence instead of inventing abstraction. Commit:
   `refactor: share hardened loopback transport`.
 
-- [ ] **P15 — Disable proxies for media downloads.** Retain explicit validated
+- [x] **P15 — Disable proxies for media downloads.** Retain explicit validated
   redirect handling but ensure environment proxies cannot receive temporary
   media URLs. Test under a sentinel proxy. Commit:
   `fix: keep media downloads off environment proxies`.

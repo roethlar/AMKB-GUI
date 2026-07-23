@@ -82,6 +82,7 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 def _default_opener():
     context = ssl.create_default_context()
     director = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
         urllib.request.HTTPSHandler(context=context),
         _NoRedirectHandler(),
     )
