@@ -236,8 +236,10 @@ def cache_key(manifest: Mapping[str, object], platform_name: str, architecture: 
 def sha256_file(path: Path | str) -> str:
     try:
         return ffmpeg_runtime.sha256_file(path)
-    except ffmpeg_runtime.FfmpegRuntimeError:
-        raise BundleError("FFmpeg file could not be read") from None
+    except ffmpeg_runtime.FfmpegRuntimeError as exc:
+        reason = exc.reason
+        detail = f" ({reason})" if re.fullmatch(r"[a-z_]+", reason or "") else ""
+        raise BundleError(f"FFmpeg file could not be read{detail}") from None
 
 
 def verify_source_archive(path: Path | str, manifest: Mapping[str, object]) -> None:

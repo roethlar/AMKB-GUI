@@ -83,6 +83,10 @@ _BUILD_RECIPE_KEYS = {
 class FfmpegRuntimeError(RuntimeError):
     """The prepared runtime is absent or does not match its attestation."""
 
+    def __init__(self, message: str, *, reason: str | None = None) -> None:
+        super().__init__(message)
+        self.reason = reason
+
 
 def _regular_file_identity(details: os.stat_result) -> tuple[int, ...]:
     return (
@@ -112,6 +116,7 @@ def _read_verified_regular_file(
         raise ValueError("FFmpeg verification size limit must be a positive integer")
     candidate = Path(path)
     descriptor: int | None = None
+    stage = "metadata"
     try:
         before = candidate.lstat()
         if (
@@ -127,7 +132,9 @@ def _read_verified_regular_file(
             | getattr(os, "O_CLOEXEC", 0)
         )
         flags |= getattr(os, "O_NOFOLLOW", 0)
+        stage = "open"
         descriptor = os.open(candidate, flags)
+        stage = "opened_identity"
         opened = os.fstat(descriptor)
         if (
             not stat.S_ISREG(opened.st_mode)
@@ -140,6 +147,7 @@ def _read_verified_regular_file(
         digest = hashlib.sha256() if hash_only else None
         payload = bytearray() if not hash_only else None
         total = 0
+        stage = "read"
         while block := os.read(descriptor, min(1024 * 1024, max_bytes - total + 1)):
             total += len(block)
             if total > max_bytes:
@@ -149,6 +157,7 @@ def _read_verified_regular_file(
             else:
                 assert payload is not None
                 payload.extend(block)
+        stage = "final_identity"
         after_opened = os.fstat(descriptor)
         after_path = candidate.lstat()
         if (
@@ -164,7 +173,10 @@ def _read_verified_regular_file(
         assert payload is not None
         return bytes(payload)
     except OSError:
-        raise FfmpegRuntimeError("FFmpeg verification file could not be read") from None
+        raise FfmpegRuntimeError(
+            "FFmpeg verification file could not be read",
+            reason=stage,
+        ) from None
     finally:
         if descriptor is not None:
             os.close(descriptor)

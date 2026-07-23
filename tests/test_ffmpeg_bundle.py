@@ -364,6 +364,26 @@ class FfmpegBundleTests(unittest.TestCase):
             self.assertEqual(1, len(observed_flags))
             self.assertTrue(observed_flags[0] & binary_flag)
 
+    def test_shared_ffmpeg_reader_reports_only_the_failed_read_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            payload = Path(temp) / "source.tar.xz"
+            payload.write_bytes(b"archive")
+            with (
+                patch.object(
+                    ffmpeg_runtime.os,
+                    "open",
+                    side_effect=OSError("secret /private/path"),
+                ),
+                self.assertRaisesRegex(
+                    ffmpeg_bundle.BundleError,
+                    r"^FFmpeg file could not be read \(open\)$",
+                ) as raised,
+            ):
+                ffmpeg_bundle.sha256_file(payload)
+
+        self.assertNotIn("secret", str(raised.exception))
+        self.assertNotIn("/private/path", str(raised.exception))
+
     def test_windows_gpg_runs_inside_the_profileless_msys2_shell(self) -> None:
         completed = SimpleNamespace(returncode=0, stdout="", stderr="")
         with patch.object(
