@@ -703,11 +703,12 @@ function renderLightingJobStrip() {
     $("#lighting-job-phase-live").textContent = `Lighting job: ${phaseLabel}`;
   }
   const progress = job.progress;
-  $("#lighting-job-detail").textContent = progress
-    ? `${progress.completed} of ${progress.total} saved`
+  const hasProgress = progress && Number(progress.total) > 0;
+  $("#lighting-job-detail").textContent = hasProgress
+    ? `${progress.completed} of ${progress.total} complete`
     : "Your work is saved locally as it completes.";
   const progressNode = $("#lighting-job-progress");
-  progressNode.hidden = !progress || progress.total <= 0;
+  progressNode.hidden = !hasProgress;
   if (!progressNode.hidden) {
     progressNode.max = progress.total;
     progressNode.value = Math.min(progress.total, progress.completed);
@@ -2002,6 +2003,11 @@ function proceduralPhaseLabel(phase) {
   })[phase]||String(phase||"Working").replaceAll("_"," ");
 }
 
+function proceduralProgressLabel(phase, completed, total) {
+  const verb = ({rendering:"rendered",quality_check:"checked",banking:"prepared"})[phase]||"processed";
+  return `${completed} of ${total} frames ${verb}`;
+}
+
 function generationDialogContext() {
   const manifest=state.conceptManifest?.job_id===state.lighting.activeJob?.id?state.conceptManifest:null;
   const target=manifest?.target||proceduralTargetSnapshot();
@@ -2033,7 +2039,7 @@ function renderProgressStage(context) {
   $("#lighting-generate-content").innerHTML=`<div class="concept-stage generation-progress">
     <div class="loader" aria-hidden="true"></div><h3>${esc(proceduralPhaseLabel(manifest?.phase||state.lighting.activeJob?.phase))}</h3>
     <p>Your job is durable. You can close this window while the result continues banking locally.</p>
-    ${total?`<progress max="${total}" value="${Math.min(completed,total)}" aria-label="Generation progress"></progress><p>${completed} of ${total} frames saved</p>`:""}
+    ${total?`<progress max="${total}" value="${Math.min(completed,total)}" aria-label="Generation progress"></progress><p>${proceduralProgressLabel(manifest?.phase||state.lighting.activeJob?.phase,completed,total)}</p>`:""}
     <div class="button-row"><button id="cancel-effect" type="button" class="button ghost">Cancel</button></div>
     ${state.conceptError?`<p class="ai-error" role="alert">${esc(state.conceptError)}</p>`:""}
   </div>`;

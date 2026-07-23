@@ -123,6 +123,11 @@ test("generation is one prompt, durable progress, animated review, and explicit 
   assert.match(js,/api\("\/api\/lighting\/effects"/);
   assert.match(js,/backend:state\.aiStatus\.backend/);
   assert.match(js,/scheduleLightingJobPoll\(started\.job_id\)/);
+  for(const phase of ["rendering","quality_check","banking"]){
+    assert.match(js,new RegExp(`${phase}:`));
+  }
+  assert.match(js,/proceduralProgressLabel\(/);
+  assert.doesNotMatch(js,/frames saved/);
   assert.match(js,/procedural_attempts/);
   assert.match(js,/preview_asset_id/);
   assert.match(js,/recipe_asset_id/);

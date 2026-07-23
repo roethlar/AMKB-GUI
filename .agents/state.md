@@ -102,9 +102,14 @@
   one cached provider per Ollama/API configuration identity, replacing the API
   provider when its credential fingerprint changes. Provider cache clearing is
   synchronized, and the existing architecture guard continues to prohibit any
-  managed llama singleton or process path. The next slice is F33's bounded,
-  cancellable procedural render/quality/encode/mapping pipeline with truthful
-  progress.
+  managed llama singleton or process path. F33 is complete on the current tree:
+  rendering, quality analysis, preview work, frame-wise GIF encoding, LED
+  mapping, and mapped JSON encoding all share the operation's monotonic deadline
+  and cancellation predicate. Cancellation and timeout release admission from
+  inside local frame work, and durable `rendering`, `quality_check`, and
+  `banking` phases publish throttled frame-relative progress while provider work
+  remains indeterminate. The next slice is F11's disabled and selected-backend
+  capability-probe boundary.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

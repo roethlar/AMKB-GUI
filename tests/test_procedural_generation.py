@@ -8,9 +8,11 @@ import time
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 
+from am_configurator import procedural
 from am_configurator.generation import (
     GenerationBusyError,
     GenerationError,
@@ -142,6 +144,19 @@ class ProceduralGenerationTests(unittest.TestCase):
     def test_local_job_banks_exact_recipe_raster_preview_and_mapping(self) -> None:
         provider = _Provider([_dense_recipe()])
         coordinator = self._coordinator(provider)
+        progress_updates: list[tuple[str, int, int]] = []
+        original_update_manifest = self.library.update_manifest
+
+        def observe_progress(job_id: str, change):
+            current = original_update_manifest(job_id, change)
+            progress = current.get("progress")
+            if current.get("phase") in {"rendering", "quality_check", "banking"} and progress:
+                progress_updates.append(
+                    (current["phase"], progress["completed"], progress["total"])
+                )
+            return current
+
+        self.library.update_manifest = observe_progress
 
         started = coordinator.start_effect(
             prompt="Dense aurora across the whole keyboard",
@@ -180,6 +195,14 @@ class ProceduralGenerationTests(unittest.TestCase):
         self.assertFalse(mapped["timing_resampled"])
         self.assertEqual(200, mapped["tracks"]["keyframes"]["frame_count"])
         self.assertEqual(200, mapped["tracks"]["spotlight_frames"]["frame_count"])
+        for phase in ("rendering", "quality_check", "banking"):
+            self.assertTrue(
+                any(
+                    current_phase == phase and 0 < completed < total
+                    for current_phase, completed, total in progress_updates
+                ),
+                phase,
+            )
 
     def test_local_quality_failure_retries_twice_at_most_with_reason(self) -> None:
         provider = _Provider([_dim_recipe(), _dense_recipe()])
@@ -281,6 +304,85 @@ class ProceduralGenerationTests(unittest.TestCase):
         self.assertEqual([(0, None)], provider.calls)
         self.assertEqual("cancelled", manifest["status"])
         self.assertEqual([], manifest["assets"])
+
+    def test_mid_render_cancellation_releases_admission_promptly(self) -> None:
+        provider = _Provider([_dense_recipe()])
+        gate = OperationGate()
+        coordinator = ProceduralGenerationCoordinator(
+            self.library,
+            _Capability(provider),
+            operation_gate=gate,
+            operation_timeout_seconds=30,
+        )
+        rendering = threading.Event()
+
+        def controlled_render(*args, work=None, progress=None, **kwargs):
+            self.assertIsNotNone(work)
+            self.assertIsNotNone(progress)
+            rendering.set()
+            while True:
+                work.check()
+                time.sleep(0.001)
+
+        with patch.object(procedural, "render_recipe", controlled_render):
+            started = coordinator.start_effect(
+                prompt="Cancel bounded local rendering",
+                target=TARGET,
+                loop_mode="smooth",
+            )
+            self.assertTrue(rendering.wait(1))
+            coordinator.cancel(started["job_id"])
+            idle = threading.Event()
+            waiter = threading.Thread(
+                target=lambda: (gate.wait_until_idle(), idle.set()),
+                daemon=True,
+            )
+            waiter.start()
+            self.assertTrue(idle.wait(1))
+
+        manifest = self.library.load_manifest(started["job_id"])
+        replacement, _cancelled = gate.begin("after-render-cancel")
+        gate.finish(replacement)
+        self.assertEqual("cancelled", manifest["status"])
+        self.assertEqual("cancelled", manifest["procedural_attempts"][0]["status"])
+        self.assertEqual(["recipe"], [asset["kind"] for asset in manifest["assets"]])
+
+    def test_rendering_cannot_outlive_the_shared_operation_deadline(self) -> None:
+        rendering = threading.Event()
+
+        def monotonic() -> float:
+            return 2.0 if rendering.is_set() else 0.0
+
+        def controlled_render(*args, work=None, progress=None, **kwargs):
+            self.assertIsNotNone(work)
+            rendering.set()
+            work.check()
+            self.fail("the expired render budget did not stop work")
+
+        gate = OperationGate()
+        coordinator = ProceduralGenerationCoordinator(
+            self.library,
+            _Capability(_Provider([_dense_recipe()])),
+            operation_gate=gate,
+            launcher=self._inline,
+            monotonic=monotonic,
+            operation_timeout_seconds=1,
+        )
+
+        with patch.object(procedural, "render_recipe", controlled_render):
+            started = coordinator.start_effect(
+                prompt="Bound this local render",
+                target=TARGET,
+                loop_mode="smooth",
+            )
+        manifest = self.library.load_manifest(started["job_id"])
+
+        self.assertEqual("failed", manifest["status"])
+        self.assertEqual("timeout", manifest["procedural_attempts"][0]["error_code"])
+        self.assertEqual("timeout", manifest["errors"][-1]["code"])
+        self.assertEqual(["recipe"], [asset["kind"] for asset in manifest["assets"]])
+        replacement, _cancelled = gate.begin("after-render-timeout")
+        gate.finish(replacement)
 
     def test_ollama_cancellation_releases_admission_and_discards_late_output(self) -> None:
         entered = threading.Event()

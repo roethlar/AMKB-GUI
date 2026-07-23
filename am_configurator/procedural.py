@@ -12,11 +12,13 @@ import json
 import math
 import random
 import re
+import time
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, BinaryIO, Callable, Sequence
 
-from PIL import Image
+from PIL import GifImagePlugin, Image
 
 
 SCHEMA_VERSION = 1
@@ -73,6 +75,46 @@ class QualityError(RecipeError):
         self.failures = tuple(dict.fromkeys(failures))
         self.metrics = metrics
         super().__init__(f"Animation failed quality checks: {', '.join(self.failures)}.")
+
+
+class WorkCancelled(RuntimeError):
+    """The user cancelled bounded local procedural work."""
+
+
+class WorkDeadlineExceeded(RuntimeError):
+    """The shared procedural operation deadline expired."""
+
+
+@dataclass(frozen=True)
+class WorkBudget:
+    """Shared monotonic deadline and cancellation predicate for local work."""
+
+    deadline: float
+    cancelled: Callable[[], bool]
+    monotonic: Callable[[], float] = time.monotonic
+
+    def check(self) -> None:
+        if self.cancelled():
+            raise WorkCancelled("Procedural generation was cancelled.")
+        if self.monotonic() >= self.deadline:
+            raise WorkDeadlineExceeded("Procedural generation deadline expired.")
+
+
+ProgressCallback = Callable[[int, int], None]
+
+
+def _check_work(work: WorkBudget | None) -> None:
+    if work is not None:
+        work.check()
+
+
+def _report_progress(
+    progress: ProgressCallback | None,
+    completed: int,
+    total: int,
+) -> None:
+    if progress is not None:
+        progress(completed, total)
 
 
 @dataclass(frozen=True)
@@ -465,6 +507,8 @@ def render_recipe(
     width: int = DEFAULT_WIDTH,
     height: int = DEFAULT_HEIGHT,
     frame_count: int = DEFAULT_FRAME_COUNT,
+    work: WorkBudget | None = None,
+    progress: ProgressCallback | None = None,
 ) -> list[Image.Image]:
     """Render exact raster frames from a validated periodic recipe."""
 
@@ -475,10 +519,12 @@ def render_recipe(
     frames: list[Image.Image] = []
     offsets = ((0.25, 0.25), (0.75, 0.25), (0.25, 0.75), (0.75, 0.75))
     for frame_index in range(frame_count):
+        _check_work(work)
         phase = frame_index / frame_count
         pixels: list[tuple[int, int, int]] = []
         for pixel_y in range(height):
             for pixel_x in range(width):
+                _check_work(work)
                 samples: list[tuple[float, float, float]] = []
                 for offset_x, offset_y in offsets:
                     x = (pixel_x + offset_x) / width
@@ -505,6 +551,7 @@ def render_recipe(
         image = Image.new("RGB", (width, height))
         image.putdata(pixels)
         frames.append(image)
+        _report_progress(progress, frame_index + 1, frame_count)
     return frames
 
 
@@ -515,7 +562,11 @@ def _frame_difference(left: Image.Image, right: Image.Image) -> float:
 
 
 def assess_quality(
-    recipe: dict[str, Any], frames: Sequence[Image.Image]
+    recipe: dict[str, Any],
+    frames: Sequence[Image.Image],
+    *,
+    work: WorkBudget | None = None,
+    progress: ProgressCallback | None = None,
 ) -> QualityMetrics:
     """Measure an exact frame sequence without applying acceptance thresholds."""
 
@@ -531,19 +582,27 @@ def assess_quality(
         raise RecipeError("Quality assessment requires uniform RGB frames.")
     lit_ratios: list[float] = []
     peak = 0
-    for frame in materialized:
+    total_work = len(materialized) * 2
+    for index, frame in enumerate(materialized):
+        _check_work(work)
         # Pillow 12 renamed this API; retain the fallback for the declared
         # Pillow 10+ range without emitting the newer deprecation warning.
         getter = getattr(frame, "get_flattened_data", frame.getdata)
         pixels = list(getter())
         lit_ratios.append(sum(max(pixel) > 32 for pixel in pixels) / len(pixels))
         peak = max(peak, max(max(pixel) for pixel in pixels))
-    ordinary = [
-        _frame_difference(materialized[index - 1], materialized[index])
-        for index in range(1, len(materialized))
-    ]
+        _report_progress(progress, index + 1, total_work)
+    ordinary = []
+    for index in range(1, len(materialized)):
+        _check_work(work)
+        ordinary.append(
+            _frame_difference(materialized[index - 1], materialized[index])
+        )
+        _report_progress(progress, len(materialized) + index, total_work)
     maximum_adjacent = max(ordinary, default=0.0)
+    _check_work(work)
     seam = _frame_difference(materialized[-1], materialized[0])
+    _report_progress(progress, total_work, total_work)
     return QualityMetrics(
         width=width,
         height=height,
@@ -564,6 +623,8 @@ def validate_quality(
     width: int | None = None,
     height: int | None = None,
     frame_count: int | None = None,
+    work: WorkBudget | None = None,
+    progress: ProgressCallback | None = None,
 ) -> QualityMetrics:
     """Require exact geometry, motion, brightness, loop, and density quality."""
 
@@ -585,7 +646,12 @@ def validate_quality(
     ):
         failures.append("dimensions")
     try:
-        metrics = assess_quality(normalized, materialized)
+        metrics = assess_quality(
+            normalized,
+            materialized,
+            work=work,
+            progress=progress,
+        )
     except RecipeError:
         raise QualityError(("dimensions",)) from None
     if metrics.maximum_adjacent_difference <= 0:
@@ -632,7 +698,12 @@ def gif_durations(frame_count: int, duration_ms: int) -> list[int]:
 
 
 def write_gif(
-    frames: Sequence[Image.Image], path: Path, durations: Sequence[int]
+    frames: Sequence[Image.Image],
+    path: Path | BinaryIO,
+    durations: Sequence[int],
+    *,
+    work: WorkBudget | None = None,
+    progress: ProgressCallback | None = None,
 ) -> None:
     """Write a looping GIF from an already validated exact frame sequence."""
 
@@ -640,20 +711,39 @@ def write_gif(
     frame_durations = list(durations)
     if not materialized or len(materialized) != len(frame_durations):
         raise RecipeError("GIF frames and durations must be non-empty and equal in length.")
-    converted = [
-        frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=128)
-        for frame in materialized
-    ]
-    converted[0].save(
-        path,
-        format="GIF",
-        save_all=True,
-        append_images=converted[1:],
-        duration=frame_durations,
-        loop=0,
-        disposal=2,
-        optimize=False,
-    )
+    total_work = len(materialized) * 2
+    converted = []
+    for index, frame in enumerate(materialized):
+        _check_work(work)
+        converted.append(
+            frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=128)
+        )
+        _report_progress(progress, index + 1, total_work)
+
+    destination = path.open("wb") if isinstance(path, Path) else nullcontext(path)
+    with destination as output:
+        # Image.save(save_all=True) performs its entire second encoding pass
+        # without yielding. Encode one complete frame at a time so the shared
+        # work budget remains observable between bounded units.
+        header, _palette = GifImagePlugin.getheader(
+            converted[0],
+            info={"loop": 0},
+        )
+        for block in header:
+            output.write(block)
+        for index, (frame, duration) in enumerate(
+            zip(converted, frame_durations, strict=True)
+        ):
+            _check_work(work)
+            for block in GifImagePlugin.getdata(
+                frame,
+                duration=duration,
+                disposal=2,
+                include_color_table=index > 0,
+            ):
+                output.write(block)
+            _report_progress(progress, len(materialized) + index + 1, total_work)
+        output.write(b";")
 
 
 def map_frames_to_led_tracks(
@@ -662,11 +752,14 @@ def map_frames_to_led_tracks(
     duration_ms: int,
     product_id: str,
     targets: Sequence[str],
+    work: WorkBudget | None = None,
+    progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     """Map exact source frames through the application's canonical LED mapper."""
 
     materialized = list(frames)
     gif_durations(len(materialized), duration_ms)
+    _check_work(work)
     from .server import frames_to_led_tracks
 
     return frames_to_led_tracks(
@@ -675,6 +768,8 @@ def map_frames_to_led_tracks(
         list(targets),
         "nearest",
         product_id,
+        work_check=None if work is None else work.check,
+        progress=progress,
     )
 
 

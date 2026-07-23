@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import io
 import subprocess
 import tempfile
 import unittest
@@ -11,12 +12,17 @@ from PIL import Image
 from am_configurator.procedural import (
     QualityError,
     RecipeError,
+    WorkBudget,
+    WorkCancelled,
+    WorkDeadlineExceeded,
     assess_quality,
+    gif_durations,
     map_frames_to_led_tracks,
     recipe_schema,
     render_recipe,
     validate_quality,
     validate_recipe,
+    write_gif,
     write_animation_artifacts,
 )
 from am_configurator.server import frames_to_led_tracks
@@ -86,6 +92,22 @@ def _dense_recipe() -> dict:
     return json.loads(ORNITH_RECIPE.read_text())
 
 
+def _worst_case_recipe() -> dict:
+    return _recipe(
+        "dense",
+        layers=[
+            _layer(
+                "comet",
+                phase=index / 6,
+                count=12,
+                trail=1.0,
+                seed=index,
+            )
+            for index in range(6)
+        ],
+    )
+
+
 class RecipeContractTests(unittest.TestCase):
     def test_schema_and_semantic_validator_require_version_and_density(self) -> None:
         schema = recipe_schema()
@@ -139,6 +161,94 @@ class RecipeContractTests(unittest.TestCase):
                         height=dimensions[1],
                         frame_count=dimensions[2],
                     )
+
+    def test_worst_case_render_obeys_the_shared_monotonic_budget(self) -> None:
+        elapsed = 0.0
+
+        def monotonic() -> float:
+            nonlocal elapsed
+            elapsed += 0.01
+            return elapsed
+
+        work = WorkBudget(
+            deadline=0.05,
+            cancelled=lambda: False,
+            monotonic=monotonic,
+        )
+
+        with self.assertRaises(WorkDeadlineExceeded):
+            render_recipe(
+                _worst_case_recipe(),
+                width=18,
+                height=7,
+                frame_count=200,
+                work=work,
+            )
+
+        self.assertLessEqual(elapsed, 0.06)
+
+    def test_each_local_frame_stage_honors_mid_stage_cancellation(self) -> None:
+        frames = render_recipe(_recipe(), width=18, height=7, frame_count=6)
+        durations = gif_durations(len(frames), 34)
+
+        def cancelled_work(cancel_after: int):
+            cancelled = False
+
+            def progress(completed: int, total: int) -> None:
+                nonlocal cancelled
+                self.assertLessEqual(completed, total)
+                if completed >= cancel_after:
+                    cancelled = True
+
+            return (
+                WorkBudget(
+                    deadline=100.0,
+                    cancelled=lambda: cancelled,
+                    monotonic=lambda: 0.0,
+                ),
+                progress,
+            )
+
+        stages = {
+            "render": lambda work, progress: render_recipe(
+                _recipe(),
+                width=18,
+                height=7,
+                frame_count=6,
+                work=work,
+                progress=progress,
+            ),
+            "quality": lambda work, progress: validate_quality(
+                _recipe(),
+                frames,
+                width=18,
+                height=7,
+                frame_count=6,
+                work=work,
+                progress=progress,
+            ),
+            "gif encoding": lambda work, progress: write_gif(
+                frames,
+                io.BytesIO(),
+                durations,
+                work=work,
+                progress=progress,
+            ),
+            "mapping": lambda work, progress: map_frames_to_led_tracks(
+                frames,
+                duration_ms=34,
+                product_id="AM21",
+                targets=("keyframes", "spotlight_frames"),
+                work=work,
+                progress=progress,
+            ),
+        }
+        for name, stage in stages.items():
+            with self.subTest(stage=name):
+                cancel_after = len(frames) + 1 if name == "gif encoding" else 1
+                work, progress = cancelled_work(cancel_after)
+                with self.assertRaises(WorkCancelled):
+                    stage(work, progress)
 
 
 class QualityGateTests(unittest.TestCase):
@@ -216,6 +326,12 @@ class ArtifactAndMappingTests(unittest.TestCase):
             with Image.open(paths["raster_gif"]) as image:
                 self.assertEqual((18, 7), image.size)
                 self.assertEqual(40, image.n_frames)
+                self.assertEqual(0, image.info["loop"])
+                encoded_durations = []
+                for frame_index in range(image.n_frames):
+                    image.seek(frame_index)
+                    encoded_durations.append(image.info["duration"])
+                self.assertEqual(gif_durations(40, 34), encoded_durations)
             summary = json.loads(paths["summary"].read_text())
             self.assertEqual("sparse", summary["quality"]["density"])
             self.assertEqual(40, summary["quality"]["frame_count"])

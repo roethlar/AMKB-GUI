@@ -304,7 +304,7 @@ local no-provider browser acceptance at the end of the phase.
   backend. Prove no managed-local singleton remains after F20. Commit:
   `fix: serialize ai service construction`.
 
-- [ ] **F33 — Bound and cancel render, quality, encode, and mapping.** Thread a
+- [x] **F33 — Bound and cancel render, quality, encode, and mapping.** Thread a
   monotonic deadline and cancellation callback through rendering and artifact
   encoding, check at bounded work intervals, publish real phase/progress updates
   compatible with the UI, and release the gate promptly on cancel. Add a

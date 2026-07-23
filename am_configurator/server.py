@@ -21,7 +21,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from socketserver import TCPServer
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
 from . import __version__
@@ -334,6 +334,9 @@ def frames_to_led_tracks(
     targets: list[str] | tuple[str, ...],
     resample: str = "box",
     product_id: str = "CB_XX",
+    *,
+    work_check: Callable[[], None] | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     """Map an ordered list of frames onto one or more LED tracks.
 
@@ -345,12 +348,16 @@ def frames_to_led_tracks(
     (e.g. GIF ``n_frames``) override ``source_frames``/``decoded_frames`` in the
     returned dict.
     """
+    if work_check is not None:
+        work_check()
     model = _led_model(product_id)
     requested = list(dict.fromkeys(str(target) for target in targets))
     if not requested:
         raise ValueError("At least one GIF LED target is required.")
     layouts: dict[str, dict[str, Any]] = {}
     for target in requested:
+        if work_check is not None:
+            work_check()
         layout = _GIF_LAYOUTS[model].get(target)
         if layout is None:
             supported = ", ".join(_GIF_LAYOUTS[model])
@@ -379,6 +386,8 @@ def frames_to_led_tracks(
     track_frames: dict[str, list[list[str]]] = {target: [] for target in requested}
     durations: list[int] = []
     for index, frame in enumerate(frames):
+        if work_check is not None:
+            work_check()
         source_duration = raw_durations[index] if index < len(raw_durations) else None
         durations.append(max(10, int(source_duration or 90)))
         rgba = frame.convert("RGBA")
@@ -412,6 +421,8 @@ def frames_to_led_tracks(
                 ]
 
         for target, layout in layouts.items():
+            if work_check is not None:
+                work_check()
             source_colors = raster_colors[layout["size"]]
             colors = ["#000000"] * int(layout["pixels"])
             for source_index, output_index in enumerate(layout["map"]):
@@ -420,10 +431,16 @@ def frames_to_led_tracks(
             for output_index, source_index in layout.get("copies", ()):
                 colors[output_index] = colors[source_index]
             track_frames[target].append(colors)
+        if progress is not None:
+            progress(index + 1, len(frames))
 
+    if work_check is not None:
+        work_check()
     timeline, duration, timing_resampled = _gif_timeline_indices(durations)
     tracks = {}
     for target, layout in layouts.items():
+        if work_check is not None:
+            work_check()
         mapped = [track_frames[target][index] for index in timeline]
         width, height = layout["size"]
         tracks[target] = {

@@ -36,6 +36,7 @@ from .recipe_provider import (
 
 DEFAULT_OPERATION_TIMEOUT_SECONDS = 180.0
 FASTEST_FRAME_DURATION_MS = min(LED_SPEEDS_MS)
+PROGRESS_UPDATE_STEPS = 20
 
 
 def _now_iso() -> str:
@@ -73,10 +74,34 @@ def _usage_ticks(value: object) -> int | None:
     return None
 
 
-def _gif_bytes(frames: list[Image.Image], durations: list[int]) -> bytes:
+def _gif_bytes(
+    frames: list[Image.Image],
+    durations: list[int],
+    *,
+    work: procedural.WorkBudget,
+    progress: procedural.ProgressCallback,
+) -> bytes:
     output = io.BytesIO()
-    procedural.write_gif(frames, output, durations)  # type: ignore[arg-type]
+    procedural.write_gif(
+        frames,
+        output,
+        durations,
+        work=work,
+        progress=progress,
+    )
     return output.getvalue()
+
+
+def _json_bytes(value: object, work: procedural.WorkBudget) -> bytes:
+    output = bytearray()
+    encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"))
+    for index, chunk in enumerate(encoder.iterencode(value)):
+        if index % 256 == 0:
+            work.check()
+        output.extend(chunk.encode("utf-8"))
+    work.check()
+    output.extend(b"\n")
+    return bytes(output)
 
 
 class ProceduralGenerationCoordinator:
@@ -187,10 +212,10 @@ class ProceduralGenerationCoordinator:
                         )
                     )
                 current["status"] = "in_progress"
-                current["phase"] = "queued"
+                current["phase"] = "accepted"
                 current["progress"] = {
                     "completed": 0,
-                    "total": snapshot["frame_cap"],
+                    "total": None,
                 }
 
             self._library.update_manifest(job_id, initialize)
@@ -290,6 +315,10 @@ class ProceduralGenerationCoordinator:
             _attempt(manifest, attempt_id)["phase"] = "recipe_generating"
             manifest["provider_requests"][operation]["status"] = "in_progress"
             manifest["phase"] = "recipe_generating"
+            manifest["progress"] = {
+                "completed": 0,
+                "total": None,
+            }
 
         self._library.update_manifest(job_id, generating)
         return attempt_id, operation
@@ -327,6 +356,44 @@ class ProceduralGenerationCoordinator:
                 manifest["costs"]["actual_incomplete"] = True
 
         self._library.update_manifest(job_id, update)
+
+    def _begin_work_stage(
+        self,
+        job_id: str,
+        attempt_id: str,
+        phase: str,
+        total: int,
+    ) -> Callable[[int], None]:
+        def begin(current: dict) -> None:
+            _attempt(current, attempt_id)["phase"] = phase
+            current["phase"] = phase
+            current["progress"] = {"completed": 0, "total": total}
+
+        self._library.update_manifest(job_id, begin)
+        last_reported = 0
+        stride = max(1, total // PROGRESS_UPDATE_STEPS)
+
+        def report(completed: int) -> None:
+            nonlocal last_reported
+            bounded = max(0, min(total, completed))
+            if (
+                bounded not in {1, total}
+                and bounded - last_reported < stride
+            ):
+                return
+
+            def update(current: dict) -> None:
+                _attempt(current, attempt_id)["phase"] = phase
+                current["phase"] = phase
+                current["progress"] = {
+                    "completed": bounded,
+                    "total": total,
+                }
+
+            self._library.update_manifest(job_id, update)
+            last_reported = bounded
+
+        return report
 
     def _fail_attempt(
         self,
@@ -476,14 +543,27 @@ class ProceduralGenerationCoordinator:
             self._record_provider_result(
                 job_id, attempt_id, operation, result.usage
             )
-            if cancelled.is_set() and backend == "local":
+            work = procedural.WorkBudget(
+                deadline=deadline,
+                cancelled=cancelled.is_set,
+                monotonic=self._monotonic,
+            )
+            try:
+                work.check()
+                recipe_bytes = _json_bytes(result.recipe, work)
+            except procedural.WorkCancelled:
                 self._finish_cancelled(job_id, attempt_id)
                 return
-
-            recipe_bytes = (
-                json.dumps(result.recipe, sort_keys=True, separators=(",", ":"))
-                + "\n"
-            ).encode("utf-8")
+            except procedural.WorkDeadlineExceeded as error:
+                self._fail_attempt(
+                    job_id,
+                    attempt_id,
+                    operation,
+                    "timeout",
+                    usage=result.usage,
+                )
+                self._finish_job_failure(job_id, attempt_id, "timeout", error)
+                return
             recipe_asset = self._library.bank_asset(
                 job_id,
                 kind="recipe",
@@ -491,12 +571,33 @@ class ProceduralGenerationCoordinator:
                 mime_type="application/json",
                 origin=f"procedural:{attempt_id}:recipe",
             )
+
+            def record_recipe(current: dict) -> None:
+                _attempt(current, attempt_id)["recipe_asset_id"] = recipe_asset[
+                    "asset_id"
+                ]
+
+            self._library.update_manifest(job_id, record_recipe)
             try:
+                render_progress = self._begin_work_stage(
+                    job_id,
+                    attempt_id,
+                    "rendering",
+                    request.frame_count,
+                )
                 frames = procedural.render_recipe(
                     result.recipe,
                     width=request.width,
                     height=request.height,
                     frame_count=request.frame_count,
+                    work=work,
+                    progress=lambda completed, _total: render_progress(completed),
+                )
+                quality_progress = self._begin_work_stage(
+                    job_id,
+                    attempt_id,
+                    "quality_check",
+                    request.frame_count,
                 )
                 quality = procedural.validate_quality(
                     result.recipe,
@@ -504,7 +605,25 @@ class ProceduralGenerationCoordinator:
                     width=request.width,
                     height=request.height,
                     frame_count=request.frame_count,
+                    work=work,
+                    progress=lambda completed, total: quality_progress(
+                        (completed * request.frame_count + total - 1) // total
+                    ),
                 )
+            except procedural.WorkCancelled:
+                self._finish_cancelled(job_id, attempt_id)
+                return
+            except procedural.WorkDeadlineExceeded as error:
+                self._fail_attempt(
+                    job_id,
+                    attempt_id,
+                    operation,
+                    "timeout",
+                    usage=result.usage,
+                    recipe_asset_id=recipe_asset["asset_id"],
+                )
+                self._finish_job_failure(job_id, attempt_id, "timeout", error)
+                return
             except procedural.QualityError as error:
                 metrics = None if error.metrics is None else error.metrics.to_dict()
                 self._fail_attempt(
@@ -537,67 +656,125 @@ class ProceduralGenerationCoordinator:
                 )
                 return
 
-            if cancelled.is_set() and backend == "local":
-                self._finish_cancelled(job_id, attempt_id)
-                return
             quality_value = quality.to_dict()
 
             def rendering_complete(current: dict) -> None:
                 attempt = _attempt(current, attempt_id)
                 attempt["quality"] = quality_value
                 attempt["recipe_asset_id"] = recipe_asset["asset_id"]
-                attempt["phase"] = "artifact_banking"
-                current["phase"] = "artifact_banking"
 
             self._library.update_manifest(job_id, rendering_complete)
-            durations = procedural.gif_durations(
-                request.frame_count, FASTEST_FRAME_DURATION_MS
+            banking_progress = self._begin_work_stage(
+                job_id,
+                attempt_id,
+                "banking",
+                request.frame_count,
             )
-            raster_bytes = _gif_bytes(frames, durations)
-            if cancelled.is_set() and backend == "local":
-                self._finish_cancelled(job_id, attempt_id)
-                return
-            preview_frames = [
-                frame.resize(
-                    (request.width * 40, request.height * 40),
-                    Image.Resampling.NEAREST,
+
+            def report_banking(completed: int) -> None:
+                banking_progress(
+                    min(request.frame_count, (completed + 5) // 6)
                 )
-                for frame in frames
-            ]
-            preview_bytes = _gif_bytes(preview_frames, durations)
-            if cancelled.is_set() and backend == "local":
+
+            try:
+                durations = procedural.gif_durations(
+                    request.frame_count, FASTEST_FRAME_DURATION_MS
+                )
+                raster_bytes = _gif_bytes(
+                    frames,
+                    durations,
+                    work=work,
+                    progress=lambda completed, _total: report_banking(completed),
+                )
+                preview_frames = []
+                preview_offset = request.frame_count * 2
+                for frame_index, frame in enumerate(frames):
+                    work.check()
+                    preview_frames.append(
+                        frame.resize(
+                            (request.width * 40, request.height * 40),
+                            Image.Resampling.NEAREST,
+                        )
+                    )
+                    report_banking(preview_offset + frame_index + 1)
+                preview_encode_offset = request.frame_count * 3
+                preview_bytes = _gif_bytes(
+                    preview_frames,
+                    durations,
+                    work=work,
+                    progress=lambda completed, _total: report_banking(
+                        preview_encode_offset + completed
+                    ),
+                )
+                mapping_offset = request.frame_count * 5
+                mapped = procedural.map_frames_to_led_tracks(
+                    frames,
+                    duration_ms=FASTEST_FRAME_DURATION_MS,
+                    product_id=target["product_id"],
+                    targets=target["targets"],
+                    work=work,
+                    progress=lambda completed, _total: report_banking(
+                        mapping_offset + completed
+                    ),
+                )
+                mapped_bytes = _json_bytes(mapped, work)
+                work.check()
+                raster_asset = self._library.bank_asset(
+                    job_id,
+                    kind="raster_animation",
+                    data=raster_bytes,
+                    mime_type="image/gif",
+                    origin=f"procedural:{attempt_id}:raster",
+                )
+                work.check()
+                preview_asset = self._library.bank_asset(
+                    job_id,
+                    kind="preview_animation",
+                    data=preview_bytes,
+                    mime_type="image/gif",
+                    origin=f"procedural:{attempt_id}:preview",
+                )
+                work.check()
+                mapped_asset = self._library.bank_asset(
+                    job_id,
+                    kind="mapped_result",
+                    data=mapped_bytes,
+                    mime_type="application/json",
+                    origin=f"procedural:{attempt_id}:mapped",
+                )
+                work.check()
+            except procedural.WorkCancelled:
                 self._finish_cancelled(job_id, attempt_id)
                 return
-            mapped = procedural.map_frames_to_led_tracks(
-                frames,
-                duration_ms=FASTEST_FRAME_DURATION_MS,
-                product_id=target["product_id"],
-                targets=target["targets"],
-            )
-            mapped_bytes = (
-                json.dumps(mapped, sort_keys=True, separators=(",", ":")) + "\n"
-            ).encode("utf-8")
-            raster_asset = self._library.bank_asset(
-                job_id,
-                kind="raster_animation",
-                data=raster_bytes,
-                mime_type="image/gif",
-                origin=f"procedural:{attempt_id}:raster",
-            )
-            preview_asset = self._library.bank_asset(
-                job_id,
-                kind="preview_animation",
-                data=preview_bytes,
-                mime_type="image/gif",
-                origin=f"procedural:{attempt_id}:preview",
-            )
-            mapped_asset = self._library.bank_asset(
-                job_id,
-                kind="mapped_result",
-                data=mapped_bytes,
-                mime_type="application/json",
-                origin=f"procedural:{attempt_id}:mapped",
-            )
+            except procedural.WorkDeadlineExceeded as error:
+                self._fail_attempt(
+                    job_id,
+                    attempt_id,
+                    operation,
+                    "timeout",
+                    usage=result.usage,
+                    quality=quality_value,
+                    recipe_asset_id=recipe_asset["asset_id"],
+                )
+                self._finish_job_failure(job_id, attempt_id, "timeout", error)
+                return
+            except Exception as error:
+                self._fail_attempt(
+                    job_id,
+                    attempt_id,
+                    operation,
+                    "artifact_failed",
+                    usage=result.usage,
+                    quality=quality_value,
+                    recipe_asset_id=recipe_asset["asset_id"],
+                )
+                self._finish_job_failure(
+                    job_id,
+                    attempt_id,
+                    "artifact_failed",
+                    error,
+                )
+                return
             timestamp = _now_iso()
 
             def finish(current: dict) -> None:
