@@ -45,7 +45,11 @@
   source/frame/preview/mapping/status/progress field before mutation, skips an
   already-consistent manifest, retains an existing completion timestamp during
   genuine repair, and leaves normalized-in-memory v1 bytes untouched. The next
-  slice is F13's non-destructive settings read failure handling.
+  F13 is complete on the current tree: transient settings I/O and newer schema
+  versions return distinct pathless statuses without renaming or overwriting
+  exact bytes, updates fail closed with typed errors, and only confirmed
+  encoding/JSON/schema corruption enters quarantine. The next slice is F17's
+  explicit blocked-migration repair path.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

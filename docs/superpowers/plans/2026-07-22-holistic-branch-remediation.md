@@ -226,7 +226,7 @@ local no-provider browser acceptance at the end of the phase.
   `completed_at`. Cover v1 byte preservation and repeated reconciliation.
   Commit: `fix: preserve completed video manifests on startup`.
 
-- [ ] **F13 — Preserve settings on transient or future-version reads.** Split
+- [x] **F13 — Preserve settings on transient or future-version reads.** Split
   corruption (`JSONDecodeError`, invalid encoding/schema content) from I/O
   unavailability and unsupported future schema. Quarantine only confirmed
   corrupt bytes; return pathless typed status for transient I/O and future

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import errno
 import json
 import os
 import shutil
@@ -230,6 +231,69 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertEqual(V5_DEFAULTS, settings)
         self.assertIsNone(reason)
         self.assertFalse(store.settings_path().exists())
+
+    def test_transient_read_errors_preserve_exact_settings_bytes(self) -> None:
+        original = self._write(copy.deepcopy(V5_DEFAULTS))
+        path = store.settings_path()
+        real_read_text = Path.read_text
+
+        for error_number in (errno.EMFILE, errno.EACCES, errno.EIO):
+            with self.subTest(errno=error_number):
+                def fail_settings_read(candidate, *args, **kwargs):
+                    if candidate == path:
+                        raise OSError(error_number, "transient settings read failure")
+                    return real_read_text(candidate, *args, **kwargs)
+
+                with patch.object(Path, "read_text", fail_settings_read):
+                    settings, reason = store.load_settings_with_status(
+                        credential_store=self.vault
+                    )
+
+                self.assertEqual(V5_DEFAULTS, settings)
+                self.assertEqual("settings_unavailable", reason)
+                self.assertEqual(original, path.read_bytes())
+                self.assertFalse(path.with_name(path.name + ".bad").exists())
+
+    def test_updates_fail_closed_when_settings_cannot_be_read(self) -> None:
+        original = self._write(copy.deepcopy(V5_DEFAULTS))
+        path = store.settings_path()
+        real_read_text = Path.read_text
+
+        def fail_settings_read(candidate, *args, **kwargs):
+            if candidate == path:
+                raise OSError(errno.EACCES, "transient settings read failure")
+            return real_read_text(candidate, *args, **kwargs)
+
+        with (
+            patch.object(Path, "read_text", fail_settings_read),
+            self.assertRaises(store.SettingsUnavailableError),
+        ):
+            store.update_generation_settings(
+                {"loop_mode": "ping_pong"}, credential_store=self.vault
+            )
+
+        self.assertEqual(original, path.read_bytes())
+        self.assertFalse(path.with_name(path.name + ".bad").exists())
+
+    def test_future_schema_is_reported_without_rename_or_overwrite(self) -> None:
+        path = store.settings_path()
+        original = self._write(
+            {"schema_version": store.SETTINGS_SCHEMA_VERSION + 1, "future": {"kept": True}}
+        )
+
+        settings, reason = store.load_settings_with_status(
+            credential_store=self.vault
+        )
+
+        self.assertEqual(V5_DEFAULTS, settings)
+        self.assertEqual("settings_schema_unsupported", reason)
+        self.assertEqual(original, path.read_bytes())
+        self.assertFalse(path.with_name(path.name + ".bad").exists())
+        with self.assertRaises(store.SettingsSchemaUnsupportedError):
+            store.update_generation_settings(
+                {"loop_mode": "ping_pong"}, credential_store=self.vault
+            )
+        self.assertEqual(original, path.read_bytes())
 
     def test_v2_key_migration_is_verified_before_plaintext_is_removed(self) -> None:
         library = self.directory / "library"

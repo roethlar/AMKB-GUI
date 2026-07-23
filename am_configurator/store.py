@@ -308,6 +308,24 @@ _KNOWN_RENDERERS = _LEGACY_RENDERERS
 _KNOWN_KEY_PROVIDERS = ("xai",)
 
 
+class SettingsUnavailableError(ValueError):
+    """Settings could not be read or written without risking existing bytes."""
+
+    code = "settings_unavailable"
+
+    def __init__(self) -> None:
+        super().__init__("Settings are temporarily unavailable.")
+
+
+class SettingsSchemaUnsupportedError(ValueError):
+    """Settings were written by a newer, unsupported application version."""
+
+    code = "settings_schema_unsupported"
+
+    def __init__(self) -> None:
+        super().__init__("Settings require a newer application version.")
+
+
 def _default_settings() -> dict:
     """A fresh copy of the credential-free Ollama/API-only schema v5 defaults."""
     return {
@@ -934,6 +952,8 @@ def _decode_settings(values: object) -> tuple[dict, str | None, bool]:
                 legacy["llm"]["keys"].get("xai"),
                 True,
             )
+        if type(version) is int and version > SETTINGS_SCHEMA_VERSION:
+            raise SettingsSchemaUnsupportedError()
         if "schema_version" in values and version != 1:
             raise ValueError("unsupported settings schema_version")
     legacy = _validate_legacy_settings(values)
@@ -1031,7 +1051,11 @@ def load_settings_with_status(*, credential_store=None) -> tuple[dict, str | Non
     path = settings_path()
     try:
         loaded = _read_settings_file(path)
-    except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError):
+    except SettingsSchemaUnsupportedError:
+        return _default_settings(), SettingsSchemaUnsupportedError.code
+    except OSError:
+        return _default_settings(), SettingsUnavailableError.code
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
         _quarantine_settings(path)
         return _default_settings(), None
     if loaded is None:
@@ -1041,23 +1065,30 @@ def load_settings_with_status(*, credential_store=None) -> tuple[dict, str | Non
         return normalized, None
 
     # Re-read under the lock so a concurrent migration or v5 update wins.
-    with _settings_lock():
-        try:
-            current = _read_settings_file(path)
-        except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError):
-            _quarantine_settings(path)
-            return _default_settings(), None
-        if current is None:
-            return _default_settings(), None
-        normalized, legacy_key, migration_required = current
-        if not migration_required:
-            return normalized, None
-        return _migrate_legacy_settings(
-            path,
-            normalized,
-            legacy_key,
-            credential_store=credential_store,
-        )
+    try:
+        with _settings_lock():
+            try:
+                current = _read_settings_file(path)
+            except SettingsSchemaUnsupportedError:
+                return _default_settings(), SettingsSchemaUnsupportedError.code
+            except OSError:
+                return _default_settings(), SettingsUnavailableError.code
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+                _quarantine_settings(path)
+                return _default_settings(), None
+            if current is None:
+                return _default_settings(), None
+            normalized, legacy_key, migration_required = current
+            if not migration_required:
+                return normalized, None
+            return _migrate_legacy_settings(
+                path,
+                normalized,
+                legacy_key,
+                credential_store=credential_store,
+            )
+    except OSError:
+        return normalized, SettingsUnavailableError.code
 
 
 def load_settings(*, credential_store=None) -> dict:
@@ -1069,7 +1100,11 @@ def load_settings(*, credential_store=None) -> dict:
 def _settings_for_update(path: Path, *, credential_store=None) -> dict:
     try:
         loaded = _read_settings_file(path)
-    except (json.JSONDecodeError, UnicodeDecodeError, OSError, ValueError):
+    except SettingsSchemaUnsupportedError:
+        raise
+    except OSError:
+        raise SettingsUnavailableError() from None
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
         _quarantine_settings(path)
         return _default_settings()
     if loaded is None:
