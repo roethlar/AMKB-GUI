@@ -195,6 +195,13 @@ class ReleaseInfoTests(unittest.TestCase):
         for variable in ("$gpg", "$bash", "$cc", "$ar", "$ranlib", "$strip"):
             self.assertIn(variable, workflow)
 
+    def test_desktop_workflow_has_no_obsolete_vulkan_setup(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotIn("vulkan", workflow.casefold())
+
     def test_brand_icon_is_wired_into_every_distribution(self) -> None:
         icon_paths = {
             "assets/am-configurator.png": (1024, 1024),

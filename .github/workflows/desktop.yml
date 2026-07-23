@@ -56,10 +56,6 @@ jobs:
       - name: Install FFmpeg build prerequisites (Linux)
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install -y build-essential zlib1g-dev gnupg
-      - name: Install local-AI build prerequisites (Windows)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: choco install vulkan-sdk -y --no-progress
       - name: Install FFmpeg build prerequisites (Windows)
         if: matrix.platform == 'windows'
         id: msys2

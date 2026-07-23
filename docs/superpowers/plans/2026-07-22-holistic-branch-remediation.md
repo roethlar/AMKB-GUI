@@ -441,7 +441,7 @@ local no-provider browser acceptance at the end of the phase.
   profile that is disabled. Add workflow static/plan tests. Commit:
   `fix: locate msys2 tools in windows builds`.
 
-- [ ] **F07 — Remove obsolete Vulkan workflow setup.** After F34 deletes the
+- [x] **F07 — Remove obsolete Vulkan workflow setup.** After F34 deletes the
   llama build, remove Vulkan SDK installation, environment export, cache, and
   validation from Windows workflows. Add a static workflow guard proving no
   Vulkan dependency remains. Close the finding by deletion rather than making

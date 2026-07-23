@@ -212,8 +212,11 @@
   `setup-msys2`'s actual installation output, derives every GPG/Bash/compiler
   path from it, and prepends its native tool directories for the PowerShell
   process. Generated profile-less Bash commands also set
-  `/usr/bin:/mingw64/bin` explicitly. The next slice is Phase 7 / F07's removal
-  of obsolete Vulkan workflow setup.
+  `/usr/bin:/mingw64/bin` explicitly. F07 is complete on the current tree: the
+  obsolete Windows Vulkan SDK installation is gone, and a release-workflow
+  guard prohibits any Vulkan setup from returning now that direct GGUF runtime
+  builds have been removed. The next slice is Phase 7 / F12's llama build-
+  command prohibition.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -523,7 +526,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 7 / F07's obsolete Vulkan workflow removal. Do not
+  continuing with Phase 7 / F12's llama build-command prohibition. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows
