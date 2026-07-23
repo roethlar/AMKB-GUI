@@ -375,7 +375,7 @@ local no-provider browser acceptance at the end of the phase.
   provider construction, render/mapping, and failure propagation execute.
   Commit: `test: guard primary ollama smoke behavior`.
 
-- [ ] **F38 — Integrate real capability discovery with selection routes.** Run
+- [x] **F38 — Integrate real capability discovery with selection routes.** Run
   `AICapabilityService.discover_local_models` through the real server route and
   real `OllamaModel.public` contract using a fake transport. Cover unavailable,
   missing selection, exact persisted digest, and malformed contract. Commit:

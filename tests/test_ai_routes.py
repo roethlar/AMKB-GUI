@@ -13,11 +13,12 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 from am_configurator import store
-from am_configurator.ai_capability import AICapabilityError
+from am_configurator.ai_capability import AICapabilityError, AICapabilityService
 from am_configurator.credentials import MemoryCredentialStore
 from am_configurator.generation import OperationGate
 from am_configurator.library import GeneratedAssetLibrary
 from am_configurator.llm import ProviderError
+from am_configurator.ollama_client import OLLAMA_MODELS_URL, OllamaClient
 from am_configurator.procedural_generation import ProceduralGenerationCoordinator
 from am_configurator.recipe_provider import RecipeResult
 from am_configurator.server import create_server
@@ -88,6 +89,20 @@ class _Provider:
             model_id="ornith:latest",
             usage=None,
         )
+
+
+class _OllamaResponse:
+    def __init__(self, value: object) -> None:
+        self._payload = json.dumps(value).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self, limit: int) -> bytes:
+        return self._payload[:limit]
 
 
 class _Capability:
@@ -354,6 +369,94 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.assertIsNone(
             store.load_settings(credential_store=self.credentials)["ai"]["local"]["model_id"]
         )
+
+    def test_real_ollama_discovery_and_selection_cross_the_server_contract(self) -> None:
+        digest = "d" * 64
+        model = {
+            "name": "ornith:latest",
+            "model": "ornith:latest",
+            "digest": digest,
+            "size": 5_629_110_568,
+            "capabilities": ["completion"],
+            "details": {
+                "parameter_size": "9.0B",
+                "quantization_level": "Q4_K_M",
+            },
+        }
+        transport = {"outcome": OSError("offline")}
+        calls: list[tuple[str, str, float]] = []
+
+        def opener(request, timeout):
+            calls.append((request.full_url, request.get_method(), timeout))
+            outcome = transport["outcome"]
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return _OllamaResponse(outcome)
+
+        self.server.state._ai_capability = None
+        self.server.state._ollama_client = OllamaClient(opener=opener)
+
+        status, response = self._request("GET", "/api/ai/local/models")
+        self.assertEqual(200, status)
+        self.assertEqual({"available": False, "models": []}, response)
+        self.assertIsInstance(self.server.state.ai_services(), AICapabilityService)
+
+        transport["outcome"] = {"models": [model]}
+        status, response = self._request("GET", "/api/ai/local/models")
+        self.assertEqual(200, status)
+        self.assertEqual(
+            {
+                "available": True,
+                "models": [
+                    {
+                        "model_id": "ornith:latest",
+                        "digest": digest,
+                        "size_bytes": 5_629_110_568,
+                        "parameter_size": "9.0B",
+                        "quantization": "Q4_K_M",
+                    }
+                ],
+            },
+            response,
+        )
+
+        status, _response = self._request(
+            "POST", "/api/ai/local/select", {"model_id": "missing:latest"}
+        )
+        self.assertEqual(400, status)
+        local = store.load_settings(credential_store=self.credentials)["ai"]["local"]
+        self.assertEqual(
+            {
+                "model_id": None,
+                "model_digest": None,
+                "setup_fingerprint": None,
+            },
+            local,
+        )
+
+        status, _response = self._request(
+            "POST", "/api/ai/local/select", {"model_id": "ornith:latest"}
+        )
+        self.assertEqual(200, status)
+        local = store.load_settings(credential_store=self.credentials)["ai"]["local"]
+        self.assertEqual(
+            {
+                "model_id": "ornith:latest",
+                "model_digest": digest,
+                "setup_fingerprint": None,
+            },
+            local,
+        )
+
+        transport["outcome"] = {"models": {"not": "a list"}}
+        status, response = self._request("GET", "/api/ai/local/models")
+        self.assertEqual(200, status)
+        self.assertEqual({"available": False, "models": []}, response)
+        self.assertEqual(5, len(calls))
+        for url, method, timeout in calls:
+            self.assertEqual(OLLAMA_MODELS_URL, url)
+            self.assertEqual("GET", method)
+            self.assertGreater(timeout, 0)
 
     def test_invalid_credential_input_is_a_stable_non_secret_client_error(self) -> None:
         secret = "sk-route\nsecret"

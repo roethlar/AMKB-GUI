@@ -166,7 +166,12 @@
   the remaining source-substring smoke assertion is gone, and executable guards
   prove both recipe providers are constructed, both render/mapping paths run,
   and disabled status, construction, rendering, and mapping failures propagate.
-  The next slice is F38's real-route Ollama discovery/selection integration.
+  F38 is complete on the current tree: the authenticated model discovery and
+  selection routes now have an integration regression through the production
+  capability service, fixed-loopback client parser, and `OllamaModel.public`
+  projection. It covers unavailable and malformed inventories, a missing model,
+  exact public metadata, and persistence of the discovered name and digest. The
+  next slice is F39's independent coverage of every Ollama eligibility defense.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -472,7 +477,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 5 / F38's real-route Ollama discovery and selection. Do not
+  continuing with Phase 5 / F39's Ollama eligibility defenses. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows
