@@ -177,8 +177,13 @@
   404 mapping. F40 is complete on the current tree: a selected model replaced
   under the same Ollama name but a new digest becomes unavailable, reselection
   makes the new identity verified but setup-required, and only a successful new
-  setup writes its fingerprint and restores readiness. The next slice is F41's
-  exact local coordinator retry-ceiling proof.
+  setup writes its fingerprint and restores readiness. F41 is complete on the
+  current tree: the coordinator and real Ollama recipe adapter stop after one
+  initial call plus two corrected retries across schema and quality failures,
+  use three deterministic distinct seeds and correction prompts, persist the
+  terminal failure, and release admission. The curated API path remains exactly
+  one request without automatic retry. The next slice is F44's exact Ollama
+  regression-evidence record.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -484,7 +489,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 5 / F41's local retry ceiling. Do not
+  continuing with Phase 5 / F44's Ollama guard-evidence record. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

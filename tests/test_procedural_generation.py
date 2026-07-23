@@ -223,6 +223,94 @@ class ProceduralGenerationTests(unittest.TestCase):
         self.assertEqual(1, provider.calls[1][0])
         self.assertIn("brightness", provider.calls[1][1])
 
+    def test_real_ollama_provider_stops_after_two_corrected_retries(self) -> None:
+        class SequencedOllamaClient:
+            def __init__(self) -> None:
+                self.responses = [
+                    {"message": {"content": "{}"}},
+                    {"message": {"content": json.dumps(_dim_recipe())}},
+                    {"message": {"content": json.dumps(_dim_recipe())}},
+                ]
+                self.calls: list[dict] = []
+
+            def chat(self, payload, *, deadline, cancelled):
+                del deadline, cancelled
+                self.calls.append(copy.deepcopy(payload))
+                if len(self.calls) > len(self.responses):
+                    raise AssertionError("the coordinator made a fourth Ollama call")
+                return self.responses[len(self.calls) - 1]
+
+        model = OllamaModel(
+            model_id="ornith:latest",
+            digest="a" * 64,
+            size_bytes=5_629_110_568,
+            parameter_size="9.0B",
+            quantization="Q4_K_M",
+        )
+        client = SequencedOllamaClient()
+        provider = OllamaRecipeProvider(model, client=client)
+
+        class Capability:
+            @staticmethod
+            def require_ready():
+                return {
+                    "enabled": True,
+                    "ready": True,
+                    "backend": "local",
+                    "local": {
+                        "model_id": model.model_id,
+                        "provider": "ollama",
+                    },
+                    "api": {"provider": "xai", "model_id": "grok-4.5"},
+                }
+
+            @staticmethod
+            def provider_for_generation():
+                return provider
+
+        gate = OperationGate()
+        coordinator = ProceduralGenerationCoordinator(
+            self.library,
+            Capability(),
+            operation_gate=gate,
+            launcher=self._inline,
+            operation_timeout_seconds=30,
+        )
+
+        started = coordinator.start_effect(
+            prompt="Exhaust the local correction budget",
+            target=TARGET,
+            loop_mode="smooth",
+        )
+        manifest = self.library.load_manifest(started["job_id"])
+
+        self.assertEqual(3, len(client.calls))
+        seeds = [call["options"]["seed"] for call in client.calls]
+        self.assertEqual(3, len(set(seeds)))
+        prompts = [call["messages"][1]["content"] for call in client.calls]
+        self.assertNotIn("Retry correction:", prompts[0])
+        self.assertIn("recipe schema or semantic validation", prompts[1])
+        self.assertIn("brightness", prompts[2])
+        self.assertNotEqual(prompts[1], prompts[2])
+
+        self.assertEqual("failed", manifest["status"])
+        self.assertEqual("effect_failed", manifest["phase"])
+        self.assertEqual(3, len(manifest["procedural_attempts"]))
+        self.assertEqual(
+            ["bad_response", "quality_failed", "quality_failed"],
+            [attempt["error_code"] for attempt in manifest["procedural_attempts"]],
+        )
+        self.assertTrue(
+            all(
+                attempt["status"] == "failed"
+                for attempt in manifest["procedural_attempts"]
+            )
+        )
+        self.assertEqual("quality_failed", manifest["errors"][-1]["code"])
+        self.assertFalse(gate.is_active)
+        replacement, _cancelled = gate.begin("after-retry-ceiling")
+        gate.finish(replacement)
+
     def test_disabled_capability_creates_no_library_or_provider_work(self) -> None:
         provider = _Provider([_dense_recipe()])
         coordinator = ProceduralGenerationCoordinator(

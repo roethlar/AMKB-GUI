@@ -390,7 +390,7 @@ local no-provider browser acceptance at the end of the phase.
   selected name with a new digest and prove readiness becomes false until a new
   setup test. Commit: `test: invalidate replaced ollama models`.
 
-- [ ] **F41 — Prove the coordinator retry ceiling.** Feed three consecutive
+- [x] **F41 — Prove the coordinator retry ceiling.** Feed three consecutive
   schema/quality failures through Ollama, assert exactly initial plus two
   retries, terminal failure, distinct deterministic seeds/corrections, and no
   fourth call. Separately assert curated API generation remains exactly one paid
