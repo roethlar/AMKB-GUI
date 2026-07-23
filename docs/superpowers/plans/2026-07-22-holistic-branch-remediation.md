@@ -319,7 +319,7 @@ local no-provider browser acceptance at the end of the phase.
   capability polling contains no GGUF hash, runtime resolution, GPU probe, or
   model-file access after Phase 0. Commit: `fix: avoid disabled ai capability probes`.
 
-- [ ] **F14 — Handle non-ASCII auth headers cleanly.** Convert candidate/header
+- [x] **F14 — Handle non-ASCII auth headers cleanly.** Convert candidate/header
   tokens to a single byte representation with explicit ASCII rejection before
   `compare_digest`. Every malformed token receives 403 without a traceback or
   dropped connection. Test with a raw latin-1 header. Commit:

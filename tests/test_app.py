@@ -2222,6 +2222,38 @@ class LedGenerateEndpointTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
 
+    def test_non_ascii_auth_header_is_cleanly_rejected(self) -> None:
+        for method, body in ((b"GET", b""), (b"POST", b"{}")):
+            with self.subTest(method=method.decode("ascii")):
+                with socket.create_connection(
+                    ("127.0.0.1", self._server.server_port),
+                    timeout=5,
+                ) as connection:
+                    request = (
+                        method
+                        + b" /api/settings HTTP/1.1\r\n"
+                        + b"Host: 127.0.0.1\r\n"
+                        + b"X-AM-Token: \xff\r\n"
+                        + b"Content-Length: "
+                        + str(len(body)).encode("ascii")
+                        + b"\r\nConnection: close\r\n\r\n"
+                        + body
+                    )
+                    connection.sendall(request)
+                    response = bytearray()
+                    while True:
+                        chunk = connection.recv(4096)
+                        if not chunk:
+                            break
+                        response.extend(chunk)
+
+                headers, payload = bytes(response).split(b"\r\n\r\n", 1)
+                self.assertIn(b" 403 ", headers.splitlines()[0])
+                self.assertEqual(
+                    {"error": "Unauthorized local request."},
+                    json.loads(payload),
+                )
+
     def test_settings_round_trip_masks_key(self) -> None:
         key = "sk-secret-9WXYZ7788"
         status, saved = self._request(

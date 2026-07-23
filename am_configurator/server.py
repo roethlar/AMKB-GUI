@@ -1676,7 +1676,16 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _authorized(self) -> bool:
-        return secrets.compare_digest(self.headers.get("X-AM-Token", ""), self.state.token)
+        candidate = self.headers.get("X-AM-Token", "")
+        expected = self.state.token
+        if not isinstance(candidate, str) or not isinstance(expected, str):
+            return False
+        try:
+            candidate_bytes = candidate.encode("ascii")
+            expected_bytes = expected.encode("ascii")
+        except UnicodeEncodeError:
+            return False
+        return secrets.compare_digest(candidate_bytes, expected_bytes)
 
     def _body(self) -> dict[str, Any]:
         try:

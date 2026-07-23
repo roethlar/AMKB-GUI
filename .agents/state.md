@@ -113,8 +113,12 @@
   status contacts only the selected fixed-loopback Ollama or curated API
   credential backend. Unprobed public fields remain schema-compatible and
   conservatively unverified, and a source guard excludes every managed model or
-  runtime path from capability polling. The next slice is F14's malformed local
-  authentication-header rejection.
+  runtime path from capability polling. F14 is complete on the current tree:
+  local authentication rejects non-ASCII header values before constant-time
+  comparison, then compares only explicit ASCII byte representations. Raw GET
+  and POST requests with a latin-1 token receive the same JSON 403 as every
+  other invalid token without a handler traceback or dropped connection. The
+  next slice is F15's universal unexpected-HTTP-error redaction.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
