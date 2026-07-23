@@ -421,7 +421,7 @@ local no-provider browser acceptance at the end of the phase.
   CyberBoard, 15x6, 18x7, and 16x5 qualification frames; preview and mapped
   output must represent the same colors. Commit: `fix: preserve exact procedural gif colors`.
 
-- [ ] **F47 — Support percent signs in Library roots.** Escape literal `%` in
+- [x] **F47 — Support percent signs in Library roots.** Escape literal `%` in
   directory components for FFmpeg image2 while retaining exactly one `%04d`
   filename conversion, or stage through an owned safe path and atomically bank
   afterward. Test `%`, `%%`, `%d`, spaces, and Unicode roots. Commit:

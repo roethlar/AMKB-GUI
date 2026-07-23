@@ -553,6 +553,13 @@ def _absolute_output_pattern(value: object) -> Path:
     return pattern
 
 
+def _ffmpeg_image2_pattern(pattern: Path) -> str:
+    """Escape literal parent-path percents while retaining the frame token."""
+
+    escaped_parent = os.fspath(pattern.parent).replace("%", "%%")
+    return os.path.join(escaped_parent, pattern.name)
+
+
 def build_ffmpeg_frame_command(
     ffmpeg_path: object,
     source_path: object,
@@ -616,7 +623,7 @@ def build_ffmpeg_frame_command(
         "png",
         "-f",
         "image2",
-        str(pattern),
+        _ffmpeg_image2_pattern(pattern),
     )
 
 

@@ -535,17 +535,43 @@ class _FrameRunner:
         width, height = (int(value) for value in crop[5:].split(":", 2)[:2])
         if self.wrong_dimensions:
             width += 1
-        pattern = Path(command[-1])
+        pattern = str(command[-1])
         for index in range(1, count + 1):
             color = (index % 256, (index * 3) % 256, (index * 7) % 256)
             mode = "RGBA" if self.wrong_mode else "RGB"
             fill = (*color, 255) if self.wrong_mode else color
             Image.new(mode, (width, height), fill).save(
-                Path(str(pattern).replace("%04d", f"{index:04d}")),
+                Path(_expand_image2_pattern(pattern, index)),
                 format="PNG",
             )
         if self.extra_output:
-            (pattern.parent / "unexpected.txt").write_text("not a frame")
+            (Path(_expand_image2_pattern(pattern, 1)).parent / "unexpected.txt").write_text(
+                "not a frame"
+            )
+
+
+def _expand_image2_pattern(pattern: str, frame_index: int) -> str:
+    """Emulate FFmpeg's percent escaping for the fake frame runner."""
+
+    expanded: list[str] = []
+    placeholders = 0
+    index = 0
+    while index < len(pattern):
+        if pattern.startswith("%%", index):
+            expanded.append("%")
+            index += 2
+        elif pattern.startswith("%04d", index):
+            expanded.append(f"{frame_index:04d}")
+            placeholders += 1
+            index += 4
+        elif pattern[index] == "%":
+            raise AssertionError("FFmpeg image2 command contains an unescaped percent")
+        else:
+            expanded.append(pattern[index])
+            index += 1
+    if placeholders != 1:
+        raise AssertionError("FFmpeg image2 command must contain exactly one frame token")
+    return "".join(expanded)
 
 
 class _BlockingProcess:
@@ -675,6 +701,50 @@ class AnimationProcessorTests(unittest.TestCase):
                     self.assertEqual(image.size, (width, height))
                 self.assertEqual(list(work.iterdir()), [])
                 self.assertEqual(source.read_bytes(), _mp4_bytes())
+
+    def test_library_roots_with_percent_spaces_and_unicode_publish_frames(self) -> None:
+        components = (
+            "percent%root",
+            "double%%root",
+            "format%d root",
+            "format%04d root",
+            "spaces in root",
+            "Unicode 灯光 root",
+        )
+        for component in components:
+            with self.subTest(component=component), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp) / component
+                root.mkdir()
+                binary, source, work, destination = self._paths(str(root))
+                runner = _FrameRunner()
+
+                result = media.process_video_frames(
+                    source,
+                    destination,
+                    work,
+                    ffmpeg_path=binary,
+                    width=40,
+                    height=5,
+                    frame_count=80,
+                    loop_mode="none",
+                    deadline=time.monotonic() + 30,
+                    runner=runner,
+                )
+
+                encoded_pattern = runner.calls[0][-1]
+                first_frame = Path(_expand_image2_pattern(encoded_pattern, 1))
+                self.assertEqual(
+                    work.resolve(), first_frame.parent.parent.parent.resolve()
+                )
+                self.assertEqual(
+                    encoded_pattern,
+                    os.path.join(
+                        os.fspath(first_frame.parent).replace("%", "%%"),
+                        "content-%04d.png",
+                    ),
+                )
+                self.assertEqual(80, result.frame_count)
+                self.assertTrue(all(path.is_file() for path in result.frame_paths))
 
     def test_invalid_ffmpeg_output_preserves_existing_frames_and_cleans_work(self) -> None:
         for runner in (

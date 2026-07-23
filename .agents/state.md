@@ -199,8 +199,12 @@
   exact per-frame palettes, reject a frame above GIF's 256-color limit before
   writing, and decode pixel-identically across all four supported raster
   geometries. Mapping the decoded raster or preview produces the same device
-  tracks as mapping the source. The next slice is Phase 6 / F47's support for
-  percent signs in Library media paths.
+  tracks as mapping the source. F47 is complete on the current tree: FFmpeg's
+  image2 output argument escapes every literal percent in the owned staging
+  path while retaining exactly one `%04d` filename conversion. End-to-end
+  processing now succeeds under Library roots containing `%`, `%%`, `%d`,
+  `%04d`, spaces, and Unicode. The next slice is Phase 6 / F48's portable media
+  backup fallback.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -510,7 +514,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 6 / F47's percent-safe media paths. Do not
+  continuing with Phase 6 / F48's portable media backup fallback. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows
