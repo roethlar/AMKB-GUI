@@ -69,8 +69,15 @@ test("Settings exposes only installed Ollama models and the curated API", () => 
   assert.match(js,/model_id/);
   assert.match(css,/\.check-row\s*>\s*span\s*\{[^}]*display:\s*grid[^}]*gap:/);
   const effect=js.slice(js.indexOf("async function startProceduralGeneration"),js.indexOf("function applyReviewedLighting",js.indexOf("async function startProceduralGeneration")));
-  assert.match(effect,/JSON\.stringify\(\{prompt,backend:state\.aiStatus\.backend,loop_mode:state\.animationLoopMode\}\)/);
+  assert.match(effect,/JSON\.stringify\(\{prompt,backend:state\.aiStatus\.backend,loop_mode:state\.animationLoopMode,document_revision:state\.documentRevision\}\)/);
   assert.doesNotMatch(effect,/model_path|model_id|frame_count|product_id:/);
+  assert.match(js,/api\("\/api\/document\/sync"/);
+  const fileOpen=js.slice(js.indexOf("async function readFiles"),js.indexOf("function saveConfig",js.indexOf("async function readFiles")));
+  assert.match(fileOpen,/await synchronizeOpenDocument\(\)/);
+  const deviceRead=js.slice(js.indexOf("async function readDevice"),js.indexOf("async function writeDevice"));
+  assert.match(deviceRead,/await synchronizeOpenDocument\(\)/);
+  const restore=js.slice(js.indexOf("async function returnToConnectedWorkspace"),js.indexOf("function deviceSwitchesWorkspace"));
+  assert.match(restore,/await synchronizeOpenDocument\(\)/);
 });
 
 test("API setup stays secondary, explicit, and confined to Settings", () => {

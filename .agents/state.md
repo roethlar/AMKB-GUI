@@ -26,8 +26,11 @@
   Apply as a one-shot action under executable reducer/DOM coverage. Phase 1 /
   F05 is complete on the current tree: CyberBoard, Relic, and AFA target controls
   are created as valid DOM buttons with preserved pressed/locked state and
-  executable selection coverage. The next slice is F10's server-owned open
-  document target.
+  executable selection coverage. Phase 1 / F10 is complete on the current tree:
+  a strict authenticated sync route stores an immutable validated document,
+  browser open/read/restore paths hold its opaque revision, and generation
+  rejects missing or stale revisions before using the server-derived target. The
+  next slice is F30's unchanged-backend re-enable path.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -333,7 +336,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 1 / F10's server-owned open document target. Do not
+  continuing with Phase 1 / F30's unchanged-backend re-enable path. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

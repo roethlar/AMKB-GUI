@@ -51,6 +51,30 @@ def _ready_status() -> dict:
     }
 
 
+def _valid_config(product_id: str) -> dict:
+    layer = {"layer": ["#00000000"] * 200}
+    return {
+        "product_info": {
+            "product_info_addr": "product_info_addr",
+            "product_id": product_id,
+        },
+        "page_num": 0,
+        "page_data": [],
+        "tab_key": [],
+        "tab_key_num": 0,
+        "macro_key": [],
+        "MACRO_key": [],
+        "MACRO_key_num": 0,
+        "exchange_key": [],
+        "exchange_num": 0,
+        "swap_key": [],
+        "swap_key_num": 0,
+        "Fn_key": [],
+        "Fn_key_num": 0,
+        "key_layer": {"valid": 1, "layer_num": 2, "layer_data": [layer, copy.deepcopy(layer)]},
+    }
+
+
 class _Provider:
     def __init__(self) -> None:
         self.calls = []
@@ -135,7 +159,7 @@ class OptionalAIRouteTests(unittest.TestCase):
         )
         config_path = Path(self.temporary.name) / "config.json"
         config_path.write_text(
-            json.dumps({"product_info": {"product_id": "AM21"}}),
+            json.dumps(_valid_config("AM21")),
             encoding="utf-8",
         )
         self.server, url = create_server(
@@ -151,6 +175,10 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.base = f"http://127.0.0.1:{self.server.server_port}"
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        status, initial = self._request("GET", "/api/config")
+        self.assertEqual(200, status)
+        self.document_revision = initial["document_revision"]
+        self.assertIsInstance(self.document_revision, str)
 
     def tearDown(self) -> None:
         self.server.shutdown()
@@ -185,6 +213,14 @@ class OptionalAIRouteTests(unittest.TestCase):
             raw = error.read()
             return error.code, json.loads(raw) if raw else None
 
+    def _sync_document(self, product_id: str) -> str:
+        status, response = self._request(
+            "POST", "/api/document/sync", {"config": _valid_config(product_id)}
+        )
+        self.assertEqual(200, status)
+        self.document_revision = response["revision"]
+        return self.document_revision
+
     def test_status_and_all_new_mutations_require_authentication(self) -> None:
         cases = (
             ("GET", "/api/ai/status", None),
@@ -195,12 +231,43 @@ class OptionalAIRouteTests(unittest.TestCase):
             ("POST", "/api/ai/local/select", {"model_id": "ornith:latest"}),
             ("POST", "/api/ai/local/gguf/select", {}),
             ("POST", "/api/ai/local/clear", {}),
+            ("POST", "/api/document/sync", {"config": _valid_config("AM21")}),
             ("POST", "/api/lighting/effects", {"prompt": "aurora", "backend": "local"}),
         )
         for method, path, body in cases:
             with self.subTest(path=path):
                 status, _response = self._request(method, path, body, token=None)
                 self.assertEqual(403, status)
+
+    def test_document_sync_is_strict_and_returns_an_opaque_revision(self) -> None:
+        config = _valid_config("AM21")
+        status, response = self._request(
+            "POST", "/api/document/sync", {"config": config}
+        )
+
+        self.assertEqual(200, status)
+        self.assertEqual({"revision"}, set(response))
+        self.assertIsInstance(response["revision"], str)
+        self.assertGreaterEqual(len(response["revision"]), 24)
+        self.assertNotIn("AM21", response["revision"])
+        config["product_info"]["product_id"] = "CB04"
+        status, current = self._request("GET", "/api/config")
+        self.assertEqual(200, status)
+        self.assertEqual("AM21", current["config"]["product_info"]["product_id"])
+        self.assertEqual(response["revision"], current["document_revision"])
+
+        status, _response = self._request(
+            "POST",
+            "/api/document/sync",
+            {"config": _valid_config("AM21"), "product_id": "CB04"},
+        )
+        self.assertEqual(400, status)
+        invalid = _valid_config("AM21")
+        invalid["key_layer"]["layer_data"][0]["layer"].pop()
+        status, _response = self._request(
+            "POST", "/api/document/sync", {"config": invalid}
+        )
+        self.assertEqual(400, status)
 
     def test_setup_routes_are_strict_pathless_and_never_echo_credentials(self) -> None:
         status, capability = self._request("GET", "/api/ai/status")
@@ -262,10 +329,15 @@ class OptionalAIRouteTests(unittest.TestCase):
         status, started = self._request(
             "POST",
             "/api/lighting/effects",
-            {"prompt": "Dense violet aurora", "backend": "local", "loop_mode": "smooth"},
+            {
+                "prompt": "Dense violet aurora",
+                "backend": "local",
+                "loop_mode": "smooth",
+                "document_revision": self.document_revision,
+            },
         )
         self.assertEqual(202, status)
-        self.assertEqual({"job_id"}, set(started))
+        self.assertEqual({"job_id", "target"}, set(started))
         self.assertEqual(1, len(self.provider.calls))
         request = self.provider.calls[0]
         self.assertEqual((18, 7, 200), (request.width, request.height, request.frame_count))
@@ -296,6 +368,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             {
                 "prompt": "attempted override",
                 "backend": "local",
+                "document_revision": self.document_revision,
                 "product_id": "CB04",
                 "model_path": "/tmp/model.gguf",
             },
@@ -305,7 +378,11 @@ class OptionalAIRouteTests(unittest.TestCase):
         status, response = self._request(
             "POST",
             "/api/lighting/effects",
-            {"prompt": "stale backend", "backend": "api"},
+            {
+                "prompt": "stale backend",
+                "backend": "api",
+                "document_revision": self.document_revision,
+            },
         )
         self.assertEqual(409, status)
         self.assertEqual("backend_mismatch", response["code"])
@@ -316,7 +393,10 @@ class OptionalAIRouteTests(unittest.TestCase):
 
         def start_effect(**kwargs):
             calls.append(kwargs)
-            return {"job_id": "00000000-0000-4000-8000-000000000000"}
+            return {
+                "job_id": "00000000-0000-4000-8000-000000000000",
+                "target": copy.deepcopy(kwargs["target"]),
+            }
 
         self.server.state._procedural_coordinator = SimpleNamespace(
             active_job_id=None,
@@ -347,16 +427,33 @@ class OptionalAIRouteTests(unittest.TestCase):
         )
         for product_id, expected in cases:
             with self.subTest(product_id=product_id):
-                self.server.state.config = {
-                    "product_info": {"product_id": product_id}
-                }
-                status, _response = self._request(
+                stale_revision = self.document_revision
+                revision = self._sync_document(product_id)
+                before = len(calls)
+                status, response = self._request(
                     "POST",
                     "/api/lighting/effects",
-                    {"prompt": "canonical target", "backend": "local"},
+                    {
+                        "prompt": "stale target",
+                        "backend": "local",
+                        "document_revision": stale_revision,
+                    },
+                )
+                self.assertEqual(409, status)
+                self.assertEqual("document_stale", response["code"])
+                self.assertEqual(before, len(calls))
+                status, response = self._request(
+                    "POST",
+                    "/api/lighting/effects",
+                    {
+                        "prompt": "canonical target",
+                        "backend": "local",
+                        "document_revision": revision,
+                    },
                 )
                 self.assertEqual(202, status)
                 self.assertEqual(expected, calls[-1]["target"])
+                self.assertEqual(expected, response["target"])
 
     def test_legacy_mutations_are_gone_but_procedural_cancel_remains(self) -> None:
         retired = (
@@ -417,7 +514,11 @@ class OptionalAIRouteTests(unittest.TestCase):
         status, response = self._request(
             "POST",
             "/api/lighting/effects",
-            {"prompt": "blocked", "backend": "local"},
+            {
+                "prompt": "blocked",
+                "backend": "local",
+                "document_revision": self.document_revision,
+            },
         )
         self.assertEqual(409, status)
         self.assertEqual("disabled", response["code"])
@@ -425,13 +526,19 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.assertEqual([], self.library.scan()["jobs"])
 
         self.capability.require_ready = original_require_ready
-        self.server.state.config = None
-        status, _response = self._request(
+        stale_revision = self.document_revision
+        self.server.state.clear_document()
+        status, response = self._request(
             "POST",
             "/api/lighting/effects",
-            {"prompt": "no device", "backend": "local"},
+            {
+                "prompt": "no device",
+                "backend": "local",
+                "document_revision": stale_revision,
+            },
         )
-        self.assertEqual(400, status)
+        self.assertEqual(409, status)
+        self.assertEqual("document_required", response["code"])
         self.assertEqual([], self.provider.calls)
         self.assertEqual([], self.library.scan()["jobs"])
 

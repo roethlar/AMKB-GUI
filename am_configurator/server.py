@@ -1281,6 +1281,14 @@ def generation_spec(
     return spec, requested
 
 
+class DocumentRevisionError(RuntimeError):
+    """The browser's document revision is absent or no longer current."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class _State:
     def __init__(
         self,
@@ -1299,8 +1307,11 @@ class _State:
             raise ValueError(
                 "lighting_library and lighting_coordinator must be injected together"
             )
-        self.config = config
+        self.config = copy.deepcopy(config)
         self.token = token
+        self._document_lock = threading.Lock()
+        self._document_snapshot: bytes | None = None
+        self._document_revision: str | None = None
         self.device_lock = threading.Lock()
         self.last_device_scan = 0.0
         # xAI key-check transport (``(url, payload, api_key, deadline) -> dict``,
@@ -1330,6 +1341,76 @@ class _State:
         self._lighting_reconcile_signature: tuple[int, bytes | None] | None = None
         self._lighting_reconcile_pending = False
         self._lighting_reconcile_worker: threading.Thread | None = None
+        if config is not None:
+            try:
+                self.synchronize_document(config)
+            except ValueError:
+                # Keep an invalid launch document available for manual repair, but
+                # never let it establish a generation target.
+                pass
+
+    @property
+    def document_revision(self) -> str | None:
+        with self._document_lock:
+            return self._document_revision
+
+    def synchronize_document(self, config: object) -> str:
+        """Validate and atomically replace the immutable open-document snapshot."""
+        try:
+            encoded = json.dumps(
+                config,
+                allow_nan=False,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            candidate = json.loads(encoded)
+            checked = validate_config(candidate)
+            product_id = checked.get("product_id")
+            if not checked.get("ok") or not isinstance(product_id, str):
+                raise ValueError
+            _led_model(product_id)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            raise ValueError(
+                "The open document must be a complete valid keyboard configuration."
+            ) from None
+        revision = secrets.token_urlsafe(24)
+        with self._document_lock:
+            self._document_snapshot = encoded
+            self._document_revision = revision
+            self.config = copy.deepcopy(candidate)
+        return revision
+
+    def clear_document(self) -> None:
+        with self._document_lock:
+            self._document_snapshot = None
+            self._document_revision = None
+            self.config = None
+
+    def procedural_target(self, revision: str) -> dict:
+        with self._document_lock:
+            snapshot = self._document_snapshot
+            current = self._document_revision
+            if snapshot is None or current is None:
+                raise DocumentRevisionError(
+                    "document_required",
+                    "Open or read a compatible device profile before generation.",
+                )
+            if not secrets.compare_digest(revision, current):
+                raise DocumentRevisionError(
+                    "document_stale",
+                    "The open document changed before generation. Try again.",
+                )
+        document = json.loads(snapshot)
+        product_id = document["product_info"]["product_id"]
+        model = _led_model(product_id)
+        if model == "CB":
+            targets = ["frames"]
+        elif model == "80":
+            targets = ["keyframes", "spotlight_frames"]
+        else:
+            targets = ["keyframes"]
+        return _Handler._lighting_target(product_id, targets)
 
     def ai_services(self) -> Any:
         """Return the Ollama/API-only capability service."""
@@ -1651,7 +1732,12 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             try:
                 if path == "/api/config":
-                    self._json({"config": self.state.config})
+                    self._json(
+                        {
+                            "config": self.state.config,
+                            "document_revision": self.state.document_revision,
+                        }
+                    )
                 elif path == "/api/devices":
                     from . import device
 
@@ -1724,6 +1810,8 @@ class _Handler(BaseHTTPRequestHandler):
             body = self._body()
             if path == "/api/config/validate":
                 self._json(validate_config(body.get("config")))
+            elif path == "/api/document/sync":
+                self._synchronize_document(body)
             elif path == "/api/config/compatibility":
                 self._json(config_transfer_options(
                     body.get("config"),
@@ -1926,31 +2014,27 @@ class _Handler(BaseHTTPRequestHandler):
         )
         self._json(capability.status())
 
-    def _active_procedural_target(self) -> dict:
-        config = self.state.config
-        product = config.get("product_info") if isinstance(config, dict) else None
-        product_id = product.get("product_id") if isinstance(product, dict) else None
-        if not isinstance(product_id, str) or not product_id:
-            raise ValueError(
-                "Open or read a compatible device profile before generation."
-            )
-        model = _led_model(product_id)
-        if model == "CB":
-            targets = ["frames"]
-        elif model == "80":
-            targets = ["keyframes", "spotlight_frames"]
-        else:
-            targets = ["keyframes"]
-        return self._lighting_target(product_id, targets)
+    def _synchronize_document(self, body: dict[str, Any]) -> None:
+        self._strict_body(body, allowed={"config"}, required={"config"})
+        revision = self.state.synchronize_document(body["config"])
+        self._json({"revision": revision})
 
     def _start_procedural_effect(self, body: dict[str, Any]) -> None:
         from . import store
 
         self._strict_body(
             body,
-            allowed={"prompt", "backend", "loop_mode"},
-            required={"prompt", "backend"},
+            allowed={"prompt", "backend", "loop_mode", "document_revision"},
+            required={"prompt", "backend", "document_revision"},
         )
+        revision = body["document_revision"]
+        if not isinstance(revision, str) or not 24 <= len(revision) <= 200:
+            raise ValueError("document_revision must be an opaque revision string.")
+        try:
+            target = self.state.procedural_target(revision)
+        except DocumentRevisionError as exc:
+            self._json({"code": exc.code, "error": str(exc)}, HTTPStatus.CONFLICT)
+            return
         capability = self.state.ai_services()
         status = capability.require_ready()
         if body["backend"] != status["backend"]:
@@ -1965,7 +2049,6 @@ class _Handler(BaseHTTPRequestHandler):
         settings = store.load_settings(
             credential_store=self.state._credential_store
         )
-        target = self._active_procedural_target()
         _library, coordinator = self.state.procedural_services()
         manifest = coordinator.start_effect(
             prompt=body["prompt"],
@@ -1974,7 +2057,10 @@ class _Handler(BaseHTTPRequestHandler):
                 "loop_mode", settings["generation"]["loop_mode"]
             ),
         )
-        self._json({"job_id": manifest["job_id"]}, HTTPStatus.ACCEPTED)
+        self._json(
+            {"job_id": manifest["job_id"], "target": manifest["target"]},
+            HTTPStatus.ACCEPTED,
+        )
 
     def _retired_ai_mutation(self) -> None:
         self._json(
@@ -2479,7 +2565,7 @@ class _Handler(BaseHTTPRequestHandler):
         clean = {key: value for key, value in config.items() if key != "_provenance"}
         store.save_current(after.product_id, clean, version=after.version)
         snapshot = store.snapshot(after.product_id, clean)
-        self.state.config = copy.deepcopy(clean)
+        document_revision = self.state.synchronize_document(clean)
         return {
             "ok": True,
             "device": asdict(after),
@@ -2488,6 +2574,7 @@ class _Handler(BaseHTTPRequestHandler):
             "macro_verification": macro_verification["status"],
             "macro_warning": macro_verification["warning"],
             "snapshot": snapshot.stem,
+            "document_revision": document_revision,
         }
 
 

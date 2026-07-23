@@ -637,7 +637,9 @@ class DesktopServerTests(unittest.TestCase):
                 headers={"X-AM-Token": token},
             )
             with urlopen(request, timeout=2) as response:
-                self.assertEqual(b'{"config": null}', response.read())
+                self.assertEqual(
+                    b'{"config": null, "document_revision": null}', response.read()
+                )
         finally:
             server.shutdown()
             server.server_close()

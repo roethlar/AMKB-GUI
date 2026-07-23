@@ -185,7 +185,7 @@ local no-provider browser acceptance at the end of the phase.
   proves CyberBoard, Relic, and AFA target buttons exist and can be selected.
   Commit: `fix: render lighting target controls`.
 
-- [ ] **F10 — Make the server own the open document target.** Add a strict,
+- [x] **F10 — Make the server own the open document target.** Add a strict,
   authenticated document-synchronization route that accepts the browser's
   complete opened/read configuration, validates it with the server's canonical
   config/product rules, stores an immutable server snapshot, and returns an

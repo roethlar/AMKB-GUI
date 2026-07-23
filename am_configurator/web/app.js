@@ -29,6 +29,10 @@ const restoredLighting = restoredLightingState();
 
 const state = {
   config: null,
+  documentRevision: null,
+  documentSyncEpoch: 0,
+  documentSyncing: false,
+  documentSyncError: "",
   fileName: "AM-config.json",
   dirty: false,
   lighting: restoredLighting.lighting,
@@ -115,6 +119,30 @@ async function api(path, options = {}) {
     throw error;
   }
   return data;
+}
+
+function documentSynchronized() {
+  return Boolean(state.config&&state.documentRevision&&!state.documentSyncing);
+}
+
+async function synchronizeOpenDocument() {
+  const config=state.config;
+  const epoch=++state.documentSyncEpoch;
+  state.documentRevision=null;
+  state.documentSyncError="";
+  state.documentSyncing=Boolean(config);
+  if(!config)return null;
+  try{
+    const result=await api("/api/document/sync",{method:"POST",body:JSON.stringify({config})});
+    if(epoch!==state.documentSyncEpoch||state.config!==config)return null;
+    state.documentRevision=result.revision;
+    return result.revision;
+  }catch(error){
+    if(epoch===state.documentSyncEpoch){state.documentSyncError=error.message||"The open document could not be synchronized.";}
+    return null;
+  }finally{
+    if(epoch===state.documentSyncEpoch)state.documentSyncing=false;
+  }
 }
 
 function toast(title, message = "", type = "") {
@@ -329,11 +357,13 @@ async function readFiles(input, merge) {
     }
     if (effectiveMerge && state.config) pushUndo();
     state.config = combined;
+    state.documentRevision=null;
     state.fileName = cleanFileName(files[0].name);
     if (!effectiveMerge) resetDocumentView();
     else state.ledFrame = 0;
     state.undo = [];
     state.redo = [];
+    if(!await synchronizeOpenDocument())throw new Error(state.documentSyncError||"The opened document could not be synchronized.");
     markDirty(effectiveMerge);
     updateMeta();
     render();
@@ -1003,7 +1033,7 @@ function renderLightingShell() {
   if (route === ROUTES.LIBRARY) renderLibrary();
   const generateOpen=$("#lighting-generate-open");
   generateOpen.hidden=!aiReady();
-  generateOpen.disabled = !state.config || !pageData().length || !aiReady();
+  generateOpen.disabled = !state.config || !pageData().length || !aiReady() || !documentSynchronized();
   renderGenerationDialog();
   if (route === ROUTES.CREATE && (aiReady() || state.lighting.activeJob)) setTimeout(openGenerationDialog, 0);
 }
@@ -1673,6 +1703,7 @@ async function importDetachedMacros() {
     state.loadedPort=device.port;
     state.selectedPort=device.port;
     applyImportedMacros(result);
+    await synchronizeOpenDocument();
   }catch(error){toast("Could not import macros",error.message,"error");}
 }
 
@@ -1683,6 +1714,7 @@ async function returnToConnectedWorkspace() {
   if(restoreDeviceDocument(device.port,device.product_id)){
     state.loadedPort=device.port;
     state.selectedPort=device.port;
+    await synchronizeOpenDocument();
     render();
     toast("Keyboard workspace restored",`${device.product_id} · ${state.fileName}`,"success");
     return;
@@ -1713,6 +1745,7 @@ function restoreDeviceDocument(port,deviceId) {
   const saved=state.deviceDocuments.get(port);
   if(!saved||!sameProductFamily(saved.config?.product_info?.product_id,deviceId))return false;
   state.config=saved.config;
+  state.documentRevision=null;
   state.fileName=saved.fileName;
   state.dirty=Boolean(saved.dirty);
   state.undo=saved.undo;
@@ -1811,6 +1844,7 @@ async function readDevice() {
     }
     state.loadedPort=port;
     state.selectedPort=port;
+    if(!await synchronizeOpenDocument())throw new Error(state.documentSyncError||"The device document could not be synchronized.");
     markDirty();render();
     $("#device-dialog").close();
     const ledDetail=restored?'Its in-memory LED workspace was restored.':preserved?'Open LED data was preserved.':restoredFromDisk?'LEDs were restored from this machine’s last verified full write—not read from the keyboard.':'No portable LED source was available; blank local LED slots were created.';
@@ -1858,6 +1892,7 @@ async function confirmDeviceWrite() {
   try{
     const endpoint=verifyOnly?'/api/device/verify':'/api/device/write';
     const result=await api(endpoint,{method:'POST',body:JSON.stringify({port:pending.device.port,config:state.config,confirmation})});
+    if(result.document_revision){state.documentRevision=result.document_revision;state.documentSyncError="";}
     markDirty(false);$("#write-dialog").close();state.pendingWrite=null;
     const partialMacros=result.macro_verification==='partial';
     const macroWarning=result.macro_warning?`\n${result.macro_warning}`:'';
@@ -1981,10 +2016,10 @@ function renderPromptStage(context) {
   $("#lighting-generate-content").innerHTML=`<div class="concept-stage">
     <div class="concept-prompt"><label class="control-label" for="effect-prompt">Describe the lighting</label><textarea id="effect-prompt" class="text-field" rows="5" maxlength="4000" placeholder="Dense violet aurora moving across the whole keyboard…" ${busy?'disabled':''}>${esc(state.aiPrompt)}</textarea></div>
     <p class="concept-destination">${backend} · Custom ${destinationSlot-4} · ${esc(targetLabel)}</p>
-    <div class="concept-actions"><button id="generate-effect" type="button" class="button primary" ${busy||!state.aiPrompt.trim()||!aiReady()?'disabled':''}>Generate animation</button></div>
-    ${state.conceptError||state.animationError||stopped?`<p class="ai-error" role="alert">${esc(state.conceptError||state.animationError||(String(stopped).replaceAll("_"," ")+". The saved failure does not disable this backend; adjust the prompt or model and try again."))}</p>`:""}
+    <div class="concept-actions"><button id="generate-effect" type="button" class="button primary" ${busy||!state.aiPrompt.trim()||!aiReady()||!documentSynchronized()?'disabled':''}>Generate animation</button></div>
+    ${state.conceptError||state.animationError||state.documentSyncError||stopped?`<p class="ai-error" role="alert">${esc(state.conceptError||state.animationError||state.documentSyncError||(String(stopped).replaceAll("_"," ")+". The saved failure does not disable this backend; adjust the prompt or model and try again."))}</p>`:""}
   </div>`;
-  $("#effect-prompt")?.addEventListener("input",event=>{state.aiPrompt=event.target.value;$("#generate-effect").disabled=!event.target.value.trim()||!aiReady();});
+  $("#effect-prompt")?.addEventListener("input",event=>{state.aiPrompt=event.target.value;$("#generate-effect").disabled=!event.target.value.trim()||!aiReady()||!documentSynchronized();});
   $("#generate-effect")?.addEventListener("click",startProceduralGeneration);
 }
 
@@ -2027,7 +2062,7 @@ function renderGenerationDialog() {
 
 function openGenerationDialog() {
   const dialog=$("#lighting-generate-dialog");
-  if((!aiReady()&&!state.lighting.activeJob)||!state.config||!pageData().length)return;
+  if((!aiReady()&&!state.lighting.activeJob)||!state.config||!pageData().length||(!state.lighting.activeJob&&!documentSynchronized()))return;
   dialog.hidden=false;
   renderGenerationDialog();
   if(!dialog.open)dialog.showModal();
@@ -2052,7 +2087,7 @@ function handleGenerationDialogClose() {
 }
 
 async function startProceduralGeneration() {
-  if(state.conceptSubmitting||!aiReady())return;
+  if(state.conceptSubmitting||!aiReady()||!documentSynchronized())return;
   if(state.lighting.activeJob){
     if(["in_progress","accepted","processing"].includes(state.lighting.activeJob.status))return;
     syncLightingJob(null,{renderPage:false});
@@ -2066,9 +2101,10 @@ async function startProceduralGeneration() {
   state.conceptDestination={slot:state.ledSlot,target:target.targets[0]};
   renderGenerationDialog();
   try{
-    const started=await api("/api/lighting/effects",{method:"POST",body:JSON.stringify({prompt,backend:state.aiStatus.backend,loop_mode:state.animationLoopMode})});
+    const started=await api("/api/lighting/effects",{method:"POST",body:JSON.stringify({prompt,backend:state.aiStatus.backend,loop_mode:state.animationLoopMode,document_revision:state.documentRevision})});
     state.conceptPollEpoch++;
-    state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:{id:started.job_id,status:"in_progress",phase:"accepted",progress:null,resultAssetId:null,previewAssetId:null,recipeAssetId:null,target}}).state;
+    state.conceptDestination={slot:state.ledSlot,target:started.target.targets[0]};
+    state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:{id:started.job_id,status:"in_progress",phase:"accepted",progress:null,resultAssetId:null,previewAssetId:null,recipeAssetId:null,target:started.target}}).state;
     state.lightingJobId=started.job_id;
     persistLightingState();
     renderLightingJobStrip();
@@ -2439,7 +2475,7 @@ window.addEventListener('pagehide',clearLibraryAssetUrls);
   if(!token){toast('Missing local session token','Launch this page with AM Configurator.','error');return;}
   try{
     const result=await api('/api/config');
-    if(result.config){state.config=result.config;state.fileName=`AM-${productId()}-config.json`;}
+    if(result.config){state.config=result.config;state.documentRevision=result.document_revision||null;state.fileName=`AM-${productId()}-config.json`;}
     render();
     restoreLightingJob();
     scanDevices();
