@@ -294,7 +294,12 @@
   duplicate of F42: a repository-wide definition/call search confirms the raw
   `_lighting_settings` helper has no surviving resolver or caller, while the
   current capability's credential resolver remains scoped to the secure store.
-  The next slice is Phase 10 / P02's recoverable keyring backend discovery.
+  P02 is complete on the current tree: default credential discovery no longer
+  caches a failed OS-keyring construction, retries on later resolution, and
+  caches only the first adapter that validates as a built-in secure backend.
+  The recovery regression was proven red against the process-lifetime cache.
+  The next slice is Phase 10 / P03's removal of backend identity from the
+  generation dialog.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -604,7 +609,8 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P02's recoverable keyring backend discovery.
+  continuing with Phase 10 / P03's removal of backend identity from the
+  generation dialog.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

@@ -561,7 +561,7 @@ Each polish item is a separate commit despite its size.
   separate evidence-only documentation commit so the one-item commit boundary
   remains intact. Commit: `docs: close dead lighting settings helper`.
 
-- [ ] **P02 — Retry an unavailable keyring backend.** Cache only successfully
+- [x] **P02 — Retry an unavailable keyring backend.** Cache only successfully
   validated secure backends or provide bounded invalidation so a service that
   becomes available can recover without restart. Commit:
   `fix: retry secure credential backend discovery`.

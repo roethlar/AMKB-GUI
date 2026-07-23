@@ -124,6 +124,25 @@ _SecureBackend.__qualname__ = "Keyring"
 
 
 class CredentialAdapterTests(unittest.TestCase):
+    def test_default_store_retries_until_a_secure_backend_is_available(self) -> None:
+        unavailable = credentials.MemoryCredentialStore(available=False)
+        available = credentials.MemoryCredentialStore()
+        with patch.object(
+            credentials, "_default_credential_store", None
+        ), patch.object(
+            credentials,
+            "KeyringCredentialStore",
+            side_effect=(unavailable, available),
+        ) as factory:
+            first = credentials.default_credential_store()
+            second = credentials.default_credential_store()
+            third = credentials.default_credential_store()
+
+        self.assertIs(unavailable, first)
+        self.assertIs(available, second)
+        self.assertIs(second, third)
+        self.assertEqual(2, factory.call_count)
+
     def test_keyring_adapter_accepts_only_os_backends_and_fixed_identifiers(self) -> None:
         backend = _SecureBackend()
         adapter = credentials.KeyringCredentialStore(

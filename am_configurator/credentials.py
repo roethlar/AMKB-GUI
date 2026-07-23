@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from functools import lru_cache
+from threading import Lock
 from typing import Any, Protocol
 
 
@@ -179,9 +179,21 @@ class MemoryCredentialStore:
         self._values.pop(provider, None)
 
 
-@lru_cache(maxsize=1)
+_default_credential_store: CredentialStore | None = None
+_default_credential_store_lock = Lock()
+
+
 def default_credential_store() -> CredentialStore:
-    return KeyringCredentialStore()
+    """Return the shared secure adapter without pinning failed discovery."""
+
+    global _default_credential_store
+    with _default_credential_store_lock:
+        if _default_credential_store is not None:
+            return _default_credential_store
+        candidate = KeyringCredentialStore()
+        if candidate.available():
+            _default_credential_store = candidate
+        return candidate
 
 
 __all__ = [
