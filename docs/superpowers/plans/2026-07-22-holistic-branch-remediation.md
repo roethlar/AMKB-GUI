@@ -556,7 +556,7 @@ in a new one-finding commit; no gate is weakened.
 
 Each polish item is a separate commit despite its size.
 
-- [ ] **P01 — Remove the raw-key dead helper.** After F42 deletes the helper,
+- [x] **P01 — Remove the raw-key dead helper.** After F42 deletes the helper,
   verify no raw-key resolver or caller remains and close this duplicate as a
   separate evidence-only documentation commit so the one-item commit boundary
   remains intact. Commit: `docs: close dead lighting settings helper`.
