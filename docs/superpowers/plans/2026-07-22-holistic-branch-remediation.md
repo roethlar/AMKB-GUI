@@ -151,7 +151,7 @@ build, or release path may depend on it.
   secondary. Prove startup, shutdown, cancellation, and capability status create
   no llama process. Commit: `refactor: remove managed llama runtime`.
 
-- [ ] **F21 — Prove no llama credential or process remains.** After F20, search
+- [x] **F21 — Prove no llama credential or process remains.** After F20, search
   executable code and frozen smoke plans for llama bearer-token, child-process,
   and argv construction paths. Add a focused negative architecture test where
   it guards against reintroduction, and close the original argv leak as removed

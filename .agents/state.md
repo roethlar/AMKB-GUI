@@ -12,13 +12,13 @@
   Phase 0 / F49 is complete on the current tree: active settings migrated to
   Ollama/API-only schema v5, GGUF readiness migrates to unselected Ollama
   without opening the model file, and the native picker, route, browser surface,
-  capability branch, and product smoke invocation are gone. Phase 0 / F20 is
-  also complete on the current tree: the managed llama server/provider, process
-  and GPU-probe lifecycle, executable managed-runtime smoke, and their tests are
-  gone.
-  Transitional package attestation helpers remain isolated for F34; no
-  application runtime imports or invokes them. The next slice is F21's negative
-  architecture proof that no llama credential or process path remains.
+  capability branch, and product smoke invocation are gone. Phase 0 / F20 and
+  F21 are also complete on the current tree: the managed llama server/provider,
+  process and GPU-probe lifecycle, executable managed-runtime smoke, and their
+  tests are gone; a negative architecture guard now prohibits their process,
+  credential, and argv construction paths from returning. Transitional package
+  attestation helpers remain isolated for F34; no application runtime imports or
+  invokes them. The next slice is F34's unconditional package/workflow removal.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -324,7 +324,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 0 / F21's managed-process prohibition proof. Do not
+  continuing with Phase 0 / F34's unconditional package/workflow removal. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

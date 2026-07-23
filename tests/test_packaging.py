@@ -292,6 +292,33 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("create_default_context", smoke)
         self.assertIn("AM_SMOKE_NET", smoke)
 
+    def test_application_forbids_managed_llama_processes_and_credentials(self) -> None:
+        executable_modules = (
+            "ai_capability.py",
+            "desktop.py",
+            "local_ai_runtime.py",
+            "recipe_provider.py",
+            "server.py",
+        )
+        sources = {
+            name: (ROOT / "am_configurator" / name).read_text("utf-8")
+            for name in executable_modules
+        }
+        combined = "\n".join(sources.values())
+
+        for forbidden in (
+            "ManagedLlamaServer",
+            "ManagedLocalRecipeProvider",
+            "probe_full_gpu_offload",
+            "_run_local_recipe_smoke",
+            '"--api-key"',
+            "Bearer {token}",
+        ):
+            self.assertNotIn(forbidden, combined)
+        for name in ("ai_capability.py", "local_ai_runtime.py", "recipe_provider.py"):
+            self.assertNotIn("subprocess", sources[name])
+            self.assertNotIn("Popen", sources[name])
+
     def test_windows_installer_smoke_test_waits_for_gui_processes(self) -> None:
         script = (ROOT / "packaging" / "windows" / "build_installer.ps1").read_text(
             encoding="utf-8"
