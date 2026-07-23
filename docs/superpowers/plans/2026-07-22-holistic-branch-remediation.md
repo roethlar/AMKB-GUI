@@ -291,7 +291,7 @@ local no-provider browser acceptance at the end of the phase.
   reacquire window. A concurrent generation can run before or after the whole
   pass, never during it. Commit: `fix: serialize combined lighting reconciliation`.
 
-- [ ] **F27 — Transfer gate ownership atomically to workers.** Complete every
+- [x] **F27 — Transfer gate ownership atomically to workers.** Complete every
   response read needed by `start_effect` before launching, or mark the token as
   worker-owned so post-launch exceptions cannot release it. Inject failures at
   every boundary and prove no orphan worker or second admission. Commit:

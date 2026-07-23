@@ -91,8 +91,13 @@
   unforgeable token through both coordinators, and releases it only after the
   combined pass; direct coordinator calls still acquire their own lease. A
   concurrent generation can run before or after recovery, never in the
-  handoff. The next slice is F27's atomic transfer of procedural gate ownership
-  to a launched worker.
+  handoff. F27 is complete on the current tree: the response snapshot is read
+  before launch, launcher failure leaves no worker and releases admission, and
+  launcher acceptance atomically marks the lease worker-owned before any later
+  bookkeeping can fail. A post-launch failure cannot admit a second operation
+  or make the live job uncancellable; only worker exit releases the token. The
+  next slice is F28's synchronization of lazy AI service and provider
+  construction.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

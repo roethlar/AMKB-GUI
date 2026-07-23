@@ -167,6 +167,7 @@ class ProceduralGenerationCoordinator:
         self._library.preflight()
         token, cancelled = self._gate.begin()
         job_id: str | None = None
+        worker_owns_lease = False
         try:
             manifest = self._library.create_job(
                 prompt=prompt,
@@ -193,10 +194,23 @@ class ProceduralGenerationCoordinator:
                 }
 
             self._library.update_manifest(job_id, initialize)
-            self._launch(job_id, provider, token, cancelled)
-            return self._library.get_job(job_id)
+            response = self._library.get_job(job_id)
+
+            def transfer_lease() -> None:
+                nonlocal worker_owns_lease
+                worker_owns_lease = True
+
+            self._launch(
+                job_id,
+                provider,
+                token,
+                cancelled,
+                on_started=transfer_lease,
+            )
+            return response
         except BaseException:
-            self._gate.finish(token)
+            if not worker_owns_lease:
+                self._gate.finish(token)
             raise
 
     def _launch(
@@ -205,6 +219,8 @@ class ProceduralGenerationCoordinator:
         provider,
         token: object,
         cancelled: threading.Event,
+        *,
+        on_started: Callable[[], None],
     ) -> None:
         deadline = self._monotonic() + self._operation_timeout_seconds
 
@@ -235,6 +251,7 @@ class ProceduralGenerationCoordinator:
                 error,
             )
             raise GenerationError("the generation worker could not be started") from None
+        on_started()
         if self._gate.active_job_id == job_id:
             with self._workers_lock:
                 self._workers[job_id] = worker

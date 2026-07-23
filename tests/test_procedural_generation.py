@@ -13,6 +13,7 @@ from PIL import Image
 
 from am_configurator.generation import (
     GenerationBusyError,
+    GenerationError,
     GenerationNotActiveError,
     OperationGate,
 )
@@ -354,6 +355,100 @@ class ProceduralGenerationTests(unittest.TestCase):
         self.assertTrue(closed.is_set())
         self.assertEqual("cancelled", final["status"])
         self.assertEqual([], final["assets"])
+
+    def test_response_snapshot_failure_happens_before_worker_launch(self) -> None:
+        gate = OperationGate()
+        launches: list[object] = []
+        coordinator = ProceduralGenerationCoordinator(
+            self.library,
+            _Capability(_Provider([_dense_recipe()])),
+            operation_gate=gate,
+            launcher=lambda target: launches.append(target),
+        )
+        original_get_job = self.library.get_job
+
+        def fail_get_job(_job_id):
+            raise OSError("simulated response read failure")
+
+        self.library.get_job = fail_get_job
+        try:
+            with self.assertRaises(OSError):
+                coordinator.start_effect(
+                    prompt="Fail before launch",
+                    target=TARGET,
+                    loop_mode="smooth",
+                )
+        finally:
+            self.library.get_job = original_get_job
+
+        self.assertEqual([], launches)
+        self.assertFalse(gate.is_active)
+
+    def test_launcher_failure_releases_admission_without_an_orphan_worker(self) -> None:
+        gate = OperationGate()
+
+        def fail_launcher(_target):
+            raise OSError("simulated launcher failure")
+
+        coordinator = ProceduralGenerationCoordinator(
+            self.library,
+            _Capability(_Provider([_dense_recipe()])),
+            operation_gate=gate,
+            launcher=fail_launcher,
+        )
+
+        with self.assertRaises(GenerationError):
+            coordinator.start_effect(
+                prompt="Fail at launch",
+                target=TARGET,
+                loop_mode="smooth",
+            )
+
+        self.assertFalse(gate.is_active)
+        manifest = self.library.scan()["jobs"][0]
+        self.assertEqual("failed", manifest["status"])
+
+    def test_post_launch_failure_keeps_admission_with_the_worker(self) -> None:
+        gate = OperationGate()
+        targets: list[object] = []
+
+        def defer(target):
+            targets.append(target)
+            return object()
+
+        coordinator = ProceduralGenerationCoordinator(
+            self.library,
+            _Capability(_Provider([_dense_recipe()])),
+            operation_gate=gate,
+            launcher=defer,
+        )
+
+        class BrokenLock:
+            def __enter__(self):
+                raise OSError("simulated post-launch bookkeeping failure")
+
+            def __exit__(self, *_args):
+                return False
+
+        coordinator._workers_lock = BrokenLock()
+        with self.assertRaises(OSError):
+            coordinator.start_effect(
+                prompt="Worker owns this lease",
+                target=TARGET,
+                loop_mode="smooth",
+            )
+
+        self.assertEqual(1, len(targets))
+        self.assertTrue(gate.is_active)
+        with self.assertRaises(GenerationBusyError):
+            gate.begin("second-operation")
+        job_id = gate.active_job_id
+        self.assertIsInstance(job_id, str)
+        self.assertTrue(gate.request_cancel(job_id))
+        with self.assertRaises(OSError):
+            targets[0]()
+        self.assertFalse(gate.is_active)
+        self.assertEqual("cancelled", self.library.load_manifest(job_id)["status"])
 
     def test_rejected_cancellation_never_mutates_ready_or_interrupted_jobs(self) -> None:
         provider = _Provider([_dense_recipe()])
