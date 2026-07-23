@@ -93,11 +93,8 @@ def _regular_file_identity(details: os.stat_result) -> tuple[int, ...]:
     return (
         details.st_dev,
         details.st_ino,
-        details.st_mode,
         details.st_size,
         details.st_mtime_ns,
-        details.st_ctime_ns,
-        getattr(details, "st_file_attributes", 0),
     )
 
 

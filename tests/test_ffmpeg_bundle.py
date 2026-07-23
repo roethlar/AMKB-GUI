@@ -416,6 +416,41 @@ class FfmpegBundleTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(b"archive").hexdigest(), digest)
         sleep.assert_called_once_with(0.05)
 
+    def test_shared_ffmpeg_reader_ignores_non_content_stat_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            payload = Path(temp) / "source.tar.xz"
+            payload.write_bytes(b"archive")
+            real_fstat = os.fstat
+            calls = 0
+
+            def metadata_different_fstat(descriptor: int):
+                nonlocal calls
+                calls += 1
+                details = real_fstat(descriptor)
+                if calls > 3:
+                    return details
+                return SimpleNamespace(
+                    st_mode=details.st_mode ^ stat.S_IWUSR,
+                    st_dev=details.st_dev,
+                    st_ino=details.st_ino,
+                    st_size=details.st_size,
+                    st_mtime_ns=details.st_mtime_ns,
+                    st_ctime_ns=details.st_ctime_ns + 1,
+                    st_file_attributes=(
+                        getattr(details, "st_file_attributes", 0)
+                        ^ getattr(stat, "FILE_ATTRIBUTE_ARCHIVE", 0)
+                    ),
+                )
+
+            with patch.object(
+                ffmpeg_runtime.os,
+                "fstat",
+                side_effect=metadata_different_fstat,
+            ):
+                digest = ffmpeg_runtime.sha256_file(payload)
+
+        self.assertEqual(hashlib.sha256(b"archive").hexdigest(), digest)
+
     def test_windows_gpg_runs_inside_the_profileless_msys2_shell(self) -> None:
         completed = SimpleNamespace(returncode=0, stdout="", stderr="")
         with patch.object(
