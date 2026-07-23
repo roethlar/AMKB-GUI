@@ -765,6 +765,42 @@ def write_gif(
         output.write(b";")
 
 
+def write_preview_gif(
+    frames: Sequence[Image.Image],
+    path: Path | BinaryIO,
+    durations: Sequence[int],
+    *,
+    scale: int = 40,
+    work: WorkBudget | None = None,
+    progress: ProgressCallback | None = None,
+) -> None:
+    """Upscale exact frames with nearest-neighbor and write their preview GIF."""
+
+    if isinstance(scale, bool) or not isinstance(scale, int) or scale < 1:
+        raise RecipeError("Preview scale must be a positive integer.")
+    materialized = list(frames)
+    total_work = len(materialized) * 3
+    preview_frames = []
+    for index, frame in enumerate(materialized):
+        _check_work(work)
+        preview_frames.append(
+            frame.resize(
+                (frame.width * scale, frame.height * scale),
+                Image.Resampling.NEAREST,
+            )
+        )
+        _report_progress(progress, index + 1, total_work)
+    write_gif(
+        preview_frames,
+        path,
+        durations,
+        work=work,
+        progress=lambda completed, _total: _report_progress(
+            progress, len(materialized) + completed, total_work
+        ),
+    )
+
+
 def map_frames_to_led_tracks(
     frames: Sequence[Image.Image],
     *,
@@ -824,11 +860,7 @@ def write_animation_artifacts(
     }
     paths["recipe"].write_text(json.dumps(normalized, indent=2) + "\n", encoding="utf-8")
     write_gif(frames, paths["raster_gif"], durations)
-    preview_frames = [
-        frame.resize((width * 40, height * 40), Image.Resampling.NEAREST)
-        for frame in frames
-    ]
-    write_gif(preview_frames, paths["preview_gif"], durations)
+    write_preview_gif(frames, paths["preview_gif"], durations)
 
     mapped = map_frames_to_led_tracks(
         frames,

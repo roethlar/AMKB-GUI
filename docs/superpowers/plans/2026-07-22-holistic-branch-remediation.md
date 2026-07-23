@@ -609,7 +609,7 @@ Each polish item is a separate commit despite its size.
   point current state to this plan, reverify parked items, and remove duplicated
   counts. Commit: `docs: reconcile remediation state`.
 
-- [ ] **P12 — Reuse the procedural preview helper.** Remove duplicated upscale/
+- [x] **P12 — Reuse the procedural preview helper.** Remove duplicated upscale/
   GIF logic and call the canonical artifact writer without changing pixels or
   durations. Commit: `refactor: reuse procedural preview generation`.
 

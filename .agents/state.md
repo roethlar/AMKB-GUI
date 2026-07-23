@@ -329,8 +329,13 @@
   reads; Ollama inventory discovery is deferred until Settings is open or the
   enabled backend is local. The pure browser decision and adapter wiring were
   proven red, while the server regression confirms disabled status touches
-  neither Ollama nor the credential store. The next slice is Phase 10 / P10's
-  governed restoration of the missing push-policy artifact.
+  neither Ollama nor the credential store. P10's governed refresh landed as
+  `f4fff9b`, but the missing repo-owned policy requires the separately approved
+  legacy bootstrap recorded under `## Blockers`. P12 is complete on the current
+  tree: developer artifacts and production banking share one nearest-neighbor
+  preview GIF writer with unchanged exact pixels, durations, cancellation, and
+  progress; the production wiring regression was proven red. The next slice is
+  Phase 10 / P13's extraction of shared admission primitives.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -640,9 +645,9 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P12's reuse of canonical procedural preview
-  generation while P10 awaits a separately approved legacy bootstrap and P11
-  remains the final remediation-state hygiene pass.
+  continuing with Phase 10 / P13's extraction of shared admission primitives
+  while P10 awaits a separately approved legacy bootstrap and P11 remains the
+  final remediation-state hygiene pass.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

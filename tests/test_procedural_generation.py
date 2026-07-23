@@ -158,11 +158,21 @@ class ProceduralGenerationTests(unittest.TestCase):
 
         self.library.update_manifest = observe_progress
 
-        started = coordinator.start_effect(
-            prompt="Dense aurora across the whole keyboard",
-            target=TARGET,
-        )
+        with patch.object(
+            procedural,
+            "write_preview_gif",
+            wraps=procedural.write_preview_gif,
+        ) as preview_writer:
+            started = coordinator.start_effect(
+                prompt="Dense aurora across the whole keyboard",
+                target=TARGET,
+            )
         manifest = self.library.load_manifest(started["job_id"])
+
+        self.assertEqual(1, preview_writer.call_count)
+        preview_frames, _output, preview_durations = preview_writer.call_args.args
+        self.assertEqual(200, len(preview_frames))
+        self.assertEqual(procedural.gif_durations(200, 34), preview_durations)
 
         self.assertEqual("procedural", manifest["pipeline"])
         self.assertEqual("ready", manifest["status"])

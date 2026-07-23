@@ -682,26 +682,18 @@ class ProceduralGenerationCoordinator:
                     work=work,
                     progress=lambda completed, _total: report_banking(completed),
                 )
-                preview_frames = []
                 preview_offset = request.frame_count * 2
-                for frame_index, frame in enumerate(frames):
-                    work.check()
-                    preview_frames.append(
-                        frame.resize(
-                            (request.width * 40, request.height * 40),
-                            Image.Resampling.NEAREST,
-                        )
-                    )
-                    report_banking(preview_offset + frame_index + 1)
-                preview_encode_offset = request.frame_count * 3
-                preview_bytes = _gif_bytes(
-                    preview_frames,
+                preview_output = io.BytesIO()
+                procedural.write_preview_gif(
+                    frames,
+                    preview_output,
                     durations,
                     work=work,
                     progress=lambda completed, _total: report_banking(
-                        preview_encode_offset + completed
+                        preview_offset + completed
                     ),
                 )
+                preview_bytes = preview_output.getvalue()
                 mapping_offset = request.frame_count * 5
                 mapped = procedural.map_frames_to_led_tracks(
                     frames,
