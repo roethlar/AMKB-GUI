@@ -1,4 +1,4 @@
-"""Resolve, attest, and probe the pinned local llama.cpp runtime."""
+"""Resolve and attest the transitional packaged llama.cpp artifacts."""
 
 from __future__ import annotations
 
@@ -6,17 +6,11 @@ import hashlib
 import json
 import os
 import platform
-import re
 import stat
-import subprocess
 import sys
-import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
-
-from .local_model import SelectedModel
+from typing import Any, Mapping
 
 
 PINNED_MANIFEST_SHA256 = (
@@ -24,7 +18,6 @@ PINNED_MANIFEST_SHA256 = (
 )
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_MANIFEST_PATH = SOURCE_ROOT / "packaging" / "llama" / "manifest.json"
-MAX_PROCESS_OUTPUT_BYTES = 1_000_000
 MAX_RUNTIME_ATTESTATION_BYTES = 64 * 1024
 _MANIFEST_KEYS = {
     "schema_version",
@@ -63,20 +56,13 @@ _SUPPORTED_TARGETS = {
 
 
 class LocalRuntimeError(RuntimeError):
-    """The local runtime is unavailable, invalid, or lacks full GPU offload."""
+    """The transitional packaged runtime artifacts are unavailable or invalid."""
 
 
 @dataclass(frozen=True)
 class RuntimePaths:
     cli: Path
     server: Path
-
-
-@dataclass(frozen=True)
-class GpuProbe:
-    backend: str
-    offloaded_layers: int
-    total_layers: int
 
 
 def _exact_dict(value: Any, keys: set[str]) -> dict[str, Any]:
@@ -425,183 +411,13 @@ def get_local_ai_runtime(
     )
 
 
-ProcessRunner = Callable[..., subprocess.CompletedProcess[str]]
-
-
-def _stop_process(process: subprocess.Popen[bytes]) -> None:
-    if process.poll() is not None:
-        return
-    process.terminate()
-    try:
-        process.wait(timeout=1)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait()
-
-
-def _run_bounded_process(
-    arguments: Sequence[str],
-    *,
-    timeout_seconds: float,
-) -> subprocess.CompletedProcess[str]:
-    """Capture a child without allowing its pipes or lifetime to grow unbounded."""
-
-    try:
-        process = subprocess.Popen(
-            tuple(arguments),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            shell=False,
-        )
-    except OSError:
-        raise LocalRuntimeError("Local GPU probe could not start.") from None
-    if process.stdout is None or process.stderr is None:
-        _stop_process(process)
-        raise LocalRuntimeError("Local GPU probe could not capture output.")
-
-    chunks: dict[str, list[bytes]] = {"stdout": [], "stderr": []}
-    byte_count = 0
-    capture_lock = threading.Lock()
-    overflow = threading.Event()
-
-    def capture(label: str, stream: Any) -> None:
-        nonlocal byte_count
-        try:
-            while block := stream.read(8192):
-                with capture_lock:
-                    remaining = MAX_PROCESS_OUTPUT_BYTES - byte_count
-                    if remaining > 0:
-                        kept = block[:remaining]
-                        chunks[label].append(kept)
-                        byte_count += len(kept)
-                    if len(block) > remaining:
-                        overflow.set()
-        finally:
-            stream.close()
-
-    readers = tuple(
-        threading.Thread(target=capture, args=item, daemon=True)
-        for item in (("stdout", process.stdout), ("stderr", process.stderr))
-    )
-    for reader in readers:
-        reader.start()
-
-    deadline = time.monotonic() + timeout_seconds
-    timed_out = False
-    while process.poll() is None:
-        if overflow.is_set():
-            _stop_process(process)
-            break
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            timed_out = True
-            _stop_process(process)
-            break
-        try:
-            process.wait(timeout=min(0.05, remaining))
-        except subprocess.TimeoutExpired:
-            pass
-    for reader in readers:
-        reader.join(timeout=1)
-    if timed_out:
-        raise LocalRuntimeError("Local GPU probe timed out.")
-    if overflow.is_set():
-        raise LocalRuntimeError("Local GPU probe output exceeded its safety limit.")
-    return subprocess.CompletedProcess(
-        tuple(arguments),
-        process.returncode,
-        stdout=b"".join(chunks["stdout"]).decode("utf-8", errors="replace"),
-        stderr=b"".join(chunks["stderr"]).decode("utf-8", errors="replace"),
-    )
-
-
-def probe_full_gpu_offload(
-    runtime: RuntimePaths,
-    model: SelectedModel,
-    *,
-    runner: ProcessRunner | None = None,
-    timeout_seconds: float = 180,
-) -> GpuProbe:
-    if timeout_seconds <= 0 or timeout_seconds > 600:
-        raise ValueError("Local GPU probe timeout must be between 0 and 600 seconds.")
-    arguments: Sequence[str] = (
-        str(runtime.cli),
-        "--model",
-        str(model.path),
-        "--offline",
-        "--ctx-size",
-        "512",
-        "--predict",
-        "1",
-        "--gpu-layers",
-        "all",
-        "--fit",
-        "off",
-        "--flash-attn",
-        "on",
-        "--prompt",
-        "Return one period.",
-        "--no-jinja",
-        "--single-turn",
-        "--simple-io",
-        "--no-display-prompt",
-        "--no-show-timings",
-        "--verbose",
-    )
-    try:
-        if runner is None:
-            completed = _run_bounded_process(
-                arguments,
-                timeout_seconds=float(timeout_seconds),
-            )
-        else:
-            completed = runner(
-                tuple(arguments),
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=float(timeout_seconds),
-            )
-    except LocalRuntimeError:
-        raise
-    except subprocess.TimeoutExpired:
-        raise LocalRuntimeError("Local GPU probe timed out.") from None
-    except OSError:
-        raise LocalRuntimeError("Local GPU probe could not start.") from None
-    if not isinstance(completed.stdout, str) or not isinstance(completed.stderr, str):
-        raise LocalRuntimeError("Local GPU probe returned invalid output.")
-    output = completed.stdout + "\n" + completed.stderr
-    if len(output.encode("utf-8")) > MAX_PROCESS_OUTPUT_BYTES:
-        raise LocalRuntimeError("Local GPU probe output exceeded its safety limit.")
-    if completed.returncode != 0:
-        raise LocalRuntimeError("Local GPU probe failed.")
-    matches = re.findall(r"offloaded\s+(\d+)/(\d+)\s+layers\s+to\s+GPU", output, re.I)
-    if not matches:
-        raise LocalRuntimeError("Local runtime did not report GPU offload.")
-    offloaded, total = (int(value) for value in matches[-1])
-    if total < 1 or offloaded != total:
-        raise LocalRuntimeError("Local runtime did not fully offload the model.")
-    lowered = output.lower()
-    if "metal" in lowered or "mtl" in lowered:
-        backend = "metal"
-    elif "vulkan" in lowered:
-        backend = "vulkan"
-    elif "cuda" in lowered:
-        backend = "cuda"
-    else:
-        backend = "gpu"
-    return GpuProbe(backend, offloaded, total)
-
-
 __all__ = [
-    "GpuProbe",
     "LocalRuntimeError",
     "PINNED_MANIFEST_SHA256",
     "RuntimePaths",
     "cache_key",
     "get_local_ai_runtime",
     "load_manifest",
-    "probe_full_gpu_offload",
     "recipe_sha256",
     "resolve_runtime",
     "validate_manifest",

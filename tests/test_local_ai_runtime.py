@@ -4,25 +4,17 @@ import io
 import json
 import os
 import shutil
-import subprocess
-import sys
 import tarfile
 import tempfile
 import unittest
 from pathlib import Path
 
-from am_configurator import local_ai_runtime, local_model
+from am_configurator import local_ai_runtime
 from build_tools import llama_bundle, prepare_llama
 
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "packaging" / "llama" / "manifest.json"
-
-
-def _write_model(path: Path, *, size: int = local_model.MIN_MODEL_BYTES) -> bytes:
-    payload = b"GGUF" + b"\0" * (size - 4)
-    path.write_bytes(payload)
-    return payload
 
 
 def _runtime_files(root: Path) -> local_ai_runtime.RuntimePaths:
@@ -293,211 +285,6 @@ class LlamaBundleTests(unittest.TestCase):
                     platform_name="macos",
                     architecture="arm64",
                 )
-
-
-class LocalModelManagerTests(unittest.TestCase):
-    def test_selection_is_private_pathless_and_clear_never_touches_model(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            model = root / "chosen.gguf"
-            original = _write_model(model)
-            manager = local_model.LocalModelManager(root / "private")
-
-            selected = manager.select(model.resolve())
-            self.assertEqual(model.resolve(), selected.path)
-            self.assertEqual(original, model.read_bytes())
-            status = manager.status()
-            self.assertEqual(
-                {
-                    "selected": True,
-                    "filename": "chosen.gguf",
-                    "size_bytes": len(original),
-                    "verified": True,
-                    "reason": None,
-                },
-                status,
-            )
-            self.assertNotIn(str(root), json.dumps(status))
-            if os.name != "nt":
-                self.assertEqual(
-                    0o600,
-                    manager.attestation_path.stat().st_mode & 0o777,
-                )
-
-            manager.clear()
-            self.assertFalse(manager.attestation_path.exists())
-            self.assertEqual(original, model.read_bytes())
-            self.assertTrue(model.exists())
-
-    def test_unsafe_selection_is_rejected_without_replacing_the_previous_model(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            valid = root / "valid.gguf"
-            _write_model(valid)
-            manager = local_model.LocalModelManager(root / "private")
-            manager.select(valid.resolve())
-            before = manager.attestation_path.read_bytes()
-
-            invalid_paths = [
-                Path("relative.gguf"),
-                root / "wrong.bin",
-                root / "directory.gguf",
-                root / "small.gguf",
-                root / "not-gguf.gguf",
-                root / "too-large.gguf",
-            ]
-            (root / "wrong.bin").write_bytes(b"GGUF")
-            (root / "directory.gguf").mkdir()
-            (root / "small.gguf").write_bytes(b"GGUF")
-            with (root / "not-gguf.gguf").open("wb") as file:
-                file.write(b"NOPE")
-                file.truncate(local_model.MIN_MODEL_BYTES)
-            with (root / "too-large.gguf").open("wb") as file:
-                file.write(b"GGUF")
-                file.truncate(local_model.MAX_MODEL_BYTES + 1)
-            if hasattr(os, "symlink"):
-                symlink = root / "link.gguf"
-                try:
-                    symlink.symlink_to(valid)
-                except OSError:
-                    pass
-                else:
-                    invalid_paths.append(symlink)
-
-            for path in invalid_paths:
-                with self.subTest(path=path):
-                    with self.assertRaises(local_model.LocalModelError) as captured:
-                        manager.select(path)
-                    self.assertNotIn(str(root), str(captured.exception))
-                    self.assertEqual(before, manager.attestation_path.read_bytes())
-
-    def test_changed_model_is_rehashed_and_tampering_fails_closed(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            model = root / "chosen.gguf"
-            _write_model(model)
-            manager = local_model.LocalModelManager(root / "private")
-            manager.select(model.resolve())
-
-            with model.open("r+b") as file:
-                file.seek(16)
-                file.write(b"changed")
-            with self.assertRaises(local_model.LocalModelError) as captured:
-                manager.resolve_selected()
-            self.assertEqual("Selected local model changed after verification.", str(captured.exception))
-            self.assertTrue(manager.attestation_path.exists())
-
-
-class LocalGpuProbeTests(unittest.TestCase):
-    def test_probe_is_offline_bounded_no_shell_and_requires_full_gpu_offload(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            runtime = _runtime_files(root)
-            model_path = root / "model.gguf"
-            _write_model(model_path)
-            selected = local_model.LocalModelManager(root / "private").select(
-                model_path.resolve()
-            )
-            calls = []
-
-            def runner(args, **kwargs):
-                calls.append((args, kwargs))
-                return subprocess.CompletedProcess(
-                    args,
-                    0,
-                    stdout="",
-                    stderr=(
-                        "using device MTL0 (Apple GPU)\n"
-                        "offloading 35 repeating layers to GPU\n"
-                        "offloaded 37/37 layers to GPU\n"
-                    ),
-                )
-
-            result = local_ai_runtime.probe_full_gpu_offload(
-                runtime, selected, runner=runner, timeout_seconds=30
-            )
-            self.assertEqual("metal", result.backend)
-            self.assertEqual((37, 37), (result.offloaded_layers, result.total_layers))
-            args, kwargs = calls[0]
-            self.assertEqual(str(runtime.cli), args[0])
-            self.assertEqual(str(model_path.resolve()), args[args.index("--model") + 1])
-            self.assertIn("--offline", args)
-            self.assertEqual("all", args[args.index("--gpu-layers") + 1])
-            self.assertEqual("off", args[args.index("--fit") + 1])
-            self.assertNotIn("shell", kwargs)
-            self.assertEqual(30.0, kwargs["timeout"])
-
-    def test_probe_rejects_partial_offload_and_timeout_without_leaking_paths(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            runtime = _runtime_files(root)
-            model_path = root / "private-name.gguf"
-            _write_model(model_path)
-            selected = local_model.LocalModelManager(root / "private").select(
-                model_path.resolve()
-            )
-
-            def partial(args, **_kwargs):
-                return subprocess.CompletedProcess(
-                    args,
-                    0,
-                    stdout="offloaded 18/37 layers to GPU\n",
-                    stderr="",
-                )
-
-            with self.assertRaises(local_ai_runtime.LocalRuntimeError) as captured:
-                local_ai_runtime.probe_full_gpu_offload(
-                    runtime, selected, runner=partial
-                )
-            self.assertNotIn(str(root), str(captured.exception))
-
-            def cpu_only(args, **_kwargs):
-                return subprocess.CompletedProcess(
-                    args,
-                    0,
-                    stdout="loaded all layers on CPU\n",
-                    stderr="",
-                )
-
-            with self.assertRaises(local_ai_runtime.LocalRuntimeError) as captured:
-                local_ai_runtime.probe_full_gpu_offload(
-                    runtime, selected, runner=cpu_only
-                )
-            self.assertEqual(
-                "Local runtime did not report GPU offload.",
-                str(captured.exception),
-            )
-
-            def timeout(*_args, **_kwargs):
-                raise subprocess.TimeoutExpired([str(runtime.cli)], 1)
-
-            with self.assertRaises(local_ai_runtime.LocalRuntimeError) as captured:
-                local_ai_runtime.probe_full_gpu_offload(
-                    runtime, selected, runner=timeout
-                )
-            self.assertEqual("Local GPU probe timed out.", str(captured.exception))
-
-    def test_default_process_capture_kills_timeout_and_output_overflow(self) -> None:
-        with self.assertRaises(local_ai_runtime.LocalRuntimeError) as captured:
-            local_ai_runtime._run_bounded_process(
-                (sys.executable, "-c", "import time; time.sleep(10)"),
-                timeout_seconds=0.05,
-            )
-        self.assertEqual("Local GPU probe timed out.", str(captured.exception))
-
-        with self.assertRaises(local_ai_runtime.LocalRuntimeError) as captured:
-            local_ai_runtime._run_bounded_process(
-                (
-                    sys.executable,
-                    "-c",
-                    "import sys; sys.stdout.buffer.write(b'x' * 1100000)",
-                ),
-                timeout_seconds=5,
-            )
-        self.assertEqual(
-            "Local GPU probe output exceeded its safety limit.",
-            str(captured.exception),
-        )
 
 
 if __name__ == "__main__":

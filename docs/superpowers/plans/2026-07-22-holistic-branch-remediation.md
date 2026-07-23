@@ -144,7 +144,7 @@ build, or release path may depend on it.
   user's model file during migration. Add migration, API-absence, first-paint,
   and no-file-touch regressions. Commit: `refactor: remove direct gguf product surface`.
 
-- [ ] **F20 — Remove the managed llama runtime.** Delete
+- [x] **F20 — Remove the managed llama runtime.** Delete
   `ManagedLlamaServer`, `ManagedLocalRecipeProvider`, runtime/model manager
   production wiring, GPU probe, process lifecycle, and their now-dead tests and
   settings adapters. Ollama remains the sole local provider; curated API remains

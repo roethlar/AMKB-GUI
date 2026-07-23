@@ -252,6 +252,7 @@ class ReleaseInfoTests(unittest.TestCase):
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text("utf-8")
         build_script = (ROOT / "build.py").read_text("utf-8")
         smoke = (ROOT / "am_configurator" / "desktop.py").read_text("utf-8")
+        providers = (ROOT / "am_configurator" / "recipe_provider.py").read_text("utf-8")
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text("utf-8")
         macos = (ROOT / "packaging" / "macos" / "build_dmg.sh").read_text("utf-8")
 
@@ -265,7 +266,9 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("rglob(\"*.gguf\")", smoke)
         self.assertIn("_run_api_recipe_smoke", smoke)
         self.assertIn("_run_ollama_recipe_smoke", smoke)
-        self.assertIn("_run_local_recipe_smoke", smoke)
+        self.assertNotIn("_run_local_recipe_smoke", smoke)
+        self.assertNotIn("ManagedLlamaServer", providers)
+        self.assertNotIn("ManagedLocalRecipeProvider", providers)
         self.assertIn("_run_disabled_ai_smoke", smoke)
         run_smoke = smoke[smoke.index("def run_smoke_test") :]
         self.assertNotIn("_run_local_recipe_smoke()", run_smoke)
