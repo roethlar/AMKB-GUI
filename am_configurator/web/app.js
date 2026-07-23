@@ -10,6 +10,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch]));
 const {ROUTES, STAGES, createLightingState, formatLightingHash, nextGridIndex, parseLightingHash, projectLightingJob, reduceLightingState, routeAvailability} = LightingState;
+const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 
 function restoredLightingState() {
@@ -2008,20 +2009,12 @@ function renderProgressStage(context) {
 function renderProceduralReview(context) {
   const manifest=context.manifest;
   const attempt=latestProceduralAttempt(manifest);
-  const preview=attempt?.preview_asset_id?assetUrl(manifest.job_id,attempt.preview_asset_id):null;
   const recipe=attempt?.recipe_asset_id?state.proceduralRecipes.get(`${manifest.job_id}:${attempt.recipe_asset_id}`):null;
   const quality=attempt?.quality||{};
   const decision=reduceLightingState(state.lighting,{type:"APPLY_REQUESTED"},{document:documentDescriptor(),destination:state.conceptDestination});
-  const summary=recipe?`${recipe.name||"Procedural effect"} · ${recipe.density||"balanced"} · ${recipe.layers.length} layer${recipe.layers.length===1?"":"s"}`:"Loading saved recipe…";
-  $("#lighting-generate-content").innerHTML=`<div class="review-stage">
-    <div class="review-media">${preview?`<img src="${esc(preview)}" alt="Animated exact-raster lighting preview">`:'<div class="library-card-placeholder">Loading animation…</div>'}</div>
-    <div class="review-copy"><p class="eyebrow">Saved locally</p><h3>${esc(summary)}</h3><p>${Number(quality.frame_count||manifest?.target?.frame_cap||0)} exact frames · ${esc(context.targetLabel)} · Custom ${context.destinationSlot-4}</p>
-    ${decision.blocked?`<p class="ai-error">${esc(reviewBlockedMessage(decision.blocked))}</p>`:""}
-    ${state.animationError?`<p class="ai-error" role="alert">${esc(state.animationError)}</p>`:""}
-    <div class="button-row"><button id="apply-procedural-effect" type="button" class="button primary" ${decision.blocked||!attempt?.mapped_result_asset_id?'disabled':''}>Apply</button></div>
-    <small class="control-help">Apply is one undoable document-only change. Nothing is written to the keyboard.</small></div>
-  </div>`;
-  $("#apply-procedural-effect")?.addEventListener("click",applyReviewedLighting);
+  const mappedResultLoaded=Boolean(attempt?.mapped_result_asset_id&&state.mappedLightingResults.has(`${manifest.job_id}:${attempt.mapped_result_asset_id}`));
+  const view=createReviewView({assetUrls:state.conceptAssetUrls,jobId:manifest.job_id,attempt,recipe,quality,frameCap:manifest?.target?.frame_cap,targetLabel:context.targetLabel,destinationSlot:context.destinationSlot,blockedReason:decision.blocked,mappedResultLoaded,errorMessage:state.animationError});
+  renderReview($("#lighting-generate-content"),view,applyReviewedLighting);
 }
 
 function renderGenerationDialog() {

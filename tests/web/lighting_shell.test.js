@@ -8,14 +8,17 @@ const path = require("node:path");
 const root = path.resolve(__dirname, "../..");
 const html = fs.readFileSync(path.join(root, "am_configurator/web/index.html"), "utf8");
 const js = fs.readFileSync(path.join(root, "am_configurator/web/app.js"), "utf8");
+const review = fs.readFileSync(path.join(root, "am_configurator/web/lighting_review.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "am_configurator/web/style.css"), "utf8");
 const server = fs.readFileSync(path.join(root, "am_configurator/server.py"), "utf8");
 
 test("pure lighting state loads before the application adapter", () => {
   const stateScript=html.indexOf('<script src="/lighting_state.js"></script>');
+  const reviewScript=html.indexOf('<script src="/lighting_review.js"></script>');
   const appScript=html.indexOf('<script src="/app.js"></script>');
-  assert.ok(stateScript>=0&&stateScript<appScript);
+  assert.ok(stateScript>=0&&stateScript<reviewScript&&reviewScript<appScript);
   assert.match(server,/"\/lighting_state\.js":\s*"lighting_state\.js"/);
+  assert.match(server,/"\/lighting_review\.js":\s*"lighting_review\.js"/);
 });
 
 test("persistent job strip remains available outside routed content", () => {
@@ -78,8 +81,9 @@ test("API setup stays secondary, explicit, and confined to Settings", () => {
 });
 
 test("generation is one prompt, durable progress, animated review, and explicit Apply", () => {
+  const generationSurface=`${js}\n${review}`;
   for(const id of ["effect-prompt","generate-effect","cancel-effect","apply-procedural-effect"]){
-    assert.match(js,new RegExp(`id="${id}"`));
+    assert.match(generationSurface,new RegExp(`id="${id}"`));
   }
   assert.match(js,/api\("\/api\/lighting\/effects"/);
   assert.match(js,/backend:state\.aiStatus\.backend/);
@@ -88,7 +92,9 @@ test("generation is one prompt, durable progress, animated review, and explicit 
   assert.match(js,/preview_asset_id/);
   assert.match(js,/recipe_asset_id/);
   assert.match(js,/mapped_result_asset_id/);
-  assert.match(js,/Animated exact-raster lighting preview/);
+  assert.match(review,/Animated exact-raster lighting preview/);
+  assert.match(js,/createReviewView\(\{assetUrls:state\.conceptAssetUrls/);
+  assert.match(js,/renderReview\(\$\("#lighting-generate-content"\),view,applyReviewedLighting\)/);
   assert.match(js,/saved failure does not disable this backend/);
   assert.match(js,/syncLightingJob\(null,\{renderPage:false\}\)/);
   assert.match(js,/type:"APPLY_REQUESTED"/);

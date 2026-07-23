@@ -170,7 +170,7 @@ build, or release path may depend on it.
 Complete these before all other code work. Run the full repository gate and a
 local no-provider browser acceptance at the end of the phase.
 
-- [ ] **F01 — Restore executable procedural Review/Apply.** In
+- [x] **F01 — Restore executable procedural Review/Apply.** In
   `am_configurator/web/app.js`, restore or replace the deleted asset lookup and
   blocked-reason formatter through named, pure helpers. Review must use the
   authenticated Blob URL already owned by `state.conceptAssetUrls`, render every

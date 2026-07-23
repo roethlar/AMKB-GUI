@@ -33,6 +33,7 @@ _STATIC = {
     "/": "index.html",
     "/index.html": "index.html",
     "/app.js": "app.js",
+    "/lighting_review.js": "lighting_review.js",
     "/lighting_state.js": "lighting_state.js",
     "/icon.png": "icon.png",
     "/style.css": "style.css",
