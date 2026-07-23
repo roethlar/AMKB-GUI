@@ -65,12 +65,11 @@ from am_configurator.library import (
 
 
 _DEFAULT_SETTINGS = {
-    "schema_version": 4,
+    "schema_version": 5,
     "ai": {
         "enabled": False,
         "backend": None,
         "local": {
-            "source": "ollama",
             "model_id": None,
             "model_digest": None,
             "setup_fingerprint": None,
@@ -129,7 +128,7 @@ def tearDownModule() -> None:
 
 
 class SettingsStoreTests(unittest.TestCase):
-    """Strict v4 settings, safe legacy migration, and curated AI catalog."""
+    """Strict v5 settings, safe legacy migration, and curated AI catalog."""
 
     def setUp(self) -> None:
         self._tmp = tempfile.mkdtemp(prefix="am_settings_test_")
@@ -235,11 +234,11 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual("sk-existing", store.resolve_xai_key())
         self.assertFalse(path.with_name(path.name + ".bad").exists())
         saved = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(saved["schema_version"], 4)
+        self.assertEqual(saved["schema_version"], 5)
         self.assertNotIn("llm", saved)
         self.assertNotIn("sk-existing", path.read_text(encoding="utf-8"))
 
-    def test_v4_round_trip(self) -> None:
+    def test_v5_round_trip(self) -> None:
         payload = copy.deepcopy(_DEFAULT_SETTINGS)
         payload["ai"]["backend"] = "local"
         payload["ai"]["local"]["setup_fingerprint"] = "a" * 64
@@ -2237,7 +2236,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
 
         status, data = self._request("GET", "/api/settings")
         self.assertEqual(status, 200)
-        self.assertEqual(data["schema_version"], 4)
+        self.assertEqual(data["schema_version"], 5)
         self.assertNotIn("llm", data)
         self.assertNotIn("candidate_count", data["generation"])
         # The raw key never returns to the browser, anywhere in the payload.

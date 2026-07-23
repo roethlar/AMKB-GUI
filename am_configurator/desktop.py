@@ -53,13 +53,6 @@ def _folder_dialog_type() -> Any:
     return webview.FileDialog.FOLDER
 
 
-def _model_dialog_type() -> Any:
-    """Resolve pywebview's file-open enum without making it a base install."""
-    import webview
-
-    return webview.FileDialog.OPEN
-
-
 def _open_reveal_target(target: Path) -> None:
     """Open a validated target in the platform file manager."""
     system = platform.system()
@@ -82,7 +75,7 @@ def _open_reveal_target(target: Path) -> None:
 
 
 class DesktopBridge:
-    """Narrow native bridge for model/library selection and Library reveal.
+    """Narrow native bridge for Library selection and reveal.
 
     Settings persistence intentionally remains behind the authenticated loopback
     HTTP API. Only these narrow chooser/reveal methods are exposed to JavaScript
@@ -119,37 +112,6 @@ class DesktopBridge:
         try:
             path = Path(raw).expanduser()
             if not path.is_absolute() or not path.is_dir():
-                return None
-            return str(path.resolve(strict=True))
-        except (OSError, RuntimeError):
-            return None
-
-    def _choose_local_model(self) -> str | None:
-        """Return a native-picked GGUF path only to the loopback server.
-
-        The leading underscore keeps pywebview from exposing this path-returning
-        method to browser JavaScript.
-        """
-        if self._window is None:
-            return None
-        selected = self._window.create_file_dialog(
-            dialog_type=_model_dialog_type(),
-            allow_multiple=False,
-            file_types=("GGUF model (*.gguf)",),
-        )
-        if not selected:
-            return None
-        raw = selected if isinstance(selected, str) else selected[0]
-        if not isinstance(raw, str) or not raw:
-            return None
-        try:
-            path = Path(raw).expanduser()
-            if (
-                not path.is_absolute()
-                or path.suffix.lower() != ".gguf"
-                or path.is_symlink()
-                or not path.is_file()
-            ):
                 return None
             return str(path.resolve(strict=True))
         except (OSError, RuntimeError):
@@ -205,16 +167,12 @@ def _assert_no_bundled_models() -> None:
 
 
 def _run_disabled_ai_smoke() -> None:
-    """Verify disabled startup attests files without constructing a provider."""
+    """Verify disabled startup does not construct an inference provider."""
     from unittest.mock import patch
 
     from . import store
     from .ai_capability import AICapabilityService
     from .credentials import MemoryCredentialStore
-    from .local_ai_runtime import get_local_ai_runtime
-    from .local_model import LocalModelManager
-
-    runtime = get_local_ai_runtime()
     provider_calls: list[str] = []
 
     def provider_created(*_args):
@@ -228,13 +186,10 @@ def _run_disabled_ai_smoke() -> None:
                 settings_loader=lambda: store.load_settings(
                     credential_store=credentials
                 ),
-                model_manager=LocalModelManager(Path(temporary) / "model"),
-                runtime_resolver=lambda: runtime,
                 credential_status_loader=lambda: store.credential_status(
                     credential_store=credentials
                 ),
                 credential_resolver=lambda: None,
-                local_provider_factory=provider_created,
                 api_provider_factory=provider_created,
             )
             try:
@@ -499,7 +454,6 @@ def run_smoke_test() -> int:
     _run_disabled_ai_smoke()
     _run_api_recipe_smoke()
     _run_ollama_recipe_smoke()
-    _run_local_recipe_smoke()
     _run_ffmpeg_media_smoke()
     if os.environ.get("AM_SMOKE_NET") == "1":
         request = Request("https://example.com/", method="HEAD")

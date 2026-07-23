@@ -9,7 +9,11 @@
   qualification, and every associated build/package/release path are
   superseded and must be removed. The durable decision and remediation plan now
   own that correction. The owner approved the revised plan on 2026-07-22;
-  implementation begins with Phase 0 / F49.
+  Phase 0 / F49 is complete on the current tree: active settings migrated to
+  Ollama/API-only schema v5, GGUF readiness migrates to unselected Ollama
+  without opening the model file, and the native picker, route, browser surface,
+  capability branch, and product smoke invocation are gone. The next slice is
+  F20's removal of the managed llama runtime.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -315,9 +319,8 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  beginning with Phase 0 / F49's unconditional removal of direct-GGUF product
-  state and surface. Do not push or dispatch workflows before the local
-  remediation and verification gates pass.
+  continuing with Phase 0 / F20's managed llama runtime removal. Do not push or
+  dispatch workflows before the local remediation and verification gates pass.
 - After remediation and a separate outward authorization, verify Windows
   x86_64 and Linux x86_64 packages as Ollama/API-only builds and prove they
   contain no llama binary, GGUF execution path, model picker, model-selection

@@ -169,15 +169,6 @@
                   <p id="settings-local-model" class="settings-key-state">No Ollama model selected.</p>
                   <div class="button-row settings-local-actions"><button id="settings-local-test" type="button" class="button primary">Test &amp; enable</button><button id="settings-local-clear" type="button" class="button ghost">Clear selection</button></div>
                   <p class="control-help">AM Configurator only lists local models Ollama already has. It never pulls or removes a model.</p>
-                  <details id="settings-local-advanced" class="settings-local-advanced">
-                    <summary>Advanced: direct GGUF</summary>
-                    <div class="settings-local-advanced-content">
-                      <div class="settings-section-heading"><div><h3>Direct model file</h3><p id="settings-gguf-state">Use this only when Ollama is not the right runtime for your setup.</p></div><span id="settings-gguf-runtime" class="pill muted">Checking</span></div>
-                      <p id="settings-gguf-model" class="settings-key-state">No direct GGUF selected.</p>
-                      <div class="button-row settings-gguf-actions"><button id="settings-gguf-choose" type="button" class="button ghost">Choose GGUF…</button><button id="settings-gguf-test" type="button" class="button primary">Test &amp; enable direct model</button><button id="settings-gguf-clear" type="button" class="button ghost">Clear selection</button></div>
-                      <p class="control-help">This fallback runs a raw GGUF file through the bundled llama.cpp runtime on a supported GPU. Choosing a file never copies, changes, or deletes it.</p>
-                    </div>
-                  </details>
                 </div>
                 <div id="settings-api-panel" class="settings-backend-panel" hidden>
                   <div class="settings-rows">

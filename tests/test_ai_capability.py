@@ -1,33 +1,26 @@
 from __future__ import annotations
 
 import copy
-import shutil
-import tempfile
 import time
 import unittest
-from pathlib import Path
 
 from am_configurator import ai_catalog, llm
 from am_configurator.ai_capability import (
     AICapabilityError,
     AICapabilityService,
     api_setup_fingerprint,
-    local_setup_fingerprint,
     ollama_setup_fingerprint,
 )
-from am_configurator.local_ai_runtime import GpuProbe, RuntimePaths
-from am_configurator.local_model import SelectedModel
 from am_configurator.ollama_client import OllamaError, OllamaModel
 from am_configurator.recipe_provider import RecipeResult
 
 
 DEFAULTS = {
-    "schema_version": 4,
+    "schema_version": 5,
     "ai": {
         "enabled": False,
         "backend": None,
         "local": {
-            "source": "ollama",
             "model_id": None,
             "model_digest": None,
             "setup_fingerprint": None,
@@ -43,42 +36,6 @@ DEFAULTS = {
     "library": {"current_root": None, "roots": []},
     "generation": {"loop_mode": "smooth"},
 }
-
-
-class _ModelManager:
-    def __init__(self, model: SelectedModel | None = None, invalid: bool = False) -> None:
-        self.model = model
-        self.invalid = invalid
-
-    def status(self):
-        if self.invalid:
-            return {
-                "selected": True,
-                "filename": None,
-                "size_bytes": None,
-                "verified": False,
-                "reason": "model_invalid",
-            }
-        if self.model is None:
-            return {
-                "selected": False,
-                "filename": None,
-                "size_bytes": None,
-                "verified": False,
-                "reason": "model_missing",
-            }
-        return {
-            "selected": True,
-            "filename": self.model.filename,
-            "size_bytes": self.model.size_bytes,
-            "verified": True,
-            "reason": None,
-        }
-
-    def resolve_selected(self):
-        if self.model is None:
-            raise RuntimeError("missing")
-        return self.model
 
 
 class _Provider:
@@ -115,8 +72,8 @@ class _Provider:
                 ],
             },
             backend="local",
-            provider="llama.cpp",
-            model_id="selected.gguf",
+            provider="ollama",
+            model_id="ornith:latest",
             usage=None,
         )
 
@@ -150,20 +107,6 @@ class _OllamaClient:
 
 class CapabilityTests(unittest.TestCase):
     def setUp(self) -> None:
-        directory = Path(tempfile.mkdtemp(prefix="am-capability-"))
-        self.directory = directory
-        self.runtime = RuntimePaths(
-            cli=directory / "llama-cli", server=directory / "llama-server"
-        )
-        self.model = SelectedModel(
-            path=directory / "selected.gguf",
-            filename="selected.gguf",
-            size_bytes=2_000_000,
-            sha256="a" * 64,
-            device=1,
-            inode=2,
-            mtime_ns=3,
-        )
         self.settings = copy.deepcopy(DEFAULTS)
         self.ollama_model = OllamaModel(
             model_id="ornith:latest",
@@ -176,21 +119,13 @@ class CapabilityTests(unittest.TestCase):
         self.credential = None
         self.writes: list[tuple] = []
 
-    def tearDown(self) -> None:
-        shutil.rmtree(self.directory, ignore_errors=True)
-
     def _service(
         self,
         *,
-        manager=None,
-        runtime_available=True,
         provider=None,
-        host=(True, "metal"),
         credential_available=True,
         ollama_available=True,
     ):
-        manager = _ModelManager() if manager is None else manager
-
         def write_fingerprint(backend, fingerprint):
             self.writes.append(("fingerprint", backend, fingerprint))
             self.settings["ai"][backend]["setup_fingerprint"] = fingerprint
@@ -202,11 +137,6 @@ class CapabilityTests(unittest.TestCase):
             self.settings["ai"]["backend"] = values["backend"]
             return copy.deepcopy(self.settings)
 
-        def runtime_resolver():
-            if not runtime_available:
-                raise RuntimeError("private runtime path")
-            return self.runtime
-
         credential_status = lambda: {
             "available": credential_available,
             "configured": self.credential is not None,
@@ -214,16 +144,10 @@ class CapabilityTests(unittest.TestCase):
         }
         return AICapabilityService(
             settings_loader=lambda: copy.deepcopy(self.settings),
-            model_manager=manager,
-            runtime_resolver=runtime_resolver,
-            runtime_identity_loader=lambda runtime: "b" * 64,
-            host_capability=lambda: host,
             credential_status_loader=credential_status,
             credential_resolver=lambda: self.credential,
             fingerprint_writer=write_fingerprint,
             ai_settings_writer=write_ai,
-            gpu_probe=lambda runtime, model, **_kwargs: GpuProbe("metal", 37, 37),
-            local_provider_factory=lambda: provider or _Provider(),
             api_provider_factory=lambda key, model: provider or _Provider(),
             ollama_client=_OllamaClient(
                 self.ollama_models,
@@ -234,7 +158,7 @@ class CapabilityTests(unittest.TestCase):
 
     def test_default_status_is_exact_pathless_and_disabled(self) -> None:
         provider = _Provider()
-        service = self._service(runtime_available=False, provider=provider)
+        service = self._service(provider=provider)
         self.assertEqual(
             {
                 "schema_version": 1,
@@ -243,21 +167,12 @@ class CapabilityTests(unittest.TestCase):
                 "ready": False,
                 "reason": "disabled",
                 "local": {
-                    "source": "ollama",
                     "service_available": True,
                     "model_selected": False,
                     "model_id": None,
                     "model_verified": False,
                     "setup_tested": False,
                     "provider": "ollama",
-                    "advanced": {
-                        "supported": True,
-                        "gpu_backend": "metal",
-                        "runtime_verified": False,
-                        "model_selected": False,
-                        "model_filename": None,
-                        "model_verified": False,
-                    },
                 },
                 "api": {
                     "provider": "xai",
@@ -273,26 +188,6 @@ class CapabilityTests(unittest.TestCase):
             service.provider_for_generation()
         self.assertEqual(0, provider.calls)
 
-    def test_local_readiness_uses_attested_user_model_not_a_catalog(self) -> None:
-        manager = _ModelManager(self.model)
-        fingerprint = local_setup_fingerprint("b" * 64, self.model.sha256)
-        self.settings["ai"].update({"enabled": True, "backend": "local"})
-        self.settings["ai"]["local"]["source"] = "gguf"
-        self.settings["ai"]["local"]["setup_fingerprint"] = fingerprint
-
-        status = self._service(manager=manager).status()
-
-        self.assertTrue(status["ready"])
-        self.assertEqual("ready", status["reason"])
-        self.assertEqual("selected.gguf", status["local"]["model_id"])
-        self.assertEqual("llama.cpp", status["local"]["provider"])
-        self.assertTrue(status["local"]["setup_tested"])
-
-        manager.invalid = True
-        status = self._service(manager=manager).status()
-        self.assertFalse(status["ready"])
-        self.assertEqual("model_invalid", status["reason"])
-
     def test_readiness_reasons_are_exact_and_invocation_fails_closed(self) -> None:
         self.settings["ai"]["enabled"] = True
         self.settings["ai"]["backend"] = None
@@ -300,14 +195,9 @@ class CapabilityTests(unittest.TestCase):
         self.assertEqual("backend_unselected", service.status()["reason"])
 
         self.settings["ai"]["backend"] = "local"
-        self.settings["ai"]["local"]["source"] = "gguf"
         self.assertEqual(
-            "gpu_unsupported",
-            self._service(host=(False, None)).status()["reason"],
-        )
-        self.assertEqual(
-            "runtime_unavailable",
-            self._service(runtime_available=False).status()["reason"],
+            "ollama_unavailable",
+            self._service(ollama_available=False).status()["reason"],
         )
         self.assertEqual("model_missing", service.status()["reason"])
         with self.assertRaises(AICapabilityError) as captured:
@@ -343,29 +233,7 @@ class CapabilityTests(unittest.TestCase):
         self.assertEqual("ready", status["reason"])
         self.assertNotIn(self.credential, str(status))
 
-    def test_local_test_probes_full_gpu_then_enables_exact_components(self) -> None:
-        manager = _ModelManager(self.model)
-        provider = _Provider()
-        self.settings["ai"]["backend"] = "local"
-        self.settings["ai"]["local"]["source"] = "gguf"
-        service = self._service(manager=manager, provider=provider)
-
-        status = service.test_and_enable(
-            "local", deadline=time.monotonic() + 10, cancelled=lambda: False
-        )
-
-        self.assertEqual(1, provider.calls)
-        self.assertTrue(status["ready"])
-        self.assertEqual("ready", status["reason"])
-        self.assertEqual(
-            local_setup_fingerprint("b" * 64, self.model.sha256),
-            self.settings["ai"]["local"]["setup_fingerprint"],
-        )
-        self.assertIn(("ai", {"enabled": True, "backend": "local"}, True), self.writes)
-        service.close()
-        self.assertEqual(1, provider.closed)
-
-    def test_ollama_setup_uses_installed_name_and_digest_without_gguf_or_gpu(self) -> None:
+    def test_ollama_setup_uses_installed_name_and_digest(self) -> None:
         provider = _Provider()
         self.ollama_models = [self.ollama_model]
         self.settings["ai"]["backend"] = "local"
@@ -373,11 +241,7 @@ class CapabilityTests(unittest.TestCase):
             "model_id": self.ollama_model.model_id,
             "model_digest": self.ollama_model.digest,
         })
-        service = self._service(
-            provider=provider,
-            host=(False, None),
-            runtime_available=False,
-        )
+        service = self._service(provider=provider)
 
         status = service.test_and_enable(
             "local", deadline=time.monotonic() + 10, cancelled=lambda: False
@@ -396,17 +260,20 @@ class CapabilityTests(unittest.TestCase):
         self.assertEqual("model_unavailable", service.status()["reason"])
 
     def test_generation_failure_does_not_invalidate_a_ready_local_model(self) -> None:
-        manager = _ModelManager(self.model)
         failure = _FailingProvider("bad_response")
+        self.ollama_models = [self.ollama_model]
         self.settings["ai"].update({"enabled": True, "backend": "local"})
-        self.settings["ai"]["local"]["source"] = "gguf"
-        self.settings["ai"]["local"]["setup_fingerprint"] = (
-            local_setup_fingerprint("b" * 64, self.model.sha256)
-        )
-        service = self._service(manager=manager, provider=failure)
+        self.settings["ai"]["local"].update({
+            "model_id": self.ollama_model.model_id,
+            "model_digest": self.ollama_model.digest,
+            "setup_fingerprint": ollama_setup_fingerprint(
+                self.ollama_model.model_id,
+                self.ollama_model.digest,
+            ),
+        })
+        service = self._service(provider=failure)
 
         provider = service.provider_for_generation()
-        self.assertIs(provider, service.provider_for_generation())
         with self.assertRaises(llm.ProviderError):
             provider.generate(None, time.monotonic() + 10, lambda: False)
 

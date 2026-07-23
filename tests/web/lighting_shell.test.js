@@ -38,7 +38,7 @@ test("disabled first paint exposes no generation control outside Settings", () =
   assert.match(js,/route===ROUTES\.CREATE&&!aiReady\(\)&&!state\.lighting\.activeJob/);
 });
 
-test("Settings makes installed Ollama models primary and keeps GGUF advanced", () => {
+test("Settings exposes only installed Ollama models and the curated API", () => {
   const local=html.indexOf('id="settings-ai-local"');
   const api=html.indexOf('id="settings-ai-api"');
   assert.ok(local>=0&&local<api);
@@ -46,24 +46,21 @@ test("Settings makes installed Ollama models primary and keeps GGUF advanced", (
     "settings-ai-enabled","settings-ai-local","settings-ai-api","settings-local-state",
     "settings-local-model","settings-local-model-select","settings-local-refresh",
     "settings-local-select","settings-local-test","settings-local-clear",
-    "settings-local-advanced","settings-gguf-state","settings-gguf-model",
-    "settings-gguf-choose","settings-gguf-test","settings-gguf-clear",
     "settings-api-provider","settings-api-model","settings-api-key","settings-api-credential-state",
     "settings-api-disclosure-ack","settings-api-test","settings-api-remove",
   ])assert.match(html,new RegExp(`id="${id}"`));
   assert.match(html,/never downloads model weights/);
   const localPanel=html.slice(html.indexOf('id="settings-local-panel"'),html.indexOf('id="settings-api-panel"'));
-  const advanced=localPanel.indexOf('id="settings-local-advanced"');
-  assert.ok(advanced>0);
-  assert.match(localPanel.slice(0,advanced),/Ollama/);
-  assert.doesNotMatch(localPanel.slice(0,advanced),/GGUF/);
-  assert.match(localPanel.slice(advanced),/Advanced: direct GGUF/);
+  assert.match(localPanel,/Ollama/);
+  assert.doesNotMatch(localPanel,/GGUF|llama\.cpp|GPU backend|direct model/i);
+  assert.doesNotMatch(html,/settings-gguf|settings-local-advanced/);
   assert.match(js,/api\("\/api\/ai\/local\/models"/);
   assert.match(js,/api\("\/api\/ai\/local\/select"/);
   assert.match(js,/JSON\.stringify\(\{model_id/);
-  assert.match(js,/api\("\/api\/ai\/local\/gguf\/select"/);
   assert.match(js,/api\("\/api\/ai\/local\/clear"/);
   assert.match(js,/api\("\/api\/ai\/test"/);
+  assert.doesNotMatch(js,/\/api\/ai\/local\/gguf|settings-gguf|chooseAdvancedLocalModel/);
+  assert.doesNotMatch(server,/\/api\/ai\/local\/gguf|_select_advanced_local_model|_choose_local_model/);
   assert.match(js,/model_id/);
   assert.match(css,/\.check-row\s*>\s*span\s*\{[^}]*display:\s*grid[^}]*gap:/);
   const effect=js.slice(js.indexOf("async function startProceduralGeneration"),js.indexOf("function applyReviewedLighting",js.indexOf("async function startProceduralGeneration")));

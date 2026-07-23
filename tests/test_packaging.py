@@ -248,7 +248,7 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("build_tools.finalize_ffmpeg_bundle", macos)
         self.assertIn("codesign --force --sign -", macos)
 
-    def test_native_bundle_contains_attested_llama_runtime_without_models(self) -> None:
+    def test_transitional_llama_bundle_is_not_an_active_product_smoke(self) -> None:
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text("utf-8")
         build_script = (ROOT / "build.py").read_text("utf-8")
         smoke = (ROOT / "am_configurator" / "desktop.py").read_text("utf-8")
@@ -262,22 +262,26 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn('project / "packaging" / "llama"', spec)
         self.assertIn("MIT.txt", spec)
         self.assertNotIn(".gguf", spec.lower())
-        self.assertIn("get_local_ai_runtime", smoke)
         self.assertIn("rglob(\"*.gguf\")", smoke)
         self.assertIn("_run_api_recipe_smoke", smoke)
         self.assertIn("_run_ollama_recipe_smoke", smoke)
         self.assertIn("_run_local_recipe_smoke", smoke)
         self.assertIn("_run_disabled_ai_smoke", smoke)
+        run_smoke = smoke[smoke.index("def run_smoke_test") :]
+        self.assertNotIn("_run_local_recipe_smoke()", run_smoke)
+        disabled_smoke = smoke[
+            smoke.index("def _run_disabled_ai_smoke") : smoke.index("def _run_api_recipe_smoke")
+        ]
+        self.assertNotIn("get_local_ai_runtime", disabled_smoke)
         self.assertIn("build_tools.finalize_llama_bundle", macos)
 
     def test_frozen_smoke_test_runs_fake_recipe_backends_offline(self) -> None:
         smoke = (ROOT / "am_configurator" / "desktop.py").read_text(encoding="utf-8")
 
-        # Both production recipe adapters must reach deterministic render and
-        # mapping through injected fake transports, never model/provider hosts.
+        # Both shipped recipe adapters must reach deterministic render and
+        # mapping through injected fake transports, never provider hosts.
         self.assertIn("XaiRecipeProvider", smoke)
         self.assertIn("OllamaRecipeProvider", smoke)
-        self.assertIn("ManagedLocalRecipeProvider", smoke)
         self.assertIn("render_recipe", smoke)
         self.assertIn("map_frames_to_led_tracks", smoke)
         # ssl context creation is verified without a socket; the real-TLS reach

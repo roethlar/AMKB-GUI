@@ -44,31 +44,12 @@ class DesktopBridgeTests(unittest.TestCase):
             window.selection = ["relative/library"]
             self.assertIsNone(bridge.choose_library_folder())
 
-    def test_model_chooser_returns_only_a_canonical_regular_gguf(self) -> None:
-        with tempfile.TemporaryDirectory() as raw_tmp:
-            tmp = Path(raw_tmp)
-            chosen = tmp / "chosen.gguf"
-            chosen.write_bytes(b"GGUF-fixture")
-            window = _FakeWindow([str(chosen)])
-            bridge = desktop.DesktopBridge(window)
+    def test_bridge_has_no_local_model_file_picker(self) -> None:
+        bridge = desktop.DesktopBridge(_FakeWindow(None))
 
-            self.assertFalse(hasattr(bridge, "choose_local_model"))
-            self.assertEqual(bridge._choose_local_model(), str(chosen.resolve()))
-            self.assertEqual(
-                window.dialog_calls,
-                [{
-                    "dialog_type": desktop._model_dialog_type(),
-                    "allow_multiple": False,
-                    "file_types": ("GGUF model (*.gguf)",),
-                }],
-            )
-
-            window.selection = [str(tmp)]
-            self.assertIsNone(bridge._choose_local_model())
-            other = tmp / "other.bin"
-            other.write_bytes(b"fixture")
-            window.selection = [str(other)]
-            self.assertIsNone(bridge._choose_local_model())
+        self.assertFalse(hasattr(bridge, "choose_local_model"))
+        self.assertFalse(hasattr(bridge, "_choose_local_model"))
+        self.assertFalse(hasattr(desktop, "_model_dialog_type"))
 
     def test_reveal_accepts_only_existing_targets_under_recorded_roots(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmp:
@@ -131,9 +112,6 @@ class DesktopBridgeTests(unittest.TestCase):
 
 
 class DesktopWindowTests(unittest.TestCase):
-    def test_fake_local_runtime_smoke_uses_the_production_recipe_adapter(self) -> None:
-        desktop._run_local_recipe_smoke()
-
     def test_run_desktop_injects_and_binds_the_native_bridge(self) -> None:
         created: dict = {}
 

@@ -134,7 +134,7 @@ Complete these deletion slices first, keeping the full repository gate green
 after each commit. Historical evidence remains readable, but no active product,
 build, or release path may depend on it.
 
-- [ ] **F49 — Remove direct-GGUF product state and surface.** Delete the native
+- [x] **F49 — Remove direct-GGUF product state and surface.** Delete the native
   GGUF chooser, setup/generation routes, browser controls, capability source,
   local-model selection/attestation writes, and active settings fields. Advance
   the settings schema only if current evidence requires it; migrate an existing

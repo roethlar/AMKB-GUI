@@ -53,6 +53,28 @@ V4_DEFAULTS = {
     "generation": {"loop_mode": "smooth"},
 }
 
+V5_DEFAULTS = {
+    "schema_version": 5,
+    "ai": {
+        "enabled": False,
+        "backend": None,
+        "local": {
+            "model_id": None,
+            "model_digest": None,
+            "setup_fingerprint": None,
+        },
+        "api": {
+            "provider": "xai",
+            "model_id": "grok-4.5",
+            "setup_fingerprint": None,
+            "disclosure_version": None,
+            "disclosure_at": None,
+        },
+    },
+    "library": {"current_root": None, "roots": []},
+    "generation": {"loop_mode": "smooth"},
+}
+
 
 def _v2_settings(*, key: str | None = None, root: Path | None = None) -> dict:
     keys = {} if key is None else {"xai": key}
@@ -174,7 +196,7 @@ class CredentialAdapterTests(unittest.TestCase):
         self.assertNotIn("sk-secret", str(captured.exception))
 
 
-class SettingsV4Tests(unittest.TestCase):
+class SettingsV5Tests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = Path(tempfile.mkdtemp(prefix="am-settings-v3-"))
         self.saved = {
@@ -205,7 +227,7 @@ class SettingsV4Tests(unittest.TestCase):
         settings, reason = store.load_settings_with_status(
             credential_store=self.vault
         )
-        self.assertEqual(V4_DEFAULTS, settings)
+        self.assertEqual(V5_DEFAULTS, settings)
         self.assertIsNone(reason)
         self.assertFalse(store.settings_path().exists())
 
@@ -219,7 +241,7 @@ class SettingsV4Tests(unittest.TestCase):
         )
         self.assertIsNone(reason)
         self.assertEqual("sk-only-copy", self.vault.get("xai"))
-        self.assertEqual(4, settings["schema_version"])
+        self.assertEqual(5, settings["schema_version"])
         self.assertFalse(settings["ai"]["enabled"])
         self.assertIsNone(settings["ai"]["backend"])
         self.assertEqual(str(library.resolve()), settings["library"]["current_root"])
@@ -233,7 +255,7 @@ class SettingsV4Tests(unittest.TestCase):
         self.assertNotIn('"llm"', disk)
         self.assertNotIn("candidate_count", disk)
 
-    def test_v3_local_readiness_migrates_to_schema_v4_advanced_gguf(self) -> None:
+    def test_v3_direct_readiness_migrates_to_unselected_ollama(self) -> None:
         legacy = copy.deepcopy(V3_DEFAULTS)
         legacy["ai"].update({"enabled": True, "backend": "local"})
         legacy["ai"]["local"]["setup_fingerprint"] = "a" * 64
@@ -244,22 +266,75 @@ class SettingsV4Tests(unittest.TestCase):
         )
 
         self.assertIsNone(reason)
-        self.assertEqual(4, settings["schema_version"])
+        self.assertEqual(5, settings["schema_version"])
         self.assertEqual(
             {
-                "source": "gguf",
                 "model_id": None,
                 "model_digest": None,
-                "setup_fingerprint": "a" * 64,
+                "setup_fingerprint": None,
             },
             settings["ai"]["local"],
         )
-        self.assertEqual(4, json.loads(store.settings_path().read_text())["schema_version"])
+        self.assertTrue(settings["ai"]["enabled"])
+        self.assertEqual("local", settings["ai"]["backend"])
+        self.assertEqual(5, json.loads(store.settings_path().read_text())["schema_version"])
+
+    def test_v4_gguf_selection_migrates_without_touching_model_file(self) -> None:
+        model = self.directory / "owner-model.gguf"
+        model.write_bytes(b"GGUF-owner-bytes")
+        before = model.stat()
+        legacy = copy.deepcopy(V4_DEFAULTS)
+        legacy["ai"].update({"enabled": True, "backend": "local"})
+        legacy["ai"]["local"].update({
+            "source": "gguf",
+            "setup_fingerprint": "a" * 64,
+        })
+        legacy["ai"]["api"].update({
+            "disclosure_version": "2026-07-20-xai-v1",
+            "disclosure_at": "2026-07-20T12:00:00+00:00",
+        })
+        legacy["library"] = {
+            "current_root": str((self.directory / "library").resolve()),
+            "roots": [str((self.directory / "library").resolve())],
+        }
+        legacy["generation"]["loop_mode"] = "ping_pong"
+        self._write(legacy)
+
+        original_open = Path.open
+
+        def guarded_open(path, *args, **kwargs):
+            if path == model:
+                raise AssertionError("settings migration opened the GGUF model")
+            return original_open(path, *args, **kwargs)
+
+        with patch.object(Path, "open", guarded_open):
+            settings, reason = store.load_settings_with_status(
+                credential_store=self.vault
+            )
+
+        self.assertIsNone(reason)
+        self.assertEqual(5, settings["schema_version"])
+        self.assertEqual(
+            {"model_id": None, "model_digest": None, "setup_fingerprint": None},
+            settings["ai"]["local"],
+        )
+        self.assertTrue(settings["ai"]["enabled"])
+        self.assertEqual("local", settings["ai"]["backend"])
+        self.assertEqual("ping_pong", settings["generation"]["loop_mode"])
+        self.assertEqual(
+            "2026-07-20-xai-v1",
+            settings["ai"]["api"]["disclosure_version"],
+        )
+        self.assertEqual(b"GGUF-owner-bytes", model.read_bytes())
+        after = model.stat()
+        self.assertEqual(
+            (before.st_size, before.st_mtime_ns),
+            (after.st_size, after.st_mtime_ns),
+        )
 
     def test_ollama_selection_is_strict_and_invalidates_local_setup(self) -> None:
         updated = store.update_local_ai_settings(
             {
-                "source": "ollama",
                 "model_id": "ornith:latest",
                 "model_digest": "b" * 64,
             },
@@ -270,7 +345,7 @@ class SettingsV4Tests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             store.update_local_ai_settings(
-                {"source": "ollama", "model_id": "cloud:cloud", "model_digest": None},
+                {"model_id": "cloud:cloud", "model_digest": None},
                 credential_store=self.vault,
             )
 
@@ -305,7 +380,7 @@ class SettingsV4Tests(unittest.TestCase):
         )
         self.assertIsNone(reason)
         self.assertEqual("sk-only-copy", self.vault.get("xai"))
-        self.assertEqual(4, settings["schema_version"])
+        self.assertEqual(5, settings["schema_version"])
         self.assertNotIn("sk-only-copy", store.settings_path().read_text("utf-8"))
 
     def test_failed_final_migration_write_restores_the_previous_vault_value(self) -> None:
@@ -323,7 +398,7 @@ class SettingsV4Tests(unittest.TestCase):
         self.assertEqual(original, store.settings_path().read_bytes())
 
     def test_strict_updates_never_persist_credentials_and_invalidate_setup(self) -> None:
-        configured = copy.deepcopy(V4_DEFAULTS)
+        configured = copy.deepcopy(V5_DEFAULTS)
         configured["ai"]["backend"] = "api"
         configured["ai"]["api"]["setup_fingerprint"] = "a" * 64
         store.save_settings(configured, credential_store=self.vault)
@@ -359,7 +434,7 @@ class SettingsV4Tests(unittest.TestCase):
         self.assertEqual("none", updated["generation"]["loop_mode"])
 
     def test_failed_key_update_restores_the_previous_vault_value(self) -> None:
-        configured = copy.deepcopy(V4_DEFAULTS)
+        configured = copy.deepcopy(V5_DEFAULTS)
         configured["ai"]["backend"] = "api"
         configured["ai"]["api"]["setup_fingerprint"] = "a" * 64
         store.save_settings(configured, credential_store=self.vault)
@@ -379,7 +454,7 @@ class SettingsV4Tests(unittest.TestCase):
         self.assertEqual(before, store.settings_path().read_bytes())
 
     def test_environment_override_is_external_and_never_written(self) -> None:
-        store.save_settings(copy.deepcopy(V4_DEFAULTS), credential_store=self.vault)
+        store.save_settings(copy.deepcopy(V5_DEFAULTS), credential_store=self.vault)
         before = store.settings_path().read_bytes()
         os.environ["XAI_API_KEY"] = "sk-environment-only"
 

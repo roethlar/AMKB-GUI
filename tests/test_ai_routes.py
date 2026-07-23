@@ -34,21 +34,12 @@ def _ready_status() -> dict:
         "ready": True,
         "reason": "ready",
         "local": {
-            "source": "ollama",
             "service_available": True,
             "model_selected": True,
             "model_id": "ornith:latest",
             "model_verified": True,
             "setup_tested": True,
             "provider": "ollama",
-            "advanced": {
-                "supported": True,
-                "gpu_backend": "metal",
-                "runtime_verified": True,
-                "model_selected": False,
-                "model_filename": None,
-                "model_verified": False,
-            },
         },
         "api": {
             "provider": "xai",
@@ -112,19 +103,6 @@ class _Capability:
         self.closed = True
 
 
-class _ModelManager:
-    def __init__(self) -> None:
-        self.selected: list[str] = []
-        self.cleared = 0
-
-    def select(self, path):
-        self.selected.append(path)
-        return SimpleNamespace(filename=Path(path).name)
-
-    def clear(self):
-        self.cleared += 1
-
-
 class _LegacyCoordinator:
     active_job_id = None
 
@@ -147,7 +125,6 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.library = GeneratedAssetLibrary(root, minimum_free_bytes=1)
         self.provider = _Provider()
         self.capability = _Capability(self.provider)
-        self.models = _ModelManager()
         self.gate = OperationGate()
         self.procedural = ProceduralGenerationCoordinator(
             self.library,
@@ -167,12 +144,8 @@ class OptionalAIRouteTests(unittest.TestCase):
             lighting_coordinator=_LegacyCoordinator(),
             lighting_dependencies={"operation_gate": self.gate},
             ai_capability=self.capability,
-            local_model_manager=self.models,
             credential_store=self.credentials,
             procedural_coordinator=self.procedural,
-        )
-        self.server.state.desktop_bridge = SimpleNamespace(
-            _choose_local_model=lambda: "/private/chosen.gguf"
         )
         self.token = parse_qs(urlparse(url).query)["token"][0]
         self.base = f"http://127.0.0.1:{self.server.server_port}"
@@ -268,24 +241,22 @@ class OptionalAIRouteTests(unittest.TestCase):
             "POST", "/api/ai/local/select", {"path": "/tmp/injected.gguf"}
         )
         self.assertEqual(400, status)
-        self.assertEqual([], self.models.selected)
         status, response = self._request(
             "POST", "/api/ai/local/select", {"model_id": "ornith:latest"}
         )
         self.assertEqual(200, status)
-        self.assertEqual([], self.models.selected)
         local = store.load_settings(credential_store=self.credentials)["ai"]["local"]
-        self.assertEqual("ollama", local["source"])
         self.assertEqual("ornith:latest", local["model_id"])
 
         status, response = self._request("POST", "/api/ai/local/gguf/select", {})
-        self.assertEqual(200, status)
-        self.assertEqual(["/private/chosen.gguf"], self.models.selected)
-        self.assertNotIn("/private", json.dumps(response))
+        self.assertEqual(404, status)
+        self.assertNotIn("private", json.dumps(response))
 
         status, _response = self._request("POST", "/api/ai/local/clear", {})
         self.assertEqual(200, status)
-        self.assertEqual(1, self.models.cleared)
+        self.assertIsNone(
+            store.load_settings(credential_store=self.credentials)["ai"]["local"]["model_id"]
+        )
 
     def test_effect_route_owns_target_model_frames_and_banks_offline_result(self) -> None:
         status, started = self._request(
@@ -477,11 +448,10 @@ class OptionalAIRouteTests(unittest.TestCase):
             status, _response = self._request(
                 "POST", "/api/ai/local/gguf/select", {}
             )
-            self.assertEqual(409, status)
+            self.assertEqual(404, status)
         finally:
             self.gate.finish(token)
         self.assertEqual([], self.capability.test_calls)
-        self.assertEqual([], self.models.selected)
 
     def test_setup_provider_errors_are_typed_and_unexpected_paths_are_redacted(self) -> None:
         def rate_limited(*_args, **_kwargs):
@@ -496,15 +466,9 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.assertEqual(7, response["retry_after"])
         self.assertFalse(self.gate.is_active)
 
-        secret_path = "/private/models/secret.gguf"
-        self.server.state.desktop_bridge = SimpleNamespace(
-            _choose_local_model=lambda: (_ for _ in ()).throw(
-                OSError(f"failed at {secret_path}")
-            )
-        )
         status, response = self._request("POST", "/api/ai/local/gguf/select", {})
-        self.assertEqual(500, status)
-        self.assertNotIn(secret_path, json.dumps(response))
+        self.assertEqual(404, status)
+        self.assertEqual({"error": "Not found."}, response)
 
 
 if __name__ == "__main__":

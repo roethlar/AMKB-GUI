@@ -1289,7 +1289,6 @@ class _State:
         lighting_coordinator: Any = None,
         lighting_dependencies: dict[str, Any] | None = None,
         ai_capability: Any = None,
-        local_model_manager: Any = None,
         credential_store: Any = None,
         procedural_coordinator: Any = None,
         ollama_client: Any = None,
@@ -1306,7 +1305,7 @@ class _State:
         # the ``llm._xai_request`` contract). ``None`` uses the real ``_xai_get``
         # GET probe; tests inject a fake so no request ever leaves the machine.
         self.llm_transport = llm_transport
-        # Native desktop builds attach a narrow chooser/reveal bridge after
+        # Native desktop builds attach a narrow Library chooser/reveal bridge after
         # creating the loopback server. Browser-only launches leave it unset.
         self.desktop_bridge: Any = None
         self._lighting_lock = threading.Lock()
@@ -1314,7 +1313,6 @@ class _State:
         self._lighting_coordinator = lighting_coordinator
         self._lighting_dependencies = dict(lighting_dependencies or {})
         self._ai_capability = ai_capability
-        self._local_model_manager = local_model_manager
         self._credential_store = credential_store
         self._procedural_coordinator = procedural_coordinator
         self._ollama_client = ollama_client
@@ -1331,12 +1329,8 @@ class _State:
         self._lighting_reconcile_pending = False
         self._lighting_reconcile_worker: threading.Thread | None = None
 
-    def ai_services(self) -> tuple[Any, Any]:
-        """Return one capability service and the model manager it owns."""
-        if self._local_model_manager is None:
-            from .local_model import LocalModelManager
-
-            self._local_model_manager = LocalModelManager()
+    def ai_services(self) -> Any:
+        """Return the Ollama/API-only capability service."""
         if self._ai_capability is None:
             from . import store
             from .ai_capability import AICapabilityService
@@ -1346,7 +1340,6 @@ class _State:
                 settings_loader=lambda: store.load_settings(
                     credential_store=credential_store
                 ),
-                model_manager=self._local_model_manager,
                 credential_status_loader=lambda: store.credential_status(
                     credential_store=credential_store
                 ),
@@ -1367,7 +1360,7 @@ class _State:
                 ),
                 ollama_client=self._ollama_client,
             )
-        return self._ai_capability, self._local_model_manager
+        return self._ai_capability
 
     def procedural_services(self) -> tuple[Any, Any]:
         """Return the current Library and its local-first procedural coordinator."""
@@ -1383,7 +1376,7 @@ class _State:
             raise RuntimeError("Procedural generation services are unavailable.")
         from .procedural_generation import ProceduralGenerationCoordinator
 
-        capability, _manager = self.ai_services()
+        capability = self.ai_services()
         self._procedural_coordinator = ProceduralGenerationCoordinator(
             library,
             capability,
@@ -1587,7 +1580,6 @@ class _Handler(BaseHTTPRequestHandler):
             LibraryRootError,
             ManifestError,
         )
-        from .local_model import LocalModelError
 
         if isinstance(exc, AICapabilityError):
             self._json(
@@ -1595,10 +1587,6 @@ class _Handler(BaseHTTPRequestHandler):
                 HTTPStatus.CONFLICT,
             )
             return True
-        if isinstance(exc, LocalModelError):
-            self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
-            return True
-
         if isinstance(exc, llm.ProviderError):
             payload: dict[str, Any] = {
                 "code": exc.code,
@@ -1678,14 +1666,14 @@ class _Handler(BaseHTTPRequestHandler):
                         raise ValueError(
                             "The optional AI status route does not accept query fields."
                         )
-                    capability, _manager = self.state.ai_services()
+                    capability = self.state.ai_services()
                     self._json(capability.status())
                 elif path == "/api/ai/local/models":
                     if parsed.query:
                         raise ValueError(
                             "The local model route does not accept query fields."
                         )
-                    capability, _manager = self.state.ai_services()
+                    capability = self.state.ai_services()
                     self._json(capability.discover_local_models())
                 elif path.startswith("/api/lighting/"):
                     self._lighting_get(path, parsed.query)
@@ -1767,8 +1755,6 @@ class _Handler(BaseHTTPRequestHandler):
                 self._test_ai_backend(body)
             elif path == "/api/ai/local/select":
                 self._select_local_model(body)
-            elif path == "/api/ai/local/gguf/select":
-                self._select_advanced_local_model(body)
             elif path == "/api/ai/local/clear":
                 self._clear_local_model(body)
             elif path == "/api/native/choose-library":
@@ -1838,7 +1824,7 @@ class _Handler(BaseHTTPRequestHandler):
         if not body:
             raise ValueError("The optional AI settings request is empty.")
         self._require_ai_idle()
-        capability, _manager = self.state.ai_services()
+        capability = self.state.ai_services()
         current = capability.status()
         selected_backend = body.get("backend", current["backend"])
         selected_provider = body.get("provider", current["api"]["provider"])
@@ -1869,7 +1855,7 @@ class _Handler(BaseHTTPRequestHandler):
             body,
             credential_store=self.state._credential_store,
         )
-        capability, _manager = self.state.ai_services()
+        capability = self.state.ai_services()
         self._json(capability.status())
 
     def _test_ai_backend(self, body: dict[str, Any]) -> None:
@@ -1878,7 +1864,7 @@ class _Handler(BaseHTTPRequestHandler):
             allowed={"backend"},
             required={"backend"},
         )
-        capability, _manager = self.state.ai_services()
+        capability = self.state.ai_services()
         token, cancelled = self.state._generation_gate.begin("ai-setup-test")
         try:
             status = capability.test_and_enable(
@@ -1898,7 +1884,7 @@ class _Handler(BaseHTTPRequestHandler):
         model_id = body["model_id"]
         if not isinstance(model_id, str):
             raise ValueError("The Ollama model name is invalid.")
-        capability, _manager = self.state.ai_services()
+        capability = self.state.ai_services()
         discovered = capability.discover_local_models()
         if discovered.get("available") is not True:
             self._json(
@@ -1918,7 +1904,6 @@ class _Handler(BaseHTTPRequestHandler):
             raise ValueError("The selected Ollama model is not installed locally.")
         store.update_local_ai_settings(
             {
-                "source": "ollama",
                 "model_id": match["model_id"],
                 "model_digest": match["digest"],
             },
@@ -1927,49 +1912,16 @@ class _Handler(BaseHTTPRequestHandler):
         capability.close()
         self._json(capability.status())
 
-    def _select_advanced_local_model(self, body: dict[str, Any]) -> None:
-        from . import store
-
-        self._strict_body(body, allowed=set())
-        self._require_ai_idle()
-        bridge = self.state.desktop_bridge
-        chooser = getattr(bridge, "_choose_local_model", None)
-        if not callable(chooser):
-            self._json(
-                {"error": "The native local-model chooser is unavailable."},
-                HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        selected = chooser()
-        capability, manager = self.state.ai_services()
-        if selected is not None:
-            capability.close()
-            manager.select(selected)
-            store.update_local_ai_settings(
-                {"source": "gguf"},
-                credential_store=self.state._credential_store,
-            )
-        self._json(capability.status())
-
     def _clear_local_model(self, body: dict[str, Any]) -> None:
         from . import store
 
         self._strict_body(body, allowed=set())
         self._require_ai_idle()
-        capability, manager = self.state.ai_services()
-        settings = store.load_settings(credential_store=self.state._credential_store)
-        if settings["ai"]["local"]["source"] == "gguf":
-            capability.close()
-            manager.clear()
-            store.update_local_ai_settings(
-                {"source": "gguf"},
-                credential_store=self.state._credential_store,
-            )
-        else:
-            store.update_local_ai_settings(
-                {"source": "ollama", "model_id": None, "model_digest": None},
-                credential_store=self.state._credential_store,
-            )
+        capability = self.state.ai_services()
+        store.update_local_ai_settings(
+            {"model_id": None, "model_digest": None},
+            credential_store=self.state._credential_store,
+        )
         self._json(capability.status())
 
     def _active_procedural_target(self) -> dict:
@@ -1997,7 +1949,7 @@ class _Handler(BaseHTTPRequestHandler):
             allowed={"prompt", "backend", "loop_mode"},
             required={"prompt", "backend"},
         )
-        capability, _manager = self.state.ai_services()
+        capability = self.state.ai_services()
         status = capability.require_ready()
         if body["backend"] != status["backend"]:
             self._json(
@@ -2567,7 +2519,6 @@ def create_server(
     lighting_coordinator: Any = None,
     lighting_dependencies: dict[str, Any] | None = None,
     ai_capability: Any = None,
-    local_model_manager: Any = None,
     credential_store: Any = None,
     procedural_coordinator: Any = None,
     ollama_client: Any = None,
@@ -2575,7 +2526,7 @@ def create_server(
     """Create the loopback configurator server without starting its event loop.
 
     Tests may inject complete durable/procedural coordinators, the capability
-    service, model manager, and credential store, or just dependency maps for
+    service and credential store, or just dependency maps for
     production construction. These seams keep endpoint tests offline.
     """
     configs: list[dict[str, Any]] = []
@@ -2597,7 +2548,6 @@ def create_server(
         lighting_coordinator=lighting_coordinator,
         lighting_dependencies=lighting_dependencies,
         ai_capability=ai_capability,
-        local_model_manager=local_model_manager,
         credential_store=credential_store,
         procedural_coordinator=procedural_coordinator,
         ollama_client=ollama_client,
