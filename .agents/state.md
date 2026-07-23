@@ -374,8 +374,13 @@
   assignment codes before browser-state publication, malformed macro markup is
   rejected, both code-bearing attributes escape their complete value, and the
   CSP regression confirms inline script and external image/connect channels
-  remain closed. Both browser safety regressions were proven red. The next
-  slice is Phase 11 / R02's imported lighting-color validation.
+  remain closed. Both browser safety regressions were proven red. R02 is
+  complete: imported static and animated lighting colors normalize to uppercase
+  six-digit RGB or fail with a content-free error, and every CSS/property
+  boundary repairs noncanonical values to black. Declaration and remote-URL
+  payload regressions were proven red. All local implementation findings are
+  closed; final native/manual/review evidence and P11 remain, while P10 still
+  awaits the separately approved governance bootstrap.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -684,10 +689,9 @@
 
 ## Next
 
-- Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 11 / R02's imported lighting-color validation
-  while P10 awaits a separately approved legacy bootstrap and P11 remains the
-  final remediation-state hygiene pass.
+- Complete the approved holistic remediation plan's final native build, manual
+  no-provider/no-hardware inspection, goal-first review, and P11 drift pass
+  while P10 awaits a separately approved legacy bootstrap.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

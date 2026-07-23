@@ -23,6 +23,14 @@ test("pure lighting state loads before the application adapter", () => {
   assert.match(server,/"\/lighting_targets\.js":\s*"lighting_targets\.js"/);
 });
 
+test("lighting color style interpolation uses only canonical RGB", () => {
+  assert.match(js,/normalizeImportedLightingColors\(normalizeImportedAssignmentCodes\(parsed\)\)/);
+  assert.match(js,/background:\$\{safeRgbColor\(color\)\}/);
+  assert.doesNotMatch(js,/background:\$\{esc\(color\)\}/);
+  assert.match(js,/pixel\.style\.background=safeRgbColor\(color\)/);
+  assert.match(js,/setProperty\('--pixel-color',safeRgbColor\(color\)\)/);
+});
+
 test("persistent job strip remains available outside routed content", () => {
   const strip=html.indexOf('id="lighting-job-strip"');
   const routeContent=html.indexOf('id="route-content"');

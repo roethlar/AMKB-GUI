@@ -8,7 +8,7 @@ if (queryToken) history.replaceState({}, "", `${location.pathname}${location.has
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
-const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, shouldDiscoverLocalModels} = LightingState;
+const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, renderTargetControls} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
@@ -322,7 +322,7 @@ async function readFiles(input, merge) {
     const configs = await Promise.all(files.map(async file => {
       const parsed = JSON.parse(await file.text());
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${file.name} is not a configuration object.`);
-      return normalizeImportedAssignmentCodes(parsed);
+      return normalizeImportedLightingColors(normalizeImportedAssignmentCodes(parsed));
     }));
     const families=new Set(configs.map(config=>productFamily(config?.product_info?.product_id)).filter(Boolean));
     if(families.size>1)throw new Error("The selected JSON files belong to different keyboard families and cannot be combined.");
@@ -1399,15 +1399,15 @@ function renderLightingEdit() {
   const rasterCells=pixelMap.map(index=>{
     if(index<0)return `<span class="pixel-spacer"></span>`;
     const position=pixelOrder++;
-    const color=frame?.frame_RGB[index]||'#000000';
-    return `<button class="pixel" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${index}" style="background:${esc(color)};--pixel-color:${esc(color)}" aria-label="LED ${index}, ${esc(color)}" title="LED ${index} · ${esc(color)}"></button>`;
+    const color=safeRgbColor(frame?.frame_RGB[index]);
+    return `<button class="pixel" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${index}" style="background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="LED ${index}, ${esc(color)}" title="LED ${index} · ${esc(color)}"></button>`;
   }).join("");
   const pixelCanvas=!frame?`<div class="event-empty"><button id="first-frame" class="button primary">Create first frame</button></div>`:physicalLayout?`<div class="pixel-grid physical afa-led-board" role="grid" aria-label="LED paint grid">${physicalLayout.map((item,position)=>{
-    const color=frame.frame_RGB[item.index]||"#000000";
+    const color=safeRgbColor(frame.frame_RGB[item.index]);
     const body=item.keyIndex===null;
     const label=body?item.label:decodeCode(keyLabels[item.keyIndex]||"#00000000");
     const description=body?'Center light':`Key ${label}, matrix ${item.keyIndex}`;
-    return `<button class="pixel physical-pixel ${body?'body-led':''}" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${item.index}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;--rotation:${item.rotation}deg;background:${esc(color)};--pixel-color:${esc(color)}" aria-label="${esc(description)}, LED ${item.index}, ${esc(color)}" title="${esc(description)} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
+    return `<button class="pixel physical-pixel ${body?'body-led':''}" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${item.index}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;--rotation:${item.rotation}deg;background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="${esc(description)}, LED ${item.index}, ${esc(color)}" title="${esc(description)} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
   }).join("")}</div>`:`<div class="pixel-grid ${gridClass}" role="grid" aria-label="LED paint grid" style="grid-template-columns:repeat(${columns},1fr)">${rasterCells}</div>`;
   const gifSize=state.ledTarget==="frames"?"40×5":state.ledTarget==="spotlight_frames"?"18×7 → 7 edge LEDs":`${model.keyRaster} → ${mappedCount} mapped LEDs`;
   const relicKeyTarget=model===LED_MODELS["80"]&&state.ledTarget==="keyframes";
@@ -1431,7 +1431,7 @@ function renderLightingEdit() {
         <div class="control-group"><label class="control-label" for="speed">Frame duration</label><select id="speed" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===encodedSpeed?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select><small class="control-help">These are the timing steps exposed by Angry Miao firmware.</small></div>
       </div>`;
   $("#lighting-edit-content").innerHTML=`<div class="lighting-edit-shell"><div class="led-layout">
-      <aside class="card frame-list" aria-label="Animation frames"><div class="card-header"><strong>Frames</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${esc(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?'Editing':'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div></aside>
+      <aside class="card frame-list" aria-label="Animation frames"><div class="card-header"><strong>Frames</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?'Editing':'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div></aside>
       <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header"><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}</small></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''}" role="region" aria-label="Paint the selected animation frame">${pixelCanvas}</div></section>
       <aside class="card led-controls" aria-label="Lighting controls"><div class="card-header"><strong>Frame controls</strong><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div>${editorBody}</aside>
     </div></div>`;
@@ -1557,7 +1557,7 @@ function startPlayback() {
     if(!state.playing)return;
     state.ledFrame=(state.ledFrame+1)%track.frame_data.length;
     const frame=track.frame_data[state.ledFrame];
-    $$('.pixel').forEach(pixel=>{const color=frame.frame_RGB[Number(pixel.dataset.pixel)]||'#000000';pixel.style.background=color;pixel.style.setProperty('--pixel-color',color);});
+    $$('.pixel').forEach(pixel=>{const color=frame.frame_RGB[Number(pixel.dataset.pixel)]||'#000000';pixel.style.background=safeRgbColor(color);pixel.style.setProperty('--pixel-color',safeRgbColor(color));});
     $$('.frame-item').forEach((node,i)=>{const selected=i===state.ledFrame;node.classList.toggle('active',selected);node.setAttribute('aria-pressed',String(selected));node.setAttribute('aria-label',`Frame ${i+1}${selected?', selected':''}`);});
   };
   state.playTimer=setInterval(tick,Math.max(12,Number(getPage(state.ledSlot)?.speed_ms||90)));

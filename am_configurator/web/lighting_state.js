@@ -23,6 +23,7 @@
   const DOCUMENT_ROUTES = new Set([ROUTES.KEYMAP, ROUTES.MACROS, ROUTES.CREATE, ROUTES.EDIT]);
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const ASSIGNMENT_CODE = /^#[0-9a-f]{8}$/i;
+  const RGB_COLOR = /^#[0-9a-f]{6}$/i;
 
   function escapeMarkup(value) {
     return String(value ?? "").replace(
@@ -65,6 +66,48 @@
           `Macro ${index + 1} assignment code`,
         );
       });
+    }
+    return config;
+  }
+
+  function canonicalRgbColor(value) {
+    if (typeof value !== "string" || !RGB_COLOR.test(value)) {
+      throw new Error("Imported lighting contains an invalid RGB color.");
+    }
+    return value.toUpperCase();
+  }
+
+  function safeRgbColor(value) {
+    return typeof value === "string" && RGB_COLOR.test(value)
+      ? value.toUpperCase()
+      : "#000000";
+  }
+
+  function normalizeImportedLightingColors(config) {
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      throw new Error("The imported configuration must be an object.");
+    }
+    if (config.page_data === undefined) return config;
+    if (!Array.isArray(config.page_data)) {
+      throw new Error("Imported lighting page data must be an array.");
+    }
+    for (const page of config.page_data) {
+      if (!page || typeof page !== "object" || Array.isArray(page)) continue;
+      if (page.color && typeof page.color === "object" && !Array.isArray(page.color)) {
+        for (const field of ["back_rgb", "rgb"]) {
+          if (page.color[field] !== undefined) {
+            page.color[field] = canonicalRgbColor(page.color[field]);
+          }
+        }
+      }
+      for (const trackName of ["frames", "keyframes", "spotlight_frames"]) {
+        const frames = page[trackName]?.frame_data;
+        if (!Array.isArray(frames)) continue;
+        for (const frame of frames) {
+          if (!Array.isArray(frame?.frame_RGB)) continue;
+          frame.frame_RGB = frame.frame_RGB.map(canonicalRgbColor);
+        }
+      }
     }
     return config;
   }
@@ -417,11 +460,13 @@
     nextGridIndex,
     normalizeLocalModels,
     normalizeImportedAssignmentCodes,
+    normalizeImportedLightingColors,
     parseLightingHash,
     projectLocalModelPicker,
     projectLightingJob,
     reduceLightingState,
     routeAvailability,
+    safeRgbColor,
     shouldDiscoverLocalModels,
   });
 });

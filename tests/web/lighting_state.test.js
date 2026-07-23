@@ -16,11 +16,13 @@ const {
   nextGridIndex,
   normalizeLocalModels,
   normalizeImportedAssignmentCodes,
+  normalizeImportedLightingColors,
   parseLightingHash,
   projectLightingJob,
   projectLocalModelPicker,
   reduceLightingState,
   routeAvailability,
+  safeRgbColor,
   shouldDiscoverLocalModels,
 } = require("../../am_configurator/web/lighting_state.js");
 
@@ -59,6 +61,45 @@ test("hostile assignment markup is escaped into inert attribute text", () => {
     "#00951500&quot;&gt;&lt;img src=x onerror=&quot;steal()&quot;&gt;",
   );
   assert.doesNotMatch(escaped, /<img|onerror="/);
+});
+
+test("imported lighting colors normalize to canonical six-digit RGB", () => {
+  const config = {
+    page_data: [{
+      color: {back_rgb: "#aabbcc", rgb: "#01020f"},
+      frames: {frame_data: [{frame_RGB: ["#123abc"]}]},
+      keyframes: {frame_data: [{frame_RGB: ["#fedcba"]}]},
+      spotlight_frames: {frame_data: [{frame_RGB: ["#00000a"]}]},
+    }],
+  };
+
+  assert.equal(normalizeImportedLightingColors(config), config);
+  assert.deepEqual(config.page_data[0].color, {back_rgb: "#AABBCC", rgb: "#01020F"});
+  assert.equal(config.page_data[0].frames.frame_data[0].frame_RGB[0], "#123ABC");
+  assert.equal(config.page_data[0].keyframes.frame_data[0].frame_RGB[0], "#FEDCBA");
+  assert.equal(config.page_data[0].spotlight_frames.frame_data[0].frame_RGB[0], "#00000A");
+});
+
+test("CSS declarations and remote URLs cannot enter lighting markup", () => {
+  const hostile = [
+    "#112233;background:url(https://attacker.invalid/pixel)",
+    "url(https://attacker.invalid/pixel)",
+  ];
+  for (const value of hostile) {
+    assert.throws(
+      () => normalizeImportedLightingColors({
+        page_data: [{frames: {frame_data: [{frame_RGB: [value]}]}}],
+      }),
+      error => {
+        assert.equal(error.message, "Imported lighting contains an invalid RGB color.");
+        assert.doesNotMatch(error.message, /attacker|https|background/);
+        return true;
+      },
+    );
+    const markup = `<i style="background:${safeRgbColor(value)}"></i>`;
+    assert.equal(markup, '<i style="background:#000000"></i>');
+    assert.doesNotMatch(markup, /https|url\(|;/);
+  }
 });
 
 class FakeEventTarget {

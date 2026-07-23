@@ -671,7 +671,7 @@ Each polish item is a separate commit despite its size.
   attribute. Prove hostile markup becomes inert text under the existing CSP.
   Commit: `fix: escape imported macro assignment codes`.
 
-- [ ] **R02 — Validate imported lighting colors.** Normalize accepted colors to
+- [x] **R02 — Validate imported lighting colors.** Normalize accepted colors to
   canonical six-digit RGB before style interpolation and reject/repair invalid
   profile values pathlessly. Prove CSS declaration injection and remote URL
   attempts cannot enter markup. Commit: `fix: validate imported lighting colors`.
