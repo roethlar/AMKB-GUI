@@ -198,6 +198,7 @@ class ReleaseInfoTests(unittest.TestCase):
         )
 
         for package in (
+            "libegl1",
             "libxcb-cursor0",
             "libxcb-icccm4",
             "libxcb-keysyms1",
