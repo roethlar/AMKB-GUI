@@ -639,7 +639,7 @@ Each polish item is a separate commit despite its size.
   longer exist. Add an architecture guard if source search alone would be too
   weak. Commit: `test: prohibit local runtime setup processes`.
 
-- [ ] **P18 — Prove GPU-offload parsing is deleted.** Remove any surviving
+- [x] **P18 — Prove GPU-offload parsing is deleted.** Remove any surviving
   model-path or runtime-diagnostic offload parser after F20 and guard that
   capability readiness depends only on Ollama or curated API state. Commit:
   `test: prohibit local gpu qualification`.

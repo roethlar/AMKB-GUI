@@ -353,8 +353,11 @@
   closed with executable evidence: historical runtime process/probe symbols are
   absent from shipping source, the deleted modules remain unimportable, and the
   existing architecture guards prohibit managed llama processes, runtime
-  attestations, and their setup artifacts. The next slice is Phase 10 / P18's
-  deleted GPU-qualification proof.
+  attestations, and their setup artifacts. P18 is closed with executable
+  evidence: no GPU-offload probe or diagnostic parser survives in shipping
+  source, capability polling prohibits model/runtime paths, and readiness
+  probes only the selected Ollama or curated API backend. The next slice is
+  Phase 10 / P19's direct-CLI GPG isolation.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -664,7 +667,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P18's deleted GPU-qualification proof
+  continuing with Phase 10 / P19's direct-CLI GPG isolation
   while P10 awaits a separately approved legacy bootstrap and P11 remains the
   final remediation-state hygiene pass.
   Do not push or dispatch workflows before the local remediation and verification
