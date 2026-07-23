@@ -191,7 +191,11 @@
   are non-importable, shipping sources and package data reject their schemas,
   readers, writers, and capability dependencies, and frozen smoke refuses both
   legacy metadata filenames. FFmpeg's separate attestation system remains
-  explicitly allowed. The next slice is F54's GPG fingerprint parser coverage.
+  explicitly allowed. F54 is complete on the current tree: even with a zero GPG
+  exit code, the detached-signature verifier accepts exactly one well-formed
+  uppercase `VALIDSIG` for the pinned fingerprint and rejects absent, wrong,
+  lowercase, short, overlong, duplicate, and mixed records. The next slice is
+  Phase 6 / F32's pixel-exact procedural GIF banking.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -501,7 +505,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 5 / F54's FFmpeg signing-fingerprint guards. Do not
+  continuing with Phase 6 / F32's exact procedural GIF colors. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

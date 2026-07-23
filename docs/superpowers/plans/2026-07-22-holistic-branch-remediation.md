@@ -408,7 +408,7 @@ local no-provider browser acceptance at the end of the phase.
   fails if those paths return; FFmpeg attestation rejection remains covered by
   F51/F54. Commit: `test: prohibit local model attestations`.
 
-- [ ] **F54 — Prove GPG fingerprint pinning rejects bad signatures.** Test wrong,
+- [x] **F54 — Prove GPG fingerprint pinning rejects bad signatures.** Test wrong,
   absent, malformed, and multiple `VALIDSIG` records even when GPG exits zero;
   retain the exact pinned happy path. Commit:
   `test: reject invalid ffmpeg signing fingerprints`.

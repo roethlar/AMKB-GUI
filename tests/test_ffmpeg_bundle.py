@@ -305,6 +305,51 @@ class FfmpegBundleTests(unittest.TestCase):
             self.assertEqual(args[-2:], (str(signature), str(archive)))
             self.assertNotIn("shell", kwargs)
 
+    def test_signature_requires_one_exact_well_formed_pinned_validsig(self) -> None:
+        archive = Path("/trusted/ffmpeg-8.1.2.tar.xz")
+        signature = Path("/trusted/ffmpeg-8.1.2.tar.xz.asc")
+        pinned = self.manifest["source"]["release_key_fingerprint"]
+
+        def runner(stdout: str):
+            def run(_args, **_kwargs):
+                return ffmpeg_bundle.CommandResult(0, stdout, "")
+
+            return run
+
+        valid = f"[GNUPG:] VALIDSIG {pinned} 2026 0 4 0 1 10 00"
+        ffmpeg_bundle.verify_source_signature(
+            archive,
+            signature,
+            self.manifest,
+            runner=runner(valid),
+        )
+
+        wrong = "A" * 40
+        cases = {
+            "absent": "[GNUPG:] GOODSIG synthetic release key",
+            "wrong": f"[GNUPG:] VALIDSIG {wrong} 2026 0 4 0 1 10 00",
+            "lowercase": f"[GNUPG:] VALIDSIG {pinned.lower()} 2026 0 4 0 1 10 00",
+            "short": f"[GNUPG:] VALIDSIG {pinned[:-1]} 2026 0 4 0 1 10 00",
+            "overlong": f"[GNUPG:] VALIDSIG {pinned}0 2026 0 4 0 1 10 00",
+            "duplicate pinned": f"{valid}\n{valid}",
+            "pinned plus wrong": (
+                f"{valid}\n[GNUPG:] VALIDSIG {wrong} 2026 0 4 0 1 10 00"
+            ),
+        }
+        for name, status_output in cases.items():
+            with self.subTest(status=name):
+                with self.assertRaises(ffmpeg_bundle.BundleError) as captured:
+                    ffmpeg_bundle.verify_source_signature(
+                        archive,
+                        signature,
+                        self.manifest,
+                        runner=runner(status_output),
+                    )
+                self.assertEqual(
+                    "FFmpeg detached signature did not match the release key",
+                    str(captured.exception),
+                )
+
     def test_source_extraction_is_private_fresh_and_rooted_at_the_pinned_release(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
