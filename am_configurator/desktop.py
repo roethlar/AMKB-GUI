@@ -157,13 +157,22 @@ class DesktopBridge:
         return path.resolve(strict=False)
 
 
-def _assert_no_bundled_models() -> None:
+def _assert_ollama_api_only_bundle() -> None:
     frozen_root = getattr(sys, "_MEIPASS", None)
     if frozen_root is None:
         return
     root = Path(frozen_root)
-    if any(root.rglob("*.gguf")):
-        raise SystemExit("Desktop smoke test failed: application bundle contains model weights.")
+    forbidden_stems = {"llama-cli", "llama-server"}
+    for path in root.rglob("*"):
+        name = path.name.lower()
+        if (
+            path.suffix.lower() == ".gguf"
+            or path.stem.lower() in forbidden_stems
+            or name == "llama-runtime.json"
+        ):
+            raise SystemExit(
+                "Desktop smoke test failed: application bundle contains a direct model runtime."
+            )
 
 
 def _run_disabled_ai_smoke() -> None:
@@ -374,7 +383,7 @@ def run_smoke_test() -> int:
         raise SystemExit(f"Desktop smoke test failed: {backend} is unavailable.")
 
     tls_context = ssl.create_default_context()
-    _assert_no_bundled_models()
+    _assert_ollama_api_only_bundle()
     _run_disabled_ai_smoke()
     _run_api_recipe_smoke()
     _run_ollama_recipe_smoke()

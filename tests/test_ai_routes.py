@@ -384,8 +384,8 @@ class OptionalAIRouteTests(unittest.TestCase):
             },
             models={
                 "backend": "local",
-                "provider": "llama.cpp",
-                "model_id": "chosen.gguf",
+                "provider": "ollama",
+                "model_id": "ornith:latest",
             },
             pipeline="procedural",
         )

@@ -80,9 +80,8 @@ class ReleaseInfoTests(unittest.TestCase):
             self.assertEqual("uv", commands[0][0])
             self.assertIn("sync", commands[0])
             self.assertIn("build_tools.prepare_ffmpeg", commands[1])
-            self.assertIn("build_tools.prepare_llama", commands[2])
-            self.assertIn("pyinstaller", commands[3])
-            self.assertTrue(commands[4][-1].endswith("build_dmg.sh"))
+            self.assertIn("pyinstaller", commands[2])
+            self.assertTrue(commands[3][-1].endswith("build_dmg.sh"))
 
     def test_build_script_restores_the_version_after_a_failed_build(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -248,35 +247,49 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("build_tools.finalize_ffmpeg_bundle", macos)
         self.assertIn("codesign --force --sign -", macos)
 
-    def test_transitional_llama_bundle_is_not_an_active_product_smoke(self) -> None:
+    def test_native_packages_are_ollama_api_only(self) -> None:
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text("utf-8")
         build_script = (ROOT / "build.py").read_text("utf-8")
         smoke = (ROOT / "am_configurator" / "desktop.py").read_text("utf-8")
-        providers = (ROOT / "am_configurator" / "recipe_provider.py").read_text("utf-8")
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text("utf-8")
         macos = (ROOT / "packaging" / "macos" / "build_dmg.sh").read_text("utf-8")
+        packaged_surface = "\n".join((spec, build_script, workflow, macos)).lower()
+        self.assertNotIn("llama", packaged_surface.replace("ollama", ""))
 
-        self.assertIn("build_tools.prepare_llama", build_script)
-        self.assertIn("build_tools.prepare_llama", workflow)
-        self.assertIn("get_local_ai_runtime", spec)
-        self.assertIn("llama-runtime.json", spec)
-        self.assertIn('project / "packaging" / "llama"', spec)
-        self.assertIn("MIT.txt", spec)
-        self.assertNotIn(".gguf", spec.lower())
-        self.assertIn("rglob(\"*.gguf\")", smoke)
-        self.assertIn("_run_api_recipe_smoke", smoke)
-        self.assertIn("_run_ollama_recipe_smoke", smoke)
-        self.assertNotIn("_run_local_recipe_smoke", smoke)
-        self.assertNotIn("ManagedLlamaServer", providers)
-        self.assertNotIn("ManagedLocalRecipeProvider", providers)
-        self.assertIn("_run_disabled_ai_smoke", smoke)
-        run_smoke = smoke[smoke.index("def run_smoke_test") :]
-        self.assertNotIn("_run_local_recipe_smoke()", run_smoke)
-        disabled_smoke = smoke[
-            smoke.index("def _run_disabled_ai_smoke") : smoke.index("def _run_api_recipe_smoke")
-        ]
-        self.assertNotIn("get_local_ai_runtime", disabled_smoke)
-        self.assertIn("build_tools.finalize_llama_bundle", macos)
+        removed_paths = (
+            ROOT / "am_configurator" / "local_ai_runtime.py",
+            ROOT / "am_configurator" / "local_model.py",
+            ROOT / "build_tools" / "finalize_llama_bundle.py",
+            ROOT / "build_tools" / "llama_bundle.py",
+            ROOT / "build_tools" / "prepare_llama.py",
+            ROOT / "packaging" / "llama",
+            ROOT / "tests" / "test_local_ai_runtime.py",
+        )
+        for path in removed_paths:
+            self.assertFalse(path.exists(), str(path.relative_to(ROOT)))
+        for forbidden in (
+            "llama.cpp",
+            "llama-cli",
+            "llama-server",
+            "llama-runtime",
+            "prepare_llama",
+            "finalize_llama",
+            "local_ai_runtime",
+            "local_model",
+            "packaging/llama",
+            ".gguf",
+        ):
+            self.assertNotIn(forbidden, packaged_surface)
+
+        product_surface = "\n".join(
+            (ROOT / "am_configurator" / name).read_text("utf-8")
+            for name in ("procedural_generation.py", "server.py", "web/app.js")
+        ).lower()
+        self.assertNotIn("llama.cpp", product_surface)
+        self.assertNotIn("/api/ai/local/gguf", product_surface)
+        self.assertIn("_assert_ollama_api_only_bundle", smoke)
+        for forbidden_artifact in ('".gguf"', '"llama-cli"', '"llama-server"'):
+            self.assertIn(forbidden_artifact, smoke)
 
     def test_frozen_smoke_test_runs_fake_recipe_backends_offline(self) -> None:
         smoke = (ROOT / "am_configurator" / "desktop.py").read_text(encoding="utf-8")
@@ -296,7 +309,6 @@ class ReleaseInfoTests(unittest.TestCase):
         executable_modules = (
             "ai_capability.py",
             "desktop.py",
-            "local_ai_runtime.py",
             "recipe_provider.py",
             "server.py",
         )
@@ -315,7 +327,7 @@ class ReleaseInfoTests(unittest.TestCase):
             "Bearer {token}",
         ):
             self.assertNotIn(forbidden, combined)
-        for name in ("ai_capability.py", "local_ai_runtime.py", "recipe_provider.py"):
+        for name in ("ai_capability.py", "recipe_provider.py"):
             self.assertNotIn("subprocess", sources[name])
             self.assertNotIn("Popen", sources[name])
 

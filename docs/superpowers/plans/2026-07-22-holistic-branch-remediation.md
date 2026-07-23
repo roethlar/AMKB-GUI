@@ -157,7 +157,7 @@ build, or release path may depend on it.
   it guards against reintroduction, and close the original argv leak as removed
   rather than relocating the secret. Commit: `test: prohibit managed llama processes`.
 
-- [ ] **F34 — Remove llama from every package and workflow.** Delete the llama
+- [x] **F34 — Remove llama from every package and workflow.** Delete the llama
   builder, runtime manifest/attestation/notice, package data, signing and
   finalization branches, Vulkan/MSYS setup used only for llama, GGUF feature
   switches, and advanced-local frozen smokes. Every platform package supports

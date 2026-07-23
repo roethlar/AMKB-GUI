@@ -137,7 +137,7 @@ class ProceduralGenerationCoordinator:
             if (
                 not isinstance(model_id, str)
                 or not model_id
-                or provider not in {"ollama", "llama.cpp"}
+                or provider != "ollama"
             ):
                 raise GenerationValidationError("the selected local model is unavailable")
             return {

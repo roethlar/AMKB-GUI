@@ -50,8 +50,8 @@ class _Provider:
         return RecipeResult(
             recipe=copy.deepcopy(recipe),
             backend=self.backend,
-            provider="llama.cpp" if self.backend == "local" else "xai",
-            model_id="chosen.gguf" if self.backend == "local" else "grok-4.5",
+            provider="ollama" if self.backend == "local" else "xai",
+            model_id="ornith:latest" if self.backend == "local" else "grok-4.5",
             usage=None if self.backend == "local" else {"cost_in_usd_ticks": 42},
         )
 
@@ -97,8 +97,8 @@ class _Capability:
             "ready": True,
             "backend": backend,
             "local": {
-                "model_id": "chosen.gguf",
-                "provider": "llama.cpp",
+                "model_id": "ornith:latest",
+                "provider": "ollama",
             },
             "api": {"provider": "xai", "model_id": "grok-4.5"},
         }
