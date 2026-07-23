@@ -156,8 +156,14 @@
   options across a failed refresh; and disables stale choices until discovery
   succeeds. The adapter renders the projected disabled missing-model option and
   specific recovery guidance. Removing those branches makes both behavioral
-  regressions fail. The next slice is F36's in-process execution of every
-  offline desktop AI smoke.
+  regressions fail. F36 is complete on the current tree: the disabled, curated
+  API, and Ollama desktop AI smoke helpers execute in-process under traps for
+  real sockets, provider transports, OS credentials, local-model settings,
+  subprocesses, and serial hardware. Counters prove the disabled status path,
+  both production provider adapters, and both render/mapping passes actually
+  execute; a no-op Ollama smoke makes the regression fail. The test also proves
+  no advanced direct-model smoke remains. The next slice is F37's removal of
+  source-substring smoke assertions in favor of failure-sensitive guards.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -463,7 +469,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 5 / F36's executable offline desktop AI smokes. Do not
+  continuing with Phase 5 / F37's failure-sensitive desktop smoke guards. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

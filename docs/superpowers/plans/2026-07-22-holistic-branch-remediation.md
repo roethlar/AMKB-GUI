@@ -364,7 +364,7 @@ local no-provider browser acceptance at the end of the phase.
   Test available, empty, unavailable, selected, removed, digest-changed, and
   transient-failure states. Commit: `test: exercise ollama model picker behavior`.
 
-- [ ] **F36 — Execute every offline desktop smoke in tests.** Invoke disabled,
+- [x] **F36 — Execute every offline desktop smoke in tests.** Invoke disabled,
   API, and Ollama smoke helpers in-process with injected fakes; assert no
   external network, real credential, model mutation, managed runtime, or
   hardware access. Assert no advanced-GGUF smoke remains. Commit:

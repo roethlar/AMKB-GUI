@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import socket
 import tempfile
 import types
 import unittest
@@ -8,6 +9,8 @@ from pathlib import Path
 from unittest import mock
 
 from am_configurator import desktop
+from am_configurator import credentials, device, llm, ollama_client, procedural, recipe_provider, store
+from am_configurator.ai_capability import AICapabilityService
 
 
 class _FakeWindow:
@@ -109,6 +112,81 @@ class DesktopBridgeTests(unittest.TestCase):
                 bridge.reveal_library_path(str(root / "escape" / "secret.txt"))
             )
             self.assertEqual(opened, [])
+
+
+class DesktopSmokeTests(unittest.TestCase):
+    def test_every_offline_ai_smoke_executes_without_external_side_effects(self) -> None:
+        calls = {
+            "disabled_status": 0,
+            "api_generate": 0,
+            "ollama_generate": 0,
+            "render": 0,
+            "map": 0,
+        }
+
+        original_status = AICapabilityService.status
+        original_api_generate = recipe_provider.XaiRecipeProvider.generate
+        original_ollama_generate = recipe_provider.OllamaRecipeProvider.generate
+        original_render = procedural.render_recipe
+        original_map = procedural.map_frames_to_led_tracks
+
+        def disabled_status(service):
+            calls["disabled_status"] += 1
+            return original_status(service)
+
+        def api_generate(provider, *args, **kwargs):
+            calls["api_generate"] += 1
+            return original_api_generate(provider, *args, **kwargs)
+
+        def ollama_generate(provider, *args, **kwargs):
+            calls["ollama_generate"] += 1
+            return original_ollama_generate(provider, *args, **kwargs)
+
+        def render(*args, **kwargs):
+            calls["render"] += 1
+            return original_render(*args, **kwargs)
+
+        def map_frames(*args, **kwargs):
+            calls["map"] += 1
+            return original_map(*args, **kwargs)
+
+        def external_side_effect(*_args, **_kwargs):
+            raise AssertionError("offline desktop smoke crossed an external boundary")
+
+        with (
+            mock.patch.object(AICapabilityService, "status", new=disabled_status),
+            mock.patch.object(recipe_provider.XaiRecipeProvider, "generate", new=api_generate),
+            mock.patch.object(recipe_provider.OllamaRecipeProvider, "generate", new=ollama_generate),
+            mock.patch.object(procedural, "render_recipe", new=render),
+            mock.patch.object(procedural, "map_frames_to_led_tracks", new=map_frames),
+            mock.patch.object(socket, "create_connection", side_effect=external_side_effect),
+            mock.patch.object(desktop, "urlopen", side_effect=external_side_effect),
+            mock.patch.object(llm, "_default_opener", side_effect=external_side_effect),
+            mock.patch.object(ollama_client.OllamaClient, "list_models", side_effect=external_side_effect),
+            mock.patch.object(ollama_client.OllamaClient, "chat", side_effect=external_side_effect),
+            mock.patch.object(credentials, "default_credential_store", side_effect=external_side_effect),
+            mock.patch.object(credentials.KeyringCredentialStore, "get", side_effect=external_side_effect),
+            mock.patch.object(credentials.KeyringCredentialStore, "set", side_effect=external_side_effect),
+            mock.patch.object(credentials.KeyringCredentialStore, "delete", side_effect=external_side_effect),
+            mock.patch.object(store, "update_local_ai_settings", side_effect=external_side_effect),
+            mock.patch.object(desktop.subprocess, "Popen", side_effect=external_side_effect),
+            mock.patch.object(device.serial, "Serial", side_effect=external_side_effect),
+        ):
+            desktop._run_disabled_ai_smoke()
+            desktop._run_api_recipe_smoke()
+            desktop._run_ollama_recipe_smoke()
+
+        self.assertEqual(
+            {
+                "disabled_status": 1,
+                "api_generate": 1,
+                "ollama_generate": 1,
+                "render": 2,
+                "map": 2,
+            },
+            calls,
+        )
+        self.assertFalse(hasattr(desktop, "_run_local_recipe_smoke"))
 
 
 class DesktopWindowTests(unittest.TestCase):
