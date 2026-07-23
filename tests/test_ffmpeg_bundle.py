@@ -12,6 +12,7 @@ import stat
 import tarfile
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -1159,14 +1160,111 @@ class FfmpegBundleTests(unittest.TestCase):
             "--strip",
             "/usr/bin/strip",
         ]
-        with patch.object(
-            ffmpeg_bundle, "build_verified_archive", return_value=binary
-        ) as build:
+        @contextmanager
+        def isolated(_key, _gpg):
+            yield object(), "/tools/gpg"
+
+        with (
+            patch.object(ffmpeg_bundle, "_isolated_gpg_runner", isolated),
+            patch.object(
+                ffmpeg_bundle, "build_verified_archive", return_value=binary
+            ) as build,
+        ):
             self.assertEqual(ffmpeg_bundle.main(args), 0)
         self.assertEqual(build.call_args.args[:3], (Path(args[2]), Path(args[4]), Path(args[6])))
         self.assertNotIn("--source-dir", args)
         with self.assertRaises(SystemExit):
             ffmpeg_bundle.main([*args, "--source-dir", "/untrusted/source"])
+
+    def test_direct_cli_gpg_context_is_private_and_ephemeral(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            public_key = Path(temporary) / "ffmpeg-devel.asc"
+            public_key.write_text("pinned public key", encoding="utf-8")
+            calls: list[tuple[tuple[str, ...], dict[str, object]]] = []
+            keyring: Path | None = None
+
+            def runner(args, **kwargs):
+                nonlocal keyring
+                environment = kwargs["env"]
+                keyring = Path(environment["GNUPGHOME"])
+                self.assertTrue(keyring.is_dir())
+                self.assertNotEqual("/user/keyring", str(keyring))
+                if os.name != "nt":
+                    self.assertEqual(0o700, stat.S_IMODE(keyring.stat().st_mode))
+                calls.append((tuple(args), kwargs))
+                return ffmpeg_bundle.CommandResult(0, "", "")
+
+            with (
+                patch.dict(os.environ, {"GNUPGHOME": "/user/keyring"}),
+                patch.object(ffmpeg_bundle.shutil, "which", return_value="/tools/gpg"),
+                patch.object(ffmpeg_bundle, "_default_runner", side_effect=runner),
+            ):
+                with ffmpeg_bundle._isolated_gpg_runner(
+                    public_key, "gpg"
+                ) as (isolated_runner, gpg):
+                    self.assertEqual("/tools/gpg", gpg)
+                    isolated_runner((gpg, "--batch", "--version"))
+
+            self.assertIsNotNone(keyring)
+            self.assertFalse(keyring.exists())
+            self.assertEqual(
+                ("/tools/gpg", "--batch", "--import", str(public_key.resolve())),
+                calls[0][0],
+            )
+            self.assertEqual(("/tools/gpg", "--batch", "--version"), calls[1][0])
+            self.assertEqual(calls[0][1]["env"]["GNUPGHOME"], calls[1][1]["env"]["GNUPGHOME"])
+
+    def test_every_direct_cli_path_uses_the_isolated_keyring(self) -> None:
+        public_key = Path("/trusted/ffmpeg-devel.asc")
+        isolated_calls: list[tuple[Path, str]] = []
+        isolated_runner = object()
+
+        @contextmanager
+        def isolated(key, gpg):
+            isolated_calls.append((Path(key), str(gpg)))
+            yield isolated_runner, "/tools/gpg"
+
+        verify_args = [
+            "verify-source",
+            "--archive",
+            "/sources/ffmpeg.tar.xz",
+            "--signature",
+            "/sources/ffmpeg.tar.xz.asc",
+            "--public-key",
+            str(public_key),
+        ]
+        build_args = [
+            "build",
+            "--archive",
+            "/sources/ffmpeg.tar.xz",
+            "--signature",
+            "/sources/ffmpeg.tar.xz.asc",
+            "--public-key",
+            str(public_key),
+            "--extract-dir",
+            "/private/tmp/ffmpeg-source",
+            "--output-dir",
+            "/cache/ffmpeg",
+        ]
+        with (
+            patch.object(ffmpeg_bundle, "_isolated_gpg_runner", isolated, create=True),
+            patch.object(ffmpeg_bundle, "verify_source_archive") as verify_hash,
+            patch.object(ffmpeg_bundle, "verify_source_signature") as verify_signature,
+            patch.object(
+                ffmpeg_bundle,
+                "build_verified_archive",
+                return_value=Path("/prepared/ffmpeg"),
+            ) as build,
+        ):
+            self.assertEqual(0, ffmpeg_bundle.main(verify_args))
+            self.assertEqual(0, ffmpeg_bundle.main(build_args))
+
+        self.assertEqual([(public_key, "gpg"), (public_key, "gpg")], isolated_calls)
+        verify_hash.assert_called_once()
+        self.assertIs(verify_signature.call_args.kwargs["runner"], isolated_runner)
+        self.assertEqual("/tools/gpg", verify_signature.call_args.kwargs["gpg"])
+        self.assertIs(build.call_args.kwargs["runner"], isolated_runner)
+        self.assertEqual("/tools/gpg", build.call_args.kwargs["gpg"])
 
     def test_developer_override_must_be_absolute_and_attested(self) -> None:
         with self.assertRaises(ffmpeg_runtime.FfmpegRuntimeError):

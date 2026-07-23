@@ -19,15 +19,17 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Iterator, Mapping, Sequence
 
 from am_configurator import ffmpeg_runtime
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST_PATH = ROOT / "packaging" / "ffmpeg" / "manifest.json"
+DEFAULT_RELEASE_KEY_PATH = ROOT / "packaging" / "ffmpeg" / "ffmpeg-devel.asc"
 COMMAND_TIMEOUT_SECONDS = 30
 BUILD_TIMEOUT_SECONDS = 75 * 60
 MAX_DIAGNOSTIC_CHARS = 4096
@@ -386,6 +388,47 @@ def _run_checked(
             message += ": " + diagnostic
         raise BundleError(message)
     return result
+
+
+@contextmanager
+def _isolated_gpg_runner(
+    public_key: Path | str,
+    gpg: Path | str,
+) -> Iterator[tuple[Runner, str]]:
+    """Import the pinned release key into one private, ephemeral keyring."""
+    candidate = Path(public_key).expanduser()
+    if candidate.is_symlink() or not candidate.is_file():
+        raise BundleError("FFmpeg release public key is unavailable")
+    key = candidate.resolve()
+    gpg_text = str(gpg)
+    gpg_path = gpg_text if Path(gpg_text).is_absolute() else shutil.which(gpg_text)
+    if not gpg_path:
+        raise BundleError("GnuPG is required to verify the FFmpeg release signature")
+
+    with tempfile.TemporaryDirectory(prefix="am-ffmpeg-gpg-") as temporary:
+        keyring = Path(temporary) / "gnupg"
+        keyring.mkdir(mode=0o700)
+        if os.name != "nt":
+            keyring.chmod(0o700)
+
+        def isolated_runner(
+            args: Sequence[str],
+            *,
+            cwd: Path | None = None,
+            env: Mapping[str, str] | None = None,
+            timeout: int = COMMAND_TIMEOUT_SECONDS,
+        ) -> CommandResult:
+            environment = dict(os.environ)
+            if env is not None:
+                environment.update(env)
+            environment["GNUPGHOME"] = str(keyring)
+            return _default_runner(args, cwd=cwd, env=environment, timeout=timeout)
+
+        _run_checked(
+            isolated_runner,
+            (str(gpg_path), "--batch", "--import", str(key)),
+        )
+        yield isolated_runner, str(gpg_path)
 
 
 def verify_source_signature(
@@ -869,11 +912,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     verify_parser = subparsers.add_parser("verify-source")
     verify_parser.add_argument("--archive", type=Path, required=True)
     verify_parser.add_argument("--signature", type=Path, required=True)
+    verify_parser.add_argument("--public-key", type=Path, default=DEFAULT_RELEASE_KEY_PATH)
     verify_parser.add_argument("--gpg", default="gpg")
 
     build_parser = subparsers.add_parser("build")
     build_parser.add_argument("--archive", type=Path, required=True)
     build_parser.add_argument("--signature", type=Path, required=True)
+    build_parser.add_argument("--public-key", type=Path, default=DEFAULT_RELEASE_KEY_PATH)
     build_parser.add_argument("--extract-dir", type=Path, required=True)
     build_parser.add_argument("--output-dir", type=Path, required=True)
     build_parser.add_argument("--jobs", type=int, default=2)
@@ -887,8 +932,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     manifest = load_manifest(args.manifest)
     if args.command == "verify-source":
-        verify_source_archive(args.archive, manifest)
-        verify_source_signature(args.archive, args.signature, manifest, gpg=args.gpg)
+        with _isolated_gpg_runner(args.public_key, args.gpg) as (runner, gpg):
+            verify_source_archive(args.archive, manifest)
+            verify_source_signature(
+                args.archive,
+                args.signature,
+                manifest,
+                runner=runner,
+                gpg=gpg,
+            )
         return 0
     supplied_tools = {role: getattr(args, role) for role in ("cc", "ar", "ranlib", "strip")}
     tool_paths = None
@@ -896,19 +948,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         if any(value is None for value in supplied_tools.values()):
             raise BundleError("all absolute FFmpeg build tool paths must be supplied together")
         tool_paths = supplied_tools
-    binary = build_verified_archive(
-        args.archive,
-        args.signature,
-        args.extract_dir,
-        args.output_dir,
-        manifest,
-        jobs=args.jobs,
-        platform_name=args.platform,
-        architecture=args.architecture,
-        msys2_bash=args.msys2_bash,
-        tool_paths=tool_paths,
-        gpg=args.gpg,
-    )
+    with _isolated_gpg_runner(args.public_key, args.gpg) as (runner, gpg):
+        binary = build_verified_archive(
+            args.archive,
+            args.signature,
+            args.extract_dir,
+            args.output_dir,
+            manifest,
+            runner=runner,
+            jobs=args.jobs,
+            platform_name=args.platform,
+            architecture=args.architecture,
+            msys2_bash=args.msys2_bash,
+            tool_paths=tool_paths,
+            gpg=gpg,
+        )
     print(binary)
     return 0
 

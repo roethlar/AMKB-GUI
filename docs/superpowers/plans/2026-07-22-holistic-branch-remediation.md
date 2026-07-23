@@ -644,7 +644,7 @@ Each polish item is a separate commit despite its size.
   capability readiness depends only on Ollama or curated API state. Commit:
   `test: prohibit local gpu qualification`.
 
-- [ ] **P19 — Isolate GPG for the direct bundle CLI.** Create a private temporary
+- [x] **P19 — Isolate GPG for the direct bundle CLI.** Create a private temporary
   GNUPGHOME, import only the pinned key, verify, and remove it for every CLI path
   as the prepare wrapper already does. Commit:
   `fix: isolate ffmpeg signature verification keyring`.
