@@ -9,6 +9,7 @@ import platform
 import re
 import stat
 import sys
+import time
 from pathlib import Path
 from typing import Mapping
 
@@ -118,32 +119,40 @@ def _read_verified_regular_file(
     descriptor: int | None = None
     stage = "metadata"
     try:
-        before = candidate.lstat()
-        if (
-            not stat.S_ISREG(before.st_mode)
-            or _is_reparse_point(before)
-            or before.st_size < 0
-            or before.st_size > max_bytes
-        ):
-            raise OSError
         flags = (
             os.O_RDONLY
             | getattr(os, "O_BINARY", 0)
             | getattr(os, "O_CLOEXEC", 0)
         )
         flags |= getattr(os, "O_NOFOLLOW", 0)
-        stage = "open"
-        descriptor = os.open(candidate, flags)
-        stage = "opened_identity"
-        opened = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(opened.st_mode)
-            or _is_reparse_point(opened)
-            or opened.st_size < 0
-            or opened.st_size > max_bytes
-            or _regular_file_identity(before) != _regular_file_identity(opened)
-        ):
-            raise OSError
+        for attempt in range(3):
+            stage = "metadata"
+            before = candidate.lstat()
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or _is_reparse_point(before)
+                or before.st_size < 0
+                or before.st_size > max_bytes
+            ):
+                raise OSError
+            stage = "open"
+            descriptor = os.open(candidate, flags)
+            stage = "opened_identity"
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or _is_reparse_point(opened)
+                or opened.st_size < 0
+                or opened.st_size > max_bytes
+            ):
+                raise OSError
+            if _regular_file_identity(before) == _regular_file_identity(opened):
+                break
+            os.close(descriptor)
+            descriptor = None
+            if attempt == 2:
+                raise OSError
+            time.sleep(0.05)
         digest = hashlib.sha256() if hash_only else None
         payload = bytearray() if not hash_only else None
         total = 0

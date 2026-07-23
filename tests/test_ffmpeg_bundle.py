@@ -384,6 +384,38 @@ class FfmpegBundleTests(unittest.TestCase):
         self.assertNotIn("secret", str(raised.exception))
         self.assertNotIn("/private/path", str(raised.exception))
 
+    def test_shared_ffmpeg_reader_retries_a_transient_opened_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            payload = Path(temp) / "source.tar.xz"
+            payload.write_bytes(b"archive")
+            real_lstat = Path.lstat
+            calls = 0
+
+            def transient_lstat(candidate):
+                nonlocal calls
+                calls += 1
+                details = real_lstat(candidate)
+                if calls != 1:
+                    return details
+                return SimpleNamespace(
+                    st_mode=details.st_mode,
+                    st_dev=details.st_dev,
+                    st_ino=details.st_ino,
+                    st_size=details.st_size,
+                    st_mtime_ns=details.st_mtime_ns + 1,
+                    st_ctime_ns=details.st_ctime_ns,
+                    st_file_attributes=getattr(details, "st_file_attributes", 0),
+                )
+
+            with (
+                patch.object(Path, "lstat", transient_lstat),
+                patch.object(ffmpeg_runtime.time, "sleep") as sleep,
+            ):
+                digest = ffmpeg_runtime.sha256_file(payload)
+
+        self.assertEqual(hashlib.sha256(b"archive").hexdigest(), digest)
+        sleep.assert_called_once_with(0.05)
+
     def test_windows_gpg_runs_inside_the_profileless_msys2_shell(self) -> None:
         completed = SimpleNamespace(returncode=0, stdout="", stderr="")
         with patch.object(
