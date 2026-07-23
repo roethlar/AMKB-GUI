@@ -358,12 +358,14 @@ class ReleaseInfoTests(unittest.TestCase):
         smoke = (ROOT / "am_configurator" / "desktop.py").read_text(encoding="utf-8")
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(encoding="utf-8")
         macos = (ROOT / "packaging" / "macos" / "build_dmg.sh").read_text(encoding="utf-8")
+        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
         finalizer = (ROOT / "build_tools" / "finalize_ffmpeg_bundle.py").read_text(
             encoding="utf-8"
         )
 
         self.assertIn("build_tools.prepare_ffmpeg", build_script)
         self.assertIn("build_tools.prepare_ffmpeg", workflow)
+        self.assertIn("packaging/ffmpeg/manifest.json text eol=lf", attributes)
         self.assertIn("get_ffmpeg_runtime", spec)
         self.assertIn('(str(ffmpeg_binary), "ffmpeg")', spec)
         self.assertNotIn("upx=True", spec)
