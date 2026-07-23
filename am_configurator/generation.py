@@ -7,6 +7,7 @@ Startup reconciliation delegates to the library and never schedules paid work.
 """
 from __future__ import annotations
 
+import copy
 import json
 import shutil
 import threading
@@ -1905,7 +1906,7 @@ class GenerationCoordinator:
             except (GenerationError, LibraryError, OSError, UnicodeError, json.JSONDecodeError):
                 complete = False
 
-        timestamp = _now_iso()
+        completion_timestamp = _now_iso()
 
         def update(current: dict) -> None:
             current_attempt = _animation_attempt(current, attempt_id)
@@ -1929,7 +1930,8 @@ class GenerationCoordinator:
                     return
                 current_attempt["status"] = "complete"
                 current_attempt["phase"] = "ready_for_review"
-                current_attempt["completed_at"] = timestamp
+                if not current_attempt.get("completed_at"):
+                    current_attempt["completed_at"] = completion_timestamp
                 current["status"] = "ready"
                 current["phase"] = "ready_for_review"
                 current["progress"] = {
@@ -1947,6 +1949,10 @@ class GenerationCoordinator:
                 current["status"] = "ready_to_process"
                 current["phase"] = "ready_to_process"
 
+        candidate = copy.deepcopy(manifest)
+        update(candidate)
+        if candidate == manifest:
+            return
         self._library.update_manifest(job_id, update)
 
     def _reconcile_interrupted_animation(self, job_id: str) -> None:

@@ -1445,6 +1445,55 @@ class DurableVideoGenerationTests(unittest.TestCase):
             (len(self.planner.calls), len(self.video.submit_calls), len(self.video.poll_calls)),
         )
 
+    def test_completed_video_reconciliation_is_byte_stable_and_preserves_v1(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        started = self._start_animation(manifest, candidate_id)
+        complete = self.coordinator.wait(started["job_id"], timeout=10)
+        job_id = complete["job_id"]
+        manifest_path = self.root / "jobs" / job_id / "manifest.json"
+        attempt = complete["animation_attempts"][-1]
+        completed_at = attempt["completed_at"]
+        preview_asset_id = attempt["preview_asset_id"]
+
+        def lose_one_recoverable_field(current: dict) -> None:
+            current["animation_attempts"][-1]["preview_asset_id"] = None
+
+        self.library.update_manifest(job_id, lose_one_recoverable_field)
+        self.assertEqual([], self.coordinator.reconcile_startup())
+        repaired = self.library.load_manifest(job_id)
+        self.assertEqual(
+            preview_asset_id,
+            repaired["animation_attempts"][-1]["preview_asset_id"],
+        )
+        self.assertEqual(
+            completed_at,
+            repaired["animation_attempts"][-1]["completed_at"],
+        )
+        before = manifest_path.read_bytes()
+
+        self.assertEqual([], self.coordinator.reconcile_startup())
+        self.assertEqual([], self.coordinator.reconcile_startup())
+
+        self.assertEqual(before, manifest_path.read_bytes())
+        self.assertEqual(
+            completed_at,
+            self.library.load_manifest(job_id)["animation_attempts"][-1]["completed_at"],
+        )
+
+        legacy = json.loads(manifest_path.read_text("utf-8"))
+        legacy["schema_version"] = 1
+        legacy.pop("pipeline")
+        legacy.pop("procedural_attempts")
+        manifest_path.write_text(json.dumps(legacy, separators=(",", ":")) + "\n", encoding="utf-8")
+        legacy_before = manifest_path.read_bytes()
+
+        self.assertEqual([], self.coordinator.reconcile_startup())
+        self.assertEqual(legacy_before, manifest_path.read_bytes())
+        self.assertEqual(
+            completed_at,
+            self.library.load_manifest(job_id)["animation_attempts"][-1]["completed_at"],
+        )
+
     def test_startup_adoption_ignores_duplicate_partial_frame_origins(self) -> None:
         manifest, candidate_id = self._selectable_job()
         started = self._start_animation(manifest, candidate_id)

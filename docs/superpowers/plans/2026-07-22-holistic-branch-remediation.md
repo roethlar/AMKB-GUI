@@ -219,7 +219,7 @@ local no-provider browser acceptance at the end of the phase.
   root is read-only, a lock times out, or cleanup gets `PermissionError`.
   Commit: `fix: isolate library reconciliation failures`.
 
-- [ ] **F04 — Make banked-video recovery idempotent.** Before updating, compare
+- [x] **F04 — Make banked-video recovery idempotent.** Before updating, compare
   every recovered source/frame/preview/mapping/status/timestamp field and return
   without writing when already consistent. Never persist in-memory v1
   normalization during a read-only startup scan and never advance an existing

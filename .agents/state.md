@@ -41,7 +41,11 @@
   safe-resume actions and pathless errors, contains recovery/lock/mutation/work
   cleanup failures per job, continues healthy jobs, and permits the loopback
   server to bind despite damaged current or historical jobs. The next slice is
-  F04's idempotent banked-video recovery.
+  F04 is complete on the current tree: banked-video recovery projects every
+  source/frame/preview/mapping/status/progress field before mutation, skips an
+  already-consistent manifest, retains an existing completion timestamp during
+  genuine repair, and leaves normalized-in-memory v1 bytes untouched. The next
+  slice is F13's non-destructive settings read failure handling.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
