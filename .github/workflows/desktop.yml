@@ -62,6 +62,7 @@ jobs:
         run: choco install vulkan-sdk -y --no-progress
       - name: Install FFmpeg build prerequisites (Windows)
         if: matrix.platform == 'windows'
+        id: msys2
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -88,14 +89,26 @@ jobs:
         run: uv run --frozen python -m build_tools.prepare_ffmpeg
       - name: Prepare verified FFmpeg runtime (Windows)
         if: matrix.platform == 'windows'
-        run: >-
-          uv run --frozen python -m build_tools.prepare_ffmpeg
-          --gpg C:/msys64/usr/bin/gpg.exe
-          --msys2-bash C:/msys64/usr/bin/bash.exe
-          --cc C:/msys64/mingw64/bin/gcc.exe
-          --ar C:/msys64/mingw64/bin/ar.exe
-          --ranlib C:/msys64/mingw64/bin/ranlib.exe
-          --strip C:/msys64/mingw64/bin/strip.exe
+        shell: pwsh
+        env:
+          MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
+        run: |
+          $usrBin = Join-Path $env:MSYS2_LOCATION "usr/bin"
+          $mingwBin = Join-Path $env:MSYS2_LOCATION "mingw64/bin"
+          $env:PATH = "$usrBin;$mingwBin;$env:PATH"
+          $gpg = Join-Path $usrBin "gpg.exe"
+          $bash = Join-Path $usrBin "bash.exe"
+          $cc = Join-Path $mingwBin "gcc.exe"
+          $ar = Join-Path $mingwBin "ar.exe"
+          $ranlib = Join-Path $mingwBin "ranlib.exe"
+          $strip = Join-Path $mingwBin "strip.exe"
+          uv run --frozen python -m build_tools.prepare_ffmpeg `
+            --gpg $gpg `
+            --msys2-bash $bash `
+            --cc $cc `
+            --ar $ar `
+            --ranlib $ranlib `
+            --strip $strip
       - name: Stamp unique build version
         id: build_version
         run: uv run --frozen python build_tools/release_info.py stamp --build-number ${{ github.run_number }} --github-output

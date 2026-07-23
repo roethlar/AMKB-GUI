@@ -690,7 +690,16 @@ def build_command_plan(
     timeouts = (10 * 60, BUILD_TIMEOUT_SECONDS)
     return tuple(
         CommandSpec(
-            (str(msys2_bash), "--noprofile", "--norc", "-lc", f"cd {shlex.quote(msys_source)} && {command}"),
+            (
+                str(msys2_bash),
+                "--noprofile",
+                "--norc",
+                "-lc",
+                (
+                    "export PATH=/usr/bin:/mingw64/bin:$PATH && "
+                    f"cd {shlex.quote(msys_source)} && {command}"
+                ),
+            ),
             source,
             environment,
             timeout,

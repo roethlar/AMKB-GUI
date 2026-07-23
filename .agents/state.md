@@ -208,7 +208,12 @@
   semantics and hard-link-incompatible filesystems fall back to a private,
   cancellation/deadline-aware, fsynced byte copy. Publication failure restores
   that copy and cleans both backup and partial download under the same rollback
-  contract. The next slice is Phase 7 / F06's Windows MSYS2 path correction.
+  contract. F06 is complete on the current tree: the Windows workflow consumes
+  `setup-msys2`'s actual installation output, derives every GPG/Bash/compiler
+  path from it, and prepends its native tool directories for the PowerShell
+  process. Generated profile-less Bash commands also set
+  `/usr/bin:/mingw64/bin` explicitly. The next slice is Phase 7 / F07's removal
+  of obsolete Vulkan workflow setup.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -518,7 +523,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 7 / F06's Windows MSYS2 path correction. Do not
+  continuing with Phase 7 / F07's obsolete Vulkan workflow removal. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

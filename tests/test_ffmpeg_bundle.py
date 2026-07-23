@@ -733,6 +733,32 @@ class FfmpegBundleTests(unittest.TestCase):
             self.assertNotIn("http://", flattened)
             self.assertNotIn("https://", flattened)
 
+            windows_tools = {
+                "cc": Path("/msys2/mingw64/bin/gcc.exe"),
+                "ar": Path("/msys2/mingw64/bin/ar.exe"),
+                "ranlib": Path("/msys2/mingw64/bin/ranlib.exe"),
+                "strip": Path("/msys2/mingw64/bin/strip.exe"),
+            }
+            windows_plan = ffmpeg_bundle.build_command_plan(
+                source,
+                output,
+                self.manifest,
+                platform_name="windows",
+                architecture="x86_64",
+                jobs=2,
+                msys2_bash=Path("/msys2/usr/bin/bash.exe"),
+                tool_paths=windows_tools,
+            )
+            self.assertEqual(2, len(windows_plan))
+            for command in windows_plan:
+                self.assertEqual("/msys2/usr/bin/bash.exe", command.args[0])
+                self.assertEqual(("--noprofile", "--norc", "-lc"), command.args[1:4])
+                self.assertTrue(
+                    command.args[4].startswith(
+                        "export PATH=/usr/bin:/mingw64/bin:$PATH && cd "
+                    )
+                )
+
             mac_plan = ffmpeg_bundle.build_command_plan(
                 source,
                 output,

@@ -178,6 +178,23 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file())
 
+    def test_windows_ffmpeg_uses_the_setup_msys2_installation(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("id: msys2", workflow)
+        self.assertIn(
+            "MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}",
+            workflow,
+        )
+        self.assertNotIn("C:/msys64", workflow)
+        self.assertIn('Join-Path $env:MSYS2_LOCATION "usr/bin"', workflow)
+        self.assertIn('Join-Path $env:MSYS2_LOCATION "mingw64/bin"', workflow)
+        self.assertIn('$env:PATH = "$usrBin;$mingwBin;$env:PATH"', workflow)
+        for variable in ("$gpg", "$bash", "$cc", "$ar", "$ranlib", "$strip"):
+            self.assertIn(variable, workflow)
+
     def test_brand_icon_is_wired_into_every_distribution(self) -> None:
         icon_paths = {
             "assets/am-configurator.png": (1024, 1024),

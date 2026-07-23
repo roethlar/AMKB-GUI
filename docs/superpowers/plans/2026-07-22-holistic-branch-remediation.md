@@ -434,7 +434,7 @@ local no-provider browser acceptance at the end of the phase.
 
 ## Phase 7 — Packaging and Cross-Platform Release Gates
 
-- [ ] **F06 — Use the MSYS2 action's actual installation path.** Give the setup
+- [x] **F06 — Use the MSYS2 action's actual installation path.** Give the setup
   step an id, consume `steps.<id>.outputs.msys2-location`, derive every Windows
   GPG/bash/compiler/bin path from it, and invoke commands with an explicit
   MSYS2 PATH containing `/usr/bin` and `/mingw64/bin` rather than relying on a
