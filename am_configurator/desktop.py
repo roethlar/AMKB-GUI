@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import platform
+import re
 import ssl
 import subprocess
 import sys
@@ -39,6 +40,16 @@ _NATIVE_POLICY_VERIFY_KEYS = (
     "settings_ollama_api_only",
 )
 _NATIVE_POLICY_TIMEOUT_SECONDS = 45
+
+
+def _safe_native_failure_name(value: object, fallback: str) -> str:
+    if (
+        isinstance(value, str)
+        and len(value) <= 200
+        and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", value) is not None
+    ):
+        return value
+    return fallback
 
 
 def _smoke_recipe() -> dict[str, Any]:
@@ -338,6 +349,30 @@ def _run_native_policy_probe(phase: str, raw_root: str | Path) -> int:
             "Native webview policy smoke failed: platform backend is unavailable."
         )
     try:
+        importlib.import_module(backend)
+    except ImportError as exc:
+        failure = _safe_native_failure_name(exc.name, "ImportError")
+        _write_native_policy_result(
+            root,
+            phase,
+            {"ok": False, "reason": f"backend_import_{failure}"},
+        )
+        raise SystemExit(
+            "Native webview policy smoke failed: platform backend import failed "
+            f"({failure})."
+        ) from None
+    except Exception as exc:
+        failure = _safe_native_failure_name(type(exc).__name__, "Exception")
+        _write_native_policy_result(
+            root,
+            phase,
+            {"ok": False, "reason": f"backend_import_{failure}"},
+        )
+        raise SystemExit(
+            "Native webview policy smoke failed: platform backend import failed "
+            f"({failure})."
+        ) from None
+    try:
         import webview
     except ModuleNotFoundError:
         raise SystemExit(
@@ -415,12 +450,13 @@ def _run_native_policy_probe(phase: str, raw_root: str | Path) -> int:
             debug=False,
             private_mode=True,
         )
-    except Exception:
+    except Exception as exc:
         if not (root / f"{phase}.json").exists():
+            failure = _safe_native_failure_name(type(exc).__name__, "Exception")
             _write_native_policy_result(
                 root,
                 phase,
-                {"ok": False, "reason": "renderer_start_failed"},
+                {"ok": False, "reason": f"renderer_start_{failure}"},
             )
     result = _read_native_policy_result(root, phase)
     if result.get("ok") is not True:

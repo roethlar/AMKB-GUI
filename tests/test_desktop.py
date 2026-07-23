@@ -407,6 +407,85 @@ class DesktopNativePolicyTests(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, script)
 
+    def test_native_probe_reports_only_the_missing_backend_module(self) -> None:
+        fake_webview = types.SimpleNamespace(settings={})
+        with tempfile.TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            (root / "probe.json").write_text(
+                json.dumps({"url": "http://127.0.0.1:43111/?token=test-token"}),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.dict(sys.modules, {"webview": fake_webview}),
+                mock.patch.object(desktop.platform, "system", return_value="Linux"),
+                mock.patch.object(
+                    desktop.importlib.util,
+                    "find_spec",
+                    return_value=object(),
+                ),
+                mock.patch.object(
+                    desktop.importlib,
+                    "import_module",
+                    side_effect=ImportError(
+                        "secret /private/path",
+                        name="PyQt6.QtWebEngineWidgets",
+                    ),
+                ),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                desktop._run_native_policy_probe("seed", root)
+
+            result = json.loads((root / "seed.json").read_text(encoding="utf-8"))
+
+        message = str(raised.exception)
+        self.assertEqual(
+            "Native webview policy smoke failed: platform backend import failed "
+            "(PyQt6.QtWebEngineWidgets).",
+            message,
+        )
+        self.assertNotIn("secret", message)
+        self.assertNotIn("/private/path", message)
+        self.assertEqual(
+            {"ok": False, "reason": "backend_import_PyQt6.QtWebEngineWidgets"},
+            result,
+        )
+
+    def test_native_probe_reports_only_the_renderer_exception_type(self) -> None:
+        class SecretRendererFailure(Exception):
+            pass
+
+        fake_webview = types.SimpleNamespace(
+            settings={},
+            create_window=lambda *args, **kwargs: object(),
+            start=mock.Mock(side_effect=SecretRendererFailure("/private/path")),
+        )
+        with tempfile.TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            (root / "probe.json").write_text(
+                json.dumps({"url": "http://127.0.0.1:43111/?token=test-token"}),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.dict(sys.modules, {"webview": fake_webview}),
+                mock.patch.object(desktop.platform, "system", return_value="Linux"),
+                mock.patch.object(desktop.importlib.util, "find_spec", return_value=object()),
+                mock.patch.object(desktop.importlib, "import_module", return_value=object()),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                desktop._run_native_policy_probe("seed", root)
+
+            result = json.loads((root / "seed.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            "Native webview policy smoke failed: renderer_start_SecretRendererFailure.",
+            str(raised.exception),
+        )
+        self.assertEqual(
+            {"ok": False, "reason": "renderer_start_SecretRendererFailure"},
+            result,
+        )
+        self.assertNotIn("/private/path", json.dumps(result))
+
     def test_native_probe_uses_private_mode_and_the_selected_renderer(self) -> None:
         payload = {name: True for name in desktop._NATIVE_POLICY_VERIFY_KEYS}
         payload["csp"] = "default-src 'self'; script-src 'self'"
@@ -456,6 +535,7 @@ class DesktopNativePolicyTests(unittest.TestCase):
                 mock.patch.dict(sys.modules, {"webview": fake_webview}),
                 mock.patch.object(desktop.platform, "system", return_value="Linux"),
                 mock.patch.object(desktop.importlib.util, "find_spec", return_value=object()),
+                mock.patch.object(desktop.importlib, "import_module", return_value=object()),
             ):
                 self.assertEqual(desktop._run_native_policy_probe("verify", root), 0)
 
