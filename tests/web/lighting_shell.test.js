@@ -89,6 +89,12 @@ test("API setup stays secondary, explicit, and confined to Settings", () => {
   assert.doesNotMatch(generation,/settings-api|credential|privacy|disclosure|provider|model_id/);
 });
 
+test("saving Settings lets the server validate backend re-enablement", () => {
+  const save=js.slice(js.indexOf("async function saveSettings"),js.indexOf("function showDeviceDialog"));
+  assert.match(save,/api\("\/api\/settings\/ai"/);
+  assert.doesNotMatch(save,/enabled\s*&&\s*!aiReady\(\)/);
+});
+
 test("generation is one prompt, durable progress, animated review, and explicit Apply", () => {
   const generationSurface=`${js}\n${review}`;
   for(const id of ["effect-prompt","generate-effect","cancel-effect","apply-procedural-effect"]){

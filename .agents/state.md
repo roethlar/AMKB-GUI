@@ -30,7 +30,11 @@
   a strict authenticated sync route stores an immutable validated document,
   browser open/read/restore paths hold its opaque revision, and generation
   rejects missing or stale revisions before using the server-derived target. The
-  next slice is F30's unchanged-backend re-enable path.
+  F30 is complete on the current tree: disabling AI preserves a tested
+  backend's fingerprint, and re-enabling recomputes current Ollama model or API
+  credential validity server-side without another inference; changed or
+  missing models and changed credentials remain invalid. The next slice is
+  F31's per-stroke paint checkpoint restoration.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

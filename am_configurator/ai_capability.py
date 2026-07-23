@@ -369,6 +369,40 @@ class AICapabilityService:
                 },
             }
 
+    def backend_setup_valid(
+        self,
+        backend: str,
+    ) -> bool:
+        """Return whether one backend's current setup still matches its test."""
+
+        try:
+            settings = self._settings_loader()
+            if backend == "local":
+                local = self._local_components(settings)
+                fingerprint = local["expected"]
+                return (
+                    local["service_available"] is True
+                    and local["selected"] is True
+                    and local["verified"] is True
+                    and fingerprint is not None
+                    and settings["ai"]["local"]["setup_fingerprint"] == fingerprint
+                    and self._remembered_reason("local", fingerprint) is None
+                )
+            if backend == "api":
+                api = self._api_components(settings)
+                fingerprint = api["expected"]
+                return (
+                    (api["available"] is True or api["external"] is True)
+                    and api["configured"] is True
+                    and api["disclosure_current"] is True
+                    and fingerprint is not None
+                    and settings["ai"]["api"]["setup_fingerprint"] == fingerprint
+                    and self._remembered_reason("api", fingerprint) is None
+                )
+            return False
+        except Exception:
+            return False
+
     def require_ready(self) -> dict[str, Any]:
         """Recompute readiness at the invocation boundary and fail closed."""
 

@@ -94,10 +94,38 @@ class _Capability:
     def __init__(self, provider: _Provider) -> None:
         self.provider = provider
         self.test_calls: list[str] = []
+        self.validation_calls: list[str] = []
         self.closed = False
+        self.status_value = _ready_status()
 
     def status(self):
-        return copy.deepcopy(_ready_status())
+        return copy.deepcopy(self.status_value)
+
+    def backend_setup_valid(self, backend):
+        self.validation_calls.append(backend)
+        current = self.status()
+        if backend == "local":
+            local = current["local"]
+            return all(
+                local[field] is True
+                for field in (
+                    "service_available",
+                    "model_selected",
+                    "model_verified",
+                    "setup_tested",
+                )
+            )
+        if backend == "api":
+            api = current["api"]
+            return all(
+                api[field] is True
+                for field in (
+                    "credential_set",
+                    "disclosure_current",
+                    "setup_tested",
+                )
+            )
+        return False
 
     def require_ready(self):
         return self.status()
@@ -324,6 +352,44 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.assertIsNone(
             store.load_settings(credential_store=self.credentials)["ai"]["local"]["model_id"]
         )
+
+    def test_unchanged_tested_backend_can_be_reenabled_without_another_test(self) -> None:
+        store.update_ai_settings(
+            {"enabled": True, "backend": "local"},
+            ready=True,
+            credential_store=self.credentials,
+        )
+        status, _response = self._request(
+            "POST", "/api/settings/ai", {"enabled": False, "backend": "local"}
+        )
+        self.assertEqual(200, status)
+        self.assertFalse(
+            store.load_settings(credential_store=self.credentials)["ai"]["enabled"]
+        )
+
+        self.capability.status_value.update({
+            "enabled": False,
+            "ready": False,
+            "reason": "disabled",
+        })
+
+        status, _response = self._request(
+            "POST",
+            "/api/settings/ai",
+            {
+                "enabled": True,
+                "backend": "local",
+                "provider": "xai",
+                "model_id": "grok-4.5",
+            },
+        )
+
+        self.assertEqual(200, status)
+        self.assertTrue(
+            store.load_settings(credential_store=self.credentials)["ai"]["enabled"]
+        )
+        self.assertEqual(["local"], self.capability.validation_calls)
+        self.assertEqual([], self.capability.test_calls)
 
     def test_effect_route_owns_target_model_frames_and_banks_offline_result(self) -> None:
         status, started = self._request(

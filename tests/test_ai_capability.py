@@ -259,6 +259,60 @@ class CapabilityTests(unittest.TestCase):
         self.ollama_models.clear()
         self.assertEqual("model_unavailable", service.status()["reason"])
 
+    def test_backend_setup_validity_is_independent_of_enabled_state(self) -> None:
+        self.ollama_models = [self.ollama_model]
+        local = self.settings["ai"]["local"]
+        local.update({
+            "model_id": self.ollama_model.model_id,
+            "model_digest": self.ollama_model.digest,
+            "setup_fingerprint": ollama_setup_fingerprint(
+                self.ollama_model.model_id,
+                self.ollama_model.digest,
+            ),
+        })
+        self.settings["ai"]["backend"] = "local"
+        service = self._service()
+
+        self.assertFalse(service.status()["enabled"])
+        self.assertTrue(service.backend_setup_valid("local"))
+
+        failed_service = self._service(provider=_FailingProvider("bad_response"))
+        with self.assertRaises(llm.ProviderError):
+            failed_service.test_and_enable(
+                "local", deadline=time.monotonic() + 10, cancelled=lambda: False
+            )
+        self.assertFalse(failed_service.backend_setup_valid("local"))
+
+        self.ollama_models[:] = [
+            OllamaModel(
+                model_id=self.ollama_model.model_id,
+                digest="d" * 64,
+                size_bytes=self.ollama_model.size_bytes,
+                parameter_size=self.ollama_model.parameter_size,
+                quantization=self.ollama_model.quantization,
+            )
+        ]
+        self.assertFalse(service.backend_setup_valid("local"))
+
+        self.ollama_models.clear()
+        self.assertFalse(service.backend_setup_valid("local"))
+
+        self.credential = "sk-original"
+        api = self.settings["ai"]["api"]
+        api["disclosure_version"] = ai_catalog.PRIVACY_DISCLOSURE_VERSION
+        api["disclosure_at"] = "2026-07-22T00:00:00+00:00"
+        api["setup_fingerprint"] = api_setup_fingerprint(
+            "xai",
+            "grok-4.5",
+            self.credential,
+            api["disclosure_version"],
+            api["disclosure_at"],
+        )
+        self.assertTrue(service.backend_setup_valid("api"))
+
+        self.credential = "sk-replaced"
+        self.assertFalse(service.backend_setup_valid("api"))
+
     def test_generation_failure_does_not_invalidate_a_ready_local_model(self) -> None:
         failure = _FailingProvider("bad_response")
         self.ollama_models = [self.ollama_model]

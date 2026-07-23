@@ -2351,7 +2351,6 @@ async function saveSettings({exit=false}={}) {
   try{
     const backend=selectedAiBackend();
     const enabled=$("#settings-ai-enabled").checked;
-    if(enabled&&!aiReady())throw new Error("Run Test & enable for the selected backend before turning generation on.");
     state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled,backend,provider:"xai",model_id:"grok-4.5"})});
     state.settings=await api("/api/settings/preferences",{method:"POST",body:JSON.stringify({loop_mode:$("#settings-loop-mode").value})});
     const requestedRoot=$("#settings-library-root").value.trim()||null;

@@ -1919,12 +1919,16 @@ class _Handler(BaseHTTPRequestHandler):
         selected_backend = body.get("backend", current["backend"])
         selected_provider = body.get("provider", current["api"]["provider"])
         selected_model = body.get("model_id", current["api"]["model_id"])
-        ready = (
-            current["ready"] is True
-            and selected_backend == current["backend"]
-            and selected_provider == current["api"]["provider"]
-            and selected_model == current["api"]["model_id"]
-        )
+        will_enable = body.get("enabled", current["enabled"])
+        ready = False
+        if will_enable:
+            ready = capability.backend_setup_valid(selected_backend)
+            if selected_backend == "api":
+                ready = (
+                    ready
+                    and selected_provider == current["api"]["provider"]
+                    and selected_model == current["api"]["model_id"]
+                )
         store.update_ai_settings(
             body,
             ready=ready,

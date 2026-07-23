@@ -196,7 +196,7 @@ local no-provider browser acceptance at the end of the phase.
   same mechanism. Add no-document, normal double-click/open, device-read,
   stale-revision, and cross-family tests. Commit: `fix: synchronize procedural document targets`.
 
-- [ ] **F30 — Permit re-enabling an unchanged tested backend.** Separate
+- [x] **F30 — Permit re-enabling an unchanged tested backend.** Separate
   backend setup validity from the public `enabled && ready` exposure bit.
   Server-side enable validation must recompute the selected backend's current
   fingerprint/readiness without requiring `enabled` already true. The browser
