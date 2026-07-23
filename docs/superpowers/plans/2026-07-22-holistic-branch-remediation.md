@@ -352,7 +352,7 @@ local no-provider browser acceptance at the end of the phase.
 
 ## Phase 5 — Browser Behavior and Executable Coverage
 
-- [ ] **F08 — Make proxy-disable tests non-vacuous.** Construct openers under a
+- [x] **F08 — Make proxy-disable tests non-vacuous.** Construct openers under a
   patched proxy environment and assert actual Ollama requests cannot reach a
   sentinel proxy. Include the curated API transport's no-environment-proxy
   policy without permitting a real external request. Commit:

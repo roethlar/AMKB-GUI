@@ -142,8 +142,14 @@
   the user Ollama must be upgraded. Discovery still uses only `/api/tags`, and
   generation only `/api/chat`; no `/api/show` or model-management operation was
   added. The client, capability, and browser regressions all fail with their
-  deciding branches removed and pass after restoration. The next slice is
-  F08's non-vacuous AI proxy-disable coverage.
+  deciding branches removed and pass after restoration. F08 is complete on the
+  current tree: Ollama and curated-API openers are constructed under explicit
+  HTTP/HTTPS proxy environments, their real discovery/request paths have socket
+  creation intercepted before network I/O, and the tests prove the attempted
+  destinations remain fixed-loopback Ollama and `api.x.ai`, never the sentinel
+  proxy ports. Removing either empty `ProxyHandler` makes its regression target
+  the sentinel and fail. The next slice is F09's executable Ollama model-picker
+  behavior coverage.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -449,7 +455,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 5 / F08's non-vacuous AI proxy-disable coverage. Do not
+  continuing with Phase 5 / F09's executable Ollama model-picker behavior. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

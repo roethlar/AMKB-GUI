@@ -36,10 +36,14 @@ class _NoOllamaRedirects(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_OLLAMA_OPENER = urllib.request.build_opener(
-    urllib.request.ProxyHandler({}),
-    _NoOllamaRedirects(),
-)
+def _build_ollama_opener():
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _NoOllamaRedirects(),
+    )
+
+
+_OLLAMA_OPENER = _build_ollama_opener()
 
 
 class OllamaError(RuntimeError):

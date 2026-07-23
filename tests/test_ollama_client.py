@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
 import threading
 import time
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 
 from am_configurator.ollama_client import (
     MAX_OLLAMA_RESPONSE_BYTES,
@@ -15,6 +18,7 @@ from am_configurator.ollama_client import (
     OllamaError,
     _NoOllamaRedirects,
     _OLLAMA_OPENER,
+    _build_ollama_opener,
 )
 
 
@@ -275,6 +279,30 @@ class OllamaClientTests(unittest.TestCase):
                 cancelled=lambda: True,
             )
         self.assertEqual("cancelled", cancelled.exception.code)
+
+    def test_actual_discovery_request_ignores_environment_proxy(self) -> None:
+        sentinel_proxy = ("127.0.0.1", 54321)
+        attempted_connections = []
+
+        def block_network(address, *_args, **_kwargs):
+            attempted_connections.append(address)
+            raise OSError("test socket blocked")
+
+        with patch.dict(
+            os.environ,
+            {"HTTP_PROXY": f"http://{sentinel_proxy[0]}:{sentinel_proxy[1]}"},
+            clear=True,
+        ):
+            opener = _build_ollama_opener()
+        with patch.object(socket, "create_connection", side_effect=block_network):
+            with self.assertRaises(OllamaError) as captured:
+                OllamaClient(opener=opener).list_models(
+                    deadline=time.monotonic() + 10
+                )
+
+        self.assertEqual("unavailable", captured.exception.code)
+        self.assertEqual([("127.0.0.1", 11434)], attempted_connections)
+        self.assertNotIn(sentinel_proxy, attempted_connections)
 
     def test_chat_cancellation_closes_the_exchange_and_discards_a_late_response(self) -> None:
         observed: dict[str, object] = {}

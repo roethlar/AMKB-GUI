@@ -1185,6 +1185,35 @@ class GrokTransportTests(unittest.TestCase):
                     )
                 )
 
+    def test_actual_xai_request_ignores_environment_proxy(self) -> None:
+        sentinel_proxy = ("127.0.0.1", 54322)
+        attempted_connections = []
+
+        def block_network(address, *_args, **_kwargs):
+            attempted_connections.append(address)
+            raise OSError("test socket blocked")
+
+        with patch.dict(
+            os.environ,
+            {"HTTPS_PROXY": f"http://{sentinel_proxy[0]}:{sentinel_proxy[1]}"},
+            clear=True,
+        ):
+            opener = llm._default_opener()
+        with patch.object(socket, "create_connection", side_effect=block_network):
+            with self.assertRaises(llm.ProviderError) as captured:
+                llm._xai_request(
+                    self._URL,
+                    {},
+                    _FAKE_KEY,
+                    self._future_deadline(),
+                    opener=opener,
+                )
+
+        self.assertEqual("offline", captured.exception.code)
+        self.assertEqual([("api.x.ai", 443)], attempted_connections)
+        self.assertNotIn(sentinel_proxy, attempted_connections)
+        self.assertNotIn(_FAKE_KEY, str(captured.exception))
+
     def test_legacy_key_probe_delegates_to_hardened_get_transport(self) -> None:
         deadline = self._future_deadline()
         with patch.object(
