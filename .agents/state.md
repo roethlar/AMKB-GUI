@@ -174,7 +174,11 @@
   is complete on the current tree: independent regressions reject name/model
   mismatch, bare cloud suffixes, each remote marker, missing completion support,
   malformed size/digest/name, and prove the exact 512-model bound plus discovery
-  404 mapping. The next slice is F40's same-name digest-replacement invalidation.
+  404 mapping. F40 is complete on the current tree: a selected model replaced
+  under the same Ollama name but a new digest becomes unavailable, reselection
+  makes the new identity verified but setup-required, and only a successful new
+  setup writes its fingerprint and restores readiness. The next slice is F41's
+  exact local coordinator retry-ceiling proof.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -480,7 +484,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 5 / F40's replaced-model invalidation. Do not
+  continuing with Phase 5 / F41's local retry ceiling. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

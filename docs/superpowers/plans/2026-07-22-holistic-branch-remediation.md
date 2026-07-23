@@ -386,7 +386,7 @@ local no-provider browser acceptance at the end of the phase.
   field, absent completion capability, malformed size/digest/name, 512-item
   bound, and 404 mapping. Commit: `test: cover ollama eligibility defenses`.
 
-- [ ] **F40 — Require setup after same-name digest replacement.** Present the
+- [x] **F40 — Require setup after same-name digest replacement.** Present the
   selected name with a new digest and prove readiness becomes false until a new
   setup test. Commit: `test: invalidate replaced ollama models`.
 

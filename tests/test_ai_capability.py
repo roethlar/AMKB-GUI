@@ -387,6 +387,64 @@ class CapabilityTests(unittest.TestCase):
         self.ollama_models.clear()
         self.assertEqual("model_unavailable", service.status()["reason"])
 
+    def test_same_name_digest_replacement_requires_selection_and_new_setup(self) -> None:
+        provider = _Provider()
+        self.ollama_models = [self.ollama_model]
+        old_fingerprint = ollama_setup_fingerprint(
+            self.ollama_model.model_id,
+            self.ollama_model.digest,
+        )
+        local = self.settings["ai"]["local"]
+        local.update({
+            "model_id": self.ollama_model.model_id,
+            "model_digest": self.ollama_model.digest,
+            "setup_fingerprint": old_fingerprint,
+        })
+        self.settings["ai"].update({"enabled": True, "backend": "local"})
+        service = self._service(provider=provider)
+        self.assertTrue(service.status()["ready"])
+
+        replacement = OllamaModel(
+            model_id=self.ollama_model.model_id,
+            digest="d" * 64,
+            size_bytes=self.ollama_model.size_bytes,
+            parameter_size=self.ollama_model.parameter_size,
+            quantization=self.ollama_model.quantization,
+        )
+        self.ollama_models[:] = [replacement]
+        replaced = service.status()
+        self.assertFalse(replaced["ready"])
+        self.assertEqual("model_unavailable", replaced["reason"])
+        self.assertFalse(replaced["local"]["model_verified"])
+        self.assertFalse(replaced["local"]["setup_tested"])
+
+        local.update({
+            "model_digest": replacement.digest,
+            "setup_fingerprint": None,
+        })
+        selected = service.status()
+        self.assertFalse(selected["ready"])
+        self.assertEqual("setup_required", selected["reason"])
+        self.assertTrue(selected["local"]["model_verified"])
+        self.assertFalse(selected["local"]["setup_tested"])
+        with self.assertRaises(AICapabilityError) as blocked:
+            service.require_ready()
+        self.assertEqual("setup_required", blocked.exception.reason)
+
+        tested = service.test_and_enable(
+            "local", deadline=time.monotonic() + 10, cancelled=lambda: False
+        )
+        new_fingerprint = ollama_setup_fingerprint(
+            replacement.model_id,
+            replacement.digest,
+        )
+        self.assertEqual(1, provider.calls)
+        self.assertNotEqual(old_fingerprint, new_fingerprint)
+        self.assertEqual(new_fingerprint, local["setup_fingerprint"])
+        self.assertTrue(tested["ready"])
+        self.assertEqual("ready", tested["reason"])
+        self.assertTrue(tested["local"]["setup_tested"])
+
     def test_backend_setup_validity_is_independent_of_enabled_state(self) -> None:
         self.ollama_models = [self.ollama_model]
         local = self.settings["ai"]["local"]
