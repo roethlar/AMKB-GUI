@@ -218,7 +218,10 @@
   builds have been removed. F12 is complete on the current tree: release entry
   points, platform packagers, the desktop workflow/spec, and FFmpeg build tools
   are guarded against any llama, GGUF, or GGML build-command or timeout path.
-  The next slice is Phase 7 / F35's immutable appimagetool release pin.
+  F35 is complete on the current tree: Linux packaging downloads immutable
+  appimagetool 1.9.1 assets, verifies the official per-architecture digests,
+  rejects unsupported architectures explicitly, and caches by version plus
+  digest. The next slice is Phase 7 / F52's native webview policy acceptance.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -528,7 +531,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 7 / F35's immutable appimagetool release pin. Do not
+  continuing with Phase 7 / F52's native webview policy acceptance. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

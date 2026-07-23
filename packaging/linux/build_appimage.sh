@@ -11,17 +11,22 @@ if [[ ! -x "$executable" ]]; then
   exit 1
 fi
 
+appimagetool_version="1.9.1"
 arch="$(uv run --frozen python build_tools/release_info.py arch)"
 case "$arch" in
-  x86_64) checksum="a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0" ;;
-  aarch64) checksum="1b00524ba8c6b678dc15ef88a5c25ec24def36cdfc7e3abb32ddcd068e8007fe" ;;
-  i686) checksum="ba04b9ecb2869993173bd38516dbafcfbe3064aca942500e94e7a3c3c2ea578d" ;;
-  armhf) checksum="32aeca26db15a7d029b76adb8d5836f98acbf4a37b2a3101758b094f721e4b67" ;;
+  x86_64) checksum="ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0" ;;
+  aarch64) checksum="f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158" ;;
+  i686) checksum="7ad9ff47c203aae0149b18f6df9e3018b2e2f470ea644a0413e3ded39e9e3bdb" ;;
+  armhf) checksum="42b61cba5495d8aaf418a5c9a015a49b85ad92efabcbd3c341f1540440e4e23d" ;;
+  *)
+    echo "Unsupported appimagetool architecture: $arch" >&2
+    exit 1
+    ;;
 esac
 
-tool_dir="$project_root/build/appimage-tools"
-tool_path="$tool_dir/appimagetool-$arch.AppImage"
-tool_url="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$arch.AppImage"
+tool_dir="$project_root/build/appimage-tools/$appimagetool_version"
+tool_path="$tool_dir/appimagetool-$arch-$checksum.AppImage"
+tool_url="https://github.com/AppImage/appimagetool/releases/download/$appimagetool_version/appimagetool-$arch.AppImage"
 mkdir -p "$tool_dir"
 if [[ ! -f "$tool_path" ]] || ! printf '%s  %s\n' "$checksum" "$tool_path" | sha256sum --check --status; then
   rm -f "$tool_path"

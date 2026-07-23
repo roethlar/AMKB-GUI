@@ -452,7 +452,7 @@ local no-provider browser acceptance at the end of the phase.
   llama remains. Add a static architecture guard if needed and close the
   finding as deletion evidence. Commit: `test: prohibit llama build commands`.
 
-- [ ] **F35 — Pin appimagetool to immutable release assets.** Replace the
+- [x] **F35 — Pin appimagetool to immutable release assets.** Replace the
   `continuous` URL with an immutable version/revision and per-architecture hash,
   reject unsupported architectures explicitly, and cache by version+hash.
   Commit: `build: pin appimagetool release assets`.

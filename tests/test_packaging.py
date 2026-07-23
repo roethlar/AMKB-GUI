@@ -220,6 +220,42 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, release_surface)
 
+    def test_linux_appimagetool_uses_immutable_release_assets(self) -> None:
+        script = (ROOT / "packaging" / "linux" / "build_appimage.sh").read_text(
+            encoding="utf-8"
+        )
+        checksums = {
+            "x86_64": "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0",
+            "aarch64": "f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158",
+            "i686": "7ad9ff47c203aae0149b18f6df9e3018b2e2f470ea644a0413e3ded39e9e3bdb",
+            "armhf": "42b61cba5495d8aaf418a5c9a015a49b85ad92efabcbd3c341f1540440e4e23d",
+        }
+
+        self.assertIn('appimagetool_version="1.9.1"', script)
+        self.assertNotIn("/continuous/", script)
+        self.assertIn(
+            "releases/download/$appimagetool_version/appimagetool-$arch.AppImage",
+            script,
+        )
+        for arch, checksum in checksums.items():
+            with self.subTest(arch=arch):
+                self.assertIn(f'{arch}) checksum="{checksum}" ;;', script)
+        self.assertIn(
+            '  *)\n'
+            '    echo "Unsupported appimagetool architecture: $arch" >&2\n'
+            "    exit 1\n"
+            "    ;;",
+            script,
+        )
+        self.assertIn(
+            'tool_dir="$project_root/build/appimage-tools/$appimagetool_version"',
+            script,
+        )
+        self.assertIn(
+            'tool_path="$tool_dir/appimagetool-$arch-$checksum.AppImage"',
+            script,
+        )
+
     def test_brand_icon_is_wired_into_every_distribution(self) -> None:
         icon_paths = {
             "assets/am-configurator.png": (1024, 1024),
