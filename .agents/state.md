@@ -2,6 +2,17 @@
 
 ## Now
 
+- The owner corrected the holistic remediation boundary on 2026-07-23:
+  governance is a separate product and is updated only in a fresh one-off
+  session. P10 and P11 are excluded from the product-remediation plan. The
+  governance refresh, bootstrap preparation, bootstrap blocker, and later
+  governance-state reconciliation attempted during this remediation were
+  reversed; none remains queued under the product plan.
+- Product implementation is complete through `61d2d65`. The full repository
+  gate, current-host versioned native build, frozen offline desktop smoke,
+  built-artifact inspection, and final goal-first review all passed on that
+  product tree. Shipped AI remains fixed-loopback Ollama or curated API only;
+  no application-managed runtime or model-management path remains.
 - The holistic branch review was committed in `e2ba095`, and its complete
   remediation ledger was committed in `8faa962`. The owner then corrected the
   release direction: shipped AI is fixed-loopback Ollama or curated API only.
@@ -329,12 +340,10 @@
   reads; Ollama inventory discovery is deferred until Settings is open or the
   enabled backend is local. The pure browser decision and adapter wiring were
   proven red, while the server regression confirms disabled status touches
-  neither Ollama nor the credential store. P10's governed refresh landed as
-  `f4fff9b`, but the missing repo-owned policy requires the separately approved
-  legacy bootstrap recorded under `## Blockers`. P12 is complete on the current
-  tree: developer artifacts and production banking share one nearest-neighbor
-  preview GIF writer with unchanged exact pixels, durations, cancellation, and
-  progress; the production wiring regression was proven red. P13 is complete:
+  neither Ollama nor the credential store. P12 is complete on the current tree:
+  developer artifacts and production banking share one nearest-neighbor preview
+  GIF writer with unchanged exact pixels, durations, cancellation, and progress;
+  the production wiring regression was proven red. P13 is complete:
   the neutral generation-admission module owns shared errors, target snapshots,
   and the operation gate; procedural generation and server admission no longer
   depend on recovery generation, while recovery keeps compatible re-exports.
@@ -379,8 +388,8 @@
   six-digit RGB or fail with a content-free error, and every CSS/property
   boundary repairs noncanonical values to black. Declaration and remote-URL
   payload regressions were proven red. All local implementation findings are
-  closed; final native/manual/review evidence and P11 remain, while P10 still
-  awaits the separately approved governance bootstrap.
+  closed. The separate governance findings are excluded by the current first
+  `## Now` entry and the remediation plan's owner-corrected scope.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -689,11 +698,11 @@
 
 ## Next
 
-- Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P10's governed restoration of the missing
-  push-policy artifact.
-  Do not push or dispatch workflows before the local remediation and verification
-  gates pass.
+- Do not perform governance work under this product-remediation plan. Any
+  governance update requires a separate fresh one-off session.
+- Complete the plan's manual no-provider/no-hardware UI inspection in a
+  browser-capable session. Do not push or dispatch workflows without separate
+  outward authorization.
 - After remediation and a separate outward authorization, verify Windows
   x86_64 and Linux x86_64 packages as Ollama/API-only builds and prove they
   contain no llama binary, GGUF execution path, model picker, model-selection

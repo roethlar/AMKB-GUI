@@ -5,12 +5,15 @@
 plan covering every actionable item, then corrected the product scope to
 Ollama/API-only. This revision contains no pending product decision.
 Implementation is authorized under the one-finding-per-commit rules below.
+On 2026-07-23 the owner further corrected the boundary: governance is a
+separate product, updated only in a fresh one-off session. Governance findings
+P10 and P11 are therefore excluded from this product-remediation plan.
 
 ## Objective
 
 Bring `llm-led-generator` from review head `89d194d` to a releasable state by
-closing every actionable defect, regression gap, architecture debt, packaging
-risk, documentation drift item, and residual hygiene issue recorded by the
+closing every in-scope product defect, regression gap, architecture debt,
+packaging risk, documentation item, and residual hygiene issue recorded by the
 2026-07-22 holistic review. Preserve the approved editor-first, hidden-until-
 ready product direction and every device, credential, model-weight, durability,
 and explicit-Apply safety boundary. The only shipped AI backends are
@@ -26,9 +29,13 @@ The complete scope is:
 
 - numbered findings F01–F61 from the review, including F61 even though the
   review labels it a nit;
-- polish items P01–P22 from the review;
+- product polish items P01–P09 and P12–P22 from the review;
 - residual hygiene items R01–R02 identified inside the refuted findings;
 - no implementation for the four refuted failure scenarios themselves.
+
+P10 and P11 are governance work and are not part of this product plan. They may
+be assessed only in a fresh one-off governance session; this plan does not
+authorize refresh, bootstrap, toolkit-owned-file changes, or a `drift` pass.
 
 The two refuted items with no residual defect (`desktop.create_window` cleanup
 and the deliberately narrow `js_api` bridge) remain closed by the review's
@@ -97,9 +104,9 @@ new fallback or hardening that obsolete path.
 7. Use temporary roots and injected stores/transports for destructive, fault,
    migration, recovery, and concurrency tests. Tests never touch the owner's
    Library, credentials, model selection, Ollama inventory, or keyboards.
-8. Toolkit-owned files are never edited directly. P10 is routed through the
-   governance toolkit owner and refresh workflow; P11 is executed through the
-   repo's `drift` operator.
+8. Governance work is outside this product plan. Do not refresh or bootstrap
+   governance, edit toolkit-owned files, or invoke the repo's `drift` operator
+   under this authorization.
 9. Do not rewrite existing history. Each item lands as a new commit. Do not push
    until every required local phase is green and the owner separately invokes
    the Git push operator.
@@ -598,16 +605,9 @@ Each polish item is a separate commit despite its size.
   explicitly requests setup details or Ollama AI is enabled. Commit:
   `fix: defer optional ai readiness probes`.
 
-- [ ] **P10 — Restore the missing push-policy artifact through governance.** Do
-  not edit `AGENTS.md` or install a handwritten file. Route the missing toolkit
-  artifact to the AgentGovernanceBootstrap owner, then invoke the approved
-  governance-refresh operator and verify the pointer resolves. Commit is the
-  refresh's own governed commit.
-
-- [ ] **P11 — Rotate historical state through `drift`.** Invoke the repo's
-  `drift` operator after remediation, archive landed `## Now` entries verbatim,
-  point current state to this plan, reverify parked items, and remove duplicated
-  counts. Commit: `docs: reconcile remediation state`.
+P10 (governance refresh) and P11 (governance `drift`) are excluded by the
+owner's 2026-07-23 scope correction. They are not open product-remediation
+items and must not be resumed from this plan.
 
 - [x] **P12 — Reuse the procedural preview helper.** Remove duplicated upscale/
   GIF logic and call the canonical artifact writer without changing pixels or
@@ -680,8 +680,8 @@ Each polish item is a separate commit despite its size.
 
 The plan is complete only when:
 
-1. Every actionable checkbox is closed by a traceable one-item commit or an
-   explicitly identified evidence-only duplicate closure.
+1. Every in-scope actionable checkbox is closed by a traceable one-item commit
+   or an explicitly identified evidence-only duplicate closure.
 2. Every new regression has recorded red and green proof.
 3. The full repository gate passes on the final tree.
 4. The current-host versioned native build and frozen smoke pass.
@@ -695,8 +695,8 @@ The plan is complete only when:
    state, qualification invocation, or model weight. Native failures are fixed
    rather than hidden.
 7. A final goal-first whole-change review finds no material issue.
-8. `drift` reconciles plan, decisions, state, history archive, machines, and
-   governance pointers without duplicating volatile counts or push status.
+8. Product-remediation state does not claim governance closure or leave
+   governance work queued under this plan.
 
 No provider request, model mutation, credential write, hardware write, push,
 workflow dispatch, release, or branch cleanup is implied by plan approval.
