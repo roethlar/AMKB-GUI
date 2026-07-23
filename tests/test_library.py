@@ -536,6 +536,68 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         if os.name != "nt":
             self.assertEqual(0o600, stat.S_IMODE(owned.path.stat().st_mode))
 
+    def test_windows_sharing_retry_prevents_a_banked_asset_orphan(self) -> None:
+        from am_configurator import atomic_io
+
+        job = self._create_job()
+        self.library.scan()
+        real_replace = atomic_io.os.replace
+        sharing_failures = 0
+
+        def replace_with_open_reader(source, destination):
+            nonlocal sharing_failures
+            if Path(destination).name == "manifest.json" and sharing_failures == 0:
+                sharing_failures += 1
+                error = PermissionError(errno.EACCES, "simulated sharing violation")
+                error.winerror = 32
+                raise error
+            return real_replace(source, destination)
+
+        def windows_replace(source, destination):
+            return atomic_io.replace_file(
+                source,
+                destination,
+                windows=True,
+                sleep=lambda _seconds: None,
+            )
+
+        with (
+            patch.object(atomic_io.os, "replace", replace_with_open_reader),
+            patch("am_configurator.library.replace_file", windows_replace),
+        ):
+            asset = self.library.bank_asset(
+                job["job_id"],
+                kind="concept",
+                data=b"\x89PNG\r\n\x1a\nsharing-safe",
+                mime_type="image/png",
+                origin="xai",
+            )
+
+        self.assertEqual(1, sharing_failures)
+        manifest = self.library.load_manifest(job["job_id"])
+        self.assertEqual([asset["asset_id"]], [item["asset_id"] for item in manifest["assets"]])
+        self.assertEqual([job["job_id"]], [item["job_id"] for item in self.library.scan()["jobs"]])
+
+    def test_windows_sharing_retry_is_bounded(self) -> None:
+        from am_configurator import atomic_io
+
+        error = PermissionError(errno.EACCES, "persistent sharing violation")
+        error.winerror = 32
+        sleeps: list[float] = []
+        with (
+            patch.object(atomic_io.os, "replace", side_effect=error) as replace,
+            self.assertRaises(PermissionError),
+        ):
+            atomic_io.replace_file(
+                "source",
+                "destination",
+                windows=True,
+                attempts=3,
+                sleep=sleeps.append,
+            )
+        self.assertEqual(3, replace.call_count)
+        self.assertEqual(2, len(sleeps))
+
     def test_asset_banking_rejects_replaced_kind_directory_symlink(self) -> None:
         job = self._create_job()
         job_dir = self._job_dir(job["job_id"])

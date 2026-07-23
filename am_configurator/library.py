@@ -41,6 +41,8 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Callable, Mapping
 
+from .atomic_io import replace_file
+
 if os.name == "nt":
     import msvcrt
 else:
@@ -391,7 +393,7 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
             file.write(data)
             file.flush()
             os.fsync(file.fileno())
-        os.replace(temporary_path, path)
+        replace_file(temporary_path, path)
         _fsync_directory(path.parent)
     except BaseException:
         temporary_path.unlink(missing_ok=True)

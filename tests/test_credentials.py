@@ -275,6 +275,43 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertEqual(original, path.read_bytes())
         self.assertFalse(path.with_name(path.name + ".bad").exists())
 
+    def test_windows_settings_replace_retries_a_concurrent_reader(self) -> None:
+        from am_configurator import atomic_io
+
+        self._write(copy.deepcopy(V5_DEFAULTS))
+        path = store.settings_path()
+        real_replace = atomic_io.os.replace
+        sharing_failures = 0
+
+        def replace_with_open_reader(source, destination):
+            nonlocal sharing_failures
+            if Path(destination) == path and sharing_failures == 0:
+                sharing_failures += 1
+                error = PermissionError(errno.EACCES, "simulated sharing violation")
+                error.winerror = 32
+                raise error
+            return real_replace(source, destination)
+
+        def windows_replace(source, destination):
+            return atomic_io.replace_file(
+                source,
+                destination,
+                windows=True,
+                sleep=lambda _seconds: None,
+            )
+
+        with (
+            patch.object(atomic_io.os, "replace", replace_with_open_reader),
+            patch("am_configurator.store.replace_file", windows_replace),
+        ):
+            updated = store.update_generation_settings(
+                {"loop_mode": "ping_pong"}, credential_store=self.vault
+            )
+
+        self.assertEqual(1, sharing_failures)
+        self.assertEqual("ping_pong", updated["generation"]["loop_mode"])
+        self.assertEqual("ping_pong", json.loads(path.read_text("utf-8"))["generation"]["loop_mode"])
+
     def test_future_schema_is_reported_without_rename_or_overwrite(self) -> None:
         path = store.settings_path()
         original = self._write(

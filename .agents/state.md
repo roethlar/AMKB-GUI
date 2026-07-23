@@ -256,8 +256,13 @@
   verifier with no-follow open, Windows reparse rejection, pre-read size caps,
   and descriptor/path identity checks before and after reading. Runtime
   compiler identity is capped at 1,000 characters, with its regression proven
-  red when the limit is removed. The next slice is Phase 8 / F56's Windows
-  manifest read/replace serialization.
+  red when the limit is removed. F56 is complete on the current tree: Library
+  and settings atomic publication use one bounded Windows replacement helper
+  that retries sharing/access violations without changing the same-directory
+  atomic boundary. Simulated concurrent readers prove a banked asset remains
+  attached to its manifest, settings updates settle, and persistent contention
+  stops at the configured bound. The next slice is Phase 8 / F59's bounded
+  POSIX job-lock wait.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -567,7 +572,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 8 / F56's Windows manifest read/replace serialization.
+  continuing with Phase 8 / F59's bounded POSIX job-lock wait.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

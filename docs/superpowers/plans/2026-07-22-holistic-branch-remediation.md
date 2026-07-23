@@ -511,7 +511,7 @@ in a new one-finding commit; no gate is weakened.
   primitive for the remaining FFmpeg readers. Delete obsolete generic branches
   instead of preserving them. Commit: `refactor: unify ffmpeg attestation verification`.
 
-- [ ] **F56 — Prevent Windows read/replace sharing races.** Coordinate manifest
+- [x] **F56 — Prevent Windows read/replace sharing races.** Coordinate manifest
   reads with job locks or add bounded sharing-violation retry around atomic
   replace without weakening integrity. Concurrent Library polling and banking
   must settle old-or-new, never orphan solely due to a reader. Commit:
