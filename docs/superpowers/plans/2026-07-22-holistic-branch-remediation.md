@@ -618,7 +618,7 @@ Each polish item is a separate commit despite its size.
   module before the final retired-pipeline deletion, with import-cycle tests.
   Commit: `refactor: extract generation admission primitives`.
 
-- [ ] **P14 — Reuse hardened loopback exchange primitives where applicable.**
+- [x] **P14 — Reuse hardened loopback exchange primitives where applicable.**
   Consolidate only the remaining Ollama and authenticated app-loopback
   proxy/redirect/cancellation mechanics whose contracts genuinely match; if
   Phase 0 removes the reported duplication, close this item with search and
