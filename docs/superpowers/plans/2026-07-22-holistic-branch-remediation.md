@@ -447,7 +447,7 @@ local no-provider browser acceptance at the end of the phase.
   Vulkan dependency remains. Close the finding by deletion rather than making
   the obsolete setup work. Commit: `build: remove llama vulkan setup`.
 
-- [ ] **F12 — Remove obsolete llama configure timeouts.** After F34 deletes the
+- [x] **F12 — Remove obsolete llama configure timeouts.** After F34 deletes the
   llama builder, verify no configure/build timeout or command-plan branch for
   llama remains. Add a static architecture guard if needed and close the
   finding as deletion evidence. Commit: `test: prohibit llama build commands`.

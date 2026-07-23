@@ -202,6 +202,24 @@ class ReleaseInfoTests(unittest.TestCase):
 
         self.assertNotIn("vulkan", workflow.casefold())
 
+    def test_release_pipeline_has_no_llama_build_commands(self) -> None:
+        paths = (
+            ROOT / "build.py",
+            ROOT / ".github" / "workflows" / "desktop.yml",
+            ROOT / "packaging" / "am_configurator.spec",
+            ROOT / "packaging" / "macos" / "build_dmg.sh",
+            ROOT / "packaging" / "linux" / "build_appimage.sh",
+            ROOT / "packaging" / "windows" / "build_installer.ps1",
+            ROOT / "build_tools" / "prepare_ffmpeg.py",
+            ROOT / "build_tools" / "ffmpeg_bundle.py",
+        )
+        release_surface = "\n".join(path.read_text("utf-8") for path in paths)
+        release_surface = release_surface.casefold().replace("ollama", "")
+
+        for forbidden in ("llama", "gguf", "ggml"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, release_surface)
+
     def test_brand_icon_is_wired_into_every_distribution(self) -> None:
         icon_paths = {
             "assets/am-configurator.png": (1024, 1024),
