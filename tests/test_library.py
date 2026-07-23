@@ -508,6 +508,104 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                 process.join(timeout=5)
         self.assertEqual(14, self.library.load_manifest(job_id)["progress"]["completed"])
 
+    def test_posix_job_lock_uses_a_nonblocking_monotonic_budget(self) -> None:
+        if os.name == "nt":
+            self.skipTest("POSIX flock is not available on Windows")
+        clock = iter((0.0, 3.0, 7.0, 10.0))
+        waits: list[float] = []
+        operations: list[int] = []
+
+        def blocked_flock(_descriptor: int, operation: int) -> None:
+            operations.append(operation)
+            raise BlockingIOError(errno.EAGAIN, "busy")
+
+        with (
+            patch.object(library_module.fcntl, "flock", blocked_flock),
+            self.assertRaisesRegex(TimeoutError, "locked by another process"),
+        ):
+            library_module._acquire_job_file_lock(
+                SimpleNamespace(fileno=lambda: 1),
+                windows=False,
+                monotonic=lambda: next(clock),
+                wait=waits.append,
+            )
+
+        self.assertTrue(operations)
+        self.assertTrue(
+            all(operation == library_module.fcntl.LOCK_EX | library_module.fcntl.LOCK_NB for operation in operations)
+        )
+        self.assertEqual(2, len(waits))
+
+    def test_asset_hash_rechecks_file_identity(self) -> None:
+        path = self.base / "identity.bin"
+        path.write_bytes(b"stable bytes")
+        real_fstat = os.fstat
+        calls = 0
+
+        def changed_fstat(descriptor: int):
+            nonlocal calls
+            calls += 1
+            details = real_fstat(descriptor)
+            if calls != 2:
+                return details
+            return SimpleNamespace(
+                st_mode=details.st_mode,
+                st_dev=details.st_dev,
+                st_ino=details.st_ino,
+                st_size=details.st_size,
+                st_mtime_ns=details.st_mtime_ns + 1,
+                st_ctime_ns=details.st_ctime_ns,
+                st_file_attributes=getattr(details, "st_file_attributes", 0),
+            )
+
+        with (
+            patch("am_configurator.library.os.fstat", changed_fstat),
+            self.assertRaises(ManifestError),
+        ):
+            library_module._file_integrity(path)
+
+    def test_resolve_asset_hashes_outside_lock_and_rechecks_ownership(self) -> None:
+        job = self._create_job()
+        asset = self.library.bank_asset(
+            job["job_id"],
+            kind="concept",
+            data=b"\x89PNG\r\n\x1a\nlock-free-hash",
+            mime_type="image/png",
+            origin="xai",
+        )
+        real_integrity = library_module._file_integrity
+        workers: list[threading.Thread] = []
+
+        def remove_ownership_during_hash(path: Path):
+            completed = threading.Event()
+
+            def remove_asset() -> None:
+                def mutate(manifest: dict) -> None:
+                    manifest["assets"] = []
+
+                self.library.update_manifest(job["job_id"], mutate)
+                completed.set()
+
+            worker = threading.Thread(target=remove_asset)
+            workers.append(worker)
+            worker.start()
+            if not completed.wait(1):
+                raise AssertionError("asset hashing ran while the job lock was held")
+            return real_integrity(path)
+
+        try:
+            with (
+                patch(
+                    "am_configurator.library._file_integrity",
+                    side_effect=remove_ownership_during_hash,
+                ),
+                self.assertRaises(AssetNotFoundError),
+            ):
+                self.library.resolve_asset(job["job_id"], asset["asset_id"])
+        finally:
+            for worker in workers:
+                worker.join(timeout=2)
+
     def test_asset_is_banked_before_publication_with_hash_and_opaque_id(self) -> None:
         manifest = self._create_job()
         job_id = manifest["job_id"]

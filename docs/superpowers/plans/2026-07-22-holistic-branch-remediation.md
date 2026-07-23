@@ -517,7 +517,7 @@ in a new one-finding commit; no gate is weakened.
   must settle old-or-new, never orphan solely due to a reader. Commit:
   `fix: serialize windows manifest replacement`.
 
-- [ ] **F59 — Bound POSIX job-lock waits.** Use nonblocking `flock` with the
+- [x] **F59 — Bound POSIX job-lock waits.** Use nonblocking `flock` with the
   same monotonic ten-second budget and typed timeout as Windows. Do not hold the
   exclusive job lock across avoidable large-file hashing; verify identity before
   and after any hash performed outside it. Commit: `fix: bound posix library locks`.

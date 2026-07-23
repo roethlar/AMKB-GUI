@@ -35,6 +35,7 @@ import stat
 import sys
 import tempfile
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -180,6 +181,9 @@ _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS = {
     getattr(errno, "ENOTSUP", errno.EINVAL),
     getattr(errno, "EOPNOTSUPP", errno.EINVAL),
 }
+_JOB_LOCK_TIMEOUT_SECONDS = 10.0
+_JOB_LOCK_RETRY_SECONDS = 0.1
+_JOB_LOCKED_MESSAGE = "The generated job is locked by another process."
 
 
 class LibraryError(RuntimeError):
@@ -202,6 +206,23 @@ class AssetNotFoundError(LibraryError):
     """The requested asset is not owned by the requested job."""
 
 
+def _file_stat_identity(details: os.stat_result) -> tuple[int, ...]:
+    return (
+        details.st_dev,
+        details.st_ino,
+        details.st_mode,
+        details.st_size,
+        details.st_mtime_ns,
+        details.st_ctime_ns,
+        getattr(details, "st_file_attributes", 0),
+    )
+
+
+def _stat_is_reparse_point(details: os.stat_result) -> bool:
+    attributes = getattr(details, "st_file_attributes", 0)
+    return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
 @dataclass(frozen=True)
 class OwnedAsset:
     """A manifest-owned asset.
@@ -222,20 +243,38 @@ class OwnedAsset:
         """Open and integrity-check one stable descriptor for authenticated serving."""
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         try:
+            before = self.path.lstat()
+            if not stat.S_ISREG(before.st_mode) or _stat_is_reparse_point(before):
+                raise ManifestError("The owned asset path is unsafe or missing.")
             fd = os.open(self.path, flags)
             file = os.fdopen(fd, "rb")
             info = os.fstat(file.fileno())
-            if not stat.S_ISREG(info.st_mode):
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or _stat_is_reparse_point(info)
+                or _file_stat_identity(before) != _file_stat_identity(info)
+            ):
                 raise ManifestError("The owned asset path is unsafe or missing.")
             digest = hashlib.sha256()
             for chunk in iter(lambda: file.read(1024 * 1024), b""):
                 digest.update(chunk)
-            if info.st_size != self.record["byte_size"] or not hmac.compare_digest(
-                digest.hexdigest(), self.record["sha256"]
+            after = os.fstat(file.fileno())
+            after_path = self.path.lstat()
+            if (
+                _file_stat_identity(info) != _file_stat_identity(after)
+                or _file_stat_identity(info) != _file_stat_identity(after_path)
+                or info.st_size != self.record["byte_size"]
+                or not hmac.compare_digest(
+                    digest.hexdigest(), self.record["sha256"]
+                )
             ):
                 raise ManifestError("The owned asset failed its integrity check.")
             file.seek(0)
             return file
+        except OSError:
+            if "file" in locals():
+                file.close()
+            raise ManifestError("The owned asset path is unsafe or missing.") from None
         except BaseException:
             if "file" in locals():
                 file.close()
@@ -443,18 +482,33 @@ def _run_windows_path_depth_probe(root: Path) -> None:
         raise cleanup_failure
 
 
-def _file_integrity(path: Path) -> tuple[int, str]:
+def _file_integrity(path: Path) -> tuple[int, str, tuple[int, ...]]:
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode) or _stat_is_reparse_point(before):
+            raise OSError
         fd = os.open(path, flags)
         with os.fdopen(fd, "rb") as file:
             info = os.fstat(file.fileno())
-            if not stat.S_ISREG(info.st_mode):
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or _stat_is_reparse_point(info)
+                or _file_stat_identity(before) != _file_stat_identity(info)
+            ):
                 raise ManifestError("The owned asset path is unsafe or missing.")
             digest = hashlib.sha256()
             for chunk in iter(lambda: file.read(1024 * 1024), b""):
                 digest.update(chunk)
-            return info.st_size, digest.hexdigest()
+            after = os.fstat(file.fileno())
+            after_path = path.lstat()
+            identity = _file_stat_identity(info)
+            if (
+                identity != _file_stat_identity(after)
+                or identity != _file_stat_identity(after_path)
+            ):
+                raise ManifestError("The owned asset changed during verification.")
+            return info.st_size, digest.hexdigest(), identity
     except OSError as exc:
         raise ManifestError("The owned asset integrity could not be verified.") from exc
 
@@ -463,6 +517,34 @@ def _thread_lock(path: Path) -> threading.RLock:
     key = str(path)
     with _THREAD_LOCKS_GUARD:
         return _THREAD_LOCKS.setdefault(key, threading.RLock())
+
+
+def _acquire_job_file_lock(
+    file,
+    *,
+    windows: bool,
+    timeout_seconds: float = _JOB_LOCK_TIMEOUT_SECONDS,
+    retry_seconds: float = _JOB_LOCK_RETRY_SECONDS,
+    monotonic: Callable[[], float] = time.monotonic,
+    wait: Callable[[float], object] = time.sleep,
+) -> None:
+    """Acquire the platform file lock within one monotonic bounded budget."""
+    deadline = monotonic() + timeout_seconds
+    while True:
+        try:
+            if windows:
+                file.seek(0)
+                msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except OSError as exc:
+            if not windows and exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                raise
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise TimeoutError(_JOB_LOCKED_MESSAGE) from exc
+            wait(min(retry_seconds, remaining))
 
 
 @contextlib.contextmanager
@@ -482,22 +564,12 @@ def _job_lock(job_dir: Path):
                 raise ManifestError("The job lock is unsafe.")
             if os.name != "nt":
                 os.fchmod(file.fileno(), 0o600)
-                fcntl.flock(file.fileno(), fcntl.LOCK_EX)
             else:
                 file.seek(0, os.SEEK_END)
                 if file.tell() == 0:
                     file.write(b"\0")
                     file.flush()
-                file.seek(0)
-                attempts = 100
-                for attempt in range(attempts):
-                    try:
-                        msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, 1)
-                        break
-                    except OSError:
-                        if attempt == attempts - 1:
-                            raise TimeoutError("The generated job is locked by another process.")
-                        threading.Event().wait(0.1)
+            _acquire_job_file_lock(file, windows=os.name == "nt")
             try:
                 yield
             finally:
@@ -1275,7 +1347,7 @@ class GeneratedAssetLibrary:
                 pass
             return copy.deepcopy(record)
 
-    def _resolve_record(self, job_dir: Path, manifest: dict, asset_id: str) -> OwnedAsset:
+    def _owned_record(self, job_dir: Path, manifest: dict, asset_id: str) -> OwnedAsset:
         matching = [record for record in manifest["assets"] if record["asset_id"] == asset_id]
         if len(matching) != 1:
             raise AssetNotFoundError("The asset is not owned by this job.")
@@ -1290,12 +1362,22 @@ class GeneratedAssetLibrary:
             raise ManifestError("The owned asset path is unsafe or missing.") from exc
         if _is_linklike(path) or not canonical_path.is_file():
             raise ManifestError("The owned asset path is unsafe or missing.")
-        actual_size, actual_sha256 = _file_integrity(canonical_path)
+        return OwnedAsset(canonical_path, copy.deepcopy(record))
+
+    @staticmethod
+    def _verify_owned_asset(owned: OwnedAsset) -> tuple[int, ...]:
+        actual_size, actual_sha256, identity = _file_integrity(owned.path)
+        record = owned.record
         if actual_size != record["byte_size"] or not hmac.compare_digest(
             actual_sha256, record["sha256"]
         ):
             raise ManifestError("The owned asset failed its integrity check.")
-        return OwnedAsset(canonical_path, copy.deepcopy(record))
+        return identity
+
+    def _resolve_record(self, job_dir: Path, manifest: dict, asset_id: str) -> OwnedAsset:
+        owned = self._owned_record(job_dir, manifest, asset_id)
+        self._verify_owned_asset(owned)
+        return owned
 
     def resolve_asset(self, job_id: str, asset_id: str) -> OwnedAsset:
         canonical_job_id = _canonical_uuid(job_id, "job ID")
@@ -1303,7 +1385,22 @@ class GeneratedAssetLibrary:
         job_dir = self._find_job_dir(canonical_job_id)
         with _job_lock(job_dir):
             manifest = _read_manifest(job_dir / "manifest.json", canonical_job_id)
-            return self._resolve_record(job_dir, manifest, canonical_asset_id)
+            owned = self._owned_record(job_dir, manifest, canonical_asset_id)
+
+        identity = self._verify_owned_asset(owned)
+
+        with _job_lock(job_dir):
+            current_manifest = _read_manifest(job_dir / "manifest.json", canonical_job_id)
+            current = self._owned_record(job_dir, current_manifest, canonical_asset_id)
+            if current.path != owned.path or current.record != owned.record:
+                raise ManifestError("The owned asset changed during verification.")
+            try:
+                current_identity = _file_stat_identity(current.path.lstat())
+            except OSError as exc:
+                raise ManifestError("The owned asset path is unsafe or missing.") from exc
+            if current_identity != identity:
+                raise ManifestError("The owned asset changed during verification.")
+            return current
 
     @staticmethod
     def _public_manifest(manifest: dict) -> dict:

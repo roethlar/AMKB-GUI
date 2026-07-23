@@ -261,8 +261,12 @@
   that retries sharing/access violations without changing the same-directory
   atomic boundary. Simulated concurrent readers prove a banked asset remains
   attached to its manifest, settings updates settle, and persistent contention
-  stops at the configured bound. The next slice is Phase 8 / F59's bounded
-  POSIX job-lock wait.
+  stops at the configured bound. F59 is complete on the current tree: POSIX and
+  Windows job-file locks now share one nonblocking monotonic ten-second budget,
+  asset verification checks descriptor and path identity before and after
+  hashing, and public resolution performs large-file hashing outside the
+  exclusive manifest lock before rechecking ownership and identity under lock.
+  The next slice is Phase 9 / F29's retired paid-mutation removal.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -572,7 +576,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 8 / F59's bounded POSIX job-lock wait.
+  continuing with Phase 9 / F29's retired paid-mutation removal.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows
