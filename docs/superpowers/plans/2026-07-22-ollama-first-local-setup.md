@@ -1,15 +1,100 @@
 # Ollama-First Local Model Setup
 
-**Status:** Complete on 2026-07-22. The approved work landed in `57fb05a`,
-`440c5ac`, `6815337`, `8021ecf`, and `9f2174a`. This plan implements the
-2026-07-22 Ollama-first local model decision and supersedes the direct-GGUF
-onboarding portions of the 2026-07-21 Optional AI plan.
+**Status:** The original implementation landed on 2026-07-22 in `57fb05a`,
+`440c5ac`, `6815337`, `8021ecf`, and `9f2174a`. The surviving Ollama/API-only
+behavior was independently hardened and red-proven in `7ded2dc`, `ed53fa2`,
+`3eec04c`, `37a7449`, `2186a62`, `d42f01e`, `267dc56`, and `9ae2306`; the exact
+reproducible evidence is recorded below. This plan implements the 2026-07-22
+Ollama-first local model decision and supersedes the direct-GGUF onboarding
+portions of the 2026-07-21 Optional AI plan.
 
 **Current scope correction:** A later owner decision on 2026-07-22 removes the
 advanced direct-GGUF fallback and every bundled or application-managed
 llama.cpp path. The shipped backends are fixed-loopback Ollama and the curated
 API only. Direct-GGUF language below is retained solely as historical
 implementation context; the holistic remediation plan owns its deletion.
+
+## Regression Guard Evidence
+
+All commands below were rerun from the repository root after `9ae2306` and
+passed. During each named remediation slice, the stated production behavior
+was temporarily removed or weakened, the same focused command failed for the
+intended assertion, the behavior was restored, and the command passed. The
+temporary mutations were not committed.
+
+1. **F08 — proxy immunity (`7ded2dc`)**
+
+   ```sh
+   uv run --frozen python -m unittest tests.test_ollama_client.OllamaClientTests.test_actual_discovery_request_ignores_environment_proxy tests.test_app.GrokTransportTests.test_actual_xai_request_ignores_environment_proxy -v
+   ```
+
+   Removing either transport's explicit empty `ProxyHandler` made its real
+   request path target the configured sentinel proxy and fail.
+
+2. **F09 — model-picker behavior (`ed53fa2`)**
+
+   ```sh
+   node --test tests/web/lighting_state.test.js tests/web/lighting_shell.test.js
+   ```
+
+   Removing the unavailable/removed/digest-changed/transient projection
+   branches made the executable picker-state regressions fail.
+
+3. **F36 — offline desktop smoke execution (`3eec04c`)**
+
+   ```sh
+   uv run --frozen python -m unittest tests.test_desktop.DesktopSmokeTests.test_every_offline_ai_smoke_executes_without_external_side_effects -v
+   ```
+
+   Replacing `_run_ollama_recipe_smoke` with a no-op made the provider/render/
+   mapping counters fail.
+
+4. **F37 — failure-sensitive smoke guards (`37a7449`)**
+
+   ```sh
+   uv run --frozen python -m unittest tests.test_desktop.DesktopSmokeTests.test_recipe_smokes_construct_real_adapters_and_propagate_stage_failures -v
+   ```
+
+   Swallowing the injected API rendering failure made its propagation subtest
+   fail.
+
+5. **F38 — route/discovery integration (`2186a62`)**
+
+   ```sh
+   uv run --frozen python -m unittest tests.test_ai_routes.OptionalAIRouteTests.test_real_ollama_discovery_and_selection_cross_the_server_contract -v
+   ```
+
+   Corrupting `OllamaModel.public()` to publish a zero digest made the exact
+   route contract fail before selection could persist it.
+
+6. **F39 — eligibility defenses (`d42f01e`)**
+
+   ```sh
+   uv run --frozen python -m unittest tests.test_ollama_client.OllamaClientTests.test_discovery_is_fixed_and_returns_sorted_public_models tests.test_ollama_client.OllamaClientTests.test_each_ineligible_inventory_entry_is_filtered_independently tests.test_ollama_client.OllamaClientTests.test_inventory_accepts_512_entries_rejects_513_and_maps_404 -v
+   ```
+
+   Removing the bare `:cloud` suffix exclusion admitted that model and failed
+   its independent subtest.
+
+7. **F40 — same-name digest replacement (`267dc56`)**
+
+   ```sh
+   uv run --frozen python -m unittest tests.test_ai_capability.CapabilityTests.test_same_name_digest_replacement_requires_selection_and_new_setup -v
+   ```
+
+   Weakening selected-model identity matching to the name alone changed the
+   replacement from `model_unavailable` to `setup_required` and failed the
+   guard.
+
+8. **F41 — retry ceiling (`9ae2306`)**
+
+   ```sh
+   uv run --frozen python -m unittest tests.test_procedural_generation.ProceduralGenerationTests.test_real_ollama_provider_stops_after_two_corrected_retries tests.test_procedural_generation.ProceduralGenerationTests.test_api_quality_failure_is_one_charged_call_and_never_retried -v
+   ```
+
+   Permitting a fourth local attempt triggered the fake client's fourth-call
+   trap and changed the durable terminal error, making the guard fail. The API
+   companion remained exactly one request.
 
 ## Objective
 

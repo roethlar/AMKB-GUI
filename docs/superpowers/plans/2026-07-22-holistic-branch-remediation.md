@@ -397,7 +397,7 @@ local no-provider browser acceptance at the end of the phase.
   request with no automatic retry. Commit:
   `test: enforce procedural retry ceiling`.
 
-- [ ] **F44 — Record non-vacuous Ollama regression evidence.** After F08, F09,
+- [x] **F44 — Record non-vacuous Ollama regression evidence.** After F08, F09,
   and F36–F41 are red-proven, update the Ollama plan status and state pointer
   with exact commands/commits rather than unsupported blanket completion text.
   Commit: `docs: record ollama regression guard proofs`.

@@ -182,8 +182,13 @@
   initial call plus two corrected retries across schema and quality failures,
   use three deterministic distinct seeds and correction prompts, persist the
   terminal failure, and release admission. The curated API path remains exactly
-  one request without automatic retry. The next slice is F44's exact Ollama
-  regression-evidence record.
+  one request without automatic retry. F44 is complete on the current tree: the
+  Ollama plan's status names every F08/F09/F36-F41 remediation commit and owns
+  one canonical ledger of the exact focused command, temporary production
+  mutation, expected failure, restoration, and passing result for each guard.
+  The historical Ollama state entry points to that ledger. The next slice is
+  F50's negative architecture proof that local model/runtime attestations are
+  gone.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -482,14 +487,18 @@
   tests. Versioned macOS arm64 build `0.1.29` passed signed runtime checks, DMG
   verification, and frozen smoke of the offline Ollama, advanced GGUF, API,
   media, and loopback UI paths. No model was downloaded, copied, changed, or
-  deleted, and no hardware write was made.
+  deleted, and no hardware write was made. The surviving Ollama/API-only
+  behavior was later red-proven in `7ded2dc`, `ed53fa2`, `3eec04c`, `37a7449`,
+  `2186a62`, `d42f01e`, `267dc56`, and `9ae2306`; the exact commands and
+  temporary failing mutations are canonical in the Ollama plan's
+  `Regression Guard Evidence` section.
 - The nested `cyberboard-cli/` checkout remains ignored reference material
   and is not part of the application.
 
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 5 / F44's Ollama guard-evidence record. Do not
+  continuing with Phase 5 / F50's local-attestation prohibition. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows
