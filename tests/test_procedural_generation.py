@@ -360,6 +360,130 @@ class ProceduralGenerationTests(unittest.TestCase):
         self.assertEqual("interrupted", recovered["status"])
         self.assertEqual("interrupted_api_no_replay", recovered["phase"])
 
+    def test_local_interruption_reconciliation_is_byte_stable_and_actionless(self) -> None:
+        provider = _Provider([_dense_recipe()])
+        coordinator = ProceduralGenerationCoordinator(
+            self.library,
+            _Capability(provider),
+            operation_gate=OperationGate(),
+            launcher=self._inline,
+        )
+        empty = self.library.create_job(
+            prompt="Interrupted before attempt",
+            target=TARGET,
+            models={"backend": "local", "provider": "ollama", "model_id": "ornith:latest"},
+            pipeline="procedural",
+        )
+        started = self.library.create_job(
+            prompt="Interrupted during attempt",
+            target=TARGET,
+            models={"backend": "local", "provider": "ollama", "model_id": "ornith:latest"},
+            pipeline="procedural",
+        )
+        attempt_id = str(uuid.uuid4())
+
+        def begin_attempt(current: dict) -> None:
+            current["status"] = "in_progress"
+            current["phase"] = "recipe_generating"
+            current["procedural_attempts"].append({
+                "attempt_id": attempt_id,
+                "index": 0,
+                "status": "in_progress",
+                "phase": "recipe_generating",
+                "started_at": "2026-07-21T00:00:00+00:00",
+                "completed_at": None,
+                "recipe_asset_id": None,
+                "raster_asset_id": None,
+                "preview_asset_id": None,
+                "mapped_result_asset_id": None,
+                "quality": None,
+                "usage": None,
+                "error_code": None,
+            })
+
+        self.library.update_manifest(started["job_id"], begin_attempt)
+
+        first_actions = coordinator.reconcile_startup()
+        first_manifests = {
+            job_id: self.library.load_manifest(job_id)
+            for job_id in (empty["job_id"], started["job_id"])
+        }
+        first_bytes = {
+            job_id: (
+                Path(self.temporary.name)
+                / "library"
+                / "jobs"
+                / job_id
+                / "manifest.json"
+            ).read_bytes()
+            for job_id in first_manifests
+        }
+        second_actions = coordinator.reconcile_startup()
+
+        self.assertEqual([], first_actions)
+        self.assertEqual([], second_actions)
+        for job_id, manifest in first_manifests.items():
+            with self.subTest(job_id=job_id):
+                self.assertEqual("interrupted", manifest["status"])
+                path = (
+                    Path(self.temporary.name)
+                    / "library"
+                    / "jobs"
+                    / job_id
+                    / "manifest.json"
+                )
+                self.assertEqual(first_bytes[job_id], path.read_bytes())
+        attempt = first_manifests[started["job_id"]]["procedural_attempts"][0]
+        self.assertIsNotNone(attempt["completed_at"])
+
+    def test_reconcile_preserves_a_failed_attempt_and_its_completion_time(self) -> None:
+        coordinator = self._coordinator(_Provider([_dense_recipe()]))
+        manifest = self.library.create_job(
+            prompt="Failed before job settlement",
+            target=TARGET,
+            models={"backend": "local", "provider": "ollama", "model_id": "ornith:latest"},
+            pipeline="procedural",
+        )
+        attempt_id = str(uuid.uuid4())
+        completed_at = "2026-07-21T01:02:03+00:00"
+
+        def fail_attempt_only(current: dict) -> None:
+            current["status"] = "in_progress"
+            current["phase"] = "recipe_generating"
+            current["procedural_attempts"].append({
+                "attempt_id": attempt_id,
+                "index": 0,
+                "status": "failed",
+                "phase": "attempt_failed",
+                "started_at": "2026-07-21T00:00:00+00:00",
+                "completed_at": completed_at,
+                "recipe_asset_id": None,
+                "raster_asset_id": None,
+                "preview_asset_id": None,
+                "mapped_result_asset_id": None,
+                "quality": None,
+                "usage": None,
+                "error_code": "invalid_recipe",
+            })
+
+        self.library.update_manifest(manifest["job_id"], fail_attempt_only)
+        self.assertEqual([], coordinator.reconcile_startup())
+        settled = self.library.load_manifest(manifest["job_id"])
+        path = (
+            Path(self.temporary.name)
+            / "library"
+            / "jobs"
+            / manifest["job_id"]
+            / "manifest.json"
+        )
+        settled_bytes = path.read_bytes()
+
+        self.assertEqual("failed", settled["status"])
+        self.assertEqual("failed", settled["procedural_attempts"][0]["status"])
+        self.assertEqual(completed_at, settled["procedural_attempts"][0]["completed_at"])
+        self.assertEqual([], coordinator.reconcile_startup())
+        self.assertEqual(settled_bytes, path.read_bytes())
+
     def test_api_quality_failure_is_one_charged_call_and_never_retried(self) -> None:
         provider = _Provider([_dim_recipe(), _dense_recipe()], backend="api")
         coordinator = ProceduralGenerationCoordinator(

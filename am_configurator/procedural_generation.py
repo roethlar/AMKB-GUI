@@ -650,6 +650,7 @@ class ProceduralGenerationCoordinator:
             "cancelled",
             "cancelled_saved",
             "failed",
+            "interrupted",
         }:
             return None
         if not manifest["procedural_attempts"]:
@@ -665,11 +666,17 @@ class ProceduralGenerationCoordinator:
                 current["phase"] = phase
 
             self._library.update_manifest(job_id, interrupt_empty)
-            if backend == "local":
-                return {"job_id": job_id, "action": "retry_local_procedural"}
             return None
         attempt = manifest["procedural_attempts"][-1]
         attempt_id = attempt["attempt_id"]
+        if attempt["status"] == "failed":
+
+            def settle_failed(current: dict) -> None:
+                current["status"] = "failed"
+                current["phase"] = "effect_failed"
+
+            self._library.update_manifest(job_id, settle_failed)
+            return None
         assets = {
             "recipe_asset_id": self._valid_origin_asset(
                 manifest, attempt_id, "recipe", "recipe"
@@ -718,13 +725,12 @@ class ProceduralGenerationCoordinator:
             current_attempt = _attempt(current, attempt_id)
             current_attempt["status"] = "interrupted"
             current_attempt["phase"] = phase
-            current_attempt["completed_at"] = timestamp
+            if current_attempt["completed_at"] is None:
+                current_attempt["completed_at"] = timestamp
             current["status"] = "interrupted"
             current["phase"] = phase
 
         self._library.update_manifest(job_id, interrupt)
-        if backend == "local":
-            return {"job_id": job_id, "action": "retry_local_procedural"}
         return None
 
     def reconcile_startup(self) -> list[dict]:

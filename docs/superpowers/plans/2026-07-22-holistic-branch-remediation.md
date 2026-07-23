@@ -258,7 +258,7 @@ local no-provider browser acceptance at the end of the phase.
   A completion race returns not-active without changing a ready/interrupted
   manifest. Commit: `fix: validate procedural cancellation before mutation`.
 
-- [ ] **F24 — Settle interrupted procedural jobs once.** Treat an already
+- [x] **F24 — Settle interrupted procedural jobs once.** Treat an already
   reconciled interrupted job as stable, preserve its first interruption time,
   and emit each actionable recovery record once. Remove or consume the unused
   retry action. Prove byte-stable repeated startup. Commit:

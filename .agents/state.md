@@ -67,8 +67,12 @@
   ownership before entering the manifest mutation, accepts only an in-progress
   procedural job under its lock, and leaves ready or interrupted manifests
   byte-identical when a cancel loses the completion race or targets an inactive
-  job. The next slice is F24's one-time settlement of interrupted procedural
-  jobs during startup reconciliation.
+  job. F24 is complete on the current tree: startup reconciliation treats an
+  already-interrupted procedural job as terminal, preserves the first
+  interruption or failure completion time, settles a banked failed attempt
+  without reclassifying it, emits no unused local retry action, and leaves the
+  exact manifest bytes stable on every later startup. The next slice is F61's
+  separation of ephemeral FFmpeg diagnostics from durable manifest errors.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
