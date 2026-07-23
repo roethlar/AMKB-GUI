@@ -281,6 +281,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .settings-header { align-items: flex-start; margin-bottom: 16px; }
 .settings-header-actions { display: flex; gap: 8px; }
 .settings-route-card { overflow: hidden; }
+#settings-migration-repair:not([hidden]) + #settings-mutable { border-top: 1px solid var(--line); }
+#settings-mutable[inert] { opacity: .48; }
 .settings-section { padding: 18px 20px; }
 .settings-section + .settings-section { border-top: 1px solid var(--line); }
 .settings-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }

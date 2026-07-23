@@ -1148,13 +1148,23 @@ def _xai_get(url: str, payload: Any, api_key: str, deadline: float) -> dict[str,
     return {"ok": True}
 
 
-def _settings_view() -> dict[str, Any]:
+def _settings_view(*, credential_store=None) -> dict[str, Any]:
     """Return the active credential-free settings schema used by the UI."""
     from . import store
 
-    settings = store.load_settings()
+    settings, reason = store.load_settings_with_status(
+        credential_store=credential_store
+    )
+    migration_required = reason in {
+        store.SettingsMigrationCredentialError.code,
+        store.SettingsMigrationWriteError.code,
+    }
     return {
         "schema_version": settings["schema_version"],
+        "migration": {
+            "required": migration_required,
+            "reason": reason if migration_required else None,
+        },
         "library": {
             "current_root": settings["library"]["current_root"],
             "roots": list(settings["library"]["roots"]),
@@ -1714,6 +1724,7 @@ class _Handler(BaseHTTPRequestHandler):
         return path.startswith("/api/ai/") or path in {
             "/api/settings/ai",
             "/api/settings/credential",
+            "/api/settings/migration/discard-credential",
         }
 
     def _ai_internal_error(self, exc: Exception) -> None:
@@ -1746,7 +1757,11 @@ class _Handler(BaseHTTPRequestHandler):
                         self.state.last_device_scan = time.monotonic()
                     self._json({"devices": [asdict(d) for d in devices]})
                 elif path == "/api/settings":
-                    self._json(_settings_view())
+                    self._json(
+                        _settings_view(
+                            credential_store=self.state._credential_store
+                        )
+                    )
                 elif path == "/api/led/capabilities":
                     self._json(_capabilities())
                 elif path == "/api/ai/status":
@@ -1841,6 +1856,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._save_ai_settings(body)
             elif path == "/api/settings/credential":
                 self._save_ai_credential(body)
+            elif path == "/api/settings/migration/discard-credential":
+                self._discard_legacy_ai_credential(body)
             elif path == "/api/ai/test":
                 self._test_ai_backend(body)
             elif path == "/api/ai/local/select":
@@ -1951,6 +1968,16 @@ class _Handler(BaseHTTPRequestHandler):
         )
         capability = self.state.ai_services()
         self._json(capability.status())
+
+    def _discard_legacy_ai_credential(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(body, allowed={"confirm"}, required={"confirm"})
+        self._require_ai_idle()
+        store.discard_legacy_api_credential(body)
+        self._json(
+            _settings_view(credential_store=self.state._credential_store)
+        )
 
     def _test_ai_backend(self, body: dict[str, Any]) -> None:
         self._strict_body(

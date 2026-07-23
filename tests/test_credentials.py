@@ -447,6 +447,61 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertEqual(5, settings["schema_version"])
         self.assertNotIn("sk-only-copy", store.settings_path().read_text("utf-8"))
 
+    def test_blocked_migration_requires_explicit_credential_discard(self) -> None:
+        library = self.directory / "legacy-library"
+        original = self._write(
+            _v2_settings(key="sk-only-legacy-copy", root=library)
+        )
+        unavailable = credentials.MemoryCredentialStore(available=False)
+
+        settings, reason = store.load_settings_with_status(
+            credential_store=unavailable
+        )
+
+        self.assertEqual("credential_store_unavailable", reason)
+        self.assertEqual(original, store.settings_path().read_bytes())
+        self.assertEqual("ping_pong", settings["generation"]["loop_mode"])
+        with self.assertRaises(store.SettingsMigrationCredentialError):
+            store.update_generation_settings(
+                {"loop_mode": "smooth"}, credential_store=unavailable
+            )
+        self.assertEqual(original, store.settings_path().read_bytes())
+        with self.assertRaises(ValueError):
+            store.discard_legacy_api_credential({"confirm": False})
+        self.assertEqual(original, store.settings_path().read_bytes())
+
+        with patch.object(
+            store,
+            "_resolved_credential_store",
+            side_effect=AssertionError("repair touched the credential vault"),
+        ):
+            repaired = store.discard_legacy_api_credential({"confirm": True})
+
+        self.assertEqual(store.SETTINGS_SCHEMA_VERSION, repaired["schema_version"])
+        self.assertFalse(repaired["ai"]["enabled"])
+        self.assertIsNone(repaired["ai"]["backend"])
+        self.assertEqual(str(library.resolve()), repaired["library"]["current_root"])
+        self.assertEqual("ping_pong", repaired["generation"]["loop_mode"])
+        self.assertNotIn("sk-only-legacy-copy", store.settings_path().read_text("utf-8"))
+
+    def test_migration_write_failure_has_a_distinct_typed_reason(self) -> None:
+        original = self._write(copy.deepcopy(V3_DEFAULTS))
+
+        with patch.object(
+            store, "_write_settings_file", side_effect=OSError("write unavailable")
+        ):
+            settings, reason = store.load_settings_with_status(
+                credential_store=self.vault
+            )
+            with self.assertRaises(store.SettingsMigrationWriteError):
+                store.update_generation_settings(
+                    {"loop_mode": "none"}, credential_store=self.vault
+                )
+
+        self.assertEqual("settings_migration_write_failed", reason)
+        self.assertEqual("smooth", settings["generation"]["loop_mode"])
+        self.assertEqual(original, store.settings_path().read_bytes())
+
     def test_failed_final_migration_write_restores_the_previous_vault_value(self) -> None:
         original = self._write(_v2_settings(key="sk-only-copy"))
         self.vault.set("xai", "sk-existing-vault")
@@ -456,7 +511,7 @@ class SettingsV5Tests(unittest.TestCase):
                 credential_store=self.vault
             )
 
-        self.assertEqual("credential_store_unavailable", reason)
+        self.assertEqual("settings_migration_write_failed", reason)
         self.assertFalse(settings["ai"]["enabled"])
         self.assertEqual("sk-existing-vault", self.vault.get("xai"))
         self.assertEqual(original, store.settings_path().read_bytes())

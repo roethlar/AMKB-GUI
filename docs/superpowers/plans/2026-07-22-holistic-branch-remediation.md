@@ -233,11 +233,11 @@ local no-provider browser acceptance at the end of the phase.
   versions without renaming. Prove exact bytes survive `EMFILE`, `EACCES`,
   injected `EIO`, and a newer schema. Commit: `fix: preserve settings on transient read failures`.
 
-- [ ] **F17 — Add an explicit migration-repair path.** Preserve the original
+- [x] **F17 — Add an explicit migration-repair path.** Preserve the original
   legacy file while secure migration is unavailable, distinguish credential
   failure from settings-write failure, and allow a user-confirmed
   "continue without the legacy API credential" operation that atomically
-  publishes v4 without touching the vault. All other settings remain blocked
+  publishes v5 without touching the vault. All other settings remain blocked
   until migration succeeds or that explicit discard is confirmed. Commit:
   `fix: recover blocked settings migrations`.
 

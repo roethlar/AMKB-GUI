@@ -2227,6 +2227,21 @@ async function openSettings({returnToGeneration=false}={}) {
 function populateSettings() {
   const status=state.aiStatus;
   const backend=status?.backend||"local";
+  const migration=state.settings?.migration||{};
+  const migrationBlocked=migration.required===true;
+  const canDiscardLegacyCredential=migrationBlocked&&migration.reason==="credential_store_unavailable";
+  const repair=$("#settings-migration-repair");
+  const confirm=$("#settings-migration-confirm");
+  repair.hidden=!migrationBlocked;
+  $("#settings-migration-message").textContent=migration.reason==="settings_migration_write_failed"
+    ?"The older settings were read, but the upgraded settings file could not be saved. Restore write access, then reopen Settings."
+    :"The legacy API credential could not be moved into secure storage. Retry after credential storage is available, or explicitly continue without that legacy credential.";
+  $("#settings-migration-confirm-row").hidden=!canDiscardLegacyCredential;
+  $("#settings-migration-discard").hidden=!canDiscardLegacyCredential;
+  if(!migrationBlocked)confirm.checked=false;
+  $("#settings-migration-discard").disabled=!canDiscardLegacyCredential||!confirm.checked;
+  $("#settings-mutable").inert=migrationBlocked;
+  $("#settings-save").disabled=migrationBlocked||state.settingsSaveBusy;
   $("#settings-ai-enabled").checked=Boolean(status?.enabled);
   $("#settings-ai-local").checked=backend==="local";
   $("#settings-ai-api").checked=backend==="api";
@@ -2345,6 +2360,22 @@ async function clearSettingsKey() {
   catch(error){setSettingsStatus(error.message,"error");}
 }
 
+async function discardLegacyApiCredential() {
+  if(!$("#settings-migration-confirm").checked){
+    setSettingsStatus("Confirm that the legacy API credential may be discarded.","error");
+    return;
+  }
+  const button=$("#settings-migration-discard");
+  button.disabled=true;
+  setSettingsStatus("Repairing older settings…","working");
+  try{
+    state.settings=await api("/api/settings/migration/discard-credential",{method:"POST",body:JSON.stringify({confirm:true})});
+    await loadAiConfig();
+    populateSettings();
+    setSettingsStatus("Settings repaired. The legacy file credential was discarded; the OS credential vault was not changed.");
+  }catch(error){setSettingsStatus(error.message,"error");populateSettings();}
+}
+
 async function saveSettings({exit=false}={}) {
   if(state.settingsSaveBusy)return false;
   state.settingsSaveBusy=true;
@@ -2395,7 +2426,9 @@ $("#redo-button").addEventListener("click",redo);
 $("#validate-button").addEventListener("click",()=>validateCurrent());
 $("#settings-button").addEventListener("click",openSettings);
 $("#settings-save").addEventListener("click",()=>saveSettings());
-$("#settings-done").addEventListener("click",()=>saveSettings({exit:true}));
+$("#settings-done").addEventListener("click",()=>state.settings?.migration?.required?finishSettings():saveSettings({exit:true}));
+$("#settings-migration-confirm").addEventListener("change",populateSettings);
+$("#settings-migration-discard").addEventListener("click",discardLegacyApiCredential);
 $("#settings-ai-enabled").addEventListener("change",event=>{if(!event.target.checked)void selectAiBackend(selectedAiBackend());});
 $("#settings-ai-local").addEventListener("change",()=>selectAiBackend("local"));
 $("#settings-ai-api").addEventListener("change",()=>selectAiBackend("api"));

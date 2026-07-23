@@ -48,8 +48,15 @@
   F13 is complete on the current tree: transient settings I/O and newer schema
   versions return distinct pathless statuses without renaming or overwriting
   exact bytes, updates fail closed with typed errors, and only confirmed
-  encoding/JSON/schema corruption enters quarantine. The next slice is F17's
-  explicit blocked-migration repair path.
+  encoding/JSON/schema corruption enters quarantine. F17 is complete on the
+  current tree: blocked legacy migrations now report credential-vault and
+  settings-write failures separately, every ordinary settings mutation remains
+  fail-closed, and a strictly confirmed recovery action can atomically publish
+  credential-free v5 settings without reading or changing the OS vault. The
+  Settings route exposes that recovery only for a vault-blocked legacy
+  credential and otherwise keeps mutable controls inert. The next slice is
+  F18's validation of every projected legacy settings document before migration
+  mutates either the vault or file.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

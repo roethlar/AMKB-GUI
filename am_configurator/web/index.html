@@ -151,6 +151,12 @@
               </div>
             </header>
             <div class="settings-route-card card">
+              <section id="settings-migration-repair" class="settings-section" aria-labelledby="settings-migration-title" hidden>
+                <div class="settings-section-heading"><div><h2 id="settings-migration-title">Older settings need repair</h2><p id="settings-migration-message">The existing settings file could not be upgraded.</p></div><span class="pill muted">Blocked</span></div>
+                <label id="settings-migration-confirm-row" class="check-row" for="settings-migration-confirm"><input id="settings-migration-confirm" type="checkbox"><span><strong>Continue without the legacy API credential</strong><small>The API key still stored in the older settings file will not be migrated. Any credential already in the OS credential vault is left unchanged.</small></span></label>
+                <button id="settings-migration-discard" type="button" class="button danger" disabled>Continue without the legacy API credential</button>
+              </section>
+              <div id="settings-mutable">
               <section class="settings-section" aria-labelledby="settings-ai-title">
                 <div class="settings-section-heading"><div><h2 id="settings-ai-title">Optional AI features</h2><p>Off by default. Local generation uses models already installed in Ollama and never downloads model weights.</p></div><span id="settings-ai-state" class="pill muted">Off</span></div>
                 <label class="settings-row" for="settings-ai-enabled"><span><strong>Enable after setup passes</strong><small>Turning this off immediately hides generation without affecting the manual editor or Library.</small></span><input id="settings-ai-enabled" type="checkbox"></label>
@@ -200,6 +206,7 @@
                   <label class="settings-row" for="settings-loop-mode"><span><strong>Animation loop</strong><small>Default deterministic treatment for the generated recipe.</small></span><select id="settings-loop-mode" class="select-field"><option value="smooth">Smooth loop</option><option value="none">Hard loop (no transition)</option><option value="ping_pong">Ping-pong</option></select></label>
                 </div>
               </section>
+              </div>
             </div>
             <p id="settings-status" class="write-status settings-route-status" aria-live="polite"></p>
           </section>

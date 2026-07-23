@@ -80,6 +80,17 @@ test("Settings exposes only installed Ollama models and the curated API", () => 
   assert.match(restore,/await synchronizeOpenDocument\(\)/);
 });
 
+test("Settings exposes an explicit blocked-migration credential discard", () => {
+  for(const id of [
+    "settings-migration-repair","settings-migration-message","settings-migration-confirm",
+    "settings-migration-discard","settings-mutable",
+  ])assert.match(html,new RegExp(`id="${id}"`));
+  assert.match(html,/continue without the legacy API credential/i);
+  assert.match(html,/OS credential|credential vault/i);
+  assert.match(js,/\/api\/settings\/migration\/discard-credential/);
+  assert.match(js,/JSON\.stringify\(\{confirm:true\}\)/);
+});
+
 test("API setup stays secondary, explicit, and confined to Settings", () => {
   assert.match(js,/api\("\/api\/settings\/credential"/);
   assert.match(js,/api\("\/api\/settings\/privacy"/);

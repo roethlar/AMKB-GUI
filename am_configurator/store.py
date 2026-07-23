@@ -326,6 +326,26 @@ class SettingsSchemaUnsupportedError(ValueError):
         super().__init__("Settings require a newer application version.")
 
 
+class SettingsMigrationCredentialError(ValueError):
+    """Legacy settings cannot migrate until secure credential storage works."""
+
+    code = "credential_store_unavailable"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Legacy settings require secure credential storage before changes can be saved."
+        )
+
+
+class SettingsMigrationWriteError(ValueError):
+    """Legacy settings were readable but their upgraded form could not be saved."""
+
+    code = "settings_migration_write_failed"
+
+    def __init__(self) -> None:
+        super().__init__("Legacy settings could not be upgraded because storage is unavailable.")
+
+
 def _default_settings() -> dict:
     """A fresh copy of the credential-free Ollama/API-only schema v5 defaults."""
     return {
@@ -1013,7 +1033,7 @@ def _migrate_legacy_settings(
         try:
             _write_settings_file(path, settings)
         except OSError:
-            return settings, "settings_unavailable"
+            return settings, SettingsMigrationWriteError.code
         return settings, None
 
     vault = _resolved_credential_store(credential_store)
@@ -1037,7 +1057,7 @@ def _migrate_legacy_settings(
         except OSError:
             if changed:
                 _restore_credential(vault, previous)
-            return settings, "credential_store_unavailable"
+            return settings, SettingsMigrationWriteError.code
     except Exception:
         if previous_known and changed:
             _restore_credential(vault, previous)
@@ -1088,7 +1108,7 @@ def load_settings_with_status(*, credential_store=None) -> tuple[dict, str | Non
                 credential_store=credential_store,
             )
     except OSError:
-        return normalized, SettingsUnavailableError.code
+        return normalized, SettingsMigrationWriteError.code
 
 
 def load_settings(*, credential_store=None) -> dict:
@@ -1117,11 +1137,39 @@ def _settings_for_update(path: Path, *, credential_store=None) -> dict:
             legacy_key,
             credential_store=credential_store,
         )
+        if reason == SettingsMigrationCredentialError.code:
+            raise SettingsMigrationCredentialError()
+        if reason == SettingsMigrationWriteError.code:
+            raise SettingsMigrationWriteError()
         if reason is not None:
-            raise ValueError(
-                "Settings migration requires secure credential storage."
-            )
+            raise SettingsUnavailableError()
     return normalized
+
+
+def discard_legacy_api_credential(values: object) -> dict:
+    """Publish legacy settings without their plaintext API key after confirmation."""
+
+    body = _object(values, "legacy credential repair")
+    _reject_unknown(body, {"confirm"}, "legacy credential repair")
+    if set(body) != {"confirm"} or body["confirm"] is not True:
+        raise ValueError("Discarding the legacy API credential requires confirmation.")
+
+    path = settings_path()
+    try:
+        with _settings_lock():
+            loaded = _read_settings_file(path)
+            if loaded is None:
+                raise ValueError("There are no legacy settings to repair.")
+            normalized, legacy_key, migration_required = loaded
+            if not migration_required or legacy_key is None:
+                raise ValueError("Legacy settings do not contain an API credential to discard.")
+            normalized = _validate_settings(normalized)
+            _write_settings_file(path, normalized)
+            return normalized
+    except (SettingsSchemaUnsupportedError, ValueError):
+        raise
+    except OSError:
+        raise SettingsMigrationWriteError() from None
 
 
 def _mutate_settings(mutator, *, credential_store=None) -> dict:

@@ -255,6 +255,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             ("GET", "/api/ai/local/models", None),
             ("POST", "/api/settings/ai", {"enabled": False, "backend": "local"}),
             ("POST", "/api/settings/credential", {"provider": "xai", "key": "secret"}),
+            ("POST", "/api/settings/migration/discard-credential", {"confirm": True}),
             ("POST", "/api/ai/test", {"backend": "local"}),
             ("POST", "/api/ai/local/select", {"model_id": "ornith:latest"}),
             ("POST", "/api/ai/local/gguf/select", {}),
@@ -390,6 +391,71 @@ class OptionalAIRouteTests(unittest.TestCase):
         )
         self.assertEqual(["local"], self.capability.validation_calls)
         self.assertEqual([], self.capability.test_calls)
+
+    def test_blocked_legacy_migration_requires_confirmed_credential_discard(self) -> None:
+        secret = "sk-only-legacy-route-copy"
+        library_root = Path(self.temporary.name) / "legacy-library"
+        legacy = {
+            "schema_version": 2,
+            "llm": {
+                "models": {
+                    "interpreter": "grok-4.3",
+                    "concept": "grok-imagine-image-quality",
+                    "video": "grok-imagine-video",
+                },
+                "keys": {"xai": secret},
+            },
+            "library": {"current_root": str(library_root), "roots": []},
+            "generation": {
+                "candidate_count": 4,
+                "loop_mode": "ping_pong",
+                "privacy_ack_version": "2026-07-20-xai-v1",
+                "privacy_ack_at": "2026-07-20T12:00:00+00:00",
+            },
+        }
+        path = store.settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        original = (json.dumps(legacy, indent=2) + "\n").encode("utf-8")
+        path.write_bytes(original)
+        self.credentials.set("xai", "vault-value-must-remain")
+        self.credentials._available = False
+
+        status, settings = self._request("GET", "/api/settings")
+        self.assertEqual(200, status)
+        self.assertEqual(
+            {"required": True, "reason": "credential_store_unavailable"},
+            settings["migration"],
+        )
+        self.assertNotIn(secret, json.dumps(settings))
+        self.assertEqual(original, path.read_bytes())
+
+        status, response = self._request(
+            "POST", "/api/settings/ai", {"enabled": False, "backend": "local"}
+        )
+        self.assertEqual(400, status)
+        self.assertNotIn(secret, json.dumps(response))
+        self.assertEqual(original, path.read_bytes())
+        for body in ({"confirm": False}, {"confirm": True, "extra": True}):
+            with self.subTest(body=body):
+                status, _response = self._request(
+                    "POST", "/api/settings/migration/discard-credential", body
+                )
+                self.assertEqual(400, status)
+                self.assertEqual(original, path.read_bytes())
+
+        status, repaired = self._request(
+            "POST",
+            "/api/settings/migration/discard-credential",
+            {"confirm": True},
+        )
+
+        self.assertEqual(200, status)
+        self.assertEqual({"required": False, "reason": None}, repaired["migration"])
+        self.assertEqual("ping_pong", repaired["generation"]["loop_mode"])
+        self.assertEqual(str(library_root.resolve()), repaired["library"]["current_root"])
+        self.assertNotIn(secret, path.read_text("utf-8"))
+        self.credentials._available = True
+        self.assertEqual("vault-value-must-remain", self.credentials.get("xai"))
 
     def test_effect_route_owns_target_model_frames_and_banks_offline_result(self) -> None:
         status, started = self._request(
