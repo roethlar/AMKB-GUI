@@ -241,7 +241,12 @@
   current tree: Windows Python 3.11 detects every reparse point through
   `st_file_attributes`, Python 3.12 retains its native junction check, and
   preflight rejects a reparse-bearing raw root before resolution or directory
-  creation. The next slice is Phase 7 / F58's Windows path-depth preflight.
+  creation. F58 is complete on the current tree: Windows preflight now creates
+  and removes the deepest real asset-intent atomic temporary path before job
+  creation and before further paid work, reports an actionable path-length
+  error for Win32 error 206, and is covered at the classic 259/260-character
+  boundary plus a long-path-aware case. The next slice is Phase 7 / F60's
+  retirement of executable GGUF qualification tooling.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -551,7 +556,8 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 7 / F58's Windows path-depth preflight.
+  continuing with Phase 7 / F60's retirement of executable GGUF qualification
+  tooling.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

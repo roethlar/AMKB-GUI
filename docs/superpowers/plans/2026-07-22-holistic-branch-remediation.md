@@ -485,7 +485,7 @@ local no-provider browser acceptance at the end of the phase.
   Test source-supported 3.11 behavior. Commit:
   `fix: reject junctions on supported windows python`.
 
-- [ ] **F58 — Preflight real Windows path depth.** Probe the maximum real job/
+- [x] **F58 — Preflight real Windows path depth.** Probe the maximum real job/
   work/asset/temp path shape, or fail with an actionable path-length message
   before job creation. Cover boundary lengths with long-path support on and off.
   Commit: `fix: validate windows library path depth`.

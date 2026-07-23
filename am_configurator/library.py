@@ -403,6 +403,44 @@ def _atomic_write_json(path: Path, value: object) -> None:
     _atomic_write_bytes(path, payload)
 
 
+def _windows_path_too_long(error: OSError) -> bool:
+    return error.errno == errno.ENAMETOOLONG or getattr(error, "winerror", None) == 206
+
+
+def _run_windows_path_depth_probe(root: Path) -> None:
+    """Exercise the longest generated-library temporary path and remove it."""
+    # Asset-intent atomic publication is the deepest current path shape:
+    # jobs/<36-char job>/.work/.asset-intent-<36-char asset>.json.<8-char>.tmp
+    # Keep the synthetic job component exactly UUID length without making it a
+    # valid job that a concurrent Library scan could mistake for user data.
+    probe_job = root / "jobs" / f".am-depth-{uuid.uuid4().hex[:26]}"
+    probe_work = probe_job / ".work"
+    intent = probe_work / f"{_ASSET_INTENT_PREFIX}{uuid.uuid4()}.json"
+    failure: BaseException | None = None
+    cleanup_failure: OSError | None = None
+    try:
+        _make_private_directory(probe_work, parents=True)
+        _atomic_write_bytes(intent, b"{}\n")
+    except BaseException as exc:
+        failure = exc
+    try:
+        if probe_job.exists() or probe_job.is_symlink():
+            if _is_linklike(probe_job):
+                raise OSError("Windows path-depth probe directory is unsafe")
+            shutil.rmtree(probe_job)
+    except OSError as exc:
+        cleanup_failure = exc
+    if isinstance(failure, OSError) and _windows_path_too_long(failure):
+        raise LibraryRootError(
+            "The configured Windows library path is too long for generated files; "
+            "choose a shorter library folder or enable Windows long-path support."
+        ) from failure
+    if failure is not None:
+        raise failure
+    if cleanup_failure is not None:
+        raise cleanup_failure
+
+
 def _file_integrity(path: Path) -> tuple[int, str]:
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
@@ -960,6 +998,8 @@ class GeneratedAssetLibrary:
                 raise OSError("jobs directory is a symlink")
             if os.name != "nt":
                 os.chmod(jobs, 0o700)
+            else:
+                _run_windows_path_depth_probe(root)
             _run_write_probe(root)
             free = self._disk_usage(root).free
         except LibraryRootError:
@@ -1060,6 +1100,8 @@ class GeneratedAssetLibrary:
         root = job_dir.parent.parent
         try:
             concept_directory = self._owned_child_directory(job_dir, "concepts")
+            if os.name == "nt":
+                _run_windows_path_depth_probe(root)
             _run_write_probe(job_dir)
             _run_write_probe(concept_directory)
             free = self._disk_usage(root).free

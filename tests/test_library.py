@@ -317,6 +317,77 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
             guarded.preflight()
         self.assertFalse(guarded_root.exists())
 
+    def test_windows_path_depth_probe_covers_the_classic_path_boundary(self) -> None:
+        def root_for_temporary_length(length: int) -> Path:
+            example_name = f"{library_module._ASSET_INTENT_PREFIX}{'0' * 36}.json"
+            temporary_name = f".{example_name}.{'0' * 8}.tmp"
+            relative = Path("jobs") / ("0" * 36) / ".work" / temporary_name
+            overhead = len(str(Path("R") / relative)) - 1
+            root_length = length - overhead
+            padding = root_length - len(str(self.base)) - 1
+            self.assertGreater(padding, 0)
+            return self.base / ("r" * padding)
+
+        real_mkstemp = tempfile.mkstemp
+        observed_lengths: list[int] = []
+
+        def classic_mkstemp(*, dir, prefix, suffix):
+            candidate = Path(dir) / f"{prefix}{'0' * 8}{suffix}"
+            observed_lengths.append(len(str(candidate)))
+            if len(str(candidate)) > 259:
+                error = OSError(errno.ENAMETOOLONG, "classic Windows path limit")
+                error.winerror = 206
+                raise error
+            return real_mkstemp(dir=dir, prefix=prefix, suffix=suffix)
+
+        accepted_root = root_for_temporary_length(259)
+        (accepted_root / "jobs").mkdir(parents=True)
+        with patch("am_configurator.library.tempfile.mkstemp", classic_mkstemp):
+            library_module._run_windows_path_depth_probe(accepted_root)
+        self.assertEqual(259, observed_lengths[-1])
+        self.assertEqual([], list((accepted_root / "jobs").iterdir()))
+
+        rejected_root = root_for_temporary_length(260)
+        (rejected_root / "jobs").mkdir(parents=True)
+        with (
+            patch("am_configurator.library.tempfile.mkstemp", classic_mkstemp),
+            self.assertRaisesRegex(LibraryRootError, "shorter library folder"),
+        ):
+            library_module._run_windows_path_depth_probe(rejected_root)
+        self.assertEqual(260, observed_lengths[-1])
+        self.assertEqual([], list((rejected_root / "jobs").iterdir()))
+
+    def test_windows_path_depth_probe_accepts_a_long_path_aware_runtime(self) -> None:
+        root = self.base / ("l" * 180)
+        (root / "jobs").mkdir(parents=True)
+        library_module._run_windows_path_depth_probe(root)
+        self.assertEqual([], list((root / "jobs").iterdir()))
+
+    def test_windows_path_depth_failure_precedes_job_creation(self) -> None:
+        guarded_root = self.base / "too-deep-for-assets"
+        guarded = GeneratedAssetLibrary(guarded_root, minimum_free_bytes=1)
+        path_error = LibraryRootError(
+            "The configured Windows library path is too long for generated files; "
+            "choose a shorter library folder or enable Windows long-path support."
+        )
+        with (
+            patch("am_configurator.library.os.name", "nt"),
+            patch("am_configurator.library.sys.version_info", (3, 11, 10)),
+            patch("am_configurator.library.Path", return_value=guarded_root),
+            patch(
+                "am_configurator.library._windows_path_has_reparse_component",
+                return_value=False,
+            ),
+            patch("am_configurator.library._is_linklike", return_value=False),
+            patch(
+                "am_configurator.library._run_windows_path_depth_probe",
+                side_effect=path_error,
+            ),
+            self.assertRaisesRegex(LibraryRootError, "shorter library folder"),
+        ):
+            guarded.create_job()
+        self.assertEqual([], list((guarded_root / "jobs").iterdir()))
+
     def test_preflight_rejects_old_windows_before_touching_root(self) -> None:
         guarded_root = self.base / "old-windows-must-not-exist"
         guarded = GeneratedAssetLibrary(guarded_root, minimum_free_bytes=1)
