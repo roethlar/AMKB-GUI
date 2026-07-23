@@ -63,7 +63,12 @@
   before storage; malformed pasted, environment, legacy, or vault values report
   the stable pathless `credential_invalid` reason without secret content; and
   actual vault outages and settings-write failures retain separate typed errors.
-  The next slice is F23's side-effect-free procedural cancellation rejection.
+  F23 is complete on the current tree: procedural cancellation proves operation
+  ownership before entering the manifest mutation, accepts only an in-progress
+  procedural job under its lock, and leaves ready or interrupted manifests
+  byte-identical when a cancel loses the completion race or targets an inactive
+  job. The next slice is F24's one-time settlement of interrupted procedural
+  jobs during startup reconciliation.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

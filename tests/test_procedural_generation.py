@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from am_configurator.generation import OperationGate
+from am_configurator.generation import GenerationNotActiveError, OperationGate
 from am_configurator.library import GeneratedAssetLibrary
 from am_configurator.llm import ProviderError
 from am_configurator.procedural_generation import ProceduralGenerationCoordinator
@@ -275,6 +275,46 @@ class ProceduralGenerationTests(unittest.TestCase):
         self.assertEqual([(0, None)], provider.calls)
         self.assertEqual("cancelled", manifest["status"])
         self.assertEqual([], manifest["assets"])
+
+    def test_rejected_cancellation_never_mutates_ready_or_interrupted_jobs(self) -> None:
+        provider = _Provider([_dense_recipe()])
+        gate = OperationGate()
+        coordinator = ProceduralGenerationCoordinator(
+            self.library,
+            _Capability(provider),
+            operation_gate=gate,
+            launcher=self._inline,
+        )
+        started = coordinator.start_effect(
+            prompt="Already complete",
+            target=TARGET,
+            loop_mode="smooth",
+        )
+        job_id = started["job_id"]
+        manifest_path = (
+            Path(self.temporary.name) / "library" / "jobs" / job_id / "manifest.json"
+        )
+
+        token, _cancelled = gate.begin(job_id)
+        try:
+            ready_bytes = manifest_path.read_bytes()
+            with self.assertRaises(GenerationNotActiveError):
+                coordinator.cancel(job_id)
+            self.assertEqual(ready_bytes, manifest_path.read_bytes())
+            self.assertIsNone(self.library.load_manifest(job_id)["cancel_requested_at"])
+        finally:
+            gate.finish(token)
+
+        def interrupt(current: dict) -> None:
+            current["status"] = "interrupted"
+            current["phase"] = "interrupted"
+
+        self.library.update_manifest(job_id, interrupt)
+        interrupted_bytes = manifest_path.read_bytes()
+        with self.assertRaises(GenerationNotActiveError):
+            coordinator.cancel(job_id)
+        self.assertEqual(interrupted_bytes, manifest_path.read_bytes())
+        self.assertIsNone(self.library.load_manifest(job_id)["cancel_requested_at"])
 
     def test_reconcile_never_replays_an_interrupted_api_request(self) -> None:
         provider = _Provider([_dense_recipe()], backend="api")

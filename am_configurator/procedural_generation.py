@@ -607,17 +607,21 @@ class ProceduralGenerationCoordinator:
             return
 
     def cancel(self, job_id: str) -> dict:
-        timestamp = _now_iso()
-
-        def request(current: dict) -> None:
-            current["cancel_requested_at"] = timestamp
-
-        manifest = self._library.update_manifest(job_id, request)
         if not self._gate.request_cancel(job_id):
             raise GenerationNotActiveError(
                 "the generation operation is no longer active"
             )
-        return manifest
+        timestamp = _now_iso()
+
+        def request(current: dict) -> None:
+            if current["pipeline"] != "procedural" or current["status"] != "in_progress":
+                raise GenerationNotActiveError(
+                    "the procedural job completed before cancellation could be accepted"
+                )
+            if current["cancel_requested_at"] is None:
+                current["cancel_requested_at"] = timestamp
+
+        return self._library.update_manifest(job_id, request)
 
     def _valid_origin_asset(
         self, manifest: dict, attempt_id: str, suffix: str, kind: str

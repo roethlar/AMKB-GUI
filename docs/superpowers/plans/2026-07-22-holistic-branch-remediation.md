@@ -253,7 +253,7 @@ local no-provider browser acceptance at the end of the phase.
   backend. Test controls, length, unavailable vault, and malformed stored data.
   Commit: `fix: report invalid api credentials accurately`.
 
-- [ ] **F23 — Make cancellation rejection side-effect free.** Verify gate
+- [x] **F23 — Make cancellation rejection side-effect free.** Verify gate
   ownership and active procedural status before writing `cancel_requested_at`.
   A completion race returns not-active without changing a ready/interrupted
   manifest. Commit: `fix: validate procedural cancellation before mutation`.
