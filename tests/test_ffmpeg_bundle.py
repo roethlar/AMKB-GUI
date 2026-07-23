@@ -914,8 +914,10 @@ class FfmpegBundleTests(unittest.TestCase):
                 platform_name="linux",
                 architecture="x86_64",
             )
+            resource_manifest = resources / "ffmpeg" / "manifest.json"
+            resource_manifest.write_bytes(MANIFEST_PATH.read_bytes())
             bundled_manifest = frameworks / "ffmpeg" / "manifest.json"
-            bundled_manifest.write_bytes(MANIFEST_PATH.read_bytes())
+            bundled_manifest.symlink_to(resource_manifest)
             attestation_link = binary.with_name("ffmpeg-runtime.json")
             attestation_link.symlink_to(resource_attestation)
 
@@ -926,6 +928,16 @@ class FfmpegBundleTests(unittest.TestCase):
                     ),
                     binary.resolve(),
                 )
+                bundled_manifest.unlink()
+                outside_manifest = root / "outside-manifest.json"
+                outside_manifest.write_bytes(resource_manifest.read_bytes())
+                bundled_manifest.symlink_to(outside_manifest)
+                with self.assertRaises(ffmpeg_runtime.FfmpegRuntimeError):
+                    ffmpeg_runtime.get_ffmpeg_runtime(
+                        environment={}, platform_name="linux", architecture="x86_64"
+                    )
+                bundled_manifest.unlink()
+                bundled_manifest.symlink_to(resource_manifest)
                 attestation_link.unlink()
                 outside = root / "outside-attestation.json"
                 outside.write_bytes(resource_attestation.read_bytes())

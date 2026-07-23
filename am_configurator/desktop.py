@@ -719,6 +719,8 @@ def _run_ffmpeg_media_smoke() -> None:
 
 def run_smoke_test() -> int:
     """Exercise the frozen entry point, bundled assets, and loopback server."""
+    from .credentials import MemoryCredentialStore
+
     try:
         import webview  # noqa: F401 - verifies the desktop dependency is bundled
     except ModuleNotFoundError:
@@ -744,23 +746,40 @@ def run_smoke_test() -> int:
                     "Desktop smoke test failed: opt-in TLS reach check failed."
                 )
 
-    server, url = create_server()
-    server_thread = threading.Thread(
-        target=server.serve_forever,
-        kwargs={"poll_interval": 0.05},
-        name="am-configurator-smoke-api",
-        daemon=True,
-    )
-    server_thread.start()
-    try:
-        with urlopen(url, timeout=5) as response:  # noqa: S310 - loopback URL we created
-            page = response.read()
-        if response.status != 200 or b"AM Configurator" not in page:
-            raise SystemExit("Desktop smoke test failed: bundled UI did not load.")
-    finally:
-        server.shutdown()
-        server.server_close()
-        server_thread.join(timeout=2)
+    prior_data_dir = os.environ.get("AM_CONFIGURATOR_DATA_DIR")
+    with tempfile.TemporaryDirectory(prefix="am-loopback-smoke-") as temporary:
+        os.environ["AM_CONFIGURATOR_DATA_DIR"] = temporary
+        server = None
+        server_thread = None
+        server_started = False
+        try:
+            server, url = create_server(
+                credential_store=MemoryCredentialStore(),
+                ollama_client=_OfflineOllamaInventory(),
+            )
+            server_thread = threading.Thread(
+                target=server.serve_forever,
+                kwargs={"poll_interval": 0.05},
+                name="am-configurator-smoke-api",
+                daemon=True,
+            )
+            server_thread.start()
+            server_started = True
+            with urlopen(url, timeout=5) as response:  # noqa: S310 - loopback URL we created
+                page = response.read()
+            if response.status != 200 or b"AM Configurator" not in page:
+                raise SystemExit("Desktop smoke test failed: bundled UI did not load.")
+        finally:
+            if server is not None:
+                if server_started:
+                    server.shutdown()
+                server.server_close()
+            if server_thread is not None:
+                server_thread.join(timeout=2)
+            if prior_data_dir is None:
+                os.environ.pop("AM_CONFIGURATOR_DATA_DIR", None)
+            else:
+                os.environ["AM_CONFIGURATOR_DATA_DIR"] = prior_data_dir
 
     print(f"Desktop smoke test passed ({platform.system()}).")
     return 0

@@ -318,9 +318,14 @@
   regression was proven red. P07 is complete on the current tree: CI runs the
   browser tests and each JavaScript syntax check as independent single-command
   steps, so a Windows native-command failure cannot be overwritten by a later
-  success; the regression was proven red against the multiline block. The next
-  slice is Phase 10 / P08's preservation of attested runtime bytes by disabling
-  UPX.
+  success; the regression was proven red against the multiline block. P08 is
+  complete on the current tree: PyInstaller disables UPX at both packaging
+  stages, the remaining FFmpeg manifest and attestation resolve only through
+  validated in-bundle macOS links, and the frozen smoke uses a temporary data
+  root, in-memory credentials, and an offline Ollama inventory. Its regressions
+  were proven red, and the versioned current-host build plus frozen smoke passed.
+  No llama or GGUF runtime is present. The next slice is Phase 10 / P09's
+  deferral of disabled-state AI readiness probes.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -630,8 +635,8 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P08's preservation of attested runtime bytes by
-  disabling UPX.
+  continuing with Phase 10 / P09's deferral of disabled-state AI readiness
+  probes.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

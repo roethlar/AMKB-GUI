@@ -522,6 +522,27 @@ def resolve_ffmpeg(
     raise FfmpegRuntimeError("verified bundled FFmpeg runtime is unavailable")
 
 
+def _frozen_manifest_path(frozen_root: Path) -> Path:
+    candidate = frozen_root / "ffmpeg" / "manifest.json"
+    if not candidate.is_symlink():
+        return candidate
+    try:
+        resolved_root = frozen_root.resolve(strict=True)
+        if resolved_root.name != "Frameworks":
+            raise ValueError
+        resources = (resolved_root.parent / "Resources").resolve(strict=True)
+        resolved_candidate = candidate.resolve(strict=True)
+        if not resolved_candidate.is_relative_to(resources):
+            raise ValueError
+        if not resolved_candidate.is_file():
+            raise ValueError
+    except (OSError, ValueError):
+        raise FfmpegRuntimeError(
+            "FFmpeg runtime manifest symlink leaves the frozen bundle"
+        ) from None
+    return resolved_candidate
+
+
 def get_ffmpeg_runtime(
     *,
     injected: Path | str | None = None,
@@ -535,15 +556,17 @@ def get_ffmpeg_runtime(
 
     Source checkouts own ``packaging/ffmpeg/manifest.json`` and default to their
     prepared ``build/ffmpeg`` cache. Frozen builds own both the manifest and
-    executable under PyInstaller's ``_MEIPASS/ffmpeg`` directory. No build-tool
-    package or system ``PATH`` lookup is involved.
+    executable under PyInstaller's bundle roots. A macOS metadata symlink is
+    accepted only when it resolves from ``Frameworks`` into the sibling
+    ``Resources`` directory. No build-tool package or system ``PATH`` lookup is
+    involved.
     """
     frozen_value = getattr(sys, "_MEIPASS", None)
     frozen_root = None if frozen_value is None else Path(frozen_value)
     manifest_path = (
         SOURCE_MANIFEST_PATH
         if frozen_root is None
-        else frozen_root / "ffmpeg" / "manifest.json"
+        else _frozen_manifest_path(frozen_root)
     )
     manifest = load_manifest(manifest_path)
     if development_root is None and frozen_root is None:

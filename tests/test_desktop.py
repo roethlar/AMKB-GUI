@@ -117,6 +117,64 @@ class DesktopBridgeTests(unittest.TestCase):
 
 
 class DesktopSmokeTests(unittest.TestCase):
+    def test_full_smoke_uses_only_in_memory_credentials_and_offline_ollama(self) -> None:
+        captured: dict = {}
+
+        class _Response:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            @staticmethod
+            def read() -> bytes:
+                return b"AM Configurator"
+
+        class _Server:
+            @staticmethod
+            def serve_forever(**_kwargs):
+                return None
+
+            @staticmethod
+            def shutdown():
+                return None
+
+            @staticmethod
+            def server_close():
+                return None
+
+        def create_server(**kwargs):
+            captured.update(kwargs)
+            return _Server(), "http://127.0.0.1:43111/?token=smoke"
+
+        with (
+            mock.patch.dict(sys.modules, {"webview": types.ModuleType("webview")}),
+            mock.patch.object(
+                desktop,
+                "_native_webview_policy",
+                return_value=("webview.platforms.cocoa", None, "wkwebview"),
+            ),
+            mock.patch.object(desktop.importlib.util, "find_spec", return_value=object()),
+            mock.patch.object(desktop, "_assert_ollama_api_only_bundle"),
+            mock.patch.object(desktop, "_run_disabled_ai_smoke"),
+            mock.patch.object(desktop, "_run_api_recipe_smoke"),
+            mock.patch.object(desktop, "_run_ollama_recipe_smoke"),
+            mock.patch.object(desktop, "_run_ffmpeg_media_smoke"),
+            mock.patch.object(desktop, "create_server", side_effect=create_server),
+            mock.patch.object(desktop, "urlopen", return_value=_Response()),
+        ):
+            self.assertEqual(desktop.run_smoke_test(), 0)
+
+        self.assertIsInstance(
+            captured.get("credential_store"), credentials.MemoryCredentialStore
+        )
+        self.assertIsInstance(
+            captured.get("ollama_client"), desktop._OfflineOllamaInventory
+        )
+
     def test_every_offline_ai_smoke_executes_without_external_side_effects(self) -> None:
         calls = {
             "disabled_status": 0,

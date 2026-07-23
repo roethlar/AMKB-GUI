@@ -588,7 +588,7 @@ Each polish item is a separate commit despite its size.
   enforce native-command exit handling so any `node --test` failure fails the
   step immediately. Commit: `fix: propagate windows browser test failures`.
 
-- [ ] **P08 — Disable UPX for the remaining attested runtime.** Set `upx=False`
+- [x] **P08 — Disable UPX for the remaining attested runtime.** Set `upx=False`
   for FFmpeg and assert its packaged bytes/attestation remain valid. Prove no
   llama binary is present to compress. Commit:
   `build: preserve attested runtime bytes`.

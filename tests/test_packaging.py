@@ -349,6 +349,8 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("build_tools.prepare_ffmpeg", workflow)
         self.assertIn("get_ffmpeg_runtime", spec)
         self.assertIn('(str(ffmpeg_binary), "ffmpeg")', spec)
+        self.assertNotIn("upx=True", spec)
+        self.assertEqual(spec.count("upx=False"), 2)
         for name in ("manifest.json", "ffmpeg-runtime.json", "LGPL-2.1.txt", "README.md"):
             self.assertIn(name, spec)
         self.assertIn("tiny-motion.mp4", spec)
