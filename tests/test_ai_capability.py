@@ -124,6 +124,7 @@ class CapabilityTests(unittest.TestCase):
         *,
         provider=None,
         credential_available=True,
+        credential_invalid=False,
         ollama_available=True,
     ):
         def write_fingerprint(backend, fingerprint):
@@ -141,6 +142,7 @@ class CapabilityTests(unittest.TestCase):
             "available": credential_available,
             "configured": self.credential is not None,
             "external": False,
+            "invalid": credential_invalid,
         }
         return AICapabilityService(
             settings_loader=lambda: copy.deepcopy(self.settings),
@@ -205,6 +207,10 @@ class CapabilityTests(unittest.TestCase):
         self.assertEqual("model_missing", captured.exception.reason)
 
         self.settings["ai"]["backend"] = "api"
+        self.assertEqual(
+            "credential_invalid",
+            self._service(credential_invalid=True).status()["reason"],
+        )
         self.assertEqual(
             "credential_store_unavailable",
             self._service(credential_available=False).status()["reason"],

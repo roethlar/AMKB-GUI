@@ -58,8 +58,12 @@
   current tree: every v1-v4 projection is normalized through the active v5
   validator before migration, invalid projections return a stable pathless
   blocked status, and exact source bytes plus any prior vault value remain
-  untouched. The next slice is F19's separation of invalid credential input
-  from credential-vault outages.
+  untouched. F19 is complete on the current tree: one shared credential-shape
+  validator rejects controls, surrounding whitespace, and oversized values
+  before storage; malformed pasted, environment, legacy, or vault values report
+  the stable pathless `credential_invalid` reason without secret content; and
+  actual vault outages and settings-write failures retain separate typed errors.
+  The next slice is F23's side-effect-free procedural cancellation rejection.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

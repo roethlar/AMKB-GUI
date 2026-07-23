@@ -7,7 +7,7 @@ import json
 import time
 from typing import Any, Callable
 
-from . import ai_catalog, llm, procedural, store
+from . import ai_catalog, credentials, llm, procedural, store
 from .ollama_client import OllamaClient, OllamaError, OllamaModel, valid_model_digest, valid_model_id
 from .recipe_provider import (
     OllamaRecipeProvider,
@@ -25,6 +25,7 @@ _ALLOWED_REASONS = {
     "ollama_unavailable",
     "model_missing",
     "credential_store_unavailable",
+    "credential_invalid",
     "credential_missing",
     "disclosure_required",
     "setup_required",
@@ -78,7 +79,9 @@ def api_setup_fingerprint(
 
     if provider != "xai" or model_id != "grok-4.5":
         raise ValueError("API provider or model is invalid")
-    if not isinstance(credential, str) or not credential:
+    try:
+        credential = credentials.validate_credential(credential)
+    except credentials.InvalidCredentialError:
         raise ValueError("API credential is invalid")
     if not isinstance(disclosure_version, str) or not disclosure_version:
         raise ValueError("API disclosure is invalid")
@@ -227,13 +230,14 @@ class AICapabilityService:
         available = status.get("available") is True
         configured = status.get("configured") is True
         external = status.get("external") is True
+        invalid = status.get("invalid") is True
         disclosure_current = (
             api["disclosure_version"] == ai_catalog.PRIVACY_DISCLOSURE_VERSION
             and isinstance(api["disclosure_at"], str)
             and bool(api["disclosure_at"])
         )
         credential = None
-        if configured and (available or external):
+        if configured and not invalid and (available or external):
             try:
                 credential = self._credential_resolver()
             except Exception:
@@ -254,6 +258,7 @@ class AICapabilityService:
             "available": available,
             "configured": configured and credential is not None,
             "external": external,
+            "invalid": invalid,
             "credential": credential,
             "disclosure_current": disclosure_current,
             "expected": expected,
@@ -301,7 +306,9 @@ class AICapabilityService:
                         reason = "ready"
                         ready = True
             elif backend == "api":
-                if not api["available"] and not api["external"]:
+                if api["invalid"]:
+                    reason = "credential_invalid"
+                elif not api["available"] and not api["external"]:
                     reason = "credential_store_unavailable"
                 elif not api["configured"]:
                     reason = "credential_missing"

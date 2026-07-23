@@ -494,6 +494,24 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertEqual(5, settings["schema_version"])
         self.assertNotIn("sk-only-copy", store.settings_path().read_text("utf-8"))
 
+    def test_invalid_legacy_credential_is_not_a_vault_outage(self) -> None:
+        original = self._write(_v2_settings(key="sk-invalid\nlegacy-secret"))
+        self.vault.set("xai", "sk-existing-vault")
+
+        settings, reason = store.load_settings_with_status(
+            credential_store=self.vault
+        )
+
+        self.assertEqual("credential_invalid", reason)
+        self.assertFalse(settings["ai"]["enabled"])
+        self.assertIsNone(settings["ai"]["backend"])
+        self.assertNotIn("sk-invalid", json.dumps(settings))
+        self.assertEqual("sk-existing-vault", self.vault.get("xai"))
+        self.assertEqual(original, store.settings_path().read_bytes())
+        repaired = store.discard_legacy_api_credential({"confirm": True})
+        self.assertEqual(store.SETTINGS_SCHEMA_VERSION, repaired["schema_version"])
+        self.assertEqual("sk-existing-vault", self.vault.get("xai"))
+
     def test_blocked_migration_requires_explicit_credential_discard(self) -> None:
         library = self.directory / "legacy-library"
         original = self._write(
@@ -608,9 +626,7 @@ class SettingsV5Tests(unittest.TestCase):
         self.vault.set("xai", "sk-existing-vault")
 
         with patch.object(store, "_write_settings_file", side_effect=OSError("disk")):
-            with self.assertRaisesRegex(
-                ValueError, "Secure credential storage is unavailable"
-            ):
+            with self.assertRaises(store.SettingsUnavailableError):
                 store.update_api_key(
                     {"provider": "xai", "key": "sk-replacement"},
                     credential_store=self.vault,
@@ -618,6 +634,58 @@ class SettingsV5Tests(unittest.TestCase):
 
         self.assertEqual("sk-existing-vault", self.vault.get("xai"))
         self.assertEqual(before, store.settings_path().read_bytes())
+
+    def test_invalid_key_input_is_distinct_from_an_unavailable_vault(self) -> None:
+        store.save_settings(copy.deepcopy(V5_DEFAULTS), credential_store=self.vault)
+        before = store.settings_path().read_bytes()
+        invalid_values = (
+            "sk-line\nbreak",
+            "sk-null\0byte",
+            " sk-leading-space",
+            "x" * (credentials.MAX_CREDENTIAL_CHARS + 1),
+        )
+
+        for value in invalid_values:
+            with self.subTest(value_length=len(value)):
+                with self.assertRaises(store.InvalidAPICredentialError) as captured:
+                    store.update_api_key(
+                        {"provider": "xai", "key": value},
+                        credential_store=self.vault,
+                    )
+                self.assertEqual("API credential is invalid.", str(captured.exception))
+                self.assertNotIn(value, str(captured.exception))
+                self.assertIsNone(self.vault.get("xai"))
+                self.assertEqual(before, store.settings_path().read_bytes())
+
+        unavailable = credentials.MemoryCredentialStore(available=False)
+        with self.assertRaises(store.CredentialStoreUnavailableError) as captured:
+            store.update_api_key(
+                {"provider": "xai", "key": "sk-valid-input"},
+                credential_store=unavailable,
+            )
+        self.assertEqual(
+            "Secure credential storage is unavailable.", str(captured.exception)
+        )
+
+    def test_malformed_stored_credential_is_reported_without_exposure(self) -> None:
+        store.save_settings(copy.deepcopy(V5_DEFAULTS), credential_store=self.vault)
+        malformed = "sk-stored\nsecret"
+        self.vault._values["xai"] = malformed
+
+        self.assertEqual(
+            {
+                "available": True,
+                "configured": False,
+                "external": False,
+                "invalid": True,
+            },
+            store.credential_status(credential_store=self.vault),
+        )
+        self.assertIsNone(store.resolve_xai_key(credential_store=self.vault))
+        with self.assertRaises(credentials.InvalidCredentialError) as captured:
+            self.vault.get("xai")
+        self.assertEqual("Credential value is invalid.", str(captured.exception))
+        self.assertNotIn(malformed, str(captured.exception))
 
     def test_environment_override_is_external_and_never_written(self) -> None:
         store.save_settings(copy.deepcopy(V5_DEFAULTS), credential_store=self.vault)
@@ -633,6 +701,7 @@ class SettingsV5Tests(unittest.TestCase):
                 "available": True,
                 "configured": True,
                 "external": True,
+                "invalid": False,
             },
             store.credential_status(credential_store=self.vault),
         )

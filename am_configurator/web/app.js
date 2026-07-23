@@ -2177,7 +2177,7 @@ function refreshAiGate() {
 
 function aiReasonText(reason,status=state.aiStatus) {
   return ({
-    disabled:"Optional generation is off.",backend_unselected:"Choose a backend.",ollama_unavailable:"Start Ollama on this computer, then refresh the installed models.",model_missing:"Choose one of the models already installed in Ollama.",model_unavailable:"The selected Ollama model is no longer installed with the same identity. Refresh and choose it again.",setup_required:"Run the setup test to enable this backend.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_missing:"Save an API credential.",disclosure_required:"Accept the API data disclosure.",auth_invalid:"The API credential was rejected.",ready:"Ready.",
+    disabled:"Optional generation is off.",backend_unselected:"Choose a backend.",ollama_unavailable:"Start Ollama on this computer, then refresh the installed models.",model_missing:"Choose one of the models already installed in Ollama.",model_unavailable:"The selected Ollama model is no longer installed with the same identity. Refresh and choose it again.",setup_required:"Run the setup test to enable this backend.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_invalid:"The API credential is invalid.",credential_missing:"Save an API credential.",disclosure_required:"Accept the API data disclosure.",auth_invalid:"The API credential was rejected.",ready:"Ready.",
   })[reason]||"Setup needs attention.";
 }
 
@@ -2229,13 +2229,14 @@ function populateSettings() {
   const backend=status?.backend||"local";
   const migration=state.settings?.migration||{};
   const migrationBlocked=migration.required===true;
-  const canDiscardLegacyCredential=migrationBlocked&&migration.reason==="credential_store_unavailable";
+  const canDiscardLegacyCredential=migrationBlocked&&["credential_store_unavailable","credential_invalid"].includes(migration.reason);
   const repair=$("#settings-migration-repair");
   const confirm=$("#settings-migration-confirm");
   repair.hidden=!migrationBlocked;
   $("#settings-migration-message").textContent=({
     settings_migration_write_failed:"The older settings were read, but the upgraded settings file could not be saved. Restore write access, then reopen Settings.",
     settings_migration_invalid:"The older settings contain data that cannot be safely upgraded. The original file was left unchanged; correct or replace it before saving settings.",
+    credential_invalid:"The legacy API credential is invalid and cannot be moved into secure storage. Explicitly continue without that legacy credential to repair the remaining settings.",
   })[migration.reason]||"The legacy API credential could not be moved into secure storage. Retry after credential storage is available, or explicitly continue without that legacy credential.";
   $("#settings-migration-confirm-row").hidden=!canDiscardLegacyCredential;
   $("#settings-migration-discard").hidden=!canDiscardLegacyCredential;

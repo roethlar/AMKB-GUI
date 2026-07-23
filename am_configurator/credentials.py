@@ -17,6 +17,10 @@ class CredentialStoreError(RuntimeError):
     """A credential request was invalid or no secure OS backend was usable."""
 
 
+class InvalidCredentialError(CredentialStoreError):
+    """A credential value failed the provider-independent storage contract."""
+
+
 class CredentialStore(Protocol):
     def available(self) -> bool: ...
 
@@ -34,7 +38,7 @@ def _username(provider: str) -> str:
         raise CredentialStoreError("Credential provider is unsupported.") from None
 
 
-def _credential(value: object) -> str:
+def validate_credential(value: object) -> str:
     if (
         not isinstance(value, str)
         or not value
@@ -42,7 +46,7 @@ def _credential(value: object) -> str:
         or len(value) > MAX_CREDENTIAL_CHARS
         or any(ord(character) < 32 for character in value)
     ):
-        raise CredentialStoreError("Credential value is invalid.")
+        raise InvalidCredentialError("Credential value is invalid.")
     return value
 
 
@@ -113,14 +117,14 @@ class KeyringCredentialStore:
         else:
             if value is None:
                 return None
-            return _credential(value)
+            return validate_credential(value)
         # Raise outside the handler so a backend exception containing a raw
         # credential cannot remain attached as exception context.
         raise CredentialStoreError("Secure credential storage is unavailable.")
 
     def set(self, provider: str, value: str) -> None:
         username = _username(provider)
-        normalized = _credential(value)
+        normalized = validate_credential(value)
         backend = self._require_backend()
         try:
             backend.set_password(SERVICE_IDENTIFIER, username, normalized)
@@ -161,12 +165,13 @@ class MemoryCredentialStore:
     def get(self, provider: str) -> str | None:
         _username(provider)
         self._require_available()
-        return self._values.get(provider)
+        value = self._values.get(provider)
+        return None if value is None else validate_credential(value)
 
     def set(self, provider: str, value: str) -> None:
         _username(provider)
         self._require_available()
-        self._values[provider] = _credential(value)
+        self._values[provider] = validate_credential(value)
 
     def delete(self, provider: str) -> None:
         _username(provider)
@@ -182,10 +187,12 @@ def default_credential_store() -> CredentialStore:
 __all__ = [
     "CredentialStore",
     "CredentialStoreError",
+    "InvalidCredentialError",
     "KeyringCredentialStore",
     "MAX_CREDENTIAL_CHARS",
     "MemoryCredentialStore",
     "SERVICE_IDENTIFIER",
     "XAI_USERNAME",
     "default_credential_store",
+    "validate_credential",
 ]

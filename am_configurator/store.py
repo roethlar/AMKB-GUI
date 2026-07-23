@@ -355,6 +355,24 @@ class SettingsMigrationValidationError(ValueError):
         super().__init__("Legacy settings contain data that cannot be safely upgraded.")
 
 
+class InvalidAPICredentialError(ValueError):
+    """An API credential value is malformed without exposing any of it."""
+
+    code = "credential_invalid"
+
+    def __init__(self) -> None:
+        super().__init__("API credential is invalid.")
+
+
+class CredentialStoreUnavailableError(ValueError):
+    """The configured operating-system credential vault cannot be used."""
+
+    code = "credential_store_unavailable"
+
+    def __init__(self) -> None:
+        super().__init__("Secure credential storage is unavailable.")
+
+
 def _default_settings() -> dict:
     """A fresh copy of the credential-free Ollama/API-only schema v5 defaults."""
     return {
@@ -1054,6 +1072,13 @@ def _migrate_legacy_settings(
             return settings, SettingsMigrationWriteError.code
         return settings, None
 
+    from . import credentials
+
+    try:
+        legacy_key = credentials.validate_credential(legacy_key)
+    except credentials.InvalidCredentialError:
+        return settings, InvalidAPICredentialError.code
+
     vault = _resolved_credential_store(credential_store)
     previous: str | None = None
     previous_known = False
@@ -1076,6 +1101,10 @@ def _migrate_legacy_settings(
             if changed:
                 _restore_credential(vault, previous)
             return settings, SettingsMigrationWriteError.code
+    except credentials.InvalidCredentialError:
+        if previous_known and changed:
+            _restore_credential(vault, previous)
+        return settings, InvalidAPICredentialError.code
     except Exception:
         if previous_known and changed:
             _restore_credential(vault, previous)
@@ -1165,6 +1194,8 @@ def _settings_for_update(path: Path, *, credential_store=None) -> dict:
             raise SettingsMigrationCredentialError()
         if reason == SettingsMigrationWriteError.code:
             raise SettingsMigrationWriteError()
+        if reason == InvalidAPICredentialError.code:
+            raise InvalidAPICredentialError()
         if reason is not None:
             raise SettingsUnavailableError()
     return normalized
@@ -1236,6 +1267,8 @@ def save_settings(
 def update_api_key(values: object, *, credential_store=None) -> dict:
     """Set or clear one OS credential and invalidate API setup atomically."""
 
+    from . import credentials
+
     body = _object(values, "API key settings")
     _reject_unknown(body, {"provider", "key"}, "API key settings")
     if set(body) != {"provider", "key"}:
@@ -1245,6 +1278,11 @@ def update_api_key(values: object, *, credential_store=None) -> dict:
         raise ValueError("unknown API key provider")
     normalized = _validate_keys({provider: body["key"]})
     desired = normalized.get(provider)
+    if desired is not None:
+        try:
+            desired = credentials.validate_credential(desired)
+        except credentials.InvalidCredentialError:
+            raise InvalidAPICredentialError() from None
     vault = _resolved_credential_store(credential_store)
     path = settings_path()
     with _settings_lock():
@@ -1253,8 +1291,12 @@ def update_api_key(values: object, *, credential_store=None) -> dict:
         previous_known = False
         changed = False
         try:
-            if not vault.available():
-                raise ValueError("Secure credential storage is unavailable.")
+            available = bool(vault.available())
+        except Exception:
+            raise CredentialStoreUnavailableError() from None
+        if not available:
+            raise CredentialStoreUnavailableError()
+        try:
             previous = vault.get(provider)
             previous_known = True
             changed = previous != desired
@@ -1264,14 +1306,23 @@ def update_api_key(values: object, *, credential_store=None) -> dict:
                 else:
                     vault.set(provider, desired)
             if vault.get(provider) != desired:
-                raise ValueError("Secure credential verification failed.")
-            settings["ai"]["api"]["setup_fingerprint"] = None
-            normalized_settings = _validate_settings(settings)
-            _write_settings_file(path, normalized_settings)
+                raise CredentialStoreUnavailableError()
+        except credentials.InvalidCredentialError:
+            if previous_known and changed:
+                _restore_credential(vault, previous)
+            raise InvalidAPICredentialError() from None
         except Exception:
             if previous_known and changed:
                 _restore_credential(vault, previous)
-            raise ValueError("Secure credential storage is unavailable.") from None
+            raise CredentialStoreUnavailableError() from None
+        settings["ai"]["api"]["setup_fingerprint"] = None
+        normalized_settings = _validate_settings(settings)
+        try:
+            _write_settings_file(path, normalized_settings)
+        except OSError:
+            if previous_known and changed:
+                _restore_credential(vault, previous)
+            raise SettingsUnavailableError() from None
     return normalized_settings
 
 
@@ -1433,16 +1484,31 @@ def acknowledge_privacy(values: object, *, credential_store=None) -> dict:
 def credential_status(*, credential_store=None) -> dict[str, bool]:
     env = os.environ.get("XAI_API_KEY")
     vault = _resolved_credential_store(credential_store)
+    from . import credentials
+
+    invalid = False
     try:
         available = bool(vault.available())
-        stored = vault.get("xai") if available and not env else None
     except Exception:
         available = False
-        stored = None
+    stored = None
+    if env:
+        try:
+            credentials.validate_credential(env)
+        except credentials.InvalidCredentialError:
+            invalid = True
+    elif available:
+        try:
+            stored = vault.get("xai")
+        except credentials.InvalidCredentialError:
+            invalid = True
+        except Exception:
+            available = False
     return {
         "available": available,
-        "configured": bool(env or stored),
+        "configured": bool((env or stored) and not invalid),
         "external": bool(env),
+        "invalid": invalid,
     }
 
 
@@ -1451,7 +1517,12 @@ def resolve_xai_key(*, credential_store=None) -> str | None:
 
     env = os.environ.get("XAI_API_KEY")
     if env:
-        return env
+        from . import credentials
+
+        try:
+            return credentials.validate_credential(env)
+        except credentials.InvalidCredentialError:
+            return None
     _settings, reason = load_settings_with_status(
         credential_store=credential_store
     )

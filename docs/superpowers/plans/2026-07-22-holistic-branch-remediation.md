@@ -247,7 +247,7 @@ local no-provider browser acceptance at the end of the phase.
   value unchanged. Add overlong disclosure and malformed projected-field tests.
   Commit: `fix: validate settings migration projections`.
 
-- [ ] **F19 — Distinguish invalid credentials from vault outages.** Validate
+- [x] **F19 — Distinguish invalid credentials from vault outages.** Validate
   credential shape before storage, map invalid pasted/stored values to a stable
   non-secret input error, and reserve `credential_store_unavailable` for the
   backend. Test controls, length, unavailable vault, and malformed stored data.

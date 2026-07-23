@@ -354,6 +354,21 @@ class OptionalAIRouteTests(unittest.TestCase):
             store.load_settings(credential_store=self.credentials)["ai"]["local"]["model_id"]
         )
 
+    def test_invalid_credential_input_is_a_stable_non_secret_client_error(self) -> None:
+        secret = "sk-route\nsecret"
+
+        status, response = self._request(
+            "POST",
+            "/api/settings/credential",
+            {"provider": "xai", "key": secret},
+        )
+
+        self.assertEqual(400, status)
+        self.assertEqual("credential_invalid", response["code"])
+        self.assertEqual("API credential is invalid.", response["error"])
+        self.assertNotIn(secret, json.dumps(response))
+        self.assertIsNone(self.credentials.get("xai"))
+
     def test_unchanged_tested_backend_can_be_reenabled_without_another_test(self) -> None:
         store.update_ai_settings(
             {"enabled": True, "backend": "local"},

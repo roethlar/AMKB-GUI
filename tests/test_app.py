@@ -2409,7 +2409,8 @@ class LedGenerateEndpointTests(unittest.TestCase):
             status, data = self._request("POST", "/api/settings/test", {})
 
         self.assertEqual(status, 400)
-        self.assertEqual(data["code"], "auth")
+        self.assertEqual(data["code"], "credential_invalid")
+        self.assertEqual(data["error"], "API credential is invalid.")
         serialized = json.dumps(data)
         self.assertNotIn(first, serialized)
         self.assertNotIn(second, serialized)

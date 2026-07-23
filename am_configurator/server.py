@@ -1156,6 +1156,7 @@ def _settings_view(*, credential_store=None) -> dict[str, Any]:
         credential_store=credential_store
     )
     migration_required = reason in {
+        store.InvalidAPICredentialError.code,
         store.SettingsMigrationCredentialError.code,
         store.SettingsMigrationValidationError.code,
         store.SettingsMigrationWriteError.code,
@@ -1893,7 +1894,11 @@ class _Handler(BaseHTTPRequestHandler):
                 HTTPStatus.CONFLICT,
             )
         except ValueError as exc:
-            self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            payload = {"error": str(exc)}
+            code = getattr(exc, "code", None)
+            if isinstance(code, str):
+                payload["code"] = code
+            self._json(payload, HTTPStatus.BAD_REQUEST)
         except Exception as exc:  # noqa: BLE001 - API boundary
             if path.startswith("/api/lighting/") or self._is_ai_path(path):
                 if not self._lighting_error(exc):
@@ -2403,6 +2408,8 @@ class _Handler(BaseHTTPRequestHandler):
         """
         from . import llm, store
 
+        if store.credential_status().get("invalid") is True:
+            raise store.InvalidAPICredentialError()
         key = store.resolve_xai_key()
         if not key:
             raise ValueError(
