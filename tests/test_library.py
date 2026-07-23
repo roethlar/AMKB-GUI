@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import errno
 import json
@@ -16,6 +17,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from am_configurator import library as library_module
+from am_configurator.credentials import MemoryCredentialStore
 from am_configurator.library import (
     AssetNotFoundError,
     GeneratedAssetLibrary,
@@ -23,6 +25,7 @@ from am_configurator.library import (
     LibraryRootError,
     ManifestError,
 )
+from am_configurator.server import create_server
 
 
 def _holding_manifest_process(
@@ -477,6 +480,125 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
             self.library.resolve_asset(job["job_id"], orphan_id).path.read_bytes(),
         )
 
+    def test_startup_reconciliation_isolates_each_damaged_job(self) -> None:
+        healthy = self._create_job(prompt="healthy")
+        self.library.update_manifest(
+            healthy["job_id"],
+            {"status": "in_progress", "phase": "concept_generation"},
+        )
+
+        missing_work = self._create_job(prompt="missing work")
+        shutil.rmtree(self._job_dir(missing_work["job_id"]) / ".work")
+        timed_out = self._create_job(prompt="locked")
+        purge_denied = self._create_job(prompt="cleanup denied")
+        self.library.update_manifest(
+            purge_denied["job_id"], {"status": "ready", "phase": "complete"}
+        )
+
+        historical_root = self.base / "historical"
+        historical = GeneratedAssetLibrary(historical_root, minimum_free_bytes=1)
+        read_only = historical.create_job(
+            prompt="read only",
+            target={
+                "family": "CB",
+                "raster": {"width": 20, "height": 9},
+                "targets": ["display"],
+            },
+            models={
+                "interpreter": "grok-4.5",
+                "concept": "grok-imagine-image",
+                "video": "grok-imagine-video-1.5",
+            },
+            loop_mode="smooth",
+        )
+        combined = GeneratedAssetLibrary(
+            self.root,
+            historical_roots=[historical_root],
+            minimum_free_bytes=1,
+        )
+
+        real_lock = library_module._job_lock
+        real_purge = GeneratedAssetLibrary._purge_work
+
+        @contextlib.contextmanager
+        def controlled_lock(job_dir: Path):
+            if job_dir.name == timed_out["job_id"]:
+                raise TimeoutError("locked at /private/job")
+            if job_dir.name == read_only["job_id"]:
+                raise ManifestError("read-only root at /private/history")
+            with real_lock(job_dir):
+                yield
+
+        def controlled_purge(job_dir: Path) -> None:
+            if job_dir.name == purge_denied["job_id"]:
+                raise PermissionError("denied at /private/work")
+            real_purge(job_dir)
+
+        class StartupCoordinator:
+            active_job_id = None
+
+            def __init__(self) -> None:
+                self.errors: list[dict] = []
+
+            def reconcile_startup(self, *, api_key=None) -> list[dict]:
+                del api_key
+                result = combined.reconcile()
+                self.errors = result["errors"]
+                return result["actions"]
+
+        class ProceduralCoordinator:
+            active_job_id = None
+
+            @staticmethod
+            def reconcile_startup() -> list[dict]:
+                return []
+
+        startup = StartupCoordinator()
+
+        with (
+            patch("am_configurator.library._job_lock", controlled_lock),
+            patch.object(
+                GeneratedAssetLibrary,
+                "_purge_work",
+                staticmethod(controlled_purge),
+            ),
+        ):
+            report = combined.reconcile()
+            server, _url = create_server(
+                lighting_library=combined,
+                lighting_coordinator=startup,
+                credential_store=MemoryCredentialStore(),
+                procedural_coordinator=ProceduralCoordinator(),
+            )
+            try:
+                self.assertGreater(server.server_port, 0)
+            finally:
+                server.server_close()
+
+        self.assertEqual([], report["actions"])
+        self.assertEqual(
+            {
+                missing_work["job_id"],
+                timed_out["job_id"],
+                purge_denied["job_id"],
+                read_only["job_id"],
+            },
+            {error["job_id"] for error in report["errors"]},
+        )
+        self.assertTrue(
+            all(error["code"] == "reconciliation_failed" for error in report["errors"])
+        )
+        rendered = json.dumps(report["errors"])
+        self.assertNotIn(str(self.base), rendered)
+        self.assertNotIn("/private/", rendered)
+        self.assertEqual(
+            {error["job_id"] for error in report["errors"]},
+            {error["job_id"] for error in startup.errors},
+        )
+        self.assertEqual(
+            "interrupted", combined.load_manifest(healthy["job_id"])["status"]
+        )
+
     def test_manifest_symlink_and_asset_content_tampering_are_rejected(self) -> None:
         linked_job = self._create_job(prompt="linked manifest")
         linked_path = self._job_dir(linked_job["job_id"]) / "manifest.json"
@@ -529,7 +651,10 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         work_file = self._job_dir(job_id) / ".work" / "temporary.bin"
         work_file.write_bytes(b"discard")
 
-        self.assertEqual([], self.library.reconcile())
+        self.assertEqual(
+            {"actions": [], "errors": []},
+            self.library.reconcile(),
+        )
         reconciled = self.library.load_manifest(job_id)
         self.assertEqual("partial", reconciled["status"])
         self.assertEqual("interrupted", reconciled["phase"])
@@ -739,7 +864,9 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
             },
         )
 
-        actions = self.library.reconcile()
+        report = self.library.reconcile()
+        self.assertEqual([], report["errors"])
+        actions = report["actions"]
         self.assertEqual(
             {
                 (accepted["job_id"], "vid_request_123"),

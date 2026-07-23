@@ -212,7 +212,7 @@ local no-provider browser acceptance at the end of the phase.
 
 ## Phase 2 — Startup, Settings, and Manifest Durability
 
-- [ ] **F03 — Isolate damaged jobs during Library reconciliation.** Wrap each
+- [x] **F03 — Isolate damaged jobs during Library reconciliation.** Wrap each
   scanned job's orphan recovery, manifest mutation, lock acquisition, and work
   purge independently. Return pathless reconciliation errors while continuing
   healthy jobs; startup must bind even when `.work` is missing, a historical

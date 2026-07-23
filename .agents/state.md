@@ -37,7 +37,11 @@
   F31 is complete on the current tree: each lighting paint stroke owns fresh
   pointer-up/cancel cleanup, creates its own undo checkpoint, and cannot be
   started by merely entering the grid with a held pointer. The next slice is
-  F03's per-job Library reconciliation isolation.
+  F03 is complete on the current tree: Library reconciliation returns separate
+  safe-resume actions and pathless errors, contains recovery/lock/mutation/work
+  cleanup failures per job, continues healthy jobs, and permits the loopback
+  server to bind despite damaged current or historical jobs. The next slice is
+  F04's idempotent banked-video recovery.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

@@ -1427,102 +1427,124 @@ class GeneratedAssetLibrary:
                 return asset
         return None
 
-    def reconcile(self) -> list[dict]:
-        """Persist crash-safe states and return only safe polling resume actions."""
-        scanned, _errors = self._scan_internal()
-        actions: list[dict] = []
-        for original, job_dir in scanned:
-            job_id = original["job_id"]
-            original = self._recover_orphan_assets(job_dir, job_id)
-            status = original["status"]
-            phase = original["phase"]
-            request_id = self._video_request_id(original)
-            request_status = self._video_request_status(original)
-            source_video = self._source_video_asset(job_dir, original)
-            has_mapped_result = any(
-                asset["kind"] == "mapped_result"
+    def _reconcile_scanned_job(self, original: dict, job_dir: Path) -> dict | None:
+        job_id = original["job_id"]
+        original = self._recover_orphan_assets(job_dir, job_id)
+        status = original["status"]
+        phase = original["phase"]
+        request_id = self._video_request_id(original)
+        request_status = self._video_request_status(original)
+        source_video = self._source_video_asset(job_dir, original)
+        has_mapped_result = any(
+            asset["kind"] == "mapped_result"
+            and asset["status"] == "complete"
+            and self._asset_record_is_valid(job_dir, original, asset)
+            for asset in original["assets"]
+        )
+        changes: dict[str, object] = {}
+        action = None
+
+        if source_video is not None and not has_mapped_result and status not in {
+            "ready_to_process",
+            "cancelled_saved",
+        }:
+            recovery = copy.deepcopy(original["recovery"])
+            recovery["source_video_asset_id"] = source_video["asset_id"]
+            if status == "cancelled" or original["cancel_requested_at"] is not None:
+                changes = {
+                    "status": "cancelled_saved",
+                    "phase": "cancelled_saved",
+                    "recovery": recovery,
+                }
+            else:
+                changes = {
+                    "status": "ready_to_process",
+                    "phase": "ready_to_process",
+                    "recovery": recovery,
+                }
+        elif (
+            request_id is not None
+            and source_video is None
+            and phase
+            in {
+                "video_submitting",
+                "video_submitted",
+                "video_polling",
+                "video_downloading",
+                "background_retrieval",
+            }
+            and request_status not in {"failed", "expired"}
+        ):
+            action = {
+                "job_id": job_id,
+                "action": "resume_video_poll",
+                "request_id": request_id,
+            }
+        elif request_id is not None and request_status in {"failed", "expired"}:
+            changes = {"status": request_status, "phase": "video_terminal"}
+        elif (
+            status == "in_progress"
+            and phase in {"video_submitting", "video_submitted"}
+            and request_id is None
+        ):
+            changes = {"status": "submission_unknown", "phase": "interrupted"}
+        elif status == "in_progress" and phase in {
+            "concept_generation",
+            "concepts_generating",
+        }:
+            committed_asset_ids = {
+                candidate.get("asset_id")
+                for candidate in original["candidates"]
+                if isinstance(candidate, dict)
+                and candidate.get("status") == "complete"
+                and isinstance(candidate.get("asset_id"), str)
+            }
+            has_candidates = any(
+                asset["kind"] == "concept"
                 and asset["status"] == "complete"
+                and asset["asset_id"] in committed_asset_ids
                 and self._asset_record_is_valid(job_dir, original, asset)
                 for asset in original["assets"]
             )
-            changes: dict[str, object] = {}
+            changes = {
+                "status": "partial" if has_candidates else "interrupted",
+                "phase": "interrupted",
+            }
+        elif (
+            status == "in_progress"
+            and phase in {"local_processing", "processing"}
+            and source_video is None
+        ):
+            changes = {"status": "interrupted", "phase": "interrupted"}
+        if changes:
+            original = self.update_manifest(job_id, changes)
+            status = original["status"]
+        if status in _TERMINAL_OR_IDLE_STATUSES:
+            with _job_lock(job_dir):
+                latest = _read_manifest(job_dir / "manifest.json", job_id)
+                if latest["status"] in _TERMINAL_OR_IDLE_STATUSES:
+                    self._purge_work(job_dir)
+        return action
 
-            if source_video is not None and not has_mapped_result and status not in {
-                "ready_to_process",
-                "cancelled_saved",
-            }:
-                recovery = copy.deepcopy(original["recovery"])
-                recovery["source_video_asset_id"] = source_video["asset_id"]
-                if status == "cancelled" or original["cancel_requested_at"] is not None:
-                    changes = {
-                        "status": "cancelled_saved",
-                        "phase": "cancelled_saved",
-                        "recovery": recovery,
+    def reconcile(self) -> dict[str, list[dict]]:
+        """Persist safe states while isolating and reporting damaged jobs."""
+        scanned, errors = self._scan_internal()
+        actions: list[dict] = []
+        for original, job_dir in scanned:
+            try:
+                action = self._reconcile_scanned_job(original, job_dir)
+            except Exception:
+                errors.append(
+                    {
+                        "job_id": original["job_id"],
+                        "code": "reconciliation_failed",
+                        "message": "This job could not be reconciled.",
                     }
-                else:
-                    changes = {
-                        "status": "ready_to_process",
-                        "phase": "ready_to_process",
-                        "recovery": recovery,
-                    }
-            elif (
-                request_id is not None
-                and source_video is None
-                and phase
-                in {
-                    "video_submitting",
-                    "video_submitted",
-                    "video_polling",
-                    "video_downloading",
-                    "background_retrieval",
-                }
-                and request_status not in {"failed", "expired"}
-            ):
-                actions.append(
-                    {"job_id": job_id, "action": "resume_video_poll", "request_id": request_id}
                 )
-            elif request_id is not None and request_status in {"failed", "expired"}:
-                changes = {"status": request_status, "phase": "video_terminal"}
-            elif (
-                status == "in_progress"
-                and phase in {"video_submitting", "video_submitted"}
-                and request_id is None
-            ):
-                changes = {"status": "submission_unknown", "phase": "interrupted"}
-            elif status == "in_progress" and phase in {"concept_generation", "concepts_generating"}:
-                committed_asset_ids = {
-                    candidate.get("asset_id")
-                    for candidate in original["candidates"]
-                    if isinstance(candidate, dict)
-                    and candidate.get("status") == "complete"
-                    and isinstance(candidate.get("asset_id"), str)
-                }
-                has_candidates = any(
-                    asset["kind"] == "concept"
-                    and asset["status"] == "complete"
-                    and asset["asset_id"] in committed_asset_ids
-                    and self._asset_record_is_valid(job_dir, original, asset)
-                    for asset in original["assets"]
-                )
-                changes = {
-                    "status": "partial" if has_candidates else "interrupted",
-                    "phase": "interrupted",
-                }
-            elif (
-                status == "in_progress"
-                and phase in {"local_processing", "processing"}
-                and source_video is None
-            ):
-                changes = {"status": "interrupted", "phase": "interrupted"}
-            if changes:
-                original = self.update_manifest(job_id, changes)
-                status = original["status"]
-            if status in _TERMINAL_OR_IDLE_STATUSES:
-                with _job_lock(job_dir):
-                    latest = _read_manifest(job_dir / "manifest.json", job_id)
-                    if latest["status"] in _TERMINAL_OR_IDLE_STATUSES:
-                        self._purge_work(job_dir)
-        return actions
+                continue
+            if action is not None:
+                actions.append(action)
+        return {"actions": actions, "errors": errors}
 
     def record_error(
         self,

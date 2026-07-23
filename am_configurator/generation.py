@@ -2025,7 +2025,7 @@ class GenerationCoordinator:
             raise GenerationValidationError("an xAI API key is required")
         token, _cancelled = self._gate.begin()
         try:
-            actions = self._library.reconcile()
+            actions = self._library.reconcile()["actions"]
             for job in self._library.scan()["jobs"]:
                 try:
                     self._reconcile_interrupted_animation(job["job_id"])
