@@ -4,8 +4,8 @@
 
 - Product remediation and its required cross-platform release evidence are
   complete. Manually dispatched Desktop installers run
-  `30042504053` passed at head
-  `b945178e84f876181c13aa499b65bc19f58b6be7` on macOS, Windows x64,
+  `30050985418` passed at head
+  `06cb811c2953a64b40b97767ec63aed5e33d8d37` on macOS, Windows x64,
   and Linux x86-64. The generated Windows installer and Linux AppImage both
   passed their installed/frozen smoke and native renderer policy checks; those
   checks found an Ollama/API-only Settings surface and rejected direct-model

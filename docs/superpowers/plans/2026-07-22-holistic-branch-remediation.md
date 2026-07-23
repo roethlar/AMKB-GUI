@@ -537,8 +537,8 @@ in a new one-finding commit; no gate is weakened.
   private entries. The final repository gate passed with 376 Python tests (one
   prepared-runtime skip), 43 browser tests, compile and syntax checks, and
   source/wheel builds; versioned macOS build `0.1.44`, DMG verification, and
-  frozen smoke also passed. Commit:
-  `fix: secure pre-existing windows library ACLs`.
+  frozen smoke also passed. Commit: `06cb811`
+  (`fix: secure pre-existing windows library ACLs`).
 
 ## Phase 8 — Library and Attestation Hardening
 
@@ -731,8 +731,8 @@ The plan is complete only when:
 Recorded release evidence (2026-07-23):
 
 - Manually dispatched Desktop installers run
-  [30042504053](https://github.com/roethlar/AMKB-GUI/actions/runs/30042504053)
-  passed at head `b945178e84f876181c13aa499b65bc19f58b6be7` on macOS,
+  [30050985418](https://github.com/roethlar/AMKB-GUI/actions/runs/30050985418)
+  passed at head `06cb811c2953a64b40b97767ec63aed5e33d8d37` on macOS,
   Windows x64, and Linux x86-64. Each job built the frozen application, passed
   its native webview policy probe, built and smoked the platform installer, and
   uploaded the installer artifact.
