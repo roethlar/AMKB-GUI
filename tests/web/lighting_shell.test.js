@@ -89,6 +89,7 @@ test("Settings exposes an explicit blocked-migration credential discard", () => 
   assert.match(html,/OS credential|credential vault/i);
   assert.match(js,/\/api\/settings\/migration\/discard-credential/);
   assert.match(js,/JSON\.stringify\(\{confirm:true\}\)/);
+  assert.match(js,/settings_migration_invalid/);
 });
 
 test("API setup stays secondary, explicit, and confined to Settings", () => {

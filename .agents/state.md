@@ -54,9 +54,12 @@
   fail-closed, and a strictly confirmed recovery action can atomically publish
   credential-free v5 settings without reading or changing the OS vault. The
   Settings route exposes that recovery only for a vault-blocked legacy
-  credential and otherwise keeps mutable controls inert. The next slice is
-  F18's validation of every projected legacy settings document before migration
-  mutates either the vault or file.
+  credential and otherwise keeps mutable controls inert. F18 is complete on the
+  current tree: every v1-v4 projection is normalized through the active v5
+  validator before migration, invalid projections return a stable pathless
+  blocked status, and exact source bytes plus any prior vault value remain
+  untouched. The next slice is F19's separation of invalid credential input
+  from credential-vault outages.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

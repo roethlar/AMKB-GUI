@@ -346,6 +346,15 @@ class SettingsMigrationWriteError(ValueError):
         super().__init__("Legacy settings could not be upgraded because storage is unavailable.")
 
 
+class SettingsMigrationValidationError(ValueError):
+    """Legacy settings cannot be represented safely by the active schema."""
+
+    code = "settings_migration_invalid"
+
+    def __init__(self) -> None:
+        super().__init__("Legacy settings contain data that cannot be safely upgraded.")
+
+
 def _default_settings() -> dict:
     """A fresh copy of the credential-free Ollama/API-only schema v5 defaults."""
     return {
@@ -954,6 +963,13 @@ def _project_v4_settings(settings: dict) -> dict:
     return result
 
 
+def _validate_migration_projection(settings: dict) -> dict:
+    try:
+        return _validate_settings(settings)
+    except ValueError:
+        raise SettingsMigrationValidationError() from None
+
+
 def _decode_settings(values: object) -> tuple[dict, str | None, bool]:
     """Return ``(normalized_v5, legacy_xai_key, migration_required)``."""
 
@@ -962,13 +978,15 @@ def _decode_settings(values: object) -> tuple[dict, str | None, bool]:
         if version == SETTINGS_SCHEMA_VERSION:
             return _validate_settings(values), None, False
         if version == 4:
-            return _project_v4_settings(_validate_v4_settings(values)), None, True
+            projected = _project_v4_settings(_validate_v4_settings(values))
+            return _validate_migration_projection(projected), None, True
         if version == 3:
-            return _project_v3_settings(_validate_v3_settings(values)), None, True
+            projected = _project_v3_settings(_validate_v3_settings(values))
+            return _validate_migration_projection(projected), None, True
         if version == 2:
             legacy = _validate_v2_settings(values)
             return (
-                _project_v2_settings(legacy),
+                _validate_migration_projection(_project_v2_settings(legacy)),
                 legacy["llm"]["keys"].get("xai"),
                 True,
             )
@@ -978,7 +996,7 @@ def _decode_settings(values: object) -> tuple[dict, str | None, bool]:
             raise ValueError("unsupported settings schema_version")
     legacy = _validate_legacy_settings(values)
     return (
-        _project_v2_settings(legacy),
+        _validate_migration_projection(_project_v2_settings(legacy)),
         legacy["llm"]["keys"].get("xai"),
         True,
     )
@@ -1071,6 +1089,8 @@ def load_settings_with_status(*, credential_store=None) -> tuple[dict, str | Non
     path = settings_path()
     try:
         loaded = _read_settings_file(path)
+    except SettingsMigrationValidationError:
+        return _default_settings(), SettingsMigrationValidationError.code
     except SettingsSchemaUnsupportedError:
         return _default_settings(), SettingsSchemaUnsupportedError.code
     except OSError:
@@ -1089,6 +1109,8 @@ def load_settings_with_status(*, credential_store=None) -> tuple[dict, str | Non
         with _settings_lock():
             try:
                 current = _read_settings_file(path)
+            except SettingsMigrationValidationError:
+                return _default_settings(), SettingsMigrationValidationError.code
             except SettingsSchemaUnsupportedError:
                 return _default_settings(), SettingsSchemaUnsupportedError.code
             except OSError:
@@ -1120,6 +1142,8 @@ def load_settings(*, credential_store=None) -> dict:
 def _settings_for_update(path: Path, *, credential_store=None) -> dict:
     try:
         loaded = _read_settings_file(path)
+    except SettingsMigrationValidationError:
+        raise
     except SettingsSchemaUnsupportedError:
         raise
     except OSError:

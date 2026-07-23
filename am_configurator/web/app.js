@@ -2233,9 +2233,10 @@ function populateSettings() {
   const repair=$("#settings-migration-repair");
   const confirm=$("#settings-migration-confirm");
   repair.hidden=!migrationBlocked;
-  $("#settings-migration-message").textContent=migration.reason==="settings_migration_write_failed"
-    ?"The older settings were read, but the upgraded settings file could not be saved. Restore write access, then reopen Settings."
-    :"The legacy API credential could not be moved into secure storage. Retry after credential storage is available, or explicitly continue without that legacy credential.";
+  $("#settings-migration-message").textContent=({
+    settings_migration_write_failed:"The older settings were read, but the upgraded settings file could not be saved. Restore write access, then reopen Settings.",
+    settings_migration_invalid:"The older settings contain data that cannot be safely upgraded. The original file was left unchanged; correct or replace it before saving settings.",
+  })[migration.reason]||"The legacy API credential could not be moved into secure storage. Retry after credential storage is available, or explicitly continue without that legacy credential.";
   $("#settings-migration-confirm-row").hidden=!canDiscardLegacyCredential;
   $("#settings-migration-discard").hidden=!canDiscardLegacyCredential;
   if(!migrationBlocked)confirm.checked=false;

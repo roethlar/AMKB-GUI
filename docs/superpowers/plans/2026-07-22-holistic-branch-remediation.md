@@ -241,8 +241,8 @@ local no-provider browser acceptance at the end of the phase.
   until migration succeeds or that explicit discard is confirmed. Commit:
   `fix: recover blocked settings migrations`.
 
-- [ ] **F18 — Validate projected settings before migration publication.** Run
-  every v1/v2/v3 projection through the active v4 validator before any vault or
+- [x] **F18 — Validate projected settings before migration publication.** Run
+  every v1/v2/v3/v4 projection through the active v5 validator before any vault or
   file mutation. Invalid legacy fields leave source bytes and the prior vault
   value unchanged. Add overlong disclosure and malformed projected-field tests.
   Commit: `fix: validate settings migration projections`.

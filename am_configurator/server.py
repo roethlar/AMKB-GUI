@@ -1157,6 +1157,7 @@ def _settings_view(*, credential_store=None) -> dict[str, Any]:
     )
     migration_required = reason in {
         store.SettingsMigrationCredentialError.code,
+        store.SettingsMigrationValidationError.code,
         store.SettingsMigrationWriteError.code,
     }
     return {

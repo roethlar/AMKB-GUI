@@ -319,6 +319,53 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertNotIn('"llm"', disk)
         self.assertNotIn("candidate_count", disk)
 
+    def test_invalid_v2_projection_preserves_source_and_prior_vault_value(self) -> None:
+        legacy = _v2_settings(key="sk-only-projection-copy")
+        legacy["generation"]["privacy_ack_version"] = "v" * 201
+        original = self._write(legacy)
+        self.vault.set("xai", "sk-existing-vault")
+
+        settings, reason = store.load_settings_with_status(
+            credential_store=self.vault
+        )
+
+        self.assertEqual(V5_DEFAULTS, settings)
+        self.assertEqual("settings_migration_invalid", reason)
+        self.assertEqual("sk-existing-vault", self.vault.get("xai"))
+        self.assertEqual(original, store.settings_path().read_bytes())
+        self.assertFalse(store.settings_path().with_name("settings.json.bad").exists())
+        with self.assertRaises(store.SettingsMigrationValidationError):
+            store.update_generation_settings(
+                {"loop_mode": "none"}, credential_store=self.vault
+            )
+        self.assertEqual("sk-existing-vault", self.vault.get("xai"))
+        self.assertEqual(original, store.settings_path().read_bytes())
+
+    def test_every_legacy_projection_is_validated_before_publication(self) -> None:
+        invalid_projection = copy.deepcopy(V5_DEFAULTS)
+        invalid_projection["generation"]["loop_mode"] = "invalid"
+        cases = (
+            ({"llm": {}}, "_project_v2_settings"),
+            (_v2_settings(), "_project_v2_settings"),
+            (copy.deepcopy(V3_DEFAULTS), "_project_v3_settings"),
+            (copy.deepcopy(V4_DEFAULTS), "_project_v4_settings"),
+        )
+
+        for source, projector in cases:
+            with self.subTest(schema=source.get("schema_version", 1)):
+                original = self._write(source)
+                with patch.object(
+                    store,
+                    projector,
+                    return_value=copy.deepcopy(invalid_projection),
+                ):
+                    settings, reason = store.load_settings_with_status(
+                        credential_store=self.vault
+                    )
+                self.assertEqual(V5_DEFAULTS, settings)
+                self.assertEqual("settings_migration_invalid", reason)
+                self.assertEqual(original, store.settings_path().read_bytes())
+
     def test_v3_direct_readiness_migrates_to_unselected_ollama(self) -> None:
         legacy = copy.deepcopy(V3_DEFAULTS)
         legacy["ai"].update({"enabled": True, "backend": "local"})
