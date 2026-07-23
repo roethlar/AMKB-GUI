@@ -273,8 +273,13 @@
   Historical accepted-video polling, download, local processing, cancellation,
   and banked-asset recovery remain, while retired mutation routes stay at 410
   without provider access. An architecture guard prevents the removed surface
-  from becoming importable or configurable again. The next slice is Phase 9 /
-  F42's obsolete settings-route and helper removal.
+  from becoming importable or configurable again. F42 is complete on the
+  current tree: the obsolete key-save and no-cost key-test routes, their probe
+  transport/injection seam, and the raw-key `_lighting_settings` helper are
+  gone. Authenticated stale routes return 404 without vault or provider access;
+  the current credential route retains strict admission and now triggers
+  historical recovery when a key becomes available. The next slice is Phase 9
+  / F45's extraction of device lighting conversion from the HTTP layer.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -584,7 +589,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 9 / F42's obsolete settings-route and helper removal.
+  continuing with Phase 9 / F45's device lighting mapping extraction.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

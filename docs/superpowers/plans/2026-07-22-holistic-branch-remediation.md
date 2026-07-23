@@ -531,7 +531,7 @@ in a new one-finding commit; no gate is weakened.
   mutation routes at stable 410 without provider access. Commit:
   `refactor: remove retired paid generation mutations`.
 
-- [ ] **F42 — Remove obsolete settings routes and helper.** After F16 protects
+- [x] **F42 — Remove obsolete settings routes and helper.** After F16 protects
   intermediate history, delete `/api/settings/key`, `/api/settings/test`, and
   `_lighting_settings`; keep only current credential/setup routes. Assert stale
   routes return 404/410 locally and make no vault/provider call. Commit:

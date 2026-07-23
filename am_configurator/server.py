@@ -51,13 +51,6 @@ _KEYMAP_VERIFY_RETRY_SECONDS = 1.0
 _MACRO_EVENTS_PER_BLOCK = 8
 _CYBERBOARD_MACRO_READBACK_BLOCKS = 15
 
-# xAI models-list endpoint (GET), used only for the no-cost "Test key" check.
-# Pinned like the procedural recipe endpoint in ``llm.py``
-# (``XAI_RESPONSES_URL``); bumping it is a deliberate one-line change. Paid
-# recipe calls flow through ``llm._xai_request`` (POST); this cheap GET probe
-# lives here because that transport is POST-only.
-_XAI_MODELS_URL = "https://api.x.ai/v1/language-models"
-_SETTINGS_TEST_TIMEOUT = 20.0
 _MAX_ASSET_RANGE_BYTES = 8 * 1024 * 1024
 _LIGHTING_ASSET_MIMES = frozenset(
     {
@@ -68,8 +61,7 @@ _LIGHTING_ASSET_MIMES = frozenset(
         "application/json",
     }
 )
-# ProviderError.code -> local HTTP status (design §Typed errors). Shared by the
-# settings key-test endpoint; the generation job endpoints reuse it in Task 9.
+# ProviderError.code -> local HTTP status (design §Typed errors).
 _PROVIDER_ERROR_HTTP: dict[str, HTTPStatus] = {
     "config": HTTPStatus.BAD_REQUEST,
     "auth": HTTPStatus.BAD_REQUEST,
@@ -1094,29 +1086,6 @@ def _probe_keyboard(port: str, attempts: int = 3) -> Any:
     return result
 
 
-def _xai_get(url: str, payload: Any, api_key: str, deadline: float) -> dict[str, Any]:
-    """Validate an xAI API key with one no-cost GET, mapping failures to
-    ``llm.ProviderError`` exactly like the paid POST transport.
-
-    Same four-argument transport contract as ``llm._xai_request`` (``payload`` is
-    unused for a GET) so ``_State.llm_transport`` can hold this real probe or a
-    fake injected by tests. The bounded read guards an oversized body and the API
-    key is redacted from every error message via ``llm``'s helpers.
-    """
-    from . import llm
-
-    if (
-        not isinstance(api_key, str)
-        or not api_key
-        or api_key != api_key.strip()
-        or any(ord(character) < 33 or ord(character) == 127 for character in api_key)
-    ):
-        raise llm.ProviderError(
-            "auth", "provider could not use this API key; check the key in Settings"
-        )
-    return llm._xai_get_request(url, api_key, deadline)
-
-
 def _settings_view(*, credential_store=None) -> dict[str, Any]:
     """Return the active credential-free settings schema used by the UI."""
     from . import store
@@ -1275,7 +1244,6 @@ class _State:
         self,
         config: dict[str, Any] | None,
         token: str,
-        llm_transport: Any = None,
         lighting_library: Any = None,
         lighting_coordinator: Any = None,
         lighting_dependencies: dict[str, Any] | None = None,
@@ -1295,10 +1263,6 @@ class _State:
         self._document_revision: str | None = None
         self.device_lock = threading.Lock()
         self.last_device_scan = 0.0
-        # xAI key-check transport (``(url, payload, api_key, deadline) -> dict``,
-        # the ``llm._xai_request`` contract). ``None`` uses the real ``_xai_get``
-        # GET probe; tests inject a fake so no request ever leaves the machine.
-        self.llm_transport = llm_transport
         # Native desktop builds attach a narrow Library chooser/reveal bridge after
         # creating the loopback server. Browser-only launches leave it unset.
         self.desktop_bridge: Any = None
@@ -1732,8 +1696,6 @@ class _Handler(BaseHTTPRequestHandler):
     @staticmethod
     def _is_ai_path(path: str) -> bool:
         return path.startswith("/api/ai/") or path in {
-            "/api/settings/key",
-            "/api/settings/test",
             "/api/settings/ai",
             "/api/settings/credential",
             "/api/settings/migration/discard-credential",
@@ -1844,16 +1806,12 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(text_to_macro_events(body.get("text"), body.get("delay_ms", 10)))
             elif path == "/api/led/gif":
                 self._convert_gif(body)
-            elif path == "/api/settings/key":
-                self._save_settings_key(body)
             elif path == "/api/settings/preferences":
                 self._save_settings_preferences(body)
             elif path == "/api/settings/library":
                 self._save_settings_library(body)
             elif path == "/api/settings/privacy":
                 self._save_settings_privacy(body)
-            elif path == "/api/settings/test":
-                self._test_settings_key(body)
             elif path == "/api/settings/ai":
                 self._save_ai_settings(body)
             elif path == "/api/settings/credential":
@@ -1966,6 +1924,7 @@ class _Handler(BaseHTTPRequestHandler):
             body,
             credential_store=self.state._credential_store,
         )
+        self.state.reconcile_lighting(force=True)
         capability = self.state.ai_services()
         self._json(capability.status())
 
@@ -2101,28 +2060,6 @@ class _Handler(BaseHTTPRequestHandler):
             },
             HTTPStatus.GONE,
         )
-
-    def _lighting_settings(self, *, require_key: bool) -> tuple[dict, str, bool]:
-        from . import ai_catalog, store
-
-        settings = store.load_settings(
-            credential_store=self.state._credential_store
-        )
-        key = store.resolve_xai_key(
-            credential_store=self.state._credential_store
-        ) or ""
-        acknowledged = (
-            settings["ai"]["api"]["disclosure_version"]
-            == ai_catalog.PRIVACY_DISCLOSURE_VERSION
-            and isinstance(settings["ai"]["api"]["disclosure_at"], str)
-        )
-        if require_key and not key:
-            raise ValueError("Add an xAI API key in Settings before generation.")
-        if require_key and not acknowledged:
-            raise ValueError(
-                "Acknowledge the current xAI privacy disclosure in Settings before generation."
-            )
-        return settings, key, acknowledged
 
     @staticmethod
     def _lighting_target(product_id: object, targets: object) -> dict:
@@ -2369,24 +2306,6 @@ class _Handler(BaseHTTPRequestHandler):
             )
         self._json(result)
 
-    def _save_settings_key(self, body: dict[str, Any]) -> None:
-        from . import store
-
-        self._strict_body(
-            body,
-            allowed={"provider", "key"},
-            required={"provider", "key"},
-        )
-        self._require_ai_idle()
-        store.update_api_key(
-            body,
-            credential_store=self.state._credential_store,
-        )
-        self.state.reconcile_lighting(force=True)
-        self._json(
-            _settings_view(credential_store=self.state._credential_store)
-        )
-
     def _save_settings_preferences(self, body: dict[str, Any]) -> None:
         from . import store
 
@@ -2405,41 +2324,6 @@ class _Handler(BaseHTTPRequestHandler):
 
         store.acknowledge_privacy(body)
         self._json(_settings_view())
-
-    def _test_settings_key(self, body: dict[str, Any]) -> None:
-        """No-cost xAI key check: one models-list request through the transport.
-
-        Uses the effective key (``store.resolve_xai_key``); no key → 400 with a
-        Settings hint before any request. Typed provider failures map to their
-        design HTTP status (auth→400, rate_limited→429 with ``retry_after``,
-        timeout→504, offline→503, bad_response/unavailable→502).
-        """
-        from . import llm, store
-
-        self._strict_body(body, allowed=set())
-        self._require_ai_idle()
-        credential_store = self.state._credential_store
-        if store.credential_status(
-            credential_store=credential_store
-        ).get("invalid") is True:
-            raise store.InvalidAPICredentialError()
-        key = store.resolve_xai_key(credential_store=credential_store)
-        if not key:
-            raise ValueError(
-                "No xAI API key is configured. Add your key in Settings, then test it."
-            )
-        transport = self.state.llm_transport or _xai_get
-        deadline = time.monotonic() + _SETTINGS_TEST_TIMEOUT
-        try:
-            transport(_XAI_MODELS_URL, None, key, deadline)
-        except llm.ProviderError as exc:
-            status = _PROVIDER_ERROR_HTTP.get(exc.code, HTTPStatus.BAD_GATEWAY)
-            payload: dict[str, Any] = {"ok": False, "code": exc.code, "error": exc.message}
-            if exc.retry_after is not None:
-                payload["retry_after"] = exc.retry_after
-            self._json(payload, status)
-            return
-        self._json({"ok": True})
 
     def _native_choose_library(self, body: dict[str, Any]) -> None:
         if body:

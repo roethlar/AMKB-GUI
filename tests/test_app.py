@@ -963,29 +963,6 @@ def _request_header(request, name: str) -> str | None:
     return None
 
 
-class _FakeTransport:
-    """Fake xAI transport: records each call, then returns a canned dict or raises.
-
-    The signature mirrors ``llm._xai_request`` minus the opener
-    (``(url, payload, api_key, deadline) -> dict``) — the contract the concrete
-    Grok providers use to invoke their injected transport, so their request
-    building, extraction, and error paths run with zero network I/O.
-    """
-
-    def __init__(self, *, response=None, error: BaseException | None = None) -> None:
-        self._response = response
-        self._error = error
-        self.calls: list[dict] = []
-
-    def __call__(self, url, payload, api_key, deadline):
-        self.calls.append(
-            {"url": url, "payload": payload, "api_key": api_key, "deadline": deadline}
-        )
-        if self._error is not None:
-            raise self._error
-        return self._response
-
-
 class _FakeGetTransport:
     """Fake xAI GET transport with no payload argument."""
 
@@ -1179,26 +1156,6 @@ class GrokTransportTests(unittest.TestCase):
         self.assertEqual([("api.x.ai", 443)], attempted_connections)
         self.assertNotIn(sentinel_proxy, attempted_connections)
         self.assertNotIn(_FAKE_KEY, str(captured.exception))
-
-    def test_legacy_key_probe_delegates_to_hardened_get_transport(self) -> None:
-        deadline = self._future_deadline()
-        with patch.object(
-            llm,
-            "_xai_get_request",
-            return_value={"models": []},
-        ) as transport:
-            result = server._xai_get(
-                server._XAI_MODELS_URL,
-                None,
-                _FAKE_KEY,
-                deadline,
-            )
-        self.assertEqual(result, {"models": []})
-        transport.assert_called_once_with(
-            server._XAI_MODELS_URL,
-            _FAKE_KEY,
-            deadline,
-        )
 
     def test_xai_request_auth_error(self) -> None:
         for code in (401, 403):
@@ -1561,9 +1518,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
     Each test starts a real ``create_server`` instance on a background thread and
     drives it over localhost with ``X-AM-Token``. Settings persistence is isolated
     to a temp ``AM_CONFIGURATOR_DATA_DIR`` and the ``XAI_API_KEY`` override is
-    cleared, so nothing here reads a real environment. The ``/api/settings/test``
-    key check runs entirely through an injected fake transport — no real network,
-    no real API key.
+    cleared, so nothing here reads a real environment or credential.
     """
 
     _DEFAULT = object()  # sentinel: use the server's own token
@@ -1617,7 +1572,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
     def _save_key(self, value: str) -> None:
         status, _ = self._request(
             "POST",
-            "/api/settings/key",
+            "/api/settings/credential",
             {"provider": "xai", "key": value},
         )
         self.assertEqual(status, 200)
@@ -1704,18 +1659,17 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(True, response["retryable"])
         self.assertNotIn(private_detail, json.dumps(response))
 
-    def test_settings_round_trip_masks_key(self) -> None:
+    def test_current_credential_route_masks_key(self) -> None:
         key = "sk-secret-9WXYZ7788"
         status, saved = self._request(
             "POST",
-            "/api/settings/key",
+            "/api/settings/credential",
             {"provider": "xai", "key": key},
         )
         self.assertEqual(status, 200)
         # Even the POST response must never echo the raw key back to the browser.
         self.assertNotIn(key, json.dumps(saved))
         self.assertNotIn("llm", saved)
-        self.assertNotIn("candidate_count", saved["generation"])
         self.assertEqual(store.resolve_xai_key(), key)
 
         status, data = self._request("GET", "/api/settings")
@@ -1728,14 +1682,16 @@ class LedGenerateEndpointTests(unittest.TestCase):
 
         # Posting the display mask sentinel can never round-trip into storage.
         status, _ = self._request(
-            "POST", "/api/settings/key", {"provider": "xai", "key": store.KEY_MASK}
+            "POST",
+            "/api/settings/credential",
+            {"provider": "xai", "key": store.KEY_MASK},
         )
         self.assertEqual(status, 400)
 
     def test_settings_masks_even_a_short_key_in_full(self) -> None:
         key = "tiny"
         status, saved = self._request(
-            "POST", "/api/settings/key", {"provider": "xai", "key": key}
+            "POST", "/api/settings/credential", {"provider": "xai", "key": key}
         )
         self.assertEqual(status, 200)
         self.assertNotIn(key, json.dumps(saved))
@@ -1747,7 +1703,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
 
         key = "sk-split-route-12345678"
         status, data = self._request(
-            "POST", "/api/settings/key", {"provider": "xai", "key": key}
+            "POST", "/api/settings/credential", {"provider": "xai", "key": key}
         )
         self.assertEqual(status, 200)
         self.assertNotIn(key, json.dumps(data))
@@ -1782,10 +1738,12 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(store.resolve_xai_key(), key)
 
         status, data = self._request(
-            "POST", "/api/settings/key", {"provider": "xai", "key": ""}
+            "POST", "/api/settings/credential", {"provider": "xai", "key": ""}
         )
         self.assertEqual(status, 200)
         self.assertIsNone(store.resolve_xai_key())
+        status, data = self._request("GET", "/api/settings")
+        self.assertEqual(status, 200)
         self.assertEqual(data["library"]["current_root"], str(library.resolve()))
 
     def test_split_settings_routes_are_strict_and_never_echo_secrets(self) -> None:
@@ -1793,8 +1751,8 @@ class LedGenerateEndpointTests(unittest.TestCase):
 
         secret = "sk-must-not-appear-anywhere"
         invalid_cases = (
-            ("/api/settings/key", {"provider": "xai", "key": [secret]}),
-            ("/api/settings/key", {"provider": "xai", "key": "x", "extra": 1}),
+            ("/api/settings/credential", {"provider": "xai", "key": [secret]}),
+            ("/api/settings/credential", {"provider": "xai", "key": "x", "extra": 1}),
             ("/api/settings/preferences", {"models": {"interpreter": "future"}}),
             ("/api/settings/preferences", {"candidate_count": 9}),
             ("/api/settings/preferences", {"loop_mode": "crossfade"}),
@@ -1844,117 +1802,42 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertIn("spotlight_frames", by_name["keyframes"]["extra_targets"])
         self.assertIn("keyframes", by_name["spotlight_frames"]["extra_targets"])
 
-    def test_settings_test_endpoint(self) -> None:
-        self._save_key("sk-test-ABCD1234")
+    def test_obsolete_ai_settings_routes_and_raw_key_helper_are_gone(self) -> None:
+        class TrackingCredentialStore:
+            def __init__(self) -> None:
+                self.calls: list[tuple] = []
 
-        # A successful models-list probe through the injected transport → ok.
-        probe = _FakeTransport(response={"models": []})
-        self._server.state.llm_transport = probe
-        status, data = self._request("POST", "/api/settings/test", {})
-        self.assertEqual(status, 200)
-        self.assertEqual(data, {"ok": True})
-        # The probe carried the stored key and the pinned models-list endpoint.
-        self.assertEqual(len(probe.calls), 1)
-        self.assertEqual(probe.calls[0]["api_key"], "sk-test-ABCD1234")
-        self.assertEqual(probe.calls[0]["url"], server._XAI_MODELS_URL)
+            def get(self, provider):
+                self.calls.append(("get", provider))
+                return "existing-key"
 
-        # A typed auth failure maps to 400 and carries the stable code.
-        self._server.state.llm_transport = _FakeTransport(
-            error=llm.ProviderError("auth", "provider rejected the API key")
-        )
-        status, data = self._request("POST", "/api/settings/test", {})
-        self.assertEqual(status, 400)
-        self.assertEqual(data["code"], "auth")
+            def set(self, provider, value):
+                self.calls.append(("set", provider, value))
 
-        # A rate-limit maps to 429 and passes retry_after through.
-        self._server.state.llm_transport = _FakeTransport(
-            error=llm.ProviderError("rate_limited", "slow down", retry_after=7)
-        )
-        status, data = self._request("POST", "/api/settings/test", {})
-        self.assertEqual(status, 429)
-        self.assertEqual(data["code"], "rate_limited")
-        self.assertEqual(data["retry_after"], 7)
+            def delete(self, provider):
+                self.calls.append(("delete", provider))
 
-    def test_legacy_credential_routes_use_injected_store_and_admission(self) -> None:
-        injected = credentials.MemoryCredentialStore()
-        self._server.state._credential_store = injected
-        secret = "sk-injected-legacy-route"
+        vault = TrackingCredentialStore()
+        self._server.state._credential_store = vault
+        with patch.object(
+            llm,
+            "_xai_get_request",
+            return_value={"models": []},
+        ) as provider:
+            for path, body in (
+                ("/api/settings/key", {"provider": "xai", "key": "must-not-land"}),
+                ("/api/settings/test", {}),
+            ):
+                with self.subTest(path=path):
+                    status, response = self._request("POST", path, body)
+                    self.assertIn(status, {404, 410})
+                    self.assertNotIn("must-not-land", json.dumps(response))
 
-        status, _response = self._request(
-            "POST",
-            "/api/settings/key",
-            {"provider": "xai", "key": secret},
-        )
-        self.assertEqual(200, status)
-        self.assertEqual(secret, injected.get("xai"))
-
-        probe = _FakeTransport(response={"models": []})
-        self._server.state.llm_transport = probe
-        status, response = self._request("POST", "/api/settings/test", {})
-        self.assertEqual(200, status)
-        self.assertEqual({"ok": True}, response)
-        self.assertEqual(secret, probe.calls[0]["api_key"])
-
-        probe.calls.clear()
-        status, _response = self._request(
-            "POST",
-            "/api/settings/test",
-            {"unexpected": True},
-        )
-        self.assertEqual(400, status)
-        self.assertEqual([], probe.calls)
-
-        token, _cancelled = self._server.state._generation_gate.begin(
-            "legacy-route-busy"
-        )
-        try:
-            status, _response = self._request(
-                "POST",
-                "/api/settings/key",
-                {"provider": "xai", "key": "must-not-land"},
-            )
-            self.assertEqual(409, status)
-            status, _response = self._request("POST", "/api/settings/test", {})
-            self.assertEqual(409, status)
-        finally:
-            self._server.state._generation_gate.finish(token)
-        self.assertEqual(secret, injected.get("xai"))
-        self.assertEqual([], probe.calls)
-
-        handler = SimpleNamespace(state=self._server.state)
-        _settings, resolved, _acknowledged = server._Handler._lighting_settings(
-            handler,
-            require_key=False,
-        )
-        self.assertEqual(secret, resolved)
-
-        private_detail = f"provider failed at {Path(self._tmp) / 'secret.txt'}"
-        self._server.state.llm_transport = lambda *_args: (_ for _ in ()).throw(
-            RuntimeError(private_detail)
-        )
-        status, response = self._request("POST", "/api/settings/test", {})
-        self.assertEqual(500, status)
-        self.assertEqual(
-            {"error": "The local request failed unexpectedly."},
-            response,
-        )
-        self.assertNotIn(private_detail, json.dumps(response))
-
-    def test_settings_test_rejects_a_multiline_effective_key_without_echoing_it(self) -> None:
-        first = "xai-first-secret-value"
-        second = "xai-second-secret-value"
-        malformed = f"{first}\n\nlabel:\n{second}"
-        self._server.state.llm_transport = server._xai_get
-
-        with patch.dict(os.environ, {"XAI_API_KEY": malformed}):
-            status, data = self._request("POST", "/api/settings/test", {})
-
-        self.assertEqual(status, 400)
-        self.assertEqual(data["code"], "credential_invalid")
-        self.assertEqual(data["error"], "API credential is invalid.")
-        serialized = json.dumps(data)
-        self.assertNotIn(first, serialized)
-        self.assertNotIn(second, serialized)
+        self.assertEqual([], vault.calls)
+        provider.assert_not_called()
+        self.assertFalse(hasattr(server._Handler, "_lighting_settings"))
+        self.assertFalse(hasattr(server, "_xai_get"))
+        self.assertFalse(hasattr(self._server.state, "llm_transport"))
 
     def test_native_folder_actions_dispatch_through_the_desktop_bridge(self) -> None:
         revealed: list[str] = []
@@ -1974,17 +1857,6 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data, {"revealed": True})
         self.assertEqual(revealed, ["/tmp/chosen-library"])
-
-        # No key configured → 400 with a Settings hint, and the transport is never
-        # consulted (the guard fires before any network path).
-        self._save_key("")
-        self.assertIsNone(store.resolve_xai_key())
-        unused = _FakeTransport(response={"models": []})
-        self._server.state.llm_transport = unused
-        status, data = self._request("POST", "/api/settings/test", {})
-        self.assertEqual(status, 400)
-        self.assertIn("Settings", data["error"])
-        self.assertEqual(unused.calls, [])
 
     def test_requires_auth(self) -> None:
         cases = [
@@ -2325,7 +2197,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual([None], coordinator.reconcile_calls)
         status, response = self._request(
             "POST",
-            "/api/settings/key",
+            "/api/settings/credential",
             {"provider": "xai", "key": "sk-restored-secret"},
         )
         self.assertEqual(200, status)
