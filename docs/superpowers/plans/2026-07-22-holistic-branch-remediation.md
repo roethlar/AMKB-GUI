@@ -505,7 +505,7 @@ in a new one-finding commit; no gate is weakened.
 
 ## Phase 8 — Library and Attestation Hardening
 
-- [ ] **F51 — Consolidate remaining bounded attestation verification.** After
+- [x] **F51 — Consolidate remaining bounded attestation verification.** After
   Phase 0 removes llama and local-model attestations, extract or retain one
   no-follow, regular-file, pre-read-size-bounded, identity-rechecked JSON/hash
   primitive for the remaining FFmpeg readers. Delete obsolete generic branches

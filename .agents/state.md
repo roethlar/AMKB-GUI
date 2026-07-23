@@ -251,8 +251,13 @@
   explicit CLI is non-production fixed-loopback Ollama only. The direct-model
   tests are gone, while the rejected Qwen JSON/gallery remain unchanged and
   their README labels them historical evidence that normal tooling cannot
-  regenerate. The next slice is Phase 8 / F51's consolidation of remaining
-  bounded attestation verification.
+  regenerate. F51 is complete on the current tree: runtime, build, source, and
+  macOS-finalization FFmpeg JSON/hash reads now delegate to one regular-file
+  verifier with no-follow open, Windows reparse rejection, pre-read size caps,
+  and descriptor/path identity checks before and after reading. Runtime
+  compiler identity is capped at 1,000 characters, with its regression proven
+  red when the limit is removed. The next slice is Phase 8 / F56's Windows
+  manifest read/replace serialization.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -562,8 +567,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 8 / F51's consolidation of remaining bounded
-  attestation verification.
+  continuing with Phase 8 / F56's Windows manifest read/replace serialization.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

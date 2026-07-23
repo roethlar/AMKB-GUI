@@ -9,7 +9,6 @@ extraction before building.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import platform
@@ -205,12 +204,15 @@ def validate_manifest(value: object) -> dict:
 
 
 def load_manifest(path: Path | str = DEFAULT_MANIFEST_PATH) -> dict:
-    try:
-        raw = Path(path).read_bytes()
-        parsed = json.loads(raw.decode("utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError) as exc:
-        raise BundleError("FFmpeg manifest could not be read") from None
+    parsed = read_bounded_json(path, "FFmpeg manifest")
     return validate_manifest(parsed)
+
+
+def read_bounded_json(path: Path | str, label: str) -> object:
+    try:
+        return ffmpeg_runtime.read_bounded_json(path)
+    except ffmpeg_runtime.FfmpegRuntimeError:
+        raise BundleError(f"{label} could not be read") from None
 
 
 def recipe_sha256(manifest: Mapping[str, object]) -> str:
@@ -229,15 +231,11 @@ def cache_key(manifest: Mapping[str, object], platform_name: str, architecture: 
         raise BundleError("FFmpeg cache target is unsupported") from None
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
+def sha256_file(path: Path | str) -> str:
     try:
-        with path.open("rb") as file:
-            for chunk in iter(lambda: file.read(1024 * 1024), b""):
-                digest.update(chunk)
-    except OSError:
+        return ffmpeg_runtime.sha256_file(path)
+    except ffmpeg_runtime.FfmpegRuntimeError:
         raise BundleError("FFmpeg file could not be read") from None
-    return digest.hexdigest()
 
 
 def verify_source_archive(path: Path | str, manifest: Mapping[str, object]) -> None:
@@ -247,7 +245,7 @@ def verify_source_archive(path: Path | str, manifest: Mapping[str, object]) -> N
     expected = source["sha256"]
     if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
         raise BundleError("FFmpeg source hash metadata is invalid")
-    if _sha256_file(Path(path)) != expected:
+    if sha256_file(path) != expected:
         raise BundleError("FFmpeg source archive hash did not match")
 
 
@@ -568,7 +566,7 @@ def emit_runtime_attestation(
         "configure_args": list(manifest["configure_args"]),
         "reported_configure_args": list(reported_args),
         "capabilities": dict(capabilities),
-        "binary_sha256": _sha256_file(Path(binary)),
+        "binary_sha256": sha256_file(binary),
     }
     _atomic_json(Path(destination), attestation)
     return attestation

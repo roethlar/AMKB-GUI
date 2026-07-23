@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from am_configurator import ffmpeg_runtime
@@ -276,6 +277,86 @@ class FfmpegBundleTests(unittest.TestCase):
                     with self.assertRaises(ffmpeg_bundle.BundleError):
                         ffmpeg_bundle.load_manifest(path)
 
+    def test_shared_ffmpeg_reader_is_bounded_nofollow_and_identity_checked(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            oversized = root / "oversized.json"
+            oversized.write_bytes(b" " * (ffmpeg_runtime.MAX_FFMPEG_JSON_BYTES + 1))
+            with (
+                patch(
+                    "am_configurator.ffmpeg_runtime.os.read",
+                    side_effect=AssertionError("oversized input must not be read"),
+                ),
+                self.assertRaises(ffmpeg_runtime.FfmpegRuntimeError),
+            ):
+                ffmpeg_runtime.read_bounded_json(oversized)
+
+            payload = root / "payload.json"
+            payload.write_text('{"ok": true}', "utf-8")
+            link = root / "payload-link.json"
+            try:
+                link.symlink_to(payload)
+            except (OSError, NotImplementedError):
+                pass
+            else:
+                with self.assertRaises(ffmpeg_runtime.FfmpegRuntimeError):
+                    ffmpeg_runtime.read_bounded_json(link)
+                with self.assertRaises(ffmpeg_runtime.FfmpegRuntimeError):
+                    ffmpeg_runtime.sha256_file(link)
+
+            real_fstat = os.fstat
+            calls = 0
+
+            def changed_fstat(descriptor: int):
+                nonlocal calls
+                calls += 1
+                details = real_fstat(descriptor)
+                if calls != 2:
+                    return details
+                return SimpleNamespace(
+                    st_mode=details.st_mode,
+                    st_dev=details.st_dev,
+                    st_ino=details.st_ino,
+                    st_size=details.st_size,
+                    st_mtime_ns=details.st_mtime_ns + 1,
+                    st_ctime_ns=details.st_ctime_ns,
+                    st_file_attributes=getattr(details, "st_file_attributes", 0),
+                )
+
+            with (
+                patch("am_configurator.ffmpeg_runtime.os.fstat", changed_fstat),
+                self.assertRaises(ffmpeg_runtime.FfmpegRuntimeError),
+            ):
+                ffmpeg_runtime.sha256_file(payload)
+
+            self.assertEqual({"ok": True}, ffmpeg_runtime.read_bounded_json(payload))
+            self.assertEqual(
+                hashlib.sha256(payload.read_bytes()).hexdigest(),
+                ffmpeg_runtime.sha256_file(payload),
+            )
+
+    def test_build_readers_delegate_to_the_shared_ffmpeg_verifier(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "value.json"
+            path.write_text("{}", "utf-8")
+            with patch.object(
+                ffmpeg_runtime,
+                "read_bounded_json",
+                return_value={"shared": True},
+            ) as read_shared:
+                self.assertEqual(
+                    {"shared": True},
+                    ffmpeg_bundle.read_bounded_json(path, "test JSON"),
+                )
+            read_shared.assert_called_once()
+            with patch.object(
+                ffmpeg_runtime,
+                "sha256_file",
+                return_value="a" * 64,
+            ) as hash_shared:
+                self.assertEqual("a" * 64, ffmpeg_bundle.sha256_file(path))
+            hash_shared.assert_called_once()
+
     def test_recipe_hash_and_cache_key_are_deterministic(self) -> None:
         first = ffmpeg_bundle.recipe_sha256(self.manifest)
         second = ffmpeg_bundle.recipe_sha256(json.loads(json.dumps(self.manifest)))
@@ -525,6 +606,19 @@ class FfmpegBundleTests(unittest.TestCase):
                 )["binary_sha256"],
                 verified["binary_sha256"],
             )
+            attestation_bytes = attestation.read_bytes()
+            oversized_identity = json.loads(attestation_bytes)
+            oversized_identity["compiler_identity"] = "x" * 1001
+            attestation.write_text(json.dumps(oversized_identity), "utf-8")
+            with self.assertRaises(ffmpeg_bundle.BundleError):
+                ffmpeg_bundle.verify_runtime_attestation(
+                    binary,
+                    attestation,
+                    self.manifest,
+                    platform_name="linux",
+                    architecture="x86_64",
+                )
+            attestation.write_bytes(attestation_bytes)
             binary.write_bytes(b"tampered executable")
             with self.assertRaises(ffmpeg_bundle.BundleError):
                 ffmpeg_bundle.verify_runtime_attestation(

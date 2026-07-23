@@ -7,6 +7,7 @@ import json
 import os
 import platform
 import re
+import stat
 import sys
 from pathlib import Path
 from typing import Mapping
@@ -15,6 +16,8 @@ from typing import Mapping
 PINNED_MANIFEST_SHA256 = (
     "c28ae7f1078a398669620303c8174cb6531097033c2b49d0c1142ce7a162a619"
 )
+MAX_FFMPEG_JSON_BYTES = 64 * 1024
+MAX_FFMPEG_FILE_BYTES = 1024 * 1024 * 1024
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_MANIFEST_PATH = SOURCE_ROOT / "packaging" / "ffmpeg" / "manifest.json"
 _MANIFEST_KEYS = {
@@ -81,12 +84,122 @@ class FfmpegRuntimeError(RuntimeError):
     """The prepared runtime is absent or does not match its attestation."""
 
 
+def _regular_file_identity(details: os.stat_result) -> tuple[int, ...]:
+    return (
+        details.st_dev,
+        details.st_ino,
+        details.st_mode,
+        details.st_size,
+        details.st_mtime_ns,
+        details.st_ctime_ns,
+        getattr(details, "st_file_attributes", 0),
+    )
+
+
+def _is_reparse_point(details: os.stat_result) -> bool:
+    attributes = getattr(details, "st_file_attributes", 0)
+    return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+
+def _read_verified_regular_file(
+    path: Path | str,
+    *,
+    max_bytes: int,
+    hash_only: bool,
+) -> bytes | str:
+    """Read one stable regular file without following a link or exceeding a cap."""
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+        raise ValueError("FFmpeg verification size limit must be a positive integer")
+    candidate = Path(path)
+    descriptor: int | None = None
+    try:
+        before = candidate.lstat()
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or _is_reparse_point(before)
+            or before.st_size < 0
+            or before.st_size > max_bytes
+        ):
+            raise OSError
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(candidate, flags)
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or _is_reparse_point(opened)
+            or opened.st_size < 0
+            or opened.st_size > max_bytes
+            or _regular_file_identity(before) != _regular_file_identity(opened)
+        ):
+            raise OSError
+        digest = hashlib.sha256() if hash_only else None
+        payload = bytearray() if not hash_only else None
+        total = 0
+        while block := os.read(descriptor, min(1024 * 1024, max_bytes - total + 1)):
+            total += len(block)
+            if total > max_bytes:
+                raise OSError
+            if digest is not None:
+                digest.update(block)
+            else:
+                assert payload is not None
+                payload.extend(block)
+        after_opened = os.fstat(descriptor)
+        after_path = candidate.lstat()
+        if (
+            total != opened.st_size
+            or not stat.S_ISREG(after_path.st_mode)
+            or _is_reparse_point(after_path)
+            or _regular_file_identity(opened) != _regular_file_identity(after_opened)
+            or _regular_file_identity(opened) != _regular_file_identity(after_path)
+        ):
+            raise OSError
+        if digest is not None:
+            return digest.hexdigest()
+        assert payload is not None
+        return bytes(payload)
+    except OSError:
+        raise FfmpegRuntimeError("FFmpeg verification file could not be read") from None
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def read_bounded_json(
+    path: Path | str,
+    *,
+    max_bytes: int = MAX_FFMPEG_JSON_BYTES,
+) -> object:
+    raw = _read_verified_regular_file(path, max_bytes=max_bytes, hash_only=False)
+    assert isinstance(raw, bytes)
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise FfmpegRuntimeError("FFmpeg JSON file could not be read") from None
+
+
+def sha256_file(
+    path: Path | str,
+    *,
+    max_bytes: int = MAX_FFMPEG_FILE_BYTES,
+) -> str:
+    digest = _read_verified_regular_file(path, max_bytes=max_bytes, hash_only=True)
+    assert isinstance(digest, str)
+    return digest
+
+
 def load_manifest(path: Path | str) -> dict:
     """Load only the byte-for-byte pinned runtime manifest."""
     try:
-        raw = Path(path).read_bytes()
-    except OSError:
+        raw = _read_verified_regular_file(
+            path,
+            max_bytes=MAX_FFMPEG_JSON_BYTES,
+            hash_only=False,
+        )
+    except FfmpegRuntimeError:
         raise FfmpegRuntimeError("FFmpeg runtime manifest is unavailable") from None
+    assert isinstance(raw, bytes)
     if hashlib.sha256(raw).hexdigest() != PINNED_MANIFEST_SHA256:
         raise FfmpegRuntimeError("FFmpeg runtime manifest was not the pinned recipe")
     try:
@@ -203,17 +316,6 @@ def cache_key(manifest: Mapping[str, object], platform_name: str, architecture: 
     )
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    try:
-        with path.open("rb") as file:
-            for chunk in iter(lambda: file.read(1024 * 1024), b""):
-                digest.update(chunk)
-    except OSError:
-        raise FfmpegRuntimeError("FFmpeg runtime could not be read") from None
-    return digest.hexdigest()
-
-
 def _capability_keys(manifest: Mapping[str, object]) -> set[str]:
     capabilities = manifest["required_capabilities"]
     return {
@@ -234,8 +336,8 @@ def verify_runtime_attestation(
     manifest = _validate_manifest_shape(manifest)
     _validate_target(platform_name, architecture)
     try:
-        attestation = json.loads(Path(attestation_path).read_text("utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError):
+        attestation = read_bounded_json(attestation_path)
+    except FfmpegRuntimeError:
         raise FfmpegRuntimeError("FFmpeg runtime attestation could not be read") from None
     capabilities = attestation.get("capabilities") if isinstance(attestation, dict) else None
     reported_args = (
@@ -264,6 +366,7 @@ def verify_runtime_attestation(
         and attestation["architecture"] == architecture
         and isinstance(attestation["compiler_identity"], str)
         and bool(attestation["compiler_identity"].strip())
+        and len(attestation["compiler_identity"]) <= 1000
         and attestation["recipe_sha256"] == recipe_sha256(manifest)
         and attestation["configure_args"] == manifest["configure_args"]
         and isinstance(reported_args, list)
@@ -282,7 +385,7 @@ def verify_runtime_attestation(
         and isinstance(attestation["binary_sha256"], str)
         and re.fullmatch(r"[0-9a-f]{64}", attestation["binary_sha256"]) is not None
     )
-    if not valid or _sha256_file(Path(binary)) != attestation["binary_sha256"]:
+    if not valid or sha256_file(binary) != attestation["binary_sha256"]:
         raise FfmpegRuntimeError("FFmpeg runtime attestation did not match the binary")
     return attestation
 

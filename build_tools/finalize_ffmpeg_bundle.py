@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import platform
@@ -22,14 +21,6 @@ _PROVENANCE_SCHEMA_VERSION = 1
 _MAX_ATTESTATION_BYTES = 64 * 1024
 _COMMAND_TIMEOUT_SECONDS = 30
 Runner = Callable[..., ffmpeg_bundle.CommandResult]
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for block in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def _run(args, *, timeout: int = _COMMAND_TIMEOUT_SECONDS) -> ffmpeg_bundle.CommandResult:
@@ -53,17 +44,10 @@ def _run(args, *, timeout: int = _COMMAND_TIMEOUT_SECONDS) -> ffmpeg_bundle.Comm
 
 
 def _read_bounded_json(path: Path, label: str) -> dict:
-    try:
-        if path.is_symlink() or not path.is_file():
-            raise ValueError
-        if path.stat().st_size > _MAX_ATTESTATION_BYTES:
-            raise ValueError
-        value = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(value, dict):
-            raise ValueError
-        return value
-    except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
+    value = ffmpeg_bundle.read_bounded_json(path, label)
+    if not isinstance(value, dict):
         raise ffmpeg_bundle.BundleError(f"{label} could not be read") from None
+    return value
 
 
 def _atomic_json(path: Path, value: dict) -> None:
@@ -187,10 +171,10 @@ def finalize_macos_app(
             raise ffmpeg_bundle.BundleError(
                 "prepared FFmpeg signing projection could not be created"
             )
-        expected_signed_sha256 = _sha256_file(expected_binary)
+        expected_signed_sha256 = ffmpeg_bundle.sha256_file(expected_binary)
 
     prepared_sha256 = prepared["binary_sha256"]
-    signed_sha256 = _sha256_file(binary)
+    signed_sha256 = ffmpeg_bundle.sha256_file(binary)
     if signed_sha256 != expected_signed_sha256:
         raise ffmpeg_bundle.BundleError(
             "bundled FFmpeg was not the signed prepared executable"
@@ -220,12 +204,14 @@ def finalize_macos_app(
         "platform": "macos",
         "architecture": architecture,
         "prepared_binary_sha256": prepared_sha256,
-        "prepared_attestation_sha256": _sha256_file(prepared_attestation_path),
+        "prepared_attestation_sha256": ffmpeg_bundle.sha256_file(
+            prepared_attestation_path
+        ),
         "signed_binary_sha256": signed_sha256,
         "signing_identity": signing_identity,
         "code_identifier": code_identifier,
         "cdhash": cdhash,
-        "manifest_sha256": _sha256_file(manifest_path),
+        "manifest_sha256": ffmpeg_bundle.sha256_file(manifest_path),
         "recipe_sha256": prepared["recipe_sha256"],
         "configure_args": list(prepared["configure_args"]),
         "reported_configure_args": list(prepared["reported_configure_args"]),
