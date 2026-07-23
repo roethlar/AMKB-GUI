@@ -2492,7 +2492,13 @@ class _LightingEndpointCoordinator:
         self.failure: Exception | None = None
         self.active_job_id: str | None = None
 
-    def reconcile_startup(self, *, api_key: str | None = None):
+    def reconcile_startup(
+        self,
+        *,
+        api_key: str | None = None,
+        _admission_token: object | None = None,
+    ):
+        del _admission_token
         self.reconcile_calls.append(api_key)
         return []
 
@@ -2525,6 +2531,90 @@ class _LightingEndpointCoordinator:
     def cancel(self, job_id: str):
         self._raise_or_record("cancel", (job_id,), {})
         return self.library.load_manifest(job_id)
+
+
+class CombinedReconciliationAdmissionTests(unittest.TestCase):
+    def test_legacy_and_procedural_reconciliation_share_one_state_lease(self) -> None:
+        gate = generation.OperationGate()
+        procedural_entered = threading.Event()
+        release_procedural = threading.Event()
+
+        class LegacyCoordinator:
+            active_job_id = None
+
+            def __init__(self) -> None:
+                self.tokens: list[object | None] = []
+
+            def reconcile_startup(
+                self,
+                *,
+                api_key=None,
+                _admission_token=None,
+            ) -> list[dict]:
+                del api_key
+                self.tokens.append(_admission_token)
+                if _admission_token is None:
+                    token, _cancelled = gate.begin()
+                    gate.finish(token)
+                return []
+
+        class ProceduralCoordinator:
+            active_job_id = None
+
+            def __init__(self) -> None:
+                self.tokens: list[object | None] = []
+
+            def reconcile_startup(self, *, _admission_token=None) -> list[dict]:
+                self.tokens.append(_admission_token)
+                procedural_entered.set()
+                if not release_procedural.wait(2):
+                    raise TimeoutError("test did not release procedural reconciliation")
+                if _admission_token is None:
+                    token, _cancelled = gate.begin()
+                    gate.finish(token)
+                return []
+
+        library = object()
+        legacy = LegacyCoordinator()
+        procedural = ProceduralCoordinator()
+        state = server._State(
+            None,
+            "test-token",
+            lighting_library=library,
+            lighting_coordinator=legacy,
+            lighting_dependencies={"operation_gate": gate},
+            credential_store=credentials.MemoryCredentialStore(),
+            procedural_coordinator=procedural,
+        )
+        failures: list[BaseException] = []
+
+        def run_reconciliation() -> None:
+            try:
+                with patch.object(store, "resolve_xai_key", return_value=None):
+                    state.reconcile_lighting(force=True)
+            except BaseException as error:
+                failures.append(error)
+
+        worker = threading.Thread(target=run_reconciliation)
+        worker.start()
+        admitted = None
+        try:
+            self.assertTrue(procedural_entered.wait(1))
+            with self.assertRaises(generation.GenerationBusyError):
+                admitted = gate.begin("concurrent-generation")
+        finally:
+            if admitted is not None:
+                gate.finish(admitted[0])
+            release_procedural.set()
+            worker.join(2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual([], failures)
+        self.assertEqual(1, len(legacy.tokens))
+        self.assertIsNotNone(legacy.tokens[0])
+        self.assertEqual(legacy.tokens, procedural.tokens)
+        replacement_token, _replacement_cancelled = gate.begin("after-reconcile")
+        gate.finish(replacement_token)
 
 
 class LightingStudioEndpointTests(unittest.TestCase):

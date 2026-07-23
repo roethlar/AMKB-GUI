@@ -733,8 +733,17 @@ class ProceduralGenerationCoordinator:
         self._library.update_manifest(job_id, interrupt)
         return None
 
-    def reconcile_startup(self) -> list[dict]:
-        token, _cancelled = self._gate.begin()
+    def reconcile_startup(
+        self,
+        *,
+        _admission_token: object | None = None,
+    ) -> list[dict]:
+        owns_admission = _admission_token is None
+        if owns_admission:
+            token, _cancelled = self._gate.begin()
+        else:
+            token = _admission_token
+            self._gate.require(token)
         try:
             self._library.reconcile()
             actions: list[dict] = []
@@ -746,7 +755,8 @@ class ProceduralGenerationCoordinator:
                     actions.append(action)
             return actions
         finally:
-            self._gate.finish(token)
+            if owns_admission:
+                self._gate.finish(token)
 
 
 __all__ = [

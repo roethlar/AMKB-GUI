@@ -285,7 +285,7 @@ local no-provider browser acceptance at the end of the phase.
   coordinator. Add deterministic race tests. Commit:
   `fix: gate procedural startup reconciliation`.
 
-- [ ] **F26 — Remove the server reconciliation handoff race.** Refactor
+- [x] **F26 — Remove the server reconciliation handoff race.** Refactor
   `_State.reconcile_lighting` so legacy and procedural passes execute under one
   state-level admission lease or a single deferred callback, with no release/
   reacquire window. A concurrent generation can run before or after the whole

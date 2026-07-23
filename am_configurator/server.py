@@ -1546,12 +1546,22 @@ class _State:
             # claim, allowing the next safe trigger to retry.
             self._lighting_reconcile_signature = signature
         try:
-            actions = coordinator.reconcile_startup(api_key=api_key)
+            token, _cancelled = self._generation_gate.begin()
             try:
-                _procedural_library, procedural = self.procedural_services()
-            except RuntimeError:
-                return actions
-            return [*actions, *procedural.reconcile_startup()]
+                actions = coordinator.reconcile_startup(
+                    api_key=api_key,
+                    _admission_token=token,
+                )
+                try:
+                    _procedural_library, procedural = self.procedural_services()
+                except RuntimeError:
+                    return actions
+                return [
+                    *actions,
+                    *procedural.reconcile_startup(_admission_token=token),
+                ]
+            finally:
+                self._generation_gate.finish(token)
         except GenerationBusyError:
             with self._lighting_lock:
                 if self._lighting_reconcile_signature == signature:

@@ -158,7 +158,8 @@ class _Capability:
 class _LegacyCoordinator:
     active_job_id = None
 
-    def reconcile_startup(self, *, api_key=None):
+    def reconcile_startup(self, *, api_key=None, _admission_token=None):
+        del _admission_token
         return []
 
 

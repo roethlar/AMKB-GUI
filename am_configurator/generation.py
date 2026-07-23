@@ -294,6 +294,12 @@ class OperationGate:
                 raise GenerationError("the generation operation lease was lost")
             self._job_id = job_id
 
+    def require(self, token: object) -> None:
+        """Prove that a caller owns the current admission lease."""
+        with self._state_lock:
+            if self._token is not token:
+                raise GenerationError("the generation operation lease was lost")
+
     def request_cancel(self, job_id: str) -> bool:
         with self._state_lock:
             if self._job_id != job_id or self._cancelled is None:
@@ -2023,13 +2029,23 @@ class GenerationCoordinator:
 
         return self._library.update_manifest(job_id, update)
 
-    def reconcile_startup(self, *, api_key: str | None = None) -> list[dict]:
+    def reconcile_startup(
+        self,
+        *,
+        api_key: str | None = None,
+        _admission_token: object | None = None,
+    ) -> list[dict]:
         """Reconcile state and optionally resume one accepted request without POSTs."""
         if api_key is not None and (
             not isinstance(api_key, str) or not api_key.strip() or len(api_key) > 4096
         ):
             raise GenerationValidationError("an xAI API key is required")
-        token, _cancelled = self._gate.begin()
+        owns_admission = _admission_token is None
+        if owns_admission:
+            token, _cancelled = self._gate.begin()
+        else:
+            token = _admission_token
+            self._gate.require(token)
         try:
             actions = self._library.reconcile()["actions"]
             for job in self._library.scan()["jobs"]:
@@ -2042,7 +2058,8 @@ class GenerationCoordinator:
                     # authority; one unreadable job must not hide the others.
                     continue
         finally:
-            self._gate.finish(token)
+            if owns_admission:
+                self._gate.finish(token)
         if api_key is not None and actions:
             def resume_at(index: int) -> None:
                 if index >= len(actions):

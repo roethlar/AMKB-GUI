@@ -86,7 +86,13 @@
   mutation; a busy caller receives the same typed admission failure as legacy
   recovery; and every exceptional path releases the lease. The next slice is
   F26's removal of the server-level release/reacquire window between the legacy
-  and procedural reconciliation passes.
+  and procedural reconciliation passes. F26 is complete on the current tree:
+  `_State.reconcile_lighting` acquires one admission lease, passes its validated
+  unforgeable token through both coordinators, and releases it only after the
+  combined pass; direct coordinator calls still acquire their own lease. A
+  concurrent generation can run before or after recovery, never in the
+  handoff. The next slice is F27's atomic transfer of procedural gate ownership
+  to a launched worker.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

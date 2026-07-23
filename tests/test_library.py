@@ -540,8 +540,13 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.errors: list[dict] = []
 
-            def reconcile_startup(self, *, api_key=None) -> list[dict]:
-                del api_key
+            def reconcile_startup(
+                self,
+                *,
+                api_key=None,
+                _admission_token=None,
+            ) -> list[dict]:
+                del api_key, _admission_token
                 result = combined.reconcile()
                 self.errors = result["errors"]
                 return result["actions"]
@@ -550,7 +555,8 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
             active_job_id = None
 
             @staticmethod
-            def reconcile_startup() -> list[dict]:
+            def reconcile_startup(*, _admission_token=None) -> list[dict]:
+                del _admission_token
                 return []
 
         startup = StartupCoordinator()
