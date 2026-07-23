@@ -640,8 +640,9 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P10's governed restoration of the missing
-  push-policy artifact.
+  continuing with Phase 10 / P12's reuse of canonical procedural preview
+  generation while P10 awaits a separately approved legacy bootstrap and P11
+  remains the final remediation-state hygiene pass.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows
@@ -655,6 +656,14 @@
 
 ## Blockers
 
+- Phase 10 / P10 cannot be completed by governance refresh alone. Refresh
+  `f4fff9b` installed the current shipped updates, restored every reported
+  toolkit-owned DRIFT, and retired `GEMINI.md`, but the toolkit deliberately
+  never creates repo-owned policy files and flagged this repo's `AGENTS.md` as
+  foreign. Restoring `.agents/push-policy.md` therefore requires the bootstrap
+  procedure's separately approved two-commit legacy carve-out, including the
+  owner's push-policy and communication-level choices. The remediation plan's
+  refresh approval did not authorize that broader governance replacement.
 - Hardware checks require corresponding owner-supplied devices; they are not
   required for the offline suite.
 - Native Windows ACL verification for a pre-existing library `jobs` directory
