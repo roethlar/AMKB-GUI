@@ -52,6 +52,25 @@ def _safe_native_failure_name(value: object, fallback: str) -> str:
     return fallback
 
 
+def _safe_native_import_failure(exc: ImportError) -> str:
+    message = str(exc)
+    missing_library = re.search(
+        r"([A-Za-z0-9_+.-]+\.so(?:\.[0-9]+)*): "
+        r"cannot open shared object file",
+        message,
+    )
+    if missing_library is not None:
+        return _safe_native_failure_name(
+            f"shared_library_{missing_library.group(1)}",
+            "ImportError",
+        )
+    if "undefined symbol:" in message:
+        return "undefined_symbol"
+    if "version `" in message and "not found" in message:
+        return "symbol_version"
+    return _safe_native_failure_name(exc.name, "ImportError")
+
+
 def _smoke_recipe() -> dict[str, Any]:
     return {
         "schema_version": 1,
@@ -351,7 +370,7 @@ def _run_native_policy_probe(phase: str, raw_root: str | Path) -> int:
     try:
         importlib.import_module(backend)
     except ImportError as exc:
-        failure = _safe_native_failure_name(exc.name, "ImportError")
+        failure = _safe_native_import_failure(exc)
         _write_native_policy_result(
             root,
             phase,

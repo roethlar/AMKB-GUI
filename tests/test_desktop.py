@@ -486,6 +486,43 @@ class DesktopNativePolicyTests(unittest.TestCase):
         )
         self.assertNotIn("/private/path", json.dumps(result))
 
+    def test_native_probe_reports_only_a_missing_shared_library_name(self) -> None:
+        fake_webview = types.SimpleNamespace(settings={})
+        with tempfile.TemporaryDirectory() as raw_root:
+            root = Path(raw_root)
+            (root / "probe.json").write_text(
+                json.dumps({"url": "http://127.0.0.1:43111/?token=test-token"}),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.dict(sys.modules, {"webview": fake_webview}),
+                mock.patch.object(desktop.platform, "system", return_value="Linux"),
+                mock.patch.object(desktop.importlib.util, "find_spec", return_value=object()),
+                mock.patch.object(
+                    desktop.importlib,
+                    "import_module",
+                    side_effect=ImportError(
+                        "/private/path/libQt6Gui.so.6: cannot open shared object file",
+                        name="QtGui",
+                    ),
+                ),
+                self.assertRaises(SystemExit) as raised,
+            ):
+                desktop._run_native_policy_probe("seed", root)
+
+            result = json.loads((root / "seed.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            "Native webview policy smoke failed: platform backend import failed "
+            "(shared_library_libQt6Gui.so.6).",
+            str(raised.exception),
+        )
+        self.assertEqual(
+            {"ok": False, "reason": "backend_import_shared_library_libQt6Gui.so.6"},
+            result,
+        )
+        self.assertNotIn("/private/path", json.dumps(result))
+
     def test_native_probe_uses_private_mode_and_the_selected_renderer(self) -> None:
         payload = {name: True for name in desktop._NATIVE_POLICY_VERIFY_KEYS}
         payload["csp"] = "default-src 'self'; script-src 'self'"
