@@ -336,6 +336,34 @@ class FfmpegBundleTests(unittest.TestCase):
                 ffmpeg_runtime.sha256_file(payload),
             )
 
+    def test_shared_ffmpeg_reader_opens_windows_files_in_binary_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            payload = Path(temp) / "payload.json"
+            payload.write_text('{"ok": true}\r\n', "utf-8")
+            real_open = os.open
+            binary_flag = 1 << 29
+            observed_flags: list[int] = []
+
+            def open_without_synthetic_flag(path, flags):
+                observed_flags.append(flags)
+                return real_open(path, flags & ~binary_flag)
+
+            with (
+                patch.object(ffmpeg_runtime.os, "O_BINARY", binary_flag, create=True),
+                patch.object(
+                    ffmpeg_runtime.os,
+                    "open",
+                    side_effect=open_without_synthetic_flag,
+                ),
+            ):
+                self.assertEqual(
+                    {"ok": True},
+                    ffmpeg_runtime.read_bounded_json(payload),
+                )
+
+            self.assertEqual(1, len(observed_flags))
+            self.assertTrue(observed_flags[0] & binary_flag)
+
     def test_build_readers_delegate_to_the_shared_ffmpeg_verifier(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "value.json"

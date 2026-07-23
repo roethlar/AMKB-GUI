@@ -121,7 +121,11 @@ def _read_verified_regular_file(
             or before.st_size > max_bytes
         ):
             raise OSError
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_CLOEXEC", 0)
+        )
         flags |= getattr(os, "O_NOFOLLOW", 0)
         descriptor = os.open(candidate, flags)
         opened = os.fstat(descriptor)
