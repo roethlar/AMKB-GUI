@@ -42,10 +42,15 @@ jobs:
         run: uv run --frozen python -m unittest discover -s tests -v
       - name: Check source compilation
         run: uv run --frozen python -m compileall -q am_configurator packaging build_tools
-      - name: Check browser JavaScript
-        run: |
-          node --test tests/web/*.test.js
-          node --check am_configurator/web/lighting_state.js
-          node --check am_configurator/web/app.js
+      - name: Run browser tests
+        run: node --test tests/web/*.test.js
+      - name: Check lighting state JavaScript
+        run: node --check am_configurator/web/lighting_state.js
+      - name: Check lighting review JavaScript
+        run: node --check am_configurator/web/lighting_review.js
+      - name: Check lighting targets JavaScript
+        run: node --check am_configurator/web/lighting_targets.js
+      - name: Check application JavaScript
+        run: node --check am_configurator/web/app.js
       - name: Build Python distributions
         run: uv build

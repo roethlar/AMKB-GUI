@@ -216,6 +216,19 @@ class ReleaseInfoTests(unittest.TestCase):
 
         self.assertNotIn("vulkan", workflow.casefold())
 
+    def test_ci_runs_each_node_gate_as_a_failure_sensitive_step(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        for command in (
+            "node --test tests/web/*.test.js",
+            "node --check am_configurator/web/lighting_state.js",
+            "node --check am_configurator/web/lighting_review.js",
+            "node --check am_configurator/web/lighting_targets.js",
+            "node --check am_configurator/web/app.js",
+        ):
+            self.assertIn(f"run: {command}", workflow)
+
     def test_release_pipeline_has_no_llama_build_commands(self) -> None:
         paths = (
             ROOT / "build.py",

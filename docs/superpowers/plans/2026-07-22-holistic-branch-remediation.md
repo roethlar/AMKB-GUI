@@ -584,7 +584,7 @@ Each polish item is a separate commit despite its size.
   canonical timeline/target/track validation used by recovery before asset
   publication. Commit: `fix: validate procedural mapped results`.
 
-- [ ] **P07 — Stop masking Windows Node failures.** Split workflow commands or
+- [x] **P07 — Stop masking Windows Node failures.** Split workflow commands or
   enforce native-command exit handling so any `node --test` failure fails the
   step immediately. Commit: `fix: propagate windows browser test failures`.
 

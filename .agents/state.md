@@ -315,8 +315,12 @@
   exact source/decoded counts, duration, target set, and per-track frame counts
   for both procedural publication and legacy recovery. Invalid procedural
   mapping is rejected before raster, preview, or mapped assets are banked; its
-  regression was proven red. The next slice is Phase 10 / P07's Windows Node
-  exit-status propagation.
+  regression was proven red. P07 is complete on the current tree: CI runs the
+  browser tests and each JavaScript syntax check as independent single-command
+  steps, so a Windows native-command failure cannot be overwritten by a later
+  success; the regression was proven red against the multiline block. The next
+  slice is Phase 10 / P08's preservation of attested runtime bytes by disabling
+  UPX.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -626,7 +630,8 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P07's Windows Node exit-status propagation.
+  continuing with Phase 10 / P08's preservation of attested runtime bytes by
+  disabling UPX.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows
