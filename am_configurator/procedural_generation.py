@@ -734,15 +734,19 @@ class ProceduralGenerationCoordinator:
         return None
 
     def reconcile_startup(self) -> list[dict]:
-        self._library.reconcile()
-        actions: list[dict] = []
-        for job in self._library.scan()["jobs"]:
-            if job.get("pipeline") != "procedural":
-                continue
-            action = self._reconcile_job(job["job_id"])
-            if action is not None:
-                actions.append(action)
-        return actions
+        token, _cancelled = self._gate.begin()
+        try:
+            self._library.reconcile()
+            actions: list[dict] = []
+            for job in self._library.scan()["jobs"]:
+                if job.get("pipeline") != "procedural":
+                    continue
+                action = self._reconcile_job(job["job_id"])
+                if action is not None:
+                    actions.append(action)
+            return actions
+        finally:
+            self._gate.finish(token)
 
 
 __all__ = [

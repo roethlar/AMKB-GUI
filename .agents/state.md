@@ -80,9 +80,13 @@
   connection with no proxy or redirect layer, poll cancellation and deadline
   every 50 ms, shut down the active socket/connection on either condition, and
   discard any late response. The real provider/coordinator regression proves
-  cancellation releases the shared gate without banking late output. The next
-  slice is F25's admission of procedural startup reconciliation through that
-  same gate.
+  cancellation releases the shared gate without banking late output. F25 is
+  complete on the current tree: direct procedural startup reconciliation owns
+  the shared operation lease across library recovery, scan, and every manifest
+  mutation; a busy caller receives the same typed admission failure as legacy
+  recovery; and every exceptional path releases the lease. The next slice is
+  F26's removal of the server-level release/reacquire window between the legacy
+  and procedural reconciliation passes.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

@@ -279,7 +279,7 @@ local no-provider browser acceptance at the end of the phase.
   and prevent a late response from publishing. Give setup tests the same
   cancellation contract. Commit: `fix: abort cancelled ollama requests`.
 
-- [ ] **F25 — Admit procedural reconciliation through the shared gate.** Make
+- [x] **F25 — Admit procedural reconciliation through the shared gate.** Make
   direct `ProceduralGenerationCoordinator.reconcile_startup()` calls acquire
   and release the same `OperationGate`, with busy behavior matching the legacy
   coordinator. Add deterministic race tests. Commit:

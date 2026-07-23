@@ -11,7 +11,11 @@ from pathlib import Path
 
 from PIL import Image
 
-from am_configurator.generation import GenerationNotActiveError, OperationGate
+from am_configurator.generation import (
+    GenerationBusyError,
+    GenerationNotActiveError,
+    OperationGate,
+)
 from am_configurator.library import GeneratedAssetLibrary
 from am_configurator.llm import ProviderError
 from am_configurator.ollama_client import OllamaClient, OllamaModel
@@ -558,6 +562,77 @@ class ProceduralGenerationTests(unittest.TestCase):
         self.assertEqual(completed_at, settled["procedural_attempts"][0]["completed_at"])
         self.assertEqual([], coordinator.reconcile_startup())
         self.assertEqual(settled_bytes, path.read_bytes())
+
+    def test_reconcile_uses_the_shared_gate_and_releases_it_on_failure(self) -> None:
+        gate = OperationGate()
+        coordinator = ProceduralGenerationCoordinator(
+            self.library,
+            _Capability(_Provider([_dense_recipe()])),
+            operation_gate=gate,
+        )
+        active_token, _active_cancelled = gate.begin("active-generation")
+        try:
+            with self.assertRaises(GenerationBusyError):
+                coordinator.reconcile_startup()
+        finally:
+            gate.finish(active_token)
+
+        original_reconcile = self.library.reconcile
+
+        def fail_reconcile():
+            raise OSError("simulated reconciliation failure")
+
+        self.library.reconcile = fail_reconcile
+        try:
+            with self.assertRaises(OSError):
+                coordinator.reconcile_startup()
+        finally:
+            self.library.reconcile = original_reconcile
+        self.assertFalse(gate.is_active)
+
+    def test_reconcile_holds_admission_against_a_concurrent_generation(self) -> None:
+        gate = OperationGate()
+        coordinator = ProceduralGenerationCoordinator(
+            self.library,
+            _Capability(_Provider([_dense_recipe()])),
+            operation_gate=gate,
+        )
+        entered = threading.Event()
+        release = threading.Event()
+        original_reconcile = self.library.reconcile
+        failures: list[BaseException] = []
+
+        def blocking_reconcile():
+            entered.set()
+            if not release.wait(2):
+                raise TimeoutError("test did not release reconciliation")
+            return original_reconcile()
+
+        def run_reconcile() -> None:
+            try:
+                coordinator.reconcile_startup()
+            except BaseException as error:
+                failures.append(error)
+
+        self.library.reconcile = blocking_reconcile
+        worker = threading.Thread(target=run_reconcile)
+        worker.start()
+        admitted = None
+        try:
+            self.assertTrue(entered.wait(1))
+            with self.assertRaises(GenerationBusyError):
+                admitted = gate.begin("concurrent-generation")
+            self.assertEqual([], self.library.scan()["jobs"])
+        finally:
+            if admitted is not None:
+                gate.finish(admitted[0])
+            release.set()
+            worker.join(2)
+            self.library.reconcile = original_reconcile
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual([], failures)
+        self.assertFalse(gate.is_active)
 
     def test_api_quality_failure_is_one_charged_call_and_never_retried(self) -> None:
         provider = _Provider([_dim_recipe(), _dense_recipe()], backend="api")
