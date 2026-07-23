@@ -2020,11 +2020,10 @@ function generationDialogContext() {
 
 function renderPromptStage(context) {
   const {manifest,targetLabel,destinationSlot,busy}=context;
-  const backend=state.aiStatus?.backend==="api"?"API":"Local";
   const stopped=latestProceduralAttempt(manifest)?.error_code;
   $("#lighting-generate-content").innerHTML=`<div class="concept-stage">
     <div class="concept-prompt"><label class="control-label" for="effect-prompt">Describe the lighting</label><textarea id="effect-prompt" class="text-field" rows="5" maxlength="4000" placeholder="Dense violet aurora moving across the whole keyboard…" ${busy?'disabled':''}>${esc(state.aiPrompt)}</textarea></div>
-    <p class="concept-destination">${backend} · Custom ${destinationSlot-4} · ${esc(targetLabel)}</p>
+    <p class="concept-destination">Custom ${destinationSlot-4} · ${esc(targetLabel)}</p>
     <div class="concept-actions"><button id="generate-effect" type="button" class="button primary" ${busy||!state.aiPrompt.trim()||!aiReady()||!documentSynchronized()?'disabled':''}>Generate animation</button></div>
     ${state.conceptError||state.animationError||state.documentSyncError||stopped?`<p class="ai-error" role="alert">${esc(state.conceptError||state.animationError||state.documentSyncError||(String(stopped).replaceAll("_"," ")+". The saved failure does not disable this backend; adjust the prompt or model and try again."))}</p>`:""}
   </div>`;

@@ -566,7 +566,7 @@ Each polish item is a separate commit despite its size.
   becomes available can recover without restart. Commit:
   `fix: retry secure credential backend discovery`.
 
-- [ ] **P03 — Remove backend identity from generation UI.** Keep provider/model/
+- [x] **P03 — Remove backend identity from generation UI.** Keep provider/model/
   cost identity in Settings and Library metadata only. Commit:
   `fix: keep backend identity out of generation`.
 

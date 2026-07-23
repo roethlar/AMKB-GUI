@@ -152,6 +152,17 @@ test("generation is one prompt, durable progress, animated review, and explicit 
   assert.match(apply,/keyboard has not been written/);
 });
 
+test("generation dialog omits backend identity and keeps the target destination", () => {
+  const prompt=js.slice(js.indexOf("function renderPromptStage"),js.indexOf("function renderProgressStage"));
+  assert.doesNotMatch(prompt,/state\.aiStatus\?\.backend/);
+  assert.doesNotMatch(prompt,/===\s*"api"\s*\?\s*"API"\s*:\s*"Local"/);
+  assert.match(prompt,/Custom \$\{destinationSlot-4\} · \$\{esc\(targetLabel\)\}/);
+  const settings=html.slice(html.indexOf('id="settings-screen"'));
+  assert.match(settings,/settings-ai-local/);
+  assert.match(settings,/settings-ai-api/);
+  assert.match(js,/summary\?\.costs\?\.actual_incomplete/);
+});
+
 test("closing the dialog never cancels or applies a durable job", () => {
   const start=js.lastIndexOf("function handleGenerationDialogClose");
   const end=js.indexOf("async function startProceduralGeneration",start);

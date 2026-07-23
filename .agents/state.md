@@ -298,8 +298,11 @@
   caches a failed OS-keyring construction, retries on later resolution, and
   caches only the first adapter that validates as a built-in secure backend.
   The recovery regression was proven red against the process-lifetime cache.
-  The next slice is Phase 10 / P03's removal of backend identity from the
-  generation dialog.
+  P03 is complete on the current tree: the generation dialog shows only the
+  destination slot and keyboard target, with no Local/API identity; Settings
+  retains backend selection and Library retains cost metadata. The browser
+  regression was proven red against the former identity prefix. The next slice
+  is Phase 10 / P04's Library asset epoch ownership.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -609,8 +612,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P03's removal of backend identity from the
-  generation dialog.
+  continuing with Phase 10 / P04's Library asset epoch ownership.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows
