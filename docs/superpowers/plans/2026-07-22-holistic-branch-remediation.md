@@ -1,11 +1,10 @@
 # Holistic Branch Remediation
 
-**Status:** Drafted on 2026-07-22 from the committed holistic review at
+**Status:** Approved by the owner on 2026-07-22. Drafted from the committed holistic review at
 `.agents/review/2026-07-22-holistic-branch-review.md`. The owner authorized a
 plan covering every actionable item, then corrected the product scope to
 Ollama/API-only. This revision contains no pending product decision.
-Implementation remains blocked until the owner explicitly approves the revised
-plan.
+Implementation is authorized under the one-finding-per-commit rules below.
 
 ## Objective
 

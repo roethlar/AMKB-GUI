@@ -8,8 +8,8 @@
   Direct GGUF selection, bundled or application-managed llama.cpp, GPU
   qualification, and every associated build/package/release path are
   superseded and must be removed. The durable decision and remediation plan now
-  own that correction. No remediation implementation is authorized until the
-  revised plan receives explicit approval.
+  own that correction. The owner approved the revised plan on 2026-07-22;
+  implementation begins with Phase 0 / F49.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -314,10 +314,10 @@
 
 ## Next
 
-- Obtain explicit approval for the revised holistic remediation plan, then
-  implement its one-finding commits beginning with the unconditional removal
-  of direct-GGUF product state and surface. Do not push or dispatch workflows
-  before the local remediation and verification gates pass.
+- Implement the approved holistic remediation plan one finding per commit,
+  beginning with Phase 0 / F49's unconditional removal of direct-GGUF product
+  state and surface. Do not push or dispatch workflows before the local
+  remediation and verification gates pass.
 - After remediation and a separate outward authorization, verify Windows
   x86_64 and Linux x86_64 packages as Ollama/API-only builds and prove they
   contain no llama binary, GGUF execution path, model picker, model-selection
