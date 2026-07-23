@@ -52,9 +52,9 @@ _MACRO_EVENTS_PER_BLOCK = 8
 _CYBERBOARD_MACRO_READBACK_BLOCKS = 15
 
 # xAI models-list endpoint (GET), used only for the no-cost "Test key" check.
-# Pinned like the generation endpoints in ``llm.py`` (``XAI_RESPONSES_URL`` /
-# ``XAI_IMAGES_URL``); bumping it is a deliberate one-line change. The paid
-# generation calls flow through ``llm._xai_request`` (POST); this cheap GET probe
+# Pinned like the procedural recipe endpoint in ``llm.py``
+# (``XAI_RESPONSES_URL``); bumping it is a deliberate one-line change. Paid
+# recipe calls flow through ``llm._xai_request`` (POST); this cheap GET probe
 # lives here because that transport is POST-only.
 _XAI_MODELS_URL = "https://api.x.ai/v1/language-models"
 _SETTINGS_TEST_TIMEOUT = 20.0

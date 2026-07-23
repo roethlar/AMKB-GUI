@@ -1,9 +1,8 @@
-"""Durable, injected orchestration for Lighting Studio generation jobs.
+"""Shared admission and historical Lighting Studio job recovery.
 
-The coordinator owns operation ordering and manifest state, not HTTP or device
-I/O.  Paid collaborators are factories so API keys remain ephemeral, and the
-default process gate permits exactly one provider/local operation at a time.
-Startup reconciliation delegates to the library and never schedules paid work.
+Legacy paid concept/video creation is retired.  This module retains the
+process-wide operation gate plus the smallest poll, download, local processing,
+and banked-asset recovery surface needed for already-accepted historical jobs.
 """
 from __future__ import annotations
 
@@ -12,32 +11,17 @@ import json
 import shutil
 import threading
 import time
-import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Mapping
 
-from .ai_catalog import MODEL_CATALOG, validate_model
 from .library import GeneratedAssetLibrary, LibraryError, ManifestError
 from .llm import (
-    MAX_CONCEPT_CANDIDATES,
-    MAX_CONCEPT_PROMPT_CHARS,
-    MAX_VIDEO_MOTION_CHARS,
     MODEL_FRAME_CAPS,
-    VIDEO_LOOP_MODES,
-    ConceptImageResult,
-    ConceptPlanResult,
-    GrokConceptImageProvider,
-    GrokConceptPlanner,
-    GrokVideoPlanner,
     ProviderError,
     ProviderUsage,
-    VideoAnimationPlan,
-    VideoAnimationPlanResult,
     VideoStatus,
-    VideoSubmission,
     XaiVideoProvider,
-    prepare_led_video_source,
 )
 from .media import (
     DownloadedVideo,
@@ -54,7 +38,6 @@ DEFAULT_FOREGROUND_TIMEOUT_SECONDS = 10 * 60
 DEFAULT_VIDEO_POLL_INTERVAL_SECONDS = 5
 DEFAULT_SAFE_RETRY_LIMIT = 3
 ANIMATION_FRAME_DURATION_MS = 34
-_MODEL_ROLES = frozenset(MODEL_CATALOG)
 _SAFE_RETRY_CODES = frozenset({"rate_limited", "timeout", "unavailable"})
 
 
@@ -76,30 +59,6 @@ class GenerationNotActiveError(GenerationError):
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _candidate_count(value: object) -> int:
-    if (
-        not isinstance(value, int)
-        or isinstance(value, bool)
-        or not 1 <= value <= MAX_CONCEPT_CANDIDATES
-    ):
-        raise GenerationValidationError(
-            f"candidate_count must be between 1 and {MAX_CONCEPT_CANDIDATES}"
-        )
-    return value
-
-
-def _models(value: object) -> dict[str, str]:
-    if not isinstance(value, Mapping) or set(value) != _MODEL_ROLES:
-        raise GenerationValidationError("models must contain the three curated roles")
-    normalized: dict[str, str] = {}
-    try:
-        for role in sorted(_MODEL_ROLES):
-            normalized[role] = validate_model(role, value[role])
-    except (KeyError, ValueError):
-        raise GenerationValidationError("a selected generation model is unavailable") from None
-    return normalized
 
 
 def canonical_target_snapshot(value: object) -> dict:
@@ -179,63 +138,6 @@ def canonical_target_snapshot(value: object) -> dict:
         "frame_cap": expected_cap,
     }
     return snapshot
-
-
-def _request_values(
-    *,
-    prompt: object,
-    candidate_count: object,
-    target: object,
-    models: object,
-    loop_mode: object,
-    api_key: object,
-    privacy_acknowledged: object,
-) -> tuple[str, int, dict, dict[str, str], str, str]:
-    if (
-        not isinstance(prompt, str)
-        or not prompt.strip()
-        or len(prompt) > MAX_CONCEPT_PROMPT_CHARS
-    ):
-        raise GenerationValidationError(
-            f"prompt must be a non-empty string of at most {MAX_CONCEPT_PROMPT_CHARS} characters"
-        )
-    count = _candidate_count(candidate_count)
-    snapshot = canonical_target_snapshot(target)
-    selected_models = _models(models)
-    if not isinstance(loop_mode, str) or loop_mode not in VIDEO_LOOP_MODES:
-        raise GenerationValidationError("loop_mode is unsupported")
-    if not isinstance(api_key, str) or not api_key.strip() or len(api_key) > 4096:
-        raise GenerationValidationError("an xAI API key is required")
-    if privacy_acknowledged is not True:
-        raise GenerationValidationError("the current privacy disclosure must be acknowledged")
-    return prompt.strip(), count, snapshot, selected_models, loop_mode, api_key
-
-
-def estimate_concept_batch_ticks(model_id: object, candidate_count: object) -> int:
-    """Return the integer catalog estimate for one text-to-image batch."""
-    count = _candidate_count(candidate_count)
-    try:
-        model = validate_model("concept", model_id)
-    except ValueError:
-        raise GenerationValidationError("the concept model is unavailable") from None
-    choices = MODEL_CATALOG["concept"]["choices"]
-    choice = next(item for item in choices if item["id"] == model)
-    pricing = choice["pricing"]
-    return int(pricing["output_per_1k_image_usd_ticks"]) * count
-
-
-def estimate_video_animation_ticks(model_id: object) -> int:
-    """Return the catalog estimate for one image input and one 480p second."""
-    try:
-        model = validate_model("video", model_id)
-    except ValueError:
-        raise GenerationValidationError("the video model is unavailable") from None
-    choices = MODEL_CATALOG["video"]["choices"]
-    choice = next(item for item in choices if item["id"] == model)
-    pricing = choice["pricing"]
-    return int(pricing["input_per_image_usd_ticks"]) + int(
-        pricing["output_per_second_480p_usd_ticks"]
-    )
 
 
 class OperationGate:
@@ -330,25 +232,13 @@ class OperationGate:
 
 
 _PROCESS_OPERATION_GATE = OperationGate()
-# Shared by legacy and procedural coordinators so paid/local work remains
-# single-flight across both pipelines during the transition.
+# Shared by historical recovery and procedural generation so provider/local
+# work remains single-flight across both pipelines.
 PROCESS_OPERATION_GATE = _PROCESS_OPERATION_GATE
 
 
-def _default_planner_factory(api_key: str, model: str):
-    return GrokConceptPlanner(api_key, model=model)
-
-
-def _default_image_provider_factory(api_key: str, model: str):
-    return GrokConceptImageProvider(api_key, model=model)
-
-
-def _default_video_planner_factory(api_key: str, model: str):
-    return GrokVideoPlanner(api_key, model=model)
-
-
-def _default_video_provider_factory(api_key: str, model: str):
-    return XaiVideoProvider(api_key, model=model)
+def _default_video_provider_factory(api_key: str, _historical_model: str):
+    return XaiVideoProvider(api_key)
 
 
 def _default_ffmpeg_resolver() -> Path:
@@ -428,15 +318,12 @@ def _record_usage(manifest: dict, operation: str, usage: object) -> None:
 
 
 class GenerationCoordinator:
-    """Start durable concept batches and serialize all paid/local operations."""
+    """Recover historical jobs without retaining paid mutation entry points."""
 
     def __init__(
         self,
         library: GeneratedAssetLibrary,
         *,
-        planner_factory: Callable[[str, str], object] = _default_planner_factory,
-        image_provider_factory: Callable[[str, str], object] = _default_image_provider_factory,
-        video_planner_factory: Callable[[str, str], object] = _default_video_planner_factory,
         video_provider_factory: Callable[[str, str], object] = _default_video_provider_factory,
         downloader: Callable[..., object] = download_video,
         processor: Callable[..., object] = process_video_frames,
@@ -478,9 +365,6 @@ class GenerationCoordinator:
         ):
             raise ValueError("safe_retry_limit is invalid")
         self._library = library
-        self._planner_factory = planner_factory
-        self._image_provider_factory = image_provider_factory
-        self._video_planner_factory = video_planner_factory
         self._video_provider_factory = video_provider_factory
         self._downloader = downloader
         self._processor = processor
@@ -494,144 +378,10 @@ class GenerationCoordinator:
         self._foreground_timeout_seconds = float(foreground_timeout_seconds)
         self._poll_interval_seconds = float(poll_interval_seconds)
         self._safe_retry_limit = safe_retry_limit
-        self._workers: dict[str, object] = {}
-        self._workers_lock = threading.Lock()
 
     @property
     def active_job_id(self) -> str | None:
         return self._gate.active_job_id
-
-    def _prepare_batch(self, job_id: str, count: int, kind: str) -> tuple[dict, str]:
-        batch_id = str(uuid.uuid4())
-        timestamp = _now_iso()
-
-        def update(manifest: dict) -> None:
-            manifest["concept_batches"].append(
-                {
-                    "batch_id": batch_id,
-                    "kind": kind,
-                    "status": "planning",
-                    "requested_count": count,
-                    "visual_brief": None,
-                    "candidate_prompts": [],
-                    "candidate_ids": [],
-                    "created_at": timestamp,
-                    "completed_at": None,
-                }
-            )
-            manifest["status"] = "in_progress"
-            manifest["phase"] = "concept_generation"
-            manifest["progress"] = {"completed": 0, "total": count}
-            manifest["cancel_requested_at"] = None
-            manifest["cancelled_at"] = None
-            manifest["costs"]["estimated_ticks"] += estimate_concept_batch_ticks(
-                manifest["models"]["concept"], count
-            )
-
-        return self._library.update_manifest(job_id, update), batch_id
-
-    def _launch_batch(
-        self,
-        job_id: str,
-        batch_id: str,
-        api_key: str,
-        token: object,
-        cancelled: threading.Event,
-    ) -> None:
-        deadline = self._monotonic() + self._operation_timeout_seconds
-
-        def target() -> None:
-            try:
-                self._run_batch(job_id, batch_id, api_key, deadline, cancelled)
-            finally:
-                self._gate.finish(token)
-
-        try:
-            worker = self._launcher(target)
-        except Exception as exc:
-            self._fail_local(job_id, batch_id, "worker_start_failed", exc, api_key)
-            self._gate.finish(token)
-            raise GenerationError("the generation worker could not be started") from None
-        with self._workers_lock:
-            self._workers[job_id] = worker
-
-    def start_concepts(
-        self,
-        *,
-        prompt: object,
-        candidate_count: object,
-        target: object,
-        models: object,
-        loop_mode: object,
-        api_key: object,
-        privacy_acknowledged: object,
-    ) -> dict:
-        prompt, count, snapshot, selected_models, loop_mode, api_key = _request_values(
-            prompt=prompt,
-            candidate_count=candidate_count,
-            target=target,
-            models=models,
-            loop_mode=loop_mode,
-            api_key=api_key,
-            privacy_acknowledged=privacy_acknowledged,
-        )
-        token, cancelled = self._gate.begin()
-        job_id: str | None = None
-        try:
-            manifest = self._library.create_job(
-                prompt=prompt,
-                target=snapshot,
-                models=selected_models,
-                loop_mode=loop_mode,
-            )
-            job_id = manifest["job_id"]
-            self._gate.bind(token, job_id)
-            manifest, batch_id = self._prepare_batch(job_id, count, "initial")
-            self._launch_batch(job_id, batch_id, api_key, token, cancelled)
-            return manifest
-        except BaseException:
-            if job_id is None or self._gate.active_job_id == job_id:
-                self._gate.finish(token)
-            raise
-
-    def more_like_this(
-        self,
-        job_id: str,
-        *,
-        candidate_count: object,
-        api_key: object,
-        privacy_acknowledged: object,
-    ) -> dict:
-        count = _candidate_count(candidate_count)
-        if not isinstance(api_key, str) or not api_key.strip() or len(api_key) > 4096:
-            raise GenerationValidationError("an xAI API key is required")
-        if privacy_acknowledged is not True:
-            raise GenerationValidationError("the current privacy disclosure must be acknowledged")
-        original = self._library.load_manifest(job_id)
-        _models(original["models"])
-        if not original["candidates"]:
-            raise GenerationValidationError("more-like-this requires a completed concept")
-        if original["status"] not in {
-            "awaiting_selection",
-            "partial",
-            "cancelled",
-            "failed",
-            "interrupted",
-        }:
-            raise GenerationValidationError("this job is not ready for another concept batch")
-        token, cancelled = self._gate.begin(job_id)
-        try:
-            current = self._library.load_manifest(job_id)
-            if current["status"] != original["status"] or not current["candidates"]:
-                raise GenerationBusyError("the generation job changed before it could start")
-            self._library.preflight_job(job_id)
-            manifest, batch_id = self._prepare_batch(job_id, count, "more_like_this")
-            self._launch_batch(job_id, batch_id, api_key, token, cancelled)
-            return manifest
-        except BaseException:
-            if self._gate.active_job_id == job_id:
-                self._gate.finish(token)
-            raise
 
     @staticmethod
     def _video_spec(manifest: dict):
@@ -644,56 +394,6 @@ class GenerationCoordinator:
         if spec.max_frames != MODEL_FRAME_CAPS[snapshot["family"]]:
             raise GenerationValidationError("the target frame cap is invalid")
         return spec, targets
-
-    def _candidate_asset(self, manifest: dict, candidate_id: object):
-        if not isinstance(candidate_id, str):
-            raise GenerationValidationError("the selected concept is invalid")
-        matches = [
-            candidate
-            for candidate in manifest["candidates"]
-            if candidate.get("candidate_id") == candidate_id
-            and candidate.get("asset_id") == candidate_id
-            and candidate.get("status") == "complete"
-        ]
-        if len(matches) != 1:
-            raise GenerationValidationError("the selected concept is not owned by this job")
-        try:
-            owned = self._library.resolve_asset(manifest["job_id"], candidate_id)
-        except LibraryError:
-            raise GenerationValidationError(
-                "the selected concept is not owned by this job"
-            ) from None
-        if (
-            owned.record["kind"] != "concept"
-            or owned.record["mime_type"] != matches[0].get("mime_type")
-        ):
-            raise GenerationValidationError("the selected concept asset is invalid")
-        return owned
-
-    @staticmethod
-    def _video_plan_operation(manifest: dict, attempt_id: str) -> str:
-        if "video_plan" not in manifest["provider_requests"]:
-            return "video_plan"
-        return f"video_plan:{attempt_id}"
-
-    @staticmethod
-    def _has_unresolved_video_request(manifest: dict) -> bool:
-        request = manifest["provider_requests"].get("video")
-        if not isinstance(request, dict) or not isinstance(request.get("request_id"), str):
-            return False
-        if request.get("status") in {"failed", "expired"}:
-            return False
-        request_id = request["request_id"]
-        matching_attempts = [
-            attempt
-            for attempt in manifest["animation_attempts"]
-            if attempt.get("request_id") == request_id
-        ]
-        source_ids = {
-            attempt.get("source_video_asset_id") for attempt in matching_attempts
-        }
-        source_ids.add(manifest["recovery"].get("source_video_asset_id"))
-        return not any(isinstance(asset_id, str) for asset_id in source_ids)
 
     def _launch_video_worker(
         self,
@@ -715,7 +415,7 @@ class GenerationCoordinator:
                         pass
 
         try:
-            worker = self._launcher(run)
+            self._launcher(run)
         except Exception as exc:
             try:
                 self._library.record_error(
@@ -730,118 +430,6 @@ class GenerationCoordinator:
             finally:
                 self._gate.finish(token)
             raise GenerationError("the animation worker could not be started") from None
-        with self._workers_lock:
-            self._workers[job_id] = worker
-
-    def start_animation(
-        self,
-        job_id: str,
-        *,
-        candidate_id: object,
-        motion: object,
-        loop_mode: object,
-        api_key: object,
-        privacy_acknowledged: object,
-    ) -> dict:
-        """Persist a selected still, then launch exactly one paid video attempt."""
-        if motion is not None and (
-            not isinstance(motion, str) or len(motion) > MAX_VIDEO_MOTION_CHARS
-        ):
-            raise GenerationValidationError(
-                f"motion must be omitted or at most {MAX_VIDEO_MOTION_CHARS} characters"
-            )
-        normalized_motion = motion.strip() if isinstance(motion, str) and motion.strip() else None
-        if not isinstance(loop_mode, str) or loop_mode not in VIDEO_LOOP_MODES:
-            raise GenerationValidationError("loop_mode is unsupported")
-        if not isinstance(api_key, str) or not api_key.strip() or len(api_key) > 4096:
-            raise GenerationValidationError("an xAI API key is required")
-        if privacy_acknowledged is not True:
-            raise GenerationValidationError(
-                "the current privacy disclosure must be acknowledged"
-            )
-        original = self._library.load_manifest(job_id)
-        _models(original["models"])
-        self._video_spec(original)
-        self._candidate_asset(original, candidate_id)
-        if self._has_unresolved_video_request(original):
-            raise GenerationValidationError(
-                "this job still has an accepted video request to retrieve"
-            )
-        if original["status"] == "in_progress":
-            raise GenerationValidationError("this job already has an active operation")
-
-        token, cancelled = self._gate.begin(job_id)
-        try:
-            self._library.preflight_job(job_id)
-            current = self._library.load_manifest(job_id)
-            if current["status"] == "in_progress":
-                raise GenerationBusyError("the generation job changed before animation started")
-            self._candidate_asset(current, candidate_id)
-            if self._has_unresolved_video_request(current):
-                raise GenerationValidationError(
-                    "this job still has an accepted video request to retrieve"
-                )
-            attempt_id = str(uuid.uuid4())
-            operation = self._video_plan_operation(current, attempt_id)
-            timestamp = _now_iso()
-
-            def prepare(manifest: dict) -> None:
-                manifest["selected_candidate_id"] = candidate_id
-                manifest["loop_mode"] = loop_mode
-                manifest["animation_attempts"].append(
-                    {
-                        "attempt_id": attempt_id,
-                        "candidate_id": candidate_id,
-                        "loop_mode": loop_mode,
-                        "status": "planning",
-                        "phase": "video_planning",
-                        "motion": normalized_motion,
-                        "plan": None,
-                        "request_id": None,
-                        "selected_still_asset_id": None,
-                        "source_video_asset_id": None,
-                        "frame_asset_ids": [],
-                        "preview_asset_id": None,
-                        "mapped_result_asset_id": None,
-                        "created_at": timestamp,
-                        "completed_at": None,
-                    }
-                )
-                manifest["provider_requests"][operation] = {
-                    "status": "submitting",
-                    "submitted_at": timestamp,
-                }
-                manifest["costs"]["estimated_ticks"] += estimate_video_animation_ticks(
-                    manifest["models"]["video"]
-                )
-                _refresh_cost_completeness(manifest)
-                manifest["status"] = "in_progress"
-                manifest["phase"] = "video_planning"
-                manifest["progress"] = {
-                    "completed": 0,
-                    "total": MODEL_FRAME_CAPS[manifest["target"]["family"]],
-                }
-                manifest["cancel_requested_at"] = None
-                manifest["cancelled_at"] = None
-
-            prepared = self._library.update_manifest(job_id, prepare)
-            self._launch_video_worker(
-                job_id,
-                token,
-                api_key,
-                lambda: self._run_animation(
-                    job_id,
-                    attempt_id,
-                    operation,
-                    api_key,
-                    cancelled,
-                ),
-            )
-            return prepared
-        except BaseException:
-            if self._gate.active_job_id == job_id:
-                self._gate.finish(token)
-            raise
 
     def _record_video_error(
         self,
@@ -857,277 +445,6 @@ class GenerationCoordinator:
             message=message,
             sensitive_values=(api_key,),
         )
-
-    def _fail_video_plan(
-        self,
-        job_id: str,
-        attempt_id: str,
-        operation: str,
-        error: ProviderError,
-        api_key: str,
-    ) -> None:
-        timestamp = _now_iso()
-
-        def update(manifest: dict) -> None:
-            request = manifest["provider_requests"][operation]
-            request["status"] = "failed"
-            request["error_code"] = error.code
-            request["completed_at"] = timestamp
-            _record_usage(manifest, operation, error.usage)
-            attempt = _animation_attempt(manifest, attempt_id)
-            attempt["status"] = "failed"
-            attempt["phase"] = "video_plan_failed"
-            attempt["completed_at"] = timestamp
-            manifest["status"] = "failed"
-            manifest["phase"] = "video_plan_failed"
-
-        self._library.update_manifest(job_id, update)
-        self._record_video_error(
-            job_id,
-            code=error.code,
-            message=error.message,
-            api_key=api_key,
-        )
-
-    def _record_submission_unknown(
-        self,
-        job_id: str,
-        attempt_id: str,
-        error: ProviderError,
-        api_key: str,
-    ) -> None:
-        timestamp = _now_iso()
-
-        def update(manifest: dict) -> None:
-            request = manifest["provider_requests"].setdefault(
-                "video", {"status": "submitting", "submitted_at": timestamp}
-            )
-            request["status"] = "submission_unknown"
-            request["error_code"] = error.code
-            request["completed_at"] = timestamp
-            attempt = _animation_attempt(manifest, attempt_id)
-            attempt["status"] = "submission_unknown"
-            attempt["phase"] = "interrupted"
-            attempt["completed_at"] = timestamp
-            manifest["status"] = "submission_unknown"
-            manifest["phase"] = "interrupted"
-            _refresh_cost_completeness(manifest)
-
-        self._library.update_manifest(job_id, update)
-        self._record_video_error(
-            job_id,
-            code="submission_unknown",
-            message=error.message,
-            api_key=api_key,
-        )
-
-    def _finish_before_video_submit(
-        self,
-        job_id: str,
-        attempt_id: str,
-        unsubmitted_operation: str | None = None,
-    ) -> None:
-        timestamp = _now_iso()
-
-        def update(manifest: dict) -> None:
-            if unsubmitted_operation is not None:
-                manifest["provider_requests"].pop(unsubmitted_operation, None)
-                manifest["costs"]["actual_by_operation"].pop(
-                    unsubmitted_operation, None
-                )
-                _refresh_cost_completeness(manifest)
-            attempt = _animation_attempt(manifest, attempt_id)
-            attempt["status"] = "cancelled"
-            attempt["phase"] = "video_cancelled"
-            attempt["completed_at"] = timestamp
-            manifest["status"] = "cancelled"
-            manifest["phase"] = "video_cancelled"
-            manifest["cancelled_at"] = timestamp
-
-        self._library.update_manifest(job_id, update)
-
-    def _run_animation(
-        self,
-        job_id: str,
-        attempt_id: str,
-        plan_operation: str,
-        api_key: str,
-        cancelled: threading.Event,
-    ) -> None:
-        try:
-            manifest = self._library.load_manifest(job_id)
-            owned = self._candidate_asset(manifest, manifest["selected_candidate_id"])
-            image_bytes = owned.path.read_bytes()
-            mime_type = owned.record["mime_type"]
-            spec, _targets = self._video_spec(manifest)
-            attempt = _animation_attempt(manifest, attempt_id)
-            if cancelled.is_set():
-                self._finish_before_video_submit(
-                    job_id, attempt_id, unsubmitted_operation=plan_operation
-                )
-                return
-            planner = self._video_planner_factory(
-                api_key, manifest["models"]["interpreter"]
-            )
-            provider = self._video_provider_factory(api_key, manifest["models"]["video"])
-            try:
-                image_bytes = prepare_led_video_source(image_bytes, mime_type, spec)
-                mime_type = "image/png"
-                selected_still = self._library.bank_asset(
-                    job_id,
-                    kind="selected_still",
-                    data=image_bytes,
-                    mime_type=mime_type,
-                    origin=f"led_source:{attempt_id}",
-                )
-
-                def record_selected_still(current: dict) -> None:
-                    current_attempt = _animation_attempt(current, attempt_id)
-                    current_attempt["selected_still_asset_id"] = selected_still["asset_id"]
-
-                self._library.update_manifest(job_id, record_selected_still)
-                if cancelled.is_set():
-                    self._finish_before_video_submit(
-                        job_id, attempt_id, unsubmitted_operation=plan_operation
-                    )
-                    return
-                result = planner.plan(
-                    manifest["prompt"],
-                    attempt["motion"],
-                    image_bytes,
-                    mime_type,
-                    spec,
-                    attempt["loop_mode"],
-                    self._monotonic() + self._operation_timeout_seconds,
-                )
-                if (
-                    not isinstance(result, VideoAnimationPlanResult)
-                    or not isinstance(result.plan, VideoAnimationPlan)
-                ):
-                    raise ProviderError(
-                        "bad_response", "video planner returned an invalid result"
-                    )
-            except ProviderError as error:
-                self._fail_video_plan(
-                    job_id, attempt_id, plan_operation, error, api_key
-                )
-                return
-
-            timestamp = _now_iso()
-
-            def complete_plan(current: dict) -> None:
-                request = current["provider_requests"][plan_operation]
-                request["status"] = "complete"
-                request["completed_at"] = timestamp
-                _record_usage(current, plan_operation, result.usage)
-                current_attempt = _animation_attempt(current, attempt_id)
-                current_attempt["status"] = "planned"
-                current_attempt["phase"] = "video_submitting"
-                current_attempt["plan"] = {
-                    "subject_lock": result.plan.subject_lock,
-                    "style_lock": result.plan.style_lock,
-                    "video_prompt": result.plan.video_prompt,
-                }
-                current["phase"] = "video_submitting"
-
-            self._library.update_manifest(job_id, complete_plan)
-            if cancelled.is_set():
-                self._finish_before_video_submit(job_id, attempt_id)
-                return
-
-            submitted_at = _now_iso()
-
-            def mark_submit(current: dict) -> None:
-                current["provider_requests"]["video"] = {
-                    "status": "submitting",
-                    "submitted_at": submitted_at,
-                    "poll_failures": 0,
-                    "download_failures": 0,
-                    "foreground_deadline_at": (
-                        datetime.now(timezone.utc)
-                        + timedelta(seconds=self._foreground_timeout_seconds)
-                    ).isoformat(),
-                }
-                _refresh_cost_completeness(current)
-                current["phase"] = "video_submitting"
-
-            self._library.update_manifest(job_id, mark_submit)
-            if cancelled.is_set():
-                def discard_submit(current: dict) -> None:
-                    current["provider_requests"].pop("video", None)
-                    _refresh_cost_completeness(current)
-
-                self._library.update_manifest(job_id, discard_submit)
-                self._finish_before_video_submit(job_id, attempt_id)
-                return
-            try:
-                submission = provider.submit(
-                    result.plan,
-                    image_bytes,
-                    mime_type,
-                    self._monotonic() + self._operation_timeout_seconds,
-                )
-                if not isinstance(submission, VideoSubmission) or submission.status != "pending":
-                    raise ProviderError(
-                        "bad_response", "video provider returned an invalid submission"
-                    )
-            except ProviderError as error:
-                self._record_submission_unknown(job_id, attempt_id, error, api_key)
-                return
-
-            accepted_at = _now_iso()
-
-            def accept(current: dict) -> None:
-                request = current["provider_requests"]["video"]
-                request["request_id"] = submission.request_id
-                request["status"] = "pending"
-                request["submitted_at"] = accepted_at
-                _record_usage(current, submission.request_id, submission.usage)
-                current_attempt = _animation_attempt(current, attempt_id)
-                current_attempt["request_id"] = submission.request_id
-                current_attempt["status"] = "polling"
-                current_attempt["phase"] = "video_polling"
-                current["phase"] = "video_polling"
-
-            acceptance_persisted = False
-            for _attempt in range(self._safe_retry_limit):
-                try:
-                    self._library.update_manifest(job_id, accept)
-                    acceptance_persisted = True
-                    break
-                except (LibraryError, OSError):
-                    continue
-            if not acceptance_persisted:
-                try:
-                    self._record_video_error(
-                        job_id,
-                        code="acceptance_persist_failed",
-                        message=(
-                            "The accepted video request ID could not be persisted; "
-                            "the paid submission was not replayed."
-                        ),
-                        api_key=api_key,
-                    )
-                except (LibraryError, OSError):
-                    pass
-                return
-            self._poll_and_retrieve(
-                job_id,
-                attempt_id,
-                provider,
-                submission.request_id,
-                api_key,
-                cancelled,
-            )
-        except (LibraryError, OSError, ValueError) as exc:
-            self._fail_video_local(
-                job_id,
-                attempt_id,
-                code="animation_failed",
-                error=exc,
-                api_key=api_key,
-                ready_to_process=False,
-            )
 
     def _mark_background_retrieval(
         self,
@@ -1720,55 +1037,6 @@ class GenerationCoordinator:
         except Exception:
             pass
 
-    def retry_local(self, job_id: str) -> dict:
-        """Explicitly rerun only local conversion from a retained source MP4."""
-        original = self._library.load_manifest(job_id)
-        if original["status"] not in {"ready_to_process", "cancelled_saved"}:
-            raise GenerationValidationError("this job has no retained video to process")
-        attempt = _animation_attempt(original)
-        source_asset_id = attempt.get("source_video_asset_id") or original["recovery"].get(
-            "source_video_asset_id"
-        )
-        if not isinstance(source_asset_id, str):
-            raise GenerationValidationError("this job has no retained video to process")
-        try:
-            source = self._library.resolve_asset(job_id, source_asset_id)
-        except LibraryError:
-            raise GenerationValidationError("the retained video is unavailable") from None
-        if source.record["kind"] != "source_video":
-            raise GenerationValidationError("the retained video is invalid")
-        token, cancelled = self._gate.begin(job_id)
-        try:
-            self._library.preflight_job(job_id)
-
-            def prepare(manifest: dict) -> None:
-                current_attempt = _animation_attempt(manifest, attempt["attempt_id"])
-                current_attempt["status"] = "processing"
-                current_attempt["phase"] = "local_processing"
-                manifest["status"] = "in_progress"
-                manifest["phase"] = "local_processing"
-                manifest["cancel_requested_at"] = None
-                manifest["cancelled_at"] = None
-
-            prepared = self._library.update_manifest(job_id, prepare)
-            self._launch_video_worker(
-                job_id,
-                token,
-                "",
-                lambda: self._process_local(
-                    job_id,
-                    attempt["attempt_id"],
-                    source_asset_id,
-                    "",
-                    cancelled,
-                ),
-            )
-            return prepared
-        except BaseException:
-            if self._gate.active_job_id == job_id:
-                self._gate.finish(token)
-            raise
-
     def _resume_video_poll(
         self,
         job_id: str,
@@ -1995,17 +1263,6 @@ class GenerationCoordinator:
 
         self._library.update_manifest(job_id, update)
 
-    def wait(self, job_id: str, timeout: float | None = None) -> dict:
-        with self._workers_lock:
-            worker = self._workers.get(job_id)
-        join = getattr(worker, "join", None)
-        if callable(join):
-            join(timeout)
-            is_alive = getattr(worker, "is_alive", None)
-            if callable(is_alive) and is_alive():
-                raise TimeoutError("generation operation is still active")
-        return self._library.load_manifest(job_id)
-
     def cancel(self, job_id: str) -> dict:
         if not self._gate.request_cancel(job_id):
             raise GenerationNotActiveError("this job does not own the active operation")
@@ -2079,228 +1336,6 @@ class GenerationCoordinator:
 
             resume_at(0)
         return actions
-
-    @staticmethod
-    def _planner_operation(manifest: dict, batch_id: str) -> str:
-        if "concept_plan" not in manifest["provider_requests"]:
-            return "concept_plan"
-        return f"concept_plan:{batch_id}"
-
-    def _mark_submitting(self, job_id: str, operation: str) -> None:
-        timestamp = _now_iso()
-
-        def update(manifest: dict) -> None:
-            manifest["provider_requests"][operation] = {
-                "status": "submitting",
-                "submitted_at": timestamp,
-            }
-            _refresh_cost_completeness(manifest)
-
-        self._library.update_manifest(job_id, update)
-
-    def _discard_unsubmitted(self, job_id: str, operation: str) -> None:
-        def update(manifest: dict) -> None:
-            manifest["provider_requests"].pop(operation, None)
-            manifest["costs"]["actual_by_operation"].pop(operation, None)
-            _refresh_cost_completeness(manifest)
-
-        self._library.update_manifest(job_id, update)
-
-    def _complete_plan(
-        self,
-        job_id: str,
-        batch_id: str,
-        operation: str,
-        result: ConceptPlanResult,
-    ) -> None:
-        if not isinstance(result, ConceptPlanResult):
-            raise ProviderError("bad_response", "concept planner returned an invalid result")
-        timestamp = _now_iso()
-
-        def update(manifest: dict) -> None:
-            record = _batch(manifest, batch_id)
-            if len(result.plan.candidate_prompts) != record["requested_count"]:
-                raise ProviderError(
-                    "bad_response",
-                    "concept planner returned the wrong count",
-                    usage=result.usage,
-                )
-            record["status"] = "generating"
-            record["visual_brief"] = result.plan.visual_brief
-            record["candidate_prompts"] = list(result.plan.candidate_prompts)
-            manifest["provider_requests"][operation]["status"] = "complete"
-            manifest["provider_requests"][operation]["completed_at"] = timestamp
-            _record_usage(manifest, operation, result.usage)
-            manifest["phase"] = "concept_generation"
-
-        self._library.update_manifest(job_id, update)
-
-    def _record_provider_failure(
-        self,
-        job_id: str,
-        batch_id: str,
-        operation: str,
-        error: ProviderError,
-        api_key: str,
-    ) -> None:
-        timestamp = _now_iso()
-
-        def update(manifest: dict) -> None:
-            request = manifest["provider_requests"].setdefault(
-                operation, {"status": "submitting", "submitted_at": timestamp}
-            )
-            request["status"] = "failed"
-            request["error_code"] = error.code
-            request["completed_at"] = timestamp
-            _record_usage(manifest, operation, error.usage)
-            record = _batch(manifest, batch_id)
-            record["status"] = "partial" if record["candidate_ids"] else "failed"
-            record["completed_at"] = timestamp
-            if manifest["candidates"]:
-                manifest["status"] = "partial"
-                manifest["phase"] = "concepts_partial"
-            else:
-                manifest["status"] = "failed"
-                manifest["phase"] = "concepts_failed"
-
-        self._library.update_manifest(job_id, update)
-        self._library.record_error(
-            job_id,
-            code=error.code,
-            message=error.message,
-            sensitive_values=(api_key,),
-        )
-
-    def _fail_local(
-        self,
-        job_id: str,
-        batch_id: str,
-        code: str,
-        error: object,
-        api_key: str,
-    ) -> None:
-        try:
-            self._library.record_error(
-                job_id,
-                code=code,
-                message=str(error) or "The local generation operation failed.",
-                sensitive_values=(api_key,),
-            )
-            timestamp = _now_iso()
-
-            def update(manifest: dict) -> None:
-                record = _batch(manifest, batch_id)
-                record["status"] = "partial" if record["candidate_ids"] else "failed"
-                record["completed_at"] = timestamp
-                if manifest["candidates"]:
-                    manifest["status"] = "partial"
-                    manifest["phase"] = "concepts_partial"
-                else:
-                    manifest["status"] = "failed"
-                    manifest["phase"] = "concepts_failed"
-
-            self._library.update_manifest(job_id, update)
-            self._recover_banked_candidates(job_id)
-        except Exception:
-            pass
-
-    def _finish_cancelled(self, job_id: str, batch_id: str) -> None:
-        timestamp = _now_iso()
-
-        def update(manifest: dict) -> None:
-            record = _batch(manifest, batch_id)
-            record["status"] = "cancelled"
-            record["completed_at"] = timestamp
-            manifest["status"] = "cancelled"
-            manifest["phase"] = "concepts_cancelled"
-            manifest["cancelled_at"] = timestamp
-
-        self._library.update_manifest(job_id, update)
-
-    def _finish_success(
-        self,
-        job_id: str,
-        batch_id: str,
-        cancelled: threading.Event,
-    ) -> None:
-        timestamp = _now_iso()
-
-        def update(manifest: dict) -> None:
-            record = _batch(manifest, batch_id)
-            if cancelled.is_set():
-                record["status"] = "cancelled"
-                record["completed_at"] = timestamp
-                manifest["status"] = "cancelled"
-                manifest["phase"] = "concepts_cancelled"
-                manifest["cancelled_at"] = timestamp
-                return
-            record["status"] = "complete"
-            record["completed_at"] = timestamp
-            manifest["status"] = "awaiting_selection"
-            manifest["phase"] = "awaiting_selection"
-            manifest["progress"]["completed"] = record["requested_count"]
-
-        self._library.update_manifest(job_id, update)
-
-    def _record_response_usage(
-        self,
-        job_id: str,
-        operation: str,
-        usage: ProviderUsage,
-    ) -> None:
-        def update(manifest: dict) -> None:
-            manifest["provider_requests"][operation]["status"] = "response_received"
-            _record_usage(manifest, operation, usage)
-
-        self._library.update_manifest(job_id, update)
-
-    def _publish_candidate(
-        self,
-        job_id: str,
-        batch_id: str,
-        index: int,
-        operation: str,
-        prompt: str,
-        result: ConceptImageResult,
-    ) -> None:
-        asset = self._library.bank_asset(
-            job_id,
-            kind="concept",
-            data=result.original_bytes,
-            mime_type=result.metadata.mime_type,
-            origin=f"xai_concept:{batch_id}:{index}",
-        )
-        timestamp = _now_iso()
-
-        def update(manifest: dict) -> None:
-            record = _batch(manifest, batch_id)
-            asset_id = asset["asset_id"]
-            manifest["candidates"].append(
-                {
-                    "candidate_id": asset_id,
-                    "asset_id": asset_id,
-                    "batch_id": batch_id,
-                    "prompt": prompt,
-                    "revised_prompt": result.metadata.revised_prompt,
-                    "width": result.metadata.width,
-                    "height": result.metadata.height,
-                    "mime_type": result.metadata.mime_type,
-                    "status": "complete",
-                    "created_at": asset["created_at"],
-                }
-            )
-            record["candidate_ids"].append(asset_id)
-            request = manifest["provider_requests"].pop(operation)
-            request["status"] = "complete"
-            request["completed_at"] = timestamp
-            manifest["provider_requests"][asset_id] = request
-            actual = manifest["costs"]["actual_by_operation"]
-            if operation in actual:
-                actual[asset_id] = actual.pop(operation)
-            _refresh_cost_completeness(manifest)
-            manifest["progress"]["completed"] = len(record["candidate_ids"])
-
-        self._library.update_manifest(job_id, update)
 
     def _recover_banked_candidates(self, job_id: str) -> int:
         """Adopt banked concept bytes whose final candidate update was interrupted."""
@@ -2411,78 +1446,6 @@ class GenerationCoordinator:
         self._library.update_manifest(job_id, update)
         return len(recovered)
 
-    def _run_batch(
-        self,
-        job_id: str,
-        batch_id: str,
-        api_key: str,
-        deadline: float,
-        cancelled: threading.Event,
-    ) -> None:
-        try:
-            if cancelled.is_set():
-                self._finish_cancelled(job_id, batch_id)
-                return
-            manifest = self._library.load_manifest(job_id)
-            spec, _targets = self._video_spec(manifest)
-            planner_operation = self._planner_operation(manifest, batch_id)
-            planner = self._planner_factory(api_key, manifest["models"]["interpreter"])
-            image_provider = self._image_provider_factory(api_key, manifest["models"]["concept"])
-            self._mark_submitting(job_id, planner_operation)
-            if cancelled.is_set():
-                self._discard_unsubmitted(job_id, planner_operation)
-                self._finish_cancelled(job_id, batch_id)
-                return
-            try:
-                plan_result = planner.plan(
-                    manifest["prompt"],
-                    _batch(manifest, batch_id)["requested_count"],
-                    deadline,
-                    spec=spec,
-                )
-                self._complete_plan(job_id, batch_id, planner_operation, plan_result)
-            except ProviderError as error:
-                self._record_provider_failure(
-                    job_id, batch_id, planner_operation, error, api_key
-                )
-                return
-            plan = plan_result.plan
-            for index, prompt in enumerate(plan.candidate_prompts):
-                if cancelled.is_set():
-                    self._finish_cancelled(job_id, batch_id)
-                    return
-                operation = f"candidate_attempt:{batch_id}:{index}"
-                self._mark_submitting(job_id, operation)
-                if cancelled.is_set():
-                    self._discard_unsubmitted(job_id, operation)
-                    self._finish_cancelled(job_id, batch_id)
-                    return
-                try:
-                    result = image_provider.generate_one(prompt, deadline)
-                    if not isinstance(result, ConceptImageResult):
-                        raise ProviderError(
-                            "bad_response", "concept image provider returned an invalid result"
-                        )
-                    self._record_response_usage(job_id, operation, result.usage)
-                    try:
-                        self._publish_candidate(
-                            job_id, batch_id, index, operation, prompt, result
-                        )
-                    finally:
-                        close = getattr(result.image, "close", None)
-                        if callable(close):
-                            close()
-                except ProviderError as error:
-                    self._record_provider_failure(job_id, batch_id, operation, error, api_key)
-                    return
-            if cancelled.is_set():
-                self._finish_cancelled(job_id, batch_id)
-                return
-            self._finish_success(job_id, batch_id, cancelled)
-        except Exception as error:
-            self._fail_local(job_id, batch_id, "generation_failed", error, api_key)
-
-
 __all__ = [
     "ANIMATION_FRAME_DURATION_MS",
     "DEFAULT_FOREGROUND_TIMEOUT_SECONDS",
@@ -2494,9 +1457,6 @@ __all__ = [
     "GenerationError",
     "GenerationNotActiveError",
     "GenerationValidationError",
-    "MAX_CONCEPT_CANDIDATES",
     "OperationGate",
     "canonical_target_snapshot",
-    "estimate_concept_batch_ticks",
-    "estimate_video_animation_ticks",
 ]

@@ -524,7 +524,7 @@ in a new one-finding commit; no gate is weakened.
 
 ## Phase 9 — Retired Surface and Architecture Simplification
 
-- [ ] **F29 — Remove unreachable paid mutation code.** Delete concept/image/
+- [x] **F29 — Remove unreachable paid mutation code.** Delete concept/image/
   video planning and start methods, obsolete providers/catalog roles/settings,
   and tests with zero production callers. Retain the smallest poll/download/
   process/recovery subset required for already-banked historical jobs and keep

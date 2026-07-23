@@ -43,48 +43,6 @@ MODEL_CATALOG: dict[str, dict[str, Any]] = {
             },
         ],
     },
-    "concept": {
-        "default": "grok-imagine-image",
-        "choices": [
-            {
-                "id": "grok-imagine-image",
-                "label": "Imagine",
-                "pricing": {
-                    "input_per_image_usd_ticks": 20_000_000,
-                    "output_per_1k_image_usd_ticks": 200_000_000,
-                },
-            },
-            {
-                "id": "grok-imagine-image-quality",
-                "label": "Imagine Quality",
-                "pricing": {
-                    "input_per_image_usd_ticks": 100_000_000,
-                    "output_per_1k_image_usd_ticks": 500_000_000,
-                },
-            },
-        ],
-    },
-    "video": {
-        "default": "grok-imagine-video-1.5",
-        "choices": [
-            {
-                "id": "grok-imagine-video-1.5",
-                "label": "Imagine Video 1.5",
-                "pricing": {
-                    "input_per_image_usd_ticks": 100_000_000,
-                    "output_per_second_480p_usd_ticks": 800_000_000,
-                },
-            },
-            {
-                "id": "grok-imagine-video",
-                "label": "Imagine Video",
-                "pricing": {
-                    "input_per_image_usd_ticks": 20_000_000,
-                    "output_per_second_480p_usd_ticks": 500_000_000,
-                },
-            },
-        ],
-    },
 }
 
 DEFAULT_MODELS: dict[str, str] = {

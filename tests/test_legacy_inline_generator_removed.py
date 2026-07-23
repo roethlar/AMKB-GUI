@@ -3,8 +3,9 @@ from __future__ import annotations
 import inspect
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from am_configurator import llm, server
+from am_configurator import ai_catalog, generation, llm, server, store
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +62,46 @@ class LegacyInlineGeneratorRemovalTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertNotIn(token, source)
+
+    def test_retired_paid_mutation_stack_is_not_importable_or_configurable(self) -> None:
+        for name in (
+            "start_concepts",
+            "more_like_this",
+            "start_animation",
+            "retry_local",
+        ):
+            with self.subTest(coordinator_method=name):
+                self.assertFalse(hasattr(generation.GenerationCoordinator, name))
+
+        for name in (
+            "ConceptPlan",
+            "ConceptPlanResult",
+            "ConceptImageResult",
+            "GrokConceptPlanner",
+            "GrokConceptImageProvider",
+            "GrokVideoPlanner",
+            "VideoAnimationPlan",
+            "VideoAnimationPlanResult",
+            "VideoSubmission",
+            "prepare_led_video_source",
+        ):
+            with self.subTest(provider_symbol=name):
+                self.assertFalse(hasattr(llm, name))
+        self.assertFalse(hasattr(llm.XaiVideoProvider, "submit"))
+
+        self.assertEqual({"interpreter"}, set(ai_catalog.MODEL_CATALOG))
+        with (
+            patch.object(store, "_mutate_settings") as mutate,
+            self.assertRaises(ValueError),
+        ):
+            store.update_preferences({"models": {"interpreter": "grok-4.5"}})
+        mutate.assert_not_called()
+        with (
+            patch.object(store, "_mutate_settings") as mutate,
+            self.assertRaises(ValueError),
+        ):
+            store.update_preferences({"candidate_count": 4})
+        mutate.assert_not_called()
 
 
 if __name__ == "__main__":

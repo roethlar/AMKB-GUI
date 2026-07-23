@@ -136,7 +136,7 @@ class XaiRecipeProvider:
         if not isinstance(api_key, str) or not api_key:
             raise llm.ProviderError("config", "API credential is missing.")
         try:
-            self._model_id = llm.validate_model("interpreter", model_id)
+            self._model_id = ai_catalog.validate_model("interpreter", model_id)
         except ValueError:
             raise llm.ProviderError("config", "API recipe model is unavailable.") from None
         self._api_key = api_key

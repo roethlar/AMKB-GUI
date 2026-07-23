@@ -153,7 +153,7 @@ class SettingsStoreTests(unittest.TestCase):
         # A missing file must not be created as a side effect of reading it.
         self.assertFalse(store.settings_path().exists())
 
-    def test_catalog_has_exact_curated_models_defaults_and_integer_prices(self) -> None:
+    def test_catalog_has_only_curated_recipe_models_and_integer_prices(self) -> None:
         from am_configurator import ai_catalog
 
         catalog = ai_catalog.catalog_view()
@@ -173,32 +173,6 @@ class SettingsStoreTests(unittest.TestCase):
                     },
                 },
             },
-            "concept": {
-                "default": "grok-imagine-image",
-                "choices": {
-                    "grok-imagine-image": {
-                        "input_per_image_usd_ticks": 20_000_000,
-                        "output_per_1k_image_usd_ticks": 200_000_000,
-                    },
-                    "grok-imagine-image-quality": {
-                        "input_per_image_usd_ticks": 100_000_000,
-                        "output_per_1k_image_usd_ticks": 500_000_000,
-                    },
-                },
-            },
-            "video": {
-                "default": "grok-imagine-video-1.5",
-                "choices": {
-                    "grok-imagine-video-1.5": {
-                        "input_per_image_usd_ticks": 100_000_000,
-                        "output_per_second_480p_usd_ticks": 800_000_000,
-                    },
-                    "grok-imagine-video": {
-                        "input_per_image_usd_ticks": 20_000_000,
-                        "output_per_second_480p_usd_ticks": 500_000_000,
-                    },
-                },
-            },
         }
         observed = {}
         for role, role_data in catalog["roles"].items():
@@ -212,11 +186,7 @@ class SettingsStoreTests(unittest.TestCase):
                 self.assertTrue(choice["pricing"])
                 self.assertTrue(all(type(value) is int for value in choice["pricing"].values()))
         self.assertEqual(observed, expected)
-        self.assertEqual(ai_catalog.DEFAULT_MODELS, {
-            "interpreter": "grok-4.5",
-            "concept": "grok-imagine-image",
-            "video": "grok-imagine-video-1.5",
-        })
+        self.assertEqual(ai_catalog.DEFAULT_MODELS, {"interpreter": "grok-4.5"})
 
     def test_v1_file_migrates_in_place_without_losing_key(self) -> None:
         legacy = {
@@ -258,7 +228,7 @@ class SettingsStoreTests(unittest.TestCase):
         # A rejected save must persist nothing.
         self.assertFalse(store.settings_path().exists())
 
-    def test_unknown_models_loop_modes_and_candidate_counts_rejected(self) -> None:
+    def test_retired_model_and_candidate_preferences_are_rejected(self) -> None:
         invalid_preferences = (
             {"models": {"interpreter": "grok-future"}},
             {"models": {"concept": "grok-future"}},
@@ -289,11 +259,7 @@ class SettingsStoreTests(unittest.TestCase):
     def test_independent_updates_preserve_key_loop_mode_and_library(self) -> None:
         root = Path(self._tmp) / "library"
         store.update_api_key({"provider": "xai", "key": "sk-stays-put"})
-        store.update_preferences({
-            "models": {"interpreter": "grok-4.3"},
-            "candidate_count": 7,
-            "loop_mode": "none",
-        })
+        store.update_preferences({"loop_mode": "none"})
         store.update_library_root({"current_root": str(root)})
         settings = store.load_settings()
         self.assertEqual(store.resolve_xai_key(), "sk-stays-put")
@@ -302,8 +268,8 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(settings["generation"]["loop_mode"], "none")
         self.assertEqual(settings["library"]["current_root"], str(root.resolve()))
 
-        # The unchanged UI's legacy whole-object POST remains a key-only
-        # compatibility seam and must not reset v2 preferences.
+        # The legacy whole-object POST remains a key-only compatibility seam
+        # and must not reset the active Library or loop preference.
         store.save_settings({
             "llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": ""}}
         })
@@ -1425,690 +1391,13 @@ class GrokTransportTests(unittest.TestCase):
             self.assertNotIn(_FAKE_KEY, ctx.exception.message)
 
 
-class GrokConceptProviderTests(unittest.TestCase):
-    """Video-first concept planning and immediately bankable still results."""
+
+
+class HistoricalVideoPollProviderTests(unittest.TestCase):
+    """Status-only recovery for historical accepted xAI video requests."""
 
     def _future_deadline(self) -> float:
         return time.monotonic() + 30.0
-
-    @staticmethod
-    def _spec() -> "llm.RasterSpec":
-        return llm.RasterSpec(
-            model="80",
-            target="keyframes",
-            extra_targets=("spotlight_frames",),
-            width=18,
-            height=7,
-            mapped_positions=None,
-            output_len=89,
-            max_frames=200,
-        )
-
-    @staticmethod
-    def _plan_dict(count: int = 3) -> dict:
-        return {
-            "visual_brief": "A tiny amber comet crossing a deep-blue safe band.",
-            "candidate_prompts": [
-                f"Amber comet variation {index + 1}, with a distinct curved trail."
-                for index in range(count)
-            ],
-        }
-
-    @staticmethod
-    def _concept_response(plan: dict, cost_ticks=37_756_000) -> dict:
-        response = _responses_envelope(plan)
-        response["usage"]["cost_in_usd_ticks"] = cost_ticks
-        return response
-
-    def test_concept_plan_is_strict_exact_bounded_and_varied(self) -> None:
-        plan = llm.concept_plan_from_json(self._plan_dict(), 3)
-        self.assertIsInstance(plan, llm.ConceptPlan)
-        self.assertEqual(len(plan.candidate_prompts), 3)
-        self.assertIsInstance(plan.candidate_prompts, tuple)
-
-        bad_cases = {
-            "non_object": [],
-            "missing": {"visual_brief": "brief"},
-            "unknown": {**self._plan_dict(), "extra": "no"},
-            "blank_brief": {**self._plan_dict(), "visual_brief": "  "},
-            "long_brief": {
-                **self._plan_dict(),
-                "visual_brief": "x" * (llm.MAX_CONCEPT_PLAN_STRING + 1),
-            },
-            "wrong_count": self._plan_dict(2),
-            "blank_candidate": {
-                **self._plan_dict(),
-                "candidate_prompts": ["one", " ", "three"],
-            },
-            "duplicate_candidate": {
-                **self._plan_dict(),
-                "candidate_prompts": ["One", " one ", "three"],
-            },
-            "long_candidate": {
-                **self._plan_dict(),
-                "candidate_prompts": [
-                    "one",
-                    "x" * (llm.MAX_CONCEPT_PLAN_STRING + 1),
-                    "three",
-                ],
-            },
-        }
-        for name, value in bad_cases.items():
-            with self.subTest(case=name):
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm.concept_plan_from_json(value, 3)
-                self.assertEqual(ctx.exception.code, "bad_response")
-
-        for count in (0, 9, True, "3"):
-            with self.subTest(count=count):
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm.concept_plan_from_json(self._plan_dict(3), count)
-                self.assertEqual(ctx.exception.code, "config")
-
-    def test_planner_uses_selected_model_strict_schema_store_false_and_cost(self) -> None:
-        transport = _FakeTransport(response=self._concept_response(self._plan_dict()))
-        planner = llm.GrokConceptPlanner(
-            _FAKE_KEY, model="grok-4.3", transport=transport
-        )
-        result = planner.plan("an amber comet", 3, self._future_deadline())
-
-        self.assertEqual(result.plan.visual_brief, self._plan_dict()["visual_brief"])
-        self.assertEqual(result.usage.cost_in_usd_ticks, 37_756_000)
-        self.assertTrue(result.usage.reported)
-        self.assertEqual(len(transport.calls), 1)
-        payload = transport.calls[0]["payload"]
-        self.assertEqual(transport.calls[0]["url"], llm.XAI_RESPONSES_URL)
-        self.assertEqual(payload["model"], "grok-4.3")
-        self.assertIs(payload["store"], False)
-        fmt = payload["text"]["format"]
-        self.assertEqual(fmt["name"], "concept_plan")
-        self.assertIs(fmt["strict"], True)
-        self.assertIs(fmt["schema"]["additionalProperties"], False)
-        candidates = fmt["schema"]["properties"]["candidate_prompts"]
-        self.assertEqual(candidates["minItems"], 3)
-        self.assertEqual(candidates["maxItems"], 3)
-
-    def test_planner_requests_coherent_minor_variations_of_one_brief(self) -> None:
-        transport = _FakeTransport(response=self._concept_response(self._plan_dict()))
-        llm.GrokConceptPlanner(_FAKE_KEY, transport=transport).plan(
-            "an amber comet", 3, self._future_deadline()
-        )
-
-        instruction = transport.calls[0]["payload"]["input"][0]["content"]
-        self.assertIn(
-            "closely related minor variations of one shared visual brief",
-            instruction,
-        )
-        self.assertIn("Do not propose unrelated alternative concepts", instruction)
-        self.assertIn("meaningfully distinct", instruction)
-
-    def test_planner_overrides_cinematic_drift_with_device_led_constraints(self) -> None:
-        drifted = {
-            "visual_brief": "A cinematic lake beneath a detailed night sky.",
-            "candidate_prompts": [
-                "Ultra-wide cinematic landscape with a lagoon, fog, and tiny stars."
-            ],
-        }
-        transport = _FakeTransport(response=self._concept_response(drifted))
-        result = llm.GrokConceptPlanner(_FAKE_KEY, transport=transport).plan(
-            "shooting stars, blue-aqua color palette",
-            1,
-            self._future_deadline(),
-            spec=self._spec(),
-        )
-
-        instruction = transport.calls[0]["payload"]["input"][0]["content"]
-        self.assertIn("addressable keyboard LED source texture", instruction)
-        self.assertIn("18x7", instruction)
-        self.assertIn("89 LED samples", instruction)
-        self.assertIn("not a cinematic still, landscape, or photographed scene", instruction)
-        submitted_prompt = result.plan.candidate_prompts[0]
-        self.assertIn(drifted["candidate_prompts"][0], submitted_prompt)
-        self.assertIn("NON-NEGOTIABLE LED OUTPUT", submitted_prompt)
-        self.assertIn("cover-downsampled to 18x7", submitted_prompt)
-        self.assertIn("Do not depict a keyboard", submitted_prompt)
-
-    def test_planner_rejects_prompt_count_and_uncurated_model_before_call(self) -> None:
-        transport = _FakeTransport(response=self._concept_response(self._plan_dict()))
-        planner = llm.GrokConceptPlanner(_FAKE_KEY, transport=transport)
-        for prompt in ("", "   ", "x" * (llm.MAX_CONCEPT_PROMPT_CHARS + 1), 7):
-            with self.subTest(prompt_type=type(prompt).__name__, prompt_len=getattr(prompt, "__len__", lambda: -1)()):
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    planner.plan(prompt, 3, self._future_deadline())
-                self.assertEqual(ctx.exception.code, "config")
-        for count in (0, llm.MAX_CONCEPT_CANDIDATES + 1, True, "3"):
-            with self.subTest(count=count):
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    planner.plan("valid", count, self._future_deadline())
-                self.assertEqual(ctx.exception.code, "config")
-        self.assertEqual(transport.calls, [])
-
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm.GrokConceptPlanner(_FAKE_KEY, model="grok-future", transport=transport)
-        self.assertEqual(ctx.exception.code, "config")
-
-    def test_usage_is_exact_missing_explicit_and_malformed_rejected(self) -> None:
-        missing = self._concept_response(self._plan_dict())
-        missing["usage"].pop("cost_in_usd_ticks")
-        result = llm.GrokConceptPlanner(
-            _FAKE_KEY, transport=_FakeTransport(response=missing)
-        ).plan("valid", 3, self._future_deadline())
-        self.assertIsNone(result.usage.cost_in_usd_ticks)
-        self.assertFalse(result.usage.reported)
-
-        for invalid in (True, -1, 1.5, "100"):
-            with self.subTest(value=invalid):
-                response = self._concept_response(self._plan_dict(), invalid)
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm.GrokConceptPlanner(
-                        _FAKE_KEY, transport=_FakeTransport(response=response)
-                    ).plan("valid", 3, self._future_deadline())
-                self.assertEqual(ctx.exception.code, "bad_response")
-
-    def test_planner_refusal_typed_errors_and_secret_redaction(self) -> None:
-        refusal = {
-            "output": [{"type": "message", "content": [{"type": "refusal"}]}],
-            "usage": {"cost_in_usd_ticks": 123},
-        }
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm.GrokConceptPlanner(
-                _FAKE_KEY, transport=_FakeTransport(response=refusal)
-            ).plan("valid", 2, self._future_deadline())
-        self.assertEqual(ctx.exception.code, "moderation")
-        self.assertEqual(ctx.exception.usage.cost_in_usd_ticks, 123)
-
-        leaky = llm.ProviderError("offline", f"failed using {_FAKE_KEY}")
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm.GrokConceptPlanner(
-                _FAKE_KEY, transport=_FakeTransport(error=leaky)
-            ).plan("valid", 2, self._future_deadline())
-        self.assertEqual(ctx.exception.code, "offline")
-        self.assertNotIn(_FAKE_KEY, str(ctx.exception))
-
-    def test_transport_error_traceback_severs_secret_bearing_chain(self) -> None:
-        usage = llm.ProviderUsage(cost_in_usd_ticks=91, reported=True)
-        leaky = llm.ProviderError(
-            "rate_limited",
-            f"transport exposed {_FAKE_KEY}",
-            retry_after=17,
-            usage=usage,
-        )
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm.GrokConceptPlanner(
-                _FAKE_KEY, transport=_FakeTransport(error=leaky)
-            ).plan("valid", 2, self._future_deadline())
-
-        formatted = "".join(traceback.format_exception(ctx.exception))
-        self.assertNotIn(_FAKE_KEY, formatted)
-        self.assertIsNone(ctx.exception.__cause__)
-        self.assertIsNone(ctx.exception.__context__)
-        self.assertEqual(ctx.exception.code, "rate_limited")
-        self.assertEqual(ctx.exception.retry_after, 17)
-        self.assertEqual(ctx.exception.usage, usage)
-
-    def test_single_image_returns_original_bytes_metadata_image_and_exact_cost(self) -> None:
-        from PIL import Image
-
-        for fmt, expected_mime in (("PNG", "image/png"), ("JPEG", "image/jpeg")):
-            with self.subTest(fmt=fmt):
-                source = Image.new("RGB", (12, 6), (11, 22, 33))
-                raw_buffer = io.BytesIO()
-                source.save(raw_buffer, fmt)
-                original = raw_buffer.getvalue()
-                response = {
-                    "data": [{
-                        "b64_json": base64.b64encode(original).decode("ascii"),
-                        "mime_type": expected_mime,
-                        "revised_prompt": "provider-safe revision",
-                    }],
-                    "usage": {"cost_in_usd_ticks": 200_000_000},
-                }
-                transport = _FakeTransport(response=response)
-                provider = llm.GrokConceptImageProvider(
-                    _FAKE_KEY, model="grok-imagine-image-quality", transport=transport
-                )
-                result = provider.generate_one("a complete candidate", self._future_deadline())
-
-                self.assertEqual(result.original_bytes, original)
-                self.assertEqual(result.image.mode, "RGB")
-                self.assertEqual(result.image.size, (12, 6))
-                self.assertEqual(result.metadata.format, fmt)
-                self.assertEqual(result.metadata.mime_type, expected_mime)
-                self.assertEqual(result.metadata.width, 12)
-                self.assertEqual(result.metadata.height, 6)
-                self.assertEqual(result.metadata.revised_prompt, "provider-safe revision")
-                self.assertEqual(result.usage.cost_in_usd_ticks, 200_000_000)
-                payload = transport.calls[0]["payload"]
-                self.assertEqual(payload["model"], "grok-imagine-image-quality")
-                self.assertEqual(payload["prompt"], "a complete candidate")
-                self.assertEqual(payload["n"], 1)
-                self.assertEqual(payload["aspect_ratio"], "20:9")
-                self.assertEqual(payload["resolution"], "1k")
-                self.assertEqual(payload["response_format"], "b64_json")
-
-    def test_single_image_is_strict_about_one_result_and_response_metadata(self) -> None:
-        from PIL import Image
-
-        b64 = _encode_image(Image.new("RGB", (8, 4), (1, 2, 3)))
-        bad_responses = (
-            {"data": [{"b64_json": b64}, {"b64_json": b64}]},
-            {"data": [{"b64_json": b64, "mime_type": "image/jpeg"}]},
-            {"data": [{"b64_json": b64, "revised_prompt": [_FAKE_KEY]}]},
-        )
-        for response in bad_responses:
-            with self.subTest(response=response):
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm.GrokConceptImageProvider(
-                        _FAKE_KEY, transport=_FakeTransport(response=response)
-                    ).generate_one("valid", self._future_deadline())
-                self.assertEqual(ctx.exception.code, "bad_response")
-                self.assertNotIn(_FAKE_KEY, str(ctx.exception))
-
-    def test_single_image_types_pillow_decompression_bomb_error(self) -> None:
-        from PIL import Image
-
-        response = _image_envelope(
-            _encode_image(Image.new("RGB", (8, 4), (1, 2, 3)))
-        )
-        provider = llm.GrokConceptImageProvider(
-            _FAKE_KEY, transport=_FakeTransport(response=response)
-        )
-
-        with patch.object(Image, "MAX_IMAGE_PIXELS", 10):
-            with self.assertRaises(llm.ProviderError) as ctx:
-                provider.generate_one("valid", self._future_deadline())
-
-        self.assertEqual(ctx.exception.code, "bad_response")
-        self.assertNotIsInstance(ctx.exception, Image.DecompressionBombError)
-
-    def test_candidates_callback_banks_before_next_call_and_cancel_is_between_calls(self) -> None:
-        from PIL import Image
-
-        response = {
-            **_image_envelope(_encode_image(Image.new("RGB", (8, 4), (1, 2, 3)))),
-            "usage": {"cost_in_usd_ticks": 10},
-        }
-        transport = _FakeTransport(response=response)
-        provider = llm.GrokConceptImageProvider(_FAKE_KEY, transport=transport)
-        plan = llm.concept_plan_from_json(self._plan_dict(), 3)
-        events: list[tuple[str, int]] = []
-
-        def bank(index, _prompt, result):
-            events.append(("bank", index))
-            self.assertEqual(len(transport.calls), index + 1)
-            self.assertEqual(result.usage.cost_in_usd_ticks, 10)
-
-        results = provider.generate_candidates(
-            plan, self._future_deadline(), on_candidate=bank
-        )
-        self.assertEqual(len(results), 3)
-        self.assertEqual(events, [("bank", 0), ("bank", 1), ("bank", 2)])
-
-        cancel_transport = _FakeTransport(response=response)
-        cancel_provider = llm.GrokConceptImageProvider(
-            _FAKE_KEY, transport=cancel_transport
-        )
-        banked: list[int] = []
-        with self.assertRaises(llm.Cancelled):
-            cancel_provider.generate_candidates(
-                plan,
-                self._future_deadline(),
-                on_candidate=lambda index, _prompt, _result: banked.append(index),
-                cancelled=lambda: bool(banked),
-            )
-        self.assertEqual(banked, [0])
-        self.assertEqual(len(cancel_transport.calls), 1)
-
-    def test_candidates_revalidate_direct_plans_before_first_paid_call(self) -> None:
-        invalid_plans = (
-            llm.ConceptPlan(
-                visual_brief="brief",
-                candidate_prompts=tuple(f"candidate {index}" for index in range(9)),
-            ),
-            llm.ConceptPlan(
-                visual_brief="brief",
-                candidate_prompts=("candidate one", " ", "candidate three"),
-            ),
-            llm.ConceptPlan(
-                visual_brief="brief",
-                candidate_prompts=("Same", " same "),
-            ),
-            llm.ConceptPlan(
-                visual_brief="brief",
-                candidate_prompts=("x" * (llm.MAX_CONCEPT_PLAN_STRING + 1),),
-            ),
-        )
-        for plan in invalid_plans:
-            with self.subTest(candidate_count=len(plan.candidate_prompts)):
-                transport = _FakeTransport(response={})
-                provider = llm.GrokConceptImageProvider(
-                    _FAKE_KEY, transport=transport
-                )
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    provider.generate_candidates(plan, self._future_deadline())
-                self.assertEqual(ctx.exception.code, "config")
-                self.assertEqual(transport.calls, [])
-
-
-class GrokVideoProviderTests(unittest.TestCase):
-    """Structured animation planning and the asynchronous xAI video contract."""
-
-    def _future_deadline(self) -> float:
-        return time.monotonic() + 30.0
-
-    @staticmethod
-    def _spec() -> "llm.RasterSpec":
-        return llm.RasterSpec(
-            model="80",
-            target="per_key",
-            extra_targets=("spotlight",),
-            width=18,
-            height=7,
-            mapped_positions=((0, 0), (17, 6)),
-            output_len=126,
-            max_frames=200,
-        )
-
-    @staticmethod
-    def _plan_dict() -> dict:
-        return {
-            "subject_lock": "Keep the same amber comet and curved three-star trail.",
-            "style_lock": "Keep the original deep-blue pixel-art palette and texture.",
-            "video_prompt": "The amber comet glides left to right while its trail twinkles.",
-        }
-
-    @staticmethod
-    def _video_response(plan: dict, cost_ticks=41_000_000) -> dict:
-        response = _responses_envelope(plan)
-        response["usage"]["cost_in_usd_ticks"] = cost_ticks
-        return response
-
-    @staticmethod
-    def _png_bytes() -> bytes:
-        from PIL import Image
-
-        buffer = io.BytesIO()
-        Image.new("RGB", (20, 9), (11, 22, 33)).save(buffer, "PNG")
-        return buffer.getvalue()
-
-    def test_video_source_is_reduced_to_the_actual_led_information_budget(self) -> None:
-        from PIL import Image
-
-        source = Image.new("RGB", (180, 70))
-        source.putdata(
-            [
-                ((x * 7 + y) % 256, (x + y * 11) % 256, (x * 3 + y * 5) % 256)
-                for y in range(70)
-                for x in range(180)
-            ]
-        )
-        buffer = io.BytesIO()
-        source.save(buffer, "PNG")
-        prepared = llm.prepare_led_video_source(
-            buffer.getvalue(), "image/png", self._spec()
-        )
-
-        with Image.open(io.BytesIO(prepared)) as image:
-            self.assertEqual(image.format, "PNG")
-            self.assertEqual(image.size, source.size)
-            self.assertLessEqual(len(image.getcolors(maxcolors=source.width * source.height)), 18 * 7)
-
-    def test_video_plan_is_strict_bounded_and_requires_all_locks(self) -> None:
-        plan = llm.video_animation_plan_from_json(self._plan_dict())
-        self.assertEqual(plan.subject_lock, self._plan_dict()["subject_lock"])
-        self.assertEqual(plan.style_lock, self._plan_dict()["style_lock"])
-        self.assertEqual(plan.video_prompt, self._plan_dict()["video_prompt"])
-
-        bad_cases = (
-            [],
-            {"subject_lock": "subject", "style_lock": "style"},
-            {**self._plan_dict(), "extra": "no"},
-            {**self._plan_dict(), "subject_lock": " "},
-            {**self._plan_dict(), "style_lock": 7},
-            {
-                **self._plan_dict(),
-                "video_prompt": "x" * (llm.MAX_VIDEO_PLAN_STRING + 1),
-            },
-        )
-        for value in bad_cases:
-            with self.subTest(value=value):
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm.video_animation_plan_from_json(value)
-                self.assertEqual(ctx.exception.code, "bad_response")
-
-    def test_planner_sends_selected_original_multimodal_context_and_strict_schema(self) -> None:
-        original = self._png_bytes()
-        transport = _FakeTransport(response=self._video_response(self._plan_dict()))
-        result = llm.GrokVideoPlanner(
-            _FAKE_KEY, model="grok-4.3", transport=transport
-        ).plan(
-            "an amber comet crosses a midnight keyboard",
-            "make the tail flicker gently",
-            original,
-            "image/png",
-            self._spec(),
-            "ping_pong",
-            self._future_deadline(),
-        )
-
-        self.assertIn(self._plan_dict()["video_prompt"], result.plan.video_prompt)
-        self.assertIn("NON-NEGOTIABLE KEYBOARD LED LOOP", result.plan.video_prompt)
-        self.assertIn("not conventional video", result.plan.video_prompt)
-        self.assertIn("cover-downsampled to 18x7", result.plan.video_prompt)
-        self.assertIn("first and final frames must match", result.plan.video_prompt)
-        self.assertIn("reversible bounded motion", result.plan.video_prompt)
-        self.assertLessEqual(len(result.plan.video_prompt), llm.MAX_VIDEO_PLAN_STRING)
-        self.assertEqual(result.usage.cost_in_usd_ticks, 41_000_000)
-        self.assertEqual(len(transport.calls), 1)
-        call = transport.calls[0]
-        self.assertEqual(call["url"], llm.XAI_RESPONSES_URL)
-        self.assertEqual(call["payload"]["model"], "grok-4.3")
-        self.assertIs(call["payload"]["store"], False)
-        fmt = call["payload"]["text"]["format"]
-        self.assertEqual(fmt["name"], "video_animation_plan")
-        self.assertIs(fmt["strict"], True)
-        self.assertIs(fmt["schema"]["additionalProperties"], False)
-        self.assertEqual(
-            set(fmt["schema"]["required"]),
-            {"subject_lock", "style_lock", "video_prompt"},
-        )
-        user_content = call["payload"]["input"][1]["content"]
-        input_text = next(part["text"] for part in user_content if part["type"] == "input_text")
-        input_image = next(
-            part["image_url"] for part in user_content if part["type"] == "input_image"
-        )
-        self.assertIn("an amber comet crosses a midnight keyboard", input_text)
-        self.assertIn("make the tail flicker gently", input_text)
-        self.assertIn("model=80", input_text)
-        self.assertIn("target=per_key", input_text)
-        self.assertIn("18x7", input_text)
-        self.assertIn("126", input_text)
-        self.assertIn("ping_pong", input_text)
-        self.assertIn("exactly one second", input_text)
-        self.assertIn("locked camera", input_text.lower())
-        self.assertIn("functional LED loop", input_text)
-        self.assertIn("not a shot, scene, or miniature movie", input_text)
-        self.assertEqual(
-            input_image,
-            "data:image/png;base64," + base64.b64encode(original).decode("ascii"),
-        )
-
-    def test_planner_accepts_absent_motion_and_rejects_bad_context_before_call(self) -> None:
-        transport = _FakeTransport(response=self._video_response(self._plan_dict()))
-        llm.GrokVideoPlanner(_FAKE_KEY, transport=transport).plan(
-            "valid prompt",
-            None,
-            self._png_bytes(),
-            "image/png",
-            self._spec(),
-            "smooth",
-            self._future_deadline(),
-        )
-        text = transport.calls[0]["payload"]["input"][1]["content"][0]["text"]
-        self.assertIn("Motion guidance: none supplied", text)
-
-        invalid_cases = (
-            ("", None, self._png_bytes(), "image/png", self._spec(), "smooth"),
-            ("valid", 7, self._png_bytes(), "image/png", self._spec(), "smooth"),
-            ("valid", None, b"not an image", "image/png", self._spec(), "smooth"),
-            ("valid", None, self._png_bytes(), "image/gif", self._spec(), "smooth"),
-            ("valid", None, self._png_bytes(), "image/png", object(), "smooth"),
-            ("valid", None, self._png_bytes(), "image/png", self._spec(), "bounce"),
-        )
-        for args in invalid_cases:
-            invalid_transport = _FakeTransport(response={})
-            with self.subTest(args=args):
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm.GrokVideoPlanner(
-                        _FAKE_KEY, transport=invalid_transport
-                    ).plan(*args, self._future_deadline())
-                self.assertEqual(ctx.exception.code, "config")
-                self.assertEqual(invalid_transport.calls, [])
-
-    def test_every_video_mode_receives_a_closed_cycle_instruction(self) -> None:
-        expected = {
-            "smooth": "one gentle periodic motion cycle",
-            "none": "There is no transition padding",
-            "ping_pong": "reversible bounded motion",
-        }
-        for loop_mode, phrase in expected.items():
-            with self.subTest(loop_mode=loop_mode):
-                transport = _FakeTransport(
-                    response=self._video_response(self._plan_dict())
-                )
-                result = llm.GrokVideoPlanner(
-                    _FAKE_KEY, transport=transport
-                ).plan(
-                    "an amber comet",
-                    None,
-                    self._png_bytes(),
-                    "image/png",
-                    self._spec(),
-                    loop_mode,
-                    self._future_deadline(),
-                )
-                self.assertIn(phrase, result.plan.video_prompt)
-                self.assertIn(
-                    "first and final frames must match", result.plan.video_prompt
-                )
-
-    def test_submit_is_one_paid_call_with_curated_model_and_fixed_payload(self) -> None:
-        original = self._png_bytes()
-        transport = _FakeTransport(response={
-            "request_id": "video_req.abc-123~x",
-            "usage": {"cost_in_usd_ticks": 900_000_000},
-        })
-        provider = llm.XaiVideoProvider(
-            _FAKE_KEY,
-            model="grok-imagine-video",
-            submit_transport=transport,
-            poll_transport=_FakeGetTransport(response={}),
-        )
-        result = provider.submit(
-            llm.video_animation_plan_from_json(self._plan_dict()),
-            original,
-            "image/png",
-            self._future_deadline(),
-        )
-
-        self.assertEqual(result.request_id, "video_req.abc-123~x")
-        self.assertEqual(result.status, "pending")
-        self.assertEqual(result.usage.cost_in_usd_ticks, 900_000_000)
-        self.assertEqual(len(transport.calls), 1)
-        payload = transport.calls[0]["payload"]
-        self.assertEqual(transport.calls[0]["url"], llm.XAI_VIDEO_GENERATIONS_URL)
-        self.assertEqual(payload["model"], "grok-imagine-video")
-        self.assertEqual(payload["prompt"], self._plan_dict()["video_prompt"])
-        self.assertEqual(payload["duration"], 1)
-        self.assertEqual(payload["resolution"], "480p")
-        self.assertNotIn("aspect_ratio", payload)
-        self.assertEqual(
-            payload["image"]["url"],
-            "data:image/png;base64," + base64.b64encode(original).decode("ascii"),
-        )
-
-    def test_submit_never_retries_and_preserves_typed_redacted_failure(self) -> None:
-        usage = llm.ProviderUsage(cost_in_usd_ticks=123, reported=True)
-        transport = _FakeTransport(error=llm.ProviderError(
-            "timeout", f"ambiguous paid submission using {_FAKE_KEY}", usage=usage
-        ))
-        provider = llm.XaiVideoProvider(
-            _FAKE_KEY,
-            submit_transport=transport,
-            poll_transport=_FakeGetTransport(response={}),
-        )
-        with self.assertRaises(llm.ProviderError) as ctx:
-            provider.submit(
-                llm.video_animation_plan_from_json(self._plan_dict()),
-                self._png_bytes(),
-                "image/png",
-                self._future_deadline(),
-            )
-        self.assertEqual(ctx.exception.code, "timeout")
-        self.assertEqual(ctx.exception.usage, usage)
-        self.assertNotIn(_FAKE_KEY, str(ctx.exception))
-        self.assertEqual(len(transport.calls), 1)
-
-    def test_default_models_jpeg_bytes_and_missing_usage_are_preserved(self) -> None:
-        from PIL import Image
-
-        jpeg_buffer = io.BytesIO()
-        Image.new("RGB", (20, 9), (31, 41, 59)).save(jpeg_buffer, "JPEG")
-        original = jpeg_buffer.getvalue()
-
-        planner_response = self._video_response(self._plan_dict())
-        planner_response["usage"].pop("cost_in_usd_ticks")
-        planner_transport = _FakeTransport(response=planner_response)
-        planned = llm.GrokVideoPlanner(
-            _FAKE_KEY, transport=planner_transport
-        ).plan(
-            "valid prompt",
-            None,
-            original,
-            "image/jpeg",
-            self._spec(),
-            "none",
-            self._future_deadline(),
-        )
-        self.assertEqual(
-            planner_transport.calls[0]["payload"]["model"], "grok-4.5"
-        )
-        self.assertIsNone(planned.usage.cost_in_usd_ticks)
-        self.assertFalse(planned.usage.reported)
-
-        submit_transport = _FakeTransport(response={"request_id": "req-jpeg_1"})
-        submitted = llm.XaiVideoProvider(
-            _FAKE_KEY,
-            submit_transport=submit_transport,
-            poll_transport=_FakeGetTransport(response={}),
-        ).submit(
-            planned.plan, original, "image/jpeg", self._future_deadline()
-        )
-        self.assertEqual(
-            submit_transport.calls[0]["payload"]["model"],
-            "grok-imagine-video-1.5",
-        )
-        self.assertEqual(
-            submit_transport.calls[0]["payload"]["image"]["url"],
-            "data:image/jpeg;base64," + base64.b64encode(original).decode("ascii"),
-        )
-        self.assertIsNone(submitted.usage.cost_in_usd_ticks)
-        self.assertFalse(submitted.usage.reported)
-
-        for provider_factory in (
-            lambda: llm.GrokVideoPlanner(
-                _FAKE_KEY, model="grok-future", transport=planner_transport
-            ),
-            lambda: llm.XaiVideoProvider(
-                _FAKE_KEY,
-                model="grok-video-future",
-                submit_transport=submit_transport,
-                poll_transport=_FakeGetTransport(response={}),
-            ),
-        ):
-            with self.assertRaises(llm.ProviderError) as ctx:
-                provider_factory()
-            self.assertEqual(ctx.exception.code, "config")
 
     def test_poll_validates_request_id_before_get_and_accepts_every_status(self) -> None:
         invalid_ids = (
@@ -2125,7 +1414,6 @@ class GrokVideoProviderTests(unittest.TestCase):
             transport = _FakeGetTransport(response={})
             provider = llm.XaiVideoProvider(
                 _FAKE_KEY,
-                submit_transport=_FakeTransport(response={}),
                 poll_transport=transport,
             )
             with self.subTest(request_id=request_id):
@@ -2138,7 +1426,6 @@ class GrokVideoProviderTests(unittest.TestCase):
         transport = _FakeGetTransport(response={"status": "pending"})
         result = llm.XaiVideoProvider(
             _FAKE_KEY,
-            submit_transport=_FakeTransport(response={}),
             poll_transport=transport,
         ).poll(longest, self._future_deadline())
         self.assertEqual(result.request_id, longest)
@@ -2152,7 +1439,6 @@ class GrokVideoProviderTests(unittest.TestCase):
             transport = _FakeGetTransport(response=response)
             result = llm.XaiVideoProvider(
                 _FAKE_KEY,
-                submit_transport=_FakeTransport(response={}),
                 poll_transport=transport,
             ).poll("req_123", self._future_deadline())
             self.assertEqual(result.status, status)
@@ -2175,7 +1461,6 @@ class GrokVideoProviderTests(unittest.TestCase):
             }
             provider = llm.XaiVideoProvider(
                 _FAKE_KEY,
-                submit_transport=_FakeTransport(response={}),
                 poll_transport=_FakeGetTransport(response=response),
             )
             with self.subTest(echoed_request_id=echoed_request_id):
@@ -2193,7 +1478,6 @@ class GrokVideoProviderTests(unittest.TestCase):
         }
         result = llm.XaiVideoProvider(
             _FAKE_KEY,
-            submit_transport=_FakeTransport(response={}),
             poll_transport=_FakeGetTransport(response=done),
         ).poll("req.done-1", self._future_deadline())
         self.assertEqual(result.video_url, signed_url)
@@ -2215,7 +1499,6 @@ class GrokVideoProviderTests(unittest.TestCase):
                 with self.assertRaises(llm.ProviderError) as ctx:
                     llm.XaiVideoProvider(
                         _FAKE_KEY,
-                        submit_transport=_FakeTransport(response={}),
                         poll_transport=_FakeGetTransport(response=response),
                     ).poll("req.done-1", self._future_deadline())
                 self.assertEqual(ctx.exception.code, "bad_response")
@@ -2230,7 +1513,6 @@ class GrokVideoProviderTests(unittest.TestCase):
         ))
         provider = llm.XaiVideoProvider(
             _FAKE_KEY,
-            submit_transport=_FakeTransport(response={}),
             poll_transport=transport,
         )
         with self.assertRaises(llm.ProviderError) as ctx:
@@ -2472,15 +1754,9 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertNotIn("llm", data)
         self.assertEqual(store.resolve_xai_key(), key)
 
-        status, data = self._request("POST", "/api/settings/preferences", {
-            "models": {
-                "interpreter": "grok-4.3",
-                "concept": "grok-imagine-image-quality",
-                "video": "grok-imagine-video",
-            },
-            "candidate_count": 8,
-            "loop_mode": "ping_pong",
-        })
+        status, data = self._request(
+            "POST", "/api/settings/preferences", {"loop_mode": "ping_pong"}
+        )
         self.assertEqual(status, 200)
         self.assertNotIn("candidate_count", data["generation"])
         self.assertEqual(data["generation"]["loop_mode"], "ping_pong")
@@ -2771,27 +2047,6 @@ class _LightingEndpointCoordinator:
         self.calls.append((name, args, kwargs))
         if self.failure is not None:
             raise self.failure
-
-    def start_concepts(self, **kwargs):
-        self._raise_or_record("start_concepts", (), kwargs)
-        return self.library.create_job(
-            prompt=kwargs["prompt"],
-            target=kwargs["target"],
-            models=kwargs["models"],
-            loop_mode=kwargs["loop_mode"],
-        )
-
-    def more_like_this(self, job_id: str, **kwargs):
-        self._raise_or_record("more_like_this", (job_id,), kwargs)
-        return self.library.load_manifest(job_id)
-
-    def start_animation(self, job_id: str, **kwargs):
-        self._raise_or_record("start_animation", (job_id,), kwargs)
-        return self.library.load_manifest(job_id)
-
-    def retry_local(self, job_id: str):
-        self._raise_or_record("retry_local", (job_id,), {})
-        return self.library.load_manifest(job_id)
 
     def cancel(self, job_id: str):
         self._raise_or_record("cancel", (job_id,), {})
@@ -3340,16 +2595,12 @@ class LightingStudioEndpointTests(unittest.TestCase):
         )
         self.assertEqual(404, status)
 
-    def test_retired_creation_never_constructs_the_injected_legacy_stack(self) -> None:
-        planner_calls = []
-        image_calls = []
+    def test_retired_creation_has_no_injectable_legacy_stack(self) -> None:
         self._server.shutdown()
         self._server.server_close()
         self._thread.join(timeout=2)
         self._server, url = create_server(
             lighting_dependencies={
-                "planner_factory": lambda *_args: planner_calls.append(_args),
-                "image_provider_factory": lambda *_args: image_calls.append(_args),
                 "operation_gate": generation.OperationGate(),
             }
         )
@@ -3363,8 +2614,6 @@ class LightingStudioEndpointTests(unittest.TestCase):
         )
         self.assertEqual(410, status)
         self.assertEqual("retired", response["code"])
-        self.assertEqual([], planner_calls)
-        self.assertEqual([], image_calls)
 
     def test_static_csp_allows_only_local_media(self) -> None:
         request = Request(self._base + "/", method="GET")

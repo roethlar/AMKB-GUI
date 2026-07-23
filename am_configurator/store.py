@@ -304,6 +304,16 @@ MAX_CANDIDATE_COUNT = 8
 LEGACY_CANDIDATE_COUNT = 4
 _LEGACY_INTERPRETERS = ("grok",)
 _LEGACY_RENDERERS = ("grok",)
+_LEGACY_V2_MODEL_CHOICES = {
+    "interpreter": ("grok-4.5", "grok-4.3"),
+    "concept": ("grok-imagine-image", "grok-imagine-image-quality"),
+    "video": ("grok-imagine-video-1.5", "grok-imagine-video"),
+}
+_LEGACY_V2_DEFAULT_MODELS = {
+    "interpreter": "grok-4.5",
+    "concept": "grok-imagine-image",
+    "video": "grok-imagine-video-1.5",
+}
 # Kept until the superseded provider-registry generator is removed in Task 16.
 _KNOWN_INTERPRETERS = _LEGACY_INTERPRETERS
 _KNOWN_RENDERERS = _LEGACY_RENDERERS
@@ -423,11 +433,9 @@ def _default_v3_settings() -> dict:
 
 def _default_v2_settings() -> dict:
     """Legacy shape used only to validate and project an on-disk migration."""
-    from . import ai_catalog
-
     return {
         "schema_version": 2,
-        "llm": {"models": dict(ai_catalog.DEFAULT_MODELS), "keys": {}},
+        "llm": {"models": dict(_LEGACY_V2_DEFAULT_MODELS), "keys": {}},
         "library": {"current_root": None, "roots": []},
         "generation": {
             "candidate_count": LEGACY_CANDIDATE_COUNT,
@@ -549,8 +557,6 @@ def _validate_legacy_settings(values: object) -> dict:
 
 def _validate_v2_settings(values: object) -> dict:
     """Strict-validate and normalize a v2 settings object."""
-    from . import ai_catalog
-
     settings = _object(values, "settings")
     _reject_unknown(
         settings,
@@ -565,9 +571,11 @@ def _validate_v2_settings(values: object) -> dict:
     llm = _object(settings.get("llm", {}), "settings 'llm'")
     _reject_unknown(llm, {"models", "keys"}, "llm settings")
     models = _object(llm.get("models", {}), "settings 'llm.models'")
-    _reject_unknown(models, set(ai_catalog.MODEL_IDS), "llm model")
+    _reject_unknown(models, set(_LEGACY_V2_MODEL_CHOICES), "llm model")
     for role, model_id in models.items():
-        result["llm"]["models"][role] = ai_catalog.validate_model(role, model_id)
+        if model_id not in _LEGACY_V2_MODEL_CHOICES[role]:
+            raise ValueError(f"unknown legacy {role} model")
+        result["llm"]["models"][role] = model_id
     result["llm"]["keys"] = _validate_keys(llm.get("keys", {}))
 
     library = _object(settings.get("library", {}), "settings 'library'")
@@ -1406,38 +1414,15 @@ def update_generation_settings(values: object, *, credential_store=None) -> dict
 
 
 def update_preferences(values: object, *, credential_store=None) -> dict:
-    """Temporary validation bridge for the legacy Settings route.
-
-    Obsolete model and still-count preferences are accepted only so the current
-    UI remains operable during migration; schema v5 deliberately does not
-    persist them. Loop mode remains active and durable.
-    """
-
-    from . import ai_catalog
+    """Temporary loop-mode bridge for the legacy Settings route."""
 
     body = _object(values, "preference settings")
-    _reject_unknown(body, {"models", "candidate_count", "loop_mode"}, "preference settings")
-    if not body:
-        raise ValueError("preference settings must include a value")
-    if "models" in body:
-        models = _object(body["models"], "preference models")
-        _reject_unknown(models, set(ai_catalog.MODEL_IDS), "model preference")
-        if not models:
-            raise ValueError("preference models must include a model")
-        for role, model_id in models.items():
-            ai_catalog.validate_model(role, model_id)
-    if "candidate_count" in body:
-        count = body["candidate_count"]
-        if type(count) is not int or not MIN_CANDIDATE_COUNT <= count <= MAX_CANDIDATE_COUNT:
-            raise ValueError("candidate_count must be an integer from 1 through 8")
-    if "loop_mode" in body:
-        loop_mode = body["loop_mode"]
-        if loop_mode not in LOOP_MODES:
-            raise ValueError("loop_mode must be smooth, none, or ping_pong")
+    _reject_unknown(body, {"loop_mode"}, "preference settings")
+    if set(body) != {"loop_mode"} or body["loop_mode"] not in LOOP_MODES:
+        raise ValueError("loop_mode must be smooth, none, or ping_pong")
 
     def mutate(settings: dict) -> None:
-        if "loop_mode" in body:
-            settings["generation"]["loop_mode"] = body["loop_mode"]
+        settings["generation"]["loop_mode"] = body["loop_mode"]
 
     return _mutate_settings(mutate, credential_store=credential_store)
 
