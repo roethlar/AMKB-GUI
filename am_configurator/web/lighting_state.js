@@ -22,6 +22,52 @@
   const VALID_ROUTES = new Set(Object.values(ROUTES));
   const DOCUMENT_ROUTES = new Set([ROUTES.KEYMAP, ROUTES.MACROS, ROUTES.CREATE, ROUTES.EDIT]);
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const ASSIGNMENT_CODE = /^#[0-9a-f]{8}$/i;
+
+  function escapeMarkup(value) {
+    return String(value ?? "").replace(
+      /[&<>'"]/g,
+      character => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[character],
+    );
+  }
+
+  function canonicalAssignmentCode(value, label) {
+    if (typeof value !== "string" || !ASSIGNMENT_CODE.test(value)) {
+      throw new Error(`${label} must use # followed by exactly eight hexadecimal digits.`);
+    }
+    return value.toUpperCase();
+  }
+
+  function normalizeImportedAssignmentCodes(config) {
+    if (!config || typeof config !== "object" || Array.isArray(config)) {
+      throw new Error("The imported configuration must be an object.");
+    }
+    const layerData = config.key_layer?.layer_data;
+    if (Array.isArray(layerData)) {
+      layerData.forEach((entry, layerIndex) => {
+        if (!Array.isArray(entry?.layer)) return;
+        entry.layer = entry.layer.map((code, codeIndex) => canonicalAssignmentCode(
+          code,
+          `Layer ${layerIndex + 1} assignment ${codeIndex + 1}`,
+        ));
+      });
+    }
+    if (config.macro_key !== undefined) {
+      if (!Array.isArray(config.macro_key)) {
+        throw new Error("macro_key must be an array.");
+      }
+      config.macro_key.forEach((macro, index) => {
+        if (!macro || typeof macro !== "object" || Array.isArray(macro)) {
+          throw new Error(`Macro ${index + 1} must be an object.`);
+        }
+        macro.original_key = canonicalAssignmentCode(
+          macro.original_key,
+          `Macro ${index + 1} assignment code`,
+        );
+      });
+    }
+    return config;
+  }
 
   function normalizedRoute(value) {
     return VALID_ROUTES.has(value) ? value : ROUTES.EDIT;
@@ -365,10 +411,12 @@
     createEpochLoadRegistry,
     createPaintStrokeController,
     createLightingState,
+    escapeMarkup,
     formatLightingHash,
     localModelRefreshFailed,
     nextGridIndex,
     normalizeLocalModels,
+    normalizeImportedAssignmentCodes,
     parseLightingHash,
     projectLocalModelPicker,
     projectLightingJob,

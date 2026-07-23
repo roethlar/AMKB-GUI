@@ -8,8 +8,7 @@ if (queryToken) history.replaceState({}, "", `${location.pathname}${location.has
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
-const esc = value => String(value ?? "").replace(/[&<>'"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch]));
-const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, shouldDiscoverLocalModels} = LightingState;
+const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, shouldDiscoverLocalModels} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, renderTargetControls} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
@@ -323,7 +322,7 @@ async function readFiles(input, merge) {
     const configs = await Promise.all(files.map(async file => {
       const parsed = JSON.parse(await file.text());
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${file.name} is not a configuration object.`);
-      return parsed;
+      return normalizeImportedAssignmentCodes(parsed);
     }));
     const families=new Set(configs.map(config=>productFamily(config?.product_info?.product_id)).filter(Boolean));
     if(families.size>1)throw new Error("The selected JSON files belong to different keyboard families and cannot be combined.");
@@ -555,7 +554,7 @@ function standardOption(usage, category="Keyboard") {
 function assignmentButton(option,current,width=1) {
   const active=option.code.toUpperCase()===String(current||"").toUpperCase();
   const disabled=state.selected===null?"disabled":"";
-  return `<button class="palette-key assignment-key ${active?'active':''}" data-code="${option.code}" data-search="${esc((option.label+' '+option.category).toLowerCase())}" style="--key-units:${width}" title="${esc(option.category)} · ${option.code}" ${disabled}>${esc(option.label)}</button>`;
+  return `<button class="palette-key assignment-key ${active?'active':''}" data-code="${esc(option.code)}" data-search="${esc((option.label+' '+option.category).toLowerCase())}" style="--key-units:${width}" title="${esc(`${option.category} · ${option.code}`)}" ${disabled}>${esc(option.label)}</button>`;
 }
 
 function vendorGroup(usage) {

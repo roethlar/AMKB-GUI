@@ -666,7 +666,7 @@ Each polish item is a separate commit despite its size.
 
 ## Phase 11 — Residual Hygiene from Refuted Findings
 
-- [ ] **R01 — Escape macro assignment codes in markup.** Validate canonical
+- [x] **R01 — Escape macro assignment codes in markup.** Validate canonical
   assignment-code syntax at config import and escape it in every data/title
   attribute. Prove hostile markup becomes inert text under the existing CSP.
   Commit: `fix: escape imported macro assignment codes`.

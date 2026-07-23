@@ -370,8 +370,12 @@
   neither the user's GGUF nor its bytes. P22 is complete: the rejected Qwen
   qualification now links forward to the authoritative Ollama/API-only
   decision and this remediation plan while retaining its immutable comparative
-  evidence. The next slice is Phase 11 / R01's imported macro-assignment
-  escaping.
+  evidence. R01 is complete: file imports normalize key-layer and macro
+  assignment codes before browser-state publication, malformed macro markup is
+  rejected, both code-bearing attributes escape their complete value, and the
+  CSP regression confirms inline script and external image/connect channels
+  remain closed. Both browser safety regressions were proven red. The next
+  slice is Phase 11 / R02's imported lighting-color validation.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -681,7 +685,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 11 / R01's imported macro-assignment escaping
+  continuing with Phase 11 / R02's imported lighting-color validation
   while P10 awaits a separately approved legacy bootstrap and P11 remains the
   final remediation-state hygiene pass.
   Do not push or dispatch workflows before the local remediation and verification

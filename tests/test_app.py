@@ -2497,6 +2497,10 @@ class LightingStudioEndpointTests(unittest.TestCase):
         with urlopen(request, timeout=5) as response:
             csp = response.headers["Content-Security-Policy"]
         self.assertIn("media-src 'self' blob:", csp)
+        self.assertIn("script-src 'self'", csp)
+        self.assertNotIn("script-src 'self' 'unsafe-inline'", csp)
+        self.assertIn("img-src 'self' blob: data:", csp)
+        self.assertIn("connect-src 'self'", csp)
 
 
 class MacroProtocolTests(unittest.TestCase):

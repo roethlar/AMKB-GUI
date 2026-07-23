@@ -7,6 +7,7 @@ const {
   ROUTES,
   STAGES,
   applyCompatibility,
+  escapeMarkup,
   createEpochLoadRegistry,
   createPaintStrokeController,
   createLightingState,
@@ -14,6 +15,7 @@ const {
   localModelRefreshFailed,
   nextGridIndex,
   normalizeLocalModels,
+  normalizeImportedAssignmentCodes,
   parseLightingHash,
   projectLightingJob,
   projectLocalModelPicker,
@@ -24,6 +26,40 @@ const {
 
 const JOB_ID = "4d36e96e-e2aa-4e72-8808-4d03b5ba7e61";
 const RESULT_ID = "result-asset";
+
+test("imported assignment codes are canonical before browser state publication", () => {
+  const config = {
+    key_layer: {layer_data: [{layer: ["#00070004", "#00951500"]}]},
+    macro_key: [{original_key: "#0095150a", layer_key: [], intvel_ms: []}],
+  };
+
+  assert.equal(normalizeImportedAssignmentCodes(config), config);
+  assert.deepEqual(config.key_layer.layer_data[0].layer, ["#00070004", "#00951500"]);
+  assert.equal(config.macro_key[0].original_key, "#0095150A");
+
+  assert.throws(
+    () => normalizeImportedAssignmentCodes({
+      key_layer: {layer_data: [{layer: ["#00070004"]}]},
+      macro_key: [{
+        original_key: '#00951500"><img src=x onerror="steal()">',
+        layer_key: [],
+        intvel_ms: [],
+      }],
+    }),
+    /Macro 1 assignment code/,
+  );
+});
+
+test("hostile assignment markup is escaped into inert attribute text", () => {
+  const hostile = '#00951500"><img src=x onerror="steal()">';
+  const escaped = escapeMarkup(hostile);
+
+  assert.equal(
+    escaped,
+    "#00951500&quot;&gt;&lt;img src=x onerror=&quot;steal()&quot;&gt;",
+  );
+  assert.doesNotMatch(escaped, /<img|onerror="/);
+});
 
 class FakeEventTarget {
   constructor() {
