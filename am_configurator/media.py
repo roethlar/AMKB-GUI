@@ -336,6 +336,68 @@ def _destination_paths(destination: object) -> tuple[Path, Path]:
     return path, part
 
 
+def _copy_video_backup(
+    source: Path,
+    backup: Path,
+    deadline: float,
+    cancelled,
+) -> None:
+    """Create a private durable backup when the filesystem cannot hard-link."""
+
+    read_flags = os.O_RDONLY
+    read_flags |= getattr(os, "O_CLOEXEC", 0)
+    read_flags |= getattr(os, "O_NOFOLLOW", 0)
+    read_flags |= getattr(os, "O_BINARY", 0)
+    write_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    write_flags |= getattr(os, "O_CLOEXEC", 0)
+    write_flags |= getattr(os, "O_NOFOLLOW", 0)
+    write_flags |= getattr(os, "O_BINARY", 0)
+    source_fd: int | None = None
+    backup_fd: int | None = None
+    complete = False
+    try:
+        source_fd = os.open(source, read_flags)
+        backup_fd = os.open(backup, write_flags, 0o600)
+        with os.fdopen(source_fd, "rb") as source_stream:
+            source_fd = None
+            with os.fdopen(backup_fd, "wb") as backup_stream:
+                backup_fd = None
+                while True:
+                    _check_cancel(cancelled)
+                    _remaining_timeout(deadline)
+                    chunk = source_stream.read(_READ_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    backup_stream.write(chunk)
+                backup_stream.flush()
+                os.fsync(backup_stream.fileno())
+        os.chmod(backup, 0o600)
+        _fsync_directory(backup.parent)
+        complete = True
+    finally:
+        if source_fd is not None:
+            os.close(source_fd)
+        if backup_fd is not None:
+            os.close(backup_fd)
+        if not complete:
+            try:
+                backup.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _create_video_backup(
+    source: Path,
+    backup: Path,
+    deadline: float,
+    cancelled,
+) -> None:
+    try:
+        os.link(source, backup, follow_symlinks=False)
+    except (NotImplementedError, OSError):
+        _copy_video_backup(source, backup, deadline, cancelled)
+
+
 def download_video(
     source_url: object,
     destination: object,
@@ -426,7 +488,12 @@ def download_video(
                 raise MediaError("io", "video publication backup is invalid")
             backup_path.unlink(missing_ok=True)
             if destination_path.exists():
-                os.link(destination_path, backup_path, follow_symlinks=False)
+                _create_video_backup(
+                    destination_path,
+                    backup_path,
+                    deadline,
+                    cancelled,
+                )
                 backup_created = True
             os.replace(part_path, destination_path)
             published = True

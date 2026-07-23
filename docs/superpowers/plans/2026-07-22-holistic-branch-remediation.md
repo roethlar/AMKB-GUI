@@ -427,7 +427,7 @@ local no-provider browser acceptance at the end of the phase.
   afterward. Test `%`, `%%`, `%d`, spaces, and Unicode roots. Commit:
   `fix: support percent signs in media paths`.
 
-- [ ] **F48 — Make media backup portable.** Treat `NotImplementedError` and
+- [x] **F48 — Make media backup portable.** Treat `NotImplementedError` and
   hard-link-incompatible filesystems as a signal to use an owned, fsynced copy
   backup; preserve rollback and cleanup guarantees. Test Windows semantics and
   injected link failures. Commit: `fix: fall back from unsupported media hard links`.

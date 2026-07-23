@@ -203,8 +203,12 @@
   image2 output argument escapes every literal percent in the owned staging
   path while retaining exactly one `%04d` filename conversion. End-to-end
   processing now succeeds under Library roots containing `%`, `%%`, `%d`,
-  `%04d`, spaces, and Unicode. The next slice is Phase 6 / F48's portable media
-  backup fallback.
+  `%04d`, spaces, and Unicode. F48 is complete on the current tree: video
+  replacement still prefers a hard-link backup, but unsupported Windows link
+  semantics and hard-link-incompatible filesystems fall back to a private,
+  cancellation/deadline-aware, fsynced byte copy. Publication failure restores
+  that copy and cleans both backup and partial download under the same rollback
+  contract. The next slice is Phase 7 / F06's Windows MSYS2 path correction.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -514,7 +518,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 6 / F48's portable media backup fallback. Do not
+  continuing with Phase 7 / F06's Windows MSYS2 path correction. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

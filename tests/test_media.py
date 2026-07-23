@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import io
 import os
@@ -418,6 +419,78 @@ class VideoDownloaderTests(unittest.TestCase):
                     )
             self.assertEqual(destination.read_bytes(), b"existing")
             self.assertFalse((Path(tmp) / "source.mp4.part").exists())
+
+    def test_unsupported_hard_links_use_a_private_fsynced_copy_backup(self) -> None:
+        failures = (
+            NotImplementedError("Windows follow_symlinks is unavailable"),
+            OSError(errno.EXDEV, "hard links cross filesystems"),
+        )
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as tmp:
+                destination = Path(tmp) / "source.mp4"
+                backup = Path(tmp) / "source.mp4.previous"
+                destination.write_bytes(b"previous video")
+                fsync_calls: list[int] = []
+                real_fsync = os.fsync
+                real_replace = os.replace
+
+                def recording_fsync(fd: int) -> None:
+                    fsync_calls.append(fd)
+                    real_fsync(fd)
+
+                def inspect_before_publish(source, target) -> None:
+                    if Path(source).name.endswith(".part"):
+                        self.assertEqual(b"previous video", backup.read_bytes())
+                        self.assertGreaterEqual(len(fsync_calls), 2)
+                        if os.name != "nt":
+                            self.assertEqual(stat.S_IMODE(backup.stat().st_mode), 0o600)
+                    real_replace(source, target)
+
+                with patch.object(
+                    media.os, "link", side_effect=failure
+                ), patch.object(
+                    media.os, "fsync", side_effect=recording_fsync
+                ), patch.object(
+                    media.os, "replace", side_effect=inspect_before_publish
+                ):
+                    result = media.download_video(
+                        self._URL,
+                        destination,
+                        self._deadline(),
+                        opener=_Opener(_Response(_mp4_bytes())),
+                    )
+
+                self.assertEqual(_mp4_bytes(), destination.read_bytes())
+                self.assertEqual(destination, result.path)
+                self.assertFalse(backup.exists())
+
+    def test_copy_backup_preserves_rollback_when_publication_sync_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "source.mp4"
+            backup = Path(tmp) / "source.mp4.previous"
+            part = Path(tmp) / "source.mp4.part"
+            destination.write_bytes(b"previous video")
+            with patch.object(
+                media.os,
+                "link",
+                side_effect=NotImplementedError("Windows follow_symlinks is unavailable"),
+            ), patch.object(
+                media,
+                "_fsync_directory",
+                side_effect=(None, OSError("publication sync failed"), None),
+            ):
+                with self.assertRaises(media.MediaError) as raised:
+                    media.download_video(
+                        self._URL,
+                        destination,
+                        self._deadline(),
+                        opener=_Opener(_Response(_mp4_bytes())),
+                    )
+
+            self.assertEqual("io", raised.exception.code)
+            self.assertEqual(b"previous video", destination.read_bytes())
+            self.assertFalse(backup.exists())
+            self.assertFalse(part.exists())
 
     def test_directory_fsync_failure_rolls_back_existing_destination(self) -> None:
         real_fsync = os.fsync
