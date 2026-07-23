@@ -13,7 +13,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from am_configurator import procedural
-from am_configurator.generation import (
+from am_configurator.generation_admission import (
     GenerationBusyError,
     GenerationError,
     GenerationNotActiveError,

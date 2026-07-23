@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 from am_configurator import store
 from am_configurator.ai_capability import AICapabilityError, AICapabilityService
 from am_configurator.credentials import MemoryCredentialStore
-from am_configurator.generation import OperationGate
+from am_configurator.generation_admission import OperationGate
 from am_configurator.library import GeneratedAssetLibrary
 from am_configurator.llm import ProviderError
 from am_configurator.ollama_client import OLLAMA_MODELS_URL, OllamaClient

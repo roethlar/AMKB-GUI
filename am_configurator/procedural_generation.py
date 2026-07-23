@@ -15,7 +15,7 @@ from typing import Any, Callable
 from PIL import Image
 
 from . import ai_catalog, device_mapping, procedural
-from .generation import (
+from .generation_admission import (
     PROCESS_OPERATION_GATE,
     GenerationBusyError,
     GenerationError,

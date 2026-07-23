@@ -334,8 +334,12 @@
   legacy bootstrap recorded under `## Blockers`. P12 is complete on the current
   tree: developer artifacts and production banking share one nearest-neighbor
   preview GIF writer with unchanged exact pixels, durations, cancellation, and
-  progress; the production wiring regression was proven red. The next slice is
-  Phase 10 / P13's extraction of shared admission primitives.
+  progress; the production wiring regression was proven red. P13 is complete:
+  the neutral generation-admission module owns shared errors, target snapshots,
+  and the operation gate; procedural generation and server admission no longer
+  depend on recovery generation, while recovery keeps compatible re-exports.
+  Fresh-process import-order and identity regressions were proven red. The next
+  slice is Phase 10 / P14's loopback-transport duplication audit.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -645,7 +649,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P13's extraction of shared admission primitives
+  continuing with Phase 10 / P14's loopback-transport duplication audit
   while P10 awaits a separately approved legacy bootstrap and P11 remains the
   final remediation-state hygiene pass.
   Do not push or dispatch workflows before the local remediation and verification

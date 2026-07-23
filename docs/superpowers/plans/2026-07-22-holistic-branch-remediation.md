@@ -613,7 +613,7 @@ Each polish item is a separate commit despite its size.
   GIF logic and call the canonical artifact writer without changing pixels or
   durations. Commit: `refactor: reuse procedural preview generation`.
 
-- [ ] **P13 — Extract shared admission primitives from retired generation.**
+- [x] **P13 — Extract shared admission primitives from retired generation.**
   Move `OperationGate`, shared errors, and target snapshot types into a neutral
   module before the final retired-pipeline deletion, with import-cycle tests.
   Commit: `refactor: extract generation admission primitives`.

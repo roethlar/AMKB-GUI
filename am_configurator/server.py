@@ -915,10 +915,10 @@ class _State:
         self._procedural_library_identity: int | None = (
             id(lighting_library) if procedural_coordinator is not None else None
         )
-        from .generation import _PROCESS_OPERATION_GATE
+        from .generation_admission import PROCESS_OPERATION_GATE
 
         self._generation_gate = self._lighting_dependencies.get(
-            "operation_gate", _PROCESS_OPERATION_GATE
+            "operation_gate", PROCESS_OPERATION_GATE
         )
         self._lighting_root_signature: tuple[Any, ...] | None = None
         self._lighting_reconcile_signature: tuple[int, bytes | None] | None = None
@@ -1096,7 +1096,7 @@ class _State:
     def reconcile_lighting(self, *, force: bool = False) -> list[dict]:
         """Reconcile durable work now and again whenever the effective key changes."""
         from . import store
-        from .generation import GenerationBusyError
+        from .generation_admission import GenerationBusyError
 
         if self._generation_gate.is_active:
             self._defer_lighting_reconciliation()
@@ -1255,7 +1255,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _lighting_error(self, exc: Exception) -> bool:
         from . import llm
         from .ai_capability import AICapabilityError
-        from .generation import (
+        from .generation_admission import (
             GenerationBusyError,
             GenerationNotActiveError,
             GenerationValidationError,
@@ -1512,7 +1512,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _require_ai_idle(self) -> None:
         if self.state._generation_gate.is_active:
-            from .generation import GenerationBusyError
+            from .generation_admission import GenerationBusyError
 
             raise GenerationBusyError("another generation operation is already active")
 
