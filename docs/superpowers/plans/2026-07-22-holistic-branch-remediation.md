@@ -297,7 +297,7 @@ local no-provider browser acceptance at the end of the phase.
   every boundary and prove no orphan worker or second admission. Commit:
   `fix: preserve admission after procedural launch`.
 
-- [ ] **F28 — Synchronize lazy AI service/provider construction.** Protect
+- [x] **F28 — Synchronize lazy AI service/provider construction.** Protect
   `_State.ai_services` and the remaining Ollama/API provider construction with
   locks or eager immutable construction. Concurrent setup/generation requests
   must observe one capability service and one provider instance per configured

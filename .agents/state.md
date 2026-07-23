@@ -97,7 +97,14 @@
   bookkeeping can fail. A post-launch failure cannot admit a second operation
   or make the live job uncancellable; only worker exit releases the token. The
   next slice is F28's synchronization of lazy AI service and provider
-  construction.
+  construction. F28 is complete on the current tree: `_State` publishes one
+  capability service under concurrent requests, and that service constructs
+  one cached provider per Ollama/API configuration identity, replacing the API
+  provider when its credential fingerprint changes. Provider cache clearing is
+  synchronized, and the existing architecture guard continues to prohibit any
+  managed llama singleton or process path. The next slice is F33's bounded,
+  cancellable procedural render/quality/encode/mapping pipeline with truthful
+  progress.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

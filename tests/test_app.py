@@ -2617,6 +2617,53 @@ class CombinedReconciliationAdmissionTests(unittest.TestCase):
         gate.finish(replacement_token)
 
 
+class AIServiceConstructionTests(unittest.TestCase):
+    def test_concurrent_requests_publish_one_capability_service(self) -> None:
+        state = server._State(
+            None,
+            "test-token",
+            credential_store=credentials.MemoryCredentialStore(),
+        )
+        created: list[object] = []
+        first_factory_entered = threading.Event()
+        second_factory_entered = threading.Event()
+        release_factory = threading.Event()
+        results: list[object] = []
+
+        def build_service(**_kwargs):
+            service = object()
+            created.append(service)
+            first_factory_entered.set()
+            if len(created) > 1:
+                second_factory_entered.set()
+            if not release_factory.wait(2):
+                raise TimeoutError("test did not release service construction")
+            return service
+
+        def resolve_service() -> None:
+            results.append(state.ai_services())
+
+        with patch(
+            "am_configurator.ai_capability.AICapabilityService",
+            side_effect=build_service,
+        ):
+            first = threading.Thread(target=resolve_service)
+            second = threading.Thread(target=resolve_service)
+            first.start()
+            self.assertTrue(first_factory_entered.wait(1))
+            second.start()
+            second_factory_entered.wait(0.2)
+            release_factory.set()
+            first.join(2)
+            second.join(2)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertEqual(1, len(created))
+        self.assertEqual(2, len(results))
+        self.assertIs(results[0], results[1])
+
+
 class LightingStudioEndpointTests(unittest.TestCase):
     _DEFAULT = object()
 

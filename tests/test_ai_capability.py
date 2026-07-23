@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import threading
 import time
 import unittest
 
@@ -395,6 +396,108 @@ class CapabilityTests(unittest.TestCase):
         self.assertEqual(fingerprint, api["setup_fingerprint"])
         self.assertTrue(service.status()["ready"])
         self.assertEqual("api", self.settings["ai"]["backend"])
+
+    def test_provider_construction_is_singleton_per_backend_identity(self) -> None:
+        self.ollama_models = [self.ollama_model]
+        self.settings["ai"].update({"enabled": True, "backend": "local"})
+        local = self.settings["ai"]["local"]
+        local.update({
+            "model_id": self.ollama_model.model_id,
+            "model_digest": self.ollama_model.digest,
+            "setup_fingerprint": ollama_setup_fingerprint(
+                self.ollama_model.model_id,
+                self.ollama_model.digest,
+            ),
+        })
+        local_created: list[object] = []
+        api_created: list[object] = []
+        first_factory_entered = threading.Event()
+        second_factory_entered = threading.Event()
+        release_factory = threading.Event()
+
+        def local_factory(_model):
+            provider = object()
+            local_created.append(provider)
+            first_factory_entered.set()
+            if len(local_created) > 1:
+                second_factory_entered.set()
+            if not release_factory.wait(2):
+                raise TimeoutError("test did not release provider construction")
+            return provider
+
+        def api_factory(_credential, _model_id):
+            provider = object()
+            api_created.append(provider)
+            return provider
+
+        service = AICapabilityService(
+            settings_loader=lambda: copy.deepcopy(self.settings),
+            credential_status_loader=lambda: {
+                "available": True,
+                "configured": self.credential is not None,
+                "external": False,
+                "invalid": False,
+            },
+            credential_resolver=lambda: self.credential,
+            fingerprint_writer=lambda *_args: None,
+            ai_settings_writer=lambda *_args, **_kwargs: None,
+            api_provider_factory=api_factory,
+            ollama_client=_OllamaClient(self.ollama_models),
+            ollama_provider_factory=local_factory,
+        )
+        results: list[object] = []
+        failures: list[BaseException] = []
+
+        def resolve_provider() -> None:
+            try:
+                results.append(service.provider_for_generation())
+            except BaseException as error:
+                failures.append(error)
+
+        first = threading.Thread(target=resolve_provider)
+        second = threading.Thread(target=resolve_provider)
+        first.start()
+        self.assertTrue(first_factory_entered.wait(1))
+        second.start()
+        second_factory_entered.wait(0.2)
+        release_factory.set()
+        first.join(2)
+        second.join(2)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertEqual([], failures)
+        self.assertEqual(1, len(local_created))
+        self.assertEqual(2, len(results))
+        self.assertIs(results[0], results[1])
+
+        self.credential = "sk-provider-cache-one"
+        self.settings["ai"]["backend"] = "api"
+        api = self.settings["ai"]["api"]
+        api["disclosure_version"] = ai_catalog.PRIVACY_DISCLOSURE_VERSION
+        api["disclosure_at"] = "2026-07-22T00:00:00+00:00"
+        api["setup_fingerprint"] = api_setup_fingerprint(
+            "xai",
+            "grok-4.5",
+            self.credential,
+            api["disclosure_version"],
+            api["disclosure_at"],
+        )
+        first_api = service.provider_for_generation()
+        self.assertIs(first_api, service.provider_for_generation())
+        self.assertEqual(1, len(api_created))
+
+        self.credential = "sk-provider-cache-two"
+        api["setup_fingerprint"] = api_setup_fingerprint(
+            "xai",
+            "grok-4.5",
+            self.credential,
+            api["disclosure_version"],
+            api["disclosure_at"],
+        )
+        second_api = service.provider_for_generation()
+        self.assertIsNot(first_api, second_api)
+        self.assertEqual(2, len(api_created))
 
 
 if __name__ == "__main__":

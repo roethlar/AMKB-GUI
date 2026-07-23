@@ -1337,6 +1337,7 @@ class _State:
         self._lighting_library = lighting_library
         self._lighting_coordinator = lighting_coordinator
         self._lighting_dependencies = dict(lighting_dependencies or {})
+        self._ai_lock = threading.Lock()
         self._ai_capability = ai_capability
         self._credential_store = credential_store
         self._procedural_coordinator = procedural_coordinator
@@ -1426,36 +1427,37 @@ class _State:
 
     def ai_services(self) -> Any:
         """Return the Ollama/API-only capability service."""
-        if self._ai_capability is None:
-            from . import store
-            from .ai_capability import AICapabilityService
+        with self._ai_lock:
+            if self._ai_capability is None:
+                from . import store
+                from .ai_capability import AICapabilityService
 
-            credential_store = self._credential_store
-            self._ai_capability = AICapabilityService(
-                settings_loader=lambda: store.load_settings(
-                    credential_store=credential_store
-                ),
-                credential_status_loader=lambda: store.credential_status(
-                    credential_store=credential_store
-                ),
-                credential_resolver=lambda: store.resolve_xai_key(
-                    credential_store=credential_store
-                ),
-                fingerprint_writer=lambda backend, fingerprint: (
-                    store.set_ai_setup_fingerprint(
-                        backend,
-                        fingerprint,
+                credential_store = self._credential_store
+                self._ai_capability = AICapabilityService(
+                    settings_loader=lambda: store.load_settings(
+                        credential_store=credential_store
+                    ),
+                    credential_status_loader=lambda: store.credential_status(
+                        credential_store=credential_store
+                    ),
+                    credential_resolver=lambda: store.resolve_xai_key(
+                        credential_store=credential_store
+                    ),
+                    fingerprint_writer=lambda backend, fingerprint: (
+                        store.set_ai_setup_fingerprint(
+                            backend,
+                            fingerprint,
+                            credential_store=credential_store,
+                        )
+                    ),
+                    ai_settings_writer=lambda values, **kwargs: store.update_ai_settings(
+                        values,
                         credential_store=credential_store,
-                    )
-                ),
-                ai_settings_writer=lambda values, **kwargs: store.update_ai_settings(
-                    values,
-                    credential_store=credential_store,
-                    **kwargs,
-                ),
-                ollama_client=self._ollama_client,
-            )
-        return self._ai_capability
+                        **kwargs,
+                    ),
+                    ollama_client=self._ollama_client,
+                )
+            return self._ai_capability
 
     def procedural_services(self) -> tuple[Any, Any]:
         """Return the current Library and its local-first procedural coordinator."""

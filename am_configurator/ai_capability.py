@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import time
 from typing import Any, Callable
 
@@ -145,6 +146,8 @@ class AICapabilityService:
             if ollama_provider_factory is None
             else ollama_provider_factory
         )
+        self._provider_lock = threading.Lock()
+        self._providers: dict[str, tuple[str, object]] = {}
         self._failure_reasons: dict[str, tuple[str, str]] = {}
 
     @staticmethod
@@ -153,6 +156,20 @@ class AICapabilityService:
 
     def _default_ollama_provider(self, model: OllamaModel):
         return OllamaRecipeProvider(model, client=self._ollama_client)
+
+    def _provider_for_identity(
+        self,
+        backend: str,
+        identity: str,
+        factory: Callable[[], object],
+    ) -> object:
+        with self._provider_lock:
+            existing = self._providers.get(backend)
+            if existing is not None and existing[0] == identity:
+                return existing[1]
+            provider = factory()
+            self._providers[backend] = (identity, provider)
+            return provider
 
 
     def discover_local_models(self) -> dict[str, Any]:
@@ -426,17 +443,27 @@ class AICapabilityService:
             settings = self._settings_loader()
             components = self._local_components(settings)
             model = components["model"]
-            if not isinstance(model, OllamaModel):
+            identity = components["expected"]
+            if not isinstance(model, OllamaModel) or not isinstance(identity, str):
                 raise AICapabilityError("model_unavailable")
-            return self._ollama_provider_factory(model)
+            return self._provider_for_identity(
+                "local",
+                identity,
+                lambda: self._ollama_provider_factory(model),
+            )
         settings = self._settings_loader()
         components = self._api_components(settings)
         credential = components["credential"]
-        if credential is None:
+        identity = components["expected"]
+        if credential is None or not isinstance(identity, str):
             raise AICapabilityError("credential_missing")
-        return self._api_provider_factory(
-            credential,
-            settings["ai"]["api"]["model_id"],
+        return self._provider_for_identity(
+            "api",
+            identity,
+            lambda: self._api_provider_factory(
+                credential,
+                settings["ai"]["api"]["model_id"],
+            ),
         )
 
     def test_and_enable(
@@ -467,7 +494,11 @@ class AICapabilityService:
             model = components["model"]
             if fingerprint is None or model is None:
                 raise llm.ProviderError("config", "The selected local model is unavailable.")
-            provider = self._ollama_provider_factory(model)
+            provider = self._provider_for_identity(
+                "local",
+                fingerprint,
+                lambda: self._ollama_provider_factory(model),
+            )
         else:
             components = self._api_components(settings)
             api = settings["ai"]["api"]
@@ -482,8 +513,12 @@ class AICapabilityService:
                 raise llm.ProviderError("config", "API disclosure is not current.")
             if fingerprint is None:
                 raise llm.ProviderError("config", "API setup is invalid.")
-            provider = self._api_provider_factory(
-                components["credential"], api["model_id"]
+            provider = self._provider_for_identity(
+                "api",
+                fingerprint,
+                lambda: self._api_provider_factory(
+                    components["credential"], api["model_id"]
+                ),
             )
 
         try:
@@ -506,7 +541,10 @@ class AICapabilityService:
         return self.status()
 
     def close(self) -> None:
-        """Compatibility no-op; Ollama/API providers have no managed process."""
+        """Release cached lightweight provider references."""
+
+        with self._provider_lock:
+            self._providers.clear()
 
 
 __all__ = [
