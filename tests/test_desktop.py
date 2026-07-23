@@ -188,6 +188,91 @@ class DesktopSmokeTests(unittest.TestCase):
         )
         self.assertFalse(hasattr(desktop, "_run_local_recipe_smoke"))
 
+    def test_recipe_smokes_construct_real_adapters_and_propagate_stage_failures(self) -> None:
+        constructors = {"api": 0, "ollama": 0}
+        real_api_provider = recipe_provider.XaiRecipeProvider
+        real_ollama_provider = recipe_provider.OllamaRecipeProvider
+
+        def api_provider(*args, **kwargs):
+            constructors["api"] += 1
+            return real_api_provider(*args, **kwargs)
+
+        def ollama_provider(*args, **kwargs):
+            constructors["ollama"] += 1
+            return real_ollama_provider(*args, **kwargs)
+
+        with (
+            mock.patch.object(recipe_provider, "XaiRecipeProvider", side_effect=api_provider),
+            mock.patch.object(recipe_provider, "OllamaRecipeProvider", side_effect=ollama_provider),
+            mock.patch.object(procedural, "render_recipe", wraps=procedural.render_recipe) as render,
+            mock.patch.object(
+                procedural,
+                "map_frames_to_led_tracks",
+                wraps=procedural.map_frames_to_led_tracks,
+            ) as map_frames,
+        ):
+            desktop._run_api_recipe_smoke()
+            desktop._run_ollama_recipe_smoke()
+
+        self.assertEqual({"api": 1, "ollama": 1}, constructors)
+        self.assertEqual(2, render.call_count)
+        self.assertEqual(2, map_frames.call_count)
+
+        class SmokeStageFailure(RuntimeError):
+            pass
+
+        cases = (
+            (
+                "disabled status",
+                desktop._run_disabled_ai_smoke,
+                mock.patch.object(
+                    AICapabilityService,
+                    "status",
+                    side_effect=SmokeStageFailure("disabled status failed"),
+                ),
+            ),
+            (
+                "api provider construction",
+                desktop._run_api_recipe_smoke,
+                mock.patch.object(
+                    recipe_provider,
+                    "XaiRecipeProvider",
+                    side_effect=SmokeStageFailure("api construction failed"),
+                ),
+            ),
+            (
+                "api rendering",
+                desktop._run_api_recipe_smoke,
+                mock.patch.object(
+                    procedural,
+                    "render_recipe",
+                    side_effect=SmokeStageFailure("api rendering failed"),
+                ),
+            ),
+            (
+                "ollama provider construction",
+                desktop._run_ollama_recipe_smoke,
+                mock.patch.object(
+                    recipe_provider,
+                    "OllamaRecipeProvider",
+                    side_effect=SmokeStageFailure("ollama construction failed"),
+                ),
+            ),
+            (
+                "ollama mapping",
+                desktop._run_ollama_recipe_smoke,
+                mock.patch.object(
+                    procedural,
+                    "map_frames_to_led_tracks",
+                    side_effect=SmokeStageFailure("ollama mapping failed"),
+                ),
+            ),
+        )
+        for name, smoke, failure_patch in cases:
+            with self.subTest(stage=name), failure_patch:
+                with self.assertRaises(SmokeStageFailure):
+                    smoke()
+
 
 class DesktopWindowTests(unittest.TestCase):
     def test_run_desktop_injects_and_binds_the_native_bridge(self) -> None:

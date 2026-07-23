@@ -291,20 +291,6 @@ class ReleaseInfoTests(unittest.TestCase):
         for forbidden_artifact in ('".gguf"', '"llama-cli"', '"llama-server"'):
             self.assertIn(forbidden_artifact, smoke)
 
-    def test_frozen_smoke_test_runs_fake_recipe_backends_offline(self) -> None:
-        smoke = (ROOT / "am_configurator" / "desktop.py").read_text(encoding="utf-8")
-
-        # Both shipped recipe adapters must reach deterministic render and
-        # mapping through injected fake transports, never provider hosts.
-        self.assertIn("XaiRecipeProvider", smoke)
-        self.assertIn("OllamaRecipeProvider", smoke)
-        self.assertIn("render_recipe", smoke)
-        self.assertIn("map_frames_to_led_tracks", smoke)
-        # ssl context creation is verified without a socket; the real-TLS reach
-        # test is opt-in only, so a CI/offline smoke run never touches network.
-        self.assertIn("create_default_context", smoke)
-        self.assertIn("AM_SMOKE_NET", smoke)
-
     def test_application_forbids_managed_llama_processes_and_credentials(self) -> None:
         executable_modules = (
             "ai_capability.py",

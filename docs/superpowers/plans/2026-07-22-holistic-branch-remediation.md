@@ -370,7 +370,7 @@ local no-provider browser acceptance at the end of the phase.
   hardware access. Assert no advanced-GGUF smoke remains. Commit:
   `test: execute offline desktop ai smokes`.
 
-- [ ] **F37 — Replace smoke source assertions with failure-sensitive guards.**
+- [x] **F37 — Replace smoke source assertions with failure-sensitive guards.**
   Remove substring-only packaging checks and add tests proving each smoke's
   provider construction, render/mapping, and failure propagation execute.
   Commit: `test: guard primary ollama smoke behavior`.
