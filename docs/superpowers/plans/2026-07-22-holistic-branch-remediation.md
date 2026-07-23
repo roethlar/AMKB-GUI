@@ -634,7 +634,7 @@ Each polish item is a separate commit despite its size.
   through validation, assembly, and publication and roll back atomically at
   every late boundary. Commit: `fix: enforce media deadline through publication`.
 
-- [ ] **P17 — Prove local-runtime leak paths are deleted.** After F20, verify the
+- [x] **P17 — Prove local-runtime leak paths are deleted.** After F20, verify the
   reader-thread, descriptor, probe-child, and managed-runtime setup paths no
   longer exist. Add an architecture guard if source search alone would be too
   weak. Commit: `test: prohibit local runtime setup processes`.
