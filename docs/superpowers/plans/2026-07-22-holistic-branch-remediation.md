@@ -402,7 +402,7 @@ local no-provider browser acceptance at the end of the phase.
   with exact commands/commits rather than unsupported blanket completion text.
   Commit: `docs: record ollama regression guard proofs`.
 
-- [ ] **F50 — Prove local model/runtime attestations are gone.** After Phase 0,
+- [x] **F50 — Prove local model/runtime attestations are gone.** After Phase 0,
   verify no model/runtime attestation reader, writer, schema, package data, or
   capability dependency remains. Add an artifact/architecture regression that
   fails if those paths return; FFmpeg attestation rejection remains covered by

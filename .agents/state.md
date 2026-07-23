@@ -186,9 +186,12 @@
   Ollama plan's status names every F08/F09/F36-F41 remediation commit and owns
   one canonical ledger of the exact focused command, temporary production
   mutation, expected failure, restoration, and passing result for each guard.
-  The historical Ollama state entry points to that ledger. The next slice is
-  F50's negative architecture proof that local model/runtime attestations are
-  gone.
+  The historical Ollama state entry points to that ledger. F50 is complete on
+  the current tree: removed local-model and llama-runtime attestation modules
+  are non-importable, shipping sources and package data reject their schemas,
+  readers, writers, and capability dependencies, and frozen smoke refuses both
+  legacy metadata filenames. FFmpeg's separate attestation system remains
+  explicitly allowed. The next slice is F54's GPG fingerprint parser coverage.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -498,7 +501,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 5 / F50's local-attestation prohibition. Do not
+  continuing with Phase 5 / F54's FFmpeg signing-fingerprint guards. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

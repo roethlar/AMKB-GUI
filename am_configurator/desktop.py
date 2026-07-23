@@ -163,12 +163,13 @@ def _assert_ollama_api_only_bundle() -> None:
         return
     root = Path(frozen_root)
     forbidden_stems = {"llama-cli", "llama-server"}
+    forbidden_names = {"llama-runtime.json", "local-model.json"}
     for path in root.rglob("*"):
         name = path.name.lower()
         if (
             path.suffix.lower() == ".gguf"
             or path.stem.lower() in forbidden_stems
-            or name == "llama-runtime.json"
+            or name in forbidden_names
         ):
             raise SystemExit(
                 "Desktop smoke test failed: application bundle contains a direct model runtime."

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import importlib.util
+import sys
 import tomllib
 import unittest
 from pathlib import Path
 from subprocess import CalledProcessError
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from PIL import Image
 
 from build import build_installer, reserve_local_build_number
-from am_configurator import __version__
+from am_configurator import __version__, desktop
 from build_tools.release_info import (
     artifact_filename,
     build_version,
@@ -316,6 +319,89 @@ class ReleaseInfoTests(unittest.TestCase):
         for name in ("ai_capability.py", "recipe_provider.py"):
             self.assertNotIn("subprocess", sources[name])
             self.assertNotIn("Popen", sources[name])
+
+    def test_local_model_and_runtime_attestations_cannot_return(self) -> None:
+        removed_paths = (
+            ROOT / "am_configurator" / "local_model.py",
+            ROOT / "am_configurator" / "local_ai_runtime.py",
+            ROOT / "build_tools" / "llama_bundle.py",
+            ROOT / "build_tools" / "prepare_llama.py",
+            ROOT / "build_tools" / "finalize_llama_bundle.py",
+            ROOT / "packaging" / "llama",
+        )
+        for path in removed_paths:
+            self.assertFalse(path.exists(), str(path.relative_to(ROOT)))
+        for module in (
+            "am_configurator.local_model",
+            "am_configurator.local_ai_runtime",
+            "build_tools.llama_bundle",
+        ):
+            self.assertIsNone(importlib.util.find_spec(module), module)
+
+        allowed_ffmpeg_modules = {
+            ROOT / "am_configurator" / "ffmpeg_runtime.py",
+            ROOT / "build_tools" / "ffmpeg_bundle.py",
+            ROOT / "build_tools" / "prepare_ffmpeg.py",
+            ROOT / "build_tools" / "finalize_ffmpeg_bundle.py",
+        }
+        source_paths = [
+            path
+            for root in (ROOT / "am_configurator", ROOT / "build_tools")
+            for path in root.glob("*.py")
+            if path not in allowed_ffmpeg_modules
+        ]
+        source_paths.extend((ROOT / "build.py", ROOT / "packaging" / "am_configurator.spec"))
+        source_paths.extend((ROOT / ".github" / "workflows").glob("*"))
+        shipping_source = "\n".join(
+            path.read_text("utf-8") for path in source_paths if path.is_file()
+        )
+        shipping_source = shipping_source.replace('"llama-runtime.json"', "").replace(
+            '"local-model.json"', ""
+        )
+        for forbidden in (
+            "LocalModelManager",
+            "SelectedModel",
+            "LocalRuntimeError",
+            "RuntimePaths",
+            "ATTESTATION_SCHEMA_VERSION",
+            "MAX_RUNTIME_ATTESTATION_BYTES",
+            "_read_runtime_attestation",
+            "runtime_attestation_schema_version",
+            "verify_runtime_attestation",
+            "packaging/llama",
+        ):
+            self.assertNotIn(forbidden, shipping_source)
+
+        for path in (ROOT / "packaging").rglob("*"):
+            relative = path.relative_to(ROOT / "packaging")
+            if relative.parts and relative.parts[0] == "ffmpeg":
+                continue
+            lowered = relative.as_posix().lower()
+            self.assertNotIn("llama", lowered)
+            self.assertNotIn(".gguf", lowered)
+            self.assertNotIn("local-model.json", lowered)
+
+        capability = (ROOT / "am_configurator" / "ai_capability.py").read_text("utf-8")
+        for forbidden in (
+            "attestation",
+            "from .local_model",
+            "import local_model",
+            "localmodelmanager",
+            "local_ai_runtime",
+            "model_path",
+            "verify_runtime_attestation",
+        ):
+            self.assertNotIn(forbidden, capability.lower())
+
+        with TemporaryDirectory(prefix="am-attestation-artifact-") as temporary:
+            root = Path(temporary)
+            with patch.object(sys, "_MEIPASS", str(root), create=True):
+                for name in ("local-model.json", "llama-runtime.json"):
+                    artifact = root / name
+                    artifact.write_text("{}", encoding="utf-8")
+                    with self.subTest(artifact=name), self.assertRaises(SystemExit):
+                        desktop._assert_ollama_api_only_bundle()
+                    artifact.unlink()
 
     def test_windows_installer_smoke_test_waits_for_gui_processes(self) -> None:
         script = (ROOT / "packaging" / "windows" / "build_installer.ps1").read_text(
