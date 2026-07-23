@@ -7,6 +7,7 @@ const {STAGES, createLightingState, reduceLightingState} = require("../../am_con
 const {
   REVIEW_BLOCK_REASONS,
   createReviewView,
+  openRenderedDialog,
   renderReview,
   reviewBlockedMessage,
 } = require("../../am_configurator/web/lighting_review.js");
@@ -63,6 +64,27 @@ function readyAttempt() {
     mapped_result_asset_id: "mapped-asset",
   };
 }
+
+test("generation dialog opens before its first render", () => {
+  const dialog = {
+    hidden: true,
+    open: false,
+    showCalls: 0,
+    showModal() {
+      this.showCalls += 1;
+      this.open = true;
+    },
+  };
+  let renderedWhileOpen = false;
+
+  openRenderedDialog(dialog, () => {
+    renderedWhileOpen = dialog.open;
+  });
+
+  assert.equal(dialog.hidden, false);
+  assert.equal(dialog.showCalls, 1);
+  assert.equal(renderedWhileOpen, true);
+});
 
 test("ready reducer state renders the authenticated preview and applies exactly once", () => {
   const lighting = reduceLightingState(createLightingState(), {type: "JOB_SYNCED", job: readyJob()}).state;

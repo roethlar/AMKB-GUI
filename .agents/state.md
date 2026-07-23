@@ -8,11 +8,19 @@
   governance refresh, bootstrap preparation, bootstrap blocker, and later
   governance-state reconciliation attempted during this remediation were
   reversed; none remains queued under the product plan.
-- Product implementation is complete through `61d2d65`. The full repository
-  gate, current-host versioned native build, frozen offline desktop smoke,
-  built-artifact inspection, and final goal-first review all passed on that
-  product tree. Shipped AI remains fixed-loopback Ollama or curated API only;
-  no application-managed runtime or model-management path remains.
+- Product implementation is complete on the current tree; the canonical
+  closure ledger is
+  `docs/superpowers/plans/2026-07-22-holistic-branch-remediation.md`. The
+  2026-07-23 no-provider/no-hardware UI pass covered normal file-open target
+  synchronization, every device-family Target control, disabled and ready
+  Ollama Settings, independent paint-stroke undo, Library retry, narrow and
+  zoom-equivalent layouts, and procedural Review/Apply. It found and closed one
+  F01 regression: Generate now opens its modal before the first render instead
+  of displaying an empty dialog. The full repository gate, versioned macOS
+  `0.1.34` build, frozen offline desktop smoke, signed-bundle verification, and
+  built-artifact inspection passed afterward. Shipped AI remains fixed-loopback
+  Ollama or curated API only; no application-managed runtime or model-management
+  path remains.
 - The holistic branch review was committed in `e2ba095`, and its complete
   remediation ledger was committed in `8faa962`. The owner then corrected the
   release direction: shipped AI is fixed-loopback Ollama or curated API only.
@@ -700,9 +708,6 @@
 
 - Do not perform governance work under this product-remediation plan. Any
   governance update requires a separate fresh one-off session.
-- Complete the plan's manual no-provider/no-hardware UI inspection in a
-  browser-capable session. Do not push or dispatch workflows without separate
-  outward authorization.
 - After remediation and a separate outward authorization, verify Windows
   x86_64 and Linux x86_64 packages as Ollama/API-only builds and prove they
   contain no llama binary, GGUF execution path, model picker, model-selection

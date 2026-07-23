@@ -9,7 +9,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
-const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
+const {createReviewView, openRenderedDialog, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, renderTargetControls} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
@@ -2072,9 +2072,7 @@ function renderGenerationDialog() {
 function openGenerationDialog() {
   const dialog=$("#lighting-generate-dialog");
   if((!aiReady()&&!state.lighting.activeJob)||!state.config||!pageData().length||(!state.lighting.activeJob&&!documentSynchronized()))return;
-  dialog.hidden=false;
-  renderGenerationDialog();
-  if(!dialog.open)dialog.showModal();
+  openRenderedDialog(dialog,renderGenerationDialog);
   setTimeout(()=>$("#effect-prompt")?.focus(),30);
 }
 

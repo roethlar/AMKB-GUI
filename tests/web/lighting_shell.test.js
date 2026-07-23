@@ -154,6 +154,7 @@ test("generation is one prompt, durable progress, animated review, and explicit 
   assert.match(review,/Animated exact-raster lighting preview/);
   assert.match(js,/createReviewView\(\{assetUrls:state\.conceptAssetUrls/);
   assert.match(js,/renderReview\(\$\("#lighting-generate-content"\),view,applyReviewedLighting\)/);
+  assert.match(js,/openRenderedDialog\(dialog,renderGenerationDialog\)/);
   assert.match(js,/saved failure does not disable this backend/);
   assert.match(js,/syncLightingJob\(null,\{renderPage:false\}\)/);
   assert.match(js,/type:"APPLY_REQUESTED"/);

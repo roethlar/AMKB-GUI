@@ -185,6 +185,16 @@ local no-provider browser acceptance at the end of the phase.
   Add an executable browser-state/DOM test that reaches review, renders it, and
   exercises blocked and successful Apply paths; source regex is insufficient.
   Commit: `fix: restore procedural review and apply`.
+  The 2026-07-23 manual completion pass reopened this item after the real first
+  click produced an empty modal: `openGenerationDialog` rendered before
+  `showModal`, while the renderer correctly ignored a closed dialog. The
+  executable dialog-order regression and its adapter-wiring assertion failed
+  together under
+  `node --test tests/web/lighting_review.test.js tests/web/lighting_shell.test.js`,
+  then passed after one helper made opening precede rendering. A clean
+  CLI-driven Chromium recheck opened the prompt on the first click; the same
+  isolated fake-provider session reached animated Review and applied 200 frames
+  as one undoable document-only change without provider or hardware access.
 
 - [x] **F05 — Repair the manual Lighting Target control.** Close the class
   attribute correctly, generate valid buttons for every device target, retain
