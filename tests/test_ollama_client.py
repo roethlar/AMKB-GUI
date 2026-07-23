@@ -154,6 +154,41 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual("GET", request.get_method())
         self.assertGreater(timeout, 0)
 
+    def test_older_tags_contract_requires_upgrade_without_show_fallback(self) -> None:
+        legacy_model = _model("ornith:latest", "a" * 64)
+        legacy_model.pop("capabilities")
+        calls = []
+
+        def opener(request, timeout):
+            calls.append((request.full_url, timeout))
+            return _Response({"models": [legacy_model]})
+
+        with self.assertRaises(OllamaError) as captured:
+            OllamaClient(opener=opener).list_models(
+                deadline=time.monotonic() + 10
+            )
+        self.assertEqual("upgrade_required", captured.exception.code)
+        self.assertIn("must be upgraded", str(captured.exception))
+        self.assertEqual([OLLAMA_MODELS_URL], [url for url, _timeout in calls])
+
+        empty = OllamaClient(
+            opener=lambda *_args, **_kwargs: _Response({"models": []})
+        ).list_models(deadline=time.monotonic() + 10)
+        self.assertEqual((), empty)
+
+        non_completion = OllamaClient(
+            opener=lambda *_args, **_kwargs: _Response({
+                "models": [
+                    _model(
+                        "embedding:latest",
+                        "b" * 64,
+                        capabilities=["embedding"],
+                    )
+                ]
+            })
+        ).list_models(deadline=time.monotonic() + 10)
+        self.assertEqual((), non_completion)
+
     def test_chat_uses_only_the_fixed_loopback_endpoint_and_rejects_bad_output(self) -> None:
         observed = {}
 

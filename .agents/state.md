@@ -134,8 +134,16 @@
   credentials, or fragment. Its dedicated verifying opener ignores environment
   proxies and refuses 301/302/303/307/308 redirects, so Authorization cannot be
   forwarded to another origin. The origin/proxy regression fails against the
-  prior transport and passes with the hardening restored. The next slice is
-  F43's incompatible-Ollama discovery diagnosis.
+  prior transport and passes with the hardening restored. F43 is complete on
+  the current tree: an otherwise valid local `/api/tags` model entry without
+  capability metadata yields the stable `upgrade_required` discovery and
+  setup reason, while a genuinely empty inventory or an explicit
+  non-completion model remains an ordinary empty eligible list. Settings tells
+  the user Ollama must be upgraded. Discovery still uses only `/api/tags`, and
+  generation only `/api/chat`; no `/api/show` or model-management operation was
+  added. The client, capability, and browser regressions all fail with their
+  deciding branches removed and pass after restoration. The next slice is
+  F08's non-vacuous AI proxy-disable coverage.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -441,7 +449,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 1 / F43's incompatible-Ollama discovery diagnosis. Do not
+  continuing with Phase 5 / F08's non-vacuous AI proxy-disable coverage. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

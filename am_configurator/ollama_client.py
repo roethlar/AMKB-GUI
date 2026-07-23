@@ -51,6 +51,7 @@ class OllamaError(RuntimeError):
             "timeout",
             "cancelled",
             "model_unavailable",
+            "upgrade_required",
             "bad_response",
         }:
             code = "unavailable"
@@ -124,6 +125,23 @@ def _model_from_tag(value: object) -> OllamaModel | None:
         size_bytes=size,
         parameter_size=_bounded_detail(details.get("parameter_size")),
         quantization=_bounded_detail(details.get("quantization_level")),
+    )
+
+
+def _local_tag_missing_capabilities(value: object) -> bool:
+    """Identify an otherwise valid local tag from an older Ollama contract."""
+    if not isinstance(value, dict) or "capabilities" in value:
+        return False
+    if "remote_model" in value or "remote_host" in value:
+        return False
+    model_id = value.get("model")
+    return (
+        value.get("name") == model_id
+        and valid_model_id(model_id)
+        and not model_id.lower().endswith(":cloud")
+        and valid_model_digest(value.get("digest"))
+        and type(value.get("size")) is int
+        and value["size"] > 0
     )
 
 
@@ -309,6 +327,11 @@ class OllamaClient:
         if not isinstance(values, list) or len(values) > MAX_OLLAMA_MODELS:
             raise OllamaError("bad_response", "The local Ollama model list was invalid.")
         models = [model for value in values if (model := _model_from_tag(value)) is not None]
+        if not models and any(_local_tag_missing_capabilities(value) for value in values):
+            raise OllamaError(
+                "upgrade_required",
+                "Ollama must be upgraded before local models can be discovered.",
+            )
         models.sort(key=lambda model: (model.model_id.casefold(), model.model_id))
         return tuple(models)
 

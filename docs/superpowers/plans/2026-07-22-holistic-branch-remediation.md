@@ -343,7 +343,7 @@ local no-provider browser acceptance at the end of the phase.
   environment, DNS/timeout, and secret redaction. Commit:
   `fix: pin xai api transport`.
 
-- [ ] **F43 — Diagnose unsupported Ollama discovery contracts.** Preserve the
+- [x] **F43 — Diagnose unsupported Ollama discovery contracts.** Preserve the
   approved two-endpoint boundary: do not add `/api/show`. Distinguish a service
   returning model entries without required capability metadata from a true
   empty eligible inventory, return a stable `upgrade_required` setup reason,

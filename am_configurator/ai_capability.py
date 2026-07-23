@@ -24,6 +24,7 @@ _ALLOWED_REASONS = {
     "disabled",
     "backend_unselected",
     "ollama_unavailable",
+    "upgrade_required",
     "model_missing",
     "credential_store_unavailable",
     "credential_invalid",
@@ -177,7 +178,15 @@ class AICapabilityService:
 
         try:
             models = self._ollama_client.list_models(deadline=time.monotonic() + 5.0)
-        except (OllamaError, OSError, RuntimeError):
+        except OllamaError as exc:
+            if exc.code == "upgrade_required":
+                return {
+                    "available": True,
+                    "models": [],
+                    "reason": "upgrade_required",
+                }
+            return {"available": False, "models": []}
+        except (OSError, RuntimeError):
             return {"available": False, "models": []}
         if not isinstance(models, tuple) or any(
             not isinstance(model, OllamaModel) for model in models
@@ -199,9 +208,15 @@ class AICapabilityService:
             ):
                 raise OllamaError("bad_response", "Invalid local model list.")
             available = True
-        except (OllamaError, OSError, RuntimeError):
+            upgrade_required = False
+        except OllamaError as exc:
+            models = ()
+            upgrade_required = exc.code == "upgrade_required"
+            available = upgrade_required
+        except (OSError, RuntimeError):
             models = ()
             available = False
+            upgrade_required = False
         model = next(
             (
                 candidate
@@ -219,6 +234,7 @@ class AICapabilityService:
                 expected = None
         return {
             "available": available,
+            "upgrade_required": upgrade_required,
             "selected": selected_id is not None and selected_digest is not None,
             "model_id": selected_id,
             "model": model,
@@ -230,6 +246,7 @@ class AICapabilityService:
         ollama = self._ollama_components(settings)
         return {
             "service_available": ollama["available"],
+            "upgrade_required": ollama["upgrade_required"],
             "selected": ollama["selected"],
             "model_id": ollama["model_id"],
             "verified": ollama["verified"],
@@ -244,6 +261,7 @@ class AICapabilityService:
         selected = local["model_id"] is not None and local["model_digest"] is not None
         return {
             "service_available": False,
+            "upgrade_required": False,
             "selected": selected,
             "model_id": local["model_id"],
             "verified": False,
@@ -352,6 +370,8 @@ class AICapabilityService:
             elif backend == "local":
                 if not local["service_available"]:
                     reason = "ollama_unavailable"
+                elif local["upgrade_required"]:
+                    reason = "upgrade_required"
                 elif not local["selected"]:
                     reason = "model_missing"
                 elif not local["verified"]:

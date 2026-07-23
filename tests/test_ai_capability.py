@@ -94,14 +94,23 @@ class _FailingProvider:
 
 
 class _OllamaClient:
-    def __init__(self, models: list[OllamaModel], *, available: bool = True) -> None:
+    def __init__(
+        self,
+        models: list[OllamaModel],
+        *,
+        available: bool = True,
+        error_code: str | None = None,
+    ) -> None:
         self.models = models
         self.available = available
+        self.error_code = error_code
         self.calls = 0
 
     def list_models(self, *, deadline):
         del deadline
         self.calls += 1
+        if self.error_code is not None:
+            raise OllamaError(self.error_code, "Stable local discovery failure.")
         if not self.available:
             raise OllamaError("unavailable", "Local Ollama is unavailable.")
         return tuple(self.models)
@@ -128,6 +137,7 @@ class CapabilityTests(unittest.TestCase):
         credential_available=True,
         credential_invalid=False,
         ollama_available=True,
+        ollama_error=None,
     ):
         def write_fingerprint(backend, fingerprint):
             self.writes.append(("fingerprint", backend, fingerprint))
@@ -156,6 +166,7 @@ class CapabilityTests(unittest.TestCase):
             ollama_client=_OllamaClient(
                 self.ollama_models,
                 available=ollama_available,
+                error_code=ollama_error,
             ),
             ollama_provider_factory=lambda model: provider or _Provider(),
         )
@@ -295,6 +306,27 @@ class CapabilityTests(unittest.TestCase):
         with self.assertRaises(AICapabilityError) as captured:
             service.require_ready()
         self.assertEqual("model_missing", captured.exception.reason)
+
+        upgrade = self._service(ollama_error="upgrade_required")
+        upgrade_status = upgrade.status()
+        self.assertEqual("upgrade_required", upgrade_status["reason"])
+        self.assertTrue(upgrade_status["local"]["service_available"])
+        self.assertFalse(upgrade_status["ready"])
+        with self.assertRaises(AICapabilityError) as captured:
+            upgrade.require_ready()
+        self.assertEqual("upgrade_required", captured.exception.reason)
+        self.assertEqual(
+            {
+                "available": True,
+                "models": [],
+                "reason": "upgrade_required",
+            },
+            upgrade.discover_local_models(),
+        )
+        self.assertEqual(
+            {"available": True, "models": []},
+            service.discover_local_models(),
+        )
 
         self.settings["ai"]["backend"] = "api"
         self.assertEqual(

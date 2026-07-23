@@ -80,6 +80,13 @@ test("Settings exposes only installed Ollama models and the curated API", () => 
   assert.match(restore,/await synchronizeOpenDocument\(\)/);
 });
 
+test("Settings explains incompatible Ollama discovery without adding show", () => {
+  assert.match(js,/const reason=value\?\.reason==="upgrade_required"\?"upgrade_required":null/);
+  assert.match(js,/Ollama must be upgraded before local AI can discover installed models/);
+  assert.match(js,/Upgrade Ollama to use local AI/);
+  assert.doesNotMatch(js,/\/api\/show/);
+});
+
 test("Settings exposes an explicit blocked-migration credential discard", () => {
   for(const id of [
     "settings-migration-repair","settings-migration-message","settings-migration-confirm",

@@ -62,7 +62,7 @@ const state = {
   capabilities: null,
   settings: null,
   aiStatus: null,
-  localModels: {available:null,models:[],loading:false},
+  localModels: {available:null,models:[],reason:null,loading:false},
   settingsReturnRoute: null,
   settingsReturnDialog: false,
   settingsSaveBusy: false,
@@ -2161,7 +2161,7 @@ async function loadAiConfig() {
   if(requests[1].status==="fulfilled")state.settings=requests[1].value;
   if(requests[2].status==="fulfilled")state.aiStatus=requests[2].value;
   if(requests[3].status==="fulfilled")state.localModels=normalizeLocalModels(requests[3].value);
-  else state.localModels={available:false,models:[],loading:false};
+  else state.localModels={available:false,models:[],reason:null,loading:false};
   if(["smooth","none","ping_pong"].includes(state.settings?.generation?.loop_mode))state.animationLoopMode=state.settings.generation.loop_mode;
   refreshAiGate();
 }
@@ -2183,13 +2183,14 @@ function refreshAiGate() {
 
 function aiReasonText(reason,status=state.aiStatus) {
   return ({
-    disabled:"Optional generation is off.",backend_unselected:"Choose a backend.",ollama_unavailable:"Start Ollama on this computer, then refresh the installed models.",model_missing:"Choose one of the models already installed in Ollama.",model_unavailable:"The selected Ollama model is no longer installed with the same identity. Refresh and choose it again.",setup_required:"Run the setup test to enable this backend.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_invalid:"The API credential is invalid.",credential_missing:"Save an API credential.",disclosure_required:"Accept the API data disclosure.",auth_invalid:"The API credential was rejected.",ready:"Ready.",
+    disabled:"Optional generation is off.",backend_unselected:"Choose a backend.",ollama_unavailable:"Start Ollama on this computer, then refresh the installed models.",upgrade_required:"Upgrade Ollama to use local AI, then refresh the installed models.",model_missing:"Choose one of the models already installed in Ollama.",model_unavailable:"The selected Ollama model is no longer installed with the same identity. Refresh and choose it again.",setup_required:"Run the setup test to enable this backend.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_invalid:"The API credential is invalid.",credential_missing:"Save an API credential.",disclosure_required:"Accept the API data disclosure.",auth_invalid:"The API credential was rejected.",ready:"Ready.",
   })[reason]||"Setup needs attention.";
 }
 
 function normalizeLocalModels(value) {
   const models=Array.isArray(value?.models)?value.models.filter(model=>model&&typeof model.model_id==="string"&&typeof model.digest==="string"):[];
-  return {available:value?.available===true,models,loading:false};
+  const reason=value?.reason==="upgrade_required"?"upgrade_required":null;
+  return {available:value?.available===true,models,reason,loading:false};
 }
 
 function populateLocalModelSelect(local) {
@@ -2197,10 +2198,11 @@ function populateLocalModelSelect(local) {
   const previous=select.value;
   const selected=local.model_id;
   const models=state.localModels.models;
+  const upgradeRequired=state.localModels.reason==="upgrade_required";
   select.replaceChildren();
   const placeholder=document.createElement("option");
   placeholder.value="";
-  placeholder.textContent=state.localModels.loading?"Checking installed models…":state.localModels.available?(models.length?"Choose an installed model":"No eligible local models found"):"Ollama is not available";
+  placeholder.textContent=state.localModels.loading?"Checking installed models…":upgradeRequired?"Upgrade Ollama to discover models":state.localModels.available?(models.length?"Choose an installed model":"No eligible local models found"):"Ollama is not available";
   select.append(placeholder);
   models.forEach(model=>{
     const option=document.createElement("option");
@@ -2218,7 +2220,7 @@ function populateLocalModelSelect(local) {
   }
   const preferred=[previous,selected].find(value=>value&&[...select.options].some(option=>option.value===value))||"";
   select.value=preferred;
-  select.disabled=state.localModels.loading||!state.localModels.available||models.length===0;
+  select.disabled=state.localModels.loading||upgradeRequired||!state.localModels.available||models.length===0;
 }
 
 async function openSettings({returnToGeneration=false}={}) {
@@ -2259,11 +2261,13 @@ function populateSettings() {
   $("#settings-api-panel").hidden=backend!=="api";
   const local=status?.local||{};
   const ollamaAvailable=state.localModels.available===true;
-  $("#settings-local-runtime").textContent=state.localModels.loading?"Checking":ollamaAvailable?"Ollama ready":"Not running";
-  $("#settings-local-runtime").className=`pill ${ollamaAvailable?"":"muted"}`;
+  const upgradeRequired=state.localModels.reason==="upgrade_required"||status?.reason==="upgrade_required";
+  $("#settings-local-runtime").textContent=state.localModels.loading?"Checking":upgradeRequired?"Upgrade needed":ollamaAvailable?"Ollama ready":"Not running";
+  $("#settings-local-runtime").className=`pill ${ollamaAvailable&&!upgradeRequired?"":"muted"}`;
   let localGuidance="Choose an installed Ollama model for local generation.";
   if(backend==="local"){
-    if(!ollamaAvailable)localGuidance="Start Ollama on this computer, then refresh the installed models.";
+    if(upgradeRequired)localGuidance="Upgrade Ollama to use local AI, then refresh the installed models.";
+    else if(!ollamaAvailable)localGuidance="Start Ollama on this computer, then refresh the installed models.";
     else if(!local.model_selected)localGuidance="Choose one of the models already installed in Ollama.";
     else if(!local.model_verified)localGuidance="The selected model is no longer available. Refresh and choose it again.";
     else if(!local.setup_tested)localGuidance="Run Test & enable to verify this model can create lighting recipes.";
@@ -2313,8 +2317,8 @@ async function refreshLocalModels({quiet=false}={}) {
   try{
     state.localModels=normalizeLocalModels(await api("/api/ai/local/models"));
     populateSettings();
-    if(!quiet)setSettingsStatus(state.localModels.available?(state.localModels.models.length?`${state.localModels.models.length} local Ollama model${state.localModels.models.length===1?"":"s"} available.`:"Ollama is running, but it has no eligible local models installed."):"Ollama is not running. Start Ollama, then refresh models.",state.localModels.available?"":"error");
-  }catch(error){state.localModels={available:false,models:[],loading:false};populateSettings();if(!quiet)setSettingsStatus("Ollama could not be reached on this computer.","error");}
+    if(!quiet)setSettingsStatus(state.localModels.reason==="upgrade_required"?"Ollama must be upgraded before local AI can discover installed models.":state.localModels.available?(state.localModels.models.length?`${state.localModels.models.length} local Ollama model${state.localModels.models.length===1?"":"s"} available.`:"Ollama is running, but it has no eligible local models installed."):"Ollama is not running. Start Ollama, then refresh models.",state.localModels.reason==="upgrade_required"||!state.localModels.available?"error":"");
+  }catch(error){state.localModels={available:false,models:[],reason:null,loading:false};populateSettings();if(!quiet)setSettingsStatus("Ollama could not be reached on this computer.","error");}
 }
 
 async function selectOllamaModel() {
