@@ -35,6 +35,7 @@ _STATIC = {
     "/app.js": "app.js",
     "/lighting_review.js": "lighting_review.js",
     "/lighting_state.js": "lighting_state.js",
+    "/lighting_targets.js": "lighting_targets.js",
     "/icon.png": "icon.png",
     "/style.css": "style.css",
 }

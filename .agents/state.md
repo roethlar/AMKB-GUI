@@ -23,8 +23,11 @@
   FFmpeg and reject direct-runtime binaries or model weights. Phase 1 / F01 is
   also complete on the current tree: procedural Review uses the authenticated
   Blob URL map, renders every reducer block reason and loading state, and guards
-  Apply as a one-shot action under executable reducer/DOM coverage. The next
-  slice is F05's manual Lighting Target control repair.
+  Apply as a one-shot action under executable reducer/DOM coverage. Phase 1 /
+  F05 is complete on the current tree: CyberBoard, Relic, and AFA target controls
+  are created as valid DOM buttons with preserved pressed/locked state and
+  executable selection coverage. The next slice is F10's server-owned open
+  document target.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -330,7 +333,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 1 / F05's manual Lighting Target control repair. Do not
+  continuing with Phase 1 / F10's server-owned open document target. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

@@ -15,10 +15,12 @@ const server = fs.readFileSync(path.join(root, "am_configurator/server.py"), "ut
 test("pure lighting state loads before the application adapter", () => {
   const stateScript=html.indexOf('<script src="/lighting_state.js"></script>');
   const reviewScript=html.indexOf('<script src="/lighting_review.js"></script>');
+  const targetsScript=html.indexOf('<script src="/lighting_targets.js"></script>');
   const appScript=html.indexOf('<script src="/app.js"></script>');
-  assert.ok(stateScript>=0&&stateScript<reviewScript&&reviewScript<appScript);
+  assert.ok(stateScript>=0&&stateScript<reviewScript&&reviewScript<targetsScript&&targetsScript<appScript);
   assert.match(server,/"\/lighting_state\.js":\s*"lighting_state\.js"/);
   assert.match(server,/"\/lighting_review\.js":\s*"lighting_review\.js"/);
+  assert.match(server,/"\/lighting_targets\.js":\s*"lighting_targets\.js"/);
 });
 
 test("persistent job strip remains available outside routed content", () => {
@@ -154,6 +156,7 @@ test("manual Lighting layout, keyboard controls, narrow windows, and reduced mot
   assert.match(js,/nextGridIndex\(/);
   assert.match(js,/event\.key===['"] ['"]\|\|event\.key===['"]Enter['"]/);
   assert.match(js,/focusSelectedFrame\(/);
+  assert.match(js,/renderTargetControls\(targetHost,targets,state\.ledTarget,destinationLocked/);
   assert.match(js,/focusSelectedTarget\(/);
   assert.doesNotMatch(css,/min-width:\s*880px/);
   assert.match(css,/@media\s*\(max-width:\s*720px\)/);

@@ -179,7 +179,7 @@ local no-provider browser acceptance at the end of the phase.
   exercises blocked and successful Apply paths; source regex is insufficient.
   Commit: `fix: restore procedural review and apply`.
 
-- [ ] **F05 — Repair the manual Lighting Target control.** Close the class
+- [x] **F05 — Repair the manual Lighting Target control.** Close the class
   attribute correctly, generate valid buttons for every device target, retain
   disabled/pressed state, and execute the markup in a DOM-capable test that
   proves CyberBoard, Relic, and AFA target buttons exist and can be selected.

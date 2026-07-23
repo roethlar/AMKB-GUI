@@ -11,6 +11,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch]));
 const {ROUTES, STAGES, createLightingState, formatLightingHash, nextGridIndex, parseLightingHash, projectLightingJob, reduceLightingState, routeAvailability} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
+const {DEVICE_TARGETS, renderTargetControls} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 
 function restoredLightingState() {
@@ -434,15 +435,15 @@ const RELIC_LED_MAP = [
 const LED_MODELS = {
   CB: {
     name:"CyberBoard", keyMap:CB_LED_MAP, displayMap:CB_DISPLAY_MAP, keyColumns:15, keyRaster:"15×6",
-    targets:[{key:"keyframes",label:"Switch LEDs"},{key:"frames",label:"Top display 40×5"}],
+    targets:DEVICE_TARGETS.CB,
   },
   ALICE: {
     name:"AFA", keyMap:AFA_LED_MAP, keyColumns:16, keyRaster:"16×5", physicalLayout:AFA_LED_LAYOUT,
-    targets:[{key:"keyframes",label:"Keys + center"}],
+    targets:DEVICE_TARGETS.ALICE,
   },
   "80": {
     name:"Relic 80", keyMap:RELIC_LED_MAP, keyColumns:17, keyRaster:"18×7",
-    targets:[{key:"keyframes",label:"Per-key"},{key:"spotlight_frames",label:"Edge lights"}],
+    targets:DEVICE_TARGETS["80"],
   },
 };
 const LED_SPEEDS = [255,240,224,208,192,176,160,146,132,118,100,90,76,62,48,34];
@@ -981,18 +982,13 @@ function renderLightingShell() {
   const targetHost = $("#lighting-target-controls");
   const targets = state.config ? activeLedModel().targets : [];
   if (targets.length && !targets.some(target => target.key === state.ledTarget)) state.ledTarget = targets[0].key;
-  targetHost.innerHTML = targets.length
-    ? targets.map(target => `<button type="button" data-lighting-target="${esc(target.key)}" aria-pressed="${target.key === state.ledTarget}" class="${target.key === state.ledTarget ? "active" : ""} ${destinationLocked ? "disabled" : ""}>${esc(target.label)}</button>`).join("")
-    : '<button type="button" disabled>Open document</button>';
-  if (destinationLocked) $$('[data-lighting-target]', targetHost).forEach(button => { button.disabled = true; });
-  $$('[data-lighting-target]', targetHost).forEach(button => button.addEventListener("click", () => {
-    const target = button.dataset.lightingTarget;
+  renderTargetControls(targetHost,targets,state.ledTarget,destinationLocked,target=>{
     state.ledTarget = target;
     state.ledFrame = 0;
     state.ledPixel = 0;
     renderLightingShell();
     focusSelectedTarget(target);
-  }));
+  });
 
   $$("[data-lighting-stage]").forEach(step => {
     if (step.dataset.lightingStage === state.lighting.create.stage) step.setAttribute("aria-current", "step");
