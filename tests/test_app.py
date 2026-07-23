@@ -2254,6 +2254,56 @@ class LedGenerateEndpointTests(unittest.TestCase):
                     json.loads(payload),
                 )
 
+    def test_internal_get_post_and_accepted_write_errors_are_redacted(self) -> None:
+        private_detail = f"device output at {Path(self._tmp) / 'private.json'}"
+        expected = {"error": "The local request failed unexpectedly."}
+
+        with patch(
+            "am_configurator.device.list_devices",
+            side_effect=OSError(private_detail),
+        ):
+            status, response = self._request("GET", "/api/devices")
+        self.assertEqual(500, status)
+        self.assertEqual(expected, response)
+        self.assertNotIn(private_detail, json.dumps(response))
+
+        self._server.state.desktop_bridge = SimpleNamespace(
+            choose_library_folder=lambda: (_ for _ in ()).throw(
+                OSError(private_detail)
+            )
+        )
+        status, response = self._request(
+            "POST",
+            "/api/native/choose-library",
+            {},
+        )
+        self.assertEqual(500, status)
+        self.assertEqual(expected, response)
+        self.assertNotIn(private_detail, json.dumps(response))
+
+        with patch(
+            "am_configurator.server._Handler._save_settings_preferences",
+            side_effect=RuntimeError(private_detail),
+        ):
+            status, response = self._request(
+                "POST",
+                "/api/settings/preferences",
+                {"loop_mode": "smooth"},
+            )
+        self.assertEqual(500, status)
+        self.assertEqual(expected, response)
+        self.assertNotIn(private_detail, json.dumps(response))
+
+        with patch(
+            "am_configurator.server._Handler._write_device",
+            side_effect=AcceptedWriteError(private_detail),
+        ):
+            status, response = self._request("POST", "/api/device/write", {})
+        self.assertEqual(409, status)
+        self.assertEqual(True, response["accepted"])
+        self.assertEqual(True, response["retryable"])
+        self.assertNotIn(private_detail, json.dumps(response))
+
     def test_settings_round_trip_masks_key(self) -> None:
         key = "sk-secret-9WXYZ7788"
         status, saved = self._request(
@@ -2980,7 +3030,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual(500, status)
         self.assertNotIn(str(self.root).encode(), payload)
         self.assertEqual(
-            "The Lighting request failed unexpectedly.",
+            "The local request failed unexpectedly.",
             json.loads(payload)["error"],
         )
 

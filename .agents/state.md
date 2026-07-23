@@ -117,8 +117,12 @@
   local authentication rejects non-ASCII header values before constant-time
   comparison, then compares only explicit ASCII byte representations. Raw GET
   and POST requests with a latin-1 token receive the same JSON 403 as every
-  other invalid token without a handler traceback or dropped connection. The
-  next slice is F15's universal unexpected-HTTP-error redaction.
+  other invalid token without a handler traceback or dropped connection. F15 is
+  complete on the current tree: all unexpected loopback GET/POST and nested
+  native-bridge failures flow through one generic pathless 500 response, while
+  logs retain only the exception type. The accepted-device-write 409 retains
+  its accepted/retryable recovery contract but no longer serializes verification
+  or device details. The next slice is F16's legacy credential-route hardening.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

@@ -1749,14 +1749,32 @@ class _Handler(BaseHTTPRequestHandler):
             return True
         return False
 
-    def _lighting_internal_error(self, exc: Exception) -> None:
-        # Keep unexpected dependency and filesystem details on the local
-        # process boundary. In particular, OSError text may contain the user's
-        # absolute library path and must never become browser-visible JSON.
-        self.log_error("Unhandled Lighting request error: %s", type(exc).__name__)
+    def _internal_error(self, exc: Exception) -> None:
+        # Keep unexpected dependency, filesystem, device, provider, and
+        # subprocess details on the local process boundary. Exception text may
+        # contain user paths, raw replies, signed URLs, or credentials.
+        self.log_error("Unhandled local API request error: %s", type(exc).__name__)
         self._json(
-            {"error": "The Lighting request failed unexpectedly."},
+            {"error": "The local request failed unexpectedly."},
             HTTPStatus.INTERNAL_SERVER_ERROR,
+        )
+
+    def _accepted_write_error(self, exc: AcceptedWriteError) -> None:
+        self.log_error(
+            "Accepted device write did not verify: %s",
+            type(exc).__name__,
+        )
+        self._json(
+            {
+                "error": (
+                    "Device accepted the configuration, but verification did not "
+                    "complete. Retry verification instead of sending the "
+                    "configuration again."
+                ),
+                "accepted": True,
+                "retryable": True,
+            },
+            HTTPStatus.CONFLICT,
         )
 
     @staticmethod
@@ -1766,13 +1784,6 @@ class _Handler(BaseHTTPRequestHandler):
             "/api/settings/credential",
             "/api/settings/migration/discard-credential",
         }
-
-    def _ai_internal_error(self, exc: Exception) -> None:
-        self.log_error("Unhandled optional AI request error: %s", type(exc).__name__)
-        self._json(
-            {"error": "The optional AI request failed unexpectedly."},
-            HTTPStatus.INTERNAL_SERVER_ERROR,
-        )
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         parsed = urlparse(self.path)
@@ -1825,14 +1836,11 @@ class _Handler(BaseHTTPRequestHandler):
                 else:
                     self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
             except Exception as exc:  # noqa: BLE001 - API boundary
-                if path.startswith("/api/lighting/") or self._is_ai_path(path):
-                    if not self._lighting_error(exc):
-                        if self._is_ai_path(path):
-                            self._ai_internal_error(exc)
-                        else:
-                            self._lighting_internal_error(exc)
-                else:
-                    self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+                handled = (
+                    path.startswith("/api/lighting/") or self._is_ai_path(path)
+                ) and self._lighting_error(exc)
+                if not handled:
+                    self._internal_error(exc)
             return
 
         filename = _STATIC.get(path)
@@ -1927,10 +1935,7 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
         except AcceptedWriteError as exc:
-            self._json(
-                {"error": str(exc), "accepted": True, "retryable": True},
-                HTTPStatus.CONFLICT,
-            )
+            self._accepted_write_error(exc)
         except ValueError as exc:
             payload = {"error": str(exc)}
             code = getattr(exc, "code", None)
@@ -1938,14 +1943,11 @@ class _Handler(BaseHTTPRequestHandler):
                 payload["code"] = code
             self._json(payload, HTTPStatus.BAD_REQUEST)
         except Exception as exc:  # noqa: BLE001 - API boundary
-            if path.startswith("/api/lighting/") or self._is_ai_path(path):
-                if not self._lighting_error(exc):
-                    if self._is_ai_path(path):
-                        self._ai_internal_error(exc)
-                    else:
-                        self._lighting_internal_error(exc)
-            else:
-                self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            handled = (
+                path.startswith("/api/lighting/") or self._is_ai_path(path)
+            ) and self._lighting_error(exc)
+            if not handled:
+                self._internal_error(exc)
 
     @staticmethod
     def _strict_body(
@@ -2478,11 +2480,8 @@ class _Handler(BaseHTTPRequestHandler):
             return
         try:
             selected = bridge.choose_library_folder()
-        except Exception:  # noqa: BLE001 - native UI boundary
-            self._json(
-                {"error": "The native folder chooser could not be opened."},
-                HTTPStatus.INTERNAL_SERVER_ERROR,
-            )
+        except Exception as exc:  # noqa: BLE001 - native UI boundary
+            self._internal_error(exc)
             return
         self._json({"path": selected})
 

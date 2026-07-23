@@ -325,7 +325,7 @@ local no-provider browser acceptance at the end of the phase.
   dropped connection. Test with a raw latin-1 header. Commit:
   `fix: reject malformed local auth headers`.
 
-- [ ] **F15 — Redact every internal HTTP error.** Route all unexpected GET/POST
+- [x] **F15 — Redact every internal HTTP error.** Route all unexpected GET/POST
   failures through one stable pathless response function. Keep accepted-write
   recovery semantics, but never serialize raw `OSError`, device output, path,
   provider, or subprocess text. Commit: `fix: redact loopback api failures`.
