@@ -464,7 +464,7 @@ local no-provider browser acceptance at the end of the phase.
   desktop matrix leg; keep Playwright external. Commit:
   `test: verify native webview policy`.
 
-- [ ] **F53 — Reject Windows drive and ADS archive members.** Reject `:` in every
+- [x] **F53 — Reject Windows drive and ADS archive members.** Reject `:` in every
   tar path segment plus all drive-qualified/UNC/ADS forms in the remaining
   FFmpeg extractor before path construction. Add malicious Windows-path cases
   and prove no llama extractor remains. Commit:

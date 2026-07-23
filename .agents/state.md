@@ -226,8 +226,12 @@
   verify private storage, token-history cleanup, an empty browser bridge,
   downloads, CSP, loopback loading, and Ollama/API-only Settings. Authenticated
   loopback handlers now own native actions without exposing pywebview methods
-  to page scope. The actual local WKWebView probe passed. The next slice is
-  Phase 7 / F53's Windows drive/ADS archive-member rejection.
+  to page scope. The actual local WKWebView probe passed. F53 is complete on
+  the current tree: the sole remaining runtime source extractor rejects a colon
+  in every archive path segment, closing Windows drive-relative and NTFS ADS
+  forms before path construction while retaining absolute, UNC, traversal, and
+  link rejection; the retired llama extractor is guarded absent. The next slice
+  is Phase 7 / F55's macOS signed-runtime provenance binding.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -537,7 +541,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 7 / F53's Windows drive/ADS archive-member rejection.
+  continuing with Phase 7 / F55's macOS signed-runtime provenance binding.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

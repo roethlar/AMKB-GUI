@@ -373,6 +373,14 @@ class FfmpegBundleTests(unittest.TestCase):
             ("absolute", f"/{SOURCE_ROOT_NAME}/escape"),
             ("traversal", f"{SOURCE_ROOT_NAME}/../escape"),
             ("second root", "not-ffmpeg/source"),
+            ("drive-qualified segment", f"{SOURCE_ROOT_NAME}/C:/escape"),
+            ("drive-relative segment", f"{SOURCE_ROOT_NAME}/D:escape"),
+            ("alternate data stream", f"{SOURCE_ROOT_NAME}/binary.exe:payload"),
+            (
+                "alternate data stream type",
+                f"{SOURCE_ROOT_NAME}/binary.exe:payload:$DATA",
+            ),
+            ("unc path", rf"\\server\share\{SOURCE_ROOT_NAME}\escape"),
         ):
             unsafe_members.append((label, tarfile.TarInfo(name)))
         for label, member_type in (
@@ -404,6 +412,9 @@ class FfmpegBundleTests(unittest.TestCase):
             with self.assertRaises(ffmpeg_bundle.BundleError):
                 ffmpeg_bundle.extract_source_archive(malformed, destination)
             self.assertFalse(os.path.lexists(destination))
+
+    def test_no_retired_llama_source_extractor_remains(self) -> None:
+        self.assertFalse((ROOT / "build_tools" / "llama_bundle.py").exists())
 
     def test_runtime_inspection_requires_version_buildconf_and_every_capability(self) -> None:
         binary = Path("/trusted/ffmpeg")

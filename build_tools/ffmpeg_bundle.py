@@ -263,7 +263,14 @@ def _validated_tar_members(members: Sequence[tarfile.TarInfo]) -> tuple[tarfile.
         if not isinstance(name, str) or not name or "\\" in name or "\x00" in name:
             raise BundleError("FFmpeg source archive contained an unsafe path")
         path = PurePosixPath(name)
-        if path.is_absolute() or not path.parts or any(part in {"", ".", ".."} for part in path.parts):
+        if (
+            path.is_absolute()
+            or not path.parts
+            or any(
+                part in {"", ".", ".."} or ":" in part
+                for part in path.parts
+            )
+        ):
             raise BundleError("FFmpeg source archive contained an unsafe path")
         if path.parts[0] != _SOURCE_ROOT_NAME:
             raise BundleError("FFmpeg source archive contained an unexpected root")
