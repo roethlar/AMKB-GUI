@@ -653,7 +653,7 @@ Each polish item is a separate commit despite its size.
   parent directory on supported platforms while preserving Windows behavior.
   Commit: `fix: durably publish settings files`.
 
-- [ ] **P21 — Remove local-model attestation temp flows.** After F49/F20, prove
+- [x] **P21 — Remove local-model attestation temp flows.** After F49/F20, prove
   no temporary local-model metadata, chmod/publication, or cleanup path remains
   and no migration touches the user's GGUF file. Commit:
   `test: prohibit local model attestation writes`.
