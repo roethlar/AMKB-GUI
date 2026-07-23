@@ -28,6 +28,11 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 from am_configurator import __version__
+from am_configurator.device_mapping import (
+    MAX_FRAMES,
+    firmware_led_speed,
+    frames_to_led_tracks,
+)
 from am_configurator.server import (
     AcceptedWriteError,
     _classify_macro_readback,
@@ -42,11 +47,8 @@ from am_configurator.server import (
     config_transfer_options,
     create_server,
     extract_importable_macros,
-    frames_to_led_tracks,
     gif_to_led_frames,
     gif_to_led_tracks,
-    firmware_led_speed,
-    _MAX_GIF_FRAMES,
     merge_configs,
     text_to_macro_events,
     validate_config,
@@ -56,7 +58,7 @@ from am_configurator.device import candidate_ports
 from am_configurator.protocol import exclusive_serial_kwargs
 from am_configurator.macros import macro_frames, parse_macro_frames
 from am_configurator.writer import car_light_data_frames, car_light_info_frames
-from am_configurator import credentials, llm, server, store
+from am_configurator import credentials, device_mapping, llm, server, store
 from am_configurator import generation
 from am_configurator.library import (
     GeneratedAssetLibrary,
@@ -851,7 +853,7 @@ class FramesToLedTracksTests(unittest.TestCase):
         images = []
         durations = []
         with Image.open(io.BytesIO(payload)) as image:
-            count = min(int(getattr(image, "n_frames", 1)), _MAX_GIF_FRAMES)
+            count = min(int(getattr(image, "n_frames", 1)), MAX_FRAMES)
             for index in range(count):
                 image.seek(index)
                 durations.append(int(image.info.get("duration") or 90))
@@ -890,10 +892,10 @@ class FramesToLedTracksTests(unittest.TestCase):
         result = frames_to_led_tracks(images, durations, ["frames"], "nearest", "CB04")
         self.assertTrue(result["timing_resampled"])
         self.assertLessEqual(
-            result["tracks"]["frames"]["frame_count"], _MAX_GIF_FRAMES
+            result["tracks"]["frames"]["frame_count"], MAX_FRAMES
         )
-        self.assertEqual(_MAX_GIF_FRAMES, result["source_frames"])
-        self.assertEqual(_MAX_GIF_FRAMES, result["decoded_frames"])
+        self.assertEqual(MAX_FRAMES, result["source_frames"])
+        self.assertEqual(MAX_FRAMES, result["decoded_frames"])
 
     def test_rejects_empty_and_bad_target(self) -> None:
         try:
@@ -1013,10 +1015,10 @@ def _encode_image(image, fmt: str = "PNG") -> str:
 class GrokTransportTests(unittest.TestCase):
     """Shared speed constants and bounded xAI transport behavior."""
 
-    def test_speed_steps_match_server(self) -> None:
+    def test_device_mapping_owns_firmware_speed_steps(self) -> None:
         # Single source of truth: llm duplicates the tuple so it need not import
         # server; this guard fails loudly if the two ever drift apart.
-        self.assertEqual(llm.LED_SPEEDS_MS, server._LED_SPEEDS_MS)
+        self.assertEqual(34, min(device_mapping.LED_SPEEDS_MS))
 
     _URL = "https://api.x.ai/v1/responses"
 
@@ -1782,7 +1784,10 @@ class LedGenerateEndpointTests(unittest.TestCase):
             data["privacy_disclosure_version"],
             ai_catalog.PRIVACY_DISCLOSURE_VERSION,
         )
-        self.assertEqual(data["model_frame_caps"], dict(llm.MODEL_FRAME_CAPS))
+        self.assertEqual(
+            data["model_frame_caps"],
+            dict(device_mapping.MODEL_FRAME_CAPS),
+        )
         self.assertNotIn("models", data)
         self.assertNotIn("providers", data)
         self.assertNotIn("max_rendered_keyframes", data)

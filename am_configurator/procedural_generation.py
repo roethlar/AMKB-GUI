@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 from PIL import Image
 
-from . import ai_catalog, procedural
+from . import ai_catalog, device_mapping, procedural
 from .generation import (
     PROCESS_OPERATION_GATE,
     GenerationBusyError,
@@ -25,7 +25,7 @@ from .generation import (
     canonical_target_snapshot,
 )
 from .library import GeneratedAssetLibrary, ManifestError
-from .llm import LED_SPEEDS_MS, ProviderError, ProviderUsage
+from .llm import ProviderError, ProviderUsage
 from .recipe_provider import (
     LOCAL_MAX_RETRIES,
     MAX_RECIPE_PROMPT_CHARS,
@@ -35,7 +35,7 @@ from .recipe_provider import (
 
 
 DEFAULT_OPERATION_TIMEOUT_SECONDS = 180.0
-FASTEST_FRAME_DURATION_MS = min(LED_SPEEDS_MS)
+FASTEST_FRAME_DURATION_MS = min(device_mapping.LED_SPEEDS_MS)
 PROGRESS_UPDATE_STEPS = 20
 
 

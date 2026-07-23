@@ -21,15 +21,9 @@ from dataclasses import dataclass, field
 #
 # Fixed by design v3 (docs/design/llm-led-generator.md); do not re-derive here.
 
-MODEL_FRAME_CAPS = {"CB": 80, "80": 200, "ALICE": 186}  # per-model firmware caps
 MAX_PROVIDER_RESPONSE = 25_000_000  # bounded read cap on any upstream body (bytes)
 PER_CALL_TIMEOUT = 30.0  # hard ceiling on any single upstream call; the deadline caps it lower
 _VIDEO_REQUEST_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._~-]{0,199}", re.ASCII)
-
-# Firmware LED speed steps. Duplicated from ``server._LED_SPEEDS_MS`` so this
-# module stays importable without ``server``; a drift-guard test keeps the two
-# tuples identical.
-LED_SPEEDS_MS = (255, 240, 224, 208, 192, 176, 160, 146, 132, 118, 100, 90, 76, 62, 48, 34)
 
 # Pinned xAI endpoints. Bumping a host/path is a deliberate one-line change.
 XAI_API_HOST = "api.x.ai"
@@ -80,28 +74,6 @@ class ProviderError(Exception):
         self.message = message
         self.retry_after = retry_after
         self.usage = usage
-
-
-@dataclass(frozen=True)
-class RasterSpec:
-    """Per-generation raster description, built server-side from ``_GIF_LAYOUTS``.
-
-    One ``RasterSpec`` covers a single generation. ``target`` is the primary
-    semantic target and ``extra_targets`` are same-raster copies driven from it
-    (e.g. the Relic per-key/spotlight pair, the AFA body-light copy).
-    ``mapped_positions`` is a sparse visibility mask for targets that only light
-    a subset of positions. ``max_frames`` is the per-model firmware cap and is a
-    ceiling, never a target.
-    """
-
-    model: str
-    target: str
-    extra_targets: tuple[str, ...]
-    width: int
-    height: int
-    mapped_positions: tuple[tuple[int, int], ...] | None
-    output_len: int
-    max_frames: int
 
 
 @dataclass(frozen=True)

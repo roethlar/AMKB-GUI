@@ -537,7 +537,7 @@ in a new one-finding commit; no gate is weakened.
   routes return 404/410 locally and make no vault/provider call. Commit:
   `refactor: remove legacy ai settings routes`.
 
-- [ ] **F45 — Extract device conversion from the HTTP layer.** Move LED model,
+- [x] **F45 — Extract device conversion from the HTTP layer.** Move LED model,
   generation spec, raster layout, and `frames_to_led_tracks` into a lower-level
   device-mapping module with no server import. Update server, procedural,
   recovery, qualification, and tests to use it; remove reverse lazy imports.

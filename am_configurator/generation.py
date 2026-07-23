@@ -15,9 +15,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Mapping
 
+from . import device_mapping
 from .library import GeneratedAssetLibrary, LibraryError, ManifestError
 from .llm import (
-    MODEL_FRAME_CAPS,
     ProviderError,
     ProviderUsage,
     VideoStatus,
@@ -71,7 +71,7 @@ def canonical_target_snapshot(value: object) -> dict:
     ).issubset(allowed):
         raise GenerationValidationError("target snapshot is incomplete")
     family = value["family"]
-    if not isinstance(family, str) or family not in MODEL_FRAME_CAPS:
+    if not isinstance(family, str) or family not in device_mapping.MODEL_FRAME_CAPS:
         raise GenerationValidationError("target device family is unsupported")
     raster = value["raster"]
     if not isinstance(raster, Mapping) or set(raster) != {"width", "height"}:
@@ -99,7 +99,7 @@ def canonical_target_snapshot(value: object) -> dict:
         or len(set(targets)) != len(targets)
     ):
         raise GenerationValidationError("target names are invalid")
-    expected_cap = MODEL_FRAME_CAPS[family]
+    expected_cap = device_mapping.MODEL_FRAME_CAPS[family]
     if "frame_cap" in value and value["frame_cap"] != expected_cap:
         raise GenerationValidationError("target frame cap does not match its family")
     product_id = value["product_id"]
@@ -111,11 +111,11 @@ def canonical_target_snapshot(value: object) -> dict:
     ):
         raise GenerationValidationError("target product ID is invalid")
     try:
-        # Imported lazily so server.py can inject this coordinator in Task 9
-        # without creating an import-time cycle.
-        from .server import generation_spec
-
-        spec, resolved_targets = generation_spec(product_id, list(targets), None)
+        spec, resolved_targets = device_mapping.generation_spec(
+            product_id,
+            list(targets),
+            None,
+        )
     except (TypeError, ValueError):
         raise GenerationValidationError(
             "the product and LED targets are not a supported generation layout"
@@ -248,9 +248,7 @@ def _default_ffmpeg_resolver() -> Path:
 
 
 def _default_mapper(images, durations_ms, targets, *, product_id):
-    from .server import frames_to_led_tracks
-
-    return frames_to_led_tracks(
+    return device_mapping.frames_to_led_tracks(
         images,
         durations_ms,
         targets,
@@ -386,12 +384,10 @@ class GenerationCoordinator:
     @staticmethod
     def _video_spec(manifest: dict):
         snapshot = canonical_target_snapshot(manifest["target"])
-        from .server import generation_spec
-
-        spec, targets = generation_spec(
+        spec, targets = device_mapping.generation_spec(
             snapshot["product_id"], snapshot["targets"], snapshot["frame_cap"]
         )
-        if spec.max_frames != MODEL_FRAME_CAPS[snapshot["family"]]:
+        if spec.max_frames != device_mapping.MODEL_FRAME_CAPS[snapshot["family"]]:
             raise GenerationValidationError("the target frame cap is invalid")
         return spec, targets
 
@@ -1127,7 +1123,9 @@ class GenerationCoordinator:
         except LibraryError:
             return
 
-        frame_count = MODEL_FRAME_CAPS[manifest["target"]["family"]]
+        frame_count = device_mapping.MODEL_FRAME_CAPS[
+            manifest["target"]["family"]
+        ]
         frames_by_index: dict[int, dict] = {}
         frame_origin_prefix = f"local_frame:{attempt_id}:"
         for asset in manifest["assets"]:

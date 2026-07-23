@@ -679,8 +679,8 @@ def _run_ollama_recipe_smoke() -> None:
 
 def _run_ffmpeg_media_smoke() -> None:
     """Resolve the bundled runtime and process real MP4 frames fully offline."""
+    from .device_mapping import MODEL_FRAME_CAPS
     from .ffmpeg_runtime import get_ffmpeg_runtime
-    from .llm import MODEL_FRAME_CAPS
     from .media import process_video_frames
 
     frozen_root = getattr(sys, "_MEIPASS", None)

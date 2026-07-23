@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
+from am_configurator.device_mapping import generation_spec
 from am_configurator.procedural import (
     DENSITIES,
     QualityError,
@@ -126,8 +127,6 @@ def load_prompt_corpus(path: Path | str = DEFAULT_CORPUS) -> tuple[PromptCase, .
         )
         targets = tuple(targets_value)
         try:
-            from am_configurator.server import generation_spec
-
             spec, canonical_targets = generation_spec(product_id, targets, None)
         except ValueError:
             raise ValueError(

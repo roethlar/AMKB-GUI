@@ -20,6 +20,8 @@ from typing import Any, BinaryIO, Callable, Sequence
 
 from PIL import GifImagePlugin, Image
 
+from . import device_mapping
+
 
 SCHEMA_VERSION = 1
 DEFAULT_WIDTH = 18
@@ -777,9 +779,7 @@ def map_frames_to_led_tracks(
     materialized = list(frames)
     gif_durations(len(materialized), duration_ms)
     _check_work(work)
-    from .server import frames_to_led_tracks
-
-    return frames_to_led_tracks(
+    return device_mapping.frames_to_led_tracks(
         materialized,
         [duration_ms] * len(materialized),
         list(targets),

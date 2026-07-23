@@ -1038,7 +1038,7 @@ def process_video_frames(
     runner=None,
 ) -> ProcessedAnimation:
     """Convert one banked local MP4 into an exact atomic firmware-cap sequence."""
-    from .llm import MODEL_FRAME_CAPS
+    from .device_mapping import MODEL_FRAME_CAPS
 
     source, destination, work = _validate_processing_paths(
         source_path, destination_directory, work_directory

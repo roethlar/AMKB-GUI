@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from am_configurator.device_mapping import frames_to_led_tracks
 from am_configurator.procedural import (
     QualityError,
     RecipeError,
@@ -24,7 +25,6 @@ from am_configurator.procedural import (
     write_gif,
     write_animation_artifacts,
 )
-from am_configurator.server import frames_to_led_tracks
 from build_tools import qualify_recipe_model as qualification_tool
 from build_tools.qualify_recipe_model import (
     load_prompt_corpus,
