@@ -122,7 +122,13 @@
   native-bridge failures flow through one generic pathless 500 response, while
   logs retain only the exception type. The accepted-device-write 409 retains
   its accepted/retryable recovery contract but no longer serializes verification
-  or device details. The next slice is F16's legacy credential-route hardening.
+  or device details. F16 is complete on the current tree: the remaining legacy
+  credential routes require exact request bodies and an idle shared admission
+  gate, use the server's injected credential store for every settings, vault,
+  and provider operation, and inherit the generic pathless unexpected-failure
+  response. The regression fails against the prior production behavior and
+  passes with the hardening restored. The next slice is F22's pinned xAI
+  transport.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -428,7 +434,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 1 / F30's unchanged-backend re-enable path. Do not
+  continuing with Phase 1 / F22's pinned xAI transport. Do not
   push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

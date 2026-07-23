@@ -330,7 +330,7 @@ local no-provider browser acceptance at the end of the phase.
   recovery semantics, but never serialize raw `OSError`, device output, path,
   provider, or subprocess text. Commit: `fix: redact loopback api failures`.
 
-- [ ] **F16 — Harden legacy settings routes while they still exist.** Add exact
+- [x] **F16 — Harden legacy settings routes while they still exist.** Add exact
   body validation, the injected credential store, shared admission checks, and
   the same redaction taxonomy as active AI routes. This protects intermediate
   history before F42 removes the obsolete surface. Commit:

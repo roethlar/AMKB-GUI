@@ -2481,6 +2481,71 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(data["code"], "rate_limited")
         self.assertEqual(data["retry_after"], 7)
 
+    def test_legacy_credential_routes_use_injected_store_and_admission(self) -> None:
+        injected = credentials.MemoryCredentialStore()
+        self._server.state._credential_store = injected
+        secret = "sk-injected-legacy-route"
+
+        status, _response = self._request(
+            "POST",
+            "/api/settings/key",
+            {"provider": "xai", "key": secret},
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(secret, injected.get("xai"))
+
+        probe = _FakeTransport(response={"models": []})
+        self._server.state.llm_transport = probe
+        status, response = self._request("POST", "/api/settings/test", {})
+        self.assertEqual(200, status)
+        self.assertEqual({"ok": True}, response)
+        self.assertEqual(secret, probe.calls[0]["api_key"])
+
+        probe.calls.clear()
+        status, _response = self._request(
+            "POST",
+            "/api/settings/test",
+            {"unexpected": True},
+        )
+        self.assertEqual(400, status)
+        self.assertEqual([], probe.calls)
+
+        token, _cancelled = self._server.state._generation_gate.begin(
+            "legacy-route-busy"
+        )
+        try:
+            status, _response = self._request(
+                "POST",
+                "/api/settings/key",
+                {"provider": "xai", "key": "must-not-land"},
+            )
+            self.assertEqual(409, status)
+            status, _response = self._request("POST", "/api/settings/test", {})
+            self.assertEqual(409, status)
+        finally:
+            self._server.state._generation_gate.finish(token)
+        self.assertEqual(secret, injected.get("xai"))
+        self.assertEqual([], probe.calls)
+
+        handler = SimpleNamespace(state=self._server.state)
+        _settings, resolved, _acknowledged = server._Handler._lighting_settings(
+            handler,
+            require_key=False,
+        )
+        self.assertEqual(secret, resolved)
+
+        private_detail = f"provider failed at {Path(self._tmp) / 'secret.txt'}"
+        self._server.state.llm_transport = lambda *_args: (_ for _ in ()).throw(
+            RuntimeError(private_detail)
+        )
+        status, response = self._request("POST", "/api/settings/test", {})
+        self.assertEqual(500, status)
+        self.assertEqual(
+            {"error": "The local request failed unexpectedly."},
+            response,
+        )
+        self.assertNotIn(private_detail, json.dumps(response))
+
     def test_settings_test_rejects_a_multiline_effective_key_without_echoing_it(self) -> None:
         first = "xai-first-secret-value"
         second = "xai-second-secret-value"
@@ -2894,7 +2959,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual([None, "sk-restored-secret"], coordinator.reconcile_calls)
         self.assertNotIn("sk-restored-secret", json.dumps(response))
 
-    def test_settings_reconciliation_waits_for_active_generation_to_finish(self) -> None:
+    def test_reconciliation_waits_for_active_generation_to_finish(self) -> None:
         gate = generation.OperationGate()
         coordinator = _LightingEndpointCoordinator(self.library)
         self._server.shutdown()
@@ -2913,13 +2978,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
 
         token, _cancelled = gate.begin("active-generation")
         try:
-            status, response = self._request(
-                "POST",
-                "/api/settings/key",
-                {"provider": "xai", "key": "sk-deferred-secret"},
-            )
-            self.assertEqual(200, status)
-            self.assertNotIn("sk-deferred-secret", json.dumps(response))
+            self.assertEqual([], self._server.state.reconcile_lighting(force=True))
             self.assertEqual([], coordinator.reconcile_calls)
         finally:
             gate.finish(token)
@@ -2927,7 +2986,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
         deadline = time.monotonic() + 2
         while not coordinator.reconcile_calls and time.monotonic() < deadline:
             time.sleep(0.01)
-        self.assertEqual(["sk-deferred-secret"], coordinator.reconcile_calls)
+        self.assertEqual(["sk-lighting-secret"], coordinator.reconcile_calls)
 
     def test_retired_generation_stays_gone_while_admission_is_busy(self) -> None:
         gate = generation.OperationGate()

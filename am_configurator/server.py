@@ -1780,6 +1780,8 @@ class _Handler(BaseHTTPRequestHandler):
     @staticmethod
     def _is_ai_path(path: str) -> bool:
         return path.startswith("/api/ai/") or path in {
+            "/api/settings/key",
+            "/api/settings/test",
             "/api/settings/ai",
             "/api/settings/credential",
             "/api/settings/migration/discard-credential",
@@ -2148,12 +2150,15 @@ class _Handler(BaseHTTPRequestHandler):
             HTTPStatus.GONE,
         )
 
-    @staticmethod
-    def _lighting_settings(*, require_key: bool) -> tuple[dict, str, bool]:
+    def _lighting_settings(self, *, require_key: bool) -> tuple[dict, str, bool]:
         from . import ai_catalog, store
 
-        settings = store.load_settings()
-        key = store.resolve_xai_key() or ""
+        settings = store.load_settings(
+            credential_store=self.state._credential_store
+        )
+        key = store.resolve_xai_key(
+            credential_store=self.state._credential_store
+        ) or ""
         acknowledged = (
             settings["ai"]["api"]["disclosure_version"]
             == ai_catalog.PRIVACY_DISCLOSURE_VERSION
@@ -2415,9 +2420,20 @@ class _Handler(BaseHTTPRequestHandler):
     def _save_settings_key(self, body: dict[str, Any]) -> None:
         from . import store
 
-        store.update_api_key(body)
+        self._strict_body(
+            body,
+            allowed={"provider", "key"},
+            required={"provider", "key"},
+        )
+        self._require_ai_idle()
+        store.update_api_key(
+            body,
+            credential_store=self.state._credential_store,
+        )
         self.state.reconcile_lighting(force=True)
-        self._json(_settings_view())
+        self._json(
+            _settings_view(credential_store=self.state._credential_store)
+        )
 
     def _save_settings_preferences(self, body: dict[str, Any]) -> None:
         from . import store
@@ -2448,9 +2464,14 @@ class _Handler(BaseHTTPRequestHandler):
         """
         from . import llm, store
 
-        if store.credential_status().get("invalid") is True:
+        self._strict_body(body, allowed=set())
+        self._require_ai_idle()
+        credential_store = self.state._credential_store
+        if store.credential_status(
+            credential_store=credential_store
+        ).get("invalid") is True:
             raise store.InvalidAPICredentialError()
-        key = store.resolve_xai_key()
+        key = store.resolve_xai_key(credential_store=credential_store)
         if not key:
             raise ValueError(
                 "No xAI API key is configured. Add your key in Settings, then test it."
