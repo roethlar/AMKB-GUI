@@ -79,7 +79,6 @@ const state = {
   conceptAssetLoads: new Set(),
   conceptDestination: null,
   animationMotion: "",
-  animationLoopMode: "smooth",
   animationSubmitting: false,
   animationError: "",
   reviewTab: "device",
@@ -1982,7 +1981,6 @@ function syncLightingJob(manifest,{renderPage=true}={}) {
     state.conceptPollFailures=0;
     state.aiPrompt=manifest.prompt||state.aiPrompt;
     state.conceptDestination={slot:state.conceptDestination?.slot||state.ledSlot,target:manifest.target?.targets?.[0]||state.ledTarget};
-    if(manifest.loop_mode)state.animationLoopMode=manifest.loop_mode;
   }else state.conceptDestination=null;
   state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:manifest?projectLightingJob(manifest):null}).state;
   state.lightingJobId=state.lighting.activeJob?.id||null;
@@ -2113,7 +2111,7 @@ async function startProceduralGeneration() {
   state.conceptDestination={slot:state.ledSlot,target:target.targets[0]};
   renderGenerationDialog();
   try{
-    const started=await api("/api/lighting/effects",{method:"POST",body:JSON.stringify({prompt,backend:state.aiStatus.backend,loop_mode:state.animationLoopMode,document_revision:state.documentRevision})});
+    const started=await api("/api/lighting/effects",{method:"POST",body:JSON.stringify({prompt,backend:state.aiStatus.backend,document_revision:state.documentRevision})});
     state.conceptPollEpoch++;
     state.conceptDestination={slot:state.ledSlot,target:started.target.targets[0]};
     state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:{id:started.job_id,status:"in_progress",phase:"accepted",progress:null,resultAssetId:null,previewAssetId:null,recipeAssetId:null,target:started.target}}).state;
@@ -2165,7 +2163,6 @@ async function loadAiConfig() {
   if(requests[2].status==="fulfilled")state.aiStatus=requests[2].value;
   if(requests[3].status==="fulfilled")state.localModels=normalizeLocalModels(requests[3].value);
   else state.localModels={available:false,models:[],reason:null,loading:false};
-  if(["smooth","none","ping_pong"].includes(state.settings?.generation?.loop_mode))state.animationLoopMode=state.settings.generation.loop_mode;
   refreshAiGate();
 }
 
@@ -2281,7 +2278,6 @@ function populateSettings() {
   $("#settings-api-model").value=apiState.model_id||"grok-4.5";
   $("#settings-library-root").value=state.settings?.library?.current_root||"";
   $("#settings-reveal-library").disabled=!state.settings?.library?.current_root;
-  $("#settings-loop-mode").value=state.settings?.generation?.loop_mode||"smooth";
 }
 
 async function refreshSettingsData() {
@@ -2390,10 +2386,8 @@ async function saveSettings({exit=false}={}) {
     const backend=selectedAiBackend();
     const enabled=$("#settings-ai-enabled").checked;
     state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled,backend,provider:"xai",model_id:"grok-4.5"})});
-    state.settings=await api("/api/settings/preferences",{method:"POST",body:JSON.stringify({loop_mode:$("#settings-loop-mode").value})});
     const requestedRoot=$("#settings-library-root").value.trim()||null;
     if(requestedRoot!==state.settings.library?.current_root)state.settings=await api("/api/settings/library",{method:"POST",body:JSON.stringify({current_root:requestedRoot})});
-    state.animationLoopMode=state.settings.generation?.loop_mode||"smooth";
     state.library.loaded=false;
     populateSettings();
     refreshAiGate();

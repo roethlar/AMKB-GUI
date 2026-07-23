@@ -574,7 +574,7 @@ Each polish item is a separate commit despite its size.
   refresh must revoke its new Blob URL and may not reinsert stale state. Commit:
   `fix: discard stale library asset loads`.
 
-- [ ] **P05 — Remove loop mode from new procedural generation.** Remove the
+- [x] **P05 — Remove loop mode from new procedural generation.** Remove the
   ignored control and request field from new procedural generation while
   preserving stored legacy values and historical video behavior. Add request,
   UI, migration, and manifest compatibility tests. Commit:

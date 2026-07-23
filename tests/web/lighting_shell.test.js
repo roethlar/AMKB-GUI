@@ -69,7 +69,7 @@ test("Settings exposes only installed Ollama models and the curated API", () => 
   assert.match(js,/model_id/);
   assert.match(css,/\.check-row\s*>\s*span\s*\{[^}]*display:\s*grid[^}]*gap:/);
   const effect=js.slice(js.indexOf("async function startProceduralGeneration"),js.indexOf("function applyReviewedLighting",js.indexOf("async function startProceduralGeneration")));
-  assert.match(effect,/JSON\.stringify\(\{prompt,backend:state\.aiStatus\.backend,loop_mode:state\.animationLoopMode,document_revision:state\.documentRevision\}\)/);
+  assert.match(effect,/JSON\.stringify\(\{prompt,backend:state\.aiStatus\.backend,document_revision:state\.documentRevision\}\)/);
   assert.doesNotMatch(effect,/model_path|model_id|frame_count|product_id:/);
   assert.match(js,/api\("\/api\/document\/sync"/);
   const fileOpen=js.slice(js.indexOf("async function readFiles"),js.indexOf("function saveConfig",js.indexOf("async function readFiles")));
@@ -200,18 +200,20 @@ test("Library asset loads revoke stale blobs and preserve refreshed ownership", 
   assert.match(loader,/lease\.release\(\)/);
 });
 
-test("Settings remains a saveable route with Library and loop preferences", () => {
+test("Settings remains saveable without a procedural loop preference", () => {
   assert.match(html,/id="settings-save"[^>]*>Save changes</);
   assert.match(html,/id="settings-done"[^>]*>Done</);
-  for(const id of ["settings-library-root","settings-choose-library","settings-reveal-library","settings-loop-mode"]){
+  for(const id of ["settings-library-root","settings-choose-library","settings-reveal-library"]){
     assert.match(html,new RegExp(`id="${id}"`));
   }
+  assert.doesNotMatch(html,/settings-loop-mode|Generation default|Animation loop/);
   assert.match(js,/api\("\/api\/settings\/ai"/);
-  assert.match(js,/api\("\/api\/settings\/preferences"/);
   assert.match(js,/api\("\/api\/settings\/library"/);
   assert.match(js,/api\("\/api\/native\/choose-library"/);
   assert.match(js,/api\("\/api\/native\/reveal-library"/);
   assert.match(js,/function finishSettings[\s\S]*navigateTo\(route/);
+  const save=js.slice(js.indexOf("async function saveSettings"),js.indexOf("function showDeviceDialog"));
+  assert.doesNotMatch(save,/settings\/preferences|loop_mode|animationLoopMode/);
 });
 
 test("manual Lighting layout, keyboard controls, narrow windows, and reduced motion remain", () => {

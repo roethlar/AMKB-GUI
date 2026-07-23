@@ -139,7 +139,7 @@ class ProceduralGenerationCoordinator:
         return self._gate.active_job_id
 
     @staticmethod
-    def _request_values(prompt: object, target: object, loop_mode: object) -> tuple[str, dict, str]:
+    def _request_values(prompt: object, target: object) -> tuple[str, dict]:
         if (
             not isinstance(prompt, str)
             or not prompt.strip()
@@ -149,9 +149,7 @@ class ProceduralGenerationCoordinator:
                 f"prompt must be a non-empty string of at most {MAX_RECIPE_PROMPT_CHARS} characters"
             )
         snapshot = canonical_target_snapshot(target)
-        if loop_mode not in {"smooth", "none", "ping_pong"}:
-            raise GenerationValidationError("loop_mode is unsupported")
-        return prompt.strip(), snapshot, loop_mode
+        return prompt.strip(), snapshot
 
     @staticmethod
     def _model_record(status: dict[str, Any]) -> dict[str, str]:
@@ -183,9 +181,8 @@ class ProceduralGenerationCoordinator:
         *,
         prompt: object,
         target: object,
-        loop_mode: object,
     ) -> dict:
-        prompt, snapshot, loop_mode = self._request_values(prompt, target, loop_mode)
+        prompt, snapshot = self._request_values(prompt, target)
         capability = self._capability.require_ready()
         models = self._model_record(capability)
         provider = self._capability.provider_for_generation()
@@ -198,7 +195,6 @@ class ProceduralGenerationCoordinator:
                 prompt=prompt,
                 target=snapshot,
                 models=models,
-                loop_mode=loop_mode,
                 pipeline="procedural",
             )
             job_id = manifest["job_id"]

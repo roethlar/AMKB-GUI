@@ -161,6 +161,7 @@ _MANIFEST_V1_FIELDS = {
 }
 _MANIFEST_V2_FIELDS = _MANIFEST_V1_FIELDS | {"pipeline", "procedural_attempts"}
 _PIPELINES = {"legacy_video", "procedural"}
+_DEFAULT_LOOP_MODE = object()
 _PROCEDURAL_ATTEMPT_FIELDS = {
     "attempt_id",
     "index",
@@ -660,12 +661,18 @@ def _validate_manifest(value: object, *, expected_job_id: str | None = None) -> 
         value["procedural_attempts"] = []
     elif version != MANIFEST_SCHEMA_VERSION:
         raise ManifestError("The job manifest schema is unsupported.")
+    pipeline = value.get("pipeline")
+    if pipeline not in _PIPELINES:
+        raise ManifestError("The job manifest pipeline is unsupported.")
     _validate_request_ids(value)
     _validate_no_sensitive_values(value)
-    if set(value) != _MANIFEST_V2_FIELDS:
+    fields = set(value)
+    supported_fields = (fields == _MANIFEST_V2_FIELDS) or (
+        pipeline == "procedural"
+        and fields == _MANIFEST_V2_FIELDS - {"loop_mode"}
+    )
+    if not supported_fields:
         raise ManifestError("The job manifest has an unsupported schema.")
-    if value["pipeline"] not in _PIPELINES:
-        raise ManifestError("The job manifest pipeline is unsupported.")
     job_id = _canonical_uuid(value["job_id"], "job ID")
     if expected_job_id is not None and job_id != expected_job_id:
         raise ManifestError("The job manifest does not own this directory.")
@@ -673,7 +680,10 @@ def _validate_manifest(value: object, *, expected_job_id: str | None = None) -> 
         raise ManifestError("The job manifest timestamps are invalid.")
     if not isinstance(value["prompt"], str):
         raise ManifestError("The job prompt is invalid.")
-    if value["loop_mode"] not in _LOOP_MODES:
+    if "loop_mode" in value and (
+        not isinstance(value["loop_mode"], str)
+        or value["loop_mode"] not in _LOOP_MODES
+    ):
         raise ManifestError("The job loop mode is invalid.")
     for name in ("target", "models", "provider_requests", "progress", "costs", "recovery"):
         if not isinstance(value[name], dict):
@@ -1090,12 +1100,20 @@ class GeneratedAssetLibrary:
         prompt: str = "",
         target: Mapping[str, object] | None = None,
         models: Mapping[str, object] | None = None,
-        loop_mode: str = "smooth",
+        loop_mode: object = _DEFAULT_LOOP_MODE,
         pipeline: str = "legacy_video",
     ) -> dict:
         """Create an owner-private UUID job and its initial manifest."""
         if pipeline not in _PIPELINES:
             raise ManifestError("The job pipeline is unsupported.")
+        if pipeline == "procedural" and loop_mode is not _DEFAULT_LOOP_MODE:
+            raise ManifestError("Procedural jobs do not accept a loop mode.")
+        resolved_loop_mode = "smooth" if loop_mode is _DEFAULT_LOOP_MODE else loop_mode
+        if pipeline == "legacy_video" and (
+            not isinstance(resolved_loop_mode, str)
+            or resolved_loop_mode not in _LOOP_MODES
+        ):
+            raise ManifestError("The job loop mode is invalid.")
         root = self.preflight()
         jobs_dir = root / "jobs"
         job_dir: Path | None = None
@@ -1134,7 +1152,6 @@ class GeneratedAssetLibrary:
                 "selected_candidate_id": None,
                 "animation_attempts": [],
                 "procedural_attempts": [],
-                "loop_mode": loop_mode,
                 "models": copy.deepcopy(dict(models or {})),
                 "provider_requests": {},
                 "status": "created",
@@ -1151,6 +1168,8 @@ class GeneratedAssetLibrary:
                 "errors": [],
                 "recovery": {},
             }
+            if pipeline == "legacy_video":
+                manifest["loop_mode"] = resolved_loop_mode
             normalized = _validate_manifest(manifest, expected_job_id=job_id)
             with _job_lock(job_dir):
                 _atomic_write_json(job_dir / "manifest.json", normalized)

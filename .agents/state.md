@@ -305,8 +305,13 @@
   on the current tree: Library asset fetches hold epoch-owned leases, stale
   completions revoke newly created Blob URLs before publication, and an old
   lease cannot clear a refreshed request's ownership. Behavioral and adapter
-  regressions were proven red against the prior bare in-flight set. The next
-  slice is Phase 10 / P05's removal of loop mode from new procedural generation.
+  regressions were proven red against the prior bare in-flight set. P05 is
+  complete on the current tree: new procedural UI, HTTP requests, coordinator
+  calls, and manifests contain no ignored loop-mode control. The strict route
+  rejects stale clients that send it; older procedural manifests containing the
+  field still load; stored settings and legacy-video processing retain their
+  compatibility value. Route, Library, and browser guards were proven red. The
+  next slice is Phase 10 / P06's mapped-result validation before banking.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -616,8 +621,7 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P05's removal of loop mode from new procedural
-  generation.
+  continuing with Phase 10 / P06's mapped-result validation before banking.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

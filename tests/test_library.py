@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import hashlib
 import errno
 import json
@@ -92,6 +93,8 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
             "loop_mode": "smooth",
         }
         values.update(overrides)
+        if values.get("pipeline") == "procedural" and "loop_mode" not in overrides:
+            values.pop("loop_mode")
         return self.library.create_job(**values)
 
     def _job_dir(self, job_id: str, root: Path | None = None) -> Path:
@@ -178,6 +181,34 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                 stat.S_IMODE((job_dir / "manifest.json").stat().st_mode),
             )
             self.assertEqual(0o600, stat.S_IMODE((job_dir / ".lock").stat().st_mode))
+
+    def test_procedural_jobs_omit_loop_mode_but_historical_manifests_still_load(self) -> None:
+        manifest = self.library.create_job(
+            prompt="Periodic aurora",
+            target={"family": "80"},
+            models={
+                "backend": "local",
+                "provider": "ollama",
+                "model_id": "ornith:latest",
+            },
+            pipeline="procedural",
+        )
+        self.assertNotIn("loop_mode", manifest)
+
+        historical = copy.deepcopy(manifest)
+        historical["loop_mode"] = "ping_pong"
+        self._write_manifest_directly(manifest["job_id"], historical)
+        self.assertEqual(
+            "ping_pong",
+            self.library.load_manifest(manifest["job_id"])["loop_mode"],
+        )
+
+        with self.assertRaises(ManifestError):
+            self.library.create_job(
+                prompt="No procedural loop input",
+                pipeline="procedural",
+                loop_mode="smooth",
+            )
 
     def test_v1_manifest_normalizes_in_memory_without_rewriting_disk(self) -> None:
         job = self._create_job()

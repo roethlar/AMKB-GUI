@@ -1647,11 +1647,9 @@ class _Handler(BaseHTTPRequestHandler):
         self._json({"revision": revision})
 
     def _start_procedural_effect(self, body: dict[str, Any]) -> None:
-        from . import store
-
         self._strict_body(
             body,
-            allowed={"prompt", "backend", "loop_mode", "document_revision"},
+            allowed={"prompt", "backend", "document_revision"},
             required={"prompt", "backend", "document_revision"},
         )
         revision = body["document_revision"]
@@ -1673,16 +1671,10 @@ class _Handler(BaseHTTPRequestHandler):
                 HTTPStatus.CONFLICT,
             )
             return
-        settings = store.load_settings(
-            credential_store=self.state._credential_store
-        )
         _library, coordinator = self.state.procedural_services()
         manifest = coordinator.start_effect(
             prompt=body["prompt"],
             target=target,
-            loop_mode=body.get(
-                "loop_mode", settings["generation"]["loop_mode"]
-            ),
         )
         self._json(
             {"job_id": manifest["job_id"], "target": manifest["target"]},

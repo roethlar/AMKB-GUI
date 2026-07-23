@@ -161,7 +161,6 @@ class ProceduralGenerationTests(unittest.TestCase):
         started = coordinator.start_effect(
             prompt="Dense aurora across the whole keyboard",
             target=TARGET,
-            loop_mode="smooth",
         )
         manifest = self.library.load_manifest(started["job_id"])
 
@@ -211,7 +210,6 @@ class ProceduralGenerationTests(unittest.TestCase):
         started = coordinator.start_effect(
             prompt="Aurora",
             target=TARGET,
-            loop_mode="smooth",
         )
         manifest = self.library.load_manifest(started["job_id"])
 
@@ -280,7 +278,6 @@ class ProceduralGenerationTests(unittest.TestCase):
         started = coordinator.start_effect(
             prompt="Exhaust the local correction budget",
             target=TARGET,
-            loop_mode="smooth",
         )
         manifest = self.library.load_manifest(started["job_id"])
 
@@ -324,7 +321,6 @@ class ProceduralGenerationTests(unittest.TestCase):
             coordinator.start_effect(
                 prompt="Do not start",
                 target=TARGET,
-                loop_mode="smooth",
             )
 
         self.assertEqual([], provider.calls)
@@ -336,7 +332,6 @@ class ProceduralGenerationTests(unittest.TestCase):
         started = coordinator.start_effect(
             prompt="Recover banked result",
             target=TARGET,
-            loop_mode="smooth",
         )
         attempt_id = self.library.load_manifest(started["job_id"])[
             "procedural_attempts"
@@ -381,7 +376,6 @@ class ProceduralGenerationTests(unittest.TestCase):
         started = coordinator.start_effect(
             prompt="Cancel this local inference",
             target=TARGET,
-            loop_mode="smooth",
         )
         self.assertTrue(provider.entered.wait(2))
 
@@ -416,7 +410,6 @@ class ProceduralGenerationTests(unittest.TestCase):
             started = coordinator.start_effect(
                 prompt="Cancel bounded local rendering",
                 target=TARGET,
-                loop_mode="smooth",
             )
             self.assertTrue(rendering.wait(1))
             coordinator.cancel(started["job_id"])
@@ -461,7 +454,6 @@ class ProceduralGenerationTests(unittest.TestCase):
             started = coordinator.start_effect(
                 prompt="Bound this local render",
                 target=TARGET,
-                loop_mode="smooth",
             )
         manifest = self.library.load_manifest(started["job_id"])
 
@@ -526,7 +518,6 @@ class ProceduralGenerationTests(unittest.TestCase):
         started = coordinator.start_effect(
             prompt="Cancel blocked Ollama inference",
             target=TARGET,
-            loop_mode="smooth",
         )
         self.assertTrue(entered.wait(1))
 
@@ -566,7 +557,6 @@ class ProceduralGenerationTests(unittest.TestCase):
                 coordinator.start_effect(
                     prompt="Fail before launch",
                     target=TARGET,
-                    loop_mode="smooth",
                 )
         finally:
             self.library.get_job = original_get_job
@@ -591,7 +581,6 @@ class ProceduralGenerationTests(unittest.TestCase):
             coordinator.start_effect(
                 prompt="Fail at launch",
                 target=TARGET,
-                loop_mode="smooth",
             )
 
         self.assertFalse(gate.is_active)
@@ -625,7 +614,6 @@ class ProceduralGenerationTests(unittest.TestCase):
             coordinator.start_effect(
                 prompt="Worker owns this lease",
                 target=TARGET,
-                loop_mode="smooth",
             )
 
         self.assertEqual(1, len(targets))
@@ -652,7 +640,6 @@ class ProceduralGenerationTests(unittest.TestCase):
         started = coordinator.start_effect(
             prompt="Already complete",
             target=TARGET,
-            loop_mode="smooth",
         )
         job_id = started["job_id"]
         manifest_path = (
@@ -931,7 +918,6 @@ class ProceduralGenerationTests(unittest.TestCase):
         started = coordinator.start_effect(
             prompt="One API request only",
             target=TARGET,
-            loop_mode="smooth",
         )
         manifest = self.library.load_manifest(started["job_id"])
         coordinator.reconcile_startup()

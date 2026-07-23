@@ -583,7 +583,6 @@ class OptionalAIRouteTests(unittest.TestCase):
             {
                 "prompt": "Dense violet aurora",
                 "backend": "local",
-                "loop_mode": "smooth",
                 "document_revision": self.document_revision,
             },
         )
@@ -598,6 +597,7 @@ class OptionalAIRouteTests(unittest.TestCase):
         )
         self.assertEqual(200, status)
         self.assertEqual("ready", manifest["status"])
+        self.assertNotIn("loop_mode", manifest)
         self.assertEqual(
             {
                 "family": "80",
@@ -705,6 +705,32 @@ class OptionalAIRouteTests(unittest.TestCase):
                 self.assertEqual(202, status)
                 self.assertEqual(expected, calls[-1]["target"])
                 self.assertEqual(expected, response["target"])
+
+    def test_effect_route_rejects_the_obsolete_procedural_loop_field(self) -> None:
+        calls: list[dict] = []
+
+        def start_effect(**kwargs):
+            calls.append(kwargs)
+            raise AssertionError("obsolete request reached the coordinator")
+
+        self.server.state._procedural_coordinator = SimpleNamespace(
+            active_job_id=None,
+            start_effect=start_effect,
+        )
+        self.server.state._procedural_library_identity = id(self.library)
+        status, _response = self._request(
+            "POST",
+            "/api/lighting/effects",
+            {
+                "prompt": "ignored loop control",
+                "backend": "local",
+                "loop_mode": "ping_pong",
+                "document_revision": self.document_revision,
+            },
+        )
+
+        self.assertEqual(400, status)
+        self.assertEqual([], calls)
 
     def test_legacy_mutations_are_gone_but_procedural_cancel_remains(self) -> None:
         retired = (
