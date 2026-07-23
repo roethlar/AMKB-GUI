@@ -34,12 +34,19 @@ _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS = {
 
 
 class MediaError(Exception):
-    """A redacted media-boundary failure with a stable local code."""
+    """A stable media failure with optional in-memory process diagnostics."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        process_diagnostics: object = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
+        self.process_diagnostics = _bounded_ffmpeg_diagnostics(process_diagnostics)
 
 
 class MediaCancelled(Exception):
@@ -756,11 +763,11 @@ def run_ffmpeg_command(
         raise
     _finish_diagnostic_reader(process, diagnostic_thread)
     if process.returncode != 0:
-        diagnostic_text = _bounded_ffmpeg_diagnostics(bytes(diagnostics))
-        message = "FFmpeg could not process the video"
-        if diagnostic_text:
-            message += f": {diagnostic_text}"
-        raise MediaError("processing", message)
+        raise MediaError(
+            "processing",
+            "FFmpeg could not process the video",
+            process_diagnostics=bytes(diagnostics),
+        )
 
 
 def _validate_png_sequence(

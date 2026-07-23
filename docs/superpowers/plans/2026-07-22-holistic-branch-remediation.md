@@ -264,7 +264,7 @@ local no-provider browser acceptance at the end of the phase.
   retry action. Prove byte-stable repeated startup. Commit:
   `fix: make procedural interruption recovery idempotent`.
 
-- [ ] **F61 — Keep FFmpeg diagnostics out of manifests.** Persist only a stable
+- [x] **F61 — Keep FFmpeg diagnostics out of manifests.** Persist only a stable
   typed/pathless media error and retain bounded stderr solely in ephemeral
   process diagnostics. Test that decoder text, relative staging names, URLs,
   paths, and credentials cannot enter `manifest.json`. Commit:

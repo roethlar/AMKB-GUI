@@ -71,8 +71,12 @@
   already-interrupted procedural job as terminal, preserves the first
   interruption or failure completion time, settles a banked failed attempt
   without reclassifying it, emits no unused local retry action, and leaves the
-  exact manifest bytes stable on every later startup. The next slice is F61's
-  separation of ephemeral FFmpeg diagnostics from durable manifest errors.
+  exact manifest bytes stable on every later startup. F61 is complete on the
+  current tree: a failed FFmpeg process exposes only a stable typed/pathless
+  exception message while retaining its bounded stderr tail solely on the
+  in-memory exception, so decoder prose, relative staging names, URLs, local
+  paths, and credentials cannot enter `manifest.json`. The next slice is F02's
+  abortable fixed-loopback Ollama transport.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,

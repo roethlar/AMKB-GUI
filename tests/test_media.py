@@ -769,7 +769,7 @@ class AnimationProcessorTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "config")
         self.assertNotIn("secret", str(raised.exception))
 
-    def test_failed_process_retains_only_bounded_diagnostics(self) -> None:
+    def test_failed_process_separates_bounded_diagnostics_from_stable_error(self) -> None:
         process = _CompletedErrorProcess(b"HEAD-MARKER" + b"x" * 20_000 + b"TAIL-MARKER")
         with self.assertRaises(media.MediaError) as raised:
             media.run_ffmpeg_command(
@@ -778,9 +778,10 @@ class AnimationProcessorTests(unittest.TestCase):
                 popen_factory=lambda command, **kwargs: process,
             )
         self.assertEqual(raised.exception.code, "processing")
-        self.assertIn("TAIL-MARKER", str(raised.exception))
-        self.assertNotIn("HEAD-MARKER", str(raised.exception))
-        self.assertLessEqual(len(str(raised.exception)), 8300)
+        self.assertEqual("FFmpeg could not process the video", str(raised.exception))
+        self.assertIn("TAIL-MARKER", raised.exception.process_diagnostics)
+        self.assertNotIn("HEAD-MARKER", raised.exception.process_diagnostics)
+        self.assertLessEqual(len(raised.exception.process_diagnostics), 8192)
 
     def test_timeout_stops_process_and_windows_uses_no_console_flag(self) -> None:
         unstarted = _BlockingProcess()

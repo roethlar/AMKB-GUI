@@ -242,6 +242,7 @@ class _Processor:
     def __init__(self) -> None:
         self.calls: list[dict] = []
         self.failures = 0
+        self.failure: MediaError | None = None
 
     def __call__(
         self,
@@ -272,7 +273,7 @@ class _Processor:
         self.calls.append(call)
         if self.failures:
             self.failures -= 1
-            raise MediaError("ffmpeg_failed", "local processing failed")
+            raise self.failure or MediaError("ffmpeg_failed", "local processing failed")
         destination = call["destination"]
         destination.mkdir(mode=0o700)
         frame_paths = []
@@ -1378,6 +1379,47 @@ class DurableVideoGenerationTests(unittest.TestCase):
         self.assertEqual(34, mapped["duration_ms"])
         self.assertEqual(80 * 34, mapped["source_duration_ms"])
         self.assertFalse(mapped["timing_resampled"])
+
+    def test_ffmpeg_diagnostics_never_enter_the_manifest(self) -> None:
+        manifest, candidate_id = self._selectable_job()
+        diagnostics = (
+            "Error while decoding stream #0:0: Invalid data found\n"
+            "animation-private/content/frame-0001.png\n"
+            "https://vidgen.x.ai/private.mp4?token=url-secret\n"
+            "/Users/private/source.mp4\n"
+            "Authorization: Bearer xai-credential-secret"
+        )
+        self.processor.failures = 1
+        self.processor.failure = MediaError(
+            "processing",
+            "FFmpeg could not process the video",
+            process_diagnostics=diagnostics,
+        )
+
+        started = self._start_animation(manifest, candidate_id)
+        failed = self.coordinator.wait(started["job_id"], timeout=10)
+        manifest_bytes = (
+            self.root / "jobs" / manifest["job_id"] / "manifest.json"
+        ).read_bytes()
+
+        self.assertEqual("ready_to_process", failed["status"])
+        self.assertEqual("processing", failed["errors"][-1]["code"])
+        self.assertEqual(
+            "FFmpeg could not process the video",
+            failed["errors"][-1]["message"],
+        )
+        for forbidden in (
+            b"decoding stream",
+            b"animation-private",
+            b"frame-0001.png",
+            b"vidgen.x.ai",
+            b"url-secret",
+            b"/Users/private",
+            b"xai-credential-secret",
+            b"video-secret-key",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, manifest_bytes)
 
     def test_cancel_during_frame_banking_cannot_publish_ready(self) -> None:
         manifest, candidate_id = self._selectable_job()
