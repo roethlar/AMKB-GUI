@@ -410,6 +410,7 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                 return_value=False,
             ),
             patch("am_configurator.library._is_linklike", return_value=False),
+            patch("am_configurator.library._set_windows_private_directory_dacl"),
             patch(
                 "am_configurator.library._run_windows_path_depth_probe",
                 side_effect=path_error,
@@ -429,6 +430,52 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
             with self.assertRaisesRegex(LibraryRootError, "3.12.4"):
                 guarded.preflight()
         self.assertFalse(guarded_root.exists())
+
+    def test_windows_preflight_repairs_preexisting_jobs_dacl(self) -> None:
+        guarded_root = self.base / "preexisting-windows-library"
+        jobs = guarded_root / "jobs"
+        jobs.mkdir(parents=True)
+        guarded = GeneratedAssetLibrary(guarded_root, minimum_free_bytes=1)
+        with (
+            patch("am_configurator.library.os.name", "nt"),
+            patch("am_configurator.library.sys.version_info", (3, 14, 0)),
+            patch("am_configurator.library.Path", return_value=guarded_root),
+            patch(
+                "am_configurator.library._windows_path_has_reparse_component",
+                return_value=False,
+            ),
+            patch("am_configurator.library._is_linklike", return_value=False),
+            patch(
+                "am_configurator.library._set_windows_private_directory_dacl"
+            ) as set_private,
+            patch("am_configurator.library._run_windows_path_depth_probe"),
+        ):
+            self.assertEqual(guarded_root.resolve(), guarded.preflight())
+        set_private.assert_called_once_with(jobs.resolve())
+
+    def test_windows_preflight_fails_closed_when_dacl_repair_fails(self) -> None:
+        guarded_root = self.base / "unsecured-windows-library"
+        guarded = GeneratedAssetLibrary(guarded_root, minimum_free_bytes=1)
+        dacl_error = OSError("/private/path: access denied")
+        with (
+            patch("am_configurator.library.os.name", "nt"),
+            patch("am_configurator.library.sys.version_info", (3, 14, 0)),
+            patch("am_configurator.library.Path", return_value=guarded_root),
+            patch(
+                "am_configurator.library._windows_path_has_reparse_component",
+                return_value=False,
+            ),
+            patch("am_configurator.library._is_linklike", return_value=False),
+            patch(
+                "am_configurator.library._set_windows_private_directory_dacl",
+                side_effect=dacl_error,
+            ) as set_private,
+            patch("am_configurator.library._run_windows_path_depth_probe"),
+        ):
+            with self.assertRaises(LibraryRootError) as raised:
+                guarded.preflight()
+        set_private.assert_called_once_with((guarded_root / "jobs").resolve())
+        self.assertNotIn("/private/path", str(raised.exception))
 
     def test_uuid_collisions_never_reuse_or_delete_existing_jobs_or_assets(self) -> None:
         self.library.preflight()

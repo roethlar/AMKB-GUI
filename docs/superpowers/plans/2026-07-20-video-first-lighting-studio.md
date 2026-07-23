@@ -799,10 +799,11 @@ them as maintained evidence.
   its regression was proven red before the fix. Repository screenshots are not
   maintained as product evidence, so none were added.
 - No external provider request, production credential write, model download,
-  or hardware write was made. Windows/Linux native evidence remains pending the
-  outward CI run; native Windows pre-existing-directory ACL validation and
-  owner-supplied hardware checks remain release gates. The premium direct
-  frame-by-frame GIF generator remains a separate unapproved follow-up.
+  or hardware write was made. Windows/Linux native installers later passed the
+  outward CI run, and native Windows validation proved pre-existing Library
+  `jobs` directories are repaired to a protected private DACL. Owner-supplied
+  hardware checks remain a release gate. The premium direct frame-by-frame GIF
+  generator remains a separate unapproved follow-up.
 
 ## Completion criteria
 

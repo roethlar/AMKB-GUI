@@ -15,9 +15,9 @@ asset UUIDs.
 
 On POSIX, created job directories/files are explicitly owner-only.  On Windows,
 CPython 3.11.10+, 3.12.4+, and 3.13+ honor ``mkdir(mode=0o700)`` with a private
-DACL; preflight rejects older patch runtimes.  Native ACL verification for
-pre-existing Windows ``jobs`` directories remains pending.  Junctions and
-symlinks still fail closed.
+DACL; preflight rejects older patch runtimes and replaces inheritance on the
+``jobs`` directory with a current-user/SYSTEM/Administrators-only DACL.
+Junctions and symlinks still fail closed.
 """
 from __future__ import annotations
 
@@ -374,6 +374,164 @@ def _make_private_directory(path: Path, *, parents: bool = False) -> None:
     path.mkdir(mode=0o700, parents=parents, exist_ok=True)
     if os.name != "nt" and not existed:
         os.chmod(path, 0o700)
+
+
+def _set_windows_private_directory_dacl(path: Path) -> None:
+    """Replace a directory DACL with the CPython ``mkdir(0o700)`` policy."""
+    if os.name != "nt":
+        raise OSError("Windows directory privacy is unavailable.")
+
+    import ctypes
+    from ctypes import wintypes
+
+    token_query = 0x0008
+    token_user_class = 1
+    error_insufficient_buffer = 122
+    sddl_revision_1 = 1
+    se_file_object = 1
+    dacl_security_information = 0x00000004
+    protected_dacl_security_information = 0x80000000
+
+    class SidAndAttributes(ctypes.Structure):
+        _fields_ = [
+            ("sid", ctypes.c_void_p),
+            ("attributes", wintypes.DWORD),
+        ]
+
+    advapi32 = ctypes.WinDLL("Advapi32.dll", use_last_error=True)
+    kernel32 = ctypes.WinDLL("Kernel32.dll", use_last_error=True)
+
+    kernel32.GetCurrentProcess.argtypes = []
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel32.LocalFree.restype = ctypes.c_void_p
+    advapi32.OpenProcessToken.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.HANDLE),
+    ]
+    advapi32.OpenProcessToken.restype = wintypes.BOOL
+    advapi32.GetTokenInformation.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    advapi32.GetTokenInformation.restype = wintypes.BOOL
+    advapi32.ConvertSidToStringSidW.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    advapi32.ConvertSidToStringSidW.restype = wintypes.BOOL
+    advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW.restype = (
+        wintypes.BOOL
+    )
+    advapi32.GetSecurityDescriptorDacl.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(wintypes.BOOL),
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(wintypes.BOOL),
+    ]
+    advapi32.GetSecurityDescriptorDacl.restype = wintypes.BOOL
+    advapi32.SetNamedSecurityInfoW.argtypes = [
+        wintypes.LPWSTR,
+        ctypes.c_int,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    advapi32.SetNamedSecurityInfoW.restype = wintypes.DWORD
+
+    token = wintypes.HANDLE()
+    if not advapi32.OpenProcessToken(
+        kernel32.GetCurrentProcess(), token_query, ctypes.byref(token)
+    ):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        required = wintypes.DWORD()
+        advapi32.GetTokenInformation(
+            token, token_user_class, None, 0, ctypes.byref(required)
+        )
+        if (
+            ctypes.get_last_error() != error_insufficient_buffer
+            or required.value == 0
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        token_buffer = ctypes.create_string_buffer(required.value)
+        if not advapi32.GetTokenInformation(
+            token,
+            token_user_class,
+            token_buffer,
+            required,
+            ctypes.byref(required),
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        token_user = ctypes.cast(
+            token_buffer, ctypes.POINTER(SidAndAttributes)
+        ).contents
+        sid_text_buffer = ctypes.c_void_p()
+        if not advapi32.ConvertSidToStringSidW(
+            token_user.sid, ctypes.byref(sid_text_buffer)
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        try:
+            user_sid = ctypes.wstring_at(sid_text_buffer.value)
+        finally:
+            kernel32.LocalFree(sid_text_buffer)
+    finally:
+        kernel32.CloseHandle(token)
+
+    descriptor_text = (
+        f"D:P(A;OICI;FA;;;{user_sid})"
+        "(A;OICI;FA;;;SY)"
+        "(A;OICI;FA;;;BA)"
+    )
+    descriptor = ctypes.c_void_p()
+    descriptor_size = wintypes.DWORD()
+    if not advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        descriptor_text,
+        sddl_revision_1,
+        ctypes.byref(descriptor),
+        ctypes.byref(descriptor_size),
+    ):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        dacl_present = wintypes.BOOL()
+        dacl_defaulted = wintypes.BOOL()
+        dacl = ctypes.c_void_p()
+        if not advapi32.GetSecurityDescriptorDacl(
+            descriptor,
+            ctypes.byref(dacl_present),
+            ctypes.byref(dacl),
+            ctypes.byref(dacl_defaulted),
+        ):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if not dacl_present.value or not dacl.value:
+            raise OSError("Private Windows directory DACL was unavailable.")
+        result = advapi32.SetNamedSecurityInfoW(
+            str(path),
+            se_file_object,
+            dacl_security_information | protected_dacl_security_information,
+            None,
+            None,
+            dacl,
+            None,
+        )
+        if result:
+            raise ctypes.WinError(result)
+    finally:
+        kernel32.LocalFree(descriptor)
 
 
 def _fsync_directory(path: Path) -> None:
@@ -1083,6 +1241,7 @@ class GeneratedAssetLibrary:
             if os.name != "nt":
                 os.chmod(jobs, 0o700)
             else:
+                _set_windows_private_directory_dacl(jobs)
                 _run_windows_path_depth_probe(root)
             _run_write_probe(root)
             free = self._disk_usage(root).free

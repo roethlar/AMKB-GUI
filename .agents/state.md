@@ -10,7 +10,10 @@
   passed their installed/frozen smoke and native renderer policy checks; those
   checks found an Ollama/API-only Settings surface and rejected direct-model
   runtimes, manifests, and weights from the bundles. The canonical evidence is
-  in `docs/superpowers/plans/2026-07-22-holistic-branch-remediation.md`.
+  in `docs/superpowers/plans/2026-07-22-holistic-branch-remediation.md`. Native
+  Windows acceptance also proved production preflight repairs a pre-existing
+  Library `jobs` directory from broad inherited access to a protected DACL
+  containing only current-user, SYSTEM, and Administrators full control.
 - The owner corrected the holistic remediation boundary on 2026-07-23:
   governance is a separate product and is updated only in a fresh one-off
   session. P10 and P11 are excluded from the product-remediation plan. The
@@ -721,14 +724,8 @@
 - Complete hardware verification across CyberBoard, Relic 80, and AFA firmware
   variants using portable JSON backups when the corresponding devices are
   available.
-- Before a Windows release, verify native ACL handling for a pre-existing
-  Library `jobs` directory.
 
 ## Blockers
 
 - Hardware checks require corresponding owner-supplied devices; they are not
   required for the offline suite.
-- Native Windows ACL verification for a pre-existing library `jobs` directory
-  remains required before a Windows release. New directories are private on
-  supported patched CPython runtimes, and older runtimes fail preflight before
-  touching the configured root.

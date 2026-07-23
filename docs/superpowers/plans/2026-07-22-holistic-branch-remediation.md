@@ -9,8 +9,8 @@ On 2026-07-23 the owner further corrected the boundary: governance is a
 separate product, updated only in a fresh one-off session. Governance findings
 P10 and P11 are therefore excluded from this product-remediation plan.
 Product remediation and its required release-evidence run are complete as of
-2026-07-23. Hardware acceptance and the pre-existing Windows Library ACL check
-remain external release prerequisites recorded in `.agents/state.md`.
+2026-07-23. Hardware acceptance remains an external release prerequisite
+recorded in `.agents/state.md`.
 
 ## Objective
 
@@ -523,6 +523,23 @@ pass as unconditional Ollama/API-only builds and the artifact guards must prove
 that no llama/GGUF product path was reintroduced. A normal CI failure is fixed
 in a new one-finding commit; no gate is weakened.
 
+## Post-Implementation Release Acceptance
+
+- [x] **A01 — Secure a pre-existing Windows Library jobs directory.** A native
+  Windows probe proved that `mkdir(mode=0o700, exist_ok=True)` leaves an
+  inherited pre-existing DACL unchanged. Windows preflight now replaces the
+  real, non-reparse `jobs` directory DACL with protected inheritable
+  current-user, SYSTEM, and Administrators full-control entries, and fails
+  pathlessly if that repair cannot be applied. The focused regression failed
+  when the repair call was removed and passed when restored. The production
+  preflight and focused tests then passed natively on Windows, changing the
+  probe directory from six inherited allow entries to exactly three explicit
+  private entries. The final repository gate passed with 376 Python tests (one
+  prepared-runtime skip), 43 browser tests, compile and syntax checks, and
+  source/wheel builds; versioned macOS build `0.1.44`, DMG verification, and
+  frozen smoke also passed. Commit:
+  `fix: secure pre-existing windows library ACLs`.
+
 ## Phase 8 — Library and Attestation Hardening
 
 - [x] **F51 — Consolidate remaining bounded attestation verification.** After
@@ -729,6 +746,10 @@ Recorded release evidence (2026-07-23):
   managed-runtime, model-selection, picker-route, and qualification shipping
   paths. A direct filename inspection of the Linux AppImage contents found none
   of the prohibited runtime or model artifacts.
+- A native Windows acceptance probe first demonstrated that a pre-existing
+  `jobs` directory retained its broad inherited DACL, then proved the fixed
+  production preflight replaces it with a protected current-user, SYSTEM, and
+  Administrators-only DACL. Temporary probe data was removed afterward.
 
 No provider request, model mutation, credential write, hardware write, push,
 workflow dispatch, release, or branch cleanup is implied by plan approval.
