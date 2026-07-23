@@ -570,7 +570,7 @@ Each polish item is a separate commit despite its size.
   cost identity in Settings and Library metadata only. Commit:
   `fix: keep backend identity out of generation`.
 
-- [ ] **P04 — Add Library asset epoch ownership.** An asset load finishing after
+- [x] **P04 — Add Library asset epoch ownership.** An asset load finishing after
   refresh must revoke its new Blob URL and may not reinsert stale state. Commit:
   `fix: discard stale library asset loads`.
 

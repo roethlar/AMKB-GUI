@@ -301,8 +301,12 @@
   P03 is complete on the current tree: the generation dialog shows only the
   destination slot and keyboard target, with no Local/API identity; Settings
   retains backend selection and Library retains cost metadata. The browser
-  regression was proven red against the former identity prefix. The next slice
-  is Phase 10 / P04's Library asset epoch ownership.
+  regression was proven red against the former identity prefix. P04 is complete
+  on the current tree: Library asset fetches hold epoch-owned leases, stale
+  completions revoke newly created Blob URLs before publication, and an old
+  lease cannot clear a refreshed request's ownership. Behavioral and adapter
+  regressions were proven red against the prior bare in-flight set. The next
+  slice is Phase 10 / P05's removal of loop mode from new procedural generation.
 - The owner approved the product decisions for a video-first Lighting Studio,
   recorded in `.agents/decisions.md`, and authorized implementation of
   `docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. Task 1,
@@ -612,7 +616,8 @@
 ## Next
 
 - Implement the approved holistic remediation plan one finding per commit,
-  continuing with Phase 10 / P04's Library asset epoch ownership.
+  continuing with Phase 10 / P05's removal of loop mode from new procedural
+  generation.
   Do not push or dispatch workflows before the local remediation and verification
   gates pass.
 - After remediation and a separate outward authorization, verify Windows

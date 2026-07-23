@@ -192,6 +192,14 @@ test("Library media failures retry once and become actionable", () => {
   assert.match(js,/loadLibraryAsset\(jobId,assetId,\{retry:true\}\)/);
 });
 
+test("Library asset loads revoke stale blobs and preserve refreshed ownership", () => {
+  const loader=js.slice(js.indexOf("async function loadLibraryAsset"),js.indexOf("async function ensureLibraryJobDetail"));
+  assert.match(loader,/createObjectURL/);
+  assert.match(loader,/if\(!lease\.current\(state\.library\.epoch\)\)\{URL\.revokeObjectURL\(url\);return;\}/);
+  assert.match(loader,/const ownsCurrent=lease\.current\(state\.library\.epoch\)/);
+  assert.match(loader,/lease\.release\(\)/);
+});
+
 test("Settings remains a saveable route with Library and loop preferences", () => {
   assert.match(html,/id="settings-save"[^>]*>Save changes</);
   assert.match(html,/id="settings-done"[^>]*>Done</);

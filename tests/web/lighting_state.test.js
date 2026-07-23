@@ -7,6 +7,7 @@ const {
   ROUTES,
   STAGES,
   applyCompatibility,
+  createEpochLoadRegistry,
   createPaintStrokeController,
   createLightingState,
   formatLightingHash,
@@ -41,6 +42,21 @@ class FakeEventTarget {
     for (const listener of [...(this.listeners.get(type) || [])]) listener();
   }
 }
+
+test("epoch load ownership lets refresh supersede an in-flight asset safely", () => {
+  const registry=createEpochLoadRegistry();
+  const oldLoad=registry.begin("job:asset",1);
+  assert.ok(oldLoad);
+  assert.equal(registry.begin("job:asset",1),null);
+  const refreshedLoad=registry.begin("job:asset",2);
+  assert.ok(refreshedLoad);
+  assert.equal(oldLoad.current(2),false);
+  assert.equal(refreshedLoad.current(2),true);
+  oldLoad.release();
+  assert.equal(refreshedLoad.current(2),true);
+  refreshedLoad.release();
+  assert.ok(registry.begin("job:asset",2));
+});
 
 const MODEL_A = Object.freeze({
   model_id: "ornith:latest",

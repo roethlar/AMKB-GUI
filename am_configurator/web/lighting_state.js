@@ -45,6 +45,30 @@
     return current;
   }
 
+  function createEpochLoadRegistry() {
+    const owners = new Map();
+    return Object.freeze({
+      begin(key, epoch) {
+        if (typeof key !== "string" || !key || !Number.isSafeInteger(epoch) || epoch < 0) {
+          throw new TypeError("Epoch load identity is invalid");
+        }
+        if (owners.get(key) === epoch) return null;
+        owners.set(key, epoch);
+        let released = false;
+        return Object.freeze({
+          current(currentEpoch) {
+            return !released && currentEpoch === epoch && owners.get(key) === epoch;
+          },
+          release() {
+            if (released) return;
+            released = true;
+            if (owners.get(key) === epoch) owners.delete(key);
+          },
+        });
+      },
+    });
+  }
+
   function normalizeLocalModels(value) {
     const models = [];
     const seen = new Set();
@@ -333,6 +357,7 @@
     ROUTES,
     STAGES,
     applyCompatibility,
+    createEpochLoadRegistry,
     createPaintStrokeController,
     createLightingState,
     formatLightingHash,

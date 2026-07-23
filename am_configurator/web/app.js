@@ -9,7 +9,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const esc = value => String(value ?? "").replace(/[&<>'"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch]));
-const {ROUTES, STAGES, createLightingState, createPaintStrokeController, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability} = LightingState;
+const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, renderTargetControls} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
@@ -93,7 +93,7 @@ const state = {
     details: new Map(),
     detailLoads: new Set(),
     assetUrls: new Map(),
-    assetLoads: new Set(),
+    assetLoads: createEpochLoadRegistry(),
     assetErrors: new Map(),
     filter: "all",
     query: "",
@@ -761,26 +761,30 @@ function libraryCoverAsset(detail) {
 
 async function loadLibraryAsset(jobId,assetId,{retry=false}={}) {
   const key=`${jobId}:${assetId}`;
-  if(state.library.assetUrls.has(key)||state.library.assetLoads.has(key))return;
-  state.library.assetLoads.add(key);
+  const epoch=state.library.epoch;
+  if(state.library.assetUrls.has(key))return;
+  const lease=state.library.assetLoads.begin(key,epoch);
+  if(!lease)return;
   state.library.assetErrors.delete(key);
   try{
     const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
     if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load asset (${response.status})`);}
     const url=URL.createObjectURL(await response.blob());
+    if(!lease.current(state.library.epoch)){URL.revokeObjectURL(url);return;}
     const previous=state.library.assetUrls.get(key);
     if(previous&&previous!==url)URL.revokeObjectURL(previous);
     state.library.assetUrls.set(key,url);
-    if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
   }catch(error){
+    if(!lease.current(state.library.epoch))return;
     if(retry)state.library.assetErrors.set(key,error.message);
     else{
       state.library.assetErrors.set(key,"Retrying…");
       setTimeout(()=>loadLibraryAsset(jobId,assetId,{retry:true}),250);
     }
   }finally{
-    state.library.assetLoads.delete(key);
-    if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
+    const ownsCurrent=lease.current(state.library.epoch);
+    lease.release();
+    if(ownsCurrent&&state.lighting.route===ROUTES.LIBRARY)renderLibrary();
   }
 }
 
