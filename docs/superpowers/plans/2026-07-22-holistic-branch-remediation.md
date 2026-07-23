@@ -604,7 +604,7 @@ Each polish item is a separate commit despite its size.
   governance-refresh operator and verify the pointer resolves. Commit is the
   refresh's own governed commit.
 
-- [x] **P11 — Rotate historical state through `drift`.** Invoke the repo's
+- [ ] **P11 — Rotate historical state through `drift`.** Invoke the repo's
   `drift` operator after remediation, archive landed `## Now` entries verbatim,
   point current state to this plan, reverify parked items, and remove duplicated
   counts. Commit: `docs: reconcile remediation state`.
