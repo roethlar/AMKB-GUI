@@ -268,6 +268,35 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         self.assertEqual("procedural", manifest["pipeline"])
         self.assertEqual({"recipe", "raster_animation"}, {recipe["kind"], raster["kind"]})
 
+    def test_file_identity_agrees_between_a_path_stat_and_a_handle_stat(self) -> None:
+        """A freshly written asset must identify as itself through either stat.
+
+        Windows reports st_ctime_ns at a different resolution through a path
+        query than through an open handle, so including it here rejected every
+        newly banked asset and Library media never loaded on that platform.
+        """
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "identity-probe.bin"
+            target.write_bytes(b"x" * 4096)
+
+            before = target.lstat()
+            descriptor = os.open(target, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                opened = os.fstat(descriptor)
+            finally:
+                os.close(descriptor)
+
+            self.assertEqual(
+                library_module._file_stat_identity(before),
+                library_module._file_stat_identity(opened),
+            )
+            # Pin the exact composition so the volatile fields cannot creep back
+            # in on a platform where this test would otherwise still pass.
+            self.assertEqual(
+                (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns),
+                library_module._file_stat_identity(before),
+            )
+
     @unittest.skipIf(os.name == "nt", "directory fsync is not exposed on Windows")
     def test_directory_fsync_surfaces_real_io_errors_only(self) -> None:
         with patch(

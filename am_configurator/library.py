@@ -208,14 +208,20 @@ class AssetNotFoundError(LibraryError):
 
 
 def _file_stat_identity(details: os.stat_result) -> tuple[int, ...]:
+    """Identify file content only, so a path stat and a handle stat can agree.
+
+    Windows reports ``st_ctime_ns`` (creation time) at different resolutions
+    through a path query and through an open handle, so a freshly written asset
+    disagrees with itself and every banked asset is rejected.  ``st_mode`` and
+    reparse status are asserted directly against both the path and the
+    descriptor by the callers, so excluding them here removes no check.
+    ``ffmpeg_runtime._regular_file_identity`` carries the same contract.
+    """
     return (
         details.st_dev,
         details.st_ino,
-        details.st_mode,
         details.st_size,
         details.st_mtime_ns,
-        details.st_ctime_ns,
-        getattr(details, "st_file_attributes", 0),
     )
 
 
