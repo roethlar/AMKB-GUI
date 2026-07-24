@@ -1,7 +1,18 @@
 # Windows Suite Repair
 
-**Status:** Approved by the owner on 2026-07-24, after a triage that reproduced
-every CI Windows failure on a real Windows 11 host and classified all of them.
+**Status:** Complete on 2026-07-24. Approved by the owner the same day, after a
+triage that reproduced every CI Windows failure on a real Windows 11 host and
+classified all of them.
+
+Committed as W1 `c40691a`, W3 `53a1309`, W2 `a794a97`, W4 `9c8a491`, W5
+`f07395a`. The Windows suite reaches `OK (skipped=6)` at 381 tests, with
+identical counts on two consecutive runs; the earlier run-to-run variance was a
+symptom of W1 and is gone. macOS passes the full entry point at 381 tests.
+
+Process note for future work of this shape: W2-W5 were split into four commits
+to satisfy one-finding-per-commit, and the owner confirmed afterwards that a
+single commit would have been appropriate for a batch of closely related
+test-only repairs. Reserve per-finding commits for behavioural fixes.
 
 Scope is one product defect and ten test defects. The product defect is
 user-facing on Windows; the ten test defects are not, but the merge gate stays

@@ -750,14 +750,34 @@
   matrix and adds a Linux Python 3.11 entry. Code signing and notarization
   remain out of scope and unaddressed: both require paid developer accounts.
 
+- The release-hygiene plan is complete; R1-R4 landed in `c4403e3`, `a72e31f`,
+  `42b4b92`, and `2d50393`. Opening pull request #1 then ran CI against this
+  branch for the first time, because `ci.yml` triggers only on `pull_request`
+  and pushes to `main`. `Test · Windows` failed with 23 tests; every other
+  check passed, including all three installers.
+- The Windows suite repair plan is complete;
+  `docs/superpowers/plans/2026-07-24-windows-suite-repair.md` is its canonical
+  ledger. Every failure was reproduced on a real Windows 11 host and
+  classified: one product defect and ten test defects. The product defect was
+  user-facing: `_file_stat_identity` compared `st_ctime_ns`, which a path query
+  and an open handle report at different resolutions on Windows for a recently
+  written file, so `resolve_asset` and `open_verified` rejected every freshly
+  banked asset and no Library media loaded on that platform. `ffmpeg_runtime`
+  had the identical defect and was fixed in `3f550a1`; `library.py` was the
+  last instance, because the suite had never run on Windows. A diagnostic
+  experiment applying that fix alone cleared 11 tests and broke none. The
+  Windows suite now reaches `OK (skipped=6)` at 381 tests with identical counts
+  across two consecutive runs.
+
 ## Next
 
 - Do not perform governance work under this product-remediation plan. Any
   governance update requires a separate fresh one-off session.
-- Nothing is queued in the repository. The branch is 258 commits ahead of
-  `main` and has never been exercised by CI, because `ci.yml` triggers only on
-  `pull_request` and pushes to `main`. Opening the merge pull request is the
-  first action that will run the full matrix against this work.
+- Confirm all seven checks pass on pull request #1 at the pushed head, then the
+  branch is ready to merge.
+- Code signing and notarization remain unaddressed and out of scope; both
+  require paid developer accounts, and `README.md` discloses the unsigned
+  state.
 - Complete hardware verification across CyberBoard, Relic 80, and AFA firmware
   variants using portable JSON backups when the corresponding devices are
   available.
