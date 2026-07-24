@@ -260,6 +260,19 @@ class ReleaseInfoTests(unittest.TestCase):
         ):
             self.assertIn(f"run: {command}", workflow)
 
+    def test_ci_exercises_the_declared_python_floor(self) -> None:
+        metadata = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+
+        # library.py gates Windows private directories on CPython 3.11.10+, so
+        # the floor is load-bearing rather than a nominal metadata value.
+        self.assertEqual(">=3.11", metadata["project"]["requires-python"])
+        self.assertIn('python: "3.11"', workflow)
+        self.assertIn("python-version: ${{ matrix.python }}", workflow)
+        self.assertNotIn('python-version: "3.12"', workflow)
+
     def test_release_pipeline_has_no_llama_build_commands(self) -> None:
         paths = (
             ROOT / "build.py",

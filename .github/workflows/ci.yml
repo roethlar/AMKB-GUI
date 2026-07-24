@@ -23,10 +23,18 @@ jobs:
         include:
           - name: macOS
             os: macos-latest
+            python: "3.12"
           - name: Windows
             os: windows-latest
+            python: "3.12"
           - name: Linux
             os: ubuntu-latest
+            python: "3.12"
+          # pyproject declares requires-python = ">=3.11" and library.py carries
+          # an explicit CPython 3.11.10 branch, so the floor must be exercised.
+          - name: Linux · Python 3.11
+            os: ubuntu-latest
+            python: "3.11"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -34,7 +42,7 @@ jobs:
       - name: Install uv and Python
         uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
           enable-cache: true
       - name: Install test environment
         run: uv sync --locked
