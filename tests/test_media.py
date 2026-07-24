@@ -18,6 +18,20 @@ from unittest.mock import patch
 from am_configurator import media
 
 
+def _absolute(*parts: str) -> str:
+    """An absolute path on this platform.
+
+    ``run_ffmpeg_command`` requires ``Path(command[0]).is_absolute()``, and a
+    POSIX-rooted literal like ``/absolute/ffmpeg`` carries no drive, so Windows
+    does not consider it absolute and rejects the command before reaching the
+    behaviour under test.
+    """
+    return str(Path("C:\\" if os.name == "nt" else "/", *parts))
+
+
+_FFMPEG = _absolute("absolute", "ffmpeg")
+
+
 def _mp4_bytes() -> bytes:
     return (
         (24).to_bytes(4, "big")
@@ -1035,7 +1049,7 @@ class AnimationProcessorTests(unittest.TestCase):
 
         with self.assertRaises(media.MediaCancelled):
             media.run_ffmpeg_command(
-                ("/absolute/ffmpeg", "-nostdin", "-version"),
+                (_FFMPEG, "-nostdin", "-version"),
                 deadline=time.monotonic() + 30,
                 cancelled=lambda: next(checks),
                 popen_factory=factory,
@@ -1055,7 +1069,7 @@ class AnimationProcessorTests(unittest.TestCase):
         with self.assertRaises(media.MediaError) as raised:
             media.run_ffmpeg_command(
                 (
-                    "/absolute/ffmpeg",
+                    _FFMPEG,
                     "-nostdin",
                     "-i",
                     "https://vidgen.x.ai/signed.mp4?secret=value",
@@ -1070,7 +1084,7 @@ class AnimationProcessorTests(unittest.TestCase):
         process = _CompletedErrorProcess(b"HEAD-MARKER" + b"x" * 20_000 + b"TAIL-MARKER")
         with self.assertRaises(media.MediaError) as raised:
             media.run_ffmpeg_command(
-                ("/absolute/ffmpeg", "-nostdin", "-version"),
+                (_FFMPEG, "-nostdin", "-version"),
                 deadline=time.monotonic() + 30,
                 popen_factory=lambda command, **kwargs: process,
             )
@@ -1084,7 +1098,7 @@ class AnimationProcessorTests(unittest.TestCase):
         unstarted = _BlockingProcess()
         with self.assertRaises(media.MediaError) as raised:
             media.run_ffmpeg_command(
-                ("/absolute/ffmpeg", "-nostdin", "-version"),
+                (_FFMPEG, "-nostdin", "-version"),
                 deadline=time.monotonic() - 1,
                 popen_factory=lambda command, **kwargs: unstarted,
             )
@@ -1095,7 +1109,7 @@ class AnimationProcessorTests(unittest.TestCase):
         with patch.object(media.time, "monotonic", side_effect=(100.0, 101.0)):
             with self.assertRaises(media.MediaError) as raised:
                 media.run_ffmpeg_command(
-                    ("/absolute/ffmpeg", "-nostdin", "-version"),
+                    (_FFMPEG, "-nostdin", "-version"),
                     deadline=100.5,
                     popen_factory=lambda command, **kwargs: running,
                 )

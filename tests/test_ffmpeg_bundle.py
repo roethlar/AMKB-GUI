@@ -21,6 +21,20 @@ from am_configurator import ffmpeg_runtime
 from build_tools import ffmpeg_bundle, finalize_ffmpeg_bundle, prepare_ffmpeg
 
 
+def _absolute(*parts: str) -> Path:
+    """An absolute path on this platform.
+
+    ``build_command_plan`` requires every build tool to be absolute, and a
+    POSIX-rooted literal like ``/opt/am-tools/cc`` carries no drive, so Windows
+    does not consider it absolute and rejects it before the plan is built.
+    """
+    return Path("C:\\" if os.name == "nt" else "/", *parts)
+
+
+def _tool_paths(*roots: str) -> dict[str, Path]:
+    return {role: _absolute(*roots, role) for role in ("cc", "ar", "ranlib", "strip")}
+
+
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT / "packaging" / "ffmpeg" / "manifest.json"
 SOURCE_ROOT_NAME = "ffmpeg-8.1.2"
@@ -452,6 +466,14 @@ class FfmpegBundleTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(b"archive").hexdigest(), digest)
 
     def test_windows_gpg_runs_inside_the_profileless_msys2_shell(self) -> None:
+        # Expectations derive from _msys_path rather than restating a POSIX
+        # spelling: it resolves its argument, so an absolute path renders as
+        # /c/... on Windows and unchanged elsewhere.
+        bash = _absolute("msys2", "usr", "bin", "bash.exe")
+        gpg = _absolute("msys2", "usr", "bin", "gpg.exe")
+        gnupg_home = _absolute("private", "gnupg")
+        key = _absolute("workspace", "ffmpeg-devel.asc")
+
         completed = SimpleNamespace(returncode=0, stdout="", stderr="")
         with patch.object(
             prepare_ffmpeg.subprocess,
@@ -459,28 +481,23 @@ class FfmpegBundleTests(unittest.TestCase):
             return_value=completed,
         ) as run:
             runner = prepare_ffmpeg._runner_with_environment(
-                {"GNUPGHOME": "/private/gnupg"},
-                msys2_bash=Path("/msys2/usr/bin/bash.exe"),
-                msys2_gpg=Path("/msys2/usr/bin/gpg.exe"),
+                {"GNUPGHOME": str(gnupg_home)},
+                msys2_bash=bash,
+                msys2_gpg=gpg,
             )
-            result = runner(
-                (
-                    "/msys2/usr/bin/gpg.exe",
-                    "--batch",
-                    "--import",
-                    "/workspace/ffmpeg-devel.asc",
-                )
-            )
+            result = runner((str(gpg), "--batch", "--import", str(key)))
 
         self.assertEqual(0, result.returncode)
         command = run.call_args.args[0]
-        self.assertEqual("/msys2/usr/bin/bash.exe", command[0])
+        self.assertEqual(str(bash), command[0])
         self.assertEqual(("--noprofile", "--norc", "-lc"), command[1:4])
         self.assertIn("export PATH=/usr/bin:/mingw64/bin:$PATH", command[4])
-        self.assertIn("export GNUPGHOME=/private/gnupg", command[4])
         self.assertIn(
-            "exec /msys2/usr/bin/gpg.exe --batch --import "
-            "/workspace/ffmpeg-devel.asc",
+            f"export GNUPGHOME={ffmpeg_bundle._msys_path(gnupg_home)}", command[4]
+        )
+        self.assertIn(
+            f"exec {ffmpeg_bundle._msys_path(gpg)} --batch --import "
+            f"{ffmpeg_bundle._msys_path(key)}",
             command[4],
         )
 
@@ -1101,12 +1118,7 @@ class FfmpegBundleTests(unittest.TestCase):
             source = Path(temp) / "source-tree"
             output = Path(temp) / "output tree"
             source.mkdir()
-            tools = {
-                "cc": Path("/opt/am-tools/cc"),
-                "ar": Path("/opt/am-tools/ar"),
-                "ranlib": Path("/opt/am-tools/ranlib"),
-                "strip": Path("/opt/am-tools/strip"),
-            }
+            tools = _tool_paths("opt", "am-tools")
             plan = ffmpeg_bundle.build_command_plan(
                 source,
                 output,
@@ -1152,11 +1164,15 @@ class FfmpegBundleTests(unittest.TestCase):
             self.assertNotIn("https://", flattened)
 
             windows_tools = {
-                "cc": Path("/msys2/mingw64/bin/gcc.exe"),
-                "ar": Path("/msys2/mingw64/bin/ar.exe"),
-                "ranlib": Path("/msys2/mingw64/bin/ranlib.exe"),
-                "strip": Path("/msys2/mingw64/bin/strip.exe"),
+                role: _absolute("msys2", "mingw64", "bin", name)
+                for role, name in (
+                    ("cc", "gcc.exe"),
+                    ("ar", "ar.exe"),
+                    ("ranlib", "ranlib.exe"),
+                    ("strip", "strip.exe"),
+                )
             }
+            msys2_bash = _absolute("msys2", "usr", "bin", "bash.exe")
             windows_plan = ffmpeg_bundle.build_command_plan(
                 source,
                 output,
@@ -1164,12 +1180,12 @@ class FfmpegBundleTests(unittest.TestCase):
                 platform_name="windows",
                 architecture="x86_64",
                 jobs=2,
-                msys2_bash=Path("/msys2/usr/bin/bash.exe"),
+                msys2_bash=msys2_bash,
                 tool_paths=windows_tools,
             )
             self.assertEqual(2, len(windows_plan))
             for command in windows_plan:
-                self.assertEqual("/msys2/usr/bin/bash.exe", command.args[0])
+                self.assertEqual(str(msys2_bash), command.args[0])
                 self.assertEqual(("--noprofile", "--norc", "-lc"), command.args[1:4])
                 self.assertTrue(
                     command.args[4].startswith(
@@ -1223,12 +1239,7 @@ class FfmpegBundleTests(unittest.TestCase):
             output = root / "output"
             _write_tar_xz(archive, _source_entries())
             signature.write_bytes(b"synthetic signature")
-            tools = {
-                "cc": Path("/opt/am-tools/cc"),
-                "ar": Path("/opt/am-tools/ar"),
-                "ranlib": Path("/opt/am-tools/ranlib"),
-                "strip": Path("/opt/am-tools/strip"),
-            }
+            tools = _tool_paths("opt", "am-tools")
             fake_runner = _FakeRunner(self.manifest)
 
             def runner(args, **kwargs):
@@ -1267,7 +1278,9 @@ class FfmpegBundleTests(unittest.TestCase):
                 fake_runner.calls[0][0][0], str(extracted_source / "configure")
             )
             self.assertEqual(fake_runner.calls[1][0], ("make", "-j2", "ffmpeg"))
-            self.assertEqual(fake_runner.calls[10][0], ("/opt/am-tools/cc", "--version"))
+            self.assertEqual(
+                fake_runner.calls[10][0], (str(tools["cc"]), "--version")
+            )
             self.assertEqual(binary.read_bytes(), b"synthetic built executable")
             self.assertFalse(os.path.lexists(extraction))
             attestation = binary.with_name("ffmpeg-runtime.json")
