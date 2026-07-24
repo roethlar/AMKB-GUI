@@ -18,9 +18,19 @@ uv run --frozen python -m unittest discover -s tests -v
 uv run --frozen python -m compileall -q am_configurator packaging build_tools
 node --test tests/web/*.test.js
 node --check am_configurator/web/lighting_state.js
+node --check am_configurator/web/lighting_review.js
+node --check am_configurator/web/lighting_targets.js
 node --check am_configurator/web/app.js
 uv build
 ```
+
+This is the same command set `.github/workflows/ci.yml` enforces. CI is the
+authoritative source; if the two ever disagree, fix this file.
+
+Build the environment the way CI does when checking a change that could depend
+on optional dependencies. `uv sync --locked` installs no extras, so a test that
+reaches the real `webview` import passes locally under `--extra desktop` and
+fails in CI.
 
 For native distribution changes, build on the current operating system with
 `python build.py --skip-sync` (or `python build.py` when dependencies need

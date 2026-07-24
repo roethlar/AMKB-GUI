@@ -161,9 +161,15 @@ uv run --frozen python -m unittest discover -s tests -v
 uv run --frozen python -m compileall -q am_configurator packaging build_tools
 node --test tests/web/*.test.js
 node --check am_configurator/web/lighting_state.js
+node --check am_configurator/web/lighting_review.js
+node --check am_configurator/web/lighting_targets.js
 node --check am_configurator/web/app.js
 uv build
 ```
+
+This matches the CI workflow. Note that `uv sync --locked` installs no extras,
+so a change touching optional-dependency code should also be checked in an
+environment built without `--extra desktop`.
 
 </details>
 
