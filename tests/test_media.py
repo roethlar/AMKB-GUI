@@ -534,6 +534,7 @@ class VideoDownloaderTests(unittest.TestCase):
             self.assertFalse(backup.exists())
             self.assertFalse(part.exists())
 
+    @unittest.skipIf(os.name == "nt", "directory fsync is not exposed on Windows")
     def test_directory_fsync_failure_rolls_back_existing_destination(self) -> None:
         real_fsync = os.fsync
         call_count = 0
@@ -562,6 +563,7 @@ class VideoDownloaderTests(unittest.TestCase):
             self.assertFalse((Path(tmp) / "source.mp4.part").exists())
             self.assertFalse((Path(tmp) / "source.mp4.previous").exists())
 
+    @unittest.skipIf(os.name == "nt", "directory fsync is not exposed on Windows")
     def test_failed_rollback_preserves_previous_destination_backup(self) -> None:
         real_fsync = os.fsync
         real_replace = os.replace
