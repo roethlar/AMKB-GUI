@@ -716,11 +716,34 @@
   `Regression Guard Evidence` section.
 - The nested `cyberboard-cli/` checkout remains ignored reference material
   and is not part of the application.
+- A 2026-07-24 release-readiness review opened a second approved plan,
+  `docs/superpowers/plans/2026-07-24-release-hygiene.md`, covering five
+  release-artifact defects (R0-R4) that do not affect application runtime
+  behavior. Code signing and notarization are excluded: both require paid
+  developer accounts, and `README.md` already discloses the unsigned state.
+  R0 is complete on the current tree (`4105552`): two folder-chooser tests
+  reached the real lazy `import webview`, which is supplied only by the
+  `desktop` optional extra, so they failed under CI's extras-free
+  `uv sync --locked` while passing on a developer machine. The failure was
+  latent since `2797312` because `ci.yml` triggers only on `pull_request` and
+  pushes to `main` and this branch has never opened one, so CI has never run
+  against it. Both tests now supply a stand-in `webview` module like every
+  other webview-dependent test in that file; no production code changed. The
+  full entry point passes in both a CI-equivalent environment (Python 3.12,
+  `uv sync --locked`, no extras, `webview` absent) and the developer
+  environment, at 376 Python tests with one skip and 43 browser tests. The
+  same two errors were the only failures in a CPython 3.11.15 probe, so the
+  declared `>=3.11` floor has no known incompatibility.
 
 ## Next
 
 - Do not perform governance work under this product-remediation plan. Any
   governance update requires a separate fresh one-off session.
+- Continue the release-hygiene plan at R1: add `LICENSE` and
+  `THIRD_PARTY_NOTICES` to the PyInstaller `datas` allowlist so the MIT
+  attribution for the `cyberboard-cli`-derived protocol reaches the macOS and
+  Linux artifacts. It needs a native rebuild and frozen smoke to verify.
+  R2-R4 follow.
 - Complete hardware verification across CyberBoard, Relic 80, and AFA firmware
   variants using portable JSON backups when the corresponding devices are
   available.
