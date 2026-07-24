@@ -1,9 +1,14 @@
 # Release Hygiene
 
-**Status:** Approved by the owner on 2026-07-24. Slices R1-R4 were approved when
-the plan was drafted; R0 was discovered while de-risking R4 and was approved
-separately the same day, ahead of the others, because the branch cannot pass CI
-until it lands.
+**Status:** Complete on 2026-07-24. Approved by the owner the same day: slices
+R1-R4 when the plan was drafted, and R0 separately after it was discovered while
+de-risking R4, ahead of the others because the branch could not pass CI until it
+landed.
+
+All five slices are committed one item per commit: R0 `4105552`, R1 `c4403e3`,
+R2 `a72e31f`, R3 `42b4b92`, R4 `2d50393`. Each guard was proven red before its
+fix. Closure evidence is in the per-slice sections below and summarized in
+`.agents/state.md`.
 
 Code signing and notarization are explicitly out of scope: both require paid
 developer accounts (Apple Developer Program, Authenticode certificate) that are
@@ -490,6 +495,33 @@ confirm the suite passes.
    `python` key.
 
 ---
+
+## Closure Evidence
+
+Recorded 2026-07-24 at `2d50393`.
+
+- R0 `4105552`. Both folder-chooser tests failed in a CI-equivalent environment
+  (Python 3.12, `uv sync --locked`, `webview` absent) and passed after supplying
+  a stand-in module. No production change.
+- R1 `c4403e3`. Guard red with the two `datas` entries removed. Native macOS
+  build `0.1.45` passed DMG verification and frozen smoke; the rebuilt bundle
+  carries `Contents/Resources/LICENSE` (1065 bytes) and
+  `Contents/Resources/THIRD_PARTY_NOTICES` (539 bytes), and the seven FFmpeg
+  LGPL files remain in `Contents/Resources/ffmpeg/`.
+- R2 `a72e31f`. Both guards red with the sdist table removed. A real `uv build`
+  returns nothing for the governance grep; only `docs/images/` ships from
+  `docs/`; `packaging/ffmpeg/` material still arrives through its parent; the
+  wheel is unchanged. An unanchored `README.md` pattern was observed matching
+  `docs/verification/*/README.md` during this slice, which is why every pattern
+  is root-anchored and a guard enforces it.
+- R3 `42b4b92`. `ci.yml`, `.agents/repo-guidance.md`, and `README.md` now name
+  an identical four-target `node --check` set.
+- R4 `2d50393`. Guard red against the unparameterized workflow. The suite passes
+  on CPython 3.11.15 with no extras.
+
+Final gate at `2d50393`: 380 Python tests with one skip in the developer
+environment, the CI-equivalent 3.12 environment, and the 3.11 floor environment;
+43 browser tests; four `node --check` targets; `compileall`; `uv build`.
 
 ## Completion
 

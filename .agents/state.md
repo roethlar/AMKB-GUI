@@ -734,16 +734,30 @@
   environment, at 376 Python tests with one skip and 43 browser tests. The
   same two errors were the only failures in a CPython 3.11.15 probe, so the
   declared `>=3.11` floor has no known incompatibility.
+- The release-hygiene plan is complete at `2d50393`; its canonical closure
+  ledger is `docs/superpowers/plans/2026-07-24-release-hygiene.md`. R1 puts
+  `LICENSE` and `THIRD_PARTY_NOTICES` into every native artifact, closing the
+  MIT notice obligation for the `cyberboard-cli`-derived protocol layer; macOS
+  build `0.1.45` passed DMG verification and frozen smoke with both files in
+  `Contents/Resources/` and FFmpeg's LGPL material intact. R2 restricts the
+  sdist to a root-anchored allowlist, so `uv build` no longer publishes
+  `.agents/`, `.claude/`, `AGENTS.md`, `CLAUDE.md`, or the internal plan and
+  verification documents; the wheel and native bundles were already clean. Two
+  guards hold it, one asserting the allowlist and one requiring every tracked
+  top-level entry to be classified, so a new directory cannot ship
+  unclassified. R3 makes `ci.yml`, `.agents/repo-guidance.md`, and `README.md`
+  name an identical four-target `node --check` set. R4 parameterizes the CI
+  matrix and adds a Linux Python 3.11 entry. Code signing and notarization
+  remain out of scope and unaddressed: both require paid developer accounts.
 
 ## Next
 
 - Do not perform governance work under this product-remediation plan. Any
   governance update requires a separate fresh one-off session.
-- Continue the release-hygiene plan at R1: add `LICENSE` and
-  `THIRD_PARTY_NOTICES` to the PyInstaller `datas` allowlist so the MIT
-  attribution for the `cyberboard-cli`-derived protocol reaches the macOS and
-  Linux artifacts. It needs a native rebuild and frozen smoke to verify.
-  R2-R4 follow.
+- Nothing is queued in the repository. The branch is 258 commits ahead of
+  `main` and has never been exercised by CI, because `ci.yml` triggers only on
+  `pull_request` and pushes to `main`. Opening the merge pull request is the
+  first action that will run the full matrix against this work.
 - Complete hardware verification across CyberBoard, Relic 80, and AFA firmware
   variants using portable JSON backups when the corresponding devices are
   available.
