@@ -59,6 +59,11 @@ a = Analysis(
         (str(ffmpeg_metadata / "README.md"), "ffmpeg"),
         (str(ffmpeg_metadata / "ffmpeg-devel.asc"), "ffmpeg"),
         (str(project / "tests" / "fixtures" / "tiny-motion.mp4"), "smoke"),
+        # The protocol layer derives from MIT-licensed cyberboard-cli, whose
+        # notice must accompany every copy. The Windows installer's LicenseFile
+        # only displays it during setup, so it has to ship as bundle data too.
+        (str(project / "LICENSE"), "."),
+        (str(project / "THIRD_PARTY_NOTICES"), "."),
     ],
     hiddenimports=hidden_imports,
     hookspath=[],

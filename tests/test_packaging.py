@@ -334,6 +334,26 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn('<link rel="icon" href="/icon.png"', html)
         self.assertIn('<img class="brand-mark" src="/icon.png"', html)
 
+    def test_native_bundle_ships_project_license_and_attribution(self) -> None:
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
+
+        # The protocol layer is derived from MIT-licensed cyberboard-cli, whose
+        # notice must travel with every copy. Shipping it only as the Windows
+        # installer's click-through LicenseFile leaves the macOS app bundle and
+        # the Linux AppImage carrying derived code with no notice at all.
+        self.assertIn('(str(project / "LICENSE"), ".")', spec)
+        self.assertIn('(str(project / "THIRD_PARTY_NOTICES"), ".")', spec)
+
+        self.assertTrue((ROOT / "LICENSE").is_file())
+        # Both notices are hard-wrapped prose; compare on collapsed whitespace so
+        # rewrapping a paragraph cannot silently void the assertion.
+        notices = " ".join((ROOT / "THIRD_PARTY_NOTICES").read_text("utf-8").split())
+        licence = " ".join((ROOT / "LICENSE").read_text("utf-8").split())
+        self.assertIn("cyberboard-cli", notices)
+        self.assertIn("MIT License", licence)
+        # FFmpeg's separate LGPL obligation must not regress alongside it.
+        self.assertIn("GNU Lesser General Public License", notices)
+
     def test_spec_bundles_the_llm_module(self) -> None:
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
 
