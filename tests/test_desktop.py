@@ -25,19 +25,36 @@ class _FakeWindow:
         return self.selection
 
 
+def _fake_webview_module() -> types.ModuleType:
+    """Stand in for the optional pywebview dependency.
+
+    `desktop._folder_dialog_type` imports `webview` lazily so the base install
+    never needs it. CI installs with `uv sync --locked` and no extras, so a test
+    that reaches the real import fails there while passing on a developer
+    machine built with `--extra desktop`.
+    """
+    module = types.ModuleType("webview")
+    module.FileDialog = types.SimpleNamespace(FOLDER="folder-dialog")
+    return module
+
+
 class DesktopBridgeTests(unittest.TestCase):
     def test_folder_chooser_returns_none_when_cancelled(self) -> None:
         window = _FakeWindow(None)
         bridge = desktop.DesktopBridge(window)
 
-        self.assertIsNone(bridge.choose_library_folder())
-        self.assertEqual(
-            window.dialog_calls,
-            [{"dialog_type": desktop._folder_dialog_type(), "allow_multiple": False}],
-        )
+        with mock.patch.dict(sys.modules, {"webview": _fake_webview_module()}):
+            self.assertIsNone(bridge.choose_library_folder())
+            self.assertEqual(
+                window.dialog_calls,
+                [{"dialog_type": desktop._folder_dialog_type(), "allow_multiple": False}],
+            )
 
     def test_folder_chooser_returns_only_a_canonical_absolute_directory(self) -> None:
-        with tempfile.TemporaryDirectory() as raw_tmp:
+        with (
+            tempfile.TemporaryDirectory() as raw_tmp,
+            mock.patch.dict(sys.modules, {"webview": _fake_webview_module()}),
+        ):
             tmp = Path(raw_tmp)
             chosen = tmp / "library"
             chosen.mkdir()
