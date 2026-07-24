@@ -357,10 +357,15 @@ class FfmpegBundleTests(unittest.TestCase):
             real_open = os.open
             binary_flag = 1 << 29
             observed_flags: list[int] = []
+            # Production reads the flag through getattr(os, "O_BINARY", 0), which
+            # the patch below replaces, so on Windows the real flag is never set.
+            # Restore it when delegating or the descriptor opens in text mode,
+            # CRLF collapses, and the read comes up short of st_size.
+            real_binary_flag = getattr(os, "O_BINARY", 0)
 
             def open_without_synthetic_flag(path, flags):
                 observed_flags.append(flags)
-                return real_open(path, flags & ~binary_flag)
+                return real_open(path, (flags & ~binary_flag) | real_binary_flag)
 
             with (
                 patch.object(ffmpeg_runtime.os, "O_BINARY", binary_flag, create=True),
