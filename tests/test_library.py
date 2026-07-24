@@ -517,6 +517,10 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
 
         with (
             patch("am_configurator.library._run_write_probe"),
+            # Windows preflight also runs the path-depth probe, which draws two
+            # UUIDs of its own; without this the patched sequence is consumed
+            # before the job-ID loop and raises StopIteration.
+            patch("am_configurator.library._run_windows_path_depth_probe"),
             patch("am_configurator.library.uuid.uuid4", side_effect=[collision, fresh]),
         ):
             created = self.library.create_job(prompt="collision-safe")
