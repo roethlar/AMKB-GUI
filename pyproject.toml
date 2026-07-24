@@ -27,3 +27,27 @@ am-configurator = "am_configurator.desktop:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["am_configurator"]
+
+# Allowlist, not a denylist. Governance artifacts are installed by an external
+# toolkit, so anything not named here must stay out of published artifacts by
+# default; a denylist would have to be extended on every toolkit refresh and
+# fails open when it is not. tests/test_packaging.py guards both directions.
+[tool.hatch.build.targets.sdist]
+# Every pattern is root-anchored with a leading "/": these are gitignore-style,
+# so a bare "README.md" would also match docs/verification/*/README.md and drag
+# internal material back in. Nested files still ship via their parent directory
+# (packaging/ffmpeg/README.md comes in under "/packaging/").
+include = [
+  "/am_configurator/",
+  "/assets/",
+  "/build_tools/",
+  "/docs/images/",
+  "/packaging/",
+  "/tests/",
+  "/build.py",
+  "/LICENSE",
+  "/README.md",
+  "/THIRD_PARTY_NOTICES",
+  "/pyproject.toml",
+  "/uv.lock",
+]

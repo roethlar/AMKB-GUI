@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import tomllib
 import unittest
@@ -23,6 +24,19 @@ from build_tools.release_info import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Governance, internal planning history, and repo-only config. None of it may
+# reach a published artifact; `machines.md` alone records the owner's checkout
+# path, host OS, and local toolchain.
+_SDIST_FORBIDDEN = (
+    ".agents/",
+    ".claude/",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "docs/design/",
+    "docs/superpowers/",
+    "docs/verification/",
+)
 
 
 class ReleaseInfoTests(unittest.TestCase):
@@ -353,6 +367,80 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("MIT License", licence)
         # FFmpeg's separate LGPL obligation must not regress alongside it.
         self.assertIn("GNU Lesser General Public License", notices)
+
+    def _sdist_include(self) -> list[str]:
+        metadata = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))
+        targets = metadata["tool"]["hatch"]["build"]["targets"]
+        self.assertIn(
+            "sdist",
+            targets,
+            "pyproject.toml declares no [tool.hatch.build.targets.sdist]; hatchling "
+            "then falls back to shipping every tracked file, which publishes "
+            ".agents/, .claude/, and the internal plan documents.",
+        )
+        return targets["sdist"]["include"]
+
+    def test_sdist_allowlist_excludes_governance_and_internal_material(self) -> None:
+        include = self._sdist_include()
+
+        for forbidden in _SDIST_FORBIDDEN:
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, include)
+                self.assertNotIn(f"/{forbidden}", include)
+                self.assertNotIn(forbidden.rstrip("/"), include)
+        for required in (
+            "/am_configurator/",
+            "/build_tools/",
+            "/packaging/",
+            "/tests/",
+            "/LICENSE",
+            "/THIRD_PARTY_NOTICES",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, include)
+
+        # Root-anchored patterns only. A bare "README.md" is gitignore-style and
+        # also matches docs/verification/*/README.md, which silently republishes
+        # internal material; that exact leak was observed before anchoring.
+        for pattern in include:
+            with self.subTest(pattern=pattern):
+                self.assertTrue(pattern.startswith("/"), pattern)
+
+    def test_every_tracked_top_level_entry_is_classified(self) -> None:
+        """A new top-level entry must be classified before it can silently ship.
+
+        This is what keeps the allowlist honest without anyone remembering it
+        exists: add a directory and forget it here, and the gate says so.
+        """
+        listing = subprocess.run(
+            ("git", "ls-tree", "--name-only", "HEAD"),
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        if listing.returncode != 0:
+            self.skipTest("git is unavailable")
+
+        allowlisted = {
+            entry.strip("/").split("/", 1)[0] for entry in self._sdist_include()
+        }
+        # Deliberately excluded. "docs" is here because only docs/images/ ships.
+        excluded = {
+            ".agents",
+            ".claude",
+            ".gitattributes",
+            ".github",
+            ".gitignore",
+            "AGENTS.md",
+            "CLAUDE.md",
+            "docs",
+        }
+
+        entries = listing.stdout.split()
+        self.assertTrue(entries, "git listed no tracked top-level entries")
+        for entry in entries:
+            with self.subTest(entry=entry):
+                self.assertIn(entry, allowlisted | excluded)
 
     def test_spec_bundles_the_llm_module(self) -> None:
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
