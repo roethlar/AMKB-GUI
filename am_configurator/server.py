@@ -21,7 +21,7 @@ from socketserver import TCPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, device_mapping
+from . import __version__, device_mapping, transport
 
 
 _PKG = Path(__file__).resolve().parent
@@ -779,20 +779,20 @@ def _keymap_differences(
 
 
 def _verify_keymap_readback(
-    port: str,
+    handle: transport.DeviceHandle,
     expected: list[list[str]],
     *,
     attempts: int = _KEYMAP_VERIFY_ATTEMPTS,
     retry_seconds: float = _KEYMAP_VERIFY_RETRY_SECONDS,
 ) -> list[list[str]]:
     """Retry read-back while the keyboard finishes committing its flash."""
-    from . import reader
+    link = transport.transport_for_handle(handle)
 
     last_actual: list[list[str]] = []
     last_error: Exception | None = None
     for attempt in range(max(1, attempts)):
         try:
-            last_actual = reader.read_keymap(port, layers=len(expected))
+            last_actual = link.read_keymap(handle.address, layers=len(expected))
             last_error = None
             if not _keymap_differences(expected, last_actual)[0]:
                 return last_actual
@@ -815,14 +815,14 @@ def _verify_keymap_readback(
     )
 
 
-def _probe_keyboard(port: str, attempts: int = 3) -> Any:
+def _probe_keyboard(handle: transport.DeviceHandle, attempts: int = 3) -> Any:
     """Probe with a short settle retry; macOS can hold a just-scanned CDC port."""
-    from . import device as device_module
+    link = transport.transport_for_handle(handle)
 
     result = None
     for attempt in range(attempts):
         try:
-            result = device_module.probe(port, full=True)
+            result = link.probe(handle.address, full=True)
         except OSError:
             result = None
         if result and result.is_keyboard:
@@ -1364,12 +1364,15 @@ class _Handler(BaseHTTPRequestHandler):
                         }
                     )
                 elif path == "/api/devices":
-                    from . import device
-
                     with self.state.device_lock:
-                        devices = device.list_devices(full=True)
+                        found = transport.discover()
                         self.state.last_device_scan = time.monotonic()
-                    self._json({"devices": [asdict(d) for d in devices]})
+                    self._json({
+                        "devices": [
+                            {**asdict(info), **handle.as_json()}
+                            for handle, info in found
+                        ]
+                    })
                 elif path == "/api/settings":
                     self._json(
                         _settings_view(
@@ -2003,22 +2006,18 @@ class _Handler(BaseHTTPRequestHandler):
         self._json({"revealed": revealed})
 
     def _read_device(self, body: dict[str, Any]) -> None:
-        from . import macros as macro_protocol
-        from . import reader
-
-        port = str(body.get("port") or "")
+        handle = transport.handle_from_payload(body)
+        link = transport.transport_for_handle(handle)
         layers = int(body.get("layers") or 7)
-        if not port:
-            raise ValueError("A serial port is required.")
         with self.state.device_lock:
             self.state.settle_after_scan()
-            device = _probe_keyboard(port)
+            device = _probe_keyboard(handle)
             if not device or not device.is_keyboard:
-                raise ValueError("The selected port is not a supported Angry Miao keyboard.")
+                raise ValueError("The selected device is not a supported Angry Miao keyboard.")
             time.sleep(0.1)
-            key_layers = reader.read_keymap(port, layers=layers)
+            key_layers = link.read_keymap(handle.address, layers=layers)
             time.sleep(0.1)
-            device_macros = macro_protocol.read_macros(port)
+            device_macros = link.read_macros(handle.address)
         stored_config, stored_warning = _stored_device_config(device.product_id or "")
         resolved_macros, macro_read_warning, restored_macro_snapshot = (
             _reconcile_read_macros(
@@ -2042,17 +2041,18 @@ class _Handler(BaseHTTPRequestHandler):
     def _write_device(self, body: dict[str, Any]) -> None:
         from . import writer
 
-        port, config, checked = self._write_request(body)
+        handle, config, checked = self._write_request(body)
+        link = transport.transport_for_handle(handle)
         with self.state.device_lock:
             self.state.settle_after_scan()
-            before = self._validated_write_target(port, checked, body)
+            before = self._validated_write_target(handle, checked, body)
             frame_plan = writer.plan(config)
-            ok, reply = writer.write_config(port, frame_plan.frames)
+            ok, reply = link.write_config(handle.address, frame_plan.frames)
             if not ok:
                 raise RuntimeError(f"Device rejected JSON_END: {reply.hex() or 'no response'}")
             time.sleep(writer.SETTLE_SECONDS)
             result = self._finish_accepted_write(
-                port, config, before, frame_plan.total, install_macros=True
+                handle, config, before, frame_plan.total, install_macros=True
             )
         self._json(result)
 
@@ -2060,31 +2060,32 @@ class _Handler(BaseHTTPRequestHandler):
         """Finish an ACKed write without transmitting the full configuration again."""
         from . import writer
 
-        port, config, checked = self._write_request(body)
+        handle, config, checked = self._write_request(body)
         with self.state.device_lock:
-            before = self._validated_write_target(port, checked, body)
+            before = self._validated_write_target(handle, checked, body)
             frame_plan = writer.plan(config)
             result = self._finish_accepted_write(
-                port, config, before, frame_plan.total, install_macros=False
+                handle, config, before, frame_plan.total, install_macros=False
             )
         self._json(result)
 
     @staticmethod
-    def _write_request(body: dict[str, Any]) -> tuple[str, dict[str, Any], dict[str, Any]]:
-        port = str(body.get("port") or "")
+    def _write_request(
+        body: dict[str, Any],
+    ) -> tuple[transport.DeviceHandle, dict[str, Any], dict[str, Any]]:
         config = body.get("config")
         checked = validate_config(config)
         if not checked["ok"]:
             raise ValueError("Configuration is invalid: " + "; ".join(checked["errors"]))
-        if not port:
-            raise ValueError("A serial port is required.")
-        return port, config, checked
+        return transport.handle_from_payload(body), config, checked
 
     @staticmethod
-    def _validated_write_target(port: str, checked: dict[str, Any], body: dict[str, Any]) -> Any:
-        before = _probe_keyboard(port)
+    def _validated_write_target(
+        handle: transport.DeviceHandle, checked: dict[str, Any], body: dict[str, Any]
+    ) -> Any:
+        before = _probe_keyboard(handle)
         if not before or not before.is_keyboard or not before.product_id:
-            raise ValueError("The selected port is not a supported Angry Miao keyboard.")
+            raise ValueError("The selected device is not a supported Angry Miao keyboard.")
         config_id = str(checked["product_id"])
         if not _device_matches_config(before.product_id, config_id):
             raise ValueError(
@@ -2097,15 +2098,16 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _finish_accepted_write(
         self,
-        port: str,
+        handle: transport.DeviceHandle,
         config: dict[str, Any],
         before: Any,
         frame_total: int,
         *,
         install_macros: bool,
     ) -> dict[str, Any]:
-        from . import macros
         from . import store
+
+        link = transport.transport_for_handle(handle)
 
         expected_layers = [
             [code.upper() for code in item["layer"]]
@@ -2117,11 +2119,11 @@ class _Handler(BaseHTTPRequestHandler):
         # keymap read-back can abort verification. The verify-only endpoint never
         # writes; it only checks what the accepted write left on the device.
         if install_macros:
-            macros.write_macros(port, expected_macros)
+            link.write_macros(handle.address, expected_macros)
             time.sleep(0.25)
 
-        _verify_keymap_readback(port, expected_layers)
-        read_macros = macros.read_macros(port)
+        _verify_keymap_readback(handle, expected_layers)
+        read_macros = link.read_macros(handle.address)
         macro_verification = _classify_macro_readback(
             before.product_id, expected_macros, read_macros
         )
@@ -2133,7 +2135,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "sending the full configuration again."
             )
 
-        after = _probe_keyboard(port)
+        after = _probe_keyboard(handle)
         if not after or after.product_id != before.product_id:
             raise AcceptedWriteError(
                 "Device accepted the configuration but disappeared before verification "

@@ -27,7 +27,7 @@ from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
-from am_configurator import __version__
+from am_configurator import __version__, transport
 from am_configurator.device_mapping import (
     MAX_FRAMES,
     firmware_led_speed,
@@ -404,7 +404,9 @@ class DesktopServerTests(unittest.TestCase):
     def test_keyboard_probe_does_not_shadow_device_module(self) -> None:
         keyboard = SimpleNamespace(is_keyboard=True)
         with patch("am_configurator.device.probe", return_value=keyboard) as probe:
-            result = _probe_keyboard("/dev/example", attempts=1)
+            result = _probe_keyboard(
+                transport.DeviceHandle(transport.SERIAL, "/dev/example"), attempts=1
+            )
 
         self.assertIs(keyboard, result)
         probe.assert_called_once_with("/dev/example", full=True)
@@ -557,7 +559,10 @@ class DesktopServerTests(unittest.TestCase):
             patch("am_configurator.server.time.sleep") as sleep,
         ):
             actual = _verify_keymap_readback(
-                "/dev/example", expected, attempts=2, retry_seconds=0.01
+                transport.DeviceHandle(transport.SERIAL, "/dev/example"),
+                expected,
+                attempts=2,
+                retry_seconds=0.01,
             )
         self.assertEqual(expected, actual)
         self.assertEqual(2, read.call_count)
@@ -576,7 +581,10 @@ class DesktopServerTests(unittest.TestCase):
             self.assertRaisesRegex(AcceptedWriteError, "layer 1 key 1"),
         ):
             _verify_keymap_readback(
-                "/dev/example", expected, attempts=2, retry_seconds=0.01
+                transport.DeviceHandle(transport.SERIAL, "/dev/example"),
+                expected,
+                attempts=2,
+                retry_seconds=0.01,
             )
 
     def test_loopback_server_can_be_owned_by_a_native_window(self) -> None:

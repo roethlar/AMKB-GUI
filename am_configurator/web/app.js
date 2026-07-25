@@ -54,8 +54,8 @@ const state = {
   undo: [],
   redo: [],
   devices: [],
-  selectedPort: null,
-  loadedPort: null,
+  selectedDevice: null,
+  loadedDevice: null,
   deviceDocuments: new Map(),
   pendingWrite: null,
   capabilities: null,
@@ -325,7 +325,7 @@ async function readFiles(input, merge) {
     const incoming=mergeConfigs(configs);
     if(!incoming?.key_layer)throw new Error("No key_layer was found in the selected JSON.");
 
-    const activeDevice=state.devices.find(device=>device.port===state.loadedPort)||selectedDevice();
+    const activeDevice=state.devices.find(device=>deviceKey(device)===state.loadedDevice)||selectedDevice();
     const target=merge&&state.config
       ? {product_id:productId(),label:`${productLabel(productId())} (${productId()})`,kind:"document"}
       : !merge&&activeDevice?activeDevice:null;
@@ -348,7 +348,7 @@ async function readFiles(input, merge) {
     if (!combined?.key_layer) throw new Error("No key_layer was found in the selected JSON.");
     if (!effectiveMerge) {
       stashDeviceDocument();
-      state.loadedPort = null;
+      state.loadedDevice = null;
     }
     if (effectiveMerge && state.config) pushUndo();
     state.config = combined;
@@ -1685,8 +1685,20 @@ async function validateCurrent(showSuccess = true) {
   } catch(error){toast("Validation failed",error.message,"error");return null;}
 }
 
+// A device's identity is its transport plus its address on that transport, not
+// a bare port: a raw-HID keyboard has no serial port, and two transports can
+// hand out addresses that collide as plain strings.
+function deviceKey(device) {
+  return device?`${device.transport}:${device.address}`:null;
+}
+
+// The handle fields a device request body carries.
+function deviceAddress(device) {
+  return {transport:device.transport,address:device.address};
+}
+
 function selectedDevice() {
-  return state.devices.find(device=>device.port===state.selectedPort)||null;
+  return state.devices.find(device=>deviceKey(device)===state.selectedDevice)||null;
 }
 
 function mismatchedDevice() {
@@ -1705,7 +1717,7 @@ function updateCompatibilityBanner() {
   const targetName=`${productLabel(device.product_id)} (${device.product_id})`;
   $("#compatibility-title").textContent=`${sourceName} profile · ${targetName} connected`;
   $("#compatibility-detail").textContent=`This JSON cannot be written to ${device.product_id}. Save JSON still works; keymaps and LED tracks cannot cross layouts.`;
-  const saved=state.deviceDocuments.get(device.port);
+  const saved=state.deviceDocuments.get(deviceKey(device));
   const hasMacros=Array.isArray(state.config.macro_key)&&state.config.macro_key.length>0;
   $("#import-banner-macros").hidden=!(saved&&hasMacros);
   const returnButton=$("#return-connected-workspace");
@@ -1715,7 +1727,7 @@ function updateCompatibilityBanner() {
 async function importDetachedMacros() {
   const device=mismatchedDevice();
   if(!device||!state.config)return;
-  const saved=state.deviceDocuments.get(device.port);
+  const saved=state.deviceDocuments.get(deviceKey(device));
   if(!saved)return toast("No keyboard workspace to restore",`Load ${device.product_id} before importing macros into it.`,"error");
   const source=clone(state.config),sourceName=state.fileName;
   try{
@@ -1723,9 +1735,9 @@ async function importDetachedMacros() {
     const incoming=result.macros||[];
     const existing=(saved.config?.macro_key||[]).length;
     if(!confirmMacroReplacement(existing,incoming.length,sourceName))return;
-    if(!restoreDeviceDocument(device.port,device.product_id))throw new Error(`The saved ${device.product_id} workspace is no longer compatible.`);
-    state.loadedPort=device.port;
-    state.selectedPort=device.port;
+    if(!restoreDeviceDocument(deviceKey(device),device.product_id))throw new Error(`The saved ${device.product_id} workspace is no longer compatible.`);
+    state.loadedDevice=deviceKey(device);
+    state.selectedDevice=deviceKey(device);
     applyImportedMacros(result);
     await synchronizeOpenDocument();
   }catch(error){toast("Could not import macros",error.message,"error");}
@@ -1735,27 +1747,27 @@ async function returnToConnectedWorkspace() {
   const device=mismatchedDevice();
   if(!device)return;
   if(state.dirty&&!confirm(`Discard unsaved changes to ${state.fileName} and return to ${device.product_id}?`))return;
-  if(restoreDeviceDocument(device.port,device.product_id)){
-    state.loadedPort=device.port;
-    state.selectedPort=device.port;
+  if(restoreDeviceDocument(deviceKey(device),device.product_id)){
+    state.loadedDevice=deviceKey(device);
+    state.selectedDevice=deviceKey(device);
     await synchronizeOpenDocument();
     render();
     toast("Keyboard workspace restored",`${device.product_id} · ${state.fileName}`,"success");
     return;
   }
-  state.selectedPort=device.port;
+  state.selectedDevice=deviceKey(device);
   await readDevice();
 }
 
 function deviceSwitchesWorkspace(device) {
   if(!device||!state.config)return false;
-  if(state.loadedPort)return state.loadedPort!==device.port;
+  if(state.loadedDevice)return state.loadedDevice!==deviceKey(device);
   return !sameProductFamily(productId(),device.product_id);
 }
 
 function stashDeviceDocument() {
-  if(!state.loadedPort||!state.config)return;
-  state.deviceDocuments.set(state.loadedPort,{
+  if(!state.loadedDevice||!state.config)return;
+  state.deviceDocuments.set(state.loadedDevice,{
     config:state.config,
     fileName:state.fileName,
     dirty:state.dirty,
@@ -1801,8 +1813,8 @@ function updateDeviceActions() {
     return;
   }
   read.disabled=false;
-  read.textContent=deviceSwitchesWorkspace(device)?`Switch to ${device.product_id}`:state.loadedPort===device.port?"Refresh keymap & macros":"Read keymap & macros";
-  const wrongWorkspace=!sameProductFamily(productId(),device.product_id)||(state.loadedPort&&state.loadedPort!==device.port);
+  read.textContent=deviceSwitchesWorkspace(device)?`Switch to ${device.product_id}`:state.loadedDevice===deviceKey(device)?"Refresh keymap & macros":"Read keymap & macros";
+  const wrongWorkspace=!sameProductFamily(productId(),device.product_id)||(state.loadedDevice&&state.loadedDevice!==deviceKey(device));
   write.textContent=`Write to ${device.product_id}`;
   write.disabled=!state.config||Boolean(wrongWorkspace);
   write.title=wrongWorkspace?"Load this keyboard before writing its configuration.":"";
@@ -1817,29 +1829,30 @@ async function scanDevices() {
     const keyboards=state.devices.filter(device=>device.is_keyboard);
     $(".status-light").classList.toggle("online",Boolean(keyboards.length));
     if(!keyboards.length){
-      state.selectedPort=null;
+      state.selectedDevice=null;
       $("#device-list").innerHTML='<div class="event-empty">No supported keyboard found.<br>Connect it by USB, not through the dongle.</div>';
       updateDeviceActions();
       return;
     }
-    if(!keyboards.some(device=>device.port===state.selectedPort)){
-      state.selectedPort=keyboards.some(device=>device.port===state.loadedPort)?state.loadedPort:null;
+    if(!keyboards.some(device=>deviceKey(device)===state.selectedDevice)){
+      state.selectedDevice=keyboards.some(device=>deviceKey(device)===state.loadedDevice)?state.loadedDevice:null;
     }
-    $("#device-list").innerHTML=keyboards.map(device=>{const active=device.port===state.loadedPort;return `<button type="button" class="device-card ${device.port===state.selectedPort?'selected':''} ${active?'active-device':''}" data-port="${esc(device.port)}"><span><strong>${esc(device.product_id)}</strong><small>${esc(device.version||'Firmware version unavailable')} · pages ${device.pages??'?'}</small></span><span class="pill">${active?'Active':'USB'}</span></button>`;}).join('');
-    $$('.device-card').forEach(card=>card.addEventListener('click',()=>{state.selectedPort=card.dataset.port;$$('.device-card').forEach(node=>node.classList.toggle('selected',node===card));updateDeviceActions();}));
+    $("#device-list").innerHTML=keyboards.map(device=>{const active=deviceKey(device)===state.loadedDevice;return `<button type="button" class="device-card ${deviceKey(device)===state.selectedDevice?'selected':''} ${active?'active-device':''}" data-device="${esc(deviceKey(device))}"><span><strong>${esc(device.product_id)}</strong><small>${esc(device.version||'Firmware version unavailable')} · pages ${device.pages??'?'}</small></span><span class="pill">${active?'Active':'USB'}</span></button>`;}).join('');
+    $$('.device-card').forEach(card=>card.addEventListener('click',()=>{state.selectedDevice=card.dataset.device;$$('.device-card').forEach(node=>node.classList.toggle('selected',node===card));updateDeviceActions();}));
     $("#device-actions").hidden=false;
     updateDeviceActions();
   }catch(error){$("#device-list").innerHTML=`<div class="event-empty">${esc(error.message)}</div>`;toast('Device scan failed',error.message,'error');}
 }
 
 async function readDevice() {
-  if(!state.selectedPort)return;
-  const port=state.selectedPort;
+  const target=selectedDevice();
+  if(!target)return;
+  const port=deviceKey(target);
   const button=$("#read-device");button.disabled=true;button.textContent='Reading…';
   try{
-    const requestedLayers=state.config&&sameProductFamily(productId(),selectedDevice()?.product_id)?layers().length||7:7;
-    const result=await api('/api/device/read',{method:'POST',body:JSON.stringify({port,layers:requestedLayers})});
-    const switching=state.loadedPort?state.loadedPort!==port:Boolean(state.config&&!sameProductFamily(productId(),result.device.product_id));
+    const requestedLayers=state.config&&sameProductFamily(productId(),target.product_id)?layers().length||7:7;
+    const result=await api('/api/device/read',{method:'POST',body:JSON.stringify({...deviceAddress(target),layers:requestedLayers})});
+    const switching=state.loadedDevice?state.loadedDevice!==port:Boolean(state.config&&!sameProductFamily(productId(),result.device.product_id));
     if(switching)stashDeviceDocument();
     const restored=switching&&restoreDeviceDocument(port,result.device.product_id);
     const preserved=Boolean(state.config)&&(!switching||restored);
@@ -1866,8 +1879,8 @@ async function readDevice() {
       state.undo=[];state.redo=[];
       resetDocumentView();
     }
-    state.loadedPort=port;
-    state.selectedPort=port;
+    state.loadedDevice=port;
+    state.selectedDevice=port;
     if(!await synchronizeOpenDocument())throw new Error(state.documentSyncError||"The device document could not be synchronized.");
     markDirty();render();
     $("#device-dialog").close();
@@ -1882,10 +1895,10 @@ async function readDevice() {
 
 async function writeDevice() {
   if(!state.config)return;
-  if(!state.selectedPort){toast('Choose a write target','Select the keyboard you intend to write.','error');showDeviceDialog();return;}
-  const device=state.devices.find(item=>item.port===state.selectedPort);
+  if(!state.selectedDevice){toast('Choose a write target','Select the keyboard you intend to write.','error');showDeviceDialog();return;}
+  const device=state.devices.find(item=>deviceKey(item)===state.selectedDevice);
   if(!device)return toast('Write unavailable','Select the connected keyboard again.','error');
-  if(!sameProductFamily(productId(),device.product_id)||(state.loadedPort&&state.loadedPort!==device.port))return toast('Write unavailable','Load the selected keyboard before writing its configuration.','error');
+  if(!sameProductFamily(productId(),device.product_id)||(state.loadedDevice&&state.loadedDevice!==deviceKey(device)))return toast('Write unavailable','Load the selected keyboard before writing its configuration.','error');
   const validation=await validateCurrent(false);if(!validation?.ok)return;
   state.pendingWrite={device,validation};
   $("#write-title").textContent=`Write to ${device.product_id}`;
@@ -1915,7 +1928,7 @@ async function confirmDeviceWrite() {
   status.className='write-status working';status.textContent=verifyOnly?'Reading the keymap again without resending the configuration.':'Writing configuration. Keep the cable connected; verification follows automatically.';
   try{
     const endpoint=verifyOnly?'/api/device/verify':'/api/device/write';
-    const result=await api(endpoint,{method:'POST',body:JSON.stringify({port:pending.device.port,config:state.config,confirmation})});
+    const result=await api(endpoint,{method:'POST',body:JSON.stringify({...deviceAddress(pending.device),config:state.config,confirmation})});
     if(result.document_revision){state.documentRevision=result.document_revision;state.documentSyncError="";}
     markDirty(false);$("#write-dialog").close();state.pendingWrite=null;
     const partialMacros=result.macro_verification==='partial';
