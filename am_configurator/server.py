@@ -2039,33 +2039,25 @@ class _Handler(BaseHTTPRequestHandler):
         })
 
     def _write_device(self, body: dict[str, Any]) -> None:
-        from . import writer
-
         handle, config, checked = self._write_request(body)
         link = transport.transport_for_handle(handle)
         with self.state.device_lock:
             self.state.settle_after_scan()
             before = self._validated_write_target(handle, checked, body)
-            frame_plan = writer.plan(config)
-            ok, reply = link.write_config(handle.address, frame_plan.frames)
-            if not ok:
-                raise RuntimeError(f"Device rejected JSON_END: {reply.hex() or 'no response'}")
-            time.sleep(writer.SETTLE_SECONDS)
+            receipt = link.write_config(handle.address, config)
             result = self._finish_accepted_write(
-                handle, config, before, frame_plan.total, install_macros=True
+                handle, config, before, receipt, install_macros=True
             )
         self._json(result)
 
     def _verify_device_write(self, body: dict[str, Any]) -> None:
         """Finish an ACKed write without transmitting the full configuration again."""
-        from . import writer
-
         handle, config, checked = self._write_request(body)
+        link = transport.transport_for_handle(handle)
         with self.state.device_lock:
             before = self._validated_write_target(handle, checked, body)
-            frame_plan = writer.plan(config)
             result = self._finish_accepted_write(
-                handle, config, before, frame_plan.total, install_macros=False
+                handle, config, before, link.describe_write(config), install_macros=False
             )
         self._json(result)
 
@@ -2101,7 +2093,7 @@ class _Handler(BaseHTTPRequestHandler):
         handle: transport.DeviceHandle,
         config: dict[str, Any],
         before: Any,
-        frame_total: int,
+        receipt: transport.WriteReceipt,
         *,
         install_macros: bool,
     ) -> dict[str, Any]:
@@ -2148,7 +2140,8 @@ class _Handler(BaseHTTPRequestHandler):
         return {
             "ok": True,
             "device": asdict(after),
-            "frames": frame_total,
+            "write_units": receipt.units,
+            "write_unit_label": receipt.unit_label,
             "macros": len(expected_macros),
             "macro_verification": macro_verification["status"],
             "macro_warning": macro_verification["warning"],

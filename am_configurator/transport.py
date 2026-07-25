@@ -6,11 +6,16 @@ supported keyboard speaks the same protocol over the same kind of link. A
 `DeviceHandle` replaces the bare string with "which transport, and where on it",
 and a transport object owns the operations the device routes need.
 
-This module is deliberately a seam, not a protocol: the serial transport
-delegates to `device`, `reader`, `writer`, and `macros` exactly as the routes
-used to call them, so introducing it changes no behaviour. Imports stay lazy
-inside the methods because those modules pull in `pyserial`, and discovery must
-not cost an import on an install that never touches a keyboard.
+The seam sits *below* the protocol encoding, which is the point: a driver
+receives the logical configuration and plans its own protocol. Handing it
+already-encoded bytes would make the abstraction serial-shaped — a raw-HID
+keyboard cannot build its own packets out of another protocol's frames. So AM
+frame planning lives inside `SerialTransport`, and protocol-specific failure
+text belongs to the driver that speaks that protocol, never to the routes.
+
+Imports stay lazy inside the methods because those modules pull in `pyserial`,
+and discovery must not cost an import on an install that never touches a
+keyboard.
 
 Registration is explicit and closed: an unrecognised transport kind raises
 rather than being treated as serial. Guessing the link type would mean writing
@@ -34,6 +39,27 @@ class UnsupportedTransportError(ValueError):
     Subclasses `ValueError` so the device routes report it as a bad request,
     which is what it is: the caller asked for a link this build does not have.
     """
+
+
+class DeviceWriteError(RuntimeError):
+    """A device refused a write.
+
+    The driver raises this with its own protocol's rejection detail, so the
+    routes never have to know what a rejection looks like on the wire.
+    """
+
+
+@dataclass(frozen=True)
+class WriteReceipt:
+    """What a driver transmitted, in terms the routes can report.
+
+    Devices do not share a write unit: the AM serial families take 64-byte
+    configuration frames, and raw HID takes reports. The count travels with its
+    own label so the response payload never assumes one protocol's noun.
+    """
+
+    units: int
+    unit_label: str
 
 
 @dataclass(frozen=True)
@@ -65,17 +91,22 @@ class DeviceTransport(Protocol):
 
     def write_macros(self, address: str, entries: list[dict[str, Any]]) -> Any: ...
 
-    def write_config(self, address: str, frames: tuple[bytes, ...]) -> tuple[bool, bytes]: ...
+    def describe_write(self, config: dict[str, Any]) -> WriteReceipt: ...
+
+    def write_config(self, address: str, config: dict[str, Any]) -> WriteReceipt: ...
 
 
 class SerialTransport:
     """The USB CDC link the AM serial families speak.
 
-    Every method is a straight delegation to the module that already owned the
-    call, so routing through the handle is behaviour-neutral for these devices.
+    Read operations are straight delegations to the module that already owned
+    the call. The write path additionally owns AM frame planning, its settle
+    delay, and its own rejection message: those are properties of this protocol,
+    not of writing to a keyboard in general.
     """
 
     kind = SERIAL
+    write_unit_label = "configuration frames"
 
     def list_devices(self, *, full: bool = False) -> list[Any]:
         from . import device
@@ -105,10 +136,29 @@ class SerialTransport:
 
         return macros.write_macros(address, entries)
 
-    def write_config(self, address: str, frames: tuple[bytes, ...]) -> tuple[bool, bytes]:
+    def describe_write(self, config: dict[str, Any]) -> WriteReceipt:
+        """Plan a write without performing any I/O.
+
+        The verify route reports how much a write transmitted without resending
+        it, so the unit count has to be obtainable from the configuration alone.
+        """
         from . import writer
 
-        return writer.write_config(address, frames)
+        return WriteReceipt(writer.plan(config).total, self.write_unit_label)
+
+    def write_config(self, address: str, config: dict[str, Any]) -> WriteReceipt:
+        import time
+
+        from . import writer
+
+        plan = writer.plan(config)
+        ok, reply = writer.write_config(address, plan.frames)
+        if not ok:
+            raise DeviceWriteError(
+                f"Device rejected JSON_END: {reply.hex() or 'no response'}"
+            )
+        time.sleep(writer.SETTLE_SECONDS)
+        return WriteReceipt(plan.total, self.write_unit_label)
 
 
 _TRANSPORTS: dict[str, DeviceTransport] = {}

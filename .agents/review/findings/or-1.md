@@ -3,9 +3,9 @@
 **Severity**: HIGH — the transport abstraction N2 introduced cannot carry a
 non-serial device, so the seam must be rebuilt before N5/N6 rather than
 extended.
-**Status**: Open
-**Branch**: (not started)
-**Commit**: (not started)
+**Status**: Verified
+**Branch**: `neon-80-support` (worked in place; see Approach)
+**Commit**: see the `or-1:` commit on `neon-80-support`
 
 ## Evidence
 
@@ -37,18 +37,42 @@ A transport that shares no encoding with serial has nothing to implement.
 
 ## Approach
 
-Not started. See "Owner decision required" below — the correction is an
-architecture change, not a repair.
+The seam moved below the encoding. `write_config(address, config)` now takes
+the logical configuration and each driver plans its own protocol;
+`SerialTransport` owns `writer.plan`, `writer.SETTLE_SECONDS`, and its own
+rejection message. `describe_write(config)` reports what a write would transmit
+with no I/O, which is what the verify route actually needs. `WriteReceipt`
+carries a protocol-native unit count plus its label so the response payload
+stops assuming every device writes frames. `DeviceWriteError` carries the
+driver's rejection detail, so `"Device rejected JSON_END"` no longer appears in
+`server.py`.
+
+Worked on the existing branch rather than a per-finding branch: the finding is
+a defect in unmerged work on that branch, and the repo's Git Safety rule
+forbids rewriting the commit it corrects. The correction is one commit.
 
 ## Files changed
 
-Not started.
+- `am_configurator/transport.py` — `WriteReceipt`, `DeviceWriteError`,
+  `describe_write`, and a configuration-taking `write_config`.
+- `am_configurator/server.py:2041-2070` — routes dispatch a domain-level write;
+  `writer` is no longer imported for the device paths.
+- `am_configurator/server.py:2148-2152` — response reports `write_units` and
+  `write_unit_label`.
+- `am_configurator/web/app.js` — the write toast renders the driver's label.
+- `tests/test_transport.py` — the guards below.
 
 ## Guard proof
 
-Not started. A guard must show a non-serial transport receiving a logical
-configuration rather than AM frames; a synthetic transport in
-`tests/test_transport.py` can assert this without hardware.
+- `tests/test_transport.py::SerialDispatchTests::test_the_driver_receives_the_configuration_and_plans_its_own_protocol`
+  — reverting `write_config` to a frames-shaped parameter fails it with
+  "Expected 'plan' to be called once. Called 0 times." Restoring passes.
+- `tests/test_transport.py::NonSerialDriverTests` — registers a driver sharing
+  no encoding with serial and proves a write arrives as the configuration
+  object itself, reported in that driver's own unit. This is the property the
+  finding identified as missing.
+- `tests/test_transport.py::SerialDispatchTests::test_a_refused_write_raises_the_drivers_own_protocol_error`
+  — asserts `JSON_END` appears nowhere in `server.py`.
 
 ## Coder dispute (if any)
 
@@ -58,17 +82,23 @@ differ by protocol, not merely by link.
 
 ## Known gaps
 
-The macro path is already closer to correct — `link.write_macros(address,
-entries)` passes macro dicts, not encoded bytes — so the seam is inconsistent
-as well as misplaced. Any fix should settle both.
+`validate_config` (`server.py:537`) still calls `writer.plan` to check that a
+configuration encodes. That is validation rather than transmission, it runs with
+no device attached, and it will need a per-family answer — a Neon configuration
+would be rejected by the AM wire encoder. Out of scope for this finding;
+belongs with plan task N4. Recorded so it is not mistaken for settled.
 
-## Owner decision required
+## Owner decision (resolved)
 
-The plan's N2 says "dispatch discovery, read, write, and verify on the handle",
-which this implements literally. Correcting it means dispatching a *domain-level*
-write to a device driver, keeping AM frame planning inside the serial driver,
-and returning a typed write receipt instead of serial `JSON_END` status. That is
-a larger N2 than the approved plan describes.
+The plan's N2 said "dispatch discovery, read, write, and verify on the handle",
+which the first implementation satisfied literally. The correction — dispatching
+a domain-level write, keeping AM frame planning inside the serial driver, and
+returning a typed receipt — is a larger N2 than the approved plan described, so
+it was put to the owner as A (rework now) or B (defer to N5).
+
+**Owner chose A, 2026-07-25: "Rework N2 now under the corrected design."**
+Recorded in `.agents/decisions.md` under "The device seam sits below the
+protocol encoding"; plan task N2 was revised before implementation.
 
 ## Reviewer comments
 

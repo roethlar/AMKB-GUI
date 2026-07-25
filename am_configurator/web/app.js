@@ -1933,7 +1933,7 @@ async function confirmDeviceWrite() {
     markDirty(false);$("#write-dialog").close();state.pendingWrite=null;
     const partialMacros=result.macro_verification==='partial';
     const macroWarning=result.macro_warning?`\n${result.macro_warning}`:'';
-    toast(partialMacros?'Write accepted; macro tail unreadable':'Write verified',`${result.device.product_id} · ${result.frames} configuration frames · ${result.macros} macros\nSnapshot ${result.snapshot}${macroWarning}`,partialMacros?'':'success');
+    toast(partialMacros?'Write accepted; macro tail unreadable':'Write verified',`${result.device.product_id} · ${result.write_units} ${result.write_unit_label} · ${result.macros} macros\nSnapshot ${result.snapshot}${macroWarning}`,partialMacros?'':'success');
   }catch(error){
     if(error.accepted){
       pending.verifyOnly=true;
