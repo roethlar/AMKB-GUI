@@ -1847,7 +1847,9 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _lighting_asset(self, library: Any, job_id: str, asset_id: str) -> None:
-        owned = library.resolve_asset(job_id, asset_id)
+        # open_verified re-checks the descriptor this route actually serves
+        # from, so hashing again at resolve time protects nothing extra.
+        owned = library.resolve_asset(job_id, asset_id, verify_content=False)
         mime_type = owned.record["mime_type"]
         if mime_type not in _LIGHTING_ASSET_MIMES:
             raise ValueError("This generated asset type cannot be served.")
@@ -1892,7 +1894,10 @@ class _Handler(BaseHTTPRequestHandler):
         ):
             self._range_not_satisfiable(total)
             return
-        with owned.open_verified() as stream:
+        # A media player issues many Range requests per playback; verifying the
+        # whole file on each seek reads far more than the slice being served.
+        # The initial non-Range request verifies content end to end.
+        with owned.open_verified(verify_content=False) as stream:
             stream.seek(start)
             payload = stream.read(end - start + 1)
         self._headers(

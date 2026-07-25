@@ -268,6 +268,103 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         self.assertEqual("procedural", manifest["pipeline"])
         self.assertEqual({"recipe", "raster_animation"}, {recipe["kind"], raster["kind"]})
 
+    def _hashed_bytes_while(self, action) -> int:
+        """Bytes fed through SHA-256 inside library.py while `action` runs."""
+        real_sha256 = library_module.hashlib.sha256
+        counted = 0
+
+        class _Counting:
+            def __init__(self, inner) -> None:
+                self._inner = inner
+
+            def update(self, chunk) -> None:
+                nonlocal counted
+                counted += len(chunk)
+                self._inner.update(chunk)
+
+            def hexdigest(self) -> str:
+                return self._inner.hexdigest()
+
+        with patch.object(
+            library_module.hashlib,
+            "sha256",
+            lambda *a, **k: _Counting(real_sha256(*a, **k)),
+        ):
+            action()
+        return counted
+
+    def _banked_png(self) -> tuple[str, str, bytes]:
+        job = self._create_job()
+        payload = b"\x89PNG\r\n\x1a\n" + b"x" * (256 * 1024)
+        record = self.library.bank_asset(
+            job["job_id"],
+            kind="concept",
+            data=payload,
+            mime_type="image/png",
+            origin="probe",
+        )
+        return job["job_id"], record["asset_id"], payload
+
+    def test_serving_an_asset_reads_it_once_and_a_range_reads_no_extra_pass(self) -> None:
+        """Serving used to hash the whole file twice per request, including per seek."""
+        job_id, asset_id, payload = self._banked_png()
+        size = len(payload)
+
+        def non_range() -> None:
+            owned = self.library.resolve_asset(job_id, asset_id, verify_content=False)
+            with owned.open_verified() as stream:
+                stream.read(size + 1)
+
+        def ranged() -> None:
+            owned = self.library.resolve_asset(job_id, asset_id, verify_content=False)
+            with owned.open_verified(verify_content=False) as stream:
+                stream.seek(1024)
+                stream.read(4096)
+
+        def path_using_caller() -> None:
+            # generation.py and procedural_generation.py use owned.path directly
+            # and never call open_verified, so their verification must remain.
+            self.library.resolve_asset(job_id, asset_id)
+
+        self.assertEqual(size, self._hashed_bytes_while(non_range))
+        self.assertEqual(0, self._hashed_bytes_while(ranged))
+        self.assertEqual(size, self._hashed_bytes_while(path_using_caller))
+
+    def test_altered_asset_content_is_still_rejected_on_a_verifying_read(self) -> None:
+        job_id, asset_id, payload = self._banked_png()
+        target = self.library.resolve_asset(job_id, asset_id, verify_content=False).path
+        target.write_bytes(b"\x89PNG\r\n\x1a\n" + b"y" * (len(payload) - 8))
+
+        # The ordinary view path still verifies bytes end to end.
+        owned = self.library.resolve_asset(job_id, asset_id, verify_content=False)
+        with self.assertRaises(ManifestError):
+            owned.open_verified()
+
+        # So does every caller that resolves without opting out.
+        with self.assertRaises(ManifestError):
+            self.library.resolve_asset(job_id, asset_id)
+
+    def test_range_reads_keep_every_path_and_size_check(self) -> None:
+        """Skipping the digest must not skip the checks that guard the loopback route."""
+        job_id, asset_id, payload = self._banked_png()
+        owned = self.library.resolve_asset(job_id, asset_id, verify_content=False)
+
+        # A size that disagrees with the manifest is still refused.
+        owned.path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 16)
+        with self.assertRaises(ManifestError):
+            owned.open_verified(verify_content=False)
+
+        # A path replaced by a symlink is still refused.
+        owned.path.unlink()
+        elsewhere = self.base / "outside.bin"
+        elsewhere.write_bytes(payload)
+        try:
+            owned.path.symlink_to(elsewhere)
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks are unavailable on this host")
+        with self.assertRaises(ManifestError):
+            owned.open_verified(verify_content=False)
+
     def test_file_identity_agrees_between_a_path_stat_and_a_handle_stat(self) -> None:
         """A freshly written asset must identify as itself through either stat.
 

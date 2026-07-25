@@ -246,8 +246,16 @@ class OwnedAsset:
     def mime_type(self) -> str:
         return self.record["mime_type"]
 
-    def open_verified(self):
-        """Open and integrity-check one stable descriptor for authenticated serving."""
+    def open_verified(self, *, verify_content: bool = True):
+        """Open and integrity-check one stable descriptor for authenticated serving.
+
+        ``verify_content=False`` keeps every path and descriptor check and the
+        recorded size, but skips reading the file to confirm its digest.  It
+        exists for Range requests, where re-reading the whole file on every seek
+        dominates the cost of serving a slice of it.  A non-Range read still
+        verifies the bytes, so altered content is caught the first time an asset
+        is viewed.
+        """
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         try:
             before = self.path.lstat()
@@ -262,18 +270,21 @@ class OwnedAsset:
                 or _file_stat_identity(before) != _file_stat_identity(info)
             ):
                 raise ManifestError("The owned asset path is unsafe or missing.")
-            digest = hashlib.sha256()
-            for chunk in iter(lambda: file.read(1024 * 1024), b""):
-                digest.update(chunk)
+            content_matches = True
+            if verify_content:
+                digest = hashlib.sha256()
+                for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                content_matches = hmac.compare_digest(
+                    digest.hexdigest(), self.record["sha256"]
+                )
             after = os.fstat(file.fileno())
             after_path = self.path.lstat()
             if (
                 _file_stat_identity(info) != _file_stat_identity(after)
                 or _file_stat_identity(info) != _file_stat_identity(after_path)
                 or info.st_size != self.record["byte_size"]
-                or not hmac.compare_digest(
-                    digest.hexdigest(), self.record["sha256"]
-                )
+                or not content_matches
             ):
                 raise ManifestError("The owned asset failed its integrity check.")
             file.seek(0)
@@ -1563,7 +1574,18 @@ class GeneratedAssetLibrary:
         self._verify_owned_asset(owned)
         return owned
 
-    def resolve_asset(self, job_id: str, asset_id: str) -> OwnedAsset:
+    def resolve_asset(
+        self, job_id: str, asset_id: str, *, verify_content: bool = True
+    ) -> OwnedAsset:
+        """Resolve one owned asset, confirming it is unchanged across two locks.
+
+        ``verify_content=False`` skips the digest comparison and takes the
+        identity for the under-lock recheck from ``lstat`` instead.  Only the
+        authenticated serving route passes it, because that route immediately
+        calls :meth:`OwnedAsset.open_verified`, which re-checks the descriptor it
+        actually serves from.  Callers that use ``owned.path`` directly, such as
+        the FFmpeg-facing generation paths, must keep the default.
+        """
         canonical_job_id = _canonical_uuid(job_id, "job ID")
         canonical_asset_id = _canonical_uuid(asset_id, "asset ID")
         job_dir = self._find_job_dir(canonical_job_id)
@@ -1571,7 +1593,15 @@ class GeneratedAssetLibrary:
             manifest = _read_manifest(job_dir / "manifest.json", canonical_job_id)
             owned = self._owned_record(job_dir, manifest, canonical_asset_id)
 
-        identity = self._verify_owned_asset(owned)
+        if verify_content:
+            identity = self._verify_owned_asset(owned)
+        else:
+            try:
+                identity = _file_stat_identity(owned.path.lstat())
+            except OSError as exc:
+                raise ManifestError(
+                    "The owned asset path is unsafe or missing."
+                ) from exc
 
         with _job_lock(job_dir):
             current_manifest = _read_manifest(job_dir / "manifest.json", canonical_job_id)

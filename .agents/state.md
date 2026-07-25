@@ -777,6 +777,21 @@
   removes an attached mount point; a stubborn mount warns instead of failing
   the build. Verified by a real versioned macOS `0.1.46` build with a clean
   detach. All seven checks then passed on the first attempt at `ad4c035`.
+- Asset read cost is addressed;
+  `docs/superpowers/plans/2026-07-24-asset-read-cost.md` is its ledger. Serving
+  one Library asset hashed the whole file twice, measured at 2.0x the asset
+  size, and Range requests paid it on every seek. `resolve_asset` and
+  `open_verified` now take `verify_content`; the serving route resolves without
+  hashing because `open_verified` re-checks the descriptor actually served
+  from, and Range reads additionally skip the digest. Full-file reads per
+  request fall from 2 to 1 for a normal view and from 2 to 0 for a Range read.
+  Every path, descriptor, identity, and size check is retained, and the
+  `owned.path` callers in `generation.py` and `procedural_generation.py` keep
+  the verifying default. Accepted risk, agreed by the owner on 2026-07-24: a
+  Range read no longer proves the served bytes match the recorded digest, while
+  a non-Range read still does. The CPU cost was never the justification and
+  must not be cited as one; hashing runs about 2.9 GB/s on the development
+  machine. The I/O cost on the Range path is the reason.
 - One known flake remains unfixed and is not tracked by any plan:
   `tests/test_ai_routes.py` uses a fixed 15-second `urlopen` timeout, and the
   effect route renders 200 frames server-side before responding. A slow runner
