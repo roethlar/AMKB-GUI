@@ -146,6 +146,105 @@ def led_model(product_id: str) -> str:
     raise ValueError(f"No GIF LED map is available for product {product_id or '?'}.")
 
 
+# --- Per-family device specification -------------------------------------
+#
+# One authority for the per-family numbers that consumers used to hardcode:
+# LED track colour counts, macro limits, and transport kind. `_LAYOUTS` above
+# remains the authority for which targets a family *authors* and how their
+# pixels map; this answers "how large is this track, and what are this family's
+# limits", which validation and the editor both need.
+#
+# Track colour counts come from `_LAYOUTS` wherever a family authors the track,
+# so there is no second copy of those numbers. `_SHARED_TRACK_COLORS` covers
+# tracks a family does not author: `validate_config` has always checked any
+# present track against these counts regardless of family, and preserving that
+# keeps this refactor behaviour-neutral.
+
+SERIAL_TRANSPORT = "serial"
+
+_SHARED_TRACK_COLORS = {"frames": 200, "keyframes": 90, "spotlight_frames": 24}
+
+# The AM serial firmwares share these ceilings. A Vial device reports its own
+# limits at runtime instead, so a family may carry `None` to mean device-reported.
+_SERIAL_MACRO_TRACKS = 32
+_SERIAL_MACRO_EVENTS = 200
+
+
+@dataclass(frozen=True)
+class FamilySpec:
+    """Canonical per-family limits. See the module comment above."""
+
+    model: str
+    transport: str
+    frame_cap: int
+    macro_tracks: int | None
+    macro_events: int | None
+
+    def track_colors(self, field: str) -> int:
+        """Exact colour count for one LED track on this family."""
+
+        layout = _LAYOUTS.get(self.model, {}).get(field)
+        if layout is not None:
+            return int(layout["pixels"])
+        return _SHARED_TRACK_COLORS[field]
+
+    @property
+    def authored_tracks(self) -> tuple[str, ...]:
+        """Track names this family actually authors, in layout order."""
+
+        return tuple(_LAYOUTS.get(self.model, {}))
+
+
+_FAMILY_SPECS = {
+    model: FamilySpec(
+        model=model,
+        transport=SERIAL_TRANSPORT,
+        frame_cap=cap,
+        macro_tracks=_SERIAL_MACRO_TRACKS,
+        macro_events=_SERIAL_MACRO_EVENTS,
+    )
+    for model, cap in MODEL_FRAME_CAPS.items()
+}
+
+# Used when a configuration names a product this build does not recognise.
+# `validate_config` has always accepted such a config and checked it against the
+# shared counts, so the fallback preserves that rather than rejecting the file.
+_UNKNOWN_FAMILY_SPEC = FamilySpec(
+    model="",
+    transport=SERIAL_TRANSPORT,
+    frame_cap=MAX_FRAMES,
+    macro_tracks=_SERIAL_MACRO_TRACKS,
+    macro_events=_SERIAL_MACRO_EVENTS,
+)
+
+
+def family_spec(model: str) -> FamilySpec:
+    """Return the specification for an LED family.
+
+    Raises `KeyError` for an unknown family. Callers that hold a real device or
+    family must never silently substitute another device's geometry.
+    """
+
+    return _FAMILY_SPECS[model]
+
+
+def spec_for_product(product_id: object) -> FamilySpec:
+    """Resolve a configuration's `product_id` to a specification.
+
+    Never raises: an absent or unrecognised product yields the shared fallback,
+    preserving the historical behaviour of validating unknown files rather than
+    rejecting them outright.
+    """
+
+    if not isinstance(product_id, str) or not product_id:
+        return _UNKNOWN_FAMILY_SPEC
+    try:
+        model = led_model(product_id)
+    except ValueError:
+        return _UNKNOWN_FAMILY_SPEC
+    return _FAMILY_SPECS.get(model, _UNKNOWN_FAMILY_SPEC)
+
+
 def validate_gif_targets(
     product_id: str,
     targets: Sequence[str],
