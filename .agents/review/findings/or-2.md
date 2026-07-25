@@ -2,9 +2,9 @@
 
 **Severity**: HIGH — N1's stated goal was one authority for per-family limits,
 and this path still hardcodes them; the observable failure is gated on N4.
-**Status**: Open
-**Branch**: (not started)
-**Commit**: (not started)
+**Status**: Verified
+**Branch**: `neon-80-support` (worked in place, as or-1 was)
+**Commit**: see the `or-2:` commit on `neon-80-support`
 
 ## Evidence
 
@@ -43,20 +43,44 @@ a product identifier — all three of which `device_mapping` now owns.
 
 ## Approach
 
-Not started. Derive the authored tracks and their lengths from
-`device_mapping.spec_for_product(device_id)`, and keep the slot rules
-(`index >= 5` is custom) explicit rather than folded into the family check.
+Track lengths now come from `spec.track_colors(...)`, and the edge track is
+emitted when `"spotlight_frames" in spec.authored_tracks` rather than when the
+device is the Relic — so a future family with an extra track gets one without
+touching this function.
+
+The product-identifier normalization moved to
+`device_mapping.config_product_id`, which documents what it actually is: a
+wire-format rule, not a family lookup. The two are genuinely different and the
+distinction is now guarded — `CB04` stays `CB04` in the stored configuration
+while resolving to family `CB`.
+
+Deliberately **not** changed: the `frames` and `keyframes` keys are still
+emitted for every family, and the slot rule (`index >= 5` is custom) is
+unchanged. Emitting only authored tracks would drop `frames` from ALICE and
+Relic blank profiles, which is a behaviour change this finding does not call
+for and which the wire encoder and browser were not audited against.
 
 ## Files changed
 
-Not started.
+- `am_configurator/device_mapping.py` — new `config_product_id`.
+- `am_configurator/server.py:129-140` — spec lookup replaces the local
+  normalization and the `relic` flag.
+- `am_configurator/server.py:158,167` — track lengths from the spec.
 
 ## Guard proof
 
-Not started. Per the N1a precedent, a guard written against the shipped
-families would be vacuous — they share the same track sizes. It must register a
-synthetic family with two differing track sizes and assert `blank_config`
-follows it.
+`tests/test_device_mapping.py::BlankConfigUsesFamilySpecTests`:
+
+- `test_track_sizes_and_extra_tracks_follow_the_family` registers a synthetic
+  family with a 49-colour keyframes track and an 11-colour edge track.
+  Restoring the hardcoded `90` fails it with `AssertionError: 49 != 90`;
+  restoring the `product_id == "80"` edge check fails it with
+  `KeyError: 'spotlight_frames'`. Both verified, then restored.
+- `test_shipped_families_keep_their_current_shape` is the regression guard: CB04,
+  AM21, and 80 keep 90-colour key tracks, and only the Relic gets a 24-colour
+  edge track.
+- `test_the_stored_product_id_is_the_wire_identifier_not_the_family` pins the
+  distinction the normalization move could have silently broken.
 
 ## Coder dispute (if any)
 

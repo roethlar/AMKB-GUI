@@ -146,6 +146,20 @@ def led_model(product_id: str) -> str:
     raise ValueError(f"No GIF LED map is available for product {product_id or '?'}.")
 
 
+def config_product_id(device_id: str) -> str:
+    """The `product_id` a freshly created configuration should carry.
+
+    A keyboard reports its own identifier, which is not always what the AM JSON
+    format stores: the Relic 80 probes as `AM21`, but its configurations name
+    `80`. Every other identifier is stored as reported. This is a wire-format
+    rule, distinct from `led_model`'s family lookup — `CB04` stays `CB04` here
+    while resolving to family `CB` there.
+    """
+
+    upper = str(device_id).upper()
+    return "80" if upper == "AM21" else upper
+
+
 # --- Per-family device specification -------------------------------------
 #
 # One authority for the per-family numbers that consumers used to hardcode:

@@ -16,7 +16,7 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | ID   | Severity | Impact (one line)                                                        | Status | Branch | Reviewer          |
 |------|----------|--------------------------------------------------------------------------|--------|--------|-------------------|
 | or-1 | HIGH     | HID driver cannot build its protocol from pre-encoded AM serial frames    | `[x]`  | `neon-80-support` | codex/openreview  |
-| or-2 | HIGH     | `blank_config` hardcodes family track sizes N1 made `device_mapping` own  | `[ ]`  |        | codex/openreview  |
+| or-2 | HIGH     | `blank_config` hardcodes family track sizes N1 made `device_mapping` own  | `[x]`  | `neon-80-support` | codex/openreview  |
 | or-3 | MEDIUM   | `FamilySpec` macro capacity uses event counts; Vial reports bytes         | `[ ]`  |        | codex/openreview  |
 
 All three raised by the 2026-07-25 openreview codex pass over
@@ -29,4 +29,10 @@ fails when the seam is reverted. It has not been re-reviewed — an accepted
 verdict on the repair would need a `codereview` redispatch, which the owner has
 not asked for.
 
-or-2 and or-3 remain open and need no ruling; both are completions of N1.
+or-2 is fixed: blank profiles now take their track sizes and extra tracks from
+the family specification, guarded by a synthetic family whose sizes differ from
+every shipped one.
+
+or-3 remains open and needs no ruling. Its full answer depends on plan task N7,
+which is not implemented; the part available now is to stop documenting a
+`None` macro-capacity contract that no consumer implements.

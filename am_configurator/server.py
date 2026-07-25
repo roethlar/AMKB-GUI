@@ -127,9 +127,17 @@ def blank_config(
     macros: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Create a writable, all-local profile when no AM JSON was opened first."""
-    upper = device_id.upper()
-    product_id = "80" if upper == "AM21" else upper
-    relic = product_id == "80"
+    product_id = device_mapping.config_product_id(device_id)
+    spec = device_mapping.spec_for_product(device_id)
+    key_colors = spec.track_colors("keyframes")
+    # Which extra LED track a family authors is the family's own fact. Asking
+    # the specification generalizes to any device; testing for the Relic here
+    # would leave every future family silently trackless.
+    edge_colors = (
+        spec.track_colors("spotlight_frames")
+        if "spotlight_frames" in spec.authored_tracks
+        else None
+    )
 
     pages: list[dict[str, Any]] = []
     for index in range(8):
@@ -150,17 +158,17 @@ def blank_config(
                 "valid": 1 if custom else 0,
                 "frame_num": 1 if custom else 0,
                 "frame_data": (
-                    [{"frame_index": 0, "frame_RGB": ["#000000"] * 90}]
+                    [{"frame_index": 0, "frame_RGB": ["#000000"] * key_colors}]
                     if custom else []
                 ),
             },
         }
-        if relic and custom:
+        if edge_colors is not None and custom:
             page["spotlight_frames"] = {
                 "valid": 1,
                 "frame_num": 1,
                 "frame_data": [
-                    {"frame_index": 0, "frame_RGB": ["#000000"] * 24}
+                    {"frame_index": 0, "frame_RGB": ["#000000"] * edge_colors}
                 ],
             }
         pages.append(page)

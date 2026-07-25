@@ -163,6 +163,87 @@ class BrowserSpecMirrorsPythonTests(unittest.TestCase):
         )
 
 
+class BlankConfigUsesFamilySpecTests(unittest.TestCase):
+    """A blank profile must be shaped for the device that will receive it.
+
+    Every shipped family shares the same keyframes length, so a test written
+    against them would pass even with the historical hardcoded 90 and 24. This
+    registers a synthetic family whose track sizes differ, which is the only way
+    to prove the lookup is real.
+    """
+
+    def _blank(self, device_id):
+        server = importlib.import_module("am_configurator.server")
+        return server.blank_config(device_id, [["#00000000"] * 200] * 7, [])
+
+    def _custom_pages(self, config):
+        return [page for page in config["page_data"] if page["page_index"] >= 5]
+
+    def test_track_sizes_and_extra_tracks_follow_the_family(self):
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        synthetic = mapping.FamilySpec(
+            model="SYNTH",
+            transport=mapping.SERIAL_TRANSPORT,
+            frame_cap=64,
+            macro_tracks=32,
+            macro_events=200,
+        )
+        layouts = dict(mapping._LAYOUTS)
+        layouts["SYNTH"] = {
+            "keyframes": {"size": (7, 7), "map": (), "pixels": 49},
+            "spotlight_frames": {"size": (11, 1), "map": (), "pixels": 11},
+        }
+        specs = dict(mapping._FAMILY_SPECS)
+        specs["SYNTH"] = synthetic
+
+        with (
+            mock.patch.object(mapping, "_LAYOUTS", layouts),
+            mock.patch.object(mapping, "_FAMILY_SPECS", specs),
+            mock.patch.object(mapping, "led_model", lambda device_id: "SYNTH"),
+        ):
+            pages = self._custom_pages(self._blank("SYNTH"))
+
+        self.assertTrue(pages)
+        for page in pages:
+            self.assertEqual(49, len(page["keyframes"]["frame_data"][0]["frame_RGB"]))
+            self.assertEqual(
+                11, len(page["spotlight_frames"]["frame_data"][0]["frame_RGB"])
+            )
+
+    def test_a_family_without_an_edge_track_gets_none(self):
+        for page in self._custom_pages(self._blank("ALICE")):
+            self.assertNotIn("spotlight_frames", page)
+
+    def test_shipped_families_keep_their_current_shape(self):
+        """Regression guard: the conversion must not resize a real device."""
+
+        for device_id, edge in (("CB04", False), ("AM21", True), ("80", True)):
+            with self.subTest(device_id=device_id):
+                pages = self._custom_pages(self._blank(device_id))
+                for page in pages:
+                    self.assertEqual(
+                        90, len(page["keyframes"]["frame_data"][0]["frame_RGB"])
+                    )
+                    self.assertEqual(edge, "spotlight_frames" in page)
+                    if edge:
+                        self.assertEqual(
+                            24,
+                            len(page["spotlight_frames"]["frame_data"][0]["frame_RGB"]),
+                        )
+
+    def test_the_stored_product_id_is_the_wire_identifier_not_the_family(self):
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        # A Relic probes as AM21 but its configurations name 80.
+        self.assertEqual("80", mapping.config_product_id("AM21"))
+        self.assertEqual("80", self._blank("AM21")["product_info"]["product_id"])
+        # A CyberBoard keeps its own identifier even though its family is CB.
+        self.assertEqual("CB04", mapping.config_product_id("CB04"))
+        self.assertEqual("CB", mapping.led_model("CB04"))
+        self.assertEqual("CB04", self._blank("CB04")["product_info"]["product_id"])
+
+
 class ValidationUsesFamilySpecTests(unittest.TestCase):
     """`validate_config` must size tracks per family, not from a fixed tuple.
 
