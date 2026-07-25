@@ -26,6 +26,14 @@ from am_configurator.server import create_server
 
 _RECIPE = Path(__file__).parent / "fixtures" / "ornith_dense_aurora_recipe.json"
 
+# A backstop against a hung server, not an assertion about latency. Every route
+# here answers in under 10 ms except POST /api/lighting/effects, which renders
+# 200 frames, encodes two GIFs, and maps them to device tracks before replying;
+# that measures about 4.4 s on the development machine. The former 15 s left
+# only 3.4x headroom, and a macOS CI runner observed at 2.3x slower than local
+# timed out. Everything else in the suite runs at 460x headroom or better.
+_REQUEST_TIMEOUT_SECONDS = 60
+
 
 def _ready_status() -> dict:
     return {
@@ -250,7 +258,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             headers=headers,
         )
         try:
-            with urlopen(request, timeout=15) as response:
+            with urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
                 raw = response.read()
                 return response.status, json.loads(raw) if raw else None
         except urllib.error.HTTPError as error:
