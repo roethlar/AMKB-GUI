@@ -1,7 +1,8 @@
 # AM Neon 80 Support
 
-Status: draft, awaiting owner approval. No implementation may begin until the
-owner approves this plan and the approved wording is recorded in this line.
+Status: **approved by the owner on 2026-07-25** ("approve"), after two
+`openreview codex` passes and two revisions. Implementation may proceed through
+the tasks below in order. Scope changes still require a new owner decision.
 
 Governing decisions: `.agents/decisions.md` — "AM Neon 80 supported at full
 parity or not at all" and "License follows capability; Neon 80 stays MIT for
