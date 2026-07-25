@@ -805,8 +805,15 @@
   tests, the Python 3.11 floor, and all three native installers — and merged on
   2026-07-25. Pull request #2 (`flake-fix`) merged the same day. Work is now on
   `main` at `65a70c9`.
-- AM Neon 80 support is scoped but not implemented; no code exists yet. Its two
-  owner decisions are recorded in `.agents/decisions.md` under 2026-07-25. The
+- AM Neon 80 support is scoped and planned but not implemented; no code exists
+  yet. Its two owner decisions are recorded in `.agents/decisions.md` under
+  2026-07-25, and the durable plan is
+  `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`, still awaiting
+  owner approval. An `openreview codex` pass over the plan raised five findings,
+  all admitted and all closed by the plan's 2026-07-25 revision; the outcome is
+  recorded in `.agents/review/outcomes.md`. The two structural ones were that
+  the original plan built HID modules the GUI could never reach, and that it
+  required a keycode round-trip the 32-bit UI makes impossible. The
   protocol was established by reading published Angry Miao sources and by
   read-only USB enumeration of the owner's device; nothing has been written to
   that keyboard. Established facts: the board is a QMK/Vial device at USB
@@ -823,12 +830,15 @@
 
 - Do not perform governance work under this product-remediation plan. Any
   governance update requires a separate fresh one-off session.
-- Draft the durable AM Neon 80 implementation plan under `plan`, then implement
-  it once approved. Proposed sequence: raw-HID transport and discovery, lighting
-  push, keymap and macros through the Vial buffers, the GPL relicensing and
-  packaging changes, and manual hardware verification last. A `hidapi` runtime
-  dependency, Linux udev rules for non-root access, and the resulting native
-  packaging changes are expected and touch the recently stabilized installers.
+- Obtain owner approval for `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`
+  before any AM Neon 80 implementation. The plan exists and has been revised
+  once; its status line is the gate and currently reads draft. Do not redraft
+  it. Once approved, implement its nine tasks in order, starting with N1
+  (relicensing, which must precede the GPL-derived tables in N4) and N2 (the
+  transport-neutral device handle, which must precede any HID code). A `hidapi`
+  runtime dependency, Linux udev rules for non-root access, and the resulting
+  native packaging changes are expected and touch the recently stabilized
+  installers.
 - Code signing and notarization remain unaddressed and out of scope; both
   require paid developer accounts, and `README.md` discloses the unsigned
   state.
