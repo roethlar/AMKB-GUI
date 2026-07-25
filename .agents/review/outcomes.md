@@ -13,6 +13,33 @@
   Full report with failure scenarios and verifier evidence:
   `2026-07-22-holistic-branch-review.md`. At that review head, the findings
   had not yet passed codereview intake triage and none was fixed.
+- 2026-07-25 — openreview codex, second pass (codex-cli 0.145.0, CLI transport
+  with `--output-last-message`; `gpt-5.6-sol` @ `xhigh`, owner-configured
+  default) over
+  `65a70c9bff19b8cff7313efdf10bb35c48484939..ed805a5452ce036afb1a6f255ccce93a73ad53a0`,
+  a fresh thread rather than a reply so the reviewer was not primed by its own
+  prior findings: verdict `findings`, three raised, all three admitted after
+  independent verification.
+  HIGH: N4 planned to transcribe firmware `real_map`, `h_map`, and `s_map` into
+  host-side position maps, but those are `{chip_index, x, y}` AW20216 driver
+  coordinates that the firmware applies *after* receiving a frame. The host
+  sends a linear payload — 89 axial values and 230 row-major head values — so
+  transcribing them would map twice and scramble every LED. The same finding
+  notes side must not be an authored `_LAYOUTS` entry, because
+  `device_mapping.py:427` publishes every entry as independently selectable
+  while the official driver derives side from head and pushes channels
+  `slot`, `slot+3`, `slot+6` from one authored payload.
+  HIGH: Neon geometry was scoped to `device_mapping.py` alone, but
+  `server.py:490` validates hardcoded 200/90/24 track lengths, `app.js:1311`
+  hardcodes the same, and `app.js:489` falls unknown models back to CyberBoard.
+  A Neon profile could not be created, validated, edited, and written.
+  HIGH: N7 left macro limits at the hardcoded 32 tracks and 200 events of
+  `app.js:1121` and `app.js:1215` without preflighting the device-reported
+  Vial `GET_COUNT` and `GET_BUFFER_SIZE`, risking a partial macro-buffer
+  rewrite that the planned one-macro test would not catch.
+  Consequence beyond the plan: because no GPL firmware table needs
+  transcribing after all, the premise of the 2026-07-25 relicensing decision
+  no longer holds and is referred back to the owner.
 - 2026-07-25 — openreview codex (codex-cli 0.145.0, MCP transport;
   `gpt-5.6-sol` @ `xhigh`, owner-configured default) over
   `65a70c9bff19b8cff7313efdf10bb35c48484939..cacced2569d262241dd68fffb37c3c2970424e4a`:
