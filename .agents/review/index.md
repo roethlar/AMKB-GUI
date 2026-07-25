@@ -37,6 +37,25 @@ or-3 is closed on its available scope: the `None` macro-capacity contract and
 the skippable enforcement are gone, and the byte-budget requirement moved into
 plan task N7. The capacity model itself needs a real device and remains N7 work.
 
-All three findings are fixed. **None of the repairs has been re-reviewed** — an
-accepted verdict on each would need a `codereview` redispatch, which the owner
-has not asked for.
+All three findings are fixed **and re-reviewed**. `codereview codex` over each
+repair, 2026-07-25:
+
+| Finding | Repair | Round 1 | Round 2 |
+|---------|--------|---------|---------|
+| or-1 | `f08fb22` | accepted | — |
+| or-2 | `4ff65ee` | **reopened** | `71b9aa8` accepted |
+| or-3 | `858fdf0` | accepted | — |
+
+`guard_confirmed` was `true` on every verdict; the reviewer ran the revert /
+fail / restore / pass proof in its own worktree. or-2's reopen was correct: the
+first repair removed the hardcoded track sizes but left the hardcoded track
+names, and its guard used those same names, so it was vacuous on the one claim
+it was cited for. Detail in `.agents/review/findings/or-2.md`, "Reopen round 1".
+
+Routing deviation is unchanged from the openreview passes and recorded in
+`.agents/review/outcomes.md`: no owner-confirmed tier mapping exists on this
+machine, so codex's own configured model and effort were used under the owner's
+standing "defaults, just codex" direction. The T5 escalation a reopen normally
+triggers therefore had no stronger tier to reach; the redispatch opened a fresh
+session at the same routing, which is recorded rather than presented as an
+escalation.
