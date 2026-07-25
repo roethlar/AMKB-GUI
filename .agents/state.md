@@ -805,11 +805,22 @@
   tests, the Python 3.11 floor, and all three native installers — and merged on
   2026-07-25. Pull request #2 (`flake-fix`) merged the same day. Work is now on
   `main` at `65a70c9`.
-- AM Neon 80 support is scoped and planned but not implemented; no code exists
-  yet. Its two owner decisions are recorded in `.agents/decisions.md` under
-  2026-07-25, and the durable plan is
-  `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`, still awaiting
-  owner approval. Two `openreview codex` passes raised eight findings, all
+- AM Neon 80 support is approved and in progress on branch `neon-80-support`;
+  no Neon-specific code exists yet, and nothing has been pushed. Its owner
+  decisions are recorded in `.agents/decisions.md` under 2026-07-25, and the
+  durable plan is `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`,
+  approved by the owner on 2026-07-25. Plan task N1 is complete in two commits:
+  `d75492f` made `device_mapping.FamilySpec` the single authority for
+  per-family LED track sizes, macro ceilings, frame caps, and transport kind,
+  and converted `validate_config`; `e522a07` gave the browser its mirror in
+  `lighting_targets.js` and converted `app.js`. The load-bearing behavior change
+  is that an unrecognised product no longer falls back to CyberBoard geometry —
+  `activeLedModel()` returns null and the LED editor shows an unsupported-device
+  notice, so a Neon 80 profile cannot be painted with CyberBoard maps before its
+  own support lands. The browser copy cannot import from Python, so it is
+  embedded as a strict-JSON literal that `tests/test_device_mapping.py` parses
+  and compares field by field; changing one side alone fails. Two
+  `openreview codex` passes raised eight findings, all
   admitted and all closed by two plan revisions; the outcomes are recorded in
   `.agents/review/outcomes.md`. The recurring defect was that the device
   protocol was planned well and the application integration was not, so the plan
@@ -836,15 +847,17 @@
 
 - Do not perform governance work under this product-remediation plan. Any
   governance update requires a separate fresh one-off session.
-- Obtain owner approval for `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`
-  before any AM Neon 80 implementation. The plan exists and has been revised
-  once; its status line is the gate and currently reads draft. Do not redraft
-  it. Once approved, implement its ten tasks in order. N1 (per-family device
-  specification) and N2 (transport-neutral device handle) are pure refactors of
-  existing behavior and must both land before any Neon code exists. A `hidapi`
-  runtime dependency, Linux udev rules for non-root access, and the resulting
-  native packaging changes are expected and touch the recently stabilized
-  installers.
+- Continue `docs/superpowers/plans/2026-07-25-am-neon-80-support.md` at task N2,
+  the transport-neutral device handle. It is the second and last pure refactor
+  and must land before any Neon code exists. The device routes in `server.py`
+  are still serial-keyed and are N2's scope: `/api/devices`, the
+  `/api/device/read|write|verify` handlers, `_read_device`, `_write_device`,
+  `_write_request` (whose error text reads "A serial port is required."), and
+  `_validated_write_target`. N1 is complete. Later tasks add a `hidapi` runtime
+  dependency, Linux udev rules for non-root access, and the resulting native
+  packaging changes, which touch the recently stabilized installers.
+- Push policy is now recorded in `.agents/push-policy.md`: ask before every
+  push. The `neon-80-support` branch has eleven unpushed commits.
 - Code signing and notarization remain unaddressed and out of scope; both
   require paid developer accounts, and `README.md` discloses the unsigned
   state.
