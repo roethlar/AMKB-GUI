@@ -257,6 +257,12 @@ profile.
 
 Implements the second 2026-07-25 decision.
 
+Ordering constraint: N2 introduces GPL-derived tables into the tree, so this
+task must land before any native build, release, or artifact publication that
+carries them. It may be pulled forward to run before N2 and doing so is
+preferred; what is not permitted is shipping anything built from N2's output
+while `LICENSE` and `pyproject.toml` still claim MIT.
+
 - `LICENSE` becomes GPL-2.0-or-later. Retain the existing MIT text (Copyright
   2026 GeneralD, covering the `cyberboard-cli`-derived protocol layer) as a
   third-party notice; it must not be deleted or altered.
