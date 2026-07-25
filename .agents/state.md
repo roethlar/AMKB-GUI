@@ -792,11 +792,13 @@
   a non-Range read still does. The CPU cost was never the justification and
   must not be cited as one; hashing runs about 2.9 GB/s on the development
   machine. The I/O cost on the Range path is the reason.
-- One known flake remains unfixed and is not tracked by any plan:
-  `tests/test_ai_routes.py` uses a fixed 15-second `urlopen` timeout, and the
-  effect route renders 200 frames server-side before responding. A slow runner
-  exceeds it; the macOS job that hit this took 193 seconds for a suite that
-  takes about 84 seconds locally. It passed on a plain re-run.
+- The AI-route timeout flake is fixed. Every `urlopen` in the suite was timed
+  against its own timeout: the 2-second and 5-second ones run at 460x headroom
+  or better, and only `tests/test_ai_routes.py` was thin at 3.4x, because
+  `POST /api/lighting/effects` renders 200 frames, encodes two GIFs, and maps
+  them to device tracks before replying, measuring about 4.4 seconds locally.
+  It is now a named 60-second constant documented as a hung-server backstop
+  rather than a latency assertion. No other timeout needed changing.
 
 - Pull request #1 (`llm-led-generator` into `main`) is open and green: all seven
   checks passed on the first attempt at `d74048d`, covering macOS, Windows, and
