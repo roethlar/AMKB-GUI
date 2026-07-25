@@ -163,6 +163,56 @@ class BrowserSpecMirrorsPythonTests(unittest.TestCase):
         )
 
 
+class MacroCapacityIsAlwaysEnforceableTests(unittest.TestCase):
+    """No family may opt out of the macro ceilings.
+
+    A `None` limit meaning "device-reported" reads as flexible but is not: it
+    silently disables the checks in `validate_config`, and the editor renders it
+    as an empty limit with a permanently tripped meter. A Vial device's real
+    capacity is a byte budget, which is a separate field — see plan task N7.
+    """
+
+    def test_every_registered_family_declares_integer_ceilings(self):
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        specs = dict(mapping._FAMILY_SPECS)
+        specs[""] = mapping._UNKNOWN_FAMILY_SPEC
+        for model, spec in specs.items():
+            with self.subTest(model=model or "<unknown>"):
+                self.assertIsInstance(spec.macro_tracks, int)
+                self.assertIsInstance(spec.macro_events, int)
+                self.assertGreater(spec.macro_tracks, 0)
+                self.assertGreater(spec.macro_events, 0)
+
+    def test_validation_enforces_the_ceiling_for_every_family(self):
+        mapping = importlib.import_module("am_configurator.device_mapping")
+        server = importlib.import_module("am_configurator.server")
+
+        for model, spec in mapping._FAMILY_SPECS.items():
+            with self.subTest(model=model):
+                config = {
+                    "product_info": {"product_id": model},
+                    "key_layer": {
+                        "layer_num": 1,
+                        "layer_data": [{"layer": ["#00000000"] * 200}],
+                    },
+                    "macro_key": [
+                        {
+                            "original_key": f"#11{index:06X}",
+                            "layer_key": ["#11000000"],
+                            "intvel_ms": [],
+                        }
+                        for index in range(spec.macro_tracks + 1)
+                    ],
+                    "page_data": [],
+                }
+                errors = server.validate_config(config)["errors"]
+                self.assertTrue(
+                    any(f"more than {spec.macro_tracks} macros" in e for e in errors),
+                    errors,
+                )
+
+
 class BlankConfigUsesFamilySpecTests(unittest.TestCase):
     """A blank profile must be shaped for the device that will receive it.
 

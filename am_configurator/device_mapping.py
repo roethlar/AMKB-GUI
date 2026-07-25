@@ -178,8 +178,17 @@ SERIAL_TRANSPORT = "serial"
 
 _SHARED_TRACK_COLORS = {"frames": 200, "keyframes": 90, "spotlight_frames": 24}
 
-# The AM serial firmwares share these ceilings. A Vial device reports its own
-# limits at runtime instead, so a family may carry `None` to mean device-reported.
+# The AM serial firmwares share these ceilings, expressed as counts: how many
+# macro tracks, and how many events across all of them.
+#
+# A Vial device does not have a comparable number. It reports `GET_BUFFER_SIZE`,
+# a total macro buffer in *bytes*, and how many events fit depends on how each
+# one encodes. There is no correct conversion: assume too many bytes per event
+# and valid macro sets are rejected, assume too few and an oversized buffer is
+# accepted and overruns the device. So a byte budget is a separate field to be
+# added alongside these, not a different value for them — and never `None`,
+# which would silently disable the checks in `validate_config` and render an
+# empty limit in the editor. See plan task N7.
 _SERIAL_MACRO_TRACKS = 32
 _SERIAL_MACRO_EVENTS = 200
 
@@ -191,8 +200,8 @@ class FamilySpec:
     model: str
     transport: str
     frame_cap: int
-    macro_tracks: int | None
-    macro_events: int | None
+    macro_tracks: int
+    macro_events: int
 
     def track_colors(self, field: str) -> int:
         """Exact colour count for one LED track on this family."""

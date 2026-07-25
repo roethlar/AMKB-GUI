@@ -394,6 +394,15 @@ Extend `am_configurator/macros.py` with a Vial path alongside the existing
 
 - Query `GET_COUNT` and `GET_BUFFER_SIZE` during discovery or read; publish both
   into the N1 spec for the connected device.
+- **Capacity is bytes, not events** (openreview finding or-3,
+  `.agents/review/findings/or-3.md`). `GET_BUFFER_SIZE` is a total buffer size;
+  how many events fit depends on each event's encoding, and no conversion to an
+  event count is correct — too many bytes per event rejects valid macro sets,
+  too few accepts a buffer that overruns the device. Add a byte-budget field
+  *alongside* `macro_tracks`/`macro_events` rather than reusing them, and never
+  express "device-reported" as `None`: `validate_config` would silently stop
+  enforcing, and the editor would render an empty limit and a permanently
+  tripped meter. Discovered per-device capacity overlays the family spec.
 - Compile and size the **complete** macro buffer before the first reset or HID
   write. Reject overflow with a typed error **before sending anything** — a Vial
   macro write rewrites the whole buffer, so a mid-write failure can clear macros

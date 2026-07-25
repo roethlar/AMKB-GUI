@@ -2,9 +2,9 @@
 
 **Severity**: MEDIUM — the `None` path the spec documents is unimplementable in
 the browser as written, and the unit mismatch has no correct conversion.
-**Status**: Open
-**Branch**: (not started)
-**Commit**: (not started)
+**Status**: Verified (available scope; the capacity model itself belongs to N7)
+**Branch**: `neon-80-support` (worked in place, as or-1 and or-2 were)
+**Commit**: see the `or-3:` commit on `neon-80-support`
 
 ## Evidence
 
@@ -39,20 +39,37 @@ device actually reports.
 
 ## Approach
 
-Not started. Model static serial event limits and an optional runtime byte
-budget as distinct fields, overlay per-device discovered capacity on the family
-spec rather than encoding it as absence, and size the complete macro buffer
-exactly before any write.
+The false contract is gone. `macro_tracks` and `macro_events` are plain `int`,
+the three `is not None` guards in `validate_config` that made the ceilings
+skippable are removed, and the module comment now states why a byte budget must
+be a *separate* field rather than a different value for these: no conversion
+between bytes and event counts is correct in either direction.
+
+The capacity model itself is not built here — it needs `GET_BUFFER_SIZE` from a
+real device, which is plan task N7. That requirement is now recorded in the
+plan's N7 rather than left as a comment promising a `None` nothing implements.
 
 ## Files changed
 
-Not started.
+- `am_configurator/device_mapping.py:181-193` — the comment now explains the
+  unit mismatch; `macro_tracks`/`macro_events` are non-optional.
+- `am_configurator/server.py:462,471,479` — the skippable guards removed.
+- `docs/superpowers/plans/2026-07-25-am-neon-80-support.md` — N7 records that
+  capacity is bytes, that the field is additive, and that `None` is forbidden.
 
 ## Guard proof
 
-Not started. A guard must assert the browser renders a coherent macro screen
-for a family whose limits are device-reported, and that an oversized buffer is
-refused by byte size rather than by event count.
+`tests/test_device_mapping.py::MacroCapacityIsAlwaysEnforceableTests`:
+
+- `test_every_registered_family_declares_integer_ceilings` — reinstating the
+  hatch (`_SERIAL_MACRO_TRACKS = None` plus optional fields and the guarded
+  check) fails it with `AssertionError: None is not an instance of <class 'int'>`
+  for every family.
+- `test_validation_enforces_the_ceiling_for_every_family` — proves no family can
+  silently opt out, by exceeding each one's own declared ceiling.
+- The cross-language guard `BrowserSpecMirrorsPythonTests` catches it
+  independently (`AssertionError: None != 32`), because the browser mirror has
+  no way to express the hatch. Verified, then restored.
 
 ## Coder dispute (if any)
 
@@ -61,9 +78,12 @@ consumers in the same change without handling the value the comment promises.
 
 ## Known gaps
 
-The fix's shape depends on plan task N7, which is not yet implemented. The
-minimum correction available now is to stop documenting a `None` contract that
-nothing implements; the full capacity model belongs with N7.
+The full capacity model is **not** delivered here and remains open work in plan
+task N7: querying `GET_COUNT` and `GET_BUFFER_SIZE`, overlaying discovered
+capacity on the family spec, and sizing the complete macro buffer in bytes
+before any write. What this finding closes is the false contract and the
+skippable enforcement; what it defers is everything that needs a real device to
+build against. The finding is marked Verified on that scope only.
 
 ## Reviewer comments
 

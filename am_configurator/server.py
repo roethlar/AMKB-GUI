@@ -459,7 +459,7 @@ def validate_config(config: Any) -> dict[str, Any]:
         errors.append("key_layer.layer_num does not match layer_data.")
 
     macros = config.get("macro_key") or []
-    if spec.macro_tracks is not None and len(macros) > spec.macro_tracks:
+    if len(macros) > spec.macro_tracks:
         errors.append(f"macro_key contains more than {spec.macro_tracks} macros.")
     event_total = 0
     for index, macro in enumerate(macros, 1):
@@ -468,7 +468,7 @@ def validate_config(config: Any) -> dict[str, Any]:
         event_total += len(events)
         if not events:
             errors.append(f"Macro {index} has no events.")
-        if spec.macro_events is not None and len(events) > spec.macro_events:
+        if len(events) > spec.macro_events:
             errors.append(
                 f"Macro {index} contains more than {spec.macro_events} events."
             )
@@ -476,7 +476,7 @@ def validate_config(config: Any) -> dict[str, Any]:
             errors.append(f"Macro {index} is missing delays between events.")
         if any(not isinstance(delay, int) or not 0 <= delay <= 65535 for delay in delays[:len(events)]):
             errors.append(f"Macro {index} has a delay outside 0..65535ms.")
-    if spec.macro_events is not None and event_total > spec.macro_events:
+    if event_total > spec.macro_events:
         errors.append(
             f"Macros contain {event_total} events in total; the device limit is "
             f"{spec.macro_events}."
