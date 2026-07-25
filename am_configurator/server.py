@@ -130,13 +130,15 @@ def blank_config(
     product_id = device_mapping.config_product_id(device_id)
     spec = device_mapping.spec_for_product(device_id)
     key_colors = spec.track_colors("keyframes")
-    # Which extra LED track a family authors is the family's own fact. Asking
-    # the specification generalizes to any device; testing for the Relic here
-    # would leave every future family silently trackless.
-    edge_colors = (
-        spec.track_colors("spotlight_frames")
-        if "spotlight_frames" in spec.authored_tracks
-        else None
+    # `frames` and `keyframes` are emitted for every family regardless of what it
+    # authors, which is how these profiles have always been shaped. Every *other*
+    # authored track comes from the specification by name, so a family is not
+    # limited to the track names this function happens to mention: a device
+    # authoring, say, an axial and a head track gets both, correctly sized.
+    extra_tracks = tuple(
+        (track, spec.track_colors(track))
+        for track in spec.authored_tracks
+        if track not in ("frames", "keyframes")
     )
 
     pages: list[dict[str, Any]] = []
@@ -163,14 +165,15 @@ def blank_config(
                 ),
             },
         }
-        if edge_colors is not None and custom:
-            page["spotlight_frames"] = {
-                "valid": 1,
-                "frame_num": 1,
-                "frame_data": [
-                    {"frame_index": 0, "frame_RGB": ["#000000"] * edge_colors}
-                ],
-            }
+        if custom:
+            for track, colors in extra_tracks:
+                page[track] = {
+                    "valid": 1,
+                    "frame_num": 1,
+                    "frame_data": [
+                        {"frame_index": 0, "frame_RGB": ["#000000"] * colors}
+                    ],
+                }
         pages.append(page)
 
     return {

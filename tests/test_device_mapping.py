@@ -229,6 +229,50 @@ class BlankConfigUsesFamilySpecTests(unittest.TestCase):
     def _custom_pages(self, config):
         return [page for page in config["page_data"] if page["page_index"] >= 5]
 
+    def test_tracks_the_function_never_mentions_are_still_emitted(self):
+        """The names must come from the specification, not from this function.
+
+        A guard using `keyframes` and `spotlight_frames` proves nothing here:
+        those are exactly the names the code spells out. This uses two names the
+        implementation has never heard of, shaped like the Neon 80's axial and
+        head tracks, which is the case the finding predicted would fail.
+        """
+
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        synthetic = mapping.FamilySpec(
+            model="SYNTH",
+            transport=mapping.SERIAL_TRANSPORT,
+            frame_cap=64,
+            macro_tracks=32,
+            macro_events=200,
+        )
+        layouts = dict(mapping._LAYOUTS)
+        layouts["SYNTH"] = {
+            "axial": {"size": (89, 1), "map": (), "pixels": 89},
+            "head": {"size": (23, 10), "map": (), "pixels": 230},
+        }
+        specs = dict(mapping._FAMILY_SPECS)
+        specs["SYNTH"] = synthetic
+
+        with (
+            mock.patch.object(mapping, "_LAYOUTS", layouts),
+            mock.patch.object(mapping, "_FAMILY_SPECS", specs),
+            mock.patch.object(mapping, "led_model", lambda device_id: "SYNTH"),
+        ):
+            config = self._blank("SYNTH")
+
+        custom = self._custom_pages(config)
+        self.assertTrue(custom)
+        for page in custom:
+            self.assertEqual(89, len(page["axial"]["frame_data"][0]["frame_RGB"]))
+            self.assertEqual(230, len(page["head"]["frame_data"][0]["frame_RGB"]))
+        # Non-custom slots carry no authored extra track, as before.
+        for page in config["page_data"]:
+            if page["page_index"] < 5:
+                self.assertNotIn("axial", page)
+                self.assertNotIn("head", page)
+
     def test_track_sizes_and_extra_tracks_follow_the_family(self):
         mapping = importlib.import_module("am_configurator.device_mapping")
 

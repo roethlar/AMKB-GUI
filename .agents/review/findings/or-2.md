@@ -99,3 +99,29 @@ outcomes.md routing deviation`. Raised in the 2026-07-25 openreview pass over
 `65a70c9..94a847a`. Verdict `findings`. Admitted at intake; the "after Neon
 registration" framing was verified as accurate and the tempting stronger claim
 was disproved by execution.
+
+## Reopen round 1 — 2026-07-25
+
+`codereview codex` over `94a847a..4ff65ee` returned **reopened**, correctly.
+
+The first repair removed the hardcoded track *sizes* but left the hardcoded
+track *names*: `blank_config` asked for `keyframes` and conditionally built
+`spotlight_frames`, and never consulted `spec.authored_tracks` for anything
+else. The guard was vacuous on exactly that point — it used those same two
+names, so it could not have detected the gap. A Neon-shaped spec authoring
+89-colour `axial` and 230-colour `head` tracks would still have produced a
+90-colour `keyframes` and nothing else, which is the failure or-2 predicted.
+
+Repair: every authored track other than `frames`/`keyframes` is now emitted by
+name from the specification and sized from it. `frames` and `keyframes` remain
+unconditional for every family, unchanged, because that is how these profiles
+have always been shaped.
+
+New guard: `test_tracks_the_function_never_mentions_are_still_emitted`
+registers a family authoring `axial` and `head` — names the implementation has
+never heard of — and asserts both appear on custom slots at 89 and 230 colours,
+and on no other slot. Narrowing the comprehension back to `spotlight_frames`
+fails it with `KeyError: 'axial'`. Verified, then restored.
+
+Verification after repair: 411 tests OK (skipped=1), compileall clean, 48 node
+tests pass.
