@@ -769,6 +769,20 @@
   Windows suite now reaches `OK (skipped=6)` at 381 tests with identical counts
   across two consecutive runs.
 
+- Two macOS CI flakes were diagnosed after the Windows repair. The DMG one was
+  a real race and is fixed in `ad4c035`: `build_dmg.sh` detached the mounted
+  image immediately after the smoke-test process exited, with no retry, under
+  `set -e`, so a busy volume made the exit trap run `rm -rf` across a still
+  mounted read-only image. It now retries with backoff, then forces, and never
+  removes an attached mount point; a stubborn mount warns instead of failing
+  the build. Verified by a real versioned macOS `0.1.46` build with a clean
+  detach. All seven checks then passed on the first attempt at `ad4c035`.
+- One known flake remains unfixed and is not tracked by any plan:
+  `tests/test_ai_routes.py` uses a fixed 15-second `urlopen` timeout, and the
+  effect route renders 200 frames server-side before responding. A slow runner
+  exceeds it; the macOS job that hit this took 193 seconds for a suite that
+  takes about 84 seconds locally. It passed on a plain re-run.
+
 ## Next
 
 - Do not perform governance work under this product-remediation plan. Any
