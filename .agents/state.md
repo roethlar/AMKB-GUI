@@ -819,8 +819,22 @@
   notice, so a Neon 80 profile cannot be painted with CyberBoard maps before its
   own support lands. The browser copy cannot import from Python, so it is
   embedded as a strict-JSON literal that `tests/test_device_mapping.py` parses
-  and compares field by field; changing one side alone fails. Two
-  `openreview codex` passes raised eight findings, all
+  and compares field by field; changing one side alone fails.
+
+  Plan task N2 is complete in two commits: `94a847a` introduced `DeviceHandle`
+  and a closed transport registry, and `f08fb22` reworked the seam to sit below
+  the protocol encoding after openreview finding or-1 showed the first version
+  passed AM-encoded frames through it, which no other protocol's driver could
+  implement. The owner ruled to rework immediately rather than defer to N5; see
+  `.agents/decisions.md`, "The device seam sits below the protocol encoding".
+  Drivers now receive the logical configuration and plan their own protocol.
+
+  A third `openreview codex` pass — the first over implementation rather than
+  the plan — raised three findings over `65a70c9..94a847a`; all three were
+  admitted after independent verification and all three are fixed (`f08fb22`,
+  `4ff65ee`, `858fdf0`). None of the repairs has been re-reviewed. Detail in
+  `.agents/review/index.md`. The two earlier `openreview codex` passes, over
+  the plan, raised eight findings, all
   admitted and all closed by two plan revisions; the outcomes are recorded in
   `.agents/review/outcomes.md`. The recurring defect was that the device
   protocol was planned well and the application integration was not, so the plan
@@ -847,17 +861,21 @@
 
 - Do not perform governance work under this product-remediation plan. Any
   governance update requires a separate fresh one-off session.
-- Continue `docs/superpowers/plans/2026-07-25-am-neon-80-support.md` at task N2,
-  the transport-neutral device handle. It is the second and last pure refactor
-  and must land before any Neon code exists. The device routes in `server.py`
-  are still serial-keyed and are N2's scope: `/api/devices`, the
-  `/api/device/read|write|verify` handlers, `_read_device`, `_write_device`,
-  `_write_request` (whose error text reads "A serial port is required."), and
-  `_validated_write_target`. N1 is complete. Later tasks add a `hidapi` runtime
-  dependency, Linux udev rules for non-root access, and the resulting native
-  packaging changes, which touch the recently stabilized installers.
-- Push policy is now recorded in `.agents/push-policy.md`: ask before every
-  push. The `neon-80-support` branch has eleven unpushed commits.
+- Continue `docs/superpowers/plans/2026-07-25-am-neon-80-support.md` at task N3,
+  raw HID transport and Neon 80 identity — the first task where Neon-specific
+  code exists. N1 and N2, the two pure refactors that had to land first, are
+  both complete. N3 and later tasks add a `hidapi` runtime dependency, Linux
+  udev rules for non-root access, and the resulting native packaging changes,
+  which touch the recently stabilized installers.
+- Known open work recorded during the review, not yet scheduled:
+  `validate_config` (`server.py:537`) still calls `writer.plan` to check that a
+  configuration encodes, which is the AM serial wire encoder. It runs with no
+  device attached, so it is validation rather than transmission, but a Neon
+  configuration would be rejected by it. Needs a per-family answer at N4. See
+  `.agents/review/findings/or-1.md` (Known gaps).
+- Push policy is recorded in `.agents/push-policy.md`: ask before every push.
+  The `neon-80-support` branch exists on `origin`; the two `or-2` and `or-3`
+  commits are not yet pushed.
 - Code signing and notarization remain unaddressed and out of scope; both
   require paid developer accounts, and `README.md` discloses the unsigned
   state.
