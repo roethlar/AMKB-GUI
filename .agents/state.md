@@ -798,12 +798,17 @@
   exceeds it; the macOS job that hit this took 193 seconds for a suite that
   takes about 84 seconds locally. It passed on a plain re-run.
 
+- Pull request #1 (`llm-led-generator` into `main`) is open and green: all seven
+  checks passed on the first attempt at `d74048d`, covering macOS, Windows, and
+  Linux tests, the Python 3.11 floor, and all three native installers. Nothing
+  is in flight; the working tree is clean and the branch is pushed.
+
 ## Next
 
 - Do not perform governance work under this product-remediation plan. Any
   governance update requires a separate fresh one-off session.
-- Confirm all seven checks pass on pull request #1 at the pushed head, then the
-  branch is ready to merge.
+- Merge pull request #1. It is the owner's call and the only queued repository
+  action; no further code work is pending on this branch.
 - Code signing and notarization remain unaddressed and out of scope; both
   require paid developer accounts, and `README.md` discloses the unsigned
   state.
@@ -815,3 +820,11 @@
 
 - Hardware checks require corresponding owner-supplied devices; they are not
   required for the offline suite.
+- Code signing and notarization are blocked on paid developer accounts, an
+  Apple Developer Program membership and an Authenticode certificate. The owner
+  declined both on 2026-07-24 as not ready. `README.md` discloses the unsigned
+  state; note that on macOS 15+ an ad-hoc-signed download is not merely a
+  warning, the user must approve it through System Settings.
+- One decision is waiting on the owner: whether to remove the Windows
+  verification leftovers on `netwatch-01`, recorded in `.agents/machines.md`.
+  They are harmless and useful for further Windows work.
