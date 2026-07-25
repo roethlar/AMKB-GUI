@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import base64
 import binascii
+import hashlib
 import io
 import json
 import math
@@ -18,9 +19,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from socketserver import TCPServer
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
-from . import __version__
+from . import __version__, device_mapping
 
 
 _PKG = Path(__file__).resolve().parent
@@ -29,6 +30,9 @@ _STATIC = {
     "/": "index.html",
     "/index.html": "index.html",
     "/app.js": "app.js",
+    "/lighting_review.js": "lighting_review.js",
+    "/lighting_state.js": "lighting_state.js",
+    "/lighting_targets.js": "lighting_targets.js",
     "/icon.png": "icon.png",
     "/style.css": "style.css",
 }
@@ -38,13 +42,32 @@ _KEY_FIELDS = (
     "exchange_key", "exchange_num",
 )
 _MAX_GIF_BYTES = 12_000_000
-_MAX_GIF_FRAMES = 256
-# The current official configurator exposes these exact firmware timing steps.
-_LED_SPEEDS_MS = (255, 240, 224, 208, 192, 176, 160, 146, 132, 118, 100, 90, 76, 62, 48, 34)
 _KEYMAP_VERIFY_ATTEMPTS = 4
 _KEYMAP_VERIFY_RETRY_SECONDS = 1.0
 _MACRO_EVENTS_PER_BLOCK = 8
 _CYBERBOARD_MACRO_READBACK_BLOCKS = 15
+
+_MAX_ASSET_RANGE_BYTES = 8 * 1024 * 1024
+_LIGHTING_ASSET_MIMES = frozenset(
+    {
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "video/mp4",
+        "application/json",
+    }
+)
+# ProviderError.code -> local HTTP status (design §Typed errors).
+_PROVIDER_ERROR_HTTP: dict[str, HTTPStatus] = {
+    "config": HTTPStatus.BAD_REQUEST,
+    "auth": HTTPStatus.BAD_REQUEST,
+    "rate_limited": HTTPStatus.TOO_MANY_REQUESTS,
+    "timeout": HTTPStatus.GATEWAY_TIMEOUT,
+    "offline": HTTPStatus.SERVICE_UNAVAILABLE,
+    "moderation": HTTPStatus.BAD_REQUEST,
+    "bad_response": HTTPStatus.BAD_GATEWAY,
+    "unavailable": HTTPStatus.BAD_GATEWAY,
+}
 
 _TEXT_KEY_USAGES: dict[str, tuple[int, bool]] = {
     "\n": (0x28, False), "\t": (0x2B, False), " ": (0x2C, False),
@@ -65,77 +88,6 @@ for _offset, (_plain, _shifted) in enumerate(zip("1234567890", "!@#$%^&*()")):
 
 class AcceptedWriteError(RuntimeError):
     """The device ACKed the full write, but a later verification step failed."""
-
-# Source-pixel -> firmware-index maps used by Angry Miao's own image converters.
-# The firmware always stores 90 per-key colors, but the physical/raster geometry
-# differs per model and leaves some indexes unused.
-_CB_KEY_MAP = (
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
-    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
-    30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44,
-    45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, -1, 58, 59,
-    60, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, -1, 72, 73, -1,
-    75, 76, 77, 79, -1, 80, -1, -1, 81, 85, 86, -1, 87, 88, 89,
-)
-# CyberBoard profile JSON stores the 40x5 display in raster order:
-# index = y * 40 + x.  Angry Miao's editor uses a column-major array while
-# painting, then transposes it back to this row-major shape during export.
-# GIF pixels from Pillow are already row-major, so preserve their order.
-_CB_DISPLAY_MAP = tuple(range(200))
-_AFA_KEY_MAP = (
-    0, 1, 2, 3, 4, 5, 6, 20, 7, 8, 9, 10, 11, 12, -1, 13,
-    14, 15, -1, 16, 17, 18, 19, 34, 35, 21, 22, 23, 24, 25, 26, 27,
-    28, 29, -1, 30, 31, 32, 33, 48, 49, 36, 37, 38, 39, 40, -1, 41,
-    42, 43, -1, 44, 45, 46, 47, 62, 63, 64, 50, 51, 52, 53, 54, 55,
-    56, 57, 58, -1, 59, 60, 61, 73, 70, 65, -1, 66, -1, 67, 68, 69,
-)
-_RELIC_KEY_MAP = (
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 59, 58,
-    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 74, 73,
-    30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 89, 72,
-    45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, -1, 57, -1, -1, -1,
-    60, -1, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, -1, 71, -1, 87, -1,
-    75, 76, 77, 78, -1, -1, 79, -1, -1, 80, -1, 85, 86, 88, 83, 82, 81,
-)
-
-
-def _placed_map(width: int, height: int, placements: list[tuple[int, int, int]]) -> tuple[int, ...]:
-    result = [-1] * (width * height)
-    for x, y, output_index in placements:
-        result[y * width + x] = output_index
-    return tuple(result)
-
-
-_RELIC_KEY_SOURCE_MAP = _placed_map(
-    18, 7,
-    [
-        (position % 17 + 1, position // 17 + 1, output_index)
-        for position, output_index in enumerate(_RELIC_KEY_MAP)
-        if output_index >= 0
-    ],
-)
-_RELIC_EDGE_MAP = _placed_map(
-    18, 7,
-    [(0, 6, 0), (0, 5, 1), (13, 0, 2), (14, 0, 3),
-     (15, 0, 4), (16, 0, 5), (17, 0, 6)],
-)
-_GIF_LAYOUTS: dict[str, dict[str, dict[str, Any]]] = {
-    "CB": {
-        "keyframes": {"size": (15, 6), "map": _CB_KEY_MAP, "pixels": 90},
-        "frames": {"size": (40, 5), "map": _CB_DISPLAY_MAP, "pixels": 200},
-    },
-    "ALICE": {
-        "keyframes": {
-            "size": (16, 5), "map": _AFA_KEY_MAP, "pixels": 90,
-            "copies": ((71, 7), (72, 20)),
-        },
-    },
-    "80": {
-        "keyframes": {"size": (18, 7), "map": _RELIC_KEY_SOURCE_MAP, "pixels": 90},
-        "spotlight_frames": {"size": (18, 7), "map": _RELIC_EDGE_MAP, "pixels": 24},
-    },
-}
-
 
 def merge_configs(configs: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Merge official LED and ``*-KEY.json`` exports without losing either half."""
@@ -239,58 +191,6 @@ def blank_config(
     }
 
 
-def _led_model(product_id: str) -> str:
-    upper = product_id.upper()
-    if upper in {"AM21", "80"}:
-        return "80"
-    if upper == "ALICE":
-        return "ALICE"
-    if upper.startswith("CB"):
-        return "CB"
-    raise ValueError(f"No GIF LED map is available for product {product_id or '?'}.")
-
-
-def firmware_led_speed(duration_ms: int) -> int:
-    """Nearest timing step the Angry Miao firmware/configurator exposes."""
-    duration = max(1, int(duration_ms))
-    return min(_LED_SPEEDS_MS, key=lambda speed: (abs(speed - duration), speed))
-
-
-def _gif_timeline_indices(durations: list[int]) -> tuple[list[int], int, bool]:
-    """Map variable GIF delays onto one supported device-wide frame duration."""
-    clean = [max(10, int(duration or 90)) for duration in durations]
-    if not clean:
-        return [0], 90, False
-    variable = len(set(clean)) > 1
-    if not variable:
-        return list(range(len(clean))), firmware_led_speed(clean[0]), False
-
-    common = clean[0]
-    for duration in clean[1:]:
-        common = math.gcd(common, duration)
-    speed = firmware_led_speed(common)
-    total = sum(clean)
-    if math.ceil(total / speed) > _MAX_GIF_FRAMES:
-        fitting = [
-            candidate
-            for candidate in sorted(_LED_SPEEDS_MS)
-            if math.ceil(total / candidate) <= _MAX_GIF_FRAMES
-        ]
-        speed = fitting[0] if fitting else max(_LED_SPEEDS_MS)
-
-    output_count = min(_MAX_GIF_FRAMES, max(1, math.ceil(total / speed)))
-    indices: list[int] = []
-    source_index = 0
-    boundary = clean[0]
-    for output_index in range(output_count):
-        timestamp = min(total - 1, output_index * speed)
-        while source_index < len(clean) - 1 and timestamp >= boundary:
-            source_index += 1
-            boundary += clean[source_index]
-        indices.append(source_index)
-    return indices, speed, True
-
-
 def gif_to_led_tracks(
     payload: bytes,
     targets: list[str] | tuple[str, ...],
@@ -298,19 +198,7 @@ def gif_to_led_tracks(
     product_id: str = "CB_XX",
 ) -> dict[str, Any]:
     """Decode a GIF once and map each frame onto one or more LED tracks."""
-    model = _led_model(product_id)
-    requested = list(dict.fromkeys(str(target) for target in targets))
-    if not requested:
-        raise ValueError("At least one GIF LED target is required.")
-    layouts: dict[str, dict[str, Any]] = {}
-    for target in requested:
-        layout = _GIF_LAYOUTS[model].get(target)
-        if layout is None:
-            supported = ", ".join(_GIF_LAYOUTS[model])
-            raise ValueError(
-                f"{product_id} does not support GIF target {target}; use {supported}."
-            )
-        layouts[target] = layout
+    _model, requested = device_mapping.validate_gif_targets(product_id, targets)
     if resample not in {"nearest", "box", "lanczos"}:
         raise ValueError("GIF resampling must be nearest, box, or lanczos.")
     if not payload or len(payload) > _MAX_GIF_BYTES:
@@ -327,87 +215,28 @@ def gif_to_led_tracks(
             if image.format != "GIF":
                 raise ValueError("The selected file is not a GIF.")
             source_frames = int(getattr(image, "n_frames", 1))
-            frame_count = min(source_frames, _MAX_GIF_FRAMES)
-            filters = {
-                "nearest": Image.Resampling.NEAREST,
-                "box": Image.Resampling.BOX,
-                "lanczos": Image.Resampling.LANCZOS,
-            }
-            track_frames: dict[str, list[list[str]]] = {
-                target: [] for target in requested
-            }
+            frame_count = min(source_frames, device_mapping.MAX_FRAMES)
+            images: list[Image.Image] = []
             durations: list[int] = []
             for index in range(frame_count):
                 image.seek(index)
-                durations.append(max(10, int(image.info.get("duration") or 90)))
-                rgba = image.convert("RGBA")
-                black = Image.new("RGBA", rgba.size, (0, 0, 0, 255))
-                rgb = Image.alpha_composite(black, rgba).convert("RGB")
-                raster_colors: dict[tuple[int, int], list[str]] = {}
-                for layout in layouts.values():
-                    width, height = layout["size"]
-                    size = (width, height)
-                    if size not in raster_colors:
-                        fitted = rgb
-                        source_ratio = fitted.width / fitted.height
-                        target_ratio = width / height
-                        if source_ratio > target_ratio:
-                            crop_width = max(1, round(fitted.height * target_ratio))
-                            left = (fitted.width - crop_width) // 2
-                            fitted = fitted.crop((left, 0, left + crop_width, fitted.height))
-                        elif source_ratio < target_ratio:
-                            crop_height = max(1, round(fitted.width / target_ratio))
-                            top = (fitted.height - crop_height) // 2
-                            fitted = fitted.crop((0, top, fitted.width, top + crop_height))
-                        if fitted.size != size:
-                            fitted = fitted.resize(size, filters[resample])
-                        pixels = (
-                            fitted.get_flattened_data()
-                            if hasattr(fitted, "get_flattened_data") else fitted.getdata()
-                        )
-                        raster_colors[size] = [
-                            f"#{red:02X}{green:02X}{blue:02X}"
-                            for red, green, blue in pixels
-                        ]
-
-                for target, layout in layouts.items():
-                    source_colors = raster_colors[layout["size"]]
-                    colors = ["#000000"] * int(layout["pixels"])
-                    for source_index, output_index in enumerate(layout["map"]):
-                        if output_index >= 0:
-                            colors[output_index] = source_colors[source_index]
-                    for output_index, source_index in layout.get("copies", ()):
-                        colors[output_index] = colors[source_index]
-                    track_frames[target].append(colors)
+                durations.append(int(image.info.get("duration") or 90))
+                images.append(image.convert("RGBA"))
     except UnidentifiedImageError as exc:
         raise ValueError("The selected file is not a readable GIF.") from exc
     except (OSError, SyntaxError) as exc:
         raise ValueError(f"Could not decode GIF: {exc}") from exc
 
-    if not track_frames or not next(iter(track_frames.values())):
-        raise ValueError("The GIF contains no frames.")
-    timeline, duration, timing_resampled = _gif_timeline_indices(durations)
-    tracks = {}
-    for target, layout in layouts.items():
-        frames = [track_frames[target][index] for index in timeline]
-        width, height = layout["size"]
-        tracks[target] = {
-            "frames": frames,
-            "frame_count": len(frames),
-            "width": width,
-            "height": height,
-            "pixels": int(layout["pixels"]),
-            "mapped_pixels": len({index for index in layout["map"] if index >= 0}),
-        }
-    return {
-        "tracks": tracks,
-        "source_frames": source_frames,
-        "decoded_frames": frame_count,
-        "duration_ms": duration,
-        "source_duration_ms": sum(durations),
-        "timing_resampled": timing_resampled,
-        "model": model,
-    }
+    result = device_mapping.frames_to_led_tracks(
+        images,
+        durations,
+        requested,
+        resample,
+        product_id,
+    )
+    result["source_frames"] = source_frames
+    result["decoded_frames"] = frame_count
+    return result
 
 
 def gif_to_led_frames(
@@ -993,18 +822,371 @@ def _probe_keyboard(port: str, attempts: int = 3) -> Any:
     return result
 
 
+def _settings_view(*, credential_store=None) -> dict[str, Any]:
+    """Return the active credential-free settings schema used by the UI."""
+    from . import store
+
+    settings, reason = store.load_settings_with_status(
+        credential_store=credential_store
+    )
+    migration_required = reason in {
+        store.InvalidAPICredentialError.code,
+        store.SettingsMigrationCredentialError.code,
+        store.SettingsMigrationValidationError.code,
+        store.SettingsMigrationWriteError.code,
+    }
+    return {
+        "schema_version": settings["schema_version"],
+        "migration": {
+            "required": migration_required,
+            "reason": reason if migration_required else None,
+        },
+        "library": {
+            "current_root": settings["library"]["current_root"],
+            "roots": list(settings["library"]["roots"]),
+        },
+        "generation": {
+            "loop_mode": settings["generation"]["loop_mode"],
+            "privacy_ack_version": settings["ai"]["api"]["disclosure_version"],
+            "privacy_ack_at": settings["ai"]["api"]["disclosure_at"],
+        },
+    }
+
+
+def _capabilities() -> dict[str, Any]:
+    """Provider/model/target capabilities for the UI — the single source of truth.
+
+    Target geometry is projected by the lower-level device mapping core.
+    """
+    from . import ai_catalog
+
+    return {
+        "ai_catalog": ai_catalog.catalog_view(),
+        "privacy_disclosure_version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+        "model_frame_caps": dict(device_mapping.MODEL_FRAME_CAPS),
+        "targets": device_mapping.target_capabilities(),
+    }
+
+
+class DocumentRevisionError(RuntimeError):
+    """The browser's document revision is absent or no longer current."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 class _State:
-    def __init__(self, config: dict[str, Any] | None, token: str) -> None:
-        self.config = config
+    def __init__(
+        self,
+        config: dict[str, Any] | None,
+        token: str,
+        lighting_library: Any = None,
+        lighting_coordinator: Any = None,
+        lighting_dependencies: dict[str, Any] | None = None,
+        ai_capability: Any = None,
+        credential_store: Any = None,
+        procedural_coordinator: Any = None,
+        ollama_client: Any = None,
+    ) -> None:
+        if (lighting_library is None) != (lighting_coordinator is None):
+            raise ValueError(
+                "lighting_library and lighting_coordinator must be injected together"
+            )
+        self.config = copy.deepcopy(config)
         self.token = token
+        self._document_lock = threading.Lock()
+        self._document_snapshot: bytes | None = None
+        self._document_revision: str | None = None
         self.device_lock = threading.Lock()
         self.last_device_scan = 0.0
+        # Native desktop builds attach a narrow Library chooser/reveal bridge after
+        # creating the loopback server. Browser-only launches leave it unset.
+        self.desktop_bridge: Any = None
+        self._lighting_lock = threading.Lock()
+        self._lighting_library = lighting_library
+        self._lighting_coordinator = lighting_coordinator
+        self._lighting_dependencies = dict(lighting_dependencies or {})
+        self._ai_lock = threading.Lock()
+        self._ai_capability = ai_capability
+        self._credential_store = credential_store
+        self._procedural_coordinator = procedural_coordinator
+        self._ollama_client = ollama_client
+        self._procedural_library_identity: int | None = (
+            id(lighting_library) if procedural_coordinator is not None else None
+        )
+        from .generation_admission import PROCESS_OPERATION_GATE
+
+        self._generation_gate = self._lighting_dependencies.get(
+            "operation_gate", PROCESS_OPERATION_GATE
+        )
+        self._lighting_root_signature: tuple[Any, ...] | None = None
+        self._lighting_reconcile_signature: tuple[int, bytes | None] | None = None
+        self._lighting_reconcile_pending = False
+        self._lighting_reconcile_worker: threading.Thread | None = None
+        if config is not None:
+            try:
+                self.synchronize_document(config)
+            except ValueError:
+                # Keep an invalid launch document available for manual repair, but
+                # never let it establish a generation target.
+                pass
+
+    @property
+    def document_revision(self) -> str | None:
+        with self._document_lock:
+            return self._document_revision
+
+    def synchronize_document(self, config: object) -> str:
+        """Validate and atomically replace the immutable open-document snapshot."""
+        try:
+            encoded = json.dumps(
+                config,
+                allow_nan=False,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            candidate = json.loads(encoded)
+            checked = validate_config(candidate)
+            product_id = checked.get("product_id")
+            if not checked.get("ok") or not isinstance(product_id, str):
+                raise ValueError
+            device_mapping.led_model(product_id)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            raise ValueError(
+                "The open document must be a complete valid keyboard configuration."
+            ) from None
+        revision = secrets.token_urlsafe(24)
+        with self._document_lock:
+            self._document_snapshot = encoded
+            self._document_revision = revision
+            self.config = copy.deepcopy(candidate)
+        return revision
+
+    def clear_document(self) -> None:
+        with self._document_lock:
+            self._document_snapshot = None
+            self._document_revision = None
+            self.config = None
+
+    def procedural_target(self, revision: str) -> dict:
+        with self._document_lock:
+            snapshot = self._document_snapshot
+            current = self._document_revision
+            if snapshot is None or current is None:
+                raise DocumentRevisionError(
+                    "document_required",
+                    "Open or read a compatible device profile before generation.",
+                )
+            if not secrets.compare_digest(revision, current):
+                raise DocumentRevisionError(
+                    "document_stale",
+                    "The open document changed before generation. Try again.",
+                )
+        document = json.loads(snapshot)
+        product_id = document["product_info"]["product_id"]
+        model = device_mapping.led_model(product_id)
+        if model == "CB":
+            targets = ["frames"]
+        elif model == "80":
+            targets = ["keyframes", "spotlight_frames"]
+        else:
+            targets = ["keyframes"]
+        return _Handler._lighting_target(product_id, targets)
+
+    def ai_services(self) -> Any:
+        """Return the Ollama/API-only capability service."""
+        with self._ai_lock:
+            if self._ai_capability is None:
+                from . import store
+                from .ai_capability import AICapabilityService
+
+                credential_store = self._credential_store
+                self._ai_capability = AICapabilityService(
+                    settings_loader=lambda: store.load_settings(
+                        credential_store=credential_store
+                    ),
+                    credential_status_loader=lambda: store.credential_status(
+                        credential_store=credential_store
+                    ),
+                    credential_resolver=lambda: store.resolve_xai_key(
+                        credential_store=credential_store
+                    ),
+                    fingerprint_writer=lambda backend, fingerprint: (
+                        store.set_ai_setup_fingerprint(
+                            backend,
+                            fingerprint,
+                            credential_store=credential_store,
+                        )
+                    ),
+                    ai_settings_writer=lambda values, **kwargs: store.update_ai_settings(
+                        values,
+                        credential_store=credential_store,
+                        **kwargs,
+                    ),
+                    ollama_client=self._ollama_client,
+                )
+            return self._ai_capability
+
+    def procedural_services(self) -> tuple[Any, Any]:
+        """Return the current Library and its local-first procedural coordinator."""
+        from .library import GeneratedAssetLibrary
+
+        library, _legacy = self.lighting_services()
+        if (
+            self._procedural_coordinator is not None
+            and self._procedural_library_identity == id(library)
+        ):
+            return library, self._procedural_coordinator
+        if not isinstance(library, GeneratedAssetLibrary):
+            raise RuntimeError("Procedural generation services are unavailable.")
+        from .procedural_generation import ProceduralGenerationCoordinator
+
+        capability = self.ai_services()
+        self._procedural_coordinator = ProceduralGenerationCoordinator(
+            library,
+            capability,
+            operation_gate=self._generation_gate,
+        )
+        self._procedural_library_identity = id(library)
+        return library, self._procedural_coordinator
+
+    def close(self) -> None:
+        capability = self._ai_capability
+        close = getattr(capability, "close", None)
+        if callable(close):
+            close()
+
+    def lighting_services(self) -> tuple[Any, Any]:
+        """Return durable services, refreshing idle production roots from Settings."""
+        if self._lighting_root_signature is None and self._lighting_library is not None:
+            return self._lighting_library, self._lighting_coordinator
+        from . import store
+        from .generation import GenerationCoordinator
+        from .library import GeneratedAssetLibrary
+
+        settings = store.load_settings()
+        current_root = settings["library"]["current_root"]
+        roots = tuple(settings["library"]["roots"])
+        signature = (current_root, *roots)
+        with self._lighting_lock:
+            active = getattr(self._lighting_coordinator, "active_job_id", None)
+            procedural_active = getattr(
+                self._procedural_coordinator, "active_job_id", None
+            )
+            if (
+                self._lighting_library is not None
+                and (
+                    self._lighting_root_signature == signature
+                    or active is not None
+                    or procedural_active is not None
+                )
+            ):
+                return self._lighting_library, self._lighting_coordinator
+            library = GeneratedAssetLibrary(current_root, roots)
+            coordinator = GenerationCoordinator(
+                library, **self._lighting_dependencies
+            )
+            self._lighting_library = library
+            self._lighting_coordinator = coordinator
+            self._lighting_root_signature = signature
+            return library, coordinator
+
+    def reconcile_lighting(self, *, force: bool = False) -> list[dict]:
+        """Reconcile durable work now and again whenever the effective key changes."""
+        from . import store
+        from .generation_admission import GenerationBusyError
+
+        if self._generation_gate.is_active:
+            self._defer_lighting_reconciliation()
+            return []
+
+        _library, coordinator = self.lighting_services()
+        api_key = store.resolve_xai_key(
+            credential_store=self._credential_store
+        )
+        key_fingerprint = (
+            hashlib.sha256(api_key.encode("utf-8")).digest() if api_key else None
+        )
+        signature = (id(coordinator), key_fingerprint)
+        with self._lighting_lock:
+            if not force and signature == self._lighting_reconcile_signature:
+                return []
+            # Claim this signature before reconciliation so concurrent requests
+            # cannot launch the same accepted video twice. A failure clears the
+            # claim, allowing the next safe trigger to retry.
+            self._lighting_reconcile_signature = signature
+        try:
+            token, _cancelled = self._generation_gate.begin()
+            try:
+                actions = coordinator.reconcile_startup(
+                    api_key=api_key,
+                    _admission_token=token,
+                )
+                try:
+                    _procedural_library, procedural = self.procedural_services()
+                except RuntimeError:
+                    return actions
+                return [
+                    *actions,
+                    *procedural.reconcile_startup(_admission_token=token),
+                ]
+            finally:
+                self._generation_gate.finish(token)
+        except GenerationBusyError:
+            with self._lighting_lock:
+                if self._lighting_reconcile_signature == signature:
+                    self._lighting_reconcile_signature = None
+            self._defer_lighting_reconciliation()
+            return []
+        except BaseException:
+            with self._lighting_lock:
+                if self._lighting_reconcile_signature == signature:
+                    self._lighting_reconcile_signature = None
+            raise
+
+    def _defer_lighting_reconciliation(self) -> None:
+        """Coalesce settings/startup recovery until shared admission is idle."""
+        with self._lighting_lock:
+            self._lighting_reconcile_pending = True
+            if (
+                self._lighting_reconcile_worker is not None
+                and self._lighting_reconcile_worker.is_alive()
+            ):
+                return
+
+            def resume_when_idle() -> None:
+                while True:
+                    self._generation_gate.wait_until_idle()
+                    with self._lighting_lock:
+                        if not self._lighting_reconcile_pending:
+                            self._lighting_reconcile_worker = None
+                            return
+                        self._lighting_reconcile_pending = False
+                    try:
+                        self.reconcile_lighting(force=True)
+                    except Exception:
+                        with self._lighting_lock:
+                            self._lighting_reconcile_worker = None
+                        return
+                    with self._lighting_lock:
+                        if not self._lighting_reconcile_pending:
+                            self._lighting_reconcile_worker = None
+                            return
+
+            worker = threading.Thread(
+                target=resume_when_idle,
+                name="am-lighting-reconcile",
+                daemon=True,
+            )
+            self._lighting_reconcile_worker = worker
+            worker.start()
 
     def settle_after_scan(self, seconds: float = 1.5) -> None:
         remaining = seconds - (time.monotonic() - self.last_device_scan)
         if remaining > 0:
             time.sleep(remaining)
-
 
 class _Handler(BaseHTTPRequestHandler):
     server_version = f"AMConfigurator/{__version__}"
@@ -1015,10 +1197,16 @@ class _Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt: str, *args: Any) -> None:
         # Keep launch output useful; successful static requests are noise.
-        if args and str(args[1]) not in {"200", "304"}:
+        if len(args) < 2 or str(args[1]) not in {"200", "304"}:
             super().log_message(fmt, *args)
 
-    def _headers(self, status: int, content_type: str, length: int) -> None:
+    def _headers(
+        self,
+        status: int,
+        content_type: str,
+        length: int,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(length))
@@ -1029,8 +1217,10 @@ class _Handler(BaseHTTPRequestHandler):
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
             "img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; "
-            "base-uri 'none'; frame-ancestors 'none'",
+            "media-src 'self' blob:; base-uri 'none'; frame-ancestors 'none'",
         )
+        for name, value in (extra_headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
 
     def _json(self, value: Any, status: int = HTTPStatus.OK) -> None:
@@ -1039,7 +1229,16 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def _authorized(self) -> bool:
-        return secrets.compare_digest(self.headers.get("X-AM-Token", ""), self.state.token)
+        candidate = self.headers.get("X-AM-Token", "")
+        expected = self.state.token
+        if not isinstance(candidate, str) or not isinstance(expected, str):
+            return False
+        try:
+            candidate_bytes = candidate.encode("ascii")
+            expected_bytes = expected.encode("ascii")
+        except UnicodeEncodeError:
+            return False
+        return secrets.compare_digest(candidate_bytes, expected_bytes)
 
     def _body(self) -> dict[str, Any]:
         try:
@@ -1053,15 +1252,107 @@ class _Handler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError) as exc:
             raise ValueError(f"Invalid request: {exc}") from exc
 
+    def _lighting_error(self, exc: Exception) -> bool:
+        from . import llm
+        from .ai_capability import AICapabilityError
+        from .generation_admission import (
+            GenerationBusyError,
+            GenerationNotActiveError,
+            GenerationValidationError,
+        )
+        from .library import (
+            AssetNotFoundError,
+            InvalidIdentifierError,
+            LibraryRootError,
+            ManifestError,
+        )
+
+        if isinstance(exc, AICapabilityError):
+            self._json(
+                {"code": exc.reason, "error": "Optional AI is not ready."},
+                HTTPStatus.CONFLICT,
+            )
+            return True
+        if isinstance(exc, llm.ProviderError):
+            payload: dict[str, Any] = {
+                "code": exc.code,
+                "error": exc.message,
+            }
+            if exc.retry_after is not None:
+                payload["retry_after"] = exc.retry_after
+            self._json(
+                payload,
+                _PROVIDER_ERROR_HTTP.get(exc.code, HTTPStatus.BAD_GATEWAY),
+            )
+            return True
+        if isinstance(exc, (GenerationBusyError, GenerationNotActiveError)):
+            self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
+            return True
+        if isinstance(exc, AssetNotFoundError):
+            self._json({"error": "Asset not found."}, HTTPStatus.NOT_FOUND)
+            return True
+        if isinstance(exc, InvalidIdentifierError):
+            self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return True
+        if isinstance(exc, ManifestError):
+            self._json({"error": "Generated job or asset not found."}, HTTPStatus.NOT_FOUND)
+            return True
+        if isinstance(exc, (GenerationValidationError, LibraryRootError, ValueError)):
+            self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return True
+        return False
+
+    def _internal_error(self, exc: Exception) -> None:
+        # Keep unexpected dependency, filesystem, device, provider, and
+        # subprocess details on the local process boundary. Exception text may
+        # contain user paths, raw replies, signed URLs, or credentials.
+        self.log_error("Unhandled local API request error: %s", type(exc).__name__)
+        self._json(
+            {"error": "The local request failed unexpectedly."},
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+        )
+
+    def _accepted_write_error(self, exc: AcceptedWriteError) -> None:
+        self.log_error(
+            "Accepted device write did not verify: %s",
+            type(exc).__name__,
+        )
+        self._json(
+            {
+                "error": (
+                    "Device accepted the configuration, but verification did not "
+                    "complete. Retry verification instead of sending the "
+                    "configuration again."
+                ),
+                "accepted": True,
+                "retryable": True,
+            },
+            HTTPStatus.CONFLICT,
+        )
+
+    @staticmethod
+    def _is_ai_path(path: str) -> bool:
+        return path.startswith("/api/ai/") or path in {
+            "/api/settings/ai",
+            "/api/settings/credential",
+            "/api/settings/migration/discard-credential",
+        }
+
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path.startswith("/api/"):
             if not self._authorized():
                 self._json({"error": "Unauthorized local request."}, HTTPStatus.FORBIDDEN)
                 return
             try:
                 if path == "/api/config":
-                    self._json({"config": self.state.config})
+                    self._json(
+                        {
+                            "config": self.state.config,
+                            "document_revision": self.state.document_revision,
+                        }
+                    )
                 elif path == "/api/devices":
                     from . import device
 
@@ -1069,10 +1360,40 @@ class _Handler(BaseHTTPRequestHandler):
                         devices = device.list_devices(full=True)
                         self.state.last_device_scan = time.monotonic()
                     self._json({"devices": [asdict(d) for d in devices]})
+                elif path == "/api/settings":
+                    self._json(
+                        _settings_view(
+                            credential_store=self.state._credential_store
+                        )
+                    )
+                elif path == "/api/led/capabilities":
+                    self._json(_capabilities())
+                elif path == "/api/ai/status":
+                    if parsed.query:
+                        raise ValueError(
+                            "The optional AI status route does not accept query fields."
+                        )
+                    capability = self.state.ai_services()
+                    self._json(capability.status())
+                elif path == "/api/ai/local/models":
+                    if parsed.query:
+                        raise ValueError(
+                            "The local model route does not accept query fields."
+                        )
+                    capability = self.state.ai_services()
+                    self._json(capability.discover_local_models())
+                elif path.startswith("/api/lighting/"):
+                    self._lighting_get(path, parsed.query)
+                elif path == "/api/led/generate/status":
+                    self._retired_ai_mutation()
                 else:
                     self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
             except Exception as exc:  # noqa: BLE001 - API boundary
-                self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+                handled = (
+                    path.startswith("/api/lighting/") or self._is_ai_path(path)
+                ) and self._lighting_error(exc)
+                if not handled:
+                    self._internal_error(exc)
             return
 
         filename = _STATIC.get(path)
@@ -1105,6 +1426,8 @@ class _Handler(BaseHTTPRequestHandler):
             body = self._body()
             if path == "/api/config/validate":
                 self._json(validate_config(body.get("config")))
+            elif path == "/api/document/sync":
+                self._synchronize_document(body)
             elif path == "/api/config/compatibility":
                 self._json(config_transfer_options(
                     body.get("config"),
@@ -1120,6 +1443,38 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(text_to_macro_events(body.get("text"), body.get("delay_ms", 10)))
             elif path == "/api/led/gif":
                 self._convert_gif(body)
+            elif path == "/api/settings/preferences":
+                self._save_settings_preferences(body)
+            elif path == "/api/settings/library":
+                self._save_settings_library(body)
+            elif path == "/api/settings/privacy":
+                self._save_settings_privacy(body)
+            elif path == "/api/settings/ai":
+                self._save_ai_settings(body)
+            elif path == "/api/settings/credential":
+                self._save_ai_credential(body)
+            elif path == "/api/settings/migration/discard-credential":
+                self._discard_legacy_ai_credential(body)
+            elif path == "/api/ai/test":
+                self._test_ai_backend(body)
+            elif path == "/api/ai/local/select":
+                self._select_local_model(body)
+            elif path == "/api/ai/local/clear":
+                self._clear_local_model(body)
+            elif path == "/api/native/choose-library":
+                self._native_choose_library(body)
+            elif path == "/api/native/reveal-library":
+                self._native_reveal_library(body)
+            elif path == "/api/lighting/effects":
+                self._start_procedural_effect(body)
+            elif path == "/api/lighting/concepts" or path.startswith(
+                "/api/lighting/jobs/"
+            ):
+                self._lighting_post(path, body)
+            elif path == "/api/led/generate":
+                self._retired_ai_mutation()
+            elif path == "/api/led/generate/cancel":
+                self._retired_ai_mutation()
             elif path == "/api/device/read":
                 self._read_device(body)
             elif path == "/api/device/write":
@@ -1129,14 +1484,432 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
         except AcceptedWriteError as exc:
+            self._accepted_write_error(exc)
+        except ValueError as exc:
+            payload = {"error": str(exc)}
+            code = getattr(exc, "code", None)
+            if isinstance(code, str):
+                payload["code"] = code
+            self._json(payload, HTTPStatus.BAD_REQUEST)
+        except Exception as exc:  # noqa: BLE001 - API boundary
+            handled = (
+                path.startswith("/api/lighting/") or self._is_ai_path(path)
+            ) and self._lighting_error(exc)
+            if not handled:
+                self._internal_error(exc)
+
+    @staticmethod
+    def _strict_body(
+        body: dict[str, Any],
+        *,
+        allowed: set[str],
+        required: set[str] = frozenset(),
+    ) -> None:
+        unknown = set(body) - allowed
+        missing = required - set(body)
+        if unknown or missing:
+            raise ValueError("The lighting request body has unsupported fields.")
+
+    def _require_ai_idle(self) -> None:
+        if self.state._generation_gate.is_active:
+            from .generation_admission import GenerationBusyError
+
+            raise GenerationBusyError("another generation operation is already active")
+
+    def _save_ai_settings(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(
+            body,
+            allowed={"enabled", "backend", "provider", "model_id"},
+        )
+        if not body:
+            raise ValueError("The optional AI settings request is empty.")
+        self._require_ai_idle()
+        capability = self.state.ai_services()
+        current = capability.status()
+        selected_backend = body.get("backend", current["backend"])
+        selected_provider = body.get("provider", current["api"]["provider"])
+        selected_model = body.get("model_id", current["api"]["model_id"])
+        will_enable = body.get("enabled", current["enabled"])
+        ready = False
+        if will_enable:
+            ready = capability.backend_setup_valid(selected_backend)
+            if selected_backend == "api":
+                ready = (
+                    ready
+                    and selected_provider == current["api"]["provider"]
+                    and selected_model == current["api"]["model_id"]
+                )
+        store.update_ai_settings(
+            body,
+            ready=ready,
+            credential_store=self.state._credential_store,
+        )
+        self._json(capability.status())
+
+    def _save_ai_credential(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(
+            body,
+            allowed={"provider", "key"},
+            required={"provider", "key"},
+        )
+        self._require_ai_idle()
+        store.update_api_key(
+            body,
+            credential_store=self.state._credential_store,
+        )
+        self.state.reconcile_lighting(force=True)
+        capability = self.state.ai_services()
+        self._json(capability.status())
+
+    def _discard_legacy_ai_credential(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(body, allowed={"confirm"}, required={"confirm"})
+        self._require_ai_idle()
+        store.discard_legacy_api_credential(body)
+        self._json(
+            _settings_view(credential_store=self.state._credential_store)
+        )
+
+    def _test_ai_backend(self, body: dict[str, Any]) -> None:
+        self._strict_body(
+            body,
+            allowed={"backend"},
+            required={"backend"},
+        )
+        capability = self.state.ai_services()
+        token, cancelled = self.state._generation_gate.begin("ai-setup-test")
+        try:
+            status = capability.test_and_enable(
+                body["backend"],
+                deadline=time.monotonic() + 180.0,
+                cancelled=cancelled.is_set,
+            )
+        finally:
+            self.state._generation_gate.finish(token)
+        self._json(status)
+
+    def _select_local_model(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(body, allowed={"model_id"}, required={"model_id"})
+        self._require_ai_idle()
+        model_id = body["model_id"]
+        if not isinstance(model_id, str):
+            raise ValueError("The Ollama model name is invalid.")
+        capability = self.state.ai_services()
+        discovered = capability.discover_local_models()
+        if discovered.get("available") is not True:
             self._json(
-                {"error": str(exc), "accepted": True, "retryable": True},
+                {"error": "The local Ollama service is unavailable."},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+        match = next(
+            (
+                model
+                for model in discovered.get("models", [])
+                if isinstance(model, dict) and model.get("model_id") == model_id
+            ),
+            None,
+        )
+        if match is None:
+            raise ValueError("The selected Ollama model is not installed locally.")
+        store.update_local_ai_settings(
+            {
+                "model_id": match["model_id"],
+                "model_digest": match["digest"],
+            },
+            credential_store=self.state._credential_store,
+        )
+        capability.close()
+        self._json(capability.status())
+
+    def _clear_local_model(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(body, allowed=set())
+        self._require_ai_idle()
+        capability = self.state.ai_services()
+        store.update_local_ai_settings(
+            {"model_id": None, "model_digest": None},
+            credential_store=self.state._credential_store,
+        )
+        self._json(capability.status())
+
+    def _synchronize_document(self, body: dict[str, Any]) -> None:
+        self._strict_body(body, allowed={"config"}, required={"config"})
+        revision = self.state.synchronize_document(body["config"])
+        self._json({"revision": revision})
+
+    def _start_procedural_effect(self, body: dict[str, Any]) -> None:
+        self._strict_body(
+            body,
+            allowed={"prompt", "backend", "document_revision"},
+            required={"prompt", "backend", "document_revision"},
+        )
+        revision = body["document_revision"]
+        if not isinstance(revision, str) or not 24 <= len(revision) <= 200:
+            raise ValueError("document_revision must be an opaque revision string.")
+        try:
+            target = self.state.procedural_target(revision)
+        except DocumentRevisionError as exc:
+            self._json({"code": exc.code, "error": str(exc)}, HTTPStatus.CONFLICT)
+            return
+        capability = self.state.ai_services()
+        status = capability.require_ready()
+        if body["backend"] != status["backend"]:
+            self._json(
+                {
+                    "code": "backend_mismatch",
+                    "error": "The selected AI backend changed before generation.",
+                },
                 HTTPStatus.CONFLICT,
             )
-        except ValueError as exc:
-            self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
-        except Exception as exc:  # noqa: BLE001 - API boundary
-            self._json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        _library, coordinator = self.state.procedural_services()
+        manifest = coordinator.start_effect(
+            prompt=body["prompt"],
+            target=target,
+        )
+        self._json(
+            {"job_id": manifest["job_id"], "target": manifest["target"]},
+            HTTPStatus.ACCEPTED,
+        )
+
+    def _retired_ai_mutation(self) -> None:
+        self._json(
+            {
+                "code": "retired",
+                "error": "This legacy AI generation route is retired.",
+            },
+            HTTPStatus.GONE,
+        )
+
+    @staticmethod
+    def _lighting_target(product_id: object, targets: object) -> dict:
+        if not isinstance(product_id, str) or not product_id:
+            raise ValueError("product_id must be a non-empty string.")
+        if (
+            not isinstance(targets, list)
+            or not targets
+            or not all(isinstance(target, str) and target for target in targets)
+        ):
+            raise ValueError("targets must be a non-empty list of LED track names.")
+        spec, resolved = device_mapping.generation_spec(product_id, targets, None)
+        return {
+            "family": spec.model,
+            "product_id": product_id,
+            "raster": {"width": spec.width, "height": spec.height},
+            "targets": resolved,
+            "frame_cap": spec.max_frames,
+        }
+
+    def _lighting_post(self, path: str, body: dict[str, Any]) -> None:
+        library, coordinator = self.state.lighting_services()
+        if path == "/api/lighting/concepts":
+            self._retired_ai_mutation()
+            return
+
+        parts = path.strip("/").split("/")
+        if len(parts) != 5 or parts[:3] != ["api", "lighting", "jobs"]:
+            self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+            return
+        job_id, action = parts[3], parts[4]
+        if action in {"concepts", "animate", "process"}:
+            self._retired_ai_mutation()
+            return
+        # Resolve through the manifest boundary before any coordinator action;
+        # this validates canonical IDs and historical-root ownership uniformly.
+        manifest = library.load_manifest(job_id)
+        if action == "cancel":
+            self._strict_body(body, allowed=set())
+            if manifest.get("pipeline") == "procedural":
+                _procedural_library, procedural = self.state.procedural_services()
+                manifest = procedural.cancel(job_id)
+            else:
+                manifest = coordinator.cancel(job_id)
+            status = HTTPStatus.OK
+        else:
+            self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+            return
+        self._json({"job_id": manifest["job_id"]}, status)
+
+    def _lighting_get(self, path: str, query: str) -> None:
+        library, _coordinator = self.state.lighting_services()
+        if path == "/api/lighting/library":
+            self._lighting_library_page(library, query)
+            return
+        parts = path.strip("/").split("/")
+        if len(parts) == 4 and parts[:3] == ["api", "lighting", "jobs"]:
+            if query:
+                raise ValueError("The job status route does not accept query fields.")
+            self._json(library.get_job(parts[3]))
+            return
+        if len(parts) == 4 and parts[:3] == ["api", "lighting", "library"]:
+            if query:
+                raise ValueError("The library detail route does not accept query fields.")
+            self._json(library.get_job(parts[3]))
+            return
+        if len(parts) == 5 and parts[:3] == ["api", "lighting", "assets"]:
+            if query:
+                raise ValueError("Asset routes do not accept query fields.")
+            self._lighting_asset(library, parts[3], parts[4])
+            return
+        self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+
+    def _lighting_library_page(self, library: Any, query: str) -> None:
+        values = parse_qs(query, keep_blank_values=True)
+        if set(values) - {"page", "limit", "status", "kind", "query"}:
+            raise ValueError("The library query has unsupported fields.")
+        if any(len(items) != 1 for items in values.values()):
+            raise ValueError("The library query cannot repeat fields.")
+
+        def positive_integer(name: str, default: int, maximum: int) -> int:
+            raw = values.get(name, [str(default)])[0]
+            if not raw.isdigit():
+                raise ValueError(f"{name} must be a positive integer.")
+            number = int(raw)
+            if not 1 <= number <= maximum:
+                raise ValueError(f"{name} is outside its supported range.")
+            return number
+
+        page = positive_integer("page", 1, 1_000_000)
+        limit = positive_integer("limit", 24, 100)
+        statuses = {
+            value
+            for value in values.get("status", [""])[0].split(",")
+            if value
+        }
+        if any(
+            len(status) > 80 or not status.replace("_", "").isalnum()
+            for status in statuses
+        ):
+            raise ValueError("status filter is invalid.")
+        kind = values.get("kind", [""])[0]
+        if len(kind) > 80 or (kind and not kind.replace("_", "").isalnum()):
+            raise ValueError("kind filter is invalid.")
+        search = values.get("query", [""])[0].casefold()
+        if len(search) > 200:
+            raise ValueError("query filter is too long.")
+
+        scanned = library.scan()
+        jobs = []
+        for manifest in scanned["jobs"]:
+            if statuses and manifest["status"] not in statuses:
+                continue
+            if kind and not any(asset["kind"] == kind for asset in manifest["assets"]):
+                continue
+            if search and search not in manifest["prompt"].casefold():
+                continue
+            jobs.append(
+                {
+                    "job_id": manifest["job_id"],
+                    "created_at": manifest["created_at"],
+                    "updated_at": manifest["updated_at"],
+                    "prompt": manifest["prompt"],
+                    "target": manifest["target"],
+                    "selected_candidate_id": manifest["selected_candidate_id"],
+                    "status": manifest["status"],
+                    "phase": manifest["phase"],
+                    "progress": manifest["progress"],
+                    "costs": manifest["costs"],
+                    "candidate_count": len(manifest["candidates"]),
+                    "asset_count": len(manifest["assets"]),
+                }
+            )
+        total = len(jobs)
+        start = (page - 1) * limit
+        selected = jobs[start : start + limit]
+        self._json(
+            {
+                "jobs": selected,
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "has_more": start + len(selected) < total,
+                "errors": scanned["errors"],
+            }
+        )
+
+    def _range_not_satisfiable(self, total: int) -> None:
+        payload = json.dumps({"error": "The requested media range is invalid."}).encode()
+        self._headers(
+            HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE,
+            "application/json; charset=utf-8",
+            len(payload),
+            {"Content-Range": f"bytes */{total}"},
+        )
+        self.wfile.write(payload)
+
+    def _lighting_asset(self, library: Any, job_id: str, asset_id: str) -> None:
+        # open_verified re-checks the descriptor this route actually serves
+        # from, so hashing again at resolve time protects nothing extra.
+        owned = library.resolve_asset(job_id, asset_id, verify_content=False)
+        mime_type = owned.record["mime_type"]
+        if mime_type not in _LIGHTING_ASSET_MIMES:
+            raise ValueError("This generated asset type cannot be served.")
+        total = owned.record["byte_size"]
+        range_header = self.headers.get("Range")
+        if range_header is None:
+            with owned.open_verified() as stream:
+                payload = stream.read(total + 1)
+            if len(payload) != total:
+                raise ValueError("The generated asset changed while it was read.")
+            extra = {"Accept-Ranges": "bytes"} if mime_type == "video/mp4" else None
+            self._headers(HTTPStatus.OK, mime_type, len(payload), extra)
+            self.wfile.write(payload)
+            return
+        if mime_type != "video/mp4" or not range_header.startswith("bytes="):
+            self._range_not_satisfiable(total)
+            return
+        requested = range_header[6:]
+        if "," in requested or requested.count("-") != 1:
+            self._range_not_satisfiable(total)
+            return
+        first, last = requested.split("-", 1)
+        try:
+            if first:
+                start = int(first)
+                end = int(last) if last else total - 1
+            else:
+                suffix = int(last)
+                if suffix <= 0:
+                    raise ValueError
+                start = max(0, total - suffix)
+                end = total - 1
+        except ValueError:
+            self._range_not_satisfiable(total)
+            return
+        if (
+            start < 0
+            or end < start
+            or start >= total
+            or end >= total
+            or end - start + 1 > _MAX_ASSET_RANGE_BYTES
+        ):
+            self._range_not_satisfiable(total)
+            return
+        # A media player issues many Range requests per playback; verifying the
+        # whole file on each seek reads far more than the slice being served.
+        # The initial non-Range request verifies content end to end.
+        with owned.open_verified(verify_content=False) as stream:
+            stream.seek(start)
+            payload = stream.read(end - start + 1)
+        self._headers(
+            HTTPStatus.PARTIAL_CONTENT,
+            mime_type,
+            len(payload),
+            {
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes {start}-{end}/{total}",
+            },
+        )
+        self.wfile.write(payload)
 
     def _convert_gif(self, body: dict[str, Any]) -> None:
         encoded = body.get("data")
@@ -1166,6 +1939,58 @@ class _Handler(BaseHTTPRequestHandler):
                 str(body.get("product_id") or ""),
             )
         self._json(result)
+
+    def _save_settings_preferences(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        store.update_preferences(body)
+        self._json(_settings_view())
+
+    def _save_settings_library(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        store.update_library_root(body)
+        self.state.reconcile_lighting(force=True)
+        self._json(_settings_view())
+
+    def _save_settings_privacy(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        store.acknowledge_privacy(body)
+        self._json(_settings_view())
+
+    def _native_choose_library(self, body: dict[str, Any]) -> None:
+        if body:
+            raise ValueError("The folder chooser does not accept options.")
+        bridge = self.state.desktop_bridge
+        if bridge is None:
+            self._json(
+                {"error": "The native folder chooser is unavailable in this launch."},
+                HTTPStatus.NOT_FOUND,
+            )
+            return
+        try:
+            selected = bridge.choose_library_folder()
+        except Exception as exc:  # noqa: BLE001 - native UI boundary
+            self._internal_error(exc)
+            return
+        self._json({"path": selected})
+
+    def _native_reveal_library(self, body: dict[str, Any]) -> None:
+        if set(body) != {"path"} or not isinstance(body["path"], str):
+            raise ValueError("Reveal requires one library path.")
+        bridge = self.state.desktop_bridge
+        if bridge is None:
+            self._json(
+                {"error": "Native Reveal is unavailable in this launch."},
+                HTTPStatus.NOT_FOUND,
+            )
+            return
+        try:
+            revealed = bool(bridge.reveal_library_path(body["path"]))
+        except Exception:  # noqa: BLE001 - native UI boundary
+            revealed = False
+        self._json({"revealed": revealed})
 
     def _read_device(self, body: dict[str, Any]) -> None:
         from . import macros as macro_protocol
@@ -1307,7 +2132,7 @@ class _Handler(BaseHTTPRequestHandler):
         clean = {key: value for key, value in config.items() if key != "_provenance"}
         store.save_current(after.product_id, clean, version=after.version)
         snapshot = store.snapshot(after.product_id, clean)
-        self.state.config = copy.deepcopy(clean)
+        document_revision = self.state.synchronize_document(clean)
         return {
             "ok": True,
             "device": asdict(after),
@@ -1316,6 +2141,7 @@ class _Handler(BaseHTTPRequestHandler):
             "macro_verification": macro_verification["status"],
             "macro_warning": macro_verification["warning"],
             "snapshot": snapshot.stem,
+            "document_revision": document_revision,
         }
 
 
@@ -1334,13 +2160,31 @@ class _Server(ThreadingHTTPServer):
         self.server_name = "localhost"
         self.server_port = int(self.server_address[1])
 
+    def server_close(self) -> None:
+        try:
+            self.state.close()
+        finally:
+            super().server_close()
+
 
 def create_server(
     config_paths: list[str] | None = None,
     *,
     port: int = 0,
+    lighting_library: Any = None,
+    lighting_coordinator: Any = None,
+    lighting_dependencies: dict[str, Any] | None = None,
+    ai_capability: Any = None,
+    credential_store: Any = None,
+    procedural_coordinator: Any = None,
+    ollama_client: Any = None,
 ) -> tuple[_Server, str]:
-    """Create the loopback configurator server without starting its event loop."""
+    """Create the loopback configurator server without starting its event loop.
+
+    Tests may inject complete durable/procedural coordinators, the capability
+    service and credential store, or just dependency maps for
+    production construction. These seams keep endpoint tests offline.
+    """
     configs: list[dict[str, Any]] = []
     for raw_path in config_paths or []:
         path = Path(raw_path).expanduser()
@@ -1353,7 +2197,18 @@ def create_server(
         configs.append(value)
 
     token = secrets.token_urlsafe(24)
-    state = _State(merge_configs(configs), token)
+    state = _State(
+        merge_configs(configs),
+        token,
+        lighting_library=lighting_library,
+        lighting_coordinator=lighting_coordinator,
+        lighting_dependencies=lighting_dependencies,
+        ai_capability=ai_capability,
+        credential_store=credential_store,
+        procedural_coordinator=procedural_coordinator,
+        ollama_client=ollama_client,
+    )
+    state.reconcile_lighting(force=True)
     server = _Server(("127.0.0.1", port), state)
     url = f"http://127.0.0.1:{server.server_port}/?token={token}"
     return server, url

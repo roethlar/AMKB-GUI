@@ -1,11 +1,24 @@
 from __future__ import annotations
 
+import base64
 import copy
 import io
+import json
+import os
 import re
+import shutil
+import socket
+import ssl
+import stat
+import sys
+import tempfile
 import threading
+import time
 import tomllib
+import traceback
 import unittest
+import urllib.error
+from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -15,6 +28,11 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 from am_configurator import __version__
+from am_configurator.device_mapping import (
+    MAX_FRAMES,
+    firmware_led_speed,
+    frames_to_led_tracks,
+)
 from am_configurator.server import (
     AcceptedWriteError,
     _classify_macro_readback,
@@ -31,7 +49,6 @@ from am_configurator.server import (
     extract_importable_macros,
     gif_to_led_frames,
     gif_to_led_tracks,
-    firmware_led_speed,
     merge_configs,
     text_to_macro_events,
     validate_config,
@@ -41,6 +58,322 @@ from am_configurator.device import candidate_ports
 from am_configurator.protocol import exclusive_serial_kwargs
 from am_configurator.macros import macro_frames, parse_macro_frames
 from am_configurator.writer import car_light_data_frames, car_light_info_frames
+from am_configurator import credentials, device_mapping, llm, server, store
+from am_configurator import generation
+from am_configurator.library import (
+    GeneratedAssetLibrary,
+    LibraryRootError,
+)
+
+
+_DEFAULT_SETTINGS = {
+    "schema_version": 5,
+    "ai": {
+        "enabled": False,
+        "backend": None,
+        "local": {
+            "model_id": None,
+            "model_digest": None,
+            "setup_fingerprint": None,
+        },
+        "api": {
+            "provider": "xai",
+            "model_id": "grok-4.5",
+            "setup_fingerprint": None,
+            "disclosure_version": None,
+            "disclosure_at": None,
+        },
+    },
+    "library": {"current_root": None, "roots": []},
+    "generation": {"loop_mode": "smooth"},
+}
+class _ScopedTestCredentialStore:
+    """Keep test credentials isolated by each test's temporary data root."""
+
+    def __init__(self) -> None:
+        self.values: dict[tuple[str, str], str] = {}
+
+    @staticmethod
+    def _key(provider: str) -> tuple[str, str]:
+        return (str(store.store_root()), provider)
+
+    def available(self) -> bool:
+        return True
+
+    def get(self, provider: str) -> str | None:
+        return self.values.get(self._key(provider))
+
+    def set(self, provider: str, value: str) -> None:
+        self.values[self._key(provider)] = value
+
+    def delete(self, provider: str) -> None:
+        self.values.pop(self._key(provider), None)
+
+
+_TEST_CREDENTIALS = _ScopedTestCredentialStore()
+_CREDENTIAL_PATCHER = None
+
+
+def setUpModule() -> None:
+    global _CREDENTIAL_PATCHER
+    _CREDENTIAL_PATCHER = patch.object(
+        credentials,
+        "default_credential_store",
+        return_value=_TEST_CREDENTIALS,
+    )
+    _CREDENTIAL_PATCHER.start()
+
+
+def tearDownModule() -> None:
+    if _CREDENTIAL_PATCHER is not None:
+        _CREDENTIAL_PATCHER.stop()
+
+
+class SettingsStoreTests(unittest.TestCase):
+    """Strict v5 settings, safe legacy migration, and curated AI catalog."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.mkdtemp(prefix="am_settings_test_")
+        self._saved_env = {
+            k: os.environ.get(k)
+            for k in ("AM_CONFIGURATOR_DATA_DIR", "XDG_DATA_HOME", "XAI_API_KEY")
+        }
+        os.environ.pop("XDG_DATA_HOME", None)
+        os.environ.pop("XAI_API_KEY", None)
+        os.environ["AM_CONFIGURATOR_DATA_DIR"] = self._tmp
+
+    def tearDown(self) -> None:
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_defaults_when_missing(self) -> None:
+        self.assertEqual(store.load_settings(), _DEFAULT_SETTINGS)
+        # A missing file must not be created as a side effect of reading it.
+        self.assertFalse(store.settings_path().exists())
+
+    def test_catalog_has_only_curated_recipe_models_and_integer_prices(self) -> None:
+        from am_configurator import ai_catalog
+
+        catalog = ai_catalog.catalog_view()
+        self.assertEqual(catalog["schema_version"], 1)
+        self.assertEqual(catalog["pricing_as_of"], "2026-07-20")
+        expected = {
+            "interpreter": {
+                "default": "grok-4.5",
+                "choices": {
+                    "grok-4.5": {
+                        "input_per_million_tokens_usd_ticks": 20_000_000_000,
+                        "output_per_million_tokens_usd_ticks": 60_000_000_000,
+                    },
+                    "grok-4.3": {
+                        "input_per_million_tokens_usd_ticks": 12_500_000_000,
+                        "output_per_million_tokens_usd_ticks": 25_000_000_000,
+                    },
+                },
+            },
+        }
+        observed = {}
+        for role, role_data in catalog["roles"].items():
+            observed[role] = {
+                "default": role_data["default"],
+                "choices": {
+                    choice["id"]: choice["pricing"] for choice in role_data["choices"]
+                },
+            }
+            for choice in role_data["choices"]:
+                self.assertTrue(choice["pricing"])
+                self.assertTrue(all(type(value) is int for value in choice["pricing"].values()))
+        self.assertEqual(observed, expected)
+        self.assertEqual(ai_catalog.DEFAULT_MODELS, {"interpreter": "grok-4.5"})
+
+    def test_v1_file_migrates_in_place_without_losing_key(self) -> None:
+        legacy = {
+            "llm": {
+                "interpreter": "grok",
+                "renderer": "grok",
+                "keys": {"xai": "sk-existing"},
+            }
+        }
+        path = store.settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(legacy), encoding="utf-8")
+
+        self.assertEqual(store.load_settings(), _DEFAULT_SETTINGS)
+        self.assertEqual("sk-existing", store.resolve_xai_key())
+        self.assertFalse(path.with_name(path.name + ".bad").exists())
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(saved["schema_version"], 5)
+        self.assertNotIn("llm", saved)
+        self.assertNotIn("sk-existing", path.read_text(encoding="utf-8"))
+
+    def test_v5_round_trip(self) -> None:
+        payload = copy.deepcopy(_DEFAULT_SETTINGS)
+        payload["ai"]["backend"] = "local"
+        payload["ai"]["local"]["setup_fingerprint"] = "a" * 64
+        payload["generation"]["loop_mode"] = "ping_pong"
+        store.save_settings(payload)
+        self.assertEqual(store.load_settings(), payload)
+
+    def test_unknown_fields_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            store.save_settings({**copy.deepcopy(_DEFAULT_SETTINGS), "bogus": 1})
+        with self.assertRaises(ValueError):
+            store.update_preferences({"models": {}, "bogus": 1})
+        with self.assertRaises(ValueError):
+            store.update_api_key({"provider": "bogus", "key": "x"})
+        with self.assertRaises(ValueError):
+            store.update_library_root({"current_root": None, "bogus": 1})
+        # A rejected save must persist nothing.
+        self.assertFalse(store.settings_path().exists())
+
+    def test_retired_model_and_candidate_preferences_are_rejected(self) -> None:
+        invalid_preferences = (
+            {"models": {"interpreter": "grok-future"}},
+            {"models": {"concept": "grok-future"}},
+            {"models": {"video": "grok-future"}},
+            {"models": {"unknown": "grok-4.5"}},
+            {"loop_mode": "crossfade"},
+            {"candidate_count": 0},
+            {"candidate_count": 9},
+            {"candidate_count": True},
+            {"candidate_count": "4"},
+        )
+        for payload in invalid_preferences:
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                store.update_preferences(payload)
+        self.assertFalse(store.settings_path().exists())
+
+    def test_mask_sentinel_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            store.update_api_key({"provider": "xai", "key": store.KEY_MASK})
+        self.assertFalse(store.settings_path().exists())
+
+    def test_empty_key_clears(self) -> None:
+        store.update_api_key({"provider": "xai", "key": "sk-test"})
+        store.update_api_key({"provider": "xai", "key": ""})
+        self.assertNotIn("sk-test", store.settings_path().read_text("utf-8"))
+        self.assertIsNone(store.resolve_xai_key())
+
+    def test_independent_updates_preserve_key_loop_mode_and_library(self) -> None:
+        root = Path(self._tmp) / "library"
+        store.update_api_key({"provider": "xai", "key": "sk-stays-put"})
+        store.update_preferences({"loop_mode": "none"})
+        store.update_library_root({"current_root": str(root)})
+        settings = store.load_settings()
+        self.assertEqual(store.resolve_xai_key(), "sk-stays-put")
+        self.assertNotIn("llm", settings)
+        self.assertNotIn("candidate_count", settings["generation"])
+        self.assertEqual(settings["generation"]["loop_mode"], "none")
+        self.assertEqual(settings["library"]["current_root"], str(root.resolve()))
+
+        # The legacy whole-object POST remains a key-only compatibility seam
+        # and must not reset the active Library or loop preference.
+        store.save_settings({
+            "llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": ""}}
+        })
+        settings = store.load_settings()
+        self.assertIsNone(store.resolve_xai_key())
+        self.assertEqual(settings["library"]["current_root"], str(root.resolve()))
+
+    def test_v2_model_preferences_are_discarded_during_migration(self) -> None:
+        path = store.settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "schema_version": 2,
+            "llm": {
+                "models": {
+                    "interpreter": "grok-4.3",
+                    "concept": "grok-imagine-image-quality",
+                    "video": "grok-imagine-video",
+                },
+                "keys": {},
+            },
+            "library": {"current_root": None, "roots": []},
+            "generation": {
+                "candidate_count": 8,
+                "loop_mode": "smooth",
+                "privacy_ack_version": None,
+                "privacy_ack_at": None,
+            },
+        }), encoding="utf-8")
+        self.assertNotIn("llm", store.load_settings())
+
+    def test_library_root_history_is_canonical_and_deduplicated(self) -> None:
+        first = Path(self._tmp) / "first"
+        second = Path(self._tmp) / "second"
+        first.mkdir()
+        second.mkdir()
+        first_spelling = first / "child" / ".."
+
+        store.update_library_root({"current_root": str(first_spelling)})
+        store.update_library_root({"current_root": str(first)})
+        self.assertEqual(store.load_settings()["library"]["roots"], [])
+        store.update_library_root({"current_root": str(second)})
+        store.update_library_root({"current_root": str(first)})
+        store.update_library_root({"current_root": None})
+
+        library = store.load_settings()["library"]
+        self.assertIsNone(library["current_root"])
+        self.assertEqual(library["roots"], [str(first.resolve()), str(second.resolve())])
+
+    def test_privacy_acknowledges_only_current_version(self) -> None:
+        from am_configurator import ai_catalog
+
+        store.update_api_key({"provider": "xai", "key": "sk-private"})
+        with self.assertRaises(ValueError):
+            store.acknowledge_privacy({"version": "older-disclosure"})
+        with self.assertRaises(ValueError):
+            store.acknowledge_privacy({
+                "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+                "extra": True,
+            })
+        saved = store.acknowledge_privacy({
+            "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+        })
+        self.assertEqual(
+            saved["ai"]["api"]["disclosure_version"],
+            ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+        )
+        self.assertRegex(
+            saved["ai"]["api"]["disclosure_at"],
+            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$",
+        )
+        self.assertEqual(store.resolve_xai_key(), "sk-private")
+
+    def test_corrupt_file_recovers(self) -> None:
+        path = store.settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{ not valid json", encoding="utf-8")
+        self.assertEqual(store.load_settings(), _DEFAULT_SETTINGS)
+        self.assertFalse(path.exists())
+        self.assertTrue(path.with_name(path.name + ".bad").exists())
+
+    def test_env_override(self) -> None:
+        store.update_api_key({"provider": "xai", "key": "sk-disk"})
+        before = store.settings_path().read_text(encoding="utf-8")
+        os.environ["XAI_API_KEY"] = "sk-env"
+        self.assertEqual(store.resolve_xai_key(), "sk-env")
+        # The env override is never persisted; disk content is untouched.
+        self.assertEqual(store.settings_path().read_text(encoding="utf-8"), before)
+        os.environ.pop("XAI_API_KEY")
+        self.assertEqual(store.resolve_xai_key(), "sk-disk")
+
+    def test_error_message_omits_secret(self) -> None:
+        secret = "sk-super-secret-should-never-be-logged"
+        with self.assertRaises(ValueError) as ctx:
+            store.update_api_key({"provider": "xai", "key": [secret]})
+        self.assertNotIn(secret, str(ctx.exception))
+
+    def test_file_permissions(self) -> None:
+        store.update_api_key({"provider": "xai", "key": "sk-test"})
+        if sys.platform.startswith("win"):
+            self.skipTest("POSIX file permissions are not enforced on Windows")
+        mode = stat.S_IMODE(os.stat(store.settings_path()).st_mode)
+        self.assertEqual(mode, 0o600)
 
 
 def _layer(fill: str = "#00000000") -> dict:
@@ -243,7 +576,13 @@ class DesktopServerTests(unittest.TestCase):
             )
 
     def test_loopback_server_can_be_owned_by_a_native_window(self) -> None:
-        server, url = create_server()
+        server, url = create_server(
+            lighting_library=object(),
+            lighting_coordinator=SimpleNamespace(
+                active_job_id=None,
+                reconcile_startup=lambda **_kwargs: [],
+            ),
+        )
         self.assertEqual("127.0.0.1", server.server_address[0])
         token = parse_qs(urlparse(url).query)["token"][0]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -266,7 +605,9 @@ class DesktopServerTests(unittest.TestCase):
                 headers={"X-AM-Token": token},
             )
             with urlopen(request, timeout=2) as response:
-                self.assertEqual(b'{"config": null}', response.read())
+                self.assertEqual(
+                    b'{"config": null, "document_revision": null}', response.read()
+                )
         finally:
             server.shutdown()
             server.server_close()
@@ -487,6 +828,1679 @@ class GifImportTests(unittest.TestCase):
         self.assertEqual("#FF0000", edges["frames"][0][0])
         self.assertEqual("#00FF00", edges["frames"][0][6])
         self.assertEqual(["#000000"] * 17, edges["frames"][0][7:])
+
+
+class FramesToLedTracksTests(unittest.TestCase):
+    def _build_gif(self) -> bytes:
+        from PIL import Image
+
+        colors = ("#FF0000", "#00FF00", "#0000FF", "#FFFF00")
+        frames = [Image.new("RGB", (18, 7), color) for color in colors]
+        source = io.BytesIO()
+        frames[0].save(
+            source,
+            format="GIF",
+            save_all=True,
+            append_images=frames[1:],
+            duration=[80, 100, 120, 80],
+            loop=0,
+        )
+        return source.getvalue()
+
+    def _decode(self, payload: bytes):
+        from PIL import Image
+
+        images = []
+        durations = []
+        with Image.open(io.BytesIO(payload)) as image:
+            count = min(int(getattr(image, "n_frames", 1)), MAX_FRAMES)
+            for index in range(count):
+                image.seek(index)
+                durations.append(int(image.info.get("duration") or 90))
+                images.append(image.convert("RGBA"))
+        return images, durations
+
+    def test_parity_with_gif_import(self) -> None:
+        try:
+            from PIL import Image  # noqa: F401
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        payload = self._build_gif()
+        images, durations = self._decode(payload)
+        cases = (
+            ("CB04", ["frames", "keyframes"]),
+            ("AM21", ["keyframes", "spotlight_frames"]),
+            ("ALICE", ["keyframes"]),
+        )
+        for product, targets in cases:
+            with self.subTest(product=product, targets=targets):
+                expected = gif_to_led_tracks(payload, targets, "nearest", product)
+                actual = frames_to_led_tracks(
+                    images, durations, targets, "nearest", product
+                )
+                self.assertEqual(expected, actual)
+
+    def test_frame_limit_and_timing(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        images = [Image.new("RGB", (4, 4), "#123456") for _ in range(300)]
+        durations = [50 if index % 2 == 0 else 100 for index in range(300)]
+        result = frames_to_led_tracks(images, durations, ["frames"], "nearest", "CB04")
+        self.assertTrue(result["timing_resampled"])
+        self.assertLessEqual(
+            result["tracks"]["frames"]["frame_count"], MAX_FRAMES
+        )
+        self.assertEqual(MAX_FRAMES, result["source_frames"])
+        self.assertEqual(MAX_FRAMES, result["decoded_frames"])
+
+    def test_rejects_empty_and_bad_target(self) -> None:
+        try:
+            from PIL import Image
+        except ModuleNotFoundError:
+            self.skipTest("Pillow is provided by the led extra")
+
+        with self.assertRaisesRegex(ValueError, "contains no frames"):
+            frames_to_led_tracks([], [], ["frames"], "nearest", "CB04")
+        with self.assertRaisesRegex(ValueError, "does not support"):
+            frames_to_led_tracks(
+                [Image.new("RGB", (4, 4))], [90], ["frames"], "nearest", "ALICE"
+            )
+
+
+# A sentinel API key used only in transport tests. It is deliberately
+# distinctive so redaction assertions can prove it never reaches an error
+# string or log line. It is not a real credential.
+_FAKE_KEY = "sk-fake-SENTINEL-do-not-log-0123456789"
+
+
+class _FakeResponse:
+    """Minimal stand-in for a urllib response: bounded ``read`` plus ``close``."""
+
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+        self.read_amounts: list[int | None] = []
+        self.closed = False
+
+    def read(self, amt: int | None = None) -> bytes:
+        self.read_amounts.append(amt)
+        if amt is None:
+            data, self._body = self._body, b""
+        else:
+            data, self._body = self._body[:amt], self._body[amt:]
+        return data
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _RecordingOpener:
+    """Fake urllib opener callable: records each call, then returns or raises.
+
+    Mirrors the real opener contract used by ``llm._xai_request``
+    (``opener(request, timeout=...)``) so the transport's parsing and error
+    mapping are exercised with zero network I/O.
+    """
+
+    def __init__(self, *, response=None, error: BaseException | None = None) -> None:
+        self._response = response
+        self._error = error
+        self.calls: list[tuple[Request, object]] = []
+
+    def __call__(self, request, timeout=None):
+        self.calls.append((request, timeout))
+        if self._error is not None:
+            raise self._error
+        return self._response
+
+
+def _request_header(request, name: str) -> str | None:
+    """Case-insensitive lookup of a header on a urllib ``Request``."""
+    for key, value in request.header_items():
+        if key.lower() == name.lower():
+            return value
+    return None
+
+
+class _FakeGetTransport:
+    """Fake xAI GET transport with no payload argument."""
+
+    def __init__(self, *, response=None, error: BaseException | None = None) -> None:
+        self._response = response
+        self._error = error
+        self.calls: list[dict] = []
+
+    def __call__(self, url, api_key, deadline):
+        self.calls.append({"url": url, "api_key": api_key, "deadline": deadline})
+        if self._error is not None:
+            raise self._error
+        return self._response
+
+
+def _responses_envelope(plan_dict: dict) -> dict:
+    """A minimal xAI ``/v1/responses`` structured-output envelope carrying
+    ``plan_dict`` as the assistant message's ``output_text`` JSON."""
+    return {
+        "output": [
+            {"type": "reasoning", "content": []},
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    {"type": "output_text", "text": json.dumps(plan_dict)}
+                ],
+            },
+        ],
+        "usage": {"input_tokens": 128, "output_tokens": 64},
+    }
+
+
+def _image_envelope(b64: str) -> dict:
+    """A minimal xAI ``/v1/images/generations`` envelope carrying one inline
+    base64 image — the ``response_format: "b64_json"`` shape the renderer reads."""
+    return {"data": [{"b64_json": b64}]}
+
+
+def _encode_image(image, fmt: str = "PNG") -> str:
+    """Serialize a Pillow image to ``fmt`` and base64-encode the bytes for a fake
+    image-generation response body (no network, no temp files)."""
+    buf = io.BytesIO()
+    image.save(buf, fmt)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+class GrokTransportTests(unittest.TestCase):
+    """Shared speed constants and bounded xAI transport behavior."""
+
+    def test_device_mapping_owns_firmware_speed_steps(self) -> None:
+        # Single source of truth: llm duplicates the tuple so it need not import
+        # server; this guard fails loudly if the two ever drift apart.
+        self.assertEqual(34, min(device_mapping.LED_SPEEDS_MS))
+
+    _URL = "https://api.x.ai/v1/responses"
+
+    def _future_deadline(self) -> float:
+        return time.monotonic() + 30.0
+
+    def _http_error(
+        self, code: int, *, retry_after=None, body: bytes = b"{}"
+    ) -> urllib.error.HTTPError:
+        hdrs = Message()
+        if retry_after is not None:
+            hdrs["Retry-After"] = str(retry_after)
+        return urllib.error.HTTPError(
+            self._URL, code, f"HTTP {code}", hdrs, io.BytesIO(body)
+        )
+
+    def test_xai_request_success_sets_headers_and_returns_dict(self) -> None:
+        payload = {"model": "grok-4.5", "input": "hi"}
+        expected = {"ok": True, "value": 42}
+        opener = _RecordingOpener(
+            response=_FakeResponse(json.dumps(expected).encode("utf-8"))
+        )
+
+        result = llm._xai_request(
+            self._URL, payload, _FAKE_KEY, self._future_deadline(), opener=opener
+        )
+
+        self.assertEqual(result, expected)
+        self.assertEqual(len(opener.calls), 1)
+        request, timeout = opener.calls[0]
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(
+            _request_header(request, "Authorization"), f"Bearer {_FAKE_KEY}"
+        )
+        self.assertEqual(
+            _request_header(request, "Content-Type"), "application/json"
+        )
+        self.assertEqual(json.loads(request.data.decode("utf-8")), payload)
+        # Per-call timeout is capped at 30s and never exceeds the deadline.
+        self.assertLessEqual(timeout, 30.0)
+        self.assertGreater(timeout, 0.0)
+
+    def test_xai_transport_pins_origin_and_never_contacts_invalid_urls(self) -> None:
+        invalid_urls = (
+            "http://api.x.ai/v1/responses",
+            "https://api.x.ai:443/v1/responses",
+            "https://api.x.ai.evil.example/v1/responses",
+            "https://api.x.ai@evil.example/v1/responses",
+            "https://api.x.ai/v1/responses?next=https://evil.example",
+            "https://api.x.ai/v1/responses#fragment",
+        )
+        for url in invalid_urls:
+            for method in ("post", "get"):
+                with self.subTest(url=url, method=method):
+                    opener = _RecordingOpener(response=_FakeResponse(b"{}"))
+                    with self.assertRaises(llm.ProviderError) as ctx:
+                        if method == "post":
+                            llm._xai_request(
+                                url,
+                                {},
+                                _FAKE_KEY,
+                                self._future_deadline(),
+                                opener=opener,
+                            )
+                        else:
+                            llm._xai_get_request(
+                                url,
+                                _FAKE_KEY,
+                                self._future_deadline(),
+                                opener=opener,
+                            )
+                    self.assertEqual(ctx.exception.code, "config")
+                    self.assertEqual(opener.calls, [])
+                    self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+
+    def test_default_xai_opener_ignores_proxies_and_refuses_redirects(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "HTTP_PROXY": "http://proxy.invalid:8000",
+                "HTTPS_PROXY": "http://proxy.invalid:8443",
+                "ALL_PROXY": "socks5://proxy.invalid:1080",
+            },
+        ):
+            open_call = llm._default_opener()
+        handlers = open_call.__self__.handlers
+        self.assertFalse(
+            any(isinstance(handler, urllib.request.ProxyHandler) for handler in handlers)
+        )
+        redirect_handler = next(
+            handler
+            for handler in handlers
+            if isinstance(handler, llm._NoXaiRedirects)
+        )
+        request = urllib.request.Request(
+            self._URL,
+            headers={"Authorization": f"Bearer {_FAKE_KEY}"},
+        )
+        for code in (301, 302, 303, 307, 308):
+            with self.subTest(code=code):
+                self.assertIsNone(
+                    redirect_handler.redirect_request(
+                        request,
+                        None,
+                        code,
+                        "redirect",
+                        Message(),
+                        "https://evil.example/collect",
+                    )
+                )
+
+    def test_actual_xai_request_ignores_environment_proxy(self) -> None:
+        sentinel_proxy = ("127.0.0.1", 54322)
+        attempted_connections = []
+
+        def block_network(address, *_args, **_kwargs):
+            attempted_connections.append(address)
+            raise OSError("test socket blocked")
+
+        with patch.dict(
+            os.environ,
+            {"HTTPS_PROXY": f"http://{sentinel_proxy[0]}:{sentinel_proxy[1]}"},
+            clear=True,
+        ):
+            opener = llm._default_opener()
+        with patch.object(socket, "create_connection", side_effect=block_network):
+            with self.assertRaises(llm.ProviderError) as captured:
+                llm._xai_request(
+                    self._URL,
+                    {},
+                    _FAKE_KEY,
+                    self._future_deadline(),
+                    opener=opener,
+                )
+
+        self.assertEqual("offline", captured.exception.code)
+        self.assertEqual([("api.x.ai", 443)], attempted_connections)
+        self.assertNotIn(sentinel_proxy, attempted_connections)
+        self.assertNotIn(_FAKE_KEY, str(captured.exception))
+
+    def test_xai_request_auth_error(self) -> None:
+        for code in (401, 403):
+            with self.subTest(code=code):
+                opener = _RecordingOpener(error=self._http_error(code))
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm._xai_request(
+                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                    )
+                self.assertEqual(ctx.exception.code, "auth")
+
+    def test_xai_request_rate_limited_passes_retry_after(self) -> None:
+        opener = _RecordingOpener(error=self._http_error(429, retry_after=7))
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(
+                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+            )
+        self.assertEqual(ctx.exception.code, "rate_limited")
+        self.assertEqual(ctx.exception.retry_after, 7)
+
+    def test_xai_request_http_error_retains_exact_usage_without_retry(self) -> None:
+        body = json.dumps(
+            {"error": {"message": _FAKE_KEY}, "usage": {"cost_in_usd_ticks": 91}}
+        ).encode("utf-8")
+        error = self._http_error(429, retry_after=7, body=body)
+        opener = _RecordingOpener(error=error)
+
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(
+                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+            )
+
+        self.assertEqual(ctx.exception.code, "rate_limited")
+        self.assertEqual(ctx.exception.retry_after, 7)
+        self.assertEqual(
+            ctx.exception.usage,
+            llm.ProviderUsage(cost_in_usd_ticks=91, reported=True),
+        )
+        self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+        self.assertEqual(len(opener.calls), 1)
+        self.assertTrue(error.fp.closed)
+
+    def test_xai_request_rate_limited_without_retry_after(self) -> None:
+        opener = _RecordingOpener(error=self._http_error(429))
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(
+                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+            )
+        self.assertEqual(ctx.exception.code, "rate_limited")
+        self.assertIsNone(ctx.exception.retry_after)
+
+    def test_xai_request_server_errors_unavailable(self) -> None:
+        for code in (500, 502, 503):
+            with self.subTest(code=code):
+                opener = _RecordingOpener(error=self._http_error(code))
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm._xai_request(
+                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                    )
+                self.assertEqual(ctx.exception.code, "unavailable")
+
+    def test_xai_request_other_4xx_bad_response(self) -> None:
+        for code in (400, 404, 422):
+            with self.subTest(code=code):
+                opener = _RecordingOpener(error=self._http_error(code))
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm._xai_request(
+                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                    )
+                self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_xai_request_offline_on_network_failure(self) -> None:
+        errors = {
+            "urlerror": urllib.error.URLError(socket.gaierror("name resolution")),
+            "connection_reset": ConnectionResetError("peer reset"),
+            "ssl": ssl.SSLError("handshake failed"),
+        }
+        for name, error in errors.items():
+            with self.subTest(case=name):
+                opener = _RecordingOpener(error=error)
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm._xai_request(
+                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                    )
+                self.assertEqual(ctx.exception.code, "offline")
+
+    def test_xai_request_timeout_on_expired_deadline_skips_opener(self) -> None:
+        opener = _RecordingOpener(response=_FakeResponse(b"{}"))
+        past_deadline = time.monotonic() - 1.0
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(self._URL, {}, _FAKE_KEY, past_deadline, opener=opener)
+        self.assertEqual(ctx.exception.code, "timeout")
+        # The deadline is enforced before any network contact.
+        self.assertEqual(opener.calls, [])
+
+    def test_xai_request_timeout_on_socket_timeout(self) -> None:
+        # A per-call timeout firing is a deadline overrun, not an offline
+        # condition (design: timeout == "deadline exceeded (any phase)").
+        for name, error in {
+            "raw": TimeoutError("slow"),
+            "wrapped": urllib.error.URLError(TimeoutError("slow")),
+        }.items():
+            with self.subTest(case=name):
+                opener = _RecordingOpener(error=error)
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm._xai_request(
+                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                    )
+                self.assertEqual(ctx.exception.code, "timeout")
+
+    def test_xai_request_oversized_body_bad_response(self) -> None:
+        # Shrink the cap so the test proves the bounded read without allocating
+        # 25 MB. The read must be bounded to cap+1 bytes, not trust in length.
+        with patch.object(llm, "MAX_PROVIDER_RESPONSE", 8):
+            body = b"x" * 20
+            response = _FakeResponse(body)
+            opener = _RecordingOpener(response=response)
+            with self.assertRaises(llm.ProviderError) as ctx:
+                llm._xai_request(
+                    self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                )
+            self.assertEqual(ctx.exception.code, "bad_response")
+            # Bounded read: exactly cap+1 bytes requested, never the whole stream.
+            self.assertEqual(response.read_amounts, [9])
+
+    def test_xai_request_non_json_bad_response(self) -> None:
+        opener = _RecordingOpener(response=_FakeResponse(b"not json {["))
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(
+                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+            )
+        self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_xai_request_non_object_json_bad_response(self) -> None:
+        opener = _RecordingOpener(response=_FakeResponse(b"[1, 2, 3]"))
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(
+                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+            )
+        self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_xai_request_no_auto_retry(self) -> None:
+        # Exactly one opener call per invocation on every path — no paid call is
+        # ever retried, including on 5xx/429 which look retryable.
+        scenarios = {
+            "success": _RecordingOpener(response=_FakeResponse(b"{}")),
+            "server_error": _RecordingOpener(error=self._http_error(503)),
+            "rate_limited": _RecordingOpener(error=self._http_error(429, retry_after=3)),
+        }
+        for name, opener in scenarios.items():
+            with self.subTest(case=name):
+                try:
+                    llm._xai_request(
+                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                    )
+                except llm.ProviderError:
+                    pass
+                self.assertEqual(len(opener.calls), 1)
+
+    def test_xai_request_redacts_secret_in_error(self) -> None:
+        # Force the key into a raised exception's own text; the transport must
+        # scrub it before it reaches ProviderError.message / str().
+        leaky = urllib.error.URLError(f"connection failed with key {_FAKE_KEY}")
+        opener = _RecordingOpener(error=leaky)
+        with self.assertRaises(llm.ProviderError) as ctx:
+            llm._xai_request(
+                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+            )
+        self.assertEqual(ctx.exception.code, "offline")
+        self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+        self.assertNotIn(_FAKE_KEY, ctx.exception.message)
+
+    def test_xai_request_secret_absent_across_all_error_paths(self) -> None:
+        # Sweep every error mapping and assert the key never surfaces.
+        openers = [
+            _RecordingOpener(error=self._http_error(401)),
+            _RecordingOpener(error=self._http_error(429, retry_after=7)),
+            _RecordingOpener(error=self._http_error(500)),
+            _RecordingOpener(error=self._http_error(404)),
+            _RecordingOpener(error=urllib.error.URLError("boom")),
+            _RecordingOpener(error=TimeoutError("slow")),
+            _RecordingOpener(response=_FakeResponse(b"not json")),
+        ]
+        for opener in openers:
+            with self.assertRaises(llm.ProviderError) as ctx:
+                llm._xai_request(
+                    self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
+                )
+            self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+            self.assertNotIn(_FAKE_KEY, ctx.exception.message)
+
+
+
+
+class HistoricalVideoPollProviderTests(unittest.TestCase):
+    """Status-only recovery for historical accepted xAI video requests."""
+
+    def _future_deadline(self) -> float:
+        return time.monotonic() + 30.0
+
+    def test_poll_validates_request_id_before_get_and_accepts_every_status(self) -> None:
+        invalid_ids = (
+            "",
+            "-starts-wrong",
+            "has/slash",
+            "has?query",
+            "has#fragment",
+            "has%2Fescape",
+            "has\ncontrol",
+            "a" * 201,
+        )
+        for request_id in invalid_ids:
+            transport = _FakeGetTransport(response={})
+            provider = llm.XaiVideoProvider(
+                _FAKE_KEY,
+                poll_transport=transport,
+            )
+            with self.subTest(request_id=request_id):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    provider.poll(request_id, self._future_deadline())
+                self.assertEqual(ctx.exception.code, "config")
+                self.assertEqual(transport.calls, [])
+
+        longest = "a" + "~" * 199
+        transport = _FakeGetTransport(response={"status": "pending"})
+        result = llm.XaiVideoProvider(
+            _FAKE_KEY,
+            poll_transport=transport,
+        ).poll(longest, self._future_deadline())
+        self.assertEqual(result.request_id, longest)
+        self.assertEqual(len(transport.calls), 1)
+
+        for status in ("pending", "failed", "expired"):
+            response = {
+                "status": status,
+                "usage": {"cost_in_usd_ticks": 17},
+            }
+            transport = _FakeGetTransport(response=response)
+            result = llm.XaiVideoProvider(
+                _FAKE_KEY,
+                poll_transport=transport,
+            ).poll("req_123", self._future_deadline())
+            self.assertEqual(result.status, status)
+            self.assertIsNone(result.video_url)
+            self.assertIsNone(result.duration)
+            self.assertEqual(result.usage.cost_in_usd_ticks, 17)
+            self.assertEqual(
+                transport.calls[0]["url"],
+                llm.XAI_VIDEO_STATUS_URL.format(request_id="req_123"),
+            )
+
+    def test_poll_rejects_malformed_or_mismatched_echoed_request_ids(self) -> None:
+        signed_url = "https://cdn.example/video.mp4?signature=temporary-secret"
+        for echoed_request_id in ("different_request", "has/slash", None):
+            response = {
+                "request_id": echoed_request_id,
+                "status": "done",
+                "video": {"url": signed_url, "duration": 1},
+                "usage": {"cost_in_usd_ticks": 29},
+            }
+            provider = llm.XaiVideoProvider(
+                _FAKE_KEY,
+                poll_transport=_FakeGetTransport(response=response),
+            )
+            with self.subTest(echoed_request_id=echoed_request_id):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    provider.poll("req_123", self._future_deadline())
+                self.assertEqual(ctx.exception.code, "bad_response")
+                self.assertEqual(ctx.exception.usage.cost_in_usd_ticks, 29)
+
+    def test_done_requires_one_second_video_url_and_usage_is_exact_or_missing(self) -> None:
+        signed_url = "https://cdn.example/video.mp4?signature=temporary-secret"
+        done = {
+            "request_id": "req.done-1",
+            "status": "done",
+            "video": {"url": signed_url, "duration": 1},
+        }
+        result = llm.XaiVideoProvider(
+            _FAKE_KEY,
+            poll_transport=_FakeGetTransport(response=done),
+        ).poll("req.done-1", self._future_deadline())
+        self.assertEqual(result.video_url, signed_url)
+        self.assertEqual(result.duration, 1)
+        self.assertIsNone(result.usage.cost_in_usd_ticks)
+        self.assertFalse(result.usage.reported)
+        self.assertNotIn(signed_url, repr(result))
+        self.assertNotIn(signed_url, str(result))
+
+        bad_responses = (
+            {**done, "status": "queued"},
+            {**done, "video": {}},
+            {**done, "video": {"url": "", "duration": 1}},
+            {**done, "video": {"url": signed_url, "duration": 2}},
+            {**done, "usage": {"cost_in_usd_ticks": True}},
+        )
+        for response in bad_responses:
+            with self.subTest(response=response):
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm.XaiVideoProvider(
+                        _FAKE_KEY,
+                        poll_transport=_FakeGetTransport(response=response),
+                    ).poll("req.done-1", self._future_deadline())
+                self.assertEqual(ctx.exception.code, "bad_response")
+
+    def test_poll_preserves_typed_usage_and_redacts_errors(self) -> None:
+        usage = llm.ProviderUsage(cost_in_usd_ticks=77, reported=True)
+        transport = _FakeGetTransport(error=llm.ProviderError(
+            "rate_limited",
+            f"poll failed using {_FAKE_KEY}",
+            retry_after=9,
+            usage=usage,
+        ))
+        provider = llm.XaiVideoProvider(
+            _FAKE_KEY,
+            poll_transport=transport,
+        )
+        with self.assertRaises(llm.ProviderError) as ctx:
+            provider.poll("req_1", self._future_deadline())
+        self.assertEqual(ctx.exception.code, "rate_limited")
+        self.assertEqual(ctx.exception.retry_after, 9)
+        self.assertEqual(ctx.exception.usage, usage)
+        self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+        self.assertEqual(len(transport.calls), 1)
+
+    def test_get_transport_uses_validated_url_deadline_timeout_and_no_body(self) -> None:
+        response = _FakeResponse(json.dumps({
+            "request_id": "req_1", "status": "pending"
+        }).encode("utf-8"))
+        opener = _RecordingOpener(response=response)
+        with patch.object(llm.time, "monotonic", return_value=100.0):
+            parsed = llm._xai_get_request(
+                llm.XAI_VIDEO_STATUS_URL.format(request_id="req_1"),
+                _FAKE_KEY,
+                112.5,
+                opener=opener,
+            )
+        self.assertEqual(parsed["status"], "pending")
+        self.assertEqual(len(opener.calls), 1)
+        request, timeout = opener.calls[0]
+        self.assertEqual(request.get_method(), "GET")
+        self.assertIsNone(request.data)
+        self.assertEqual(timeout, 12.5)
+
+        expired = _RecordingOpener(response=response)
+        with patch.object(llm.time, "monotonic", return_value=200.0):
+            with self.assertRaises(llm.ProviderError) as ctx:
+                llm._xai_get_request(
+                    llm.XAI_VIDEO_STATUS_URL.format(request_id="req_1"),
+                    _FAKE_KEY,
+                    200.0,
+                    opener=expired,
+                )
+        self.assertEqual(ctx.exception.code, "timeout")
+        self.assertEqual(expired.calls, [])
+
+
+class LedGenerateEndpointTests(unittest.TestCase):
+    """Task 8: settings + capabilities HTTP endpoints on the loopback server.
+
+    Each test starts a real ``create_server`` instance on a background thread and
+    drives it over localhost with ``X-AM-Token``. Settings persistence is isolated
+    to a temp ``AM_CONFIGURATOR_DATA_DIR`` and the ``XAI_API_KEY`` override is
+    cleared, so nothing here reads a real environment or credential.
+    """
+
+    _DEFAULT = object()  # sentinel: use the server's own token
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.mkdtemp(prefix="am_endpoint_test_")
+        self._saved_env = {
+            k: os.environ.get(k)
+            for k in ("AM_CONFIGURATOR_DATA_DIR", "XDG_DATA_HOME", "XAI_API_KEY")
+        }
+        os.environ.pop("XDG_DATA_HOME", None)
+        os.environ.pop("XAI_API_KEY", None)
+        os.environ["AM_CONFIGURATOR_DATA_DIR"] = self._tmp
+        self._server, url = create_server()
+        self._token = parse_qs(urlparse(url).query)["token"][0]
+        self._base = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, daemon=True
+        )
+        self._thread.start()
+
+    def tearDown(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _request(self, method, path, body=None, token=_DEFAULT):
+        headers = {}
+        tok = self._token if token is self._DEFAULT else token
+        if tok is not None:
+            headers["X-AM-Token"] = tok
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = Request(self._base + path, data=data, method=method, headers=headers)
+        try:
+            with urlopen(request, timeout=5) as response:
+                raw = response.read()
+                return response.status, (json.loads(raw) if raw else None)
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            return exc.code, (json.loads(raw) if raw else None)
+
+    def _save_key(self, value: str) -> None:
+        status, _ = self._request(
+            "POST",
+            "/api/settings/credential",
+            {"provider": "xai", "key": value},
+        )
+        self.assertEqual(status, 200)
+
+    def test_non_ascii_auth_header_is_cleanly_rejected(self) -> None:
+        for method, body in ((b"GET", b""), (b"POST", b"{}")):
+            with self.subTest(method=method.decode("ascii")):
+                with socket.create_connection(
+                    ("127.0.0.1", self._server.server_port),
+                    timeout=5,
+                ) as connection:
+                    request = (
+                        method
+                        + b" /api/settings HTTP/1.1\r\n"
+                        + b"Host: 127.0.0.1\r\n"
+                        + b"X-AM-Token: \xff\r\n"
+                        + b"Content-Length: "
+                        + str(len(body)).encode("ascii")
+                        + b"\r\nConnection: close\r\n\r\n"
+                        + body
+                    )
+                    connection.sendall(request)
+                    response = bytearray()
+                    while True:
+                        chunk = connection.recv(4096)
+                        if not chunk:
+                            break
+                        response.extend(chunk)
+
+                headers, payload = bytes(response).split(b"\r\n\r\n", 1)
+                self.assertIn(b" 403 ", headers.splitlines()[0])
+                self.assertEqual(
+                    {"error": "Unauthorized local request."},
+                    json.loads(payload),
+                )
+
+    def test_internal_get_post_and_accepted_write_errors_are_redacted(self) -> None:
+        private_detail = f"device output at {Path(self._tmp) / 'private.json'}"
+        expected = {"error": "The local request failed unexpectedly."}
+
+        with patch(
+            "am_configurator.device.list_devices",
+            side_effect=OSError(private_detail),
+        ):
+            status, response = self._request("GET", "/api/devices")
+        self.assertEqual(500, status)
+        self.assertEqual(expected, response)
+        self.assertNotIn(private_detail, json.dumps(response))
+
+        self._server.state.desktop_bridge = SimpleNamespace(
+            choose_library_folder=lambda: (_ for _ in ()).throw(
+                OSError(private_detail)
+            )
+        )
+        status, response = self._request(
+            "POST",
+            "/api/native/choose-library",
+            {},
+        )
+        self.assertEqual(500, status)
+        self.assertEqual(expected, response)
+        self.assertNotIn(private_detail, json.dumps(response))
+
+        with patch(
+            "am_configurator.server._Handler._save_settings_preferences",
+            side_effect=RuntimeError(private_detail),
+        ):
+            status, response = self._request(
+                "POST",
+                "/api/settings/preferences",
+                {"loop_mode": "smooth"},
+            )
+        self.assertEqual(500, status)
+        self.assertEqual(expected, response)
+        self.assertNotIn(private_detail, json.dumps(response))
+
+        with patch(
+            "am_configurator.server._Handler._write_device",
+            side_effect=AcceptedWriteError(private_detail),
+        ):
+            status, response = self._request("POST", "/api/device/write", {})
+        self.assertEqual(409, status)
+        self.assertEqual(True, response["accepted"])
+        self.assertEqual(True, response["retryable"])
+        self.assertNotIn(private_detail, json.dumps(response))
+
+    def test_current_credential_route_masks_key(self) -> None:
+        key = "sk-secret-9WXYZ7788"
+        status, saved = self._request(
+            "POST",
+            "/api/settings/credential",
+            {"provider": "xai", "key": key},
+        )
+        self.assertEqual(status, 200)
+        # Even the POST response must never echo the raw key back to the browser.
+        self.assertNotIn(key, json.dumps(saved))
+        self.assertNotIn("llm", saved)
+        self.assertEqual(store.resolve_xai_key(), key)
+
+        status, data = self._request("GET", "/api/settings")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["schema_version"], 5)
+        self.assertNotIn("llm", data)
+        self.assertNotIn("candidate_count", data["generation"])
+        # The raw key never returns to the browser, anywhere in the payload.
+        self.assertNotIn(key, json.dumps(data))
+
+        # Posting the display mask sentinel can never round-trip into storage.
+        status, _ = self._request(
+            "POST",
+            "/api/settings/credential",
+            {"provider": "xai", "key": store.KEY_MASK},
+        )
+        self.assertEqual(status, 400)
+
+    def test_settings_masks_even_a_short_key_in_full(self) -> None:
+        key = "tiny"
+        status, saved = self._request(
+            "POST", "/api/settings/credential", {"provider": "xai", "key": key}
+        )
+        self.assertEqual(status, 200)
+        self.assertNotIn(key, json.dumps(saved))
+        self.assertNotIn("llm", saved)
+        self.assertEqual(store.resolve_xai_key(), key)
+
+    def test_split_settings_routes_update_sections_independently(self) -> None:
+        from am_configurator import ai_catalog
+
+        key = "sk-split-route-12345678"
+        status, data = self._request(
+            "POST", "/api/settings/credential", {"provider": "xai", "key": key}
+        )
+        self.assertEqual(status, 200)
+        self.assertNotIn(key, json.dumps(data))
+        self.assertNotIn("llm", data)
+        self.assertEqual(store.resolve_xai_key(), key)
+
+        status, data = self._request(
+            "POST", "/api/settings/preferences", {"loop_mode": "ping_pong"}
+        )
+        self.assertEqual(status, 200)
+        self.assertNotIn("candidate_count", data["generation"])
+        self.assertEqual(data["generation"]["loop_mode"], "ping_pong")
+        self.assertEqual(store.resolve_xai_key(), key)
+
+        library = Path(self._tmp) / "generated-library"
+        status, data = self._request(
+            "POST", "/api/settings/library", {"current_root": str(library)}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["library"]["current_root"], str(library.resolve()))
+        self.assertEqual(store.resolve_xai_key(), key)
+
+        status, data = self._request("POST", "/api/settings/privacy", {
+            "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            data["generation"]["privacy_ack_version"],
+            ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+        )
+        self.assertTrue(data["generation"]["privacy_ack_at"])
+        self.assertEqual(store.resolve_xai_key(), key)
+
+        status, data = self._request(
+            "POST", "/api/settings/credential", {"provider": "xai", "key": ""}
+        )
+        self.assertEqual(status, 200)
+        self.assertIsNone(store.resolve_xai_key())
+        status, data = self._request("GET", "/api/settings")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["library"]["current_root"], str(library.resolve()))
+
+    def test_split_settings_routes_are_strict_and_never_echo_secrets(self) -> None:
+        from am_configurator import ai_catalog
+
+        secret = "sk-must-not-appear-anywhere"
+        invalid_cases = (
+            ("/api/settings/credential", {"provider": "xai", "key": [secret]}),
+            ("/api/settings/credential", {"provider": "xai", "key": "x", "extra": 1}),
+            ("/api/settings/preferences", {"models": {"interpreter": "future"}}),
+            ("/api/settings/preferences", {"candidate_count": 9}),
+            ("/api/settings/preferences", {"loop_mode": "crossfade"}),
+            ("/api/settings/preferences", {"unknown": True}),
+            ("/api/settings/library", {"current_root": None, "unknown": True}),
+            ("/api/settings/privacy", {"version": "old"}),
+            (
+                "/api/settings/privacy",
+                {"version": ai_catalog.PRIVACY_DISCLOSURE_VERSION, "unknown": True},
+            ),
+        )
+        for path, body in invalid_cases:
+            with self.subTest(path=path, body=body):
+                status, data = self._request("POST", path, body)
+                self.assertEqual(status, 400)
+                self.assertNotIn(secret, json.dumps(data))
+        self.assertFalse(store.settings_path().exists())
+
+    def test_capabilities(self) -> None:
+        from am_configurator import ai_catalog
+
+        status, data = self._request("GET", "/api/led/capabilities")
+        self.assertEqual(status, 200)
+
+        self.assertEqual(data["ai_catalog"], ai_catalog.catalog_view())
+        self.assertEqual(
+            data["privacy_disclosure_version"],
+            ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+        )
+        self.assertEqual(
+            data["model_frame_caps"],
+            dict(device_mapping.MODEL_FRAME_CAPS),
+        )
+        self.assertNotIn("models", data)
+        self.assertNotIn("providers", data)
+        self.assertNotIn("max_rendered_keyframes", data)
+
+        # Single-CB-target rule: CB's two targets are different rasters, so exactly
+        # one may be generated at a time and neither pairs with the other.
+        cb = data["targets"]["CB"]
+        self.assertTrue(cb["single_target"])
+        for target in cb["targets"]:
+            self.assertEqual(target["extra_targets"], [])
+
+        # Relic pair: keyframes and spotlight_frames share one raster, so each is
+        # the other's extra_target and the model is not single-target.
+        relic = data["targets"]["80"]
+        self.assertFalse(relic["single_target"])
+        by_name = {target["name"]: target for target in relic["targets"]}
+        self.assertIn("spotlight_frames", by_name["keyframes"]["extra_targets"])
+        self.assertIn("keyframes", by_name["spotlight_frames"]["extra_targets"])
+
+    def test_obsolete_ai_settings_routes_and_raw_key_helper_are_gone(self) -> None:
+        class TrackingCredentialStore:
+            def __init__(self) -> None:
+                self.calls: list[tuple] = []
+
+            def get(self, provider):
+                self.calls.append(("get", provider))
+                return "existing-key"
+
+            def set(self, provider, value):
+                self.calls.append(("set", provider, value))
+
+            def delete(self, provider):
+                self.calls.append(("delete", provider))
+
+        vault = TrackingCredentialStore()
+        self._server.state._credential_store = vault
+        with patch.object(
+            llm,
+            "_xai_get_request",
+            return_value={"models": []},
+        ) as provider:
+            for path, body in (
+                ("/api/settings/key", {"provider": "xai", "key": "must-not-land"}),
+                ("/api/settings/test", {}),
+            ):
+                with self.subTest(path=path):
+                    status, response = self._request("POST", path, body)
+                    self.assertIn(status, {404, 410})
+                    self.assertNotIn("must-not-land", json.dumps(response))
+
+        self.assertEqual([], vault.calls)
+        provider.assert_not_called()
+        self.assertFalse(hasattr(server._Handler, "_lighting_settings"))
+        self.assertFalse(hasattr(server, "_xai_get"))
+        self.assertFalse(hasattr(self._server.state, "llm_transport"))
+
+    def test_native_folder_actions_dispatch_through_the_desktop_bridge(self) -> None:
+        revealed: list[str] = []
+        bridge = SimpleNamespace(
+            choose_library_folder=lambda: "/tmp/chosen-library",
+            reveal_library_path=lambda path: revealed.append(path) is None,
+        )
+        self._server.state.desktop_bridge = bridge
+
+        status, data = self._request("POST", "/api/native/choose-library", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(data, {"path": "/tmp/chosen-library"})
+
+        status, data = self._request(
+            "POST", "/api/native/reveal-library", {"path": "/tmp/chosen-library"}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data, {"revealed": True})
+        self.assertEqual(revealed, ["/tmp/chosen-library"])
+
+    def test_requires_auth(self) -> None:
+        cases = [
+            ("GET", "/api/settings", None),
+            ("GET", "/api/led/capabilities", None),
+            ("GET", "/api/led/generate/status?job=x", None),
+            ("POST", "/api/settings/key", {"provider": "xai", "key": "x"}),
+            ("POST", "/api/settings/preferences", {"candidate_count": 4}),
+            ("POST", "/api/settings/library", {"current_root": None}),
+            ("POST", "/api/settings/privacy", {"version": "anything"}),
+            ("POST", "/api/settings/test", {}),
+            (
+                "POST",
+                "/api/led/generate",
+                {"prompt": "p", "product_id": "CB04", "targets": ["frames"]},
+            ),
+            ("POST", "/api/led/generate/cancel", {}),
+        ]
+        for method, path, body in cases:
+            with self.subTest(method=method, path=path):
+                status, _ = self._request(method, path, body, token=None)
+                self.assertEqual(status, 403)
+
+    def test_legacy_generation_routes_are_retired(self) -> None:
+        cases = (
+            ("GET", "/api/led/generate/status?job=old", None),
+            (
+                "POST",
+                "/api/led/generate",
+                {"prompt": "old", "product_id": "CB04", "targets": ["frames"]},
+            ),
+            ("POST", "/api/led/generate/cancel", {}),
+        )
+        for method, path, body in cases:
+            with self.subTest(method=method, path=path):
+                status, data = self._request(method, path, body)
+                self.assertEqual(410, status)
+                self.assertEqual("retired", data["code"])
+
+
+class _LightingEndpointCoordinator:
+    def __init__(self, library: GeneratedAssetLibrary) -> None:
+        self.library = library
+        self.calls: list[tuple[str, tuple, dict]] = []
+        self.reconcile_calls: list[str | None] = []
+        self.failure: Exception | None = None
+        self.active_job_id: str | None = None
+
+    def reconcile_startup(
+        self,
+        *,
+        api_key: str | None = None,
+        _admission_token: object | None = None,
+    ):
+        del _admission_token
+        self.reconcile_calls.append(api_key)
+        return []
+
+    def _raise_or_record(self, name: str, args: tuple, kwargs: dict) -> None:
+        self.calls.append((name, args, kwargs))
+        if self.failure is not None:
+            raise self.failure
+
+    def cancel(self, job_id: str):
+        self._raise_or_record("cancel", (job_id,), {})
+        return self.library.load_manifest(job_id)
+
+
+class CombinedReconciliationAdmissionTests(unittest.TestCase):
+    def test_legacy_and_procedural_reconciliation_share_one_state_lease(self) -> None:
+        gate = generation.OperationGate()
+        procedural_entered = threading.Event()
+        release_procedural = threading.Event()
+
+        class LegacyCoordinator:
+            active_job_id = None
+
+            def __init__(self) -> None:
+                self.tokens: list[object | None] = []
+
+            def reconcile_startup(
+                self,
+                *,
+                api_key=None,
+                _admission_token=None,
+            ) -> list[dict]:
+                del api_key
+                self.tokens.append(_admission_token)
+                if _admission_token is None:
+                    token, _cancelled = gate.begin()
+                    gate.finish(token)
+                return []
+
+        class ProceduralCoordinator:
+            active_job_id = None
+
+            def __init__(self) -> None:
+                self.tokens: list[object | None] = []
+
+            def reconcile_startup(self, *, _admission_token=None) -> list[dict]:
+                self.tokens.append(_admission_token)
+                procedural_entered.set()
+                if not release_procedural.wait(2):
+                    raise TimeoutError("test did not release procedural reconciliation")
+                if _admission_token is None:
+                    token, _cancelled = gate.begin()
+                    gate.finish(token)
+                return []
+
+        library = object()
+        legacy = LegacyCoordinator()
+        procedural = ProceduralCoordinator()
+        state = server._State(
+            None,
+            "test-token",
+            lighting_library=library,
+            lighting_coordinator=legacy,
+            lighting_dependencies={"operation_gate": gate},
+            credential_store=credentials.MemoryCredentialStore(),
+            procedural_coordinator=procedural,
+        )
+        failures: list[BaseException] = []
+
+        def run_reconciliation() -> None:
+            try:
+                with patch.object(store, "resolve_xai_key", return_value=None):
+                    state.reconcile_lighting(force=True)
+            except BaseException as error:
+                failures.append(error)
+
+        worker = threading.Thread(target=run_reconciliation)
+        worker.start()
+        admitted = None
+        try:
+            self.assertTrue(procedural_entered.wait(1))
+            with self.assertRaises(generation.GenerationBusyError):
+                admitted = gate.begin("concurrent-generation")
+        finally:
+            if admitted is not None:
+                gate.finish(admitted[0])
+            release_procedural.set()
+            worker.join(2)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual([], failures)
+        self.assertEqual(1, len(legacy.tokens))
+        self.assertIsNotNone(legacy.tokens[0])
+        self.assertEqual(legacy.tokens, procedural.tokens)
+        replacement_token, _replacement_cancelled = gate.begin("after-reconcile")
+        gate.finish(replacement_token)
+
+
+class AIServiceConstructionTests(unittest.TestCase):
+    def test_concurrent_requests_publish_one_capability_service(self) -> None:
+        state = server._State(
+            None,
+            "test-token",
+            credential_store=credentials.MemoryCredentialStore(),
+        )
+        created: list[object] = []
+        first_factory_entered = threading.Event()
+        second_factory_entered = threading.Event()
+        release_factory = threading.Event()
+        results: list[object] = []
+
+        def build_service(**_kwargs):
+            service = object()
+            created.append(service)
+            first_factory_entered.set()
+            if len(created) > 1:
+                second_factory_entered.set()
+            if not release_factory.wait(2):
+                raise TimeoutError("test did not release service construction")
+            return service
+
+        def resolve_service() -> None:
+            results.append(state.ai_services())
+
+        with patch(
+            "am_configurator.ai_capability.AICapabilityService",
+            side_effect=build_service,
+        ):
+            first = threading.Thread(target=resolve_service)
+            second = threading.Thread(target=resolve_service)
+            first.start()
+            self.assertTrue(first_factory_entered.wait(1))
+            second.start()
+            second_factory_entered.wait(0.2)
+            release_factory.set()
+            first.join(2)
+            second.join(2)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(second.is_alive())
+        self.assertEqual(1, len(created))
+        self.assertEqual(2, len(results))
+        self.assertIs(results[0], results[1])
+
+
+class LightingStudioEndpointTests(unittest.TestCase):
+    _DEFAULT = object()
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.mkdtemp(prefix="am_lighting_endpoint_")
+        self._saved_env = {
+            key: os.environ.get(key)
+            for key in ("AM_CONFIGURATOR_DATA_DIR", "XDG_DATA_HOME", "XAI_API_KEY")
+        }
+        os.environ.pop("XDG_DATA_HOME", None)
+        os.environ.pop("XAI_API_KEY", None)
+        os.environ["AM_CONFIGURATOR_DATA_DIR"] = self._tmp
+        self.root = Path(self._tmp) / "generated"
+        store.update_library_root({"current_root": str(self.root)})
+        store.update_api_key({"provider": "xai", "key": "sk-lighting-secret"})
+        store.acknowledge_privacy({"version": "2026-07-20-xai-v1"})
+        self.library = GeneratedAssetLibrary(self.root, minimum_free_bytes=1)
+        self.coordinator = _LightingEndpointCoordinator(self.library)
+        self._server, url = create_server(
+            lighting_library=self.library,
+            lighting_coordinator=self.coordinator,
+        )
+        self._token = parse_qs(urlparse(url).query)["token"][0]
+        self._base = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+    def tearDown(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _request(self, method, path, body=None, token=_DEFAULT):
+        headers = {}
+        selected = self._token if token is self._DEFAULT else token
+        if selected is not None:
+            headers["X-AM-Token"] = selected
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = Request(self._base + path, data=data, method=method, headers=headers)
+        try:
+            with urlopen(request, timeout=5) as response:
+                raw = response.read()
+                return response.status, (json.loads(raw) if raw else None)
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            return exc.code, (json.loads(raw) if raw else None)
+
+    def _raw_request(self, path: str, *, headers: dict | None = None, token=_DEFAULT):
+        request_headers = dict(headers or {})
+        selected = self._token if token is self._DEFAULT else token
+        if selected is not None:
+            request_headers["X-AM-Token"] = selected
+        request = Request(self._base + path, method="GET", headers=request_headers)
+        try:
+            with urlopen(request, timeout=5) as response:
+                return response.status, dict(response.headers.items()), response.read()
+        except urllib.error.HTTPError as exc:
+            return exc.code, dict(exc.headers.items()), exc.read()
+
+    def _job(self, *, prompt="library ember", status="awaiting_selection") -> dict:
+        manifest = self.library.create_job(
+            prompt=prompt,
+            target={
+                "family": "CB",
+                "product_id": "CB_TEST",
+                "raster": {"width": 40, "height": 5},
+                "targets": ["frames"],
+                "frame_cap": 80,
+            },
+            models={
+                "interpreter": "grok-4.5",
+                "concept": "grok-imagine-image",
+                "video": "grok-imagine-video-1.5",
+            },
+            loop_mode="smooth",
+        )
+        return self.library.update_manifest(
+            manifest["job_id"], {"status": status, "phase": status}
+        )
+
+    def test_routes_are_authenticated_and_legacy_creation_is_retired(self) -> None:
+        paths = (
+            ("POST", "/api/lighting/concepts", {"prompt": "p", "product_id": "CB04", "targets": ["frames"]}),
+            ("GET", "/api/lighting/library", None),
+            ("GET", "/api/lighting/jobs/00000000-0000-4000-8000-000000000000", None),
+            ("POST", "/api/lighting/jobs/00000000-0000-4000-8000-000000000000/cancel", {}),
+            ("GET", "/api/lighting/assets/00000000-0000-4000-8000-000000000000/00000000-0000-4000-8000-000000000000", None),
+        )
+        for method, path, body in paths:
+            with self.subTest(path=path):
+                if method == "GET":
+                    status, _headers, _raw = self._raw_request(path, token=None)
+                else:
+                    status, _data = self._request(method, path, body, token=None)
+                self.assertEqual(403, status)
+
+        with patch("am_configurator.writer.write_config") as write_config:
+            status, data = self._request(
+                "POST",
+                "/api/lighting/concepts",
+                {
+                    "prompt": "A violet comet",
+                    "product_id": "CB04",
+                    "targets": ["frames"],
+                    "candidate_count": 3,
+                    "loop_mode": "smooth",
+                },
+            )
+        self.assertEqual(410, status)
+        self.assertEqual("retired", data["code"])
+        self.assertNotIn("sk-lighting-secret", json.dumps(data))
+        self.assertEqual([], self.coordinator.calls)
+        write_config.assert_not_called()
+
+    def test_startup_reconciliation_retries_when_a_key_becomes_available(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+        store.update_api_key({"provider": "xai", "key": ""})
+        coordinator = _LightingEndpointCoordinator(self.library)
+        self._server, url = create_server(
+            lighting_library=self.library,
+            lighting_coordinator=coordinator,
+        )
+        self._token = parse_qs(urlparse(url).query)["token"][0]
+        self._base = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+        self.assertEqual([None], coordinator.reconcile_calls)
+        status, response = self._request(
+            "POST",
+            "/api/settings/credential",
+            {"provider": "xai", "key": "sk-restored-secret"},
+        )
+        self.assertEqual(200, status)
+        self.assertEqual([None, "sk-restored-secret"], coordinator.reconcile_calls)
+        self.assertNotIn("sk-restored-secret", json.dumps(response))
+
+    def test_reconciliation_waits_for_active_generation_to_finish(self) -> None:
+        gate = generation.OperationGate()
+        coordinator = _LightingEndpointCoordinator(self.library)
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+        self._server, url = create_server(
+            lighting_library=self.library,
+            lighting_coordinator=coordinator,
+            lighting_dependencies={"operation_gate": gate},
+        )
+        self._token = parse_qs(urlparse(url).query)["token"][0]
+        self._base = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+        coordinator.reconcile_calls.clear()
+
+        token, _cancelled = gate.begin("active-generation")
+        try:
+            self.assertEqual([], self._server.state.reconcile_lighting(force=True))
+            self.assertEqual([], coordinator.reconcile_calls)
+        finally:
+            gate.finish(token)
+
+        deadline = time.monotonic() + 2
+        while not coordinator.reconcile_calls and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(["sk-lighting-secret"], coordinator.reconcile_calls)
+
+    def test_retired_generation_stays_gone_while_admission_is_busy(self) -> None:
+        gate = generation.OperationGate()
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+        self._server, url = create_server(
+            lighting_dependencies={"operation_gate": gate},
+        )
+        self._token = parse_qs(urlparse(url).query)["token"][0]
+        self._base = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+        legacy_body = {
+            "prompt": "violet pulse",
+            "product_id": "CB04",
+            "targets": ["frames"],
+            "frame_count": 1,
+        }
+
+        durable_token, _cancelled = gate.begin("durable-test-job")
+        try:
+            status, data = self._request("POST", "/api/led/generate", legacy_body)
+        finally:
+            gate.finish(durable_token)
+        self.assertEqual(410, status)
+        self.assertEqual("retired", data["code"])
+
+    def test_retired_mutations_and_legacy_cancel_dispatch_without_device_writes(self) -> None:
+        job = self._job()
+        job_id = job["job_id"]
+        retired = (
+            ("/api/lighting/concepts", {"prompt": "old"}),
+            (f"/api/lighting/jobs/{job_id}/concepts", {"candidate_count": 2}),
+            (
+                f"/api/lighting/jobs/{job_id}/animate",
+                {"candidate_id": "00000000-0000-4000-8000-000000000001", "motion": "pulse", "loop_mode": "none"},
+            ),
+            (f"/api/lighting/jobs/{job_id}/process", {}),
+        )
+        with patch("am_configurator.writer.write_config") as write_config:
+            for path, body in retired:
+                with self.subTest(path=path):
+                    status, data = self._request("POST", path, body)
+                    self.assertEqual(410, status)
+                    self.assertEqual("retired", data["code"])
+            status, data = self._request(
+                "POST", f"/api/lighting/jobs/{job_id}/cancel", {}
+            )
+            self.assertEqual(200, status)
+            self.assertEqual(job_id, data["job_id"])
+            self.assertEqual("cancel", self.coordinator.calls[-1][0])
+            write_config.assert_not_called()
+
+        before = len(self.coordinator.calls)
+        status, _ = self._request(
+            "POST", f"/api/lighting/jobs/{job_id}/cancel", {"extra": True}
+        )
+        self.assertEqual(400, status)
+        status, _ = self._request(
+            "POST", "/api/lighting/jobs/not-a-job/cancel", {}
+        )
+        self.assertEqual(400, status)
+        self.assertEqual(before, len(self.coordinator.calls))
+
+    def test_retired_creation_never_dispatches_provider_errors(self) -> None:
+        cases = (
+            LibraryRootError("library unavailable"),
+            generation.GenerationBusyError("busy"),
+            generation.GenerationNotActiveError("not active"),
+            llm.ProviderError("rate_limited", "slow", retry_after=9),
+            llm.ProviderError("unavailable", "provider unavailable"),
+        )
+        for error in cases:
+            with self.subTest(error=type(error).__name__):
+                self.coordinator.failure = error
+                status, data = self._request(
+                    "POST",
+                    "/api/lighting/concepts",
+                    {"prompt": "p", "product_id": "CB04", "targets": ["frames"]},
+                )
+                self.assertEqual(410, status)
+                self.assertEqual("retired", data["code"])
+                self.assertNotIn("sk-lighting-secret", json.dumps(data))
+                self.assertEqual([], self.coordinator.calls)
+        self.coordinator.failure = None
+
+    def test_unexpected_lighting_errors_never_expose_local_paths(self) -> None:
+        secret_path = self.root / "jobs" / "private-video.mp4"
+        job_id = "00000000-0000-4000-8000-000000000000"
+        asset_id = "00000000-0000-4000-8000-000000000001"
+        with patch.object(
+            self.library,
+            "resolve_asset",
+            side_effect=OSError(f"asset changed at {secret_path}"),
+        ):
+            status, _headers, payload = self._raw_request(
+                f"/api/lighting/assets/{job_id}/{asset_id}"
+            )
+        self.assertEqual(500, status)
+        self.assertNotIn(str(self.root).encode(), payload)
+        self.assertEqual(
+            "The local request failed unexpectedly.",
+            json.loads(payload)["error"],
+        )
+
+    def test_durable_job_snapshots_and_filterable_pagination_are_pathless(self) -> None:
+        first = self._job(prompt="violet ember", status="ready")
+        self.library.bank_asset(
+            first["job_id"],
+            kind="concept",
+            data=b"concept",
+            mime_type="image/png",
+            origin="test",
+        )
+        self._job(prompt="blue ocean", status="failed")
+        self._job(prompt="violet pulse", status="ready")
+        status, snapshot = self._request(
+            "GET", f"/api/lighting/jobs/{first['job_id']}"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(first["job_id"], snapshot["job_id"])
+        self.assertNotIn(str(self.root), json.dumps(snapshot))
+        status, library_detail = self._request(
+            "GET", f"/api/lighting/library/{first['job_id']}"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(snapshot, library_detail)
+
+        status, page = self._request(
+            "GET", "/api/lighting/library?page=1&limit=1&status=ready&query=violet"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(2, page["total"])
+        self.assertEqual(1, len(page["jobs"]))
+        self.assertTrue(page["has_more"])
+        self.assertEqual(1, page["page"])
+        status, second_page = self._request(
+            "GET", "/api/lighting/library?page=2&limit=1&status=ready&query=violet"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(1, len(second_page["jobs"]))
+        for summary in page["jobs"] + second_page["jobs"]:
+            self.assertEqual("ready", summary["status"])
+            self.assertIn("violet", summary["prompt"])
+            self.assertNotIn("assets", summary)
+        status, kind_page = self._request(
+            "GET", "/api/lighting/library?kind=concept"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(1, kind_page["total"])
+        self.assertEqual(first["job_id"], kind_page["jobs"][0]["job_id"])
+        for query in ("unknown=x", "limit=101", "status=ready&status=failed"):
+            with self.subTest(query=query):
+                status, _ = self._request("GET", f"/api/lighting/library?{query}")
+                self.assertEqual(400, status)
+
+    def test_asset_streaming_enforces_ownership_mime_and_bounded_single_ranges(self) -> None:
+        job = self._job()
+        other = self._job(prompt="other")
+        image = self.library.bank_asset(
+            job["job_id"],
+            kind="concept",
+            data=b"fake-png-bytes",
+            mime_type="image/png",
+            origin="test",
+        )
+        video_payload = b"0123456789abcdefghijklmnopqrstuvwxyz"
+        video = self.library.bank_asset(
+            job["job_id"],
+            kind="source_video",
+            data=video_payload,
+            mime_type="video/mp4",
+            origin="test",
+        )
+
+        status, headers, payload = self._raw_request(
+            f"/api/lighting/assets/{job['job_id']}/{image['asset_id']}"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("image/png", headers["Content-Type"])
+        self.assertEqual(b"fake-png-bytes", payload)
+        status, _headers, _payload = self._raw_request(
+            f"/api/lighting/assets/{job['job_id']}/{image['asset_id']}",
+            headers={"Range": "bytes=0-1"},
+        )
+        self.assertEqual(416, status)
+        status, headers, payload = self._raw_request(
+            f"/api/lighting/assets/{job['job_id']}/{video['asset_id']}",
+            headers={"Range": "bytes=10-19"},
+        )
+        self.assertEqual(206, status)
+        self.assertEqual("bytes 10-19/36", headers["Content-Range"])
+        self.assertEqual(video_payload[10:20], payload)
+        self.assertEqual("bytes", headers["Accept-Ranges"])
+
+        status, _headers, _payload = self._raw_request(
+            f"/api/lighting/assets/{other['job_id']}/{image['asset_id']}"
+        )
+        self.assertEqual(404, status)
+        status, _headers, _payload = self._raw_request(
+            f"/api/lighting/assets/{job['job_id']}/{video['asset_id']}",
+            headers={"Range": "bytes=0-1,3-4"},
+        )
+        self.assertEqual(416, status)
+        status, _headers, _payload = self._raw_request(
+            "/api/lighting/assets/not-a-job/not-an-asset"
+        )
+        self.assertEqual(400, status)
+
+        oversized = self.library.bank_asset(
+            job["job_id"],
+            kind="source_video",
+            data=b"v" * (server._MAX_ASSET_RANGE_BYTES + 1),
+            mime_type="video/mp4",
+            origin="test",
+        )
+        status, _headers, _payload = self._raw_request(
+            f"/api/lighting/assets/{job['job_id']}/{oversized['asset_id']}",
+            headers={
+                "Range": f"bytes=0-{server._MAX_ASSET_RANGE_BYTES}"
+            },
+        )
+        self.assertEqual(416, status)
+
+        owned_image = self.library.resolve_asset(job["job_id"], image["asset_id"])
+        external = Path(self._tmp) / "external.png"
+        external.write_bytes(b"outside")
+        owned_image.path.unlink()
+        owned_image.path.symlink_to(external)
+        status, _headers, _payload = self._raw_request(
+            f"/api/lighting/assets/{job['job_id']}/{image['asset_id']}"
+        )
+        self.assertEqual(404, status)
+
+    def test_retired_creation_has_no_injectable_legacy_stack(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=2)
+        self._server, url = create_server(
+            lighting_dependencies={
+                "operation_gate": generation.OperationGate(),
+            }
+        )
+        self._token = parse_qs(urlparse(url).query)["token"][0]
+        self._base = f"http://127.0.0.1:{self._server.server_port}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+        status, response = self._request(
+            "POST", "/api/lighting/concepts", {"prompt": "offline violet"}
+        )
+        self.assertEqual(410, status)
+        self.assertEqual("retired", response["code"])
+
+    def test_static_csp_allows_only_local_media(self) -> None:
+        request = Request(self._base + "/", method="GET")
+        with urlopen(request, timeout=5) as response:
+            csp = response.headers["Content-Security-Policy"]
+        self.assertIn("media-src 'self' blob:", csp)
+        self.assertIn("script-src 'self'", csp)
+        self.assertNotIn("script-src 'self' 'unsafe-inline'", csp)
+        self.assertIn("img-src 'self' blob: data:", csp)
+        self.assertIn("connect-src 'self'", csp)
 
 
 class MacroProtocolTests(unittest.TestCase):

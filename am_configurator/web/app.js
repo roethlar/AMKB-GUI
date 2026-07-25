@@ -3,18 +3,40 @@
 const queryToken = new URLSearchParams(location.search).get("token") || "";
 if (queryToken) sessionStorage.setItem("am-configurator-token", queryToken);
 const token = queryToken || sessionStorage.getItem("am-configurator-token") || "";
-if (queryToken) history.replaceState({}, "", location.pathname);
+if (queryToken) history.replaceState({}, "", `${location.pathname}${location.hash}`);
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
-const esc = value => String(value ?? "").replace(/[&<>'"]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch]));
+const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
+const {createReviewView, openRenderedDialog, renderReview, reviewBlockedMessage} = LightingReview;
+const {DEVICE_TARGETS, renderTargetControls} = LightingTargets;
+const LIGHTING_SESSION_KEY = "am-lighting-session";
+let activePaintStrokeController = null;
+
+function restoredLightingState() {
+  let saved = {};
+  try { saved = JSON.parse(sessionStorage.getItem(LIGHTING_SESSION_KEY) || "{}"); } catch (error) {}
+  const parsed = parseLightingHash(location.hash);
+  const hasRoute = /^#\//.test(location.hash);
+  return {
+    lighting: createLightingState({...saved, route: hasRoute ? parsed.route : saved.route}),
+    jobId: parsed.jobId || saved.activeJob?.id || null,
+  };
+}
+
+const restoredLighting = restoredLightingState();
 
 const state = {
   config: null,
+  documentRevision: null,
+  documentSyncEpoch: 0,
+  documentSyncing: false,
+  documentSyncError: "",
   fileName: "AM-config.json",
   dirty: false,
-  screen: "keymap",
+  lighting: restoredLighting.lighting,
+  lightingJobId: restoredLighting.jobId,
   layer: 0,
   selected: null,
   macro: 0,
@@ -23,6 +45,7 @@ const state = {
   ledSlot: 5,
   ledTarget: "keyframes",
   ledFrame: 0,
+  ledPixel: 0,
   ledColor: "#8358ff",
   gifResample: "box",
   relicGifEdges: true,
@@ -35,6 +58,51 @@ const state = {
   loadedPort: null,
   deviceDocuments: new Map(),
   pendingWrite: null,
+  capabilities: null,
+  settings: null,
+  aiStatus: null,
+  localModels: {available:null,models:[],reason:null,loading:false},
+  settingsReturnRoute: null,
+  settingsReturnDialog: false,
+  settingsSaveBusy: false,
+  aiPrompt: "",
+  conceptQuantity: 1,
+  conceptManifest: null,
+  conceptExpectedCount: 0,
+  conceptSubmitting: false,
+  conceptError: "",
+  conceptPollTimer: null,
+  conceptPollEpoch: 0,
+  conceptPollFailures: 0,
+  conceptAssetUrls: new Map(),
+  conceptAssetLoads: new Set(),
+  conceptDestination: null,
+  animationMotion: "",
+  animationSubmitting: false,
+  animationError: "",
+  reviewTab: "device",
+  reviewFrameIndex: 0,
+  mappedLightingResults: new Map(),
+  mappedLightingResultLoads: new Set(),
+  proceduralRecipes: new Map(),
+  proceduralRecipeLoads: new Set(),
+  library: {
+    jobs: [],
+    details: new Map(),
+    detailLoads: new Set(),
+    assetUrls: new Map(),
+    assetLoads: createEpochLoadRegistry(),
+    assetErrors: new Map(),
+    filter: "all",
+    query: "",
+    selectedJobId: null,
+    loaded: false,
+    loading: false,
+    error: "",
+    warnings: [],
+    epoch: 0,
+    searchTimer: null,
+  },
 };
 let incompatibleResolver = null;
 
@@ -50,6 +118,30 @@ async function api(path, options = {}) {
     throw error;
   }
   return data;
+}
+
+function documentSynchronized() {
+  return Boolean(state.config&&state.documentRevision&&!state.documentSyncing);
+}
+
+async function synchronizeOpenDocument() {
+  const config=state.config;
+  const epoch=++state.documentSyncEpoch;
+  state.documentRevision=null;
+  state.documentSyncError="";
+  state.documentSyncing=Boolean(config);
+  if(!config)return null;
+  try{
+    const result=await api("/api/document/sync",{method:"POST",body:JSON.stringify({config})});
+    if(epoch!==state.documentSyncEpoch||state.config!==config)return null;
+    state.documentRevision=result.revision;
+    return result.revision;
+  }catch(error){
+    if(epoch===state.documentSyncEpoch){state.documentSyncError=error.message||"The open document could not be synchronized.";}
+    return null;
+  }finally{
+    if(epoch===state.documentSyncEpoch)state.documentSyncing=false;
+  }
 }
 
 function toast(title, message = "", type = "") {
@@ -230,7 +322,7 @@ async function readFiles(input, merge) {
     const configs = await Promise.all(files.map(async file => {
       const parsed = JSON.parse(await file.text());
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${file.name} is not a configuration object.`);
-      return parsed;
+      return normalizeImportedLightingColors(normalizeImportedAssignmentCodes(parsed));
     }));
     const families=new Set(configs.map(config=>productFamily(config?.product_info?.product_id)).filter(Boolean));
     if(families.size>1)throw new Error("The selected JSON files belong to different keyboard families and cannot be combined.");
@@ -264,11 +356,13 @@ async function readFiles(input, merge) {
     }
     if (effectiveMerge && state.config) pushUndo();
     state.config = combined;
+    state.documentRevision=null;
     state.fileName = cleanFileName(files[0].name);
     if (!effectiveMerge) resetDocumentView();
     else state.ledFrame = 0;
     state.undo = [];
     state.redo = [];
+    if(!await synchronizeOpenDocument())throw new Error(state.documentSyncError||"The opened document could not be synchronized.");
     markDirty(effectiveMerge);
     updateMeta();
     render();
@@ -370,15 +464,15 @@ const RELIC_LED_MAP = [
 const LED_MODELS = {
   CB: {
     name:"CyberBoard", keyMap:CB_LED_MAP, displayMap:CB_DISPLAY_MAP, keyColumns:15, keyRaster:"15×6",
-    targets:[{key:"keyframes",label:"Switch LEDs"},{key:"frames",label:"Top display 40×5"}],
+    targets:DEVICE_TARGETS.CB,
   },
   ALICE: {
     name:"AFA", keyMap:AFA_LED_MAP, keyColumns:16, keyRaster:"16×5", physicalLayout:AFA_LED_LAYOUT,
-    targets:[{key:"keyframes",label:"Keys + center"}],
+    targets:DEVICE_TARGETS.ALICE,
   },
   "80": {
     name:"Relic 80", keyMap:RELIC_LED_MAP, keyColumns:17, keyRaster:"18×7",
-    targets:[{key:"keyframes",label:"Per-key"},{key:"spotlight_frames",label:"Edge lights"}],
+    targets:DEVICE_TARGETS["80"],
   },
 };
 const LED_SPEEDS = [255,240,224,208,192,176,160,146,132,118,100,90,76,62,48,34];
@@ -460,7 +554,7 @@ function standardOption(usage, category="Keyboard") {
 function assignmentButton(option,current,width=1) {
   const active=option.code.toUpperCase()===String(current||"").toUpperCase();
   const disabled=state.selected===null?"disabled":"";
-  return `<button class="palette-key assignment-key ${active?'active':''}" data-code="${option.code}" data-search="${esc((option.label+' '+option.category).toLowerCase())}" style="--key-units:${width}" title="${esc(option.category)} · ${option.code}" ${disabled}>${esc(option.label)}</button>`;
+  return `<button class="palette-key assignment-key ${active?'active':''}" data-code="${esc(option.code)}" data-search="${esc((option.label+' '+option.category).toLowerCase())}" style="--key-units:${width}" title="${esc(`${option.category} · ${option.code}`)}" ${disabled}>${esc(option.label)}</button>`;
 }
 
 function vendorGroup(usage) {
@@ -509,19 +603,447 @@ function keyClass(code) {
 }
 
 function render() {
-  $("#empty-state").hidden = Boolean(state.config);
-  $("#screen").hidden = !state.config;
-  $$(".nav-item").forEach(item => item.classList.toggle("active", item.dataset.screen === state.screen));
-  if (state.config) renderScreen();
+  renderRoute();
+  renderLightingJobStrip();
   updateMeta();
 }
 
 function renderScreen() {
+  renderRoute();
+}
+
+function persistLightingState() {
+  try { sessionStorage.setItem(LIGHTING_SESSION_KEY, JSON.stringify(state.lighting)); } catch (error) {}
+}
+
+function navigateTo(route, {replace = false, focusHeading = false} = {}) {
+  state.recording = false;
+  state.lighting = reduceLightingState(state.lighting, {type: "NAVIGATE", route}).state;
+  persistLightingState();
+  const jobId = state.lighting.activeJob?.id || state.lightingJobId;
+  const hash = formatLightingHash(state.lighting.route, jobId);
+  const nextUrl = `${location.pathname}${location.search}${hash}`;
+  history[replace ? "replaceState" : "pushState"]({}, "", nextUrl);
+  render();
+  if (focusHeading) {
+    const heading = state.lighting.route === ROUTES.SETTINGS ? $("#settings-title") : $("#lighting-title");
+    heading?.focus({preventScroll: true});
+  }
+}
+
+function documentDescriptor() {
+  if (!state.config) return null;
+  const targets = activeLedModel().targets.map(target => target.key);
+  return {
+    family: productFamily(productId()),
+    productId: productId(),
+    slots: [5, 6, 7],
+    supportedTargets: targets,
+  };
+}
+
+function renderRoute() {
   stopPlayback(false);
-  if (!state.config) return;
-  if (state.screen === "keymap") renderKeymap();
-  else if (state.screen === "macros") renderMacros();
-  else renderLeds();
+  let route = state.lighting.route;
+  if (route === ROUTES.CREATE && !aiReady() && !state.lighting.activeJob) {
+    state.lighting = reduceLightingState(state.lighting, {type: "NAVIGATE", route: ROUTES.EDIT}).state;
+    route = ROUTES.EDIT;
+    persistLightingState();
+    history.replaceState({}, "", `${location.pathname}${location.search}${formatLightingHash(route)}`);
+  }
+  $("#empty-state").hidden = true;
+  $("#screen").hidden = true;
+  $("#lighting-shell").hidden = true;
+  $("#settings-screen").hidden = true;
+
+  $$(".nav-item").forEach(item => {
+    const active = item.dataset.route === route
+      || (item.dataset.route === ROUTES.EDIT && route.startsWith("lighting/"));
+    item.classList.toggle("active", active);
+    if (active) item.setAttribute("aria-current", "page");
+    else item.removeAttribute("aria-current");
+  });
+  const settingsActive = route === ROUTES.SETTINGS;
+  $("#settings-button").classList.toggle("active", settingsActive);
+  if (settingsActive) $("#settings-button").setAttribute("aria-current", "page");
+  else $("#settings-button").removeAttribute("aria-current");
+
+  if (route === ROUTES.SETTINGS) {
+    $("#settings-screen").hidden = false;
+    populateSettings();
+    return;
+  }
+  if (route === ROUTES.CREATE || route === ROUTES.LIBRARY || route === ROUTES.EDIT) {
+    $("#lighting-shell").hidden = false;
+    renderLightingShell();
+    return;
+  }
+  if (!state.config) {
+    const label = route === ROUTES.MACROS ? "edit macros" : "edit a keymap";
+    $("#empty-title").textContent = `Open a configuration to ${label}.`;
+    $("#empty-state").hidden = false;
+    return;
+  }
+  $("#screen").hidden = false;
+  if (route === ROUTES.KEYMAP) renderKeymap();
+  else if (route === ROUTES.MACROS) renderMacros();
+}
+
+function renderLightingJobStrip() {
+  const strip = $("#lighting-job-strip");
+  const job = state.lighting.activeJob;
+  strip.hidden = !job;
+  if (!job) return;
+  const phase = job.phase ? job.phase.replaceAll("_", " ") : "Ready";
+  const phaseLabel = phase.charAt(0).toUpperCase() + phase.slice(1);
+  if ($("#lighting-job-phase").textContent !== phaseLabel) {
+    $("#lighting-job-phase").textContent = phaseLabel;
+    $("#lighting-job-phase-live").textContent = `Lighting job: ${phaseLabel}`;
+  }
+  const progress = job.progress;
+  const hasProgress = progress && Number(progress.total) > 0;
+  $("#lighting-job-detail").textContent = hasProgress
+    ? `${progress.completed} of ${progress.total} complete`
+    : "Your work is saved locally as it completes.";
+  const progressNode = $("#lighting-job-progress");
+  progressNode.hidden = !hasProgress;
+  if (!progressNode.hidden) {
+    progressNode.max = progress.total;
+    progressNode.value = Math.min(progress.total, progress.completed);
+  }
+  $("#lighting-job-cancel").disabled = !["in_progress", "accepted", "processing"].includes(job.status);
+}
+
+function clearConceptAssetUrls() {
+  for(const url of state.conceptAssetUrls.values())URL.revokeObjectURL(url);
+  state.conceptAssetUrls.clear();
+  state.mappedLightingResults.clear();
+  state.mappedLightingResultLoads.clear();
+}
+
+function clearLibraryAssetUrls() {
+  for(const url of state.library.assetUrls.values())URL.revokeObjectURL(url);
+  state.library.assetUrls.clear();
+  state.library.assetErrors.clear();
+}
+
+function libraryFilterQuery() {
+  const params=new URLSearchParams({page:"1",limit:"24"});
+  if(state.library.filter==="animation")params.set("kind","preview_animation");
+  else if(state.library.filter==="partial")params.set("status","partial");
+  if(state.library.query.trim())params.set("query",state.library.query.trim());
+  return params.toString();
+}
+
+function libraryDate(value) {
+  const date=new Date(value);
+  return Number.isNaN(date.valueOf())?"Unknown date":date.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+}
+
+function libraryStatusLabel(value) {
+  const label=String(value||"saved").replaceAll("_"," ");
+  return label.charAt(0).toUpperCase()+label.slice(1);
+}
+
+function libraryCoverAsset(detail) {
+  const procedural=detail?.assets?.find(asset=>asset.kind==="preview_animation")
+    || detail?.assets?.find(asset=>asset.kind==="raster_animation");
+  if(procedural)return procedural;
+  const selected=detail?.candidates?.find(candidate=>candidate.candidate_id===detail.selected_candidate_id);
+  const first=selected||detail?.candidates?.[0];
+  if(first?.asset_id)return {asset_id:first.asset_id,mime_type:first.mime_type||"image/png"};
+  return detail?.assets?.find(asset=>asset.kind==="preview_poster")
+    || detail?.assets?.find(asset=>["preview_animation","source_video"].includes(asset.kind))
+    || null;
+}
+
+async function loadLibraryAsset(jobId,assetId,{retry=false}={}) {
+  const key=`${jobId}:${assetId}`;
+  const epoch=state.library.epoch;
+  if(state.library.assetUrls.has(key))return;
+  const lease=state.library.assetLoads.begin(key,epoch);
+  if(!lease)return;
+  state.library.assetErrors.delete(key);
+  try{
+    const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load asset (${response.status})`);}
+    const url=URL.createObjectURL(await response.blob());
+    if(!lease.current(state.library.epoch)){URL.revokeObjectURL(url);return;}
+    const previous=state.library.assetUrls.get(key);
+    if(previous&&previous!==url)URL.revokeObjectURL(previous);
+    state.library.assetUrls.set(key,url);
+  }catch(error){
+    if(!lease.current(state.library.epoch))return;
+    if(retry)state.library.assetErrors.set(key,error.message);
+    else{
+      state.library.assetErrors.set(key,"Retrying…");
+      setTimeout(()=>loadLibraryAsset(jobId,assetId,{retry:true}),250);
+    }
+  }finally{
+    const ownsCurrent=lease.current(state.library.epoch);
+    lease.release();
+    if(ownsCurrent&&state.lighting.route===ROUTES.LIBRARY)renderLibrary();
+  }
+}
+
+async function ensureLibraryJobDetail(jobId) {
+  if(state.library.details.has(jobId)||state.library.detailLoads.has(jobId))return;
+  const epoch=state.library.epoch;
+  state.library.detailLoads.add(jobId);
+  try{
+    const detail=await api(`/api/lighting/library/${encodeURIComponent(jobId)}`);
+    if(epoch!==state.library.epoch)return;
+    state.library.details.set(jobId,detail);
+    const cover=libraryCoverAsset(detail);
+    if(cover)void loadLibraryAsset(jobId,cover.asset_id);
+    if(state.library.selectedJobId===jobId){
+      for(const asset of detail.assets||[]){
+        if(["concept","selected_still","preview_poster","preview_animation","source_video"].includes(asset.kind))void loadLibraryAsset(jobId,asset.asset_id);
+      }
+    }
+    if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
+  }catch(error){
+    if(epoch===state.library.epoch){state.library.error=error.message;if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();}
+  }finally{state.library.detailLoads.delete(jobId);}
+}
+
+async function loadLibrary({force=false}={}) {
+  if(state.library.loading||(!force&&state.library.loaded))return;
+  state.library.loading=true;
+  state.library.error="";
+  const epoch=++state.library.epoch;
+  if(force){clearLibraryAssetUrls();state.library.details.clear();state.library.selectedJobId=null;}
+  renderLibrary();
+  try{
+    const result=await api(`/api/lighting/library?${libraryFilterQuery()}`);
+    if(epoch!==state.library.epoch)return;
+    state.library.jobs=result.jobs||[];
+    state.library.warnings=result.errors||[];
+    state.library.loaded=true;
+    for(const job of state.library.jobs)void ensureLibraryJobDetail(job.job_id);
+  }catch(error){
+    if(epoch===state.library.epoch){state.library.jobs=[];state.library.error=error.message;state.library.loaded=true;}
+  }finally{
+    if(epoch===state.library.epoch){state.library.loading=false;renderLibrary();}
+  }
+}
+
+function libraryEmptyMarkup() {
+  if(state.library.loading)return '<div class="library-empty"><div class="loader"></div><strong>Loading your Library…</strong></div>';
+  if(state.library.error)return `<div class="library-empty"><strong>Library could not be loaded.</strong><p>${esc(state.library.error)}</p><button type="button" class="button ghost" data-library-retry>Try again</button></div>`;
+  if(!state.settings?.library?.current_root)return '<div class="library-empty"><strong>Choose a Library folder to save generated media.</strong><p>Settings controls where generated assets are banked.</p><button type="button" class="button primary" data-library-settings>Open Settings</button></div>';
+  return '<div class="library-empty"><strong>Nothing here yet.</strong><p>Generated animations and historical media will appear here as they are saved.</p></div>';
+}
+
+function libraryCardMarkup(job) {
+  const detail=state.library.details.get(job.job_id);
+  const cover=libraryCoverAsset(detail);
+  const url=cover&&state.library.assetUrls.get(`${job.job_id}:${cover.asset_id}`);
+  const kind=detail?.assets?.some(asset=>["preview_animation","raster_animation"].includes(asset.kind))?"Animation":detail?.assets?.some(asset=>asset.kind==="source_video")?"Video":"Stills";
+  return `<button type="button" class="library-card" data-library-job="${esc(job.job_id)}">
+    <span class="library-card-poster">${url?`<img src="${esc(url)}" alt="">`:'<span class="library-card-placeholder" aria-hidden="true">✦</span>'}</span>
+    <span class="library-card-copy"><strong>${esc(job.prompt)}</strong><span>${kind} · ${libraryStatusLabel(job.status)} · ${libraryDate(job.updated_at)}</span><small>${job.asset_count} saved asset${job.asset_count===1?"":"s"}</small></span>
+  </button>`;
+}
+
+function libraryMediaMarkup(jobId,asset,index,detail) {
+  const url=state.library.assetUrls.get(`${jobId}:${asset.asset_id}`);
+  const label=asset.kind.replaceAll("_"," ");
+  const loadError=state.library.assetErrors.get(`${jobId}:${asset.asset_id}`);
+  if(!url&&loadError&&loadError!=="Retrying…")return `<div class="library-media-card failed"><strong>Could not load this ${esc(label)}.</strong><small>${esc(loadError)}</small><button type="button" class="button ghost" data-library-asset-retry="${esc(asset.asset_id)}" data-library-asset-job="${esc(jobId)}">Retry</button></div>`;
+  if(!url)return `<div class="library-media-card loading"><span class="library-card-placeholder">${loadError||"Loading…"}</span><small>${esc(label)}</small></div>`;
+  if(asset.mime_type==="video/mp4")return `<figure class="library-media-card"><video src="${esc(url)}" controls muted playsinline preload="metadata"></video><figcaption>${esc(label)}</figcaption></figure>`;
+  return `<figure class="library-media-card"><img src="${esc(url)}" alt="Saved lighting asset ${index+1}"><figcaption><span>${esc(label)}</span></figcaption></figure>`;
+}
+
+function libraryDetailMarkup(jobId) {
+  const summary=state.library.jobs.find(job=>job.job_id===jobId);
+  const detail=state.library.details.get(jobId);
+  if(!detail)return '<div class="library-empty"><div class="loader"></div><strong>Loading saved media…</strong></div>';
+  const media=(detail.assets||[]).filter(asset=>["concept","selected_still","preview_poster","preview_animation","raster_animation","source_video"].includes(asset.kind));
+  return `<section class="library-detail" aria-labelledby="library-detail-title">
+    <button type="button" class="library-back" data-library-back>← Library</button>
+    <header><div><p class="eyebrow">${esc(libraryStatusLabel(detail.status))}</p><h2 id="library-detail-title">${esc(detail.prompt)}</h2><p>${libraryDate(detail.created_at)} · ${media.length} saved media item${media.length===1?"":"s"}</p></div><span class="pill ${detail.status==="partial"?"muted":""}">${esc(libraryStatusLabel(detail.phase||detail.status))}</span></header>
+    <div class="library-media-grid">${media.length?media.map((asset,index)=>libraryMediaMarkup(jobId,asset,index,detail)).join(""):'<p class="library-no-media">This job has no viewable media yet.</p>'}</div>
+    ${summary?.costs?.actual_incomplete?'<p class="library-warning">Provider cost reporting is incomplete for this item.</p>':""}
+  </section>`;
+}
+
+function wireLibraryContent() {
+  $$("[data-library-job]",$("#library-content")).forEach(card=>card.addEventListener("click",()=>openLibraryJob(card.dataset.libraryJob)));
+  $$("[data-library-asset-retry]",$("#library-content")).forEach(button=>button.addEventListener("click",()=>loadLibraryAsset(button.dataset.libraryAssetJob,button.dataset.libraryAssetRetry,{retry:true})));
+  $("[data-library-back]",$("#library-content"))?.addEventListener("click",()=>{state.library.selectedJobId=null;renderLibrary();});
+  $("[data-library-retry]",$("#library-content"))?.addEventListener("click",()=>loadLibrary({force:true}));
+  $("[data-library-settings]",$("#library-content"))?.addEventListener("click",openSettings);
+}
+
+function openLibraryJob(jobId) {
+  state.library.selectedJobId=jobId;
+  renderLibrary();
+  void ensureLibraryJobDetail(jobId);
+}
+
+function renderLibrary() {
+  const content=$("#library-content");
+  if(!content)return;
+  const selected=state.library.selectedJobId;
+  if(selected)content.innerHTML=libraryDetailMarkup(selected);
+  else if(state.library.jobs.length)content.innerHTML=`<div class="library-grid">${state.library.jobs.map(libraryCardMarkup).join("")}</div>`;
+  else content.innerHTML=libraryEmptyMarkup();
+  const status=$("#library-status");
+  status.textContent=state.library.loading?"Refreshing Library…":state.library.warnings.length?"Some previously recorded Library items could not be read.":state.library.jobs.length?`${state.library.jobs.length} saved job${state.library.jobs.length===1?"":"s"}`:"";
+  status.classList.toggle("warning",Boolean(state.library.warnings.length));
+  $("#library-reveal").disabled=!state.settings?.library?.current_root;
+  $$("[data-library-filter]").forEach(button=>{const active=button.dataset.libraryFilter===state.library.filter;button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active));});
+  wireLibraryContent();
+  if(!state.library.loaded&&!state.library.loading)void loadLibrary();
+}
+
+async function loadConceptAsset(jobId,assetId) {
+  const key=`${jobId}:${assetId}`;
+  if(state.conceptAssetUrls.has(key)||state.conceptAssetLoads.has(key))return;
+  state.conceptAssetLoads.add(key);
+  try{
+    const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load concept (${response.status})`);}
+    const url=URL.createObjectURL(await response.blob());
+    if(state.conceptManifest?.job_id!==jobId){URL.revokeObjectURL(url);return;}
+    const previous=state.conceptAssetUrls.get(key);
+    if(previous&&previous!==url)URL.revokeObjectURL(previous);
+    state.conceptAssetUrls.set(key,url);
+    refreshGenerationDialog();
+  }catch(error){
+    if(state.conceptManifest?.job_id===jobId){state.conceptError=error.message;refreshGenerationDialog();}
+  }finally{state.conceptAssetLoads.delete(key);}
+}
+
+async function loadMappedLightingResult(jobId,assetId) {
+  const key=`${jobId}:${assetId}`;
+  if(state.mappedLightingResults.has(key)||state.mappedLightingResultLoads.has(key))return;
+  state.mappedLightingResultLoads.add(key);
+  try{
+    const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load LED result (${response.status})`);}
+    const result=await response.json();
+    if(!result||typeof result!=="object"||!result.tracks)throw new Error("The saved LED result is invalid.");
+    if(state.conceptManifest?.job_id!==jobId)return;
+    state.mappedLightingResults.set(key,result);
+    refreshGenerationDialog();
+  }catch(error){
+    if(state.conceptManifest?.job_id===jobId){state.animationError=error.message;refreshGenerationDialog();}
+  }finally{state.mappedLightingResultLoads.delete(key);}
+}
+
+function scheduleLightingJobPoll(jobId,delay=800) {
+  if(state.conceptPollTimer)clearTimeout(state.conceptPollTimer);
+  const epoch=state.conceptPollEpoch;
+  state.conceptPollTimer=setTimeout(()=>pollLightingJob(jobId,epoch),delay);
+}
+
+async function pollLightingJob(jobId,epoch=state.conceptPollEpoch) {
+  if(epoch!==state.conceptPollEpoch||state.lighting.activeJob?.id!==jobId)return;
+  try{
+    const manifest=await api(`/api/lighting/jobs/${encodeURIComponent(jobId)}`);
+    if(epoch===state.conceptPollEpoch&&state.lighting.activeJob?.id===jobId)syncLightingJob(manifest,{renderPage:false});
+  }catch(error){
+    if(epoch!==state.conceptPollEpoch||state.lighting.activeJob?.id!==jobId)return;
+    if(error.status===400||error.status===404){syncLightingJob(null,{renderPage:false});return;}
+    state.conceptError=error.message;
+    state.conceptPollFailures++;
+    refreshGenerationDialog();
+    scheduleLightingJobPoll(jobId,Math.min(5000,800*(2**Math.min(3,state.conceptPollFailures))));
+  }
+}
+
+async function restoreLightingJob() {
+  if (!state.lightingJobId) return;
+  const jobId=state.lightingJobId;
+  const epoch=++state.conceptPollEpoch;
+  if(state.conceptPollTimer)clearTimeout(state.conceptPollTimer);
+  try {
+    const manifest=await api(`/api/lighting/jobs/${encodeURIComponent(jobId)}`);
+    if(epoch===state.conceptPollEpoch&&state.lightingJobId===jobId)syncLightingJob(manifest);
+  } catch (error) {
+    if (epoch===state.conceptPollEpoch&&state.lightingJobId===jobId&&(error.status === 404 || error.status === 400)) syncLightingJob(null);
+    else if(epoch===state.conceptPollEpoch&&state.lightingJobId===jobId)scheduleLightingJobPoll(jobId);
+  }
+}
+
+async function cancelLightingJob() {
+  const job = state.lighting.activeJob;
+  if (!job || $("#lighting-job-cancel").disabled) return;
+  state.conceptPollEpoch++;
+  if(state.conceptPollTimer)clearTimeout(state.conceptPollTimer);
+  $("#lighting-job-cancel").disabled = true;
+  try {
+    await api(`/api/lighting/jobs/${encodeURIComponent(job.id)}/cancel`, {method: "POST", body: "{}"});
+    await restoreLightingJob();
+  } catch (error) {
+    toast("Could not cancel lighting job", error.message, "error");
+    renderLightingJobStrip();
+  }
+}
+
+function documentRequirementMarkup(message) {
+  return `<div class="route-requirement"><span class="route-requirement-icon" aria-hidden="true">⌨</span><div><strong>Open a keyboard configuration first.</strong><p>${esc(message)} Use Open or Devices in the toolbar above.</p></div></div>`;
+}
+
+function renderLightingShell() {
+  const route = state.lighting.route;
+  const available = routeAvailability(route, documentDescriptor(), {aiReady: aiReady(), hasActiveJob: Boolean(state.lighting.activeJob)});
+  const routes = [ROUTES.EDIT, ROUTES.LIBRARY];
+  const names = ["edit", "library"];
+  routes.forEach((candidate, index) => {
+    const selected = route === candidate || (candidate === ROUTES.EDIT && route === ROUTES.CREATE);
+    const tab = $(`#lighting-${names[index]}-tab`);
+    const panel = $(`#lighting-${names[index]}-panel`);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    panel.hidden = !selected;
+  });
+
+  $("#lighting-destination-product").textContent = state.config
+    ? `${productLabel(productId())} · ${productId()}`
+    : "No document open";
+  const destinationLocked = Boolean(state.lighting.activeJob);
+  $$('[data-lighting-slot]').forEach(button => {
+    const selected = Number(button.dataset.lightingSlot) === state.ledSlot;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+    button.disabled = !state.config || destinationLocked;
+  });
+
+  const targetHost = $("#lighting-target-controls");
+  const targets = state.config ? activeLedModel().targets : [];
+  if (targets.length && !targets.some(target => target.key === state.ledTarget)) state.ledTarget = targets[0].key;
+  renderTargetControls(targetHost,targets,state.ledTarget,destinationLocked,target=>{
+    state.ledTarget = target;
+    state.ledFrame = 0;
+    state.ledPixel = 0;
+    renderLightingShell();
+    focusSelectedTarget(target);
+  });
+
+  $$("[data-lighting-stage]").forEach(step => {
+    if (step.dataset.lightingStage === state.lighting.create.stage) step.setAttribute("aria-current", "step");
+    else step.removeAttribute("aria-current");
+  });
+
+  if (route === ROUTES.EDIT || route === ROUTES.CREATE) {
+    if (!available.available) {
+      $("#lighting-edit-content").innerHTML = documentRequirementMarkup("Edit works directly on the custom lighting slots in an open document.");
+    } else renderLightingEdit();
+  }
+  if (route === ROUTES.LIBRARY) renderLibrary();
+  const generateOpen=$("#lighting-generate-open");
+  generateOpen.hidden=!aiReady();
+  generateOpen.disabled = !state.config || !pageData().length || !aiReady() || !documentSynchronized();
+  renderGenerationDialog();
+  if (route === ROUTES.CREATE && (aiReady() || state.lighting.activeJob)) setTimeout(openGenerationDialog, 0);
+}
+
+function focusSelectedTarget(target = state.ledTarget) {
+  $$('[data-lighting-target]').find(button => button.dataset.lightingTarget === String(target))?.focus();
 }
 
 function renderKeymap() {
@@ -753,7 +1275,7 @@ function toggleRecording() {
 }
 
 function recordEvent(event, down) {
-  if (!state.recording || state.screen !== "macros" || event.repeat) return;
+  if (!state.recording || state.lighting.route !== ROUTES.MACROS || event.repeat) return;
   const usage = DOM_USAGE[event.code];
   if (usage === undefined) return;
   event.preventDefault();
@@ -850,9 +1372,9 @@ function replaceEdgeAnimation(mode) {
   toast(label,`${count} edge frames generated to match the key animation.`,"success");
 }
 
-function renderLeds() {
+function renderLightingEdit() {
   if (!pageData().length) {
-    $("#screen").innerHTML=`<div class="empty-state"><p class="eyebrow">Key-only export</p><h1>No LED pages loaded.</h1><p>Merge the matching lighting JSON to preserve your existing effects, or create three blank custom slots.</p><div class="header-controls"><button id="merge-led" class="button ghost large">Merge lighting JSON</button><button id="create-led" class="button primary large">Create blank slots</button></div></div>`;
+    $("#lighting-edit-content").innerHTML=`<div class="empty-state lighting-edit-empty"><p class="eyebrow">Key-only export</p><h1>No LED pages loaded.</h1><p>Merge the matching lighting JSON to preserve your existing effects, or create three blank custom slots.</p><div class="header-controls"><button id="merge-led" class="button ghost large">Merge lighting JSON</button><button id="create-led" class="button primary large">Create blank slots</button></div></div>`;
     $("#merge-led").addEventListener("click",()=>$("#merge-input").click());
     $("#create-led").addEventListener("click",createLedPages);
     return;
@@ -870,13 +1392,23 @@ function renderLeds() {
   const physicalLayout=state.ledTarget==="keyframes"?model.physicalLayout:null;
   const pixelMap=physicalLayout?physicalLayout.map(item=>item.index):state.ledTarget==="keyframes"?model.keyMap:state.ledTarget==="spotlight_frames"?[0,1,2,3,4,5,6]:model.displayMap||Array.from({length},(_,index)=>index);
   const mappedCount=new Set(pixelMap.filter(index=>index>=0)).size;
+  const focusablePixelCount=physicalLayout?.length||pixelMap.filter(index=>index>=0).length;
+  state.ledPixel=Math.min(state.ledPixel,Math.max(0,focusablePixelCount-1));
   const keyLabels=layers()[0]?.layer||[];
-  const pixelCanvas=!frame?`<div class="event-empty"><button id="first-frame" class="button primary">Create first frame</button></div>`:physicalLayout?`<div class="pixel-grid physical afa-led-board">${physicalLayout.map(item=>{
-    const color=frame.frame_RGB[item.index]||"#000000";
+  let pixelOrder=0;
+  const rasterCells=pixelMap.map(index=>{
+    if(index<0)return `<span class="pixel-spacer"></span>`;
+    const position=pixelOrder++;
+    const color=safeRgbColor(frame?.frame_RGB[index]);
+    return `<button class="pixel" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${index}" style="background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="LED ${index}, ${esc(color)}" title="LED ${index} · ${esc(color)}"></button>`;
+  }).join("");
+  const pixelCanvas=!frame?`<div class="event-empty"><button id="first-frame" class="button primary">Create first frame</button></div>`:physicalLayout?`<div class="pixel-grid physical afa-led-board" role="grid" aria-label="LED paint grid">${physicalLayout.map((item,position)=>{
+    const color=safeRgbColor(frame.frame_RGB[item.index]);
     const body=item.keyIndex===null;
     const label=body?item.label:decodeCode(keyLabels[item.keyIndex]||"#00000000");
-    return `<button class="pixel physical-pixel ${body?'body-led':''}" data-pixel="${item.index}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;--rotation:${item.rotation}deg;background:${esc(color)};--pixel-color:${esc(color)}" title="${body?'Center light':`Key ${esc(label)} · matrix ${item.keyIndex}`} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
-  }).join("")}</div>`:`<div class="pixel-grid ${gridClass}" style="grid-template-columns:repeat(${columns},1fr)">${pixelMap.map(index=>index<0?`<span class="pixel-spacer"></span>`:`<button class="pixel" data-pixel="${index}" style="background:${esc(frame.frame_RGB[index]||'#000000')};--pixel-color:${esc(frame.frame_RGB[index]||'#000000')}" title="LED ${index} · ${esc(frame.frame_RGB[index]||'#000000')}"></button>`).join("")}</div>`;
+    const description=body?'Center light':`Key ${label}, matrix ${item.keyIndex}`;
+    return `<button class="pixel physical-pixel ${body?'body-led':''}" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${item.index}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;--rotation:${item.rotation}deg;background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="${esc(description)}, LED ${item.index}, ${esc(color)}" title="${esc(description)} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
+  }).join("")}</div>`:`<div class="pixel-grid ${gridClass}" role="grid" aria-label="LED paint grid" style="grid-template-columns:repeat(${columns},1fr)">${rasterCells}</div>`;
   const gifSize=state.ledTarget==="frames"?"40×5":state.ledTarget==="spotlight_frames"?"18×7 → 7 edge LEDs":`${model.keyRaster} → ${mappedCount} mapped LEDs`;
   const relicKeyTarget=model===LED_MODELS["80"]&&state.ledTarget==="keyframes";
   const pairsRelicGif=relicKeyTarget&&state.relicGifEdges;
@@ -889,31 +1421,41 @@ function renderLeds() {
     : relicKeyTarget?"Replaces the 89-key track; your separate edge animation is preserved and retimed to match.":edgeAutomation?`Maps this GIF to the 7 edge LEDs, then retimes it to the key track’s ${keyFrameCount} frames.`:`Replaces this track by resizing every GIF frame to ${gifSize}.`;
   const relicGifOption=relicKeyTarget?`<label class="check-row"><input id="relic-gif-edges" type="checkbox" ${state.relicGifEdges?'checked':''}><span>Also derive edge lights from this GIF</span></label>`:"";
   const edgeTools=edgeAutomation?`<div class="control-group"><label class="control-label">Whole edge animation</label><div class="button-row"><button id="edge-static" class="button ghost">Static color</button><button id="edge-pulse" class="button ghost">Pulse color</button></div><button id="edge-hold" class="button ghost wide-button">Hold painted frame</button><small class="control-help">Generates ${keyFrameCount} edge frames automatically to match the key animation. “Hold” preserves the seven colors painted in the current frame.</small></div>`:"";
-  $("#screen").innerHTML=`<div class="screen-shell">
-    <header class="screen-header"><div><p class="eyebrow">Custom animation slots</p><h1>LED Studio</h1><p class="description">Paint frames, adjust timing, and preview without uploading anything.</p></div><div class="header-controls"><div class="segmented">${[5,6,7].map(i=>`<button data-slot="${i}" class="${i===state.ledSlot?'active':''}">Slot ${i-4}</button>`).join("")}</div><div class="segmented">${targets.map(target=>`<button data-target="${target.key}" class="${target.key===state.ledTarget?'active':''}">${target.label}</button>`).join("")}</div></div></header>
-    <div class="led-layout">
-      <aside class="card frame-list"><div class="card-header"><strong>Frames</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${esc(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?'Editing':'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div></aside>
-      <section class="card led-canvas-card"><div class="card-header"><strong>${esc(model.name)} · ${esc(targets.find(t=>t.key===state.ledTarget)?.label)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}</small></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''}">${pixelCanvas}</div></section>
-      <aside class="card led-controls"><div class="card-header"><strong>Frame controls</strong><button id="play-led" class="icon-button">${state.playing?'■':'▶'}</button></div><div class="card-body">
-        <div class="control-group"><label class="control-label">Animation source</label><input id="gif-input" type="file" accept="image/gif,.gif" hidden><div class="gif-import-row"><button id="import-gif" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="GIF resize method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
+  const targetLabel=targets.find(t=>t.key===state.ledTarget)?.label||state.ledTarget;
+  const editorBody=`<div class="card-body">
+        <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Animation source</h3><input id="gif-input" type="file" accept="image/gif,.gif" hidden><div class="gif-import-row"><button id="import-gif" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="GIF resize method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
         ${edgeTools}
-        <div class="control-group"><label class="control-label">Paint color</label><input id="led-color" class="color-picker" type="color" value="${state.ledColor}"><input id="led-color-text" class="text-field" value="${state.ledColor}"></div>
+        <div class="control-group"><label class="control-label" for="led-color">Paint color</label><input id="led-color" class="color-picker" type="color" value="${state.ledColor}"><input id="led-color-text" class="text-field" aria-label="Paint color hex value" value="${state.ledColor}"></div>
         <div class="control-group"><label class="control-label">Brush</label><div class="button-row"><button id="fill-led" class="button ghost">Fill all</button><button id="clear-led" class="button ghost">Clear</button></div></div>
-        <div class="control-group"><label class="control-label">Brightness</label><div class="range-row"><input id="brightness" type="range" min="0" max="100" value="${Number(page?.lightness??100)}"><span class="range-value">${Number(page?.lightness??100)}%</span></div></div>
-        <div class="control-group"><label class="control-label">Frame duration</label><select id="speed" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===encodedSpeed?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select><small class="control-help">These are the timing steps exposed by Angry Miao firmware.</small></div>
-      </div></aside>
+        <div class="control-group"><label class="control-label" for="brightness">Brightness</label><div class="range-row"><input id="brightness" type="range" min="0" max="100" value="${Number(page?.lightness??100)}" aria-describedby="brightness-value"><span id="brightness-value" class="range-value">${Number(page?.lightness??100)}%</span></div></div>
+        <div class="control-group"><label class="control-label" for="speed">Frame duration</label><select id="speed" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===encodedSpeed?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select><small class="control-help">These are the timing steps exposed by Angry Miao firmware.</small></div>
+      </div>`;
+  $("#lighting-edit-content").innerHTML=`<div class="lighting-edit-shell"><div class="led-layout">
+      <aside class="card frame-list" aria-label="Animation frames"><div class="card-header"><strong>Frames</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?'Editing':'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div></aside>
+      <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header"><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}</small></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''}" role="region" aria-label="Paint the selected animation frame">${pixelCanvas}</div></section>
+      <aside class="card led-controls" aria-label="Lighting controls"><div class="card-header"><strong>Frame controls</strong><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div>${editorBody}</aside>
     </div></div>`;
-  wireLedEditor();
+  wireLedEditor(columns);
 }
 
-function wireLedEditor() {
-  $$('[data-slot]').forEach(button=>button.addEventListener('click',()=>{state.ledSlot=Number(button.dataset.slot);state.ledFrame=0;renderLeds();}));
-  $$('[data-target]').forEach(button=>button.addEventListener('click',()=>{state.ledTarget=button.dataset.target;state.ledFrame=0;renderLeds();}));
-  $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>{state.ledFrame=Number(button.dataset.frame);renderLeds();}));
+function focusSelectedFrame() {
+  $$('[data-frame]').find(button=>Number(button.dataset.frame)===state.ledFrame)?.focus();
+}
+
+function selectLightingFrame(index) {
+  state.ledFrame=Number(index);
+  renderLightingEdit();
+  focusSelectedFrame();
+}
+
+function wireLedEditor(gridColumns) {
+  activePaintStrokeController?.teardown();
+  activePaintStrokeController=null;
+  $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>selectLightingFrame(button.dataset.frame)));
   $("#first-frame")?.addEventListener("click",()=>mutate(ensureTrack));
   $("#import-gif").addEventListener("click",()=>$("#gif-input").click());
   $("#gif-resample").addEventListener("change",event=>{state.gifResample=event.target.value;});
-  $("#relic-gif-edges")?.addEventListener("change",event=>{state.relicGifEdges=event.target.checked;renderLeds();});
+  $("#relic-gif-edges")?.addEventListener("change",event=>{state.relicGifEdges=event.target.checked;renderLightingEdit();});
   $("#gif-input").addEventListener("change",event=>importGif(event.currentTarget));
   $("#edge-static")?.addEventListener("click",()=>replaceEdgeAnimation("static"));
   $("#edge-pulse")?.addEventListener("click",()=>replaceEdgeAnimation("pulse"));
@@ -926,22 +1468,62 @@ function wireLedEditor() {
     const track=trackInfo().track;track.frame_data.splice(state.ledFrame,1);track.frame_data.forEach((f,i)=>f.frame_index=i);track.frame_num=track.frame_data.length;state.ledFrame=Math.max(0,state.ledFrame-1);
     if(state.ledTarget==="keyframes"&&activeLedModel()===LED_MODELS["80"]){const page=getPage(state.ledSlot);if(page.spotlight_frames?.frame_data?.length){const data=resampleEdgeAnimation(page.spotlight_frames.frame_data,track.frame_data.length);page.spotlight_frames={...page.spotlight_frames,frame_num:data.length,frame_data:data};}}
   }));
-  let painting=false, checkpointed=false;
   const paint = pixel => {
-    const frame=currentFrame();if(!frame)return;const i=Number(pixel.dataset.pixel);frame.frame_RGB[i]=state.ledColor;pixel.style.background=state.ledColor;pixel.style.setProperty('--pixel-color',state.ledColor);pixel.title=`LED ${i} · ${state.ledColor}`;
+    const frame=currentFrame();if(!frame)return;const i=Number(pixel.dataset.pixel);frame.frame_RGB[i]=state.ledColor;pixel.style.background=state.ledColor;pixel.style.setProperty('--pixel-color',state.ledColor);pixel.title=`LED ${i} · ${state.ledColor}`;pixel.setAttribute('aria-label',`LED ${i}, ${state.ledColor}`);
   };
-  $$('.pixel').forEach(pixel=>{
-    pixel.addEventListener('pointerdown',event=>{event.preventDefault();if(!checkpointed){pushUndo();checkpointed=true;}painting=true;paint(pixel);markDirty();});
-    pixel.addEventListener('pointerenter',event=>{if(painting&&event.buttons)paint(pixel);});
+  const strokeController=createPaintStrokeController({releaseTarget:window,checkpoint:pushUndo,paint});
+  activePaintStrokeController=strokeController;
+  const pixels=$$('.pixel');
+  const focusPixel=index=>{
+    const next=Math.min(pixels.length-1,Math.max(0,index));
+    pixels.forEach((pixel,pixelIndex)=>{pixel.tabIndex=pixelIndex===next?0:-1;});
+    state.ledPixel=next;
+    pixels[next]?.focus();
+  };
+  pixels.forEach((pixel,index)=>{
+    pixel.addEventListener('focus',()=>{state.ledPixel=index;pixels.forEach((item,itemIndex)=>{item.tabIndex=itemIndex===index?0:-1;});});
+    pixel.addEventListener('keydown',event=>{
+      if(["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Home","End"].includes(event.key)){
+        event.preventDefault();
+        focusPixel(nextGridIndex(index,event.key,pixels.length,gridColumns));
+      }else if(event.key===' '||event.key==='Enter'){
+        event.preventDefault();
+        pushUndo();
+        paint(pixel);
+        markDirty();
+      }
+    });
+    pixel.addEventListener('pointerdown',event=>{event.preventDefault();focusPixel(index);strokeController.pointerDown(pixel);markDirty();});
+    pixel.addEventListener('pointerenter',event=>{strokeController.pointerEnter(pixel,event.buttons);});
   });
-  window.addEventListener('pointerup',()=>{painting=false;checkpointed=false;},{once:true});
   $("#led-color").addEventListener("input",event=>{state.ledColor=event.target.value.toUpperCase();$("#led-color-text").value=state.ledColor;});
-  $("#led-color-text").addEventListener("change",event=>{if(/^#[0-9a-f]{6}$/i.test(event.target.value)){state.ledColor=event.target.value.toUpperCase();renderLeds();}else toast("Invalid color","Use a six-digit hex color such as #8358FF.","error");});
+  $("#led-color-text").addEventListener("change",event=>{if(/^#[0-9a-f]{6}$/i.test(event.target.value)){state.ledColor=event.target.value.toUpperCase();renderLightingEdit();}else toast("Invalid color","Use a six-digit hex color such as #8358FF.","error");});
   $("#fill-led").addEventListener("click",()=>mutate(()=>{const track=ensureTrack();track.frame_data[state.ledFrame].frame_RGB.fill(state.ledColor);}));
   $("#clear-led").addEventListener("click",()=>mutate(()=>{const track=ensureTrack();track.frame_data[state.ledFrame].frame_RGB.fill("#000000");}));
   $("#brightness").addEventListener("change",event=>mutate(()=>{getPage(state.ledSlot).lightness=Number(event.target.value);}));
   $("#speed").addEventListener("change",event=>mutate(()=>{getPage(state.ledSlot).speed_ms=Number(event.target.value);}));
-  $("#play-led").addEventListener("click",()=>state.playing?stopPlayback():startPlayback());
+  $("#play-led").addEventListener("click",toggleLightingPlayback);
+}
+
+// Write a GIF/procedural mapping result (the shared `/api/led/gif` shape)
+// into a page object in place: replace each returned track, retime a paired or
+// existing Relic edge animation to the key track, and adopt the per-frame speed.
+// Manual import and generated Apply therefore stay identical.
+function applyLedResultToPage(page,result,primaryTarget,pairsRelicGif) {
+  page.valid=1;
+  for(const [trackName,trackResult] of Object.entries(result.tracks)){
+    if(trackName==="spotlight_frames"){
+      const count=Math.max(1,result.tracks.keyframes?.frame_count||page.keyframes?.frame_data?.length||trackResult.frame_count);
+      page[trackName]={valid:1,frame_num:count,frame_data:resampleEdgeAnimation(trackResult.frames,count)};
+    }else{
+      page[trackName]={valid:1,frame_num:trackResult.frame_count,frame_data:trackResult.frames.map((colors,index)=>({frame_index:index,frame_RGB:colors}))};
+    }
+  }
+  if(primaryTarget==="keyframes"&&!pairsRelicGif&&page.spotlight_frames?.frame_data?.length){
+    const count=page.keyframes.frame_data.length;
+    page.spotlight_frames={...page.spotlight_frames,valid:1,frame_num:count,frame_data:resampleEdgeAnimation(page.spotlight_frames.frame_data,count)};
+  }
+  if(result.duration_ms&&primaryTarget!=="spotlight_frames")page.speed_ms=Number(result.duration_ms);
 }
 
 async function importGif(input) {
@@ -957,26 +1539,7 @@ async function importGif(input) {
     const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("Could not read the GIF."));reader.readAsDataURL(file);});
     const encoded=String(dataUrl).split(",",2)[1];
     const result=await api("/api/led/gif",{method:"POST",body:JSON.stringify({data:encoded,targets,resample:state.gifResample,product_id:productId()})});
-    mutate(()=>{
-      const page=getPage(state.ledSlot);
-      page.valid=1;
-      for(const [trackName,trackResult] of Object.entries(result.tracks)){
-        if(trackName==="spotlight_frames"){
-          const count=Math.max(1,result.tracks.keyframes?.frame_count||page.keyframes?.frame_data?.length||trackResult.frame_count);
-          const frameData=resampleEdgeAnimation(trackResult.frames,count);
-          page[trackName]={valid:1,frame_num:count,frame_data:frameData};
-        }else{
-          page[trackName]={valid:1,frame_num:trackResult.frame_count,frame_data:trackResult.frames.map((colors,index)=>({frame_index:index,frame_RGB:colors}))};
-        }
-      }
-      if(target==="keyframes"&&!pairsRelicGif&&page.spotlight_frames?.frame_data?.length){
-        const count=page.keyframes.frame_data.length;
-        const frameData=resampleEdgeAnimation(page.spotlight_frames.frame_data,count);
-        page.spotlight_frames={...page.spotlight_frames,valid:1,frame_num:count,frame_data:frameData};
-      }
-      if(result.duration_ms&&target!=="spotlight_frames")page.speed_ms=Number(result.duration_ms);
-      state.ledFrame=0;
-    });
+    mutate(()=>{applyLedResultToPage(getPage(state.ledSlot),result,target,pairsRelicGif);state.ledFrame=0;});
     const primary=result.tracks[target];
     const mapped=pairsRelicGif?"89 key + 7 edge LEDs":`${primary.mapped_pixels} mapped LEDs`;
     const synchronized=target==="spotlight_frames"&&primary.frame_count!==getPage(state.ledSlot).spotlight_frames.frame_num?` · retimed to ${getPage(state.ledSlot).spotlight_frames.frame_num} key frames`:"";
@@ -989,21 +1552,106 @@ async function importGif(input) {
 
 function startPlayback() {
   const track=trackInfo().track;if(!track?.frame_data?.length)return;
-  state.playing=true;renderLeds();
+  state.playing=true;renderLightingEdit();
   const tick=()=>{
     if(!state.playing)return;
     state.ledFrame=(state.ledFrame+1)%track.frame_data.length;
     const frame=track.frame_data[state.ledFrame];
-    $$('.pixel').forEach(pixel=>{const color=frame.frame_RGB[Number(pixel.dataset.pixel)]||'#000000';pixel.style.background=color;pixel.style.setProperty('--pixel-color',color);});
-    $$('.frame-item').forEach((node,i)=>node.classList.toggle('active',i===state.ledFrame));
+    $$('.pixel').forEach(pixel=>{const color=frame.frame_RGB[Number(pixel.dataset.pixel)]||'#000000';pixel.style.background=safeRgbColor(color);pixel.style.setProperty('--pixel-color',safeRgbColor(color));});
+    $$('.frame-item').forEach((node,i)=>{const selected=i===state.ledFrame;node.classList.toggle('active',selected);node.setAttribute('aria-pressed',String(selected));node.setAttribute('aria-label',`Frame ${i+1}${selected?', selected':''}`);});
   };
   state.playTimer=setInterval(tick,Math.max(12,Number(getPage(state.ledSlot)?.speed_ms||90)));
+}
+
+function toggleLightingPlayback() {
+  if(state.playing)stopPlayback();
+  else startPlayback();
+  $("#play-led")?.focus();
 }
 
 function stopPlayback(rerender=true) {
   if(state.playTimer)clearInterval(state.playTimer);
   const was=state.playing;state.playTimer=null;state.playing=false;
-  if(was&&rerender&&state.screen==='leds')renderLeds();
+  if(was&&rerender&&state.lighting.route===ROUTES.EDIT)renderLightingEdit();
+}
+
+// ---- AI LED generation -----------------------------------------------------
+
+// Typed provider-error codes → actionable, user-facing copy (design §error map).
+const AI_ERROR_MESSAGES = {
+  config: "Generation isn’t ready. Repair the selected backend in Settings.",
+  auth: "The API provider rejected the credential. Check it in Settings.",
+  rate_limited: "The API provider is rate-limiting requests. Try again shortly.",
+  timeout: "Generation timed out. Try a simpler prompt and try again.",
+  offline: "The selected backend could not be reached.",
+  moderation: "The API provider declined this prompt. Try describing the effect differently.",
+  bad_response: "The selected model returned an invalid recipe. Try another prompt or model.",
+  unavailable: "The selected backend is temporarily unavailable.",
+};
+
+function aiErrorMessage(error) {
+  if (error?.status === 404) return "The generation job expired. Try again.";
+  const code = error?.code;
+  let message = AI_ERROR_MESSAGES[code] || error?.message || "Generation failed. Try again.";
+  if (code === "rate_limited" && error?.retry_after) message += ` Retry after ${error.retry_after}s.`;
+  return message;
+}
+
+// ---- Settings route --------------------------------------------------------
+
+function setSettingsStatus(message, kind = "") {
+  const status = $("#settings-status");
+  status.className = `write-status settings-route-status ${kind}`.trim();
+  status.textContent = message;
+}
+
+function finishSettings() {
+  const route=state.settingsReturnRoute&&state.settingsReturnRoute!==ROUTES.SETTINGS?state.settingsReturnRoute:ROUTES.EDIT;
+  const reopen=state.settingsReturnDialog;
+  state.settingsReturnRoute=null;
+  state.settingsReturnDialog=false;
+  navigateTo(route,{focusHeading:!reopen});
+  if(reopen)setTimeout(openGenerationDialog,0);
+}
+
+async function chooseLibraryFolder() {
+  const button=$("#settings-choose-library");
+  button.disabled=true;
+  setSettingsStatus("Opening folder chooser…","working");
+  try{
+    let path=null;
+    try{
+      const result=await api("/api/native/choose-library",{method:"POST",body:"{}"});
+      path=result.path;
+    }catch(error){
+      const bridge=window.pywebview?.api;
+      if(error.status!==404||!bridge?.choose_library_folder)throw error;
+      path=await bridge.choose_library_folder();
+    }
+    if(path){$("#settings-library-root").value=path;setSettingsStatus("Folder selected. Save changes to use it.");}
+    else setSettingsStatus("No folder selected.");
+  }catch(error){
+    $("#settings-library-root").focus();
+    setSettingsStatus(error.status===404?"Enter an absolute folder path, then save changes.":`Could not choose folder: ${error.message||error}`,"error");
+  }finally{button.disabled=false;}
+}
+
+async function invokeRevealLibraryPath(path) {
+  try{
+    const result=await api("/api/native/reveal-library",{method:"POST",body:JSON.stringify({path})});
+    return Boolean(result.revealed);
+  }catch(error){
+    const bridge=window.pywebview?.api;
+    if(error.status!==404||!bridge?.reveal_library_path)throw error;
+    return Boolean(await bridge.reveal_library_path(path));
+  }
+}
+
+async function revealLibraryFolder() {
+  const path=state.settings?.library?.current_root;
+  if(!path)return;
+  try{if(!await invokeRevealLibraryPath(path))throw new Error("The folder is unavailable.");}
+  catch(error){setSettingsStatus(`Could not reveal folder: ${error.message||error}`,"error");}
 }
 
 async function validateCurrent(showSuccess = true) {
@@ -1061,6 +1709,7 @@ async function importDetachedMacros() {
     state.loadedPort=device.port;
     state.selectedPort=device.port;
     applyImportedMacros(result);
+    await synchronizeOpenDocument();
   }catch(error){toast("Could not import macros",error.message,"error");}
 }
 
@@ -1071,6 +1720,7 @@ async function returnToConnectedWorkspace() {
   if(restoreDeviceDocument(device.port,device.product_id)){
     state.loadedPort=device.port;
     state.selectedPort=device.port;
+    await synchronizeOpenDocument();
     render();
     toast("Keyboard workspace restored",`${device.product_id} · ${state.fileName}`,"success");
     return;
@@ -1101,6 +1751,7 @@ function restoreDeviceDocument(port,deviceId) {
   const saved=state.deviceDocuments.get(port);
   if(!saved||!sameProductFamily(saved.config?.product_info?.product_id,deviceId))return false;
   state.config=saved.config;
+  state.documentRevision=null;
   state.fileName=saved.fileName;
   state.dirty=Boolean(saved.dirty);
   state.undo=saved.undo;
@@ -1199,6 +1850,7 @@ async function readDevice() {
     }
     state.loadedPort=port;
     state.selectedPort=port;
+    if(!await synchronizeOpenDocument())throw new Error(state.documentSyncError||"The device document could not be synchronized.");
     markDirty();render();
     $("#device-dialog").close();
     const ledDetail=restored?'Its in-memory LED workspace was restored.':preserved?'Open LED data was preserved.':restoredFromDisk?'LEDs were restored from this machine’s last verified full write—not read from the keyboard.':'No portable LED source was available; blank local LED slots were created.';
@@ -1246,6 +1898,7 @@ async function confirmDeviceWrite() {
   try{
     const endpoint=verifyOnly?'/api/device/verify':'/api/device/write';
     const result=await api(endpoint,{method:'POST',body:JSON.stringify({port:pending.device.port,config:state.config,confirmation})});
+    if(result.document_revision){state.documentRevision=result.document_revision;state.documentSyncError="";}
     markDirty(false);$("#write-dialog").close();state.pendingWrite=null;
     const partialMacros=result.macro_verification==='partial';
     const macroWarning=result.macro_warning?`\n${result.macro_warning}`:'';
@@ -1265,10 +1918,488 @@ async function confirmDeviceWrite() {
   }
 }
 
+// ---- Optional procedural generation ---------------------------------------
+
+function aiReady() {
+  return Boolean(state.aiStatus?.enabled && state.aiStatus?.ready);
+}
+
+function selectedAiBackend() {
+  return $("input[name='settings-ai-backend']:checked")?.value || state.aiStatus?.backend || "local";
+}
+
+function proceduralTargetSnapshot() {
+  const family=productFamily(productId());
+  if(family==="CB")return {family,productId:productId(),targets:["frames"],frameCap:80};
+  if(family==="80")return {family,productId:productId(),targets:["keyframes","spotlight_frames"],frameCap:200};
+  return {family,productId:productId(),targets:["keyframes"],frameCap:186};
+}
+
+function latestProceduralAttempt(manifest=state.conceptManifest) {
+  const attempts=manifest?.procedural_attempts||[];
+  return attempts.length?attempts[attempts.length-1]:null;
+}
+
+async function loadProceduralRecipe(jobId,assetId) {
+  const key=`${jobId}:${assetId}`;
+  if(state.proceduralRecipes.has(key)||state.proceduralRecipeLoads.has(key))return;
+  state.proceduralRecipeLoads.add(key);
+  try{
+    const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load recipe (${response.status})`);}
+    const recipe=await response.json();
+    if(!recipe||typeof recipe!=="object"||!Array.isArray(recipe.layers))throw new Error("The saved recipe is invalid.");
+    if(state.conceptManifest?.job_id===jobId){state.proceduralRecipes.set(key,recipe);refreshGenerationDialog();}
+  }catch(error){
+    if(state.conceptManifest?.job_id===jobId){state.animationError=error.message;refreshGenerationDialog();}
+  }finally{state.proceduralRecipeLoads.delete(key);}
+}
+
+function hydrateProceduralAssets(manifest) {
+  const attempt=latestProceduralAttempt(manifest);
+  if(!attempt)return;
+  if(attempt.preview_asset_id)void loadConceptAsset(manifest.job_id,attempt.preview_asset_id);
+  if(attempt.recipe_asset_id)void loadProceduralRecipe(manifest.job_id,attempt.recipe_asset_id);
+  if(attempt.mapped_result_asset_id)void loadMappedLightingResult(manifest.job_id,attempt.mapped_result_asset_id);
+}
+
+function refreshGenerationDialog() {
+  const dialog=$("#lighting-generate-dialog");
+  if(dialog?.open)renderGenerationDialog();
+}
+
+function syncLightingJob(manifest,{renderPage=true}={}) {
+  const previousId=state.conceptManifest?.job_id;
+  if(previousId&&previousId!==manifest?.job_id){
+    clearConceptAssetUrls();
+    state.proceduralRecipes.clear();
+    state.animationError="";
+  }
+  state.conceptManifest=manifest||null;
+  if(manifest){
+    state.conceptPollFailures=0;
+    state.aiPrompt=manifest.prompt||state.aiPrompt;
+    state.conceptDestination={slot:state.conceptDestination?.slot||state.ledSlot,target:manifest.target?.targets?.[0]||state.ledTarget};
+  }else state.conceptDestination=null;
+  state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:manifest?projectLightingJob(manifest):null}).state;
+  state.lightingJobId=state.lighting.activeJob?.id||null;
+  persistLightingState();
+  history.replaceState({},"",`${location.pathname}${location.search}${formatLightingHash(state.lighting.route,state.lightingJobId)}`);
+  hydrateProceduralAssets(manifest);
+  if(renderPage)render();
+  else{renderLightingJobStrip();refreshGenerationDialog();}
+  if(manifest&&["in_progress","accepted","processing"].includes(manifest.status))scheduleLightingJobPoll(manifest.job_id);
+}
+
+function proceduralPhaseLabel(phase) {
+  return ({
+    accepted:"Queued locally",
+    recipe_about_to_start:"Preparing recipe generation",
+    recipe_generating:"Creating a procedural recipe",
+    quality_check:"Checking exact LED frames",
+    rendering:"Rendering exact LED frames",
+    banking:"Saving the result locally",
+    ready_for_review:"Ready for review",
+    cancelled_saved:"Cancelled; completed assets remain saved",
+  })[phase]||String(phase||"Working").replaceAll("_"," ");
+}
+
+function proceduralProgressLabel(phase, completed, total) {
+  const verb = ({rendering:"rendered",quality_check:"checked",banking:"prepared"})[phase]||"processed";
+  return `${completed} of ${total} frames ${verb}`;
+}
+
+function generationDialogContext() {
+  const manifest=state.conceptManifest?.job_id===state.lighting.activeJob?.id?state.conceptManifest:null;
+  const target=manifest?.target||proceduralTargetSnapshot();
+  const targetKey=target.targets?.[0]||state.ledTarget;
+  const model=LED_MODELS[productFamily(target.family||target.product_id)]||activeLedModel();
+  const targetLabel=model.targets.find(item=>item.key===targetKey)?.label||targetKey;
+  const destinationSlot=state.conceptDestination?.slot||state.ledSlot;
+  return {manifest,target,targetKey,targetLabel,destinationSlot,busy:state.conceptSubmitting||["in_progress","accepted","processing"].includes(state.lighting.activeJob?.status)};
+}
+
+function renderPromptStage(context) {
+  const {manifest,targetLabel,destinationSlot,busy}=context;
+  const stopped=latestProceduralAttempt(manifest)?.error_code;
+  $("#lighting-generate-content").innerHTML=`<div class="concept-stage">
+    <div class="concept-prompt"><label class="control-label" for="effect-prompt">Describe the lighting</label><textarea id="effect-prompt" class="text-field" rows="5" maxlength="4000" placeholder="Dense violet aurora moving across the whole keyboard…" ${busy?'disabled':''}>${esc(state.aiPrompt)}</textarea></div>
+    <p class="concept-destination">Custom ${destinationSlot-4} · ${esc(targetLabel)}</p>
+    <div class="concept-actions"><button id="generate-effect" type="button" class="button primary" ${busy||!state.aiPrompt.trim()||!aiReady()||!documentSynchronized()?'disabled':''}>Generate animation</button></div>
+    ${state.conceptError||state.animationError||state.documentSyncError||stopped?`<p class="ai-error" role="alert">${esc(state.conceptError||state.animationError||state.documentSyncError||(String(stopped).replaceAll("_"," ")+". The saved failure does not disable this backend; adjust the prompt or model and try again."))}</p>`:""}
+  </div>`;
+  $("#effect-prompt")?.addEventListener("input",event=>{state.aiPrompt=event.target.value;$("#generate-effect").disabled=!event.target.value.trim()||!aiReady()||!documentSynchronized();});
+  $("#generate-effect")?.addEventListener("click",startProceduralGeneration);
+}
+
+function renderProgressStage(context) {
+  const manifest=context.manifest;
+  const progress=manifest?.progress||state.lighting.activeJob?.progress;
+  const completed=Number(progress?.completed||0),total=Number(progress?.total||0);
+  $("#lighting-generate-content").innerHTML=`<div class="concept-stage generation-progress">
+    <div class="loader" aria-hidden="true"></div><h3>${esc(proceduralPhaseLabel(manifest?.phase||state.lighting.activeJob?.phase))}</h3>
+    <p>Your job is durable. You can close this window while the result continues banking locally.</p>
+    ${total?`<progress max="${total}" value="${Math.min(completed,total)}" aria-label="Generation progress"></progress><p>${proceduralProgressLabel(manifest?.phase||state.lighting.activeJob?.phase,completed,total)}</p>`:""}
+    <div class="button-row"><button id="cancel-effect" type="button" class="button ghost">Cancel</button></div>
+    ${state.conceptError?`<p class="ai-error" role="alert">${esc(state.conceptError)}</p>`:""}
+  </div>`;
+  $("#cancel-effect")?.addEventListener("click",cancelLightingJob);
+}
+
+function renderProceduralReview(context) {
+  const manifest=context.manifest;
+  const attempt=latestProceduralAttempt(manifest);
+  const recipe=attempt?.recipe_asset_id?state.proceduralRecipes.get(`${manifest.job_id}:${attempt.recipe_asset_id}`):null;
+  const quality=attempt?.quality||{};
+  const decision=reduceLightingState(state.lighting,{type:"APPLY_REQUESTED"},{document:documentDescriptor(),destination:state.conceptDestination});
+  const mappedResultLoaded=Boolean(attempt?.mapped_result_asset_id&&state.mappedLightingResults.has(`${manifest.job_id}:${attempt.mapped_result_asset_id}`));
+  const view=createReviewView({assetUrls:state.conceptAssetUrls,jobId:manifest.job_id,attempt,recipe,quality,frameCap:manifest?.target?.frame_cap,targetLabel:context.targetLabel,destinationSlot:context.destinationSlot,blockedReason:decision.blocked,mappedResultLoaded,errorMessage:state.animationError});
+  renderReview($("#lighting-generate-content"),view,applyReviewedLighting);
+}
+
+function renderGenerationDialog() {
+  const dialog=$("#lighting-generate-dialog");
+  if(!dialog)return;
+  const active=Boolean(state.lighting.activeJob);
+  dialog.hidden=!aiReady()&&!active;
+  if(!dialog.open)return;
+  const context=generationDialogContext();
+  if(state.lighting.create.stage===STAGES.REVIEW&&context.manifest)renderProceduralReview(context);
+  else if(state.lighting.create.stage===STAGES.PROGRESS&&active)renderProgressStage(context);
+  else renderPromptStage(context);
+}
+
+function openGenerationDialog() {
+  const dialog=$("#lighting-generate-dialog");
+  if((!aiReady()&&!state.lighting.activeJob)||!state.config||!pageData().length||(!state.lighting.activeJob&&!documentSynchronized()))return;
+  openRenderedDialog(dialog,renderGenerationDialog);
+  setTimeout(()=>$("#effect-prompt")?.focus(),30);
+}
+
+function handleGenerationDialogClose() {
+  const job=state.lighting.activeJob;
+  if(job&&!["in_progress","accepted","processing"].includes(job.status)){
+    clearConceptAssetUrls();
+    state.proceduralRecipes.clear();
+    state.conceptManifest=null;
+    state.conceptDestination=null;
+    state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:null}).state;
+    state.lightingJobId=null;
+    state.library.loaded=false;
+    persistLightingState();
+    history.replaceState({},"",`${location.pathname}${location.search}${formatLightingHash(state.lighting.route)}`);
+    render();
+  }
+  $("#lighting-generate-open")?.focus();
+}
+
+async function startProceduralGeneration() {
+  if(state.conceptSubmitting||!aiReady()||!documentSynchronized())return;
+  if(state.lighting.activeJob){
+    if(["in_progress","accepted","processing"].includes(state.lighting.activeJob.status))return;
+    syncLightingJob(null,{renderPage:false});
+  }
+  const prompt=state.aiPrompt.trim();
+  if(!prompt)return;
+  state.conceptSubmitting=true;
+  state.conceptError="";
+  state.animationError="";
+  const target=proceduralTargetSnapshot();
+  state.conceptDestination={slot:state.ledSlot,target:target.targets[0]};
+  renderGenerationDialog();
+  try{
+    const started=await api("/api/lighting/effects",{method:"POST",body:JSON.stringify({prompt,backend:state.aiStatus.backend,document_revision:state.documentRevision})});
+    state.conceptPollEpoch++;
+    state.conceptDestination={slot:state.ledSlot,target:started.target.targets[0]};
+    state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:{id:started.job_id,status:"in_progress",phase:"accepted",progress:null,resultAssetId:null,previewAssetId:null,recipeAssetId:null,target:started.target}}).state;
+    state.lightingJobId=started.job_id;
+    persistLightingState();
+    renderLightingJobStrip();
+    renderGenerationDialog();
+    scheduleLightingJobPoll(started.job_id);
+  }catch(error){state.conceptError=aiErrorMessage(error);}
+  finally{state.conceptSubmitting=false;refreshGenerationDialog();}
+}
+
+function applyReviewedLighting() {
+  const manifest=state.conceptManifest;
+  const attempt=latestProceduralAttempt(manifest);
+  const destination=state.conceptDestination;
+  if(!manifest||!attempt?.mapped_result_asset_id||!destination)return;
+  const decision=reduceLightingState(state.lighting,{type:"APPLY_REQUESTED"},{document:documentDescriptor(),destination});
+  if(decision.blocked){state.animationError=reviewBlockedMessage(decision.blocked);renderGenerationDialog();return;}
+  const result=state.mappedLightingResults.get(`${manifest.job_id}:${attempt.mapped_result_asset_id}`);
+  if(!result){state.animationError="The saved LED result is still loading.";renderGenerationDialog();return;}
+  const pairsRelicGif=(manifest.target?.targets||[]).includes("spotlight_frames");
+  mutate(()=>{
+    state.ledSlot=destination.slot;
+    state.ledTarget=destination.target;
+    applyLedResultToPage(getPage(destination.slot),result,destination.target,pairsRelicGif);
+    state.ledFrame=0;
+  },false);
+  state.conceptPollEpoch++;
+  if(state.conceptPollTimer)clearTimeout(state.conceptPollTimer);
+  clearConceptAssetUrls();
+  state.proceduralRecipes.clear();
+  state.conceptManifest=null;
+  state.conceptDestination=null;
+  state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:null}).state;
+  state.lightingJobId=null;
+  state.library.loaded=false;
+  persistLightingState();
+  history.replaceState({},"",`${location.pathname}${location.search}${formatLightingHash(state.lighting.route)}`);
+  $("#lighting-generate-dialog").close();
+  render();
+  toast("Lighting applied",`${Number(result.source_frames||0)} frames added to Custom ${destination.slot-4}. The keyboard has not been written.`,"success");
+}
+
+async function loadAiConfig() {
+  const requests=await Promise.allSettled([api("/api/led/capabilities"),api("/api/settings"),api("/api/ai/status")]);
+  if(requests[0].status==="fulfilled")state.capabilities=requests[0].value;
+  if(requests[1].status==="fulfilled")state.settings=requests[1].value;
+  if(requests[2].status==="fulfilled")state.aiStatus=requests[2].value;
+  if(shouldDiscoverLocalModels(state.lighting.route,state.aiStatus)){
+    try{state.localModels=normalizeLocalModels(await api("/api/ai/local/models"));}
+    catch(error){state.localModels=localModelRefreshFailed(state.localModels);}
+  }else state.localModels={available:null,models:[],reason:null,loading:false};
+  refreshAiGate();
+}
+
+function refreshAiGate() {
+  const button=$("#lighting-generate-open");
+  if(button){button.hidden=!aiReady();button.disabled=!state.config||!pageData().length||!aiReady();}
+  const dialog=$("#lighting-generate-dialog");
+  if(dialog){
+    const keep=Boolean(state.lighting.activeJob);
+    dialog.hidden=!aiReady()&&!keep;
+    if(dialog.open&&!aiReady()&&!keep)dialog.close();
+  }
+  if(state.lighting.route===ROUTES.CREATE&&!aiReady()&&!state.lighting.activeJob)navigateTo(ROUTES.EDIT,{replace:true});
+  else if(state.lighting.route===ROUTES.SETTINGS)populateSettings();
+  else if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
+  else renderScreen();
+}
+
+function aiReasonText(reason,status=state.aiStatus) {
+  return ({
+    disabled:"Optional generation is off.",backend_unselected:"Choose a backend.",ollama_unavailable:"Start Ollama on this computer, then refresh the installed models.",upgrade_required:"Upgrade Ollama to use local AI, then refresh the installed models.",model_missing:"Choose one of the models already installed in Ollama.",model_unavailable:"The selected Ollama model is no longer installed with the same identity. Refresh and choose it again.",setup_required:"Run the setup test to enable this backend.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_invalid:"The API credential is invalid.",credential_missing:"Save an API credential.",disclosure_required:"Accept the API data disclosure.",auth_invalid:"The API credential was rejected.",ready:"Ready.",
+  })[reason]||"Setup needs attention.";
+}
+
+function populateLocalModelSelect(local) {
+  const select=$("#settings-local-model-select");
+  const projection=projectLocalModelPicker(state.localModels,local,select.value);
+  select.replaceChildren();
+  const placeholder=document.createElement("option");
+  placeholder.value="";
+  placeholder.textContent=projection.placeholder;
+  select.append(placeholder);
+  projection.options.forEach(projected=>{
+    const option=document.createElement("option");
+    option.value=projected.value;
+    option.textContent=projected.label;
+    option.disabled=projected.disabled;
+    select.append(option);
+  });
+  select.value=projection.value;
+  select.disabled=projection.disabled;
+  select.dataset.inventoryState=projection.inventoryState;
+  select.dataset.selectionState=projection.selectionState;
+  return projection;
+}
+
+async function openSettings({returnToGeneration=false}={}) {
+  if(state.lighting.route!==ROUTES.SETTINGS)state.settingsReturnRoute=state.lighting.route;
+  state.settingsReturnDialog=returnToGeneration||$("#lighting-generate-dialog").open;
+  if($("#lighting-generate-dialog").open)$("#lighting-generate-dialog").close();
+  navigateTo(ROUTES.SETTINGS,{focusHeading:true});
+  setSettingsStatus("");
+  await loadAiConfig();
+}
+
+function populateSettings() {
+  const status=state.aiStatus;
+  const backend=status?.backend||"local";
+  const migration=state.settings?.migration||{};
+  const migrationBlocked=migration.required===true;
+  const canDiscardLegacyCredential=migrationBlocked&&["credential_store_unavailable","credential_invalid"].includes(migration.reason);
+  const repair=$("#settings-migration-repair");
+  const confirm=$("#settings-migration-confirm");
+  repair.hidden=!migrationBlocked;
+  $("#settings-migration-message").textContent=({
+    settings_migration_write_failed:"The older settings were read, but the upgraded settings file could not be saved. Restore write access, then reopen Settings.",
+    settings_migration_invalid:"The older settings contain data that cannot be safely upgraded. The original file was left unchanged; correct or replace it before saving settings.",
+    credential_invalid:"The legacy API credential is invalid and cannot be moved into secure storage. Explicitly continue without that legacy credential to repair the remaining settings.",
+  })[migration.reason]||"The legacy API credential could not be moved into secure storage. Retry after credential storage is available, or explicitly continue without that legacy credential.";
+  $("#settings-migration-confirm-row").hidden=!canDiscardLegacyCredential;
+  $("#settings-migration-discard").hidden=!canDiscardLegacyCredential;
+  if(!migrationBlocked)confirm.checked=false;
+  $("#settings-migration-discard").disabled=!canDiscardLegacyCredential||!confirm.checked;
+  $("#settings-mutable").inert=migrationBlocked;
+  $("#settings-save").disabled=migrationBlocked||state.settingsSaveBusy;
+  $("#settings-ai-enabled").checked=Boolean(status?.enabled);
+  $("#settings-ai-local").checked=backend==="local";
+  $("#settings-ai-api").checked=backend==="api";
+  $("#settings-ai-state").textContent=aiReady()?"Ready":status?.enabled?"Needs repair":"Off";
+  $("#settings-ai-state").className=`pill ${aiReady()?"":"muted"}`;
+  $("#settings-local-panel").hidden=backend!=="local";
+  $("#settings-api-panel").hidden=backend!=="api";
+  const local=status?.local||{};
+  const pickerProjection=populateLocalModelSelect(local);
+  const ollamaAvailable=state.localModels.available===true;
+  const upgradeRequired=state.localModels.reason==="upgrade_required"||status?.reason==="upgrade_required";
+  $("#settings-local-runtime").textContent=state.localModels.loading?"Checking":upgradeRequired?"Upgrade needed":ollamaAvailable?"Ollama ready":"Not running";
+  $("#settings-local-runtime").className=`pill ${ollamaAvailable&&!upgradeRequired?"":"muted"}`;
+  let localGuidance="Choose an installed Ollama model for local generation.";
+  if(backend==="local"){
+    if(upgradeRequired)localGuidance="Upgrade Ollama to use local AI, then refresh the installed models.";
+    else if(pickerProjection.inventoryState==="transient_failure")localGuidance="Ollama could not be refreshed. The previous model choice is preserved; try Refresh again.";
+    else if(!ollamaAvailable)localGuidance="Start Ollama on this computer, then refresh the installed models.";
+    else if(pickerProjection.selectionState==="none")localGuidance="Choose one of the models already installed in Ollama.";
+    else if(pickerProjection.selectionState==="removed")localGuidance="The selected model is no longer installed. Refresh and choose another model.";
+    else if(pickerProjection.selectionState==="digest_changed")localGuidance="The selected model name now has a different identity. Select it again, then rerun setup.";
+    else if(!local.setup_tested)localGuidance="Run Test & enable to verify this model can create lighting recipes.";
+    else localGuidance=status?.enabled?"Ready.":"This model passed setup. Turn on Optional AI features to use it.";
+  }
+  $("#settings-local-state").textContent=localGuidance;
+  const selectedSuffix=pickerProjection.selectionState==="selected"?" · installed":pickerProjection.selectionState==="removed"?" · no longer installed":pickerProjection.selectionState==="digest_changed"?" · installed identity changed":pickerProjection.selectionState==="transient_failure"?" · refresh needed":"";
+  $("#settings-local-model").textContent=local.model_selected?`Selected in Ollama: ${local.model_id}${selectedSuffix}`:"No Ollama model selected.";
+  const picker=$("#settings-local-model-select");
+  $("#settings-local-refresh").disabled=state.localModels.loading;
+  $("#settings-local-select").disabled=picker.disabled||!picker.value||!state.localModels.models.some(model=>model.model_id===picker.value);
+  $("#settings-local-clear").disabled=!local.model_selected;
+  $("#settings-local-test").disabled=!local.model_verified;
+  const apiState=status?.api||{};
+  $("#settings-api-credential-state").textContent=apiState.credential_set?"A credential is stored securely.":"No credential is configured.";
+  $("#settings-api-remove").disabled=!apiState.credential_set;
+  $("#settings-api-disclosure-ack").checked=Boolean(apiState.disclosure_current);
+  $("#settings-api-provider").value=apiState.provider||"xai";
+  $("#settings-api-model").value=apiState.model_id||"grok-4.5";
+  $("#settings-library-root").value=state.settings?.library?.current_root||"";
+  $("#settings-reveal-library").disabled=!state.settings?.library?.current_root;
+}
+
+async function refreshSettingsData() {
+  const [settings,status]=await Promise.all([api("/api/settings"),api("/api/ai/status")]);
+  state.settings=settings;
+  state.aiStatus=status;
+  populateSettings();
+  refreshAiGate();
+}
+
+async function selectAiBackend(backend) {
+  setSettingsStatus("Updating backend…","working");
+  try{
+    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled:false,backend})});
+    populateSettings();
+    refreshAiGate();
+    setSettingsStatus(backend==="local"?"Local backend selected. Choose an installed Ollama model, then test it.":"API backend selected. Save a credential, accept the disclosure, and test.");
+  }catch(error){setSettingsStatus(error.message,"error");}
+}
+
+async function refreshLocalModels({quiet=false}={}) {
+  state.localModels={...state.localModels,loading:true};
+  populateSettings();
+  if(!quiet)setSettingsStatus("Checking models already installed in Ollama…","working");
+  try{
+    state.localModels=normalizeLocalModels(await api("/api/ai/local/models"));
+    populateSettings();
+    if(!quiet)setSettingsStatus(state.localModels.reason==="upgrade_required"?"Ollama must be upgraded before local AI can discover installed models.":state.localModels.available?(state.localModels.models.length?`${state.localModels.models.length} local Ollama model${state.localModels.models.length===1?"":"s"} available.`:"Ollama is running, but it has no eligible local models installed."):"Ollama is not running. Start Ollama, then refresh models.",state.localModels.reason==="upgrade_required"||!state.localModels.available?"error":"");
+  }catch(error){state.localModels=localModelRefreshFailed(state.localModels);populateSettings();if(!quiet)setSettingsStatus("Ollama could not be reached on this computer. The previous model choice is preserved; try Refresh again.","error");}
+}
+
+async function selectOllamaModel() {
+  const modelId=$("#settings-local-model-select").value;
+  if(!modelId){setSettingsStatus("Choose an installed Ollama model first.","error");return;}
+  setSettingsStatus(`Selecting ${modelId}…`,"working");
+  try{state.aiStatus=await api("/api/ai/local/select",{method:"POST",body:JSON.stringify({model_id:modelId})});populateSettings();refreshAiGate();setSettingsStatus(`${modelId} selected. Run Test & enable.`);}
+  catch(error){setSettingsStatus(error.message,"error");}
+}
+
+async function clearLocalModel() {
+  setSettingsStatus("Clearing selection…","working");
+  try{state.aiStatus=await api("/api/ai/local/clear",{method:"POST",body:"{}"});populateSettings();refreshAiGate();setSettingsStatus("Ollama model selection cleared. No installed model was changed or removed.");}
+  catch(error){setSettingsStatus(error.message,"error");}
+}
+
+async function testAiBackend(backend) {
+  setSettingsStatus(backend==="local"?"Testing the selected model through local Ollama…":"Testing the API backend…","working");
+  try{
+    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled:false,backend,provider:"xai",model_id:"grok-4.5"})});
+    if(backend==="api"){
+      const key=$("#settings-api-key").value.trim();
+      if(key){state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:"xai",key})});$("#settings-api-key").value="";}
+      if(!state.aiStatus.api.disclosure_current){
+        if(!$("#settings-api-disclosure-ack").checked)throw new Error("Accept the API data disclosure before testing.");
+        const version=state.capabilities?.privacy_disclosure_version;
+        if(!version)throw new Error("The current API disclosure is unavailable.");
+        state.settings=await api("/api/settings/privacy",{method:"POST",body:JSON.stringify({version})});
+      }
+    }
+    state.aiStatus=await api("/api/ai/test",{method:"POST",body:JSON.stringify({backend})});
+    await refreshSettingsData();
+    setSettingsStatus(backend==="local"?"Local generation is enabled with the selected Ollama model.":"API generation is enabled.");
+  }catch(error){
+    try{state.aiStatus=await api("/api/ai/status");populateSettings();refreshAiGate();}catch(refreshError){}
+    setSettingsStatus(aiErrorMessage(error),"error");
+  }
+}
+
+async function saveApiCredential() {
+  const key=$("#settings-api-key").value.trim();
+  if(!key){setSettingsStatus("Enter an API key to save.","error");return;}
+  setSettingsStatus("Saving credential securely…","working");
+  try{state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:"xai",key})});$("#settings-api-key").value="";populateSettings();setSettingsStatus("Credential saved. Run Test & enable API.");}
+  catch(error){setSettingsStatus(error.message,"error");}
+}
+
+async function clearSettingsKey() {
+  setSettingsStatus("Removing credential…","working");
+  try{state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:"xai",key:""})});populateSettings();refreshAiGate();setSettingsStatus("API credential removed.");}
+  catch(error){setSettingsStatus(error.message,"error");}
+}
+
+async function discardLegacyApiCredential() {
+  if(!$("#settings-migration-confirm").checked){
+    setSettingsStatus("Confirm that the legacy API credential may be discarded.","error");
+    return;
+  }
+  const button=$("#settings-migration-discard");
+  button.disabled=true;
+  setSettingsStatus("Repairing older settings…","working");
+  try{
+    state.settings=await api("/api/settings/migration/discard-credential",{method:"POST",body:JSON.stringify({confirm:true})});
+    await loadAiConfig();
+    populateSettings();
+    setSettingsStatus("Settings repaired. The legacy file credential was discarded; the OS credential vault was not changed.");
+  }catch(error){setSettingsStatus(error.message,"error");populateSettings();}
+}
+
+async function saveSettings({exit=false}={}) {
+  if(state.settingsSaveBusy)return false;
+  state.settingsSaveBusy=true;
+  $("#settings-save").disabled=true;
+  $("#settings-done").disabled=true;
+  setSettingsStatus("Saving…","working");
+  try{
+    const backend=selectedAiBackend();
+    const enabled=$("#settings-ai-enabled").checked;
+    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled,backend,provider:"xai",model_id:"grok-4.5"})});
+    const requestedRoot=$("#settings-library-root").value.trim()||null;
+    if(requestedRoot!==state.settings.library?.current_root)state.settings=await api("/api/settings/library",{method:"POST",body:JSON.stringify({current_root:requestedRoot})});
+    state.library.loaded=false;
+    populateSettings();
+    refreshAiGate();
+    setSettingsStatus("Settings saved.");
+    if(exit)finishSettings();
+    return true;
+  }catch(error){setSettingsStatus(error.message,"error");return false;}
+  finally{state.settingsSaveBusy=false;$("#settings-save").disabled=false;$("#settings-done").disabled=false;}
+}
+
 function showDeviceDialog(){const dialog=$("#device-dialog");if(!dialog.open)dialog.showModal();scanDevices();}
 
 $("#open-button").addEventListener("click",()=>$("#open-input").click());
-$("#empty-open").addEventListener("click",()=>$("#open-input").click());
 $("#merge-button").addEventListener("click",()=>$("#merge-input").click());
 $("#open-input").addEventListener("change",event=>readFiles(event.currentTarget,false));
 $("#merge-input").addEventListener("change",event=>readFiles(event.currentTarget,true));
@@ -1290,7 +2421,77 @@ $("#write-dialog").addEventListener("close",()=>{if($("#write-dialog").returnVal
 $("#undo-button").addEventListener("click",undo);
 $("#redo-button").addEventListener("click",redo);
 $("#validate-button").addEventListener("click",()=>validateCurrent());
-$$('.nav-item').forEach(item=>item.addEventListener('click',()=>{state.recording=false;state.screen=item.dataset.screen;render();}));
+$("#settings-button").addEventListener("click",openSettings);
+$("#settings-save").addEventListener("click",()=>saveSettings());
+$("#settings-done").addEventListener("click",()=>state.settings?.migration?.required?finishSettings():saveSettings({exit:true}));
+$("#settings-migration-confirm").addEventListener("change",populateSettings);
+$("#settings-migration-discard").addEventListener("click",discardLegacyApiCredential);
+$("#settings-ai-enabled").addEventListener("change",event=>{if(!event.target.checked)void selectAiBackend(selectedAiBackend());});
+$("#settings-ai-local").addEventListener("change",()=>selectAiBackend("local"));
+$("#settings-ai-api").addEventListener("change",()=>selectAiBackend("api"));
+$("#settings-local-refresh").addEventListener("click",()=>refreshLocalModels());
+$("#settings-local-model-select").addEventListener("change",populateSettings);
+$("#settings-local-select").addEventListener("click",selectOllamaModel);
+$("#settings-local-test").addEventListener("click",()=>testAiBackend("local"));
+$("#settings-local-clear").addEventListener("click",clearLocalModel);
+$("#settings-api-key").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();saveApiCredential();}});
+$("#settings-api-save-key").addEventListener("click",saveApiCredential);
+$("#settings-api-test").addEventListener("click",()=>testAiBackend("api"));
+$("#settings-api-remove").addEventListener("click",clearSettingsKey);
+$("#settings-choose-library").addEventListener("click",chooseLibraryFolder);
+$("#settings-reveal-library").addEventListener("click",revealLibraryFolder);
+$("#library-refresh").addEventListener("click",()=>loadLibrary({force:true}));
+$("#library-reveal").addEventListener("click",async()=>{
+  const path=state.settings?.library?.current_root;
+  if(!path){openSettings();return;}
+  try{if(!await invokeRevealLibraryPath(path))throw new Error("The folder is unavailable.");}
+  catch(error){toast("Could not reveal Library",error.message||String(error),"error");}
+});
+$$("[data-library-filter]").forEach(button=>button.addEventListener("click",()=>{
+  if(state.library.filter===button.dataset.libraryFilter)return;
+  state.library.filter=button.dataset.libraryFilter;
+  state.library.loaded=false;
+  void loadLibrary({force:true});
+}));
+$("#library-search").addEventListener("input",event=>{
+  state.library.query=event.target.value;
+  if(state.library.searchTimer)clearTimeout(state.library.searchTimer);
+  state.library.searchTimer=setTimeout(()=>{state.library.loaded=false;void loadLibrary({force:true});},280);
+});
+$("#lighting-generate-open").addEventListener("click",openGenerationDialog);
+$("#lighting-generate-dialog").addEventListener("close",handleGenerationDialogClose);
+$$('.nav-item').forEach(item=>item.addEventListener('click',()=>navigateTo(item.dataset.route, {focusHeading: true})));
+$$('[data-lighting-route]').forEach(tab => {
+  tab.addEventListener('click', () => navigateTo(tab.dataset.lightingRoute));
+  tab.addEventListener('keydown', event => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = $$('[data-lighting-route]');
+    const current = tabs.indexOf(event.currentTarget);
+    const next = event.key === "Home" ? 0
+      : event.key === "End" ? tabs.length - 1
+      : event.key === "ArrowLeft" ? (current - 1 + tabs.length) % tabs.length
+      : (current + 1) % tabs.length;
+    tabs[next].focus();
+    navigateTo(tabs[next].dataset.lightingRoute);
+  });
+});
+$$('[data-lighting-slot]').forEach(button=>button.addEventListener('click',()=>{
+  state.ledSlot=Number(button.dataset.lightingSlot);
+  state.ledFrame=0;
+  state.ledPixel=0;
+  renderLightingShell();
+}));
+$("#lighting-job-view").addEventListener("click",openGenerationDialog);
+$("#lighting-job-cancel").addEventListener("click", cancelLightingJob);
+window.addEventListener("popstate", () => {
+  const parsed = parseLightingHash(location.hash);
+  state.lightingJobId = parsed.jobId;
+  state.lighting = reduceLightingState(state.lighting, {type: "NAVIGATE", route: parsed.route}).state;
+  persistLightingState();
+  render();
+  if (parsed.jobId && parsed.jobId !== state.lighting.activeJob?.id) restoreLightingJob();
+});
 document.addEventListener('keydown',event=>{
   if(state.recording){recordEvent(event,true);return;}
   if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='z'){event.preventDefault();event.shiftKey?redo():undo();}
@@ -1298,14 +2499,18 @@ document.addEventListener('keydown',event=>{
 });
 document.addEventListener('keyup',event=>{if(state.recording)recordEvent(event,false);});
 window.addEventListener('beforeunload',event=>{if(state.dirty){event.preventDefault();event.returnValue='';}});
+window.addEventListener('pagehide',clearConceptAssetUrls);
+window.addEventListener('pagehide',clearLibraryAssetUrls);
 
 (async function boot(){
   updateMeta();
   if(!token){toast('Missing local session token','Launch this page with AM Configurator.','error');return;}
   try{
     const result=await api('/api/config');
-    if(result.config){state.config=result.config;state.fileName=`AM-${productId()}-config.json`;}
+    if(result.config){state.config=result.config;state.documentRevision=result.document_revision||null;state.fileName=`AM-${productId()}-config.json`;}
     render();
+    restoreLightingJob();
     scanDevices();
+    loadAiConfig();
   }catch(error){toast('Could not start configurator',error.message,'error');}
 })();

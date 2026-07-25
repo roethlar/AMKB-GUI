@@ -1,0 +1,694 @@
+{
+  "schema_version": 1,
+  "provider": {
+    "kind": "llama.cpp",
+    "runtime_revision": "b9637-aedb2a5e9ca3d4064148bbb919e0ddc0c1b70ab3",
+    "model_filename": "Qwen3-4B-Q4_K_M.gguf",
+    "model_revision": "bc640142c66e1fdd12af0bd68f40445458f3869b",
+    "model_sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+    "model_size_bytes": 2497280256,
+    "retry_limit": 2
+  },
+  "passed": false,
+  "results": [
+    {
+      "case_id": "relic-sparse-comets",
+      "passed": true,
+      "elapsed_seconds": 6.389098,
+      "quality": {
+        "width": 18,
+        "height": 7,
+        "frame_count": 200,
+        "density": "sparse",
+        "minimum_lit_ratio": 0.01587302,
+        "maximum_lit_ratio": 0.03968254,
+        "peak_brightness": 221,
+        "maximum_adjacent_difference": 0.39153439,
+        "seam_difference": 0.38359788
+      },
+      "mapped_tracks": {
+        "keyframes": 200,
+        "spotlight_frames": 200
+      },
+      "artifacts": {
+        "recipe": "recipe.json",
+        "raster_gif": "raster.gif",
+        "preview_gif": "preview.gif",
+        "led_json": "led.json",
+        "summary": "summary.json"
+      },
+      "attempt_count": 1,
+      "generation_seconds": 4.190778,
+      "attempts": [
+        {
+          "attempt": 1,
+          "seed": 7319,
+          "generation_seconds": 4.190778,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case_id": "relic-dense-aurora",
+      "passed": true,
+      "elapsed_seconds": 2.503756,
+      "quality": {
+        "width": 18,
+        "height": 7,
+        "frame_count": 200,
+        "density": "dense",
+        "minimum_lit_ratio": 1.0,
+        "maximum_lit_ratio": 1.0,
+        "peak_brightness": 252,
+        "maximum_adjacent_difference": 4.69047619,
+        "seam_difference": 4.47089947
+      },
+      "mapped_tracks": {
+        "keyframes": 200,
+        "spotlight_frames": 200
+      },
+      "artifacts": {
+        "recipe": "recipe.json",
+        "raster_gif": "raster.gif",
+        "preview_gif": "preview.gif",
+        "led_json": "led.json",
+        "summary": "summary.json"
+      },
+      "attempt_count": 1,
+      "generation_seconds": 5.440781,
+      "attempts": [
+        {
+          "attempt": 1,
+          "seed": 7319,
+          "generation_seconds": 5.440781,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case_id": "cyberboard-keys-balanced-fire",
+      "passed": false,
+      "elapsed_seconds": 0.291219,
+      "error": "Animation failed quality checks: density.",
+      "quality": {
+        "width": 15,
+        "height": 6,
+        "frame_count": 80,
+        "density": "balanced",
+        "minimum_lit_ratio": 0.53333333,
+        "maximum_lit_ratio": 1.0,
+        "peak_brightness": 252,
+        "maximum_adjacent_difference": 6.88888889,
+        "seam_difference": 5.24444444
+      },
+      "attempt_count": 3,
+      "generation_seconds": 17.642585,
+      "attempts": [
+        {
+          "attempt": 1,
+          "seed": 7319,
+          "generation_seconds": 4.331037,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 15,
+            "height": 6,
+            "frame_count": 80,
+            "density": "balanced",
+            "minimum_lit_ratio": 0.46666667,
+            "maximum_lit_ratio": 1.0,
+            "peak_brightness": 246,
+            "maximum_adjacent_difference": 9.6,
+            "seam_difference": 8.22222222
+          }
+        },
+        {
+          "attempt": 2,
+          "seed": 7320,
+          "generation_seconds": 6.699195,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 15,
+            "height": 6,
+            "frame_count": 80,
+            "density": "balanced",
+            "minimum_lit_ratio": 0.53333333,
+            "maximum_lit_ratio": 1.0,
+            "peak_brightness": 254,
+            "maximum_adjacent_difference": 6.71111111,
+            "seam_difference": 6.35555556
+          }
+        },
+        {
+          "attempt": 3,
+          "seed": 7321,
+          "generation_seconds": 6.612353,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 15,
+            "height": 6,
+            "frame_count": 80,
+            "density": "balanced",
+            "minimum_lit_ratio": 0.53333333,
+            "maximum_lit_ratio": 1.0,
+            "peak_brightness": 252,
+            "maximum_adjacent_difference": 6.88888889,
+            "seam_difference": 5.24444444
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "cyberboard-display-sweep",
+      "passed": false,
+      "elapsed_seconds": 0.603444,
+      "error": "Animation failed quality checks: density.",
+      "quality": {
+        "width": 40,
+        "height": 5,
+        "frame_count": 80,
+        "density": "balanced",
+        "minimum_lit_ratio": 1.0,
+        "maximum_lit_ratio": 1.0,
+        "peak_brightness": 255,
+        "maximum_adjacent_difference": 12.3,
+        "seam_difference": 12.3
+      },
+      "attempt_count": 3,
+      "generation_seconds": 14.22337,
+      "attempts": [
+        {
+          "attempt": 1,
+          "seed": 7319,
+          "generation_seconds": 3.276944,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 40,
+            "height": 5,
+            "frame_count": 80,
+            "density": "balanced",
+            "minimum_lit_ratio": 1.0,
+            "maximum_lit_ratio": 1.0,
+            "peak_brightness": 228,
+            "maximum_adjacent_difference": 10.38333333,
+            "seam_difference": 10.38333333
+          }
+        },
+        {
+          "attempt": 2,
+          "seed": 7320,
+          "generation_seconds": 5.490699,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 40,
+            "height": 5,
+            "frame_count": 80,
+            "density": "balanced",
+            "minimum_lit_ratio": 1.0,
+            "maximum_lit_ratio": 1.0,
+            "peak_brightness": 255,
+            "maximum_adjacent_difference": 11.9,
+            "seam_difference": 11.9
+          }
+        },
+        {
+          "attempt": 3,
+          "seed": 7321,
+          "generation_seconds": 5.455727,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 40,
+            "height": 5,
+            "frame_count": 80,
+            "density": "balanced",
+            "minimum_lit_ratio": 1.0,
+            "maximum_lit_ratio": 1.0,
+            "peak_brightness": 255,
+            "maximum_adjacent_difference": 12.3,
+            "seam_difference": 12.3
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "afa-pulse-orbit",
+      "passed": false,
+      "elapsed_seconds": 0.599172,
+      "error": "Animation failed quality checks: density.",
+      "quality": {
+        "width": 16,
+        "height": 5,
+        "frame_count": 186,
+        "density": "balanced",
+        "minimum_lit_ratio": 1.0,
+        "maximum_lit_ratio": 1.0,
+        "peak_brightness": 184,
+        "maximum_adjacent_difference": 1.3,
+        "seam_difference": 0.10416667
+      },
+      "attempt_count": 3,
+      "generation_seconds": 11.603559,
+      "attempts": [
+        {
+          "attempt": 1,
+          "seed": 7319,
+          "generation_seconds": 4.551811,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 16,
+            "height": 5,
+            "frame_count": 186,
+            "density": "balanced",
+            "minimum_lit_ratio": 1.0,
+            "maximum_lit_ratio": 1.0,
+            "peak_brightness": 194,
+            "maximum_adjacent_difference": 2.05833333,
+            "seam_difference": 0.22916667
+          }
+        },
+        {
+          "attempt": 2,
+          "seed": 7320,
+          "generation_seconds": 3.583114,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 16,
+            "height": 5,
+            "frame_count": 186,
+            "density": "balanced",
+            "minimum_lit_ratio": 1.0,
+            "maximum_lit_ratio": 1.0,
+            "peak_brightness": 184,
+            "maximum_adjacent_difference": 2.81666667,
+            "seam_difference": 0.35416667
+          }
+        },
+        {
+          "attempt": 3,
+          "seed": 7321,
+          "generation_seconds": 3.468634,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 16,
+            "height": 5,
+            "frame_count": 186,
+            "density": "balanced",
+            "minimum_lit_ratio": 1.0,
+            "maximum_lit_ratio": 1.0,
+            "peak_brightness": 184,
+            "maximum_adjacent_difference": 1.3,
+            "seam_difference": 0.10416667
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "relic-sparse-sparkles",
+      "passed": false,
+      "elapsed_seconds": 1.752675,
+      "error": "Animation failed quality checks: brightness.",
+      "quality": {
+        "width": 18,
+        "height": 7,
+        "frame_count": 200,
+        "density": "sparse",
+        "minimum_lit_ratio": 0.0,
+        "maximum_lit_ratio": 0.00793651,
+        "peak_brightness": 47,
+        "maximum_adjacent_difference": 0.07142857,
+        "seam_difference": 0.03174603
+      },
+      "attempt_count": 3,
+      "generation_seconds": 6.383547,
+      "attempts": [
+        {
+          "attempt": 1,
+          "seed": 7319,
+          "generation_seconds": 2.146701,
+          "passed": false,
+          "error": "Animation failed quality checks: brightness.",
+          "quality": {
+            "width": 18,
+            "height": 7,
+            "frame_count": 200,
+            "density": "sparse",
+            "minimum_lit_ratio": 0.0,
+            "maximum_lit_ratio": 0.00793651,
+            "peak_brightness": 54,
+            "maximum_adjacent_difference": 0.07671958,
+            "seam_difference": 0.03174603
+          }
+        },
+        {
+          "attempt": 2,
+          "seed": 7320,
+          "generation_seconds": 2.136075,
+          "passed": false,
+          "error": "Animation failed quality checks: brightness.",
+          "quality": {
+            "width": 18,
+            "height": 7,
+            "frame_count": 200,
+            "density": "sparse",
+            "minimum_lit_ratio": 0.0,
+            "maximum_lit_ratio": 0.00793651,
+            "peak_brightness": 47,
+            "maximum_adjacent_difference": 0.07142857,
+            "seam_difference": 0.03174603
+          }
+        },
+        {
+          "attempt": 3,
+          "seed": 7321,
+          "generation_seconds": 2.100771,
+          "passed": false,
+          "error": "Animation failed quality checks: brightness.",
+          "quality": {
+            "width": 18,
+            "height": 7,
+            "frame_count": 200,
+            "density": "sparse",
+            "minimum_lit_ratio": 0.0,
+            "maximum_lit_ratio": 0.00793651,
+            "peak_brightness": 47,
+            "maximum_adjacent_difference": 0.07142857,
+            "seam_difference": 0.03174603
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "relic-ambiguous",
+      "passed": true,
+      "elapsed_seconds": 29.432095,
+      "quality": {
+        "width": 18,
+        "height": 7,
+        "frame_count": 200,
+        "density": "balanced",
+        "minimum_lit_ratio": 0.4047619,
+        "maximum_lit_ratio": 0.79365079,
+        "peak_brightness": 215,
+        "maximum_adjacent_difference": 5.89153439,
+        "seam_difference": 4.36243386
+      },
+      "mapped_tracks": {
+        "keyframes": 200,
+        "spotlight_frames": 200
+      },
+      "artifacts": {
+        "recipe": "recipe.json",
+        "raster_gif": "raster.gif",
+        "preview_gif": "preview.gif",
+        "led_json": "led.json",
+        "summary": "summary.json"
+      },
+      "attempt_count": 3,
+      "generation_seconds": 15.959985,
+      "attempts": [
+        {
+          "attempt": 1,
+          "seed": 7319,
+          "generation_seconds": 3.908044,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 18,
+            "height": 7,
+            "frame_count": 200,
+            "density": "balanced",
+            "minimum_lit_ratio": 0.3015873,
+            "maximum_lit_ratio": 0.77777778,
+            "peak_brightness": 204,
+            "maximum_adjacent_difference": 4.01058201,
+            "seam_difference": 2.01851852
+          }
+        },
+        {
+          "attempt": 2,
+          "seed": 7320,
+          "generation_seconds": 6.583141,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 18,
+            "height": 7,
+            "frame_count": 200,
+            "density": "balanced",
+            "minimum_lit_ratio": 0.33333333,
+            "maximum_lit_ratio": 0.81746032,
+            "peak_brightness": 227,
+            "maximum_adjacent_difference": 5.16137566,
+            "seam_difference": 3.38095238
+          }
+        },
+        {
+          "attempt": 3,
+          "seed": 7321,
+          "generation_seconds": 5.4688,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case_id": "afa-multilingual-ocean",
+      "passed": false,
+      "elapsed_seconds": 0.470816,
+      "error": "Animation failed quality checks: density.",
+      "quality": {
+        "width": 16,
+        "height": 5,
+        "frame_count": 186,
+        "density": "dense",
+        "minimum_lit_ratio": 0.4375,
+        "maximum_lit_ratio": 1.0,
+        "peak_brightness": 246,
+        "maximum_adjacent_difference": 2.39583333,
+        "seam_difference": 1.85416667
+      },
+      "attempt_count": 3,
+      "generation_seconds": 14.390993,
+      "attempts": [
+        {
+          "attempt": 1,
+          "seed": 7319,
+          "generation_seconds": 4.37194,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 16,
+            "height": 5,
+            "frame_count": 186,
+            "density": "dense",
+            "minimum_lit_ratio": 0.5625,
+            "maximum_lit_ratio": 1.0,
+            "peak_brightness": 253,
+            "maximum_adjacent_difference": 5.625,
+            "seam_difference": 3.47916667
+          }
+        },
+        {
+          "attempt": 2,
+          "seed": 7320,
+          "generation_seconds": 4.467088,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 16,
+            "height": 5,
+            "frame_count": 186,
+            "density": "dense",
+            "minimum_lit_ratio": 0.6875,
+            "maximum_lit_ratio": 1.0,
+            "peak_brightness": 239,
+            "maximum_adjacent_difference": 4.16666667,
+            "seam_difference": 2.70833333
+          }
+        },
+        {
+          "attempt": 3,
+          "seed": 7321,
+          "generation_seconds": 5.551965,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 16,
+            "height": 5,
+            "frame_count": 186,
+            "density": "dense",
+            "minimum_lit_ratio": 0.4375,
+            "maximum_lit_ratio": 1.0,
+            "peak_brightness": 246,
+            "maximum_adjacent_difference": 2.39583333,
+            "seam_difference": 1.85416667
+          }
+        }
+      ]
+    },
+    {
+      "case_id": "cyberboard-adversarial-video",
+      "passed": true,
+      "elapsed_seconds": 21.987713,
+      "quality": {
+        "width": 40,
+        "height": 5,
+        "frame_count": 80,
+        "density": "balanced",
+        "minimum_lit_ratio": 0.4,
+        "maximum_lit_ratio": 0.85,
+        "peak_brightness": 231,
+        "maximum_adjacent_difference": 3.91666667,
+        "seam_difference": 3.47833333
+      },
+      "mapped_tracks": {
+        "frames": 80
+      },
+      "artifacts": {
+        "recipe": "recipe.json",
+        "raster_gif": "raster.gif",
+        "preview_gif": "preview.gif",
+        "led_json": "led.json",
+        "summary": "summary.json"
+      },
+      "attempt_count": 2,
+      "generation_seconds": 12.050079,
+      "attempts": [
+        {
+          "attempt": 1,
+          "seed": 7319,
+          "generation_seconds": 5.535754,
+          "passed": false,
+          "error": "Animation failed quality checks: density.",
+          "quality": {
+            "width": 40,
+            "height": 5,
+            "frame_count": 80,
+            "density": "balanced",
+            "minimum_lit_ratio": 0.285,
+            "maximum_lit_ratio": 0.7,
+            "peak_brightness": 238,
+            "maximum_adjacent_difference": 5.52833333,
+            "seam_difference": 5.005
+          }
+        },
+        {
+          "attempt": 2,
+          "seed": 7320,
+          "generation_seconds": 6.514325,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case_id": "relic-adversarial-primitives",
+      "passed": false,
+      "elapsed_seconds": 2.2e-05,
+      "error": "Recipe density does not match the qualification case.",
+      "attempt_count": 3,
+      "generation_seconds": 20.880635,
+      "attempts": [
+        {
+          "attempt": 1,
+          "seed": 7319,
+          "generation_seconds": 7.612803,
+          "passed": false,
+          "error": "Recipe density does not match the qualification case."
+        },
+        {
+          "attempt": 2,
+          "seed": 7320,
+          "generation_seconds": 6.628134,
+          "passed": false,
+          "error": "Recipe density does not match the qualification case."
+        },
+        {
+          "attempt": 3,
+          "seed": 7321,
+          "generation_seconds": 6.639698,
+          "passed": false,
+          "error": "Recipe density does not match the qualification case."
+        }
+      ]
+    },
+    {
+      "case_id": "cyberboard-long-layered",
+      "passed": true,
+      "elapsed_seconds": 1.487052,
+      "quality": {
+        "width": 15,
+        "height": 6,
+        "frame_count": 80,
+        "density": "dense",
+        "minimum_lit_ratio": 0.77777778,
+        "maximum_lit_ratio": 0.94444444,
+        "peak_brightness": 246,
+        "maximum_adjacent_difference": 10.08888889,
+        "seam_difference": 7.94074074
+      },
+      "mapped_tracks": {
+        "keyframes": 80
+      },
+      "artifacts": {
+        "recipe": "recipe.json",
+        "raster_gif": "raster.gif",
+        "preview_gif": "preview.gif",
+        "led_json": "led.json",
+        "summary": "summary.json"
+      },
+      "attempt_count": 1,
+      "generation_seconds": 4.493234,
+      "attempts": [
+        {
+          "attempt": 1,
+          "seed": 7319,
+          "generation_seconds": 4.493234,
+          "passed": true
+        }
+      ]
+    },
+    {
+      "case_id": "afa-fast-comets",
+      "passed": true,
+      "elapsed_seconds": 4.518492,
+      "quality": {
+        "width": 16,
+        "height": 5,
+        "frame_count": 186,
+        "density": "sparse",
+        "minimum_lit_ratio": 0.075,
+        "maximum_lit_ratio": 0.1,
+        "peak_brightness": 203,
+        "maximum_adjacent_difference": 1.84166667,
+        "seam_difference": 1.725
+      },
+      "mapped_tracks": {
+        "keyframes": 186
+      },
+      "artifacts": {
+        "recipe": "recipe.json",
+        "raster_gif": "raster.gif",
+        "preview_gif": "preview.gif",
+        "led_json": "led.json",
+        "summary": "summary.json"
+      },
+      "attempt_count": 1,
+      "generation_seconds": 3.242487,
+      "attempts": [
+        {
+          "attempt": 1,
+          "seed": 7319,
+          "generation_seconds": 3.242487,
+          "passed": true
+        }
+      ]
+    }
+  ]
+}

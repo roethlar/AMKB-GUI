@@ -26,6 +26,7 @@
         <button id="open-button" class="button ghost">Open</button>
         <button id="merge-button" class="button ghost">Merge</button>
         <button id="save-button" class="button ghost">Save JSON</button>
+        <button id="settings-button" class="button ghost">Settings</button>
         <button id="write-button" class="button danger" disabled>Write to keyboard</button>
         <button id="device-button" class="button primary"><span class="status-light"></span>Devices</button>
       </div>
@@ -49,35 +50,174 @@
     <div class="workspace">
       <aside class="sidebar">
         <nav aria-label="Configurator sections">
-          <button class="nav-item active" data-screen="keymap">
+          <button class="nav-item" data-route="keymap">
             <span class="nav-icon">⌨</span><span>Keymap</span><small id="nav-layers">—</small>
           </button>
-          <button class="nav-item" data-screen="macros">
+          <button class="nav-item" data-route="macros">
             <span class="nav-icon">⏺</span><span>Macros</span><small id="nav-macros">—</small>
           </button>
-          <button class="nav-item" data-screen="leds">
-            <span class="nav-icon">✦</span><span>LEDs</span><small id="nav-leds">—</small>
+          <button class="nav-item" data-route="lighting/edit">
+            <span class="nav-icon">✦</span><span>Lighting</span><small id="nav-leds">—</small>
           </button>
         </nav>
         <div class="sidebar-footer">
-          <button id="undo-button" class="icon-button" title="Undo (⌘Z)">↶</button>
-          <button id="redo-button" class="icon-button" title="Redo (⇧⌘Z)">↷</button>
-          <button id="validate-button" class="icon-button" title="Validate configuration">✓</button>
+          <button id="undo-button" class="icon-button" title="Undo (⌘Z)" aria-label="Undo">↶</button>
+          <button id="redo-button" class="icon-button" title="Redo (⇧⌘Z)" aria-label="Redo">↷</button>
+          <button id="validate-button" class="icon-button" title="Validate configuration" aria-label="Validate configuration">✓</button>
         </div>
       </aside>
 
       <main id="main" class="main-content">
-        <section id="empty-state" class="empty-state">
-          <div class="empty-orbit"><div></div><img src="/icon.png" alt=""></div>
-          <p class="eyebrow">No cloud. No vendor app.</p>
-          <h1>Make the keyboard yours.</h1>
-          <p>Connect by USB and choose <code>Devices → Read keymap &amp; macros</code> to start fresh, or open an existing JSON to preserve LED animations that the keyboard cannot read back.</p>
-          <button id="empty-open" class="button primary large">Open configuration</button>
+        <section id="lighting-job-strip" class="lighting-job-strip" hidden>
+          <span class="job-state-mark" aria-hidden="true"></span>
+          <div class="job-strip-copy">
+            <strong id="lighting-job-phase">Lighting job</strong>
+            <span id="lighting-job-detail">Preparing local workspace…</span>
+          </div>
+          <progress id="lighting-job-progress" max="1" value="0" hidden></progress>
+          <div class="job-strip-actions">
+            <button id="lighting-job-view" type="button" class="button ghost">View</button>
+            <button id="lighting-job-cancel" type="button" class="button ghost">Cancel</button>
+          </div>
+          <span id="lighting-job-phase-live" class="sr-only" aria-live="polite"></span>
         </section>
-        <section id="screen" hidden></section>
+
+        <div id="route-content">
+          <section id="empty-state" class="empty-state" hidden>
+            <div class="empty-orbit"><div></div><img src="/icon.png" alt=""></div>
+            <p class="eyebrow">Local keyboard studio</p>
+            <h1 id="empty-title">Open a configuration to begin.</h1>
+            <p id="empty-description">Connect by USB and choose <code>Devices → Read keymap &amp; macros</code>, or open an existing JSON to preserve every lighting page.</p>
+          </section>
+
+          <section id="screen" hidden></section>
+
+          <section id="lighting-shell" class="lighting-shell" hidden aria-labelledby="lighting-title">
+            <header class="lighting-toolbar">
+              <div class="lighting-heading">
+                <h1 id="lighting-title" tabindex="-1">Lighting</h1>
+                <span id="lighting-destination-product">No document open</span>
+              </div>
+              <div class="lighting-view-tabs" role="tablist" aria-label="Lighting views">
+                <button id="lighting-edit-tab" role="tab" aria-controls="lighting-edit-panel" aria-selected="true" tabindex="0" data-lighting-route="lighting/edit">Workspace</button>
+                <button id="lighting-library-tab" role="tab" aria-controls="lighting-library-panel" aria-selected="false" tabindex="-1" data-lighting-route="lighting/library">Library</button>
+              </div>
+              <button id="lighting-generate-open" type="button" class="button ghost" aria-haspopup="dialog" aria-controls="lighting-generate-dialog" hidden>Generate…</button>
+            </header>
+
+            <div class="lighting-context" aria-label="Lighting destination">
+              <div class="lighting-context-group">
+                <span class="control-caption">Custom slot</span>
+                <div class="segmented compact" role="group" aria-label="Custom slot">
+                  <button type="button" data-lighting-slot="5" aria-pressed="true" aria-label="Custom slot 1" class="active">1</button>
+                  <button type="button" data-lighting-slot="6" aria-pressed="false" aria-label="Custom slot 2">2</button>
+                  <button type="button" data-lighting-slot="7" aria-pressed="false" aria-label="Custom slot 3">3</button>
+                </div>
+              </div>
+              <div class="lighting-context-group target-context">
+                <span class="control-caption">Target</span>
+                <div id="lighting-target-controls" class="segmented compact" role="group" aria-label="Lighting target"></div>
+              </div>
+            </div>
+
+            <section id="lighting-edit-panel" role="tabpanel" aria-labelledby="lighting-edit-tab">
+              <div id="lighting-edit-content"></div>
+            </section>
+
+            <section id="lighting-library-panel" role="tabpanel" aria-labelledby="lighting-library-tab" hidden>
+              <div class="lighting-panel-body library-browser">
+                <div id="lighting-library-toolbar" class="library-toolbar">
+                  <div class="library-filters" role="group" aria-label="Library filter">
+                    <button type="button" class="active" data-library-filter="all" aria-pressed="true">All</button>
+                    <button type="button" data-library-filter="animation" aria-pressed="false">Animations</button>
+                    <button type="button" data-library-filter="partial" aria-pressed="false">Partial</button>
+                  </div>
+                  <label class="library-search"><span class="sr-only">Search prompts</span><input id="library-search" class="text-field" type="search" placeholder="Search Library"></label>
+                  <button id="library-refresh" type="button" class="button ghost">Refresh</button>
+                  <button id="library-reveal" type="button" class="button ghost">Reveal folder</button>
+                </div>
+                <p id="library-status" class="library-status" aria-live="polite"></p>
+                <div id="library-content" class="library-content"></div>
+              </div>
+            </section>
+          </section>
+
+          <section id="settings-screen" class="settings-screen screen-shell" hidden aria-labelledby="settings-title">
+            <header class="screen-header settings-header">
+              <div><p class="eyebrow">Local preferences</p><h1 id="settings-title" tabindex="-1">Settings</h1><p class="description">Configure optional generation and local storage.</p></div>
+              <div class="settings-header-actions">
+                <button id="settings-save" type="button" class="button ghost">Save changes</button>
+                <button id="settings-done" type="button" class="button primary">Done</button>
+              </div>
+            </header>
+            <div class="settings-route-card card">
+              <section id="settings-migration-repair" class="settings-section" aria-labelledby="settings-migration-title" hidden>
+                <div class="settings-section-heading"><div><h2 id="settings-migration-title">Older settings need repair</h2><p id="settings-migration-message">The existing settings file could not be upgraded.</p></div><span class="pill muted">Blocked</span></div>
+                <label id="settings-migration-confirm-row" class="check-row" for="settings-migration-confirm"><input id="settings-migration-confirm" type="checkbox"><span><strong>Continue without the legacy API credential</strong><small>The API key still stored in the older settings file will not be migrated. Any credential already in the OS credential vault is left unchanged.</small></span></label>
+                <button id="settings-migration-discard" type="button" class="button danger" disabled>Continue without the legacy API credential</button>
+              </section>
+              <div id="settings-mutable">
+              <section class="settings-section" aria-labelledby="settings-ai-title">
+                <div class="settings-section-heading"><div><h2 id="settings-ai-title">Optional AI features</h2><p>Off by default. Local generation uses models already installed in Ollama and never downloads model weights.</p></div><span id="settings-ai-state" class="pill muted">Off</span></div>
+                <label class="settings-row" for="settings-ai-enabled"><span><strong>Enable after setup passes</strong><small>Turning this off immediately hides generation without affecting the manual editor or Library.</small></span><input id="settings-ai-enabled" type="checkbox"></label>
+                <fieldset id="settings-ai-panels" class="settings-ai-panels">
+                  <legend>Backend</legend>
+                  <label class="check-row"><input id="settings-ai-local" type="radio" name="settings-ai-backend" value="local"><span><strong>Local</strong><small>Primary option. Uses a model already installed in Ollama on this computer.</small></span></label>
+                  <label class="check-row"><input id="settings-ai-api" type="radio" name="settings-ai-backend" value="api"><span><strong>API</strong><small>Secondary option. Sends the prompt and raster dimensions to xAI.</small></span></label>
+                </fieldset>
+                <div id="settings-local-panel" class="settings-backend-panel">
+                  <div class="settings-section-heading"><div><h3>Ollama model</h3><p id="settings-local-state">Checking Ollama…</p></div><span id="settings-local-runtime" class="pill muted">Checking</span></div>
+                  <div class="settings-local-picker">
+                    <label for="settings-local-model-select"><span class="control-label">Installed model</span><select id="settings-local-model-select" class="select-field"><option value="">Checking installed models…</option></select></label>
+                    <button id="settings-local-refresh" type="button" class="button ghost">Refresh models</button>
+                    <button id="settings-local-select" type="button" class="button ghost">Use selected model</button>
+                  </div>
+                  <p id="settings-local-model" class="settings-key-state">No Ollama model selected.</p>
+                  <div class="button-row settings-local-actions"><button id="settings-local-test" type="button" class="button primary">Test &amp; enable</button><button id="settings-local-clear" type="button" class="button ghost">Clear selection</button></div>
+                  <p class="control-help">AM Configurator only lists local models Ollama already has. It never pulls or removes a model.</p>
+                </div>
+                <div id="settings-api-panel" class="settings-backend-panel" hidden>
+                  <div class="settings-rows">
+                    <label class="settings-row" for="settings-api-provider"><span><strong>Provider</strong><small>Curated API backend.</small></span><select id="settings-api-provider" class="select-field"><option value="xai">xAI</option></select></label>
+                    <label class="settings-row" for="settings-api-model"><span><strong>Model</strong><small>Curated structured-recipe model.</small></span><select id="settings-api-model" class="select-field"><option value="grok-4.5">Grok 4.5</option></select></label>
+                  </div>
+                  <div class="settings-key-row">
+                    <div><label class="control-label" for="settings-api-key">xAI API key</label><input id="settings-api-key" class="text-field" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter key"><p id="settings-api-credential-state" class="settings-key-state">No credential is configured.</p></div>
+                    <div class="button-row settings-key-actions"><button id="settings-api-save-key" type="button" class="button ghost">Save key</button><button id="settings-api-remove" type="button" class="button ghost">Remove</button></div>
+                  </div>
+                  <label class="check-row"><input id="settings-api-disclosure-ack" type="checkbox"><span><strong>Allow prompt data to leave this computer</strong><small>Your prompt and the selected keyboard raster dimensions go to xAI. Keymaps, macros, and device identity do not. API use may cost money under your provider account.</small></span></label>
+                  <button id="settings-api-test" type="button" class="button primary">Test &amp; enable API</button>
+                </div>
+              </section>
+
+              <section class="settings-section" aria-labelledby="settings-storage-title">
+                <div class="settings-section-heading"><div><h2 id="settings-storage-title">Library folder</h2><p>Every generated recipe and animation is banked here as it completes.</p></div></div>
+                <div class="settings-library-row">
+                  <div><label class="control-label" for="settings-library-root">Folder path</label><input id="settings-library-root" class="text-field" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Choose a folder or enter an absolute path"></div>
+                  <button id="settings-choose-library" type="button" class="button ghost">Choose folder…</button>
+                  <button id="settings-reveal-library" type="button" class="button ghost" disabled>Reveal</button>
+                </div>
+                <p class="control-help">Changing this folder affects new generations only. Existing items remain available in Library.</p>
+              </section>
+
+              </div>
+            </div>
+            <p id="settings-status" class="write-status settings-route-status" aria-live="polite"></p>
+          </section>
+        </div>
       </main>
     </div>
   </div>
+
+  <dialog id="lighting-generate-dialog" class="dialog generation-dialog" aria-labelledby="lighting-generate-title" hidden>
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-header">
+        <div><h2 id="lighting-generate-title">Generate lighting</h2></div>
+        <button class="dialog-close" value="cancel" aria-label="Close generation">×</button>
+      </div>
+      <div id="lighting-generate-content"></div>
+    </form>
+  </dialog>
 
   <dialog id="device-dialog" class="dialog">
     <form method="dialog" class="dialog-card">
@@ -142,6 +282,9 @@
   </dialog>
 
   <div id="toast-region" class="toast-region" aria-live="polite"></div>
+  <script src="/lighting_state.js"></script>
+  <script src="/lighting_review.js"></script>
+  <script src="/lighting_targets.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

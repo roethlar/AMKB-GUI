@@ -1,0 +1,80 @@
+{
+  "schema_version": 2,
+  "ffmpeg_version": "8.1.2",
+  "source": {
+    "url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+    "signature_url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz.asc",
+    "sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+    "release_key_fingerprint": "FCF986EA15E6E293A5644F10B4322F04D67658D8"
+  },
+  "source_date_epoch": 1781664417,
+  "runtime_attestation_schema_version": 1,
+  "build_recipe": {
+    "build_prefix": "/usr/local/am-configurator-ffmpeg",
+    "source_prefix": "/usr/src/ffmpeg-8.1.2",
+    "prefix_arg": "--prefix={build_prefix}",
+    "architecture_arg": "--arch={architecture}",
+    "target_os_args": {
+      "macos": "--target-os=darwin",
+      "linux": "--target-os=linux",
+      "windows": "--target-os=mingw32"
+    },
+    "architecture_extra_args": {
+      "x86_64": ["--disable-x86asm"],
+      "arm64": []
+    },
+    "tool_args": {
+      "cc": "--cc={path}",
+      "ar": "--ar={path}",
+      "ranlib": "--ranlib={path}",
+      "strip": "--strip={path}"
+    },
+    "cflags": [
+      "-O2",
+      "-ffile-prefix-map={source_dir}={source_prefix}",
+      "-fdebug-prefix-map={source_dir}={source_prefix}"
+    ],
+    "ldflags": {
+      "macos": ["-Wl,-dead_strip"],
+      "linux": ["-Wl,--gc-sections"],
+      "windows": ["-Wl,--gc-sections"]
+    },
+    "make_target": "ffmpeg",
+    "tool_roles": ["cc", "ar", "ranlib", "strip"]
+  },
+  "configure_args": [
+    "--disable-everything",
+    "--disable-autodetect",
+    "--disable-gpl",
+    "--disable-nonfree",
+    "--disable-version3",
+    "--enable-ffmpeg",
+    "--disable-ffplay",
+    "--disable-ffprobe",
+    "--disable-doc",
+    "--disable-debug",
+    "--disable-network",
+    "--enable-static",
+    "--disable-shared",
+    "--enable-pic",
+    "--disable-avdevice",
+    "--disable-swresample",
+    "--enable-zlib",
+    "--enable-demuxer=mov",
+    "--enable-decoder=h264,mpeg4,hevc",
+    "--enable-parser=h264,mpeg4video,hevc",
+    "--enable-encoder=png",
+    "--enable-muxer=image2",
+    "--enable-protocol=file",
+    "--enable-filter=trim,setpts,minterpolate,scale,crop,format,fps"
+  ],
+  "required_capabilities": {
+    "decoders": ["h264", "mpeg4", "hevc"],
+    "parsers": ["h264", "mpeg4video", "hevc"],
+    "encoders": ["png"],
+    "demuxers": ["mov"],
+    "muxers": ["image2"],
+    "protocols": ["file"],
+    "filters": ["trim", "setpts", "minterpolate", "scale", "crop", "format", "fps"]
+  }
+}

@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import importlib.util
+import subprocess
+import sys
+import tomllib
 import unittest
 from pathlib import Path
 from subprocess import CalledProcessError
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from PIL import Image
 
 from build import build_installer, reserve_local_build_number
-from am_configurator import __version__
+from am_configurator import __version__, desktop
 from build_tools.release_info import (
     artifact_filename,
     build_version,
@@ -19,6 +24,19 @@ from build_tools.release_info import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# Governance, internal planning history, and repo-only config. None of it may
+# reach a published artifact; `machines.md` alone records the owner's checkout
+# path, host OS, and local toolchain.
+_SDIST_FORBIDDEN = (
+    ".agents/",
+    ".claude/",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "docs/design/",
+    "docs/superpowers/",
+    "docs/verification/",
+)
 
 
 class ReleaseInfoTests(unittest.TestCase):
@@ -78,8 +96,9 @@ class ReleaseInfoTests(unittest.TestCase):
             self.assertEqual(original, version_file.read_text(encoding="utf-8"))
             self.assertEqual("uv", commands[0][0])
             self.assertIn("sync", commands[0])
-            self.assertIn("pyinstaller", commands[1])
-            self.assertTrue(commands[2][-1].endswith("build_dmg.sh"))
+            self.assertIn("build_tools.prepare_ffmpeg", commands[1])
+            self.assertIn("pyinstaller", commands[2])
+            self.assertTrue(commands[3][-1].endswith("build_dmg.sh"))
 
     def test_build_script_restores_the_version_after_a_failed_build(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -159,8 +178,9 @@ class ReleaseInfoTests(unittest.TestCase):
             "${{ matrix.artifact }}",
             workflow,
         )
-        self.assertNotIn(".zip", workflow)
-        self.assertNotIn(".tar.gz", workflow)
+        upload = workflow.split("- name: Upload native installer", 1)[1]
+        self.assertNotIn(".zip", upload)
+        self.assertNotIn(".tar.gz", upload)
 
         for path in (
             "assets/am-configurator.png",
@@ -171,6 +191,141 @@ class ReleaseInfoTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).is_file())
+
+    def test_desktop_workflow_runs_frozen_native_policy_on_every_platform(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertEqual(3, workflow.count("--native-policy-smoke"))
+        for platform_name in ("macos", "windows", "linux"):
+            with self.subTest(platform=platform_name):
+                self.assertIn(
+                    f"Verify native webview policy ({platform_name})",
+                    workflow,
+                )
+        self.assertIn("xvfb-run", workflow)
+
+    def test_linux_native_webview_prerequisites_are_installed(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+
+        for package in (
+            "libegl1",
+            "libxcb-cursor0",
+            "libxcb-icccm4",
+            "libxcb-keysyms1",
+            "libxcb-shape0",
+            "libxcb-xkb1",
+            "libxkbcommon-x11-0",
+        ):
+            with self.subTest(package=package):
+                self.assertIn(package, workflow)
+
+    def test_windows_ffmpeg_uses_the_setup_msys2_installation(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("id: msys2", workflow)
+        self.assertIn(
+            "MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}",
+            workflow,
+        )
+        self.assertNotIn("C:/msys64", workflow)
+        self.assertIn('Join-Path $env:MSYS2_LOCATION "usr/bin"', workflow)
+        self.assertIn('Join-Path $env:MSYS2_LOCATION "mingw64/bin"', workflow)
+        self.assertIn('$env:PATH = "$usrBin;$mingwBin;$env:PATH"', workflow)
+        for variable in ("$gpg", "$bash", "$cc", "$ar", "$ranlib", "$strip"):
+            self.assertIn(variable, workflow)
+
+    def test_desktop_workflow_has_no_obsolete_vulkan_setup(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertNotIn("vulkan", workflow.casefold())
+
+    def test_ci_runs_each_node_gate_as_a_failure_sensitive_step(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        for command in (
+            "node --test tests/web/*.test.js",
+            "node --check am_configurator/web/lighting_state.js",
+            "node --check am_configurator/web/lighting_review.js",
+            "node --check am_configurator/web/lighting_targets.js",
+            "node --check am_configurator/web/app.js",
+        ):
+            self.assertIn(f"run: {command}", workflow)
+
+    def test_ci_exercises_the_declared_python_floor(self) -> None:
+        metadata = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+
+        # library.py gates Windows private directories on CPython 3.11.10+, so
+        # the floor is load-bearing rather than a nominal metadata value.
+        self.assertEqual(">=3.11", metadata["project"]["requires-python"])
+        self.assertIn('python: "3.11"', workflow)
+        self.assertIn("python-version: ${{ matrix.python }}", workflow)
+        self.assertNotIn('python-version: "3.12"', workflow)
+
+    def test_release_pipeline_has_no_llama_build_commands(self) -> None:
+        paths = (
+            ROOT / "build.py",
+            ROOT / ".github" / "workflows" / "desktop.yml",
+            ROOT / "packaging" / "am_configurator.spec",
+            ROOT / "packaging" / "macos" / "build_dmg.sh",
+            ROOT / "packaging" / "linux" / "build_appimage.sh",
+            ROOT / "packaging" / "windows" / "build_installer.ps1",
+            ROOT / "build_tools" / "prepare_ffmpeg.py",
+            ROOT / "build_tools" / "ffmpeg_bundle.py",
+        )
+        release_surface = "\n".join(path.read_text("utf-8") for path in paths)
+        release_surface = release_surface.casefold().replace("ollama", "")
+
+        for forbidden in ("llama", "gguf", "ggml"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, release_surface)
+
+    def test_linux_appimagetool_uses_immutable_release_assets(self) -> None:
+        script = (ROOT / "packaging" / "linux" / "build_appimage.sh").read_text(
+            encoding="utf-8"
+        )
+        checksums = {
+            "x86_64": "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0",
+            "aarch64": "f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158",
+            "i686": "7ad9ff47c203aae0149b18f6df9e3018b2e2f470ea644a0413e3ded39e9e3bdb",
+            "armhf": "42b61cba5495d8aaf418a5c9a015a49b85ad92efabcbd3c341f1540440e4e23d",
+        }
+
+        self.assertIn('appimagetool_version="1.9.1"', script)
+        self.assertNotIn("/continuous/", script)
+        self.assertIn(
+            "releases/download/$appimagetool_version/appimagetool-$arch.AppImage",
+            script,
+        )
+        for arch, checksum in checksums.items():
+            with self.subTest(arch=arch):
+                self.assertIn(f'{arch}) checksum="{checksum}" ;;', script)
+        self.assertIn(
+            '  *)\n'
+            '    echo "Unsupported appimagetool architecture: $arch" >&2\n'
+            "    exit 1\n"
+            "    ;;",
+            script,
+        )
+        self.assertIn(
+            'tool_dir="$project_root/build/appimage-tools/$appimagetool_version"',
+            script,
+        )
+        self.assertIn(
+            'tool_path="$tool_dir/appimagetool-$arch-$checksum.AppImage"',
+            script,
+        )
 
     def test_brand_icon_is_wired_into_every_distribution(self) -> None:
         icon_paths = {
@@ -205,6 +360,328 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn('"/icon.png": "icon.png"', server)
         self.assertIn('<link rel="icon" href="/icon.png"', html)
         self.assertIn('<img class="brand-mark" src="/icon.png"', html)
+
+    def test_native_bundle_ships_project_license_and_attribution(self) -> None:
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
+
+        # The protocol layer is derived from MIT-licensed cyberboard-cli, whose
+        # notice must travel with every copy. Shipping it only as the Windows
+        # installer's click-through LicenseFile leaves the macOS app bundle and
+        # the Linux AppImage carrying derived code with no notice at all.
+        self.assertIn('(str(project / "LICENSE"), ".")', spec)
+        self.assertIn('(str(project / "THIRD_PARTY_NOTICES"), ".")', spec)
+
+        self.assertTrue((ROOT / "LICENSE").is_file())
+        # Both notices are hard-wrapped prose; compare on collapsed whitespace so
+        # rewrapping a paragraph cannot silently void the assertion.
+        notices = " ".join((ROOT / "THIRD_PARTY_NOTICES").read_text("utf-8").split())
+        licence = " ".join((ROOT / "LICENSE").read_text("utf-8").split())
+        self.assertIn("cyberboard-cli", notices)
+        self.assertIn("MIT License", licence)
+        # FFmpeg's separate LGPL obligation must not regress alongside it.
+        self.assertIn("GNU Lesser General Public License", notices)
+
+    def _sdist_include(self) -> list[str]:
+        metadata = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))
+        targets = metadata["tool"]["hatch"]["build"]["targets"]
+        self.assertIn(
+            "sdist",
+            targets,
+            "pyproject.toml declares no [tool.hatch.build.targets.sdist]; hatchling "
+            "then falls back to shipping every tracked file, which publishes "
+            ".agents/, .claude/, and the internal plan documents.",
+        )
+        return targets["sdist"]["include"]
+
+    def test_sdist_allowlist_excludes_governance_and_internal_material(self) -> None:
+        include = self._sdist_include()
+
+        for forbidden in _SDIST_FORBIDDEN:
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, include)
+                self.assertNotIn(f"/{forbidden}", include)
+                self.assertNotIn(forbidden.rstrip("/"), include)
+        for required in (
+            "/am_configurator/",
+            "/build_tools/",
+            "/packaging/",
+            "/tests/",
+            "/LICENSE",
+            "/THIRD_PARTY_NOTICES",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, include)
+
+        # Root-anchored patterns only. A bare "README.md" is gitignore-style and
+        # also matches docs/verification/*/README.md, which silently republishes
+        # internal material; that exact leak was observed before anchoring.
+        for pattern in include:
+            with self.subTest(pattern=pattern):
+                self.assertTrue(pattern.startswith("/"), pattern)
+
+    def test_every_tracked_top_level_entry_is_classified(self) -> None:
+        """A new top-level entry must be classified before it can silently ship.
+
+        This is what keeps the allowlist honest without anyone remembering it
+        exists: add a directory and forget it here, and the gate says so.
+        """
+        listing = subprocess.run(
+            ("git", "ls-tree", "--name-only", "HEAD"),
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        if listing.returncode != 0:
+            self.skipTest("git is unavailable")
+
+        allowlisted = {
+            entry.strip("/").split("/", 1)[0] for entry in self._sdist_include()
+        }
+        # Deliberately excluded. "docs" is here because only docs/images/ ships.
+        excluded = {
+            ".agents",
+            ".claude",
+            ".gitattributes",
+            ".github",
+            ".gitignore",
+            "AGENTS.md",
+            "CLAUDE.md",
+            "docs",
+        }
+
+        entries = listing.stdout.split()
+        self.assertTrue(entries, "git listed no tracked top-level entries")
+        for entry in entries:
+            with self.subTest(entry=entry):
+                self.assertIn(entry, allowlisted | excluded)
+
+    def test_spec_bundles_the_llm_module(self) -> None:
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
+
+        # The LLM provider layer is imported lazily inside server.py, so
+        # PyInstaller's static analysis misses it; it must be a hidden import or
+        # the frozen app cannot generate effects.
+        self.assertIn("hidden_imports", spec)
+        self.assertIn('"am_configurator.llm"', spec)
+
+    def test_secure_credential_dependency_and_os_backends_are_frozen(self) -> None:
+        metadata = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text("utf-8")
+
+        self.assertIn("keyring==25.7.0", metadata["project"]["dependencies"])
+        self.assertIn('"am_configurator.credentials"', spec)
+        for backend in ("macOS", "SecretService", "Windows"):
+            self.assertIn(f'"keyring.backends.{backend}"', spec)
+
+    def test_native_bundle_contains_verified_ffmpeg_and_real_media_smoke(self) -> None:
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
+        build_script = (ROOT / "build.py").read_text(encoding="utf-8")
+        smoke = (ROOT / "am_configurator" / "desktop.py").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(encoding="utf-8")
+        macos = (ROOT / "packaging" / "macos" / "build_dmg.sh").read_text(encoding="utf-8")
+        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+        finalizer = (ROOT / "build_tools" / "finalize_ffmpeg_bundle.py").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("build_tools.prepare_ffmpeg", build_script)
+        self.assertIn("build_tools.prepare_ffmpeg", workflow)
+        self.assertIn("packaging/ffmpeg/manifest.json text eol=lf", attributes)
+        self.assertIn("get_ffmpeg_runtime", spec)
+        self.assertIn('(str(ffmpeg_binary), "ffmpeg")', spec)
+        self.assertNotIn("upx=True", spec)
+        self.assertEqual(spec.count("upx=False"), 2)
+        for name in ("manifest.json", "ffmpeg-runtime.json", "LGPL-2.1.txt", "README.md"):
+            self.assertIn(name, spec)
+        self.assertIn("tiny-motion.mp4", spec)
+        self.assertIn("process_video_frames", smoke)
+        self.assertIn("MODEL_FRAME_CAPS", smoke)
+        self.assertIn("get_ffmpeg_runtime", smoke)
+        self.assertIn("build_tools.finalize_ffmpeg_bundle", macos)
+        self.assertIn("codesign --force --sign -", macos)
+        for field in (
+            "ffmpeg-signing.json",
+            "prepared_binary_sha256",
+            "signed_binary_sha256",
+            "signing_identity",
+            "cdhash",
+            "capabilities",
+        ):
+            with self.subTest(provenance_field=field):
+                self.assertIn(field, finalizer)
+        self.assertIn("verify_runtime_attestation", finalizer)
+        self.assertNotIn("inspect_runtime(", finalizer)
+
+    def test_native_packages_are_ollama_api_only(self) -> None:
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text("utf-8")
+        build_script = (ROOT / "build.py").read_text("utf-8")
+        smoke = (ROOT / "am_configurator" / "desktop.py").read_text("utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text("utf-8")
+        macos = (ROOT / "packaging" / "macos" / "build_dmg.sh").read_text("utf-8")
+        packaged_surface = "\n".join((spec, build_script, workflow, macos)).lower()
+        self.assertNotIn("llama", packaged_surface.replace("ollama", ""))
+
+        removed_paths = (
+            ROOT / "am_configurator" / "local_ai_runtime.py",
+            ROOT / "am_configurator" / "local_model.py",
+            ROOT / "build_tools" / "finalize_llama_bundle.py",
+            ROOT / "build_tools" / "llama_bundle.py",
+            ROOT / "build_tools" / "prepare_llama.py",
+            ROOT / "packaging" / "llama",
+            ROOT / "tests" / "test_local_ai_runtime.py",
+        )
+        for path in removed_paths:
+            self.assertFalse(path.exists(), str(path.relative_to(ROOT)))
+        for forbidden in (
+            "llama.cpp",
+            "llama-cli",
+            "llama-server",
+            "llama-runtime",
+            "prepare_llama",
+            "finalize_llama",
+            "local_ai_runtime",
+            "local_model",
+            "packaging/llama",
+            ".gguf",
+        ):
+            self.assertNotIn(forbidden, packaged_surface)
+
+        product_surface = "\n".join(
+            (ROOT / "am_configurator" / name).read_text("utf-8")
+            for name in ("procedural_generation.py", "server.py", "web/app.js")
+        ).lower()
+        self.assertNotIn("llama.cpp", product_surface)
+        self.assertNotIn("/api/ai/local/gguf", product_surface)
+        self.assertIn("_assert_ollama_api_only_bundle", smoke)
+        for forbidden_artifact in ('".gguf"', '"llama-cli"', '"llama-server"'):
+            self.assertIn(forbidden_artifact, smoke)
+
+    def test_application_forbids_managed_llama_processes_and_credentials(self) -> None:
+        executable_modules = (
+            "ai_capability.py",
+            "desktop.py",
+            "recipe_provider.py",
+            "server.py",
+        )
+        sources = {
+            name: (ROOT / "am_configurator" / name).read_text("utf-8")
+            for name in executable_modules
+        }
+        combined = "\n".join(sources.values())
+
+        for forbidden in (
+            "ManagedLlamaServer",
+            "ManagedLocalRecipeProvider",
+            "probe_full_gpu_offload",
+            "_run_local_recipe_smoke",
+            '"--api-key"',
+            "Bearer {token}",
+        ):
+            self.assertNotIn(forbidden, combined)
+        for name in ("ai_capability.py", "recipe_provider.py"):
+            self.assertNotIn("subprocess", sources[name])
+            self.assertNotIn("Popen", sources[name])
+
+    def test_local_model_and_runtime_attestations_cannot_return(self) -> None:
+        removed_paths = (
+            ROOT / "am_configurator" / "local_model.py",
+            ROOT / "am_configurator" / "local_ai_runtime.py",
+            ROOT / "build_tools" / "llama_bundle.py",
+            ROOT / "build_tools" / "prepare_llama.py",
+            ROOT / "build_tools" / "finalize_llama_bundle.py",
+            ROOT / "packaging" / "llama",
+        )
+        for path in removed_paths:
+            self.assertFalse(path.exists(), str(path.relative_to(ROOT)))
+        for module in (
+            "am_configurator.local_model",
+            "am_configurator.local_ai_runtime",
+            "build_tools.llama_bundle",
+        ):
+            self.assertIsNone(importlib.util.find_spec(module), module)
+
+        allowed_ffmpeg_modules = {
+            ROOT / "am_configurator" / "ffmpeg_runtime.py",
+            ROOT / "build_tools" / "ffmpeg_bundle.py",
+            ROOT / "build_tools" / "prepare_ffmpeg.py",
+            ROOT / "build_tools" / "finalize_ffmpeg_bundle.py",
+        }
+        source_paths = [
+            path
+            for root in (ROOT / "am_configurator", ROOT / "build_tools")
+            for path in root.glob("*.py")
+            if path not in allowed_ffmpeg_modules
+        ]
+        source_paths.extend((ROOT / "build.py", ROOT / "packaging" / "am_configurator.spec"))
+        source_paths.extend((ROOT / ".github" / "workflows").glob("*"))
+        shipping_source = "\n".join(
+            path.read_text("utf-8") for path in source_paths if path.is_file()
+        )
+        shipping_source = shipping_source.replace('"llama-runtime.json"', "").replace(
+            '"local-model.json"', ""
+        )
+        for forbidden in (
+            "LocalModelManager",
+            "SelectedModel",
+            "LocalRuntimeError",
+            "RuntimePaths",
+            "ATTESTATION_SCHEMA_VERSION",
+            "MAX_RUNTIME_ATTESTATION_BYTES",
+            "_read_runtime_attestation",
+            "runtime_attestation_schema_version",
+            "verify_runtime_attestation",
+            "packaging/llama",
+        ):
+            self.assertNotIn(forbidden, shipping_source)
+
+        for path in (ROOT / "packaging").rglob("*"):
+            relative = path.relative_to(ROOT / "packaging")
+            if relative.parts and relative.parts[0] == "ffmpeg":
+                continue
+            lowered = relative.as_posix().lower()
+            self.assertNotIn("llama", lowered)
+            self.assertNotIn(".gguf", lowered)
+            self.assertNotIn("local-model.json", lowered)
+
+        capability = (ROOT / "am_configurator" / "ai_capability.py").read_text("utf-8")
+        for forbidden in (
+            "attestation",
+            "from .local_model",
+            "import local_model",
+            "localmodelmanager",
+            "local_ai_runtime",
+            "model_path",
+            "verify_runtime_attestation",
+        ):
+            self.assertNotIn(forbidden, capability.lower())
+
+        with TemporaryDirectory(prefix="am-attestation-artifact-") as temporary:
+            root = Path(temporary)
+            with patch.object(sys, "_MEIPASS", str(root), create=True):
+                for name in ("local-model.json", "llama-runtime.json"):
+                    artifact = root / name
+                    artifact.write_text("{}", encoding="utf-8")
+                    with self.subTest(artifact=name), self.assertRaises(SystemExit):
+                        desktop._assert_ollama_api_only_bundle()
+                    artifact.unlink()
+
+    def test_macos_dmg_detach_survives_a_busy_volume(self) -> None:
+        script = (ROOT / "packaging" / "macos" / "build_dmg.sh").read_text(
+            encoding="utf-8"
+        )
+
+        # A single detach immediately after the smoke-test process exits loses a
+        # race with macOS releasing the volume, and under `set -e` that fired the
+        # exit trap, which then ran rm -rf across a still-mounted read-only image.
+        self.assertIn("detach_mount()", script)
+        self.assertIn("-force", script)
+        self.assertNotIn('hdiutil detach "$mount_dir" -quiet\nmounted=0', script)
+        # rm must never run against a mount that is still attached.
+        self.assertIn('if [[ "$mounted" == 0 ]]; then\n    rm -rf "$mount_dir"', script)
+        # Detaching is cleanup, not a product signal: the image is verified and
+        # smoke-tested before this point, so it must not fail the build.
+        self.assertIn('|| echo "warning: could not detach', script)
+        self.assertIn('echo "$output_path"', script)
 
     def test_windows_installer_smoke_test_waits_for_gui_processes(self) -> None:
         script = (ROOT / "packaging" / "windows" / "build_installer.ps1").read_text(
