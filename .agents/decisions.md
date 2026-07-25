@@ -1,5 +1,53 @@
 # Repository Decisions
 
+## 2026-07-25 — AM Neon 80 protocol sources and GPL relicensing
+
+Status: approved by the owner on 2026-07-25, after the owner was shown the
+licensing consequence and chose it explicitly.
+
+- Neon 80 support may derive from both published Angry Miao sources:
+  `AngryMiao/neon_80_embedded` (keyboard firmware, GPL-2.0) and
+  `AngryMiao/neon80_driver` (reference web configurator, Apache-2.0). This
+  includes transcribing LED coordinate tables directly from the GPL firmware
+  rather than re-deriving equivalent data from the permissive source.
+- Because GPL-2.0 material enters the distributed application, the project
+  relicenses to GPL-2.0-or-later. `LICENSE` and the `pyproject.toml` license
+  field state that license.
+- The pre-existing MIT notice covering the `cyberboard-cli`-derived protocol
+  layer (Copyright 2026 GeneralD) is retained as a third-party notice and is
+  not removed or altered; MIT material combines into the GPL work unchanged.
+- `THIRD_PARTY_NOTICES` gains attributions for the GPL-2.0 firmware and the
+  Apache-2.0 driver. The existing packaging guards that require license files
+  in every native artifact continue to apply and are updated to match.
+- GPL binary distribution carries a corresponding-source obligation; the
+  public repository satisfies it and `README.md` states where source lives.
+- This change is one-way in practice: returning to MIT requires removing all
+  GPL-derived material from the tree.
+- FFmpeg's separate LGPL bundling and its attestation system are unaffected.
+
+## 2026-07-25 — AM Neon 80 supported at full parity or not at all
+
+Status: approved by the owner on 2026-07-25.
+
+- The AM Neon 80 is shipped as a supported device family only at full parity
+  with the existing CyberBoard, Relic 80, and AFA families. A lighting-only or
+  otherwise partial Neon 80 device family is not shipped.
+- Parity means lighting animation upload, keymap read and write, macro read and
+  write, layer handling, and profile store/backup participation, reached through
+  the application's existing surfaces rather than a device-specific UI.
+- LED frame read-back is outside parity because no supported family has it; the
+  AM serial families expose no LED-frame read path either.
+- The Neon 80 does not speak the Angry Miao CDC-serial protocol. It is a
+  QMK/Vial device reached over raw HID (usage page `0xFF60`, usage `0x61`),
+  identified by USB `0x05AC:0x024F` with a `vial:`-prefixed serial number, so it
+  shares no transport with the existing serial device and protocol modules.
+- Lighting uses the vendor raw-HID command `0xF0`: three zones (per-switch
+  axial, head matrix, side), three user slots per zone, and a firmware ceiling
+  of 256 frames per slot. Keymap and macro work use the standard Vial dynamic
+  keymap and macro buffers.
+- Hardware write safety is unchanged: device writes remain manual, initiated
+  from the GUI, and gated on device/model matching plus typed confirmation.
+
 ## 2026-07-22 — Ollama/API-only AI backends
 
 Status: approved by the owner on 2026-07-22. This supersedes every product,

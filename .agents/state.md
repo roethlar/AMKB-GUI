@@ -800,17 +800,35 @@
   It is now a named 60-second constant documented as a hung-server backstop
   rather than a latency assertion. No other timeout needed changing.
 
-- Pull request #1 (`llm-led-generator` into `main`) is open and green: all seven
-  checks passed on the first attempt at `d74048d`, covering macOS, Windows, and
-  Linux tests, the Python 3.11 floor, and all three native installers. Nothing
-  is in flight; the working tree is clean and the branch is pushed.
+- Pull request #1 (`llm-led-generator` into `main`) was green on the first
+  attempt at `d74048d` — all seven checks, covering macOS, Windows, and Linux
+  tests, the Python 3.11 floor, and all three native installers — and merged on
+  2026-07-25. Pull request #2 (`flake-fix`) merged the same day. Work is now on
+  `main` at `65a70c9`.
+- AM Neon 80 support is scoped but not implemented; no code exists yet. Its two
+  owner decisions are recorded in `.agents/decisions.md` under 2026-07-25. The
+  protocol was established by reading published Angry Miao sources and by
+  read-only USB enumeration of the owner's device; nothing has been written to
+  that keyboard. Established facts: the board is a QMK/Vial device at USB
+  `0x05AC:0x024F` with serial `vial:f64c2b3c`, reached over raw HID (usage page
+  `0xFF60`, usage `0x61`) with no CDC-serial port. Lighting uses vendor command
+  `0xF0` in 32-byte packets — `[1]` channel, `[2]` frame index, `[3]` packet
+  index with `255` marking the final packet, `[4]` brightness, `[5]` interval,
+  `[6]` RGB byte count, `[7..30]` eight RGB triples, `[31]` checksum
+  `sum(bytes[0..30]) & 0xFF` — across three zones of three slots each: axial
+  (89 LEDs on a 15x6 grid), head matrix (46x5 = 230), and side (70, derived by
+  downsampling the head frame). The firmware ceiling is 256 frames per slot.
 
 ## Next
 
 - Do not perform governance work under this product-remediation plan. Any
   governance update requires a separate fresh one-off session.
-- Merge pull request #1. It is the owner's call and the only queued repository
-  action; no further code work is pending on this branch.
+- Draft the durable AM Neon 80 implementation plan under `plan`, then implement
+  it once approved. Proposed sequence: raw-HID transport and discovery, lighting
+  push, keymap and macros through the Vial buffers, the GPL relicensing and
+  packaging changes, and manual hardware verification last. A `hidapi` runtime
+  dependency, Linux udev rules for non-root access, and the resulting native
+  packaging changes are expected and touch the recently stabilized installers.
 - Code signing and notarization remain unaddressed and out of scope; both
   require paid developer accounts, and `README.md` discloses the unsigned
   state.
