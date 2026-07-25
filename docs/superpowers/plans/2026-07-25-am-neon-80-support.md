@@ -244,23 +244,56 @@ must make it fail.
 
 ### N2. Transport-neutral device handle and route dispatch
 
+**Revised 2026-07-25 after openreview finding or-1** (`.agents/review/findings/
+or-1.md`), owner-approved. The first implementation (commit `94a847a`) dispatched
+on the handle but left the AM serial encoding *above* the seam: the route called
+`writer.plan(config)` and passed 64-byte frames to `write_config(address,
+frames)`. A raw-HID driver cannot construct `0xF0` or Vial writes from those
+bytes, so the seam had to move below the encoding. The corrected design is
+below; N2 is complete only when it holds.
+
 - Introduce a device handle carrying transport kind plus transport-specific
   address, replacing the bare `port` string in the device routes. Existing
-  devices produce a serial-kind handle wrapping the same port.
-- Dispatch discovery, read, write, and verify on the handle: `/api/devices`
-  (`server.py:1356`), and `/api/device/read|write|verify`
-  (`server.py:1478-1482`) reaching `_read_device` (1995) and `_write_device`
-  (2032).
-- `_write_request` (2063) generalizes `"A serial port is required."` to a handle.
-- `_validated_write_target` (2074) keeps its exact contract: probe, confirm a
+  devices produce a serial-kind handle wrapping the same port. **Done in
+  `94a847a`; unchanged by the revision.**
+- Dispatch discovery, read, write, and verify on the handle: `/api/devices`,
+  and `/api/device/read|write|verify` reaching `_read_device` and
+  `_write_device`. **Done in `94a847a`; unchanged.**
+- `_write_request` generalizes `"A serial port is required."` to a handle.
+  **Done in `94a847a`; unchanged.**
+- `_validated_write_target` keeps its exact contract: probe, confirm a
   supported keyboard, match the config's `product_id`, require typed
   confirmation equal to the product ID. Only the probe becomes dispatched. **The
-  gate does not weaken here**; N3 strengthens it for HID.
+  gate does not weaken here**; N3 strengthens it for HID. **Done in `94a847a`;
+  unchanged.**
 - Update the browser device surface to carry handles rather than port strings.
+  **Done in `94a847a`**: a device's identity key is `transport:address`.
+- **Move the seam below the protocol encoding.** The driver interface takes the
+  logical configuration, not encoded bytes:
+  - `write_config(address, config) -> WriteReceipt` plans *and* transmits. AM
+    frame planning (`writer.plan`) moves inside the serial driver, which owns
+    `SETTLE_SECONDS` and raises a typed `DeviceWriteError` carrying the
+    protocol's own rejection detail. `server.py` stops importing `writer`.
+  - `describe_write(config) -> WriteReceipt` reports what a write *would*
+    transmit without performing I/O. The verify route needs this because it
+    reports a transmitted-unit count without resending; today it calls
+    `writer.plan(config)` purely to read `.total`.
+  - `WriteReceipt` carries a protocol-native unit count and its label
+    (serial: configuration frames), so the response payload stops naming
+    `frames` unconditionally. The browser write toast renders the label rather
+    than hardcoding "configuration frames".
+  - `"Device rejected JSON_END: …"` moves out of the route into the serial
+    driver: it is a serial protocol message and must not be raised by
+    transport-neutral code.
+- `write_macros`/`read_macros` already pass macro dictionaries rather than
+  encoded bytes and need no change; the revision makes the whole interface
+  consistently domain-level.
 
-Red-proof: existing device-route tests pass unchanged, plus a dispatch test
+Red-proof: existing device-route tests pass unchanged, plus (a) a dispatch test
 proving an unknown transport kind is rejected with a typed error rather than
-silently treated as serial.
+silently treated as serial, and (b) a test registering a synthetic non-serial
+driver and proving a write reaches it as the logical configuration — reverting
+to a frames-shaped interface must make it fail.
 
 ### N3. Raw HID transport and Neon 80 identity
 

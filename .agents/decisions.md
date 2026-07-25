@@ -1,5 +1,33 @@
 # Repository Decisions
 
+## 2026-07-25 — The device seam sits below the protocol encoding
+
+The device driver interface takes the logical configuration, never
+protocol-encoded bytes. A driver plans and transmits its own protocol; the
+routes stay ignorant of frames, reports, and packet formats.
+
+Owner ruling on openreview finding or-1
+(`.agents/review/findings/or-1.md`), which found that N2's first
+implementation (commit `94a847a`) dispatched on a device handle but left
+`writer.plan(config)` in the route and passed AM 64-byte frames through
+`write_config(address, frames)`. A raw-HID driver cannot construct `0xF0`
+lighting packets or Vial keymap writes from that representation, so the
+abstraction would have had to be rebuilt at plan task N5.
+
+The owner chose to rework N2 immediately rather than defer the cost to N5,
+where more code would depend on the wrong seam. Recorded wording: option **A**,
+"Rework N2 now under the corrected design".
+
+Consequences that outlive this task:
+
+- Protocol-specific error text (`"Device rejected JSON_END"`) belongs to the
+  driver that speaks that protocol, never to transport-neutral code.
+- A write result reports a protocol-native unit count plus its label, rather
+  than assuming every device writes "frames".
+- `server.py` does not import `writer`; frame planning is serial-driver-internal.
+- The existing commit is not rewritten. The rework lands as a new commit, per
+  the Git Safety rule against restructuring history without an explicit go.
+
 ## 2026-07-25 — License follows capability; Neon 80 stays MIT for now
 
 Status: approved by the owner on 2026-07-25. This supersedes the relicensing
