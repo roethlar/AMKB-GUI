@@ -86,6 +86,20 @@ LED. Take axial ordering and positions from the Apache-2.0 driver's
   and raw HID (usage page `0xFF60`, usage `0x61`).
 - No CDC-serial port is exposed. `device.candidate_ports()` can never enumerate
   this board, and `probe()` can never identify it.
+- **Verified on the owner's board, 2026-07-25**, by read-only `hid.enumerate()`
+  with no bytes sent to the device. The interface table above is confirmed
+  exactly: raw HID is usage page `0xFF60` / usage `0x61` on interface 1, and the
+  serial number reads `vial:f64c2b3c`. Two facts the plan did not previously
+  record:
+  - `manufacturer_string` is `AngryMiao` and `product_string` is `AM Neon 80`.
+    These are evidence, not proof — USB string descriptors are firmware-authored
+    and a clone or a reflashed board can report anything — so they narrow
+    candidates like VID/PID does and do **not** replace the definition gate.
+  - macOS reports `path` as `DevSrvsID:<n>` (an IOKit registry entry ID), which
+    is **not** stable across replug. That is correct for the confirmation
+    binding, whose purpose is to invalidate when the device changes, but the
+    plan's word "immutable" is wrong: read it as stable for the lifetime of one
+    connection, and treat any change as invalidating.
 
 ### Upstream sources
 
