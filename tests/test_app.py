@@ -439,8 +439,12 @@ class DesktopServerTests(unittest.TestCase):
         )
         self.assertIsNotNone(create_pages)
         compact = re.sub(r"\s+", "", create_pages.group("body"))
+        # The edge track is gated on the family actually authoring it, and only
+        # for the custom slots. Comparing the raw product id instead would miss
+        # AM21, which is the Relic's reported identifier.
+        self.assertIn('edgeColorCount!==null&&index>=5', compact)
         self.assertIn(
-            'productFamily(productId())==="80"&&index>=5',
+            'spec.authoredTracks.includes("spotlight_frames")',
             compact,
         )
         self.assertNotIn('productId().toUpperCase()==="80"', compact)

@@ -10,7 +10,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
 const {createReviewView, openRenderedDialog, renderReview, reviewBlockedMessage} = LightingReview;
-const {DEVICE_TARGETS, renderTargetControls} = LightingTargets;
+const {DEVICE_TARGETS, productFamily, renderTargetControls, specForProduct, supportedFamily, trackColorCount} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
 
@@ -160,12 +160,8 @@ function productId() {
   return state.config?.product_info?.product_id || "—";
 }
 
-function productFamily(value) {
-  const id = String(value || "").toUpperCase();
-  if (id === "80" || id === "AM21") return "80";
-  if (id === "ALICE") return "ALICE";
-  if (id.startsWith("CB")) return "CB";
-  return id;
+function activeFamilySpec() {
+  return specForProduct(productId());
 }
 
 function sameProductFamily(left, right) {
@@ -482,11 +478,16 @@ function firmwareLedSpeed(value) {
   return LED_SPEEDS.reduce((best,speed)=>Math.abs(speed-duration)<Math.abs(best-duration)?speed:best,LED_SPEEDS[0]);
 }
 
+// Null when this build has no LED geometry for the loaded product. Callers must
+// handle that rather than substituting a default family: editing an unknown
+// device with CyberBoard maps is how wrong pixel data reaches a keyboard.
 function activeLedModel() {
-  const id=productFamily(productId());
-  if(id==="80")return LED_MODELS["80"];
-  if(id==="ALICE")return LED_MODELS.ALICE;
-  return LED_MODELS.CB;
+  const family=supportedFamily(productId());
+  return family===null?null:LED_MODELS[family];
+}
+
+function unsupportedDeviceNotice(action) {
+  return `<div class="empty-state"><p class="eyebrow">Unsupported device</p><h1>No lighting profile for ${esc(productId())}.</h1><p>This build has no LED layout for that product, so ${action} would use another keyboard's geometry. Load a profile for a supported device.</p></div>`;
 }
 
 const HID_NAMES = {};
@@ -633,7 +634,9 @@ function navigateTo(route, {replace = false, focusHeading = false} = {}) {
 
 function documentDescriptor() {
   if (!state.config) return null;
-  const targets = activeLedModel().targets.map(target => target.key);
+  const model = activeLedModel();
+  if (!model) return null;
+  const targets = model.targets.map(target => target.key);
   return {
     family: productFamily(productId()),
     productId: productId(),
@@ -1014,7 +1017,7 @@ function renderLightingShell() {
   });
 
   const targetHost = $("#lighting-target-controls");
-  const targets = state.config ? activeLedModel().targets : [];
+  const targets = (state.config && activeLedModel()?.targets) || [];
   if (targets.length && !targets.some(target => target.key === state.ledTarget)) state.ledTarget = targets[0].key;
   renderTargetControls(targetHost,targets,state.ledTarget,destinationLocked,target=>{
     state.ledTarget = target;
@@ -1118,10 +1121,11 @@ function missingMacroTokens() {
 }
 
 function addMacro() {
-  if (macros().length >= 32) return toast("Macro limit reached", "This profile supports up to 32 macros.", "error");
+  const {macroTracks} = activeFamilySpec();
+  if (macros().length >= macroTracks) return toast("Macro limit reached", `This profile supports up to ${macroTracks} macros.`, "error");
   const used = new Set(macros().map(macro => macro.original_key.toUpperCase()));
   let tokenCode = null;
-  for (let i=0;i<32;i++) {
+  for (let i=0;i<macroTracks;i++) {
     const candidate = makeCode(0x95,0x1500+i);
     if (!used.has(candidate)) { tokenCode = candidate; break; }
   }
@@ -1194,7 +1198,8 @@ async function applyMacroText(mode) {
     const generated=await api("/api/macros/text",{method:"POST",body:JSON.stringify({text,delay_ms:delay})});
     const oldCount=(current.layer_key||[]).length;
     const projected=mode==="append"?totalMacroEvents()+generated.layer_key.length:totalMacroEvents()-oldCount+generated.layer_key.length;
-    if(projected>200)throw new Error(`This would use ${projected}/200 events across the profile.`);
+    const {macroEvents}=activeFamilySpec();
+    if(projected>macroEvents)throw new Error(`This would use ${projected}/${macroEvents} events across the profile.`);
     mutate(()=>{
       current.layer_key=mode==="append"?[...(current.layer_key||[]),...generated.layer_key]:generated.layer_key;
       current.intvel_ms=mode==="append"?[...(current.intvel_ms||[]).slice(0,oldCount),...generated.intvel_ms]:generated.intvel_ms;
@@ -1207,15 +1212,16 @@ function renderMacros() {
   state.macro = Math.min(state.macro, Math.max(0,macros().length-1));
   const current = macros()[state.macro];
   const total = totalMacroEvents();
+  const {macroTracks, macroEvents} = activeFamilySpec();
   const eventOptions = KEY_OPTIONS.filter(option => ["Letters","Numbers","Basic","Function"].includes(option.category) && option.code !== "#00000000");
   const assigned = current ? layers().reduce((sum, layer) => sum + layer.layer.filter(code => code.toUpperCase()===current.original_key.toUpperCase()).length,0) : 0;
   const missing=missingMacroTokens();
   const missingWarning=missing.length?`<div class="write-warning macro-warning"><strong>Macro assignments have no readable actions</strong><p>${missing.map(code=>esc(decodeCode(code))).join(", ")} ${missing.length===1?'is':'are'} assigned in the keymap, but the keyboard returned no matching macro definition. Loading cannot reconstruct those keystrokes; restore them from a saved JSON or recreate them before writing.</p></div>`:"";
   $("#screen").innerHTML = `<div class="screen-shell">
-    <header class="screen-header"><div><p class="eyebrow">Up to 32 tracks · 200 events</p><h1>Macros</h1><p class="description">Record or arrange exact key-down, key-up, and timing events.</p></div><div class="header-controls"><div><small>${total}/200 events</small><div class="limit-meter"><span style="width:${Math.min(100,total/2)}%"></span></div></div><button id="import-macros" class="button ghost">Import macros</button><button id="add-macro" class="button primary">+ New macro</button></div></header>
+    <header class="screen-header"><div><p class="eyebrow">Up to ${macroTracks} tracks · ${macroEvents} events</p><h1>Macros</h1><p class="description">Record or arrange exact key-down, key-up, and timing events.</p></div><div class="header-controls"><div><small>${total}/${macroEvents} events</small><div class="limit-meter"><span style="width:${Math.min(100,total*100/macroEvents)}%"></span></div></div><button id="import-macros" class="button ghost">Import macros</button><button id="add-macro" class="button primary">+ New macro</button></div></header>
     ${missingWarning}
     <div class="macro-layout">
-      <aside class="card macro-list"><div class="card-header"><strong>Macro library</strong><small>${macros().length}/32</small></div><div class="macro-list-items">
+      <aside class="card macro-list"><div class="card-header"><strong>Macro library</strong><small>${macros().length}/${macroTracks}</small></div><div class="macro-list-items">
         ${macros().length ? macros().map((macro,i) => `<button class="macro-item ${i===state.macro?'active':''}" data-macro="${i}"><span><strong>${esc(decodeCode(macro.original_key))}</strong><small>${(macro.layer_key||[]).length} events</small></span><span class="macro-token">${esc(macro.original_key.slice(-2))}</span></button>`).join("") : `<div class="event-empty">No macros yet.<br>Create one to begin.</div>`}
       </div></aside>
       <section class="card macro-editor">${current ? `<div class="card-header"><strong>${esc(decodeCode(current.original_key))}</strong><small>Assigned to ${assigned} key${assigned===1?'':'s'}</small></div>
@@ -1244,7 +1250,7 @@ function renderMacros() {
   if (!current) return;
   $("#delete-macro").addEventListener("click", removeMacro);
   $("#add-event").addEventListener("click", () => {
-    if (totalMacroEvents() >= 200) return toast("Event limit reached", "Delete an event before adding another.", "error");
+    if (totalMacroEvents() >= activeFamilySpec().macroEvents) return toast("Event limit reached", "Delete an event before adding another.", "error");
     mutate(()=>{current.layer_key.push("#11070004");current.intvel_ms.push(25);});
   });
   $("#record-macro").addEventListener("click", toggleRecording);
@@ -1280,7 +1286,8 @@ function recordEvent(event, down) {
   if (usage === undefined) return;
   event.preventDefault();
   const current = macros()[state.macro];
-  if (!current || totalMacroEvents() >= 200) { state.recording=false; renderMacros(); return toast("Event limit reached","Recording stopped at 200 events.","error"); }
+  const {macroEvents} = activeFamilySpec();
+  if (!current || totalMacroEvents() >= macroEvents) { state.recording=false; renderMacros(); return toast("Event limit reached",`Recording stopped at ${macroEvents} events.`,"error"); }
   const now = performance.now();
   current.layer_key.push(makeCode(7,usage,down?0x11:0x10));
   current.intvel_ms.push(Math.max(0,Math.min(15000,Math.round(now-state.recordLast))));
@@ -1294,13 +1301,18 @@ function getPage(index) {
 }
 
 function createLedPages() {
+  const spec = activeFamilySpec();
+  const keyColors = trackColorCount(spec, "keyframes");
+  const edgeColorCount = spec.authoredTracks.includes("spotlight_frames")
+    ? trackColorCount(spec, "spotlight_frames")
+    : null;
   mutate(() => {
     state.config.page_data = Array.from({length:8},(_,index)=>({
       valid:index<3?1:(index>=5?1:0),page_index:index,lightness:100,speed_ms:90,
       color:{default:false,back_rgb:"#000000",rgb:"#000000"},word_page:{valid:0,word_len:0,unicode:[]},
       frames:{valid:0,frame_num:0,frame_data:[]},
-      keyframes:{valid:index>=5?1:0,frame_num:index>=5?1:0,frame_data:index>=5?[{frame_index:0,frame_RGB:Array(90).fill("#000000")}]:[]},
-      ...(productFamily(productId())==="80"&&index>=5?{spotlight_frames:{valid:1,frame_num:1,frame_data:[{frame_index:0,frame_RGB:Array(24).fill("#000000")}]}}:{}),
+      keyframes:{valid:index>=5?1:0,frame_num:index>=5?1:0,frame_data:index>=5?[{frame_index:0,frame_RGB:Array(keyColors).fill("#000000")}]:[]},
+      ...(edgeColorCount!==null&&index>=5?{spotlight_frames:{valid:1,frame_num:1,frame_data:[{frame_index:0,frame_RGB:Array(edgeColorCount).fill("#000000")}]}}:{}),
     }));
     state.config.page_num = 8;
   });
@@ -1308,14 +1320,14 @@ function createLedPages() {
 
 function trackInfo() {
   const page = getPage(state.ledSlot);
-  const lengths = {frames:200,keyframes:90,spotlight_frames:24};
-  return {page, track:page?.[state.ledTarget], length:lengths[state.ledTarget]};
+  const length = trackColorCount(activeFamilySpec(), state.ledTarget);
+  return {page, track:page?.[state.ledTarget], length};
 }
 
 function ensureTrack() {
   const page = getPage(state.ledSlot);
   if (!page) return null;
-  const length = {frames:200,keyframes:90,spotlight_frames:24}[state.ledTarget];
+  const length = trackColorCount(activeFamilySpec(), state.ledTarget);
   if (!page[state.ledTarget]) page[state.ledTarget]={valid:1,frame_num:0,frame_data:[]};
   const track = page[state.ledTarget];
   if (!track.frame_data?.length) {
@@ -1331,14 +1343,16 @@ function currentFrame() {
   return track.frame_data[state.ledFrame];
 }
 
+// The track length comes from the spec; the seven authored edge zones padded
+// into it remain Relic-specific geometry, which belongs with the LED maps.
 function edgeColors(colors) {
-  const result=Array(24).fill("#000000");
+  const result=Array(trackColorCount(activeFamilySpec(),"spotlight_frames")).fill("#000000");
   for(let index=0;index<7;index++)result[index]=colors[index]||"#000000";
   return result;
 }
 
 function resampleEdgeAnimation(sourceFrames, count) {
-  const sources=sourceFrames?.length?sourceFrames:[Array(24).fill("#000000")];
+  const sources=sourceFrames?.length?sourceFrames:[edgeColors([])];
   return Array.from({length:count},(_,index)=>{
     const sourceIndex=Math.min(sources.length-1,Math.floor(index*sources.length/count));
     const source=sources[sourceIndex]?.frame_RGB||sources[sourceIndex]||[];
@@ -1381,6 +1395,10 @@ function renderLightingEdit() {
   }
   const page = getPage(state.ledSlot);
   const model=activeLedModel();
+  if (!model) {
+    $("#lighting-edit-content").innerHTML=unsupportedDeviceNotice("painting these pages");
+    return;
+  }
   const targets=model.targets;
   if (!targets.some(target=>target.key===state.ledTarget)) state.ledTarget=targets[0].key;
   const {track,length}=trackInfo();
@@ -2014,7 +2032,7 @@ function generationDialogContext() {
   const target=manifest?.target||proceduralTargetSnapshot();
   const targetKey=target.targets?.[0]||state.ledTarget;
   const model=LED_MODELS[productFamily(target.family||target.product_id)]||activeLedModel();
-  const targetLabel=model.targets.find(item=>item.key===targetKey)?.label||targetKey;
+  const targetLabel=model?.targets.find(item=>item.key===targetKey)?.label||targetKey;
   const destinationSlot=state.conceptDestination?.slot||state.ledSlot;
   return {manifest,target,targetKey,targetLabel,destinationSlot,busy:state.conceptSubmitting||["in_progress","accepted","processing"].includes(state.lighting.activeJob?.status)};
 }

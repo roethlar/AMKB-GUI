@@ -5,7 +5,14 @@ const assert = require("node:assert/strict");
 
 const {
   DEVICE_TARGETS,
+  FAMILY_SPECS,
+  UNKNOWN_FAMILY_SPEC,
+  familySpec,
+  productFamily,
   renderTargetControls,
+  specForProduct,
+  supportedFamily,
+  trackColorCount,
 } = require("../../am_configurator/web/lighting_targets.js");
 
 class FakeElement {
@@ -79,6 +86,62 @@ test("CyberBoard, Relic, and AFA targets render as selectable valid buttons", ()
     assert.equal(host.children.at(-1).getAttribute("aria-pressed"), "true");
     assert.equal(host.children.at(-1).className, "active");
   }
+});
+
+test("an unsupported product resolves to no family instead of a default one", () => {
+  for (const [product, family] of [["CB04", "CB"], ["cb04", "CB"], ["AM21", "80"], ["80", "80"], ["ALICE", "ALICE"]]) {
+    assert.equal(supportedFamily(product), family);
+    assert.equal(familySpec(product).model, family);
+  }
+
+  // The Neon 80 speaks a different protocol and has no LED layout in this
+  // build. Answering "CB" here is what would let its pages be painted with
+  // CyberBoard geometry and written to the keyboard.
+  for (const product of ["NEON", "NEON80", "", null, undefined, "AM99"]) {
+    assert.equal(supportedFamily(product), null, `${product} must not resolve to a family`);
+    assert.equal(familySpec(product), null);
+  }
+});
+
+test("an unrecognised product still reports the shared limits for editing", () => {
+  const spec = specForProduct("NEON80");
+
+  assert.equal(spec, UNKNOWN_FAMILY_SPEC);
+  assert.equal(spec.model, "");
+  assert.equal(spec.macroTracks, 32);
+  assert.equal(spec.macroEvents, 200);
+  assert.deepEqual(spec.authoredTracks, []);
+  assert.equal(specForProduct("CB04"), FAMILY_SPECS.CB);
+});
+
+test("track colour counts follow the family that authors the track", () => {
+  assert.equal(trackColorCount(FAMILY_SPECS.CB, "frames"), 200);
+  assert.equal(trackColorCount(FAMILY_SPECS.CB, "keyframes"), 90);
+  assert.equal(trackColorCount(FAMILY_SPECS["80"], "spotlight_frames"), 24);
+  assert.equal(trackColorCount(FAMILY_SPECS.ALICE, "keyframes"), 90);
+  // A track the family does not author falls back to the shared count, which
+  // is what the Python validator has always done for a track that is present.
+  assert.equal(trackColorCount(FAMILY_SPECS.ALICE, "spotlight_frames"), 24);
+  assert.equal(trackColorCount(FAMILY_SPECS.CB, "not-a-track"), null);
+});
+
+test("every family's authored tracks are exactly the targets it offers", () => {
+  for (const [family, spec] of Object.entries(FAMILY_SPECS)) {
+    assert.deepEqual(
+      spec.authoredTracks,
+      DEVICE_TARGETS[family].map(target => target.key),
+      `${family} offers targets it cannot size`,
+    );
+  }
+  assert.deepEqual(Object.keys(FAMILY_SPECS).sort(), Object.keys(DEVICE_TARGETS).sort());
+});
+
+test("productFamily normalises the identifiers the firmware reports", () => {
+  assert.equal(productFamily("CB04"), "CB");
+  assert.equal(productFamily("am21"), "80");
+  assert.equal(productFamily("NEON80"), "NEON80");
+  assert.equal(productFamily(""), "");
+  assert.equal(productFamily(null), "");
 });
 
 test("target controls preserve pressed and destination-locked state", () => {

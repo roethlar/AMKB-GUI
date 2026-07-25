@@ -24,6 +24,104 @@
     ]),
   });
 
+  // --- Per-family device specification ------------------------------------
+  //
+  // The browser's copy of `FamilySpec` in am_configurator/device_mapping.py,
+  // which is the authority for these numbers. It is kept as a strict-JSON
+  // literal so `tests/test_device_mapping.py` can parse it and assert the two
+  // sides never drift: change device_mapping.py first, then mirror it here.
+  //
+  // `trackColors` holds only the tracks a family authors, matching that
+  // family's `_LAYOUTS` entry; `sharedTrackColors` covers a track a family does
+  // not author, exactly as `_SHARED_TRACK_COLORS` does on the Python side.
+  const SPEC_SOURCE = `{
+    "sharedTrackColors": {"frames": 200, "keyframes": 90, "spotlight_frames": 24},
+    "unknownFrameCap": 256,
+    "families": {
+      "CB": {"transport": "serial", "frameCap": 80, "macroTracks": 32, "macroEvents": 200,
+             "trackColors": {"keyframes": 90, "frames": 200}},
+      "80": {"transport": "serial", "frameCap": 200, "macroTracks": 32, "macroEvents": 200,
+             "trackColors": {"keyframes": 90, "spotlight_frames": 24}},
+      "ALICE": {"transport": "serial", "frameCap": 186, "macroTracks": 32, "macroEvents": 200,
+                "trackColors": {"keyframes": 90}}
+    }
+  }`;
+
+  const SPEC_DATA = JSON.parse(SPEC_SOURCE);
+
+  const SHARED_TRACK_COLORS = Object.freeze({...SPEC_DATA.sharedTrackColors});
+
+  function freezeSpec(model, spec) {
+    return Object.freeze({
+      model,
+      transport: spec.transport,
+      frameCap: spec.frameCap,
+      macroTracks: spec.macroTracks,
+      macroEvents: spec.macroEvents,
+      trackColors: Object.freeze({...spec.trackColors}),
+      authoredTracks: Object.freeze(Object.keys(spec.trackColors)),
+    });
+  }
+
+  const FAMILY_SPECS = Object.freeze(Object.fromEntries(
+    Object.entries(SPEC_DATA.families).map(([model, spec]) => [model, freezeSpec(model, spec)]),
+  ));
+
+  // Mirrors `_UNKNOWN_FAMILY_SPEC`: a config naming a product this build does
+  // not recognise is still editable against the shared limits rather than
+  // rejected. This carries no geometry — `supportedFamily` is what refuses to
+  // hand an unknown device another device's key map.
+  const UNKNOWN_FAMILY_SPEC = freezeSpec("", {
+    transport: "serial",
+    frameCap: SPEC_DATA.unknownFrameCap,
+    macroTracks: 32,
+    macroEvents: 200,
+    trackColors: {},
+  });
+
+  // Mirrors `led_model`, except that an unrecognised product yields its own
+  // uppercased identifier rather than raising, so callers can show it.
+  function productFamily(value) {
+    const id = String(value || "").toUpperCase();
+    if (id === "80" || id === "AM21") return "80";
+    if (id === "ALICE") return "ALICE";
+    if (id.startsWith("CB")) return "CB";
+    return id;
+  }
+
+  // The family key this build actually supports, or null. A null result must
+  // never be replaced with a default family: substituting one device's LED
+  // geometry for another is how wrong pixel data reaches a keyboard.
+  function supportedFamily(value) {
+    const family = productFamily(value);
+    return Object.prototype.hasOwnProperty.call(FAMILY_SPECS, family) ? family : null;
+  }
+
+  // Mirrors `family_spec`: null for an unknown family, never a substitute.
+  function familySpec(value) {
+    const family = supportedFamily(value);
+    return family === null ? null : FAMILY_SPECS[family];
+  }
+
+  // Mirrors `spec_for_product`: never null, so limit checks keep working on a
+  // configuration whose product this build does not recognise.
+  function specForProduct(value) {
+    return familySpec(value) || UNKNOWN_FAMILY_SPEC;
+  }
+
+  // Mirrors `FamilySpec.track_colors`: the family's own count where it authors
+  // the track, otherwise the shared count. Null for a track no one sizes.
+  function trackColorCount(spec, field) {
+    const key = String(field || "");
+    if (spec && Object.prototype.hasOwnProperty.call(spec.trackColors, key)) {
+      return spec.trackColors[key];
+    }
+    if (Object.prototype.hasOwnProperty.call(SHARED_TRACK_COLORS, key)) {
+      return SHARED_TRACK_COLORS[key];
+    }
+    return null;
+  }
+
   function renderTargetControls(host, availableTargets, selectedTarget, locked, onSelect) {
     if (!host || typeof host.replaceChildren !== "function" || !host.ownerDocument) {
       throw new TypeError("A target-control host is required.");
@@ -55,5 +153,17 @@
     host.replaceChildren(...buttons);
   }
 
-  return Object.freeze({DEVICE_TARGETS, renderTargetControls});
+  return Object.freeze({
+    DEVICE_TARGETS,
+    FAMILY_SPECS,
+    SHARED_TRACK_COLORS,
+    SPEC_SOURCE,
+    UNKNOWN_FAMILY_SPEC,
+    familySpec,
+    productFamily,
+    renderTargetControls,
+    specForProduct,
+    supportedFamily,
+    trackColorCount,
+  });
 });

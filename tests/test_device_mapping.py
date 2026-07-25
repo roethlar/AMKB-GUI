@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import json
+import re
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -109,6 +111,56 @@ class FamilySpecTests(unittest.TestCase):
             self.assertEqual(90, spec.track_colors("keyframes"))
         self.assertEqual("CB", mapping.spec_for_product("CB04").model)
         self.assertEqual("80", mapping.spec_for_product("AM21").model)
+
+
+class BrowserSpecMirrorsPythonTests(unittest.TestCase):
+    """The browser carries its own copy of the family spec; it must not drift.
+
+    `am_configurator/web/lighting_targets.js` cannot import from Python, so it
+    embeds the same numbers as a strict-JSON literal. Python owns them; this
+    parses the literal and asserts the two sides still agree.
+    """
+
+    def _browser_spec(self):
+        source = (ROOT / "am_configurator/web/lighting_targets.js").read_text(
+            encoding="utf-8"
+        )
+        match = re.search(r"const SPEC_SOURCE = `(.*?)`;", source, re.DOTALL)
+        self.assertIsNotNone(
+            match, "lighting_targets.js no longer embeds a SPEC_SOURCE literal"
+        )
+        return json.loads(match.group(1))
+
+    def test_browser_families_match_the_python_authority(self):
+        mapping = importlib.import_module("am_configurator.device_mapping")
+        browser = self._browser_spec()
+
+        self.assertEqual(
+            sorted(mapping._FAMILY_SPECS), sorted(browser["families"])
+        )
+        for model, mirrored in browser["families"].items():
+            with self.subTest(model=model):
+                spec = mapping.family_spec(model)
+                self.assertEqual(spec.transport, mirrored["transport"])
+                self.assertEqual(spec.frame_cap, mirrored["frameCap"])
+                self.assertEqual(spec.macro_tracks, mirrored["macroTracks"])
+                self.assertEqual(spec.macro_events, mirrored["macroEvents"])
+                self.assertEqual(
+                    list(spec.authored_tracks), list(mirrored["trackColors"])
+                )
+                for field, colors in mirrored["trackColors"].items():
+                    self.assertEqual(spec.track_colors(field), colors)
+
+    def test_browser_shared_and_unknown_values_match(self):
+        mapping = importlib.import_module("am_configurator.device_mapping")
+        browser = self._browser_spec()
+
+        self.assertEqual(
+            mapping._SHARED_TRACK_COLORS, browser["sharedTrackColors"]
+        )
+        self.assertEqual(
+            mapping._UNKNOWN_FAMILY_SPEC.frame_cap, browser["unknownFrameCap"]
+        )
 
 
 class ValidationUsesFamilySpecTests(unittest.TestCase):
