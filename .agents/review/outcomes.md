@@ -1,5 +1,39 @@
 # Whole-change review outcomes
 
+- 2026-07-25 — openreview codex, third pass (codex-cli 0.145.0, CLI transport
+  with `--output-last-message`; codex's own configured model and effort) over
+  `65a70c9bff19b8cff7313efdf10bb35c48484939..94a847a5805cf0a69b01c0a9f124217c36579c61`,
+  the first pass over implementation rather than the plan: verdict `findings`,
+  three raised, all three admitted at intake. Detail in
+  `.agents/review/findings/or-1.md`, `or-2.md`, `or-3.md`; scoreboard in
+  `.agents/review/index.md`.
+  HIGH (or-1): N2's transport seam sits above the protocol encoding —
+  `server.py:2049` plans AM 64-byte serial frames and `transport.py:68` receives
+  only those bytes, so a raw-HID driver cannot construct `0xF0` or Vial writes
+  from what the seam passes. Correcting it changes N2's architecture rather than
+  repairing it, so it is referred to the owner before any work starts.
+  HIGH (or-2): `blank_config` (`server.py:130-165`) keeps a second copy of the
+  family rules — hardcoded 90 and 24 track lengths plus its own `AM21`
+  normalization — which N1 made `device_mapping` the authority for. The
+  observable failure is gated on N4. The stronger suspicion that
+  `relic = product_id == "80"` misses the Relic's real `AM21` identifier was
+  **disproved by execution**: line 131 normalizes first, and both identifiers
+  produce the edge track.
+  MEDIUM (or-3): `FamilySpec` models macro capacity as event counts with a
+  `None` "device-reported" escape hatch, but Vial reports `GET_BUFFER_SIZE` in
+  bytes, and the browser consumers written in the same change do not handle
+  `None` — they would render "Up to null tracks" and a permanently tripped
+  limit.
+  Routing deviation, recorded deliberately and unchanged from the two prior
+  passes: no `.agents/review/harnesses.local.json` exists on this machine, so
+  both review playbooks would fail closed; the owner's standing "defaults, just
+  codex" direction was applied, using codex's own configured model and effort
+  rather than an owner-confirmed tier mapping. The reviewer ran under
+  `--sandbox read-only`, which forbids the disposable worktree the playbook
+  describes; openreview's verdict schema carries no `guard_confirmed` field, so
+  the contract is satisfied without it, but the reviewer executed no tests and
+  every finding was verified by this session instead.
+
 - 2026-07-20T21:53:11Z — openreview grok (`grok-4.5-build` @ `high`,
   fallback) over
   `98abb138406093dacea97df2b49be91aa11fdf10..6c1f7337d162eb59015265690e88a5d02d7be962`:
