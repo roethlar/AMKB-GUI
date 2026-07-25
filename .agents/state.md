@@ -875,7 +875,6 @@
   `.agents/review/findings/or-1.md` (Known gaps).
 - Push policy is recorded in `.agents/push-policy.md`: ask before every push.
   The `neon-80-support` branch exists on `origin`; the two `or-2` and `or-3`
-  commits are not yet pushed.
 - Code signing and notarization remain unaddressed and out of scope; both
   require paid developer accounts, and `README.md` discloses the unsigned
   state.
