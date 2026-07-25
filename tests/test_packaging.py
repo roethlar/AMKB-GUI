@@ -665,6 +665,24 @@ class ReleaseInfoTests(unittest.TestCase):
                         desktop._assert_ollama_api_only_bundle()
                     artifact.unlink()
 
+    def test_macos_dmg_detach_survives_a_busy_volume(self) -> None:
+        script = (ROOT / "packaging" / "macos" / "build_dmg.sh").read_text(
+            encoding="utf-8"
+        )
+
+        # A single detach immediately after the smoke-test process exits loses a
+        # race with macOS releasing the volume, and under `set -e` that fired the
+        # exit trap, which then ran rm -rf across a still-mounted read-only image.
+        self.assertIn("detach_mount()", script)
+        self.assertIn("-force", script)
+        self.assertNotIn('hdiutil detach "$mount_dir" -quiet\nmounted=0', script)
+        # rm must never run against a mount that is still attached.
+        self.assertIn('if [[ "$mounted" == 0 ]]; then\n    rm -rf "$mount_dir"', script)
+        # Detaching is cleanup, not a product signal: the image is verified and
+        # smoke-tested before this point, so it must not fail the build.
+        self.assertIn('|| echo "warning: could not detach', script)
+        self.assertIn('echo "$output_path"', script)
+
     def test_windows_installer_smoke_test_waits_for_gui_processes(self) -> None:
         script = (ROOT / "packaging" / "windows" / "build_installer.ps1").read_text(
             encoding="utf-8"

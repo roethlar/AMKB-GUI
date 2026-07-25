@@ -23,11 +23,35 @@ staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/am-configurator-dmg.XXXXXX")"
 mount_dir="$(mktemp -d "${TMPDIR:-/tmp}/am-configurator-mount.XXXXXX")"
 mounted=0
 
+# macOS frequently still holds the volume for a moment after the smoke-test
+# process exits, so a single detach loses a race and reports "Resource busy".
+# Retry with backoff, then force. Detaching is cleanup: the image has already
+# been verified and smoke-tested by this point, so a stubborn mount must not
+# fail the build, but it must never be followed by rm -rf over a live mount.
+detach_mount() {
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if hdiutil detach "$mount_dir" -quiet 2>/dev/null; then
+      mounted=0
+      return 0
+    fi
+    sleep "$attempt"
+  done
+  if hdiutil detach "$mount_dir" -force -quiet 2>/dev/null; then
+    mounted=0
+    return 0
+  fi
+  return 1
+}
+
 cleanup() {
   if [[ "$mounted" == 1 ]]; then
-    hdiutil detach "$mount_dir" -quiet || true
+    detach_mount || echo "warning: could not detach $mount_dir" >&2
   fi
-  rm -rf "$staging_dir" "$mount_dir"
+  rm -rf "$staging_dir"
+  if [[ "$mounted" == 0 ]]; then
+    rm -rf "$mount_dir"
+  fi
 }
 trap cleanup EXIT
 
@@ -44,7 +68,6 @@ hdiutil verify "$output_path"
 hdiutil attach "$output_path" -readonly -nobrowse -mountpoint "$mount_dir" -quiet
 mounted=1
 "$mount_dir/AM Configurator.app/Contents/MacOS/AM Configurator" --smoke-test
-hdiutil detach "$mount_dir" -quiet
-mounted=0
+detach_mount || echo "warning: could not detach $mount_dir" >&2
 
 echo "$output_path"
