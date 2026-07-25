@@ -1,9 +1,47 @@
 # Repository Decisions
 
+## 2026-07-25 — License follows capability; Neon 80 stays MIT for now
+
+Status: approved by the owner on 2026-07-25. This supersedes the relicensing
+decision below, which was made on a premise that later proved false.
+
+- The owner's standing instruction is that the licensing choice is an **output**
+  of building the most capable application, never a constraint on it. The owner
+  is indifferent between MIT, GPL, and other open-source licensing, and is
+  building to fill a community gap rather than for profit.
+- The premise of the superseded decision was that finished LED coordinate tables
+  in the GPL-2.0 firmware would save transcription work. That premise is false:
+  `real_map`, `h_map`, and `s_map` are `{chip_index, x, y}` AW20216 driver
+  coordinates that the firmware applies **after** receiving a frame. The host
+  transmits a linear payload, so copying those tables would map twice and
+  scramble every LED. They are the wrong data, not a shortcut.
+- Everything the host actually needs is available under permissive terms or is
+  uncopyrightable fact: axial ordering and positions from the Apache-2.0
+  `axialDefinitionsData.ts`, the side-derivation algorithm from Apache-2.0
+  `device-push.ts`, and geometry constants, packet layout, channel numbering,
+  and frame ceilings as interface facts.
+- Therefore the application **remains MIT**. `LICENSE` and the `pyproject.toml`
+  license field are unchanged, and no relicensing task exists.
+- `THIRD_PARTY_NOTICES` still gains an Apache-2.0 attribution for
+  `AngryMiao/neon80_driver`, which is genuinely used as a reference client.
+- This is deferred, not foreclosed. If implementation later needs substantial
+  expressive material from the GPL-2.0 firmware — a ported effect algorithm
+  rather than an interface fact — relicensing is reconsidered **at that point**,
+  under the same rule: whichever choice builds the more capable application
+  wins, and the license follows.
+- Reading the GPL-2.0 firmware to establish facts remains permitted and is how
+  the protocol was derived; establishing a fact is not copying expression.
+
 ## 2026-07-25 — AM Neon 80 protocol sources and GPL relicensing
 
-Status: approved by the owner on 2026-07-25, after the owner was shown the
-licensing consequence and chose it explicitly.
+Status: **superseded** on 2026-07-25 by the decision above, after an
+`openreview codex` pass established that the GPL firmware tables this decision
+was built to permit copying are firmware-internal chip coordinates and must not
+be copied at all. Retained as the record of a decision made and reversed on
+evidence. Its original wording follows.
+
+Status when approved: approved by the owner on 2026-07-25, after the owner was
+shown the licensing consequence and chose it explicitly.
 
 - Neon 80 support may derive from both published Angry Miao sources:
   `AngryMiao/neon_80_embedded` (keyboard firmware, GPL-2.0) and

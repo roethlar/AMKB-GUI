@@ -809,11 +809,17 @@
   yet. Its two owner decisions are recorded in `.agents/decisions.md` under
   2026-07-25, and the durable plan is
   `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`, still awaiting
-  owner approval. An `openreview codex` pass over the plan raised five findings,
-  all admitted and all closed by the plan's 2026-07-25 revision; the outcome is
-  recorded in `.agents/review/outcomes.md`. The two structural ones were that
-  the original plan built HID modules the GUI could never reach, and that it
-  required a keycode round-trip the 32-bit UI makes impossible. The
+  owner approval. Two `openreview codex` passes raised eight findings, all
+  admitted and all closed by two plan revisions; the outcomes are recorded in
+  `.agents/review/outcomes.md`. The recurring defect was that the device
+  protocol was planned well and the application integration was not, so the plan
+  now leads with an authoritative per-family device specification and a
+  transport-neutral device handle, both landing before any Neon code. The
+  decisive finding was that the firmware `real_map`, `h_map`, and `s_map` tables
+  are AW20216 driver-chip coordinates applied inside the firmware, not host-side
+  position maps; transcribing them would scramble every LED. That removed the
+  premise of the GPL relicensing decision, which is superseded — the application
+  stays MIT and the Apache-2.0 driver supplies everything the host needs. The
   protocol was established by reading published Angry Miao sources and by
   read-only USB enumeration of the owner's device; nothing has been written to
   that keyboard. Established facts: the board is a QMK/Vial device at USB
@@ -833,9 +839,9 @@
 - Obtain owner approval for `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`
   before any AM Neon 80 implementation. The plan exists and has been revised
   once; its status line is the gate and currently reads draft. Do not redraft
-  it. Once approved, implement its nine tasks in order, starting with N1
-  (relicensing, which must precede the GPL-derived tables in N4) and N2 (the
-  transport-neutral device handle, which must precede any HID code). A `hidapi`
+  it. Once approved, implement its ten tasks in order. N1 (per-family device
+  specification) and N2 (transport-neutral device handle) are pure refactors of
+  existing behavior and must both land before any Neon code exists. A `hidapi`
   runtime dependency, Linux udev rules for non-root access, and the resulting
   native packaging changes are expected and touch the recently stabilized
   installers.

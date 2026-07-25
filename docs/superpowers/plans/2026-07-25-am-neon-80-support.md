@@ -3,17 +3,18 @@
 Status: draft, awaiting owner approval. No implementation may begin until the
 owner approves this plan and the approved wording is recorded in this line.
 
-Governing decisions: `.agents/decisions.md`, both 2026-07-25 entries
-("AM Neon 80 supported at full parity or not at all" and "AM Neon 80 protocol
-sources and GPL relicensing"). Those decisions are authoritative; this plan
-implements them and must not restate scope they settle differently.
+Governing decisions: `.agents/decisions.md` — "AM Neon 80 supported at full
+parity or not at all" and "License follows capability; Neon 80 stays MIT for
+now", both 2026-07-25. The latter supersedes an earlier relicensing decision.
+Those decisions are authoritative; this plan implements them.
 
-Revision history: revised 2026-07-25 to close five findings from the
-`openreview codex` pass recorded in `.agents/review/outcomes.md`. The material
-changes were adding the integration spine (N2), replacing an impossible lossless
-keycode requirement with an explicit unsupported-code policy (N6), binding the
-hardware-write gate to validated model identity rather than VID/PID (N3), and
-making relicensing an unconditional first task with a guard (N1).
+Revision history: revised twice on 2026-07-25 against `openreview codex` passes
+recorded in `.agents/review/outcomes.md`. Eight findings, all admitted. The
+recurring defect in both drafts was the same: the device protocol was planned
+well and the application integration was not. This revision restructures around
+an authoritative per-family device specification (N1) rather than patching
+individual gaps, and removes the firmware-table transcription that pass two
+proved was the wrong data entirely.
 
 ## Problem
 
@@ -24,24 +25,51 @@ proprietary transport: 64-byte CDC-serial frames with a trailing CRC-8
 and asking each device for its product-ID string (`am_configurator/device.py`).
 
 The AM Neon 80 shares none of that. It is a QMK/Vial device reached over raw
-HID. Adding it means a second transport and a second protocol dialect beneath
-the existing lighting, keymap, macro, and profile-store surfaces.
+HID. But the transport is the smaller half of the problem: **the application is
+not polymorphic over device families in either data shape or transport.**
 
-Critically, the application is not transport-neutral today. Every device route
-in `am_configurator/server.py` is keyed on a serial port string:
-`/api/devices` (line 1356) calls `device.list_devices()`; `/api/device/read`,
-`/api/device/write`, and `/api/device/verify` (lines 1478-1482) reach
-`_read_device` (1995) and `_write_device` (2032), and `_write_request` (2063)
-raises `"A serial port is required."` when none is supplied. A new transport
-therefore cannot be added beside the old one — the seam has to be built first,
-or the new modules are unreachable from the GUI.
+Data shape is hardcoded in at least four places:
+
+| Location | Hardcoded assumption |
+|---|---|
+| `server.py:490` | `validate_config` requires `frames`=200, `keyframes`=90, `spotlight_frames`=24 |
+| `web/app.js:1311` | editor track lengths `{frames:200, keyframes:90, spotlight_frames:24}` |
+| `web/app.js:489` | any unrecognized model falls back to `LED_MODELS.CB` |
+| `web/app.js:1121`, `:1215` | macro limits of 32 tracks and 200 events |
+
+Transport is hardcoded in every device route: `/api/devices` (`server.py:1356`)
+calls `device.list_devices()`; `/api/device/read`, `/api/device/write`, and
+`/api/device/verify` (lines 1478-1482) reach `_read_device` (1995) and
+`_write_device` (2032); and `_write_request` (2063) raises `"A serial port is
+required."` when none is supplied.
+
+A Neon 80 needs authored tracks of 89 and 230 values and Vial-reported macro
+limits. Registering it in `device_mapping.py` alone would produce a device the
+browser renders as a CyberBoard, the validator rejects, and no route can reach.
 
 ## Established facts
 
 These were established by reading published Angry Miao sources and by read-only
 USB enumeration of the owner's device. Nothing was written to the keyboard. A
 cold agent should treat this section as given and need not re-derive it, but
-must confirm the geometry against hardware before N9 is called complete.
+must confirm the geometry against hardware before N10 is called complete.
+
+### Do not transcribe the firmware LED maps
+
+**This is the single most important fact in this document.** The firmware's
+`real_map[89]`, `h_map[5][46]`, and `s_map[70]` in `led.c` are **not** host-side
+position maps. `rgb_map_t` is `{chip_index, x, y}` — coordinates on the AW20216
+LED driver ICs — and the firmware applies them *after* receiving a frame, to
+route buffer positions to physical driver pins. The firmware's own comment on
+`h_map` reads "需要根据原理图和位号图修改，贼坑" ("must be modified per the
+schematic and designator diagram, very tricky") and annotates rows by driver
+chip.
+
+The host transmits a **linear payload**: 89 axial values in payload order, and
+230 head values in row-major 46x5 order. Transcribing the firmware tables into
+`device_mapping.py` would apply the mapping a second time and scramble every
+LED. Take axial ordering and positions from the Apache-2.0 driver's
+`axialDefinitionsData.ts` instead, whose array index *is* payload index.
 
 ### Device identity
 
@@ -60,30 +88,24 @@ must confirm the geometry against hardware before N9 is called complete.
 
 ### Upstream sources
 
-Both are public. The 2026-07-25 relicensing decision permits deriving from
-either, including transcribing tables from the GPL firmware.
-
-`AngryMiao/neon_80_embedded` — keyboard firmware, **GPL-2.0**:
-
-| File | Contents needed |
-|---|---|
-| `led_drv.h` | Zone geometry constants |
-| `app_flash.h` | Slot layout, frame ceiling, channel enum |
-| `led.c` | LED index maps: `map[6][15]` (~line 111), `real_map[89]` (~140), `h_map[5][46]` (~565), `s_map[70]` (~656); `gamma_brightness` (~707); `key_led_lightness_code` (~733) |
-| `info.json` | QMK matrix and physical layout. Contains a trailing comma and is not strict JSON — do not feed it to `json.loads` without repair |
-
-`AngryMiao/neon80_driver` — reference web configurator, **Apache-2.0**:
+`AngryMiao/neon80_driver` — reference web configurator, **Apache-2.0**. This is
+the implementation source:
 
 | File | Contents needed |
 |---|---|
 | `src/804/utils/keyboard-api.ts` | `setRGB` packet construction, VIA command enum, `calculateSumCheck` |
 | `src/804/light-library/device-push.ts` | Channel walk, packetization, side-zone derivation |
 | `src/804/light-library/payload.ts` | Frame-length validation: matrix 230, axial 89 |
+| `src/804/axialDefinitionsData.ts` | Axial LED order and positions; array index is payload index |
+
+`AngryMiao/neon_80_embedded` — keyboard firmware, **GPL-2.0**. Read to establish
+facts (geometry constants, slot layout, frame ceiling in `led_drv.h` and
+`app_flash.h`). Its LED tables must not be transcribed — see above. Establishing
+an interface fact is not copying expression; the application stays MIT.
 
 ### Zones, slots, and capacity
 
-Firmware `app_flash.h` and the driver's `setRGB` docstring agree exactly; that
-agreement is the basis for trusting both.
+Firmware `app_flash.h` and the driver's `setRGB` docstring agree exactly.
 
 | `cmd` byte | Firmware enum | Zone | LEDs per frame | Flash bytes per frame |
 |---|---|---|---|---|
@@ -95,10 +117,13 @@ agreement is the basis for trusting both.
 
 Three user slots per zone. `USER_FRAME_MAX` is **256 frames per slot**.
 
-Axial LEDs sit on a 15x6 grid (`KEY_RGB_LED_X_NUM` 15, `KEY_RGB_LED_Y_NUM` 6 =
-90 cells) with `AM_LED_NUM` 89 populated, so exactly one cell is unpopulated —
-directly analogous to the `-1` holes in `_CB_KEY_MAP` and `_RELIC_KEY_MAP` in
-`am_configurator/device_mapping.py`.
+**Two authored tracks, three channels.** The driver pushes one authored light
+effect to slot *N* as channels *N*, *N+3*, and *N+6* — axial, head, and side —
+deriving side from the head frames at transmit time. Side is therefore **never
+independently authored** and must not become a selectable track. This matters
+concretely: `device_mapping.py:427` `target_capabilities()` publishes every
+`_LAYOUTS` entry as a selectable target, so adding side there would offer users
+a track that the next head upload silently overwrites.
 
 ### Vendor lighting command `0xF0`
 
@@ -125,8 +150,7 @@ carrying 1 LED) and 230 head LEDs produce 29 packets (the last carrying 6).
 
 ### Side-zone derivation
 
-The driver never authors side frames directly; it derives them from head matrix
-frames. Reproduce exactly:
+Derived from head frames at transmit time. Reproduce exactly:
 
 1. Treat the head frame as 5 rows x 46 columns, row-major.
 2. Nearest-neighbour downsample to 4 rows x 21 columns using
@@ -151,257 +175,264 @@ Standard VIA/Vial raw-HID commands, distinct from the `0xF0` vendor channel:
 | `DYNAMIC_KEYMAP_GET_LAYER_COUNT` | `0x11` |
 | `DYNAMIC_KEYMAP_GET_BUFFER` / `SET_BUFFER` | `0x12` / `0x13` |
 
-Note that `0x0E` is both a top-level VIA command (macro buffer read) and the
-second byte of the vendor control packet `F0 0E 01`. They do not collide because
-the vendor byte is nested under `0xF0`; keep the two namespaces separate in code
-so a future reader does not conflate them.
+`0x0E` is both a top-level VIA command and the second byte of the vendor control
+packet `F0 0E 01`. They do not collide because the vendor byte is nested under
+`0xF0`; keep the namespaces separate in code.
+
+Macro capacity is **device-reported**, via `GET_COUNT` and `GET_BUFFER_SIZE`. It
+is not the application's hardcoded 32 tracks / 200 events, which are AM serial
+firmware limits.
 
 ### Keycode width mismatch
 
 QMK keycodes are **16-bit**. The application's keymap surface is **32-bit**:
-`am_configurator/web/app.js:1091` accepts any `#` followed by exactly eight
-hexadecimal digits, `app.js:1085` exposes that raw field directly, and
-`app.js:1084` advertises "Raw codes remain available for lossless passthrough".
-The Angry Miao palette includes vendor usage pages with no QMK equivalent.
+`web/app.js:1091` accepts any `#` followed by eight hexadecimal digits,
+`app.js:1085` exposes that raw field, and `app.js:1084` advertises "Raw codes
+remain available for lossless passthrough". The Angry Miao palette includes
+vendor usage pages with no QMK equivalent.
 
 A lossless round-trip of every code the UI can emit is therefore **impossible**
-on a Vial device, and any plan requiring one cannot be satisfied. N6 defines the
-policy that replaces it.
+on a Vial device. N6 defines the policy that replaces it.
 
 ## Non-goals
 
 - No LED frame read-back. No supported family has it; `am_configurator/reader.py`
-  records that the AM serial families expose no LED-frame read path either.
-  Neon 80 lacking one is parity, not a gap.
+  records the AM serial families expose no LED-frame read path either.
 - No custom or modified firmware, and no flashing.
 - No Vial feature beyond keymap and macros. Combos, tap dance, key overrides,
-  and QMK settings are outside parity because no existing family has them.
-- No behavioral change to the AM serial families. N2 refactors the seam they sit
-  behind; their observable behavior must be identical before and after.
+  and QMK settings are outside parity.
+- No selection of the firmware's built-in lighting effects. No existing family
+  offers it; it is a plausible later capability, not part of parity.
+- No behavioral change to the AM serial families. N1 and N2 refactor the seams
+  they sit behind; their observable behavior must be identical before and after.
+- No relicensing. The superseding decision keeps the application MIT.
 - No automated hardware writes. Device writes stay manual, GUI-initiated, and
   gated on device/model matching plus typed confirmation.
 
 ## Tasks
 
-Land each task as its own commit, in the order given. Each task states its own
-red-proof obligation; a test that passes with its change reverted is vacuous and
-must be replaced.
+Land each task as its own commit, in the order given. Each states its own
+red-proof obligation; a test that passes with its change reverted is vacuous.
 
-### N1. License and notices prerequisite
+N1 and N2 are pure refactors that must land before any Neon code exists. Both
+are built with the three existing families as their only entries, so each is
+provable in isolation against the current suite.
 
-Unconditionally first. N4 commits tables transcribed from GPL-2.0 firmware, and
-every commit from that point carries GPL-derived material. Because this branch
-is intended to be published, an intermediate commit that advertises GPL-derived
-tables under MIT metadata is materially incorrect licensing on a public commit —
-so the relicensing lands **before** the material does, not merely before a build.
+### N1. Authoritative device-family specification
 
-- `LICENSE` becomes GPL-2.0-or-later. Retain the existing MIT text (Copyright
-  2026 GeneralD, covering the `cyberboard-cli`-derived protocol layer) as a
-  third-party notice; it must not be deleted or altered.
-- `pyproject.toml` line 11: `license = "MIT"` becomes `GPL-2.0-or-later`.
-- `THIRD_PARTY_NOTICES` gains entries for `AngryMiao/neon_80_embedded`
-  (GPL-2.0) and `AngryMiao/neon80_driver` (Apache-2.0).
-- Update `tests/test_packaging.py`, which guards license files in every artifact
-  under release-hygiene R1, plus the sdist allowlist if later tasks add a new
-  top-level path.
-- `README.md` states where corresponding source lives, satisfying the GPL
-  source-offer obligation for distributed binaries.
-- FFmpeg's LGPL bundling and its attestation system are unaffected; do not touch
-  them.
+One module owning, per family: authored track names and lengths, LED counts,
+frame cap, macro track and byte limits, and transport kind. Every consumer reads
+it instead of a literal.
 
-Red-proof: a guard test that fails whenever GPL-derived material is present in
-the tree while `LICENSE` or the `pyproject.toml` license field still claims MIT.
-It must fail if the license field is reverted to MIT with N4's tables present.
+Consumers to convert:
+
+- `validate_config` (`server.py:490`) — replace the `(("frames", 200),
+  ("keyframes", 90), ("spotlight_frames", 24))` tuple with a spec lookup.
+- Blank-profile creation and any generation path that sizes tracks.
+- `web/app.js:1311` `trackInfo()` — replace the hardcoded lengths object.
+- `web/app.js:489` — replace the CyberBoard fallback with an explicit
+  unknown-family error. A silent fallback is what would render a Neon as a
+  CyberBoard.
+- `web/app.js:1121` and `:1215` — macro limits read from the spec, not `32`
+  and `200` literals.
+- Target controls and profile summaries.
+
+Red-proof: the existing suite passes unchanged, plus a test proving an unknown
+family raises rather than falling back to CyberBoard. Restoring the fallback
+must make it fail.
 
 ### N2. Transport-neutral device handle and route dispatch
 
-The integration spine. Built **before** any HID code exists, with the serial
-transport as its only implementation, so the refactor is provable in isolation:
-the existing suite must pass unchanged, and no observable behavior may move.
-
 - Introduce a device handle carrying transport kind plus transport-specific
-  address, replacing the bare `port` string threaded through the device routes.
-  Existing serial devices produce a serial-kind handle wrapping the same port.
-- Dispatch discovery, read, write, and verify on the handle's transport:
-  `/api/devices` (`server.py:1356`), `/api/device/read`, `/api/device/write`,
-  and `/api/device/verify` (`server.py:1478-1482`), reaching `_read_device`
-  (1995) and `_write_device` (2032).
-- `_write_request` (2063) currently raises `"A serial port is required."` —
-  generalize the requirement and its message to a device handle.
-- `_validated_write_target` (2074) keeps its exact contract: probe, confirm the
-  device is a supported keyboard, match the config's `product_id` against the
-  device, and require typed confirmation equal to the product ID. Only the
-  probe becomes transport-dispatched. **The gate does not weaken here**; N3
-  strengthens it for HID.
+  address, replacing the bare `port` string in the device routes. Existing
+  devices produce a serial-kind handle wrapping the same port.
+- Dispatch discovery, read, write, and verify on the handle: `/api/devices`
+  (`server.py:1356`), and `/api/device/read|write|verify`
+  (`server.py:1478-1482`) reaching `_read_device` (1995) and `_write_device`
+  (2032).
+- `_write_request` (2063) generalizes `"A serial port is required."` to a handle.
+- `_validated_write_target` (2074) keeps its exact contract: probe, confirm a
+  supported keyboard, match the config's `product_id`, require typed
+  confirmation equal to the product ID. Only the probe becomes dispatched. **The
+  gate does not weaken here**; N3 strengthens it for HID.
 - Update the browser device surface to carry handles rather than port strings.
 
-Red-proof: the existing device-route tests pass unchanged against the refactor,
-plus a dispatch test proving an unknown transport kind is rejected with a typed
-error rather than silently treated as serial.
+Red-proof: existing device-route tests pass unchanged, plus a dispatch test
+proving an unknown transport kind is rejected with a typed error rather than
+silently treated as serial.
 
 ### N3. Raw HID transport and Neon 80 identity
 
 New module `am_configurator/hid_transport.py`. Do not extend `protocol.py` or
-`device.py`; those own the serial dialect and stay unchanged.
+`device.py`.
 
-- Add `hidapi` to `pyproject.toml` runtime dependencies and regenerate the lock.
-- Enumerate HID devices, selecting the interface whose usage page is `0xFF60`
-  and usage is `0x61`.
-- **Identity is a three-stage gate, and only the last one authorizes a write.**
-  VID/PID `0x05AC:0x024F` narrows the candidate set; a `vial:` serial prefix
-  confirms Vial firmware; neither establishes the model. Before a device is
-  exposed as write-capable, fetch and validate the Vial keyboard definition and
-  confirm it identifies a Neon 80. A Vial board that is not a Neon 80 is
-  enumerated as unsupported, never as a writable target.
-- Bind the typed confirmation from `_validated_write_target` to the validated
-  identity and to an immutable HID path identity captured at validation time, so
-  a device swapped between confirmation and write cannot inherit the approval.
-- Provide open, write, read-with-timeout, and close, with exclusive access where
-  the platform supports it.
-- Surface typed, pathless errors for absent, busy, or permission-denied devices.
-  Linux permission failure is the common case and its message must name the udev
-  remedy.
-- Ship the udev rule as packaging data and document it. Without it, Linux
-  requires root and discovery fails for ordinary users.
+- Add `hidapi` to `pyproject.toml` runtime dependencies; regenerate the lock.
+- Enumerate HID devices, selecting usage page `0xFF60`, usage `0x61`.
+- **Identity is a three-stage gate; only the last authorizes a write.** VID/PID
+  narrows candidates; a `vial:` serial prefix confirms Vial firmware; neither
+  establishes the model. Before exposing a device as write-capable, fetch and
+  validate the Vial keyboard definition and confirm it identifies a Neon 80. A
+  Vial board that is not a Neon 80 enumerates as unsupported, never writable.
+- Bind the typed confirmation to the validated identity and to an immutable HID
+  path identity captured at validation time, so a device swapped between
+  confirmation and write cannot inherit the approval.
+- Provide open, write, read-with-timeout, close, with exclusive access where the
+  platform supports it.
+- Typed pathless errors for absent, busy, or permission-denied devices. Linux
+  permission failure is the common case; its message must name the udev remedy.
+- Ship the udev rule as packaging data and document it.
 
 Red-proof: a decoy test with a stand-in HID backend offering a device at the
-same VID/PID **and** a valid `vial:` serial prefix, but a keyboard definition
-that is not a Neon 80. The decoy must be rejected as a write target. Removing
-the definition check must make the test fail. A second test must prove a changed
-HID path identity invalidates a prior confirmation.
+same VID/PID **and** a valid `vial:` prefix, but a definition that is not a
+Neon 80 — it must be rejected as a write target, and removing the definition
+check must make the test fail. A second test proves a changed HID path identity
+invalidates a prior confirmation.
 
-### N4. Device family registration
+### N4. Neon 80 family registration
 
-Extend `am_configurator/device_mapping.py`. **This is the first commit carrying
-GPL-derived material; N1 must already have landed.**
+Register Neon 80 in the N1 spec and in `am_configurator/device_mapping.py`.
 
-- Add LED model `NEON` with `MODEL_FRAME_CAPS["NEON"] = 256`.
-- Add three `_LAYOUTS["NEON"]` entries: `keyframes` (15x6 source grid, 89
-  outputs), `frames` (46x5, 230 outputs), and the derived side zone (70).
-- Transcribe `real_map[89]`, `h_map[5][46]`, and `s_map[70]` from firmware
-  `led.c` into the module's existing tuple-of-int convention, using `-1` for the
-  single unpopulated axial cell. Record the source file and line in a comment,
-  as the existing maps do.
-- Extend `led_model()` to return `NEON` for the Neon 80 product identity.
+- **Two authored tracks only**: axial (89 values) and head (230 values, 46x5
+  row-major). Frame cap 256.
+- **Head needs no position map at all** — payload order is row-major.
+- **Axial ordering comes from the Apache-2.0 driver's `axialDefinitionsData.ts`**,
+  whose array index is the payload index; derive grid positions from its
+  coordinates. Do not transcribe firmware `real_map`.
+- **Side is not a registered track.** It is derived privately at transmit time
+  (N5). It must not appear in `_LAYOUTS`, because
+  `device_mapping.py:427` publishes every entry as independently selectable.
+- Extend `led_model()` to return `NEON` for the Neon 80 identity.
 
-Red-proof: a mapping test asserting exact output counts per zone (89 / 230 / 70)
-and that the derived side zone matches the driver's downsample-and-skip rule for
-a known head frame. Removing the skip rule must make it fail.
+Red-proof: a test asserting the published target list for Neon contains exactly
+the two authored tracks and not side; adding side must make it fail. A second
+test asserts axial payload order round-trips to the expected grid positions.
 
 ### N5. Lighting push over `0xF0`
 
 New module `am_configurator/neon_lighting.py`, reached through the N2 handle.
 
-- Build 32-byte packets per the table above, including the checksum.
-- Walk frames and packets, setting `packIndex` to `255` on the final packet of
-  the final frame and to the packet index otherwise.
-- Honour the existing operation deadline and cancellation predicate the way
-  `procedural_generation.py` does, and publish throttled progress.
+- One authored effect pushes to slot *N* as channels *N*, *N+3*, *N+6*: axial,
+  head, and side derived from the head frames per the algorithm above.
+- Build 32-byte packets per the table, including checksum; `packIndex` is `255`
+  on the final packet of the final frame, else the packet index.
+- Honour the existing operation deadline and cancellation predicate as
+  `procedural_generation.py` does; publish throttled progress.
 - Verify each reply: `0x01` continues, `0xFF` aborts with a typed error naming
-  the zone and frame. A partial upload must not be reported as success.
-- Reject frame counts above 256 and per-frame LED counts that do not match the
-  zone before any packet is sent.
-- Wire the Lighting Apply path so a Neon target is selectable and applies
-  through this module.
+  zone and frame. A partial upload must never report success.
+- Reject frame counts above 256 and per-track lengths that do not match the spec
+  before sending any packet.
+- Wire the Lighting Apply path so a Neon target applies through this module.
 
-Red-proof: a transport-level test capturing every emitted packet for a
-three-frame axial animation, asserting exact bytes including checksums and the
-`255` terminator. Removing the terminator rule must make it fail.
+Red-proof: a golden-packet test capturing every emitted byte for a three-frame
+effect across all three channels, asserting checksums, the `255` terminator, and
+that the side channel matches the derivation. Removing the derivation or the
+terminator rule must fail it.
 
 ### N6. Vial keymap and the unsupported-code policy
 
 New module `am_configurator/vial_keymap.py`, reached through the N2 handle.
 
-The keycode width mismatch above makes a universal lossless round-trip
-impossible. The policy that replaces it:
+Policy replacing the impossible lossless round-trip:
 
-- Translation between QMK 16-bit keycodes and the application's `#MMPPUUUU`
-  representation must be **injective in the QMK-to-application direction**, so
-  read-back from a board is stable and repeatable.
-- A code the UI can emit that has **no** QMK representation is **rejected at
-  assignment time** for a Neon target, with a typed, actionable error. It is
-  never silently coerced, truncated, or written.
-- The Angry Miao palette and the raw-code field are disabled or filtered to the
-  representable subset when the active device is a Neon, so the failure is
-  prevented at the UI rather than reported after the fact.
+- QMK-to-application translation must be **injective**, so read-back is stable.
+- A UI-emittable code with **no** QMK representation is **rejected at assignment
+  time** for a Neon target with a typed, actionable error — never silently
+  coerced, truncated, or written.
+- The Angry Miao palette and raw-code field are filtered to the representable
+  subset when the active device is a Neon, preventing the failure at the UI.
 - A stored profile containing non-representable codes loads and displays, but
-  applying it to a Neon target reports precisely which keys are unsupported.
+  applying it to a Neon reports precisely which keys are unsupported.
 
-Implementation:
+Implementation: read layer count then the keymap buffer, write back through the
+buffer commands, chunking as `reader.py`/`writer.py` do. Reuse the definition
+fetched in N3 for the layout. Handle Vial's physical unlock requirement as a
+distinct, actionable status, not a generic write failure.
 
-- Read the layer count, then the keymap buffer, and write it back through the
-  buffer commands, matching how `reader.py`/`writer.py` already chunk.
-- Fetch and decompress the Vial keyboard definition to obtain the layout. Do not
-  hand-author a layout table; N3 already fetches this for identity validation, so
-  share that path.
-- Handle Vial's physical unlock requirement: writes may be refused until the
-  board is unlocked. Surface that as a distinct, actionable status rather than a
-  generic write failure.
+Red-proof: round-trip over the representable subset asserting byte-identical
+recovery, plus a test proving a non-representable code is rejected and never
+reaches the transport. Corrupting a translation entry fails the first; removing
+the rejection fails the second.
 
-Red-proof: a round-trip test over the **QMK-representable subset** asserting
-byte-identical recovery, plus a test proving a non-representable code is
-rejected with the typed error and never reaches the transport. Corrupting one
-translation entry must fail the first; removing the rejection must fail the
-second.
-
-### N7. Macros
+### N7. Macros with device-reported capacity
 
 Extend `am_configurator/macros.py` with a Vial path alongside the existing
-`[6,10]` serial path, sharing the existing macro data model so the UI is
-unchanged. The N6 unsupported-code policy applies to macro key events too.
+`[6,10]` serial path, sharing the existing macro data model.
 
-Red-proof: a round-trip test through the Vial macro buffer for a macro
-containing press, release, and a delay, proven red with the encoder reverted.
+- Query `GET_COUNT` and `GET_BUFFER_SIZE` during discovery or read; publish both
+  into the N1 spec for the connected device.
+- Compile and size the **complete** macro buffer before the first reset or HID
+  write. Reject overflow with a typed error **before sending anything** — a Vial
+  macro write rewrites the whole buffer, so a mid-write failure can clear macros
+  the user already had.
+- Surface the device limits in the UI in place of the `32`/`200` literals.
+- The N6 unsupported-code policy applies to macro key events too.
+
+Red-proof: tests at exact-count, exact-byte, and one-over boundaries, proving
+the one-over case sends zero packets. A single-macro round-trip is explicitly
+insufficient and must not be the only coverage.
 
 ### N8. Profile store integration
 
-Register Neon 80 in `am_configurator/store.py` as a device family so profiles,
-current-state files, locks, and JSON backup/restore work as they do for the
-existing families. No new store schema.
+Register Neon 80 in `am_configurator/store.py` so profiles, current-state files,
+locks, and JSON backup/restore work as for existing families. No new schema.
 
-Red-proof: a store test covering save, reload, and backup round-trip for a Neon
-profile, including one carrying a non-representable keycode.
+Red-proof: save, reload, and backup round-trip for a Neon profile, including one
+carrying a non-representable keycode and one at the macro capacity boundary.
 
-### N9. Hardware verification
+### N9. Notices and packaging
+
+- `THIRD_PARTY_NOTICES` gains an Apache-2.0 attribution for
+  `AngryMiao/neon80_driver`, used as the reference client.
+- Extend the sdist allowlist if the udev rule adds a top-level path.
+- `tests/test_packaging.py` guards license files in every artifact under
+  release-hygiene R1; update it to cover the new attribution.
+
+No license change. The application remains MIT per the superseding decision.
+
+Red-proof: extend the packaging guard so a build missing the attribution fails.
+
+### N10. Hardware verification
 
 Manual, and last. Automated tests must never reach the physical keyboard.
 
-- Confirm the enumerated identity matches this document, including that the
+- Confirm enumerated identity matches this document, including that the
   definition-based model check accepts the real board.
 - Confirm Neon 80 appears in Devices through the real GUI — the check that
-  proves N2 actually connected the transport.
-- Push a known pattern to one axial slot, one head slot, and one side slot;
-  photograph each and confirm LED positions match the transcribed maps. This is
-  the only check that can catch a transcription error in N4.
-- Round-trip a keymap and a macro through the GUI, including confirming that a
-  non-representable code is refused with the N6 error.
-- Record results in this document, including anything that did not match.
+  proves N1 and N2 actually connected it.
+- Push a known **asymmetric** pattern to one slot; photograph axial, head, and
+  side and confirm LED positions and orientation. An asymmetric pattern is
+  required: a symmetric one cannot reveal a transposed or mirrored map.
+- Round-trip a keymap and a macro through the GUI, including confirming a
+  non-representable code is refused with the N6 error and an oversized macro set
+  is refused before any write.
+- Record results here, including anything that did not match.
 
 ## Verification
 
 Run the repository entry point from `.agents/repo-guidance.md` (Verification)
 before claiming any task complete. Note that `uv sync --locked` installs no
-extras: a test that reaches a real `hidapi` import will pass locally and fail in
-CI unless the dependency is a genuine runtime dependency, which N3 makes it.
+extras: a test reaching a real `hidapi` import passes locally and fails in CI
+unless the dependency is a genuine runtime dependency, which N3 makes it.
 
 Every task carries an explicit red-proof obligation. Follow the repo rule:
-temporarily revert the change, confirm the test fails, restore, confirm green.
+revert the change, confirm the test fails, restore, confirm green.
 
 ## Risks
 
-- **Transcription error in N4** is the highest-likelihood defect and is invisible
-  to every automated test, because the tests would encode the same wrong table.
-  Only N9's photographic check catches it.
-- **The N2 refactor touches every existing device path.** It is the one task that
-  can break working support for three shipped boards. Its safeguard is that it
-  lands before any HID code exists and must leave the existing suite green with
-  no behavioral change.
-- **Writing to the wrong keyboard** is the worst outcome in this plan. `0x05AC:0x024F`
-  is widely reused and a `vial:` prefix is not a model. N3's definition-based
-  gate is what stands between a user and a mis-targeted write.
+- **N1 and N2 touch every existing device path.** They are the tasks that could
+  break working support for three shipped boards. Their safeguard is landing
+  before any Neon code exists and leaving the existing suite green with no
+  behavioral change.
+- **Axial ordering** is now the highest-likelihood silent defect, since the
+  firmware tables are unusable and the order is inferred from the driver's
+  positional data. Only N10's asymmetric-pattern photograph catches an error.
+- **Writing to the wrong keyboard** is the worst outcome here. `0x05AC:0x024F`
+  is widely reused and a `vial:` prefix is not a model. N3's definition gate is
+  what stands between a user and a mis-targeted write.
+- **Macro buffer rewrites are destructive on failure**, which is why N7 sizes
+  the whole buffer before touching the device.
 - **`hidapi` packaging** reopens the native installer work stabilized in
   release-hygiene R1-R4 and the Windows suite repair. Expect all three platforms
   to need attention, and Linux to need the udev rule shipped and documented.
-- **Read-back of lighting is unavailable**, so a failed or partial push cannot be
-  detected by reading the board. N5's per-packet reply checking is the only
-  signal.
+- **Lighting read-back is unavailable**, so a partial push cannot be detected by
+  reading the board. N5's per-packet reply checking is the only signal.
