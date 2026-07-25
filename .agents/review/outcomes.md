@@ -13,6 +13,32 @@
   Full report with failure scenarios and verifier evidence:
   `2026-07-22-holistic-branch-review.md`. At that review head, the findings
   had not yet passed codereview intake triage and none was fixed.
+- 2026-07-25 — openreview codex (codex-cli 0.145.0, MCP transport;
+  `gpt-5.6-sol` @ `xhigh`, owner-configured default) over
+  `65a70c9bff19b8cff7313efdf10bb35c48484939..cacced2569d262241dd68fffb37c3c2970424e4a`:
+  verdict `findings`, five raised, all five admitted at intake triage.
+  Four concern the draft AM Neon 80 plan and one the canonical state file.
+  HIGH: the plan wires no HID transport into `server.py`, whose
+  `/api/devices`, `_read_device`, and `_write_device` routes are all keyed on
+  a serial port string, so every new module would be unreachable from the GUI.
+  HIGH: the plan's lossless keycode round-trip is impossible, because
+  `web/app.js:1091` accepts any 32-bit `#`+8-hex raw code and `app.js:1084`
+  advertises that passthrough, while QMK keycodes are 16-bit. HIGH: matching
+  only VID/PID plus a `vial:` serial prefix identifies any Vial board, not a
+  Neon 80, which is too weak to gate a hardware write under the device-safety
+  rule. HIGH: relicensing was merely preferred before the GPL-derived table
+  task rather than mandatory, so an intermediate published commit would carry
+  GPL-derived tables under MIT metadata. LOW: `.agents/state.md` still queued
+  drafting the plan that the same branch adds.
+  Routing deviation, recorded deliberately: the owner directed "defaults, just
+  codex", so this dispatch used codex's own configured model and effort
+  instead of the playbook's owner-confirmed tier mapping. No
+  `.agents/review/harnesses.local.json` exists on this machine, so both review
+  playbooks would otherwise have failed closed. The verdict payload arrived
+  truncated by this harness's output compression on both the initial dispatch
+  and the single permitted re-emission; two findings were reconstructed from
+  partial text, and every code citation was independently verified against the
+  repository before admission rather than accepted on reviewer prose.
 - 2026-07-23 — Codex goal-first self-review over
   `98abb138406093dacea97df2b49be91aa11fdf10..68ef6713f2cdfb8b4109776d4ee55e27c3dfc7ad`:
   no material implementation issue. The owner-approved remediation ledger
