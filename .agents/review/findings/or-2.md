@@ -43,10 +43,11 @@ a product identifier — all three of which `device_mapping` now owns.
 
 ## Approach
 
-Track lengths now come from `spec.track_colors(...)`, and the edge track is
-emitted when `"spotlight_frames" in spec.authored_tracks` rather than when the
-device is the Relic — so a future family with an extra track gets one without
-touching this function.
+Track lengths come from `spec.track_colors(...)`, and every authored track other
+than `frames`/`keyframes` is emitted by name from `spec.authored_tracks` — so a
+family authoring a track this function has never heard of still gets it, sized
+correctly. (The first attempt kept the track *names* hardcoded and was reopened;
+see "Reopen round 1" below, which is the current state of this fix.)
 
 The product-identifier normalization moved to
 `device_mapping.config_product_id`, which documents what it actually is: a
