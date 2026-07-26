@@ -229,7 +229,15 @@ def _classify_open_failure(path: bytes) -> HidError:
                 "The keyboard is open in another application; close it and retry."
             )
 
-    still_present = any(entry.get("path") == path for entry in raw_endpoints())
+    # This function's contract is to *return* an error, never to raise one:
+    # `identify` catches only `HidError`, so anything escaping here would crash
+    # discovery instead of marking one device unidentified. Re-enumeration
+    # touches the USB stack and can fail on its own, so it cannot be trusted to
+    # stay quiet.
+    try:
+        still_present = any(entry.get("path") == path for entry in raw_endpoints())
+    except Exception:
+        still_present = True
     if not still_present:
         return HidDeviceAbsent("The keyboard is no longer attached.")
     return HidError(
@@ -436,6 +444,12 @@ def find(address: str) -> HidDeviceInfo:
     raise HidDeviceAbsent("That keyboard is no longer attached.")
 
 
+# Minted once per process. A `WriteApproval` is only honoured if it carries
+# this exact object, which only `approve_write` can attach — so a hand-built
+# approval, however well-formed, cannot authorize a write.
+_APPROVAL_TOKEN = object()
+
+
 @dataclass(frozen=True)
 class WriteApproval:
     """A typed confirmation bound to one validated device on one connection.
@@ -452,6 +466,10 @@ class WriteApproval:
     confirmation: str
 
     model_uid: str = ""
+    # Provenance. `open_approved` honours an approval only if this is the
+    # module's own token, which only `approve_write` attaches, so a hand-built
+    # approval cannot authorize a write however well-formed it looks.
+    token: object = None
 
     def matches(self, info: HidDeviceInfo) -> bool:
         return (
@@ -480,6 +498,7 @@ def approve_write(info: HidDeviceInfo, confirmation: str) -> WriteApproval:
         path=info.path,
         confirmation=confirmation,
         model_uid=info.firmware_uid,
+        token=_APPROVAL_TOKEN,
     )
 
 
@@ -498,7 +517,13 @@ class _RawSession:
         self._handle = None
 
     def __enter__(self) -> _RawSession:
-        self._handle = _open(self._path)
+        # Idempotent on purpose. `open_approved` hands back a session that is
+        # already open and already identity-checked; the ordinary
+        # `with session:` idiom would otherwise call this again, open a second
+        # handle that nothing validated, and silently replace the validated one
+        # — defeating the entire re-check.
+        if self._handle is None:
+            self._handle = _open(self._path)
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -545,6 +570,15 @@ def open_approved(approval: WriteApproval) -> _RawSession:
     is never closed and reopened in between, so nothing can be substituted
     inside the window.
     """
+
+    if approval.token is not _APPROVAL_TOKEN:
+        raise HidIdentityError(
+            "This write approval was not issued by approve_write and is refused."
+        )
+    if approval.confirmation.strip() != approval.model:
+        raise HidIdentityError(
+            "The typed confirmation does not match the approved model."
+        )
 
     session = _RawSession(approval.path)
     session.__enter__()

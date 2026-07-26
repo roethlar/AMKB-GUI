@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import lzma
 import struct
@@ -399,6 +400,52 @@ class OpenFailureClassificationTests(unittest.TestCase):
         self.assertNotIsInstance(error, hid_transport.HidDeviceAbsent)
         self.assertIn("may be in use", str(error))
 
+    def test_the_classifier_never_raises_even_if_enumeration_fails(self) -> None:
+        """Its contract is to return an error, not raise one.
+
+        `identify` catches only `HidError`, so anything escaping the classifier
+        crashes discovery for every device instead of marking one unidentified.
+        Re-enumeration touches the USB stack and can fail on its own.
+        """
+
+        with (
+            patch("sys.platform", "darwin"),
+            patch.object(hid_transport, "raw_endpoints", side_effect=OSError("usb went away")),
+        ):
+            error = hid_transport._classify_open_failure(b"DevSrvsID:9")
+
+        self.assertIsInstance(error, hid_transport.HidError)
+
+    def test_discovery_survives_an_open_failure_with_broken_enumeration(self) -> None:
+        """The end-to-end consequence: one bad device must not kill the scan."""
+
+        calls = {"n": 0}
+
+        def _flaky_endpoints(*args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return [_entry()]
+            raise OSError("usb went away")
+
+        class RefusingHandle:
+            def open_path(self, path):
+                raise OSError("open failed")
+
+        fake_hid = type("FakeHid", (), {"device": staticmethod(RefusingHandle)})
+
+        # Patch the binding, not `_open`: `_open` is what converts the OSError,
+        # so replacing it would bypass the behaviour under test.
+        with (
+            patch("sys.platform", "darwin"),
+            patch.object(hid_transport, "raw_endpoints", side_effect=_flaky_endpoints),
+            patch.object(hid_transport, "_hid", return_value=fake_hid),
+        ):
+            found = hid_transport.list_devices()
+
+        self.assertEqual(1, len(found))
+        self.assertFalse(found[0].writable)
+        self.assertIsNotNone(found[0].identity_error)
+
     def test_a_vanished_endpoint_is_absent(self) -> None:
         with (
             patch("sys.platform", "darwin"),
@@ -458,6 +505,63 @@ class ApprovalIsLoadBearingTests(unittest.TestCase):
         with patch.object(hid_transport, "_open", return_value=other):
             with self.assertRaises(hid_transport.HidIdentityError):
                 hid_transport.open_approved(approval)
+
+    def test_using_the_session_as_a_context_manager_keeps_the_checked_handle(self) -> None:
+        """`with session:` must not silently replace the validated handle.
+
+        `open_approved` returns an already-open, already-checked session. If
+        `__enter__` reopened, the ordinary idiom would swap in a second handle
+        that nothing validated — defeating the whole re-check.
+        """
+
+        approval = hid_transport.approve_write(self._writable(), "NEON80")
+
+        genuine = FakeHandle({"name": "AM Neon 80"})
+        genuine.uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        opens: list = []
+
+        with patch.object(hid_transport, "_open", side_effect=lambda p: (opens.append(p), genuine)[1]):
+            session = hid_transport.open_approved(approval)
+            with session as entered:
+                entered.send(bytes([0xF0, 0x0E, 0x01]))
+
+        self.assertEqual(1, len(opens), "the validated handle was reopened")
+
+    def test_a_forged_approval_is_refused(self) -> None:
+        """An approval must prove it came from `approve_write`.
+
+        `WriteApproval` is a public dataclass, so a caller can build one with
+        every field correct. Only provenance distinguishes it from a real one.
+        """
+
+        info = self._writable()
+        forged = hid_transport.WriteApproval(
+            address=info.address,
+            model="NEON80",
+            path=info.path,
+            confirmation="NEON80",
+            model_uid=info.firmware_uid,
+        )
+
+        genuine = FakeHandle({"name": "AM Neon 80"})
+        genuine.uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        with patch.object(hid_transport, "_open", return_value=genuine):
+            with self.assertRaises(hid_transport.HidIdentityError) as raised:
+                hid_transport.open_approved(forged)
+
+        self.assertIn("not issued by approve_write", str(raised.exception))
+
+    def test_a_tampered_confirmation_is_refused_at_open(self) -> None:
+        """The typed confirmation is re-checked, not trusted from issue time."""
+
+        approval = hid_transport.approve_write(self._writable(), "NEON80")
+        tampered = dataclasses.replace(approval, confirmation="yes")
+
+        genuine = FakeHandle({"name": "AM Neon 80"})
+        genuine.uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        with patch.object(hid_transport, "_open", return_value=genuine):
+            with self.assertRaises(hid_transport.HidIdentityError):
+                hid_transport.open_approved(tampered)
 
     def test_the_approved_device_opens_and_can_transmit(self) -> None:
         approval = hid_transport.approve_write(self._writable(), "NEON80")
