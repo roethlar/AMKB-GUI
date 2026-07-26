@@ -31,9 +31,9 @@ _Last verified: 2026-07-24_
 
 ## michael-mac additions
 
-_Last verified: 2026-07-24_
+_Last verified: 2026-07-26_
 
-- Local build numbers advanced to `0.1.46` during this session. `build.py`
+- Local build numbers advanced to `0.1.50` during this session. `build.py`
   reserves the next number from the counter and existing `dist/` artifacts, so
   numbers jump when older DMGs are present.
 - `packaging/macos/build_dmg.sh` cannot be re-run against an already finalized

@@ -20,7 +20,7 @@ it, and report.
 
 ## 1. Identity
 
-- [ ] The board enumerates and the definition-based model check accepts it.
+- [x] The board enumerates and the definition-based model check accepts it.
 
 ```sh
 uv run --frozen python -c "
@@ -40,7 +40,7 @@ by itself a problem — record it.
 
 ## 2. Devices in the real GUI
 
-- [ ] Launch the application normally and open Devices. The Neon appears
+- [x] Launch the application normally and open Devices. The Neon appears
       alongside any serial boards.
 
 This is the step that proves N1 and N2 actually connected it. A device that
@@ -103,15 +103,15 @@ Fill this in as you go. `—` means not attempted.
 
 | Step | Outcome | Notes |
 |---|---|---|
-| 1. Identity | | |
-| 2. Devices in GUI | | |
-| 3a. Axial geometry | | |
-| 3b. Head geometry | | |
-| 3c. Side derivation | | |
-| 4a. Keymap round trip | | |
-| 4b. Lock reported | | |
-| 4c. Bad keycode refused | | |
-| 5. Macro overflow refused | | |
+| 1. Identity | Pass | Physical board: model `NEON80`, definition `AM Neon 80`, firmware UID `d47af38a35b8ed73`, Vial protocol 5, writable `True`, 87 projected layout keys. Read-only; nothing was written. |
+| 2. Devices in GUI | Pass (enumeration) | Native build 49 listed `NEON80` as USB and enabled **Read keymap & macros** when selected. Invoking that read-only action exposed a macOS hidapi thread-affinity crash. The red-proven repair is in build 50; its physical retry is waiting at macOS Keychain authorization before the app window opens. |
+| 3a. Axial geometry | — | |
+| 3b. Head geometry | — | |
+| 3c. Side derivation | — | |
+| 4a. Keymap round trip | — | |
+| 4b. Lock reported | — | |
+| 4c. Bad keycode refused | — | |
+| 5. Macro overflow refused | — | |
 
 Copy the completed table into
 `docs/superpowers/plans/2026-07-25-am-neon-80-support.md` under N10 when done.
