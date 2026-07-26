@@ -104,7 +104,7 @@ Fill this in as you go. `—` means not attempted.
 | Step | Outcome | Notes |
 |---|---|---|
 | 1. Identity | Pass | Physical board: model `NEON80`, definition `AM Neon 80`, firmware UID `d47af38a35b8ed73`, Vial protocol 5, writable `True`, 87 projected layout keys. Read-only; nothing was written. |
-| 2. Devices in GUI | Pass (enumeration) | Native build 49 listed `NEON80` as USB and enabled **Read keymap & macros** when selected. Invoking that read-only action exposed a macOS hidapi thread-affinity crash. The red-proven repair is in build 50; its physical retry is waiting at macOS Keychain authorization before the app window opens. |
+| 2. Devices in GUI | Pass (enumeration); read retry pending | Native build 49 listed `NEON80` as USB and enabled **Read keymap & macros**. The first read exposed a macOS hidapi thread-affinity crash. Build 51 completed the physical read without crashing or touching Keychain, then exposed twelve empty Vial capacity slots that made the portable document invalid. The red-proven repair retains four real macros and the separately reported 16-slot capacity; a direct physical read now yields four valid 90-key layers and a valid configuration. Build 52's final GUI retry is waiting at macOS Downloads-folder permission for the configured Library root. No keyboard write was attempted. |
 | 3a. Axial geometry | — | |
 | 3b. Head geometry | — | |
 | 3c. Side derivation | — | |
