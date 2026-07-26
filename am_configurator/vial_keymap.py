@@ -33,6 +33,20 @@ from dataclasses import dataclass
 HID_KEYBOARD_PAGE = 0x07
 MAX_BASIC_USAGE = 0xFF
 
+# Reserved page carrying a raw QMK keycode in the usage field.
+#
+# The translation is not symmetric, and hardware proved it: the application's
+# 32-bit surface can express codes QMK cannot, *and* QMK has feature keycodes
+# (layer switches, tap-dance, macros) the application's HID vocabulary cannot
+# name. The owner's board reports 0x5101 in its shipped keymap.
+#
+# Reading must never fail, so an untranslatable QMK code is carried verbatim on
+# this page instead. That is lossless in both directions: the 16-bit keycode
+# fits the 16-bit usage field exactly. A code that *does* have a natural
+# spelling is rejected on this page, so every keycode has exactly one
+# representation and read-back is stable.
+QMK_PASSTHROUGH_PAGE = 0xFF
+
 # QMK modifier bits, in QMK's order, and the HID mask bit each corresponds to.
 _QMK_CTRL, _QMK_SHIFT, _QMK_ALT, _QMK_GUI = 0x01, 0x02, 0x04, 0x08
 _QMK_RIGHT = 0x10
@@ -113,6 +127,20 @@ def to_qmk(code: str) -> int:
 
     parts = parse_code(code)
 
+    if parts.page == QMK_PASSTHROUGH_PAGE:
+        if parts.modifier:
+            raise UnsupportedKeycode(
+                code, "a raw QMK keycode carries its own modifiers already"
+            )
+        natural = from_qmk(parts.usage)
+        if not natural.startswith(f"#{0:02X}{QMK_PASSTHROUGH_PAGE:02X}"):
+            raise UnsupportedKeycode(
+                code,
+                f"0x{parts.usage:04X} has a normal spelling, {natural}; keeping "
+                "two spellings for one keycode would make read-back unstable",
+            )
+        return parts.usage
+
     if parts.page != HID_KEYBOARD_PAGE:
         raise UnsupportedKeycode(
             code,
@@ -133,9 +161,11 @@ def to_qmk(code: str) -> int:
 def from_qmk(value: int) -> str:
     """Translate a 16-bit QMK keycode back to an application keycode.
 
-    The inverse of `to_qmk` over its whole range, which is what makes read-back
-    stable: writing then reading a representable keymap returns the codes that
-    were written, character for character.
+    Total: every 16-bit value has a representation, because a keyboard's own
+    keymap is full of QMK feature codes and refusing to read them would make the
+    device unreadable. Codes with a HID spelling get it; the rest travel on the
+    passthrough page. Either way `to_qmk(from_qmk(v)) == v`, which is what makes
+    read-back stable.
     """
 
     if not 0 <= value <= 0xFFFF:
@@ -144,9 +174,10 @@ def from_qmk(value: int) -> str:
     usage = value & 0xFF
     mods = (value >> 8) & 0x1F
     if (value >> 8) & ~0x1F:
-        raise UnsupportedKeycode(
-            f"0x{value:04X}",
-            "it is a QMK feature keycode with no application representation",
+        # A QMK feature keycode. It has no HID spelling, so it travels verbatim
+        # rather than failing the read.
+        return format_code(
+            CodeParts(modifier=0, page=QMK_PASSTHROUGH_PAGE, usage=value)
         )
 
     modifier = 0
@@ -160,6 +191,13 @@ def from_qmk(value: int) -> str:
         ):
             if mods & qmk_bit:
                 nibble |= hid_bit
+        if not nibble:
+            # QMK's right-hand flag set with no modifier selected. The HID mask
+            # has no bit for "right" on its own, so this has no spelling and
+            # travels verbatim rather than collapsing to an unmodified key.
+            return format_code(
+                CodeParts(modifier=0, page=QMK_PASSTHROUGH_PAGE, usage=value)
+            )
         modifier = (nibble << 4) if (mods & _QMK_RIGHT) else nibble
 
     return format_code(CodeParts(modifier=modifier, page=HID_KEYBOARD_PAGE, usage=usage))
@@ -239,3 +277,113 @@ def decode_layers(buffer: bytes, *, layers: int, keys_per_layer: int) -> list[li
         codes[layer * keys_per_layer : (layer + 1) * keys_per_layer]
         for layer in range(layers)
     ]
+
+
+# --- Device transport -----------------------------------------------------
+#
+# VIA carries the keymap as one flat big-endian 16-bit buffer, read and written
+# in chunks that fit a 32-byte report. These are VIA commands, not Vial's
+# `0xFE`-prefixed ones, so they do not go through `hid_transport._vial_request`
+# and its read-only allowlist; the write commands here are genuinely mutating
+# and are gated on an unlocked device instead.
+
+VIA_GET_LAYER_COUNT = 0x11
+VIA_GET_BUFFER = 0x12
+VIA_SET_BUFFER = 0x13
+
+# A report is 32 bytes: one command, two offset, one length, leaving 28.
+BUFFER_CHUNK = 28
+
+_UNLOCK_STATUS_UNLOCKED = 1
+
+
+class KeyboardLocked(RuntimeError):
+    """Vial refuses keymap writes until the board is physically unlocked.
+
+    This is a distinct, actionable state and not a generic write failure: the
+    user has to hold specific keys on the keyboard itself, which no amount of
+    retrying from software will accomplish.
+    """
+
+
+def _via_request(session, command: int, *args: int) -> bytes:
+    session.send(bytes([command, *args]))
+    return session.receive()
+
+
+def read_layer_count(session) -> int:
+    """How many layers this keyboard actually has.
+
+    Asked rather than assumed. The AM serial families have seven; the Neon
+    reports four, and defaulting to seven would read past the end of its keymap.
+    """
+
+    return _via_request(session, VIA_GET_LAYER_COUNT)[1]
+
+
+def read_keymap_buffer(session, *, size: int) -> bytes:
+    """Read `size` bytes of the keymap buffer, chunked to fit a report."""
+
+    buffer = bytearray()
+    while len(buffer) < size:
+        offset = len(buffer)
+        chunk = min(BUFFER_CHUNK, size - offset)
+        reply = _via_request(
+            session, VIA_GET_BUFFER, (offset >> 8) & 0xFF, offset & 0xFF, chunk
+        )
+        buffer += reply[4 : 4 + chunk]
+    return bytes(buffer)
+
+
+def read_keymap(session, *, layers: int | None = None, keys_per_layer: int) -> list[list[str]]:
+    """Read and translate the whole keymap."""
+
+    if layers is None:
+        layers = read_layer_count(session)
+    buffer = read_keymap_buffer(session, size=layers * keys_per_layer * 2)
+    return decode_layers(buffer, layers=layers, keys_per_layer=keys_per_layer)
+
+
+def unlock_status(session) -> tuple[bool, int]:
+    """Whether the board is unlocked, and how many keys it wants held.
+
+    Read-only, and the reason a write can report something the user can act on
+    instead of a bare failure.
+    """
+
+    from . import hid_transport
+
+    reply = _via_request(session, 0xFE, hid_transport.VIAL_GET_UNLOCK_STATUS)
+    return reply[0] == _UNLOCK_STATUS_UNLOCKED, reply[1]
+
+
+def write_keymap(session, layers: list[list[str]], *, require_unlocked: bool = True) -> int:
+    """Translate and write a whole keymap. Returns the bytes written.
+
+    The translation runs first and refuses everything if any code is
+    unsupported, so an unsupported keycode is reported before a single byte
+    reaches the device rather than partway through the buffer.
+    """
+
+    payload = encode_layers(layers)
+
+    if require_unlocked:
+        unlocked, held_keys = unlock_status(session)
+        if not unlocked:
+            raise KeyboardLocked(
+                "This keyboard is locked. Vial requires it to be unlocked from "
+                f"the keyboard itself: hold the {held_keys} designated key(s) "
+                "until it reports unlocked, then write again. Nothing was "
+                "written."
+            )
+
+    written = 0
+    while written < len(payload):
+        chunk = payload[written : written + BUFFER_CHUNK]
+        session.send(
+            bytes([VIA_SET_BUFFER, (written >> 8) & 0xFF, written & 0xFF, len(chunk)])
+            + chunk
+        )
+        session.receive()
+        written += len(chunk)
+    return written

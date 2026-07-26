@@ -41,11 +41,14 @@ class InjectivityTests(unittest.TestCase):
 class RejectionTests(unittest.TestCase):
     """Unsupported codes are named and refused, never coerced."""
 
-    def test_a_vendor_usage_page_is_rejected(self) -> None:
+    def test_a_usage_page_with_no_qmk_equivalent_is_rejected(self) -> None:
+        # The HID consumer page. Real, emittable by the palette, and with no
+        # QMK basic keycode. (0xFF is not an example any more: it is the
+        # reserved passthrough page.)
         with self.assertRaises(vk.UnsupportedKeycode) as raised:
-            vk.to_qmk("#00FF0004")
+            vk.to_qmk("#000C00E9")
         self.assertIn("usage page", raised.exception.reason)
-        self.assertEqual("#00FF0004", raised.exception.code)
+        self.assertEqual("#000C00E9", raised.exception.code)
 
     def test_a_usage_above_the_basic_range_is_rejected(self) -> None:
         with self.assertRaises(vk.UnsupportedKeycode) as raised:
@@ -67,7 +70,8 @@ class RejectionTests(unittest.TestCase):
 
     def test_is_representable_never_raises(self) -> None:
         self.assertTrue(vk.is_representable("#00070004"))
-        for bad in ("#00FF0004", "#11070004", "", "nonsense"):
+        self.assertTrue(vk.is_representable("#00FF5101"), "passthrough is writable")
+        for bad in ("#000C00E9", "#11070004", "", "nonsense"):
             with self.subTest(code=bad):
                 self.assertFalse(vk.is_representable(bad))
 
@@ -88,18 +92,18 @@ class BufferTests(unittest.TestCase):
     def test_an_unsupported_code_stops_the_whole_keymap(self) -> None:
         """A partially translated keymap on a device is worse than none."""
 
-        layers = [["#00070004", "#00FF0004", "#00070005"]]
+        layers = [["#00070004", "#000C00E9", "#00070005"]]
         with self.assertRaises(vk.UnsupportedKeycode) as raised:
             vk.encode_layers(layers)
 
         self.assertIn("layer 0 key 1", str(raised.exception))
 
     def test_every_offending_key_is_reported_at_once(self) -> None:
-        layers = [["#00FF0001", "#00070004"], ["#11070004", "#00070900"]]
+        layers = [["#000C0001", "#00070004"], ["#11070004", "#00070900"]]
         problems = vk.unsupported_codes(layers)
 
         self.assertEqual(
-            [(0, 0, "#00FF0001"), (1, 0, "#11070004"), (1, 1, "#00070900")],
+            [(0, 0, "#000C0001"), (1, 0, "#11070004"), (1, 1, "#00070900")],
             [(layer, index, code) for layer, index, code, _ in problems],
         )
 
@@ -107,11 +111,123 @@ class BufferTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             vk.decode_layers(b"\x00\x04", layers=2, keys_per_layer=4)
 
-    def test_a_qmk_feature_keycode_has_no_representation(self) -> None:
-        # 0x5C00 is well outside the modifier-plus-basic space.
-        with self.assertRaises(vk.UnsupportedKeycode):
-            vk.from_qmk(0x5C00)
+    def test_a_qmk_feature_keycode_is_carried_not_refused(self) -> None:
+        """Reading must never fail, or a real keyboard becomes unreadable."""
 
+        # The owner's board ships 0x5101 in its keymap. Refusing it made
+        # read_keymap raise on the real device.
+        self.assertEqual("#00FF5101", vk.from_qmk(0x5101))
+        self.assertEqual(0x5101, vk.to_qmk("#00FF5101"))
+
+
+
+class TotalityTests(unittest.TestCase):
+    """The translation must be a bijection, proven over the whole space.
+
+    Hardware forced this. The first design refused QMK feature keycodes, which
+    made reading the owner's own keyboard fail on its shipped keymap: a keymap
+    is full of layer switches and macros that have no HID spelling.
+    """
+
+    def test_every_keycode_round_trips(self) -> None:
+        failures = [
+            value for value in range(0x10000) if vk.to_qmk(vk.from_qmk(value)) != value
+        ]
+        self.assertEqual([], failures[:20])
+        self.assertEqual(0, len(failures))
+
+    def test_no_two_keycodes_share_a_spelling(self) -> None:
+        spellings = {vk.from_qmk(value) for value in range(0x10000)}
+        self.assertEqual(0x10000, len(spellings))
+
+    def test_a_natural_code_may_not_also_be_written_as_passthrough(self) -> None:
+        """Two spellings for one keycode would make read-back unstable."""
+
+        with self.assertRaises(vk.UnsupportedKeycode) as raised:
+            vk.to_qmk("#00FF0004")
+        self.assertIn("#00070004", raised.exception.reason)
+
+    def test_the_right_hand_flag_alone_has_no_hid_spelling(self) -> None:
+        # QMK can set its right-hand bit with no modifier selected; the HID mask
+        # has no bit for "right" on its own, so collapsing it to an unmodified
+        # key would silently drop the flag.
+        self.assertEqual("#00FF1004", vk.from_qmk(0x1004))
+        self.assertEqual(0x1004, vk.to_qmk("#00FF1004"))
+
+
+class DeviceKeymapTests(unittest.TestCase):
+    """Buffer transport, against a recorded session rather than hardware."""
+
+    class Session:
+        def __init__(self, buffer: bytes = b"", *, layers: int = 4, unlocked: bool = True):
+            self.buffer = bytearray(buffer)
+            self.layers = layers
+            self.unlocked = unlocked
+            self.sent: list[bytes] = []
+            self._reply = b""
+
+        def send(self, packet: bytes) -> None:
+            self.sent.append(bytes(packet))
+            reply = bytearray(32)
+            if packet[0] == vk.VIA_GET_LAYER_COUNT:
+                reply[1] = self.layers
+            elif packet[0] == vk.VIA_GET_BUFFER:
+                offset = (packet[1] << 8) | packet[2]
+                size = packet[3]
+                reply[4 : 4 + size] = self.buffer[offset : offset + size]
+            elif packet[0] == vk.VIA_SET_BUFFER:
+                offset = (packet[1] << 8) | packet[2]
+                size = packet[3]
+                needed = offset + size
+                if len(self.buffer) < needed:
+                    self.buffer.extend(b"\x00" * (needed - len(self.buffer)))
+                self.buffer[offset:needed] = packet[4 : 4 + size]
+            elif packet[0] == 0xFE:
+                reply[0] = 1 if self.unlocked else 0
+                reply[1] = 0 if self.unlocked else 2
+            self._reply = bytes(reply)
+
+        def receive(self, timeout_ms: int = 0) -> bytes:
+            return self._reply
+
+    def test_the_layer_count_is_asked_not_assumed(self) -> None:
+        session = self.Session(layers=4)
+        self.assertEqual(4, vk.read_layer_count(session))
+
+    def test_a_keymap_survives_a_write_then_read(self) -> None:
+        layers = [[f"#0007{usage:04X}" for usage in range(4, 94)] for _ in range(4)]
+        session = self.Session()
+
+        written = vk.write_keymap(session, layers)
+        self.assertEqual(4 * 90 * 2, written)
+
+        recovered = vk.read_keymap(session, layers=4, keys_per_layer=90)
+        self.assertEqual(layers, recovered)
+
+    def test_a_locked_keyboard_reports_an_actionable_state(self) -> None:
+        """Not a generic write failure: only the user can resolve it."""
+
+        layers = [[f"#0007{usage:04X}" for usage in range(4, 94)] for _ in range(4)]
+        session = self.Session(unlocked=False)
+
+        with self.assertRaises(vk.KeyboardLocked) as raised:
+            vk.write_keymap(session, layers)
+
+        self.assertIn("unlocked from", str(raised.exception))
+        self.assertIn("Nothing was", str(raised.exception))
+        self.assertEqual(
+            [], [p for p in session.sent if p[0] == vk.VIA_SET_BUFFER],
+            "a locked keyboard was written to",
+        )
+
+    def test_an_unsupported_code_is_refused_before_any_byte_is_sent(self) -> None:
+        layers = [["#000C00E9"] + [f"#0007{u:04X}" for u in range(4, 93)] for _ in range(4)]
+        session = self.Session()
+
+        with self.assertRaises(vk.UnsupportedKeycode):
+            vk.write_keymap(session, layers)
+
+        self.assertEqual([], session.sent, "the device was touched before validation")
 
 if __name__ == "__main__":
     unittest.main()

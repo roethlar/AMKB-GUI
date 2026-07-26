@@ -56,7 +56,13 @@ _VIAL_PREFIX = 0xFE
 _VIAL_GET_KEYBOARD_ID = 0x00
 _VIAL_GET_SIZE = 0x01
 _VIAL_GET_DEFINITION = 0x02
-_VIAL_READ_ONLY = frozenset({_VIAL_GET_KEYBOARD_ID, _VIAL_GET_SIZE, _VIAL_GET_DEFINITION})
+# `0x05` reports whether the board is unlocked and which keys are being held for
+# it. It reads state and changes nothing, unlike `0x06`-`0x08` (unlock start,
+# unlock poll, lock), which stay out.
+VIAL_GET_UNLOCK_STATUS = 0x05
+_VIAL_READ_ONLY = frozenset(
+    {_VIAL_GET_KEYBOARD_ID, _VIAL_GET_SIZE, _VIAL_GET_DEFINITION, VIAL_GET_UNLOCK_STATUS}
+)
 
 # A definition should be a few hundred bytes. A malformed or hostile size field
 # must not turn discovery into an unbounded read loop.
