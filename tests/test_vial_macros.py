@@ -180,5 +180,89 @@ class RoundTripTests(unittest.TestCase):
         self.assertEqual([], recovered[3]["layer_key"])
 
 
+class SlotIdentityTests(unittest.TestCase):
+    """The buffer is positional: slot N is triggered by the #009515NN token.
+
+    Finding n567-6. Encoding by list order meant a profile whose macros were
+    gapped or reordered executed under the wrong keys, and the bytes were
+    written correctly the whole time — nothing would have flagged it.
+    """
+
+    def _tokened(self, slot: int, usage: int) -> dict:
+        return {
+            "original_key": f"#009515{slot:02X}",
+            "layer_key": [f"#1107{usage:04X}", f"#1007{usage:04X}"],
+            "intvel_ms": [0, 0],
+        }
+
+    def test_a_gapped_profile_lands_in_the_slots_its_tokens_name(self) -> None:
+        capacity = vm.MacroCapacity(count=4, buffer_bytes=2048)
+        # Slots 0 and 3 only. By list order the second would land in slot 1.
+        macros = [self._tokened(0, 0x04), self._tokened(3, 0x05)]
+
+        table = vm.slot_table(macros, capacity=capacity)
+        self.assertIsNotNone(table[0])
+        self.assertIsNone(table[1])
+        self.assertIsNone(table[2])
+        self.assertIsNotNone(table[3])
+        self.assertEqual("#00951503", table[3]["original_key"])
+
+    def test_a_reordered_profile_still_lands_correctly(self) -> None:
+        capacity = vm.MacroCapacity(count=4, buffer_bytes=2048)
+        macros = [self._tokened(2, 0x06), self._tokened(0, 0x04)]
+
+        table = vm.slot_table(macros, capacity=capacity)
+        self.assertEqual("#00951500", table[0]["original_key"])
+        self.assertEqual("#00951502", table[2]["original_key"])
+
+    def test_a_gapped_profile_round_trips_through_the_device(self) -> None:
+        session = Session(count=4, buffer_bytes=2048)
+        macros = [self._tokened(0, 0x04), self._tokened(3, 0x05)]
+
+        vm.write_macros(session, macros, capacity=session.capacity)
+        recovered = vm.read_macros(session, capacity=session.capacity)
+
+        self.assertEqual(macros[0]["layer_key"], recovered[0]["layer_key"])
+        self.assertEqual([], recovered[1]["layer_key"])
+        self.assertEqual([], recovered[2]["layer_key"])
+        self.assertEqual(macros[1]["layer_key"], recovered[3]["layer_key"])
+
+    def test_read_back_carries_the_slot_token_not_the_first_event(self) -> None:
+        """Otherwise the keymap and the macro list disagree about which key runs what."""
+
+        session = Session(count=4, buffer_bytes=2048)
+        vm.write_macros(session, [self._tokened(1, 0x04)], capacity=session.capacity)
+        recovered = vm.read_macros(session, capacity=session.capacity)
+
+        self.assertEqual("#00951501", recovered[1]["original_key"])
+        self.assertNotEqual(
+            recovered[1]["original_key"], recovered[1]["layer_key"][0]
+        )
+
+    def test_two_macros_claiming_one_slot_is_refused(self) -> None:
+        capacity = vm.MacroCapacity(count=4, buffer_bytes=2048)
+        with self.assertRaises(vm.MacroCapacityError) as raised:
+            vm.slot_table(
+                [self._tokened(1, 0x04), self._tokened(1, 0x05)], capacity=capacity
+            )
+        self.assertIn("slot 1", str(raised.exception))
+
+    def test_a_slot_beyond_the_device_is_refused(self) -> None:
+        capacity = vm.MacroCapacity(count=4, buffer_bytes=2048)
+        with self.assertRaises(vm.MacroCapacityError):
+            vm.slot_table([self._tokened(9, 0x04)], capacity=capacity)
+
+    def test_macros_without_tokens_keep_their_list_positions(self) -> None:
+        """A profile from a serial board never used the tokens."""
+
+        capacity = vm.MacroCapacity(count=4, buffer_bytes=2048)
+        macros = [_macro(1), _macro(1)]
+
+        table = vm.slot_table(macros, capacity=capacity)
+        self.assertIsNotNone(table[0])
+        self.assertIsNotNone(table[1])
+        self.assertIsNone(table[2])
+
+
 if __name__ == "__main__":
     unittest.main()

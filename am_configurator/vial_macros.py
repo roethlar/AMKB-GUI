@@ -129,6 +129,73 @@ def encode_macro(macro: dict[str, Any]) -> bytes:
     return bytes(payload)
 
 
+def macro_slot(macro: dict[str, Any]) -> int | None:
+    """Which device slot a macro belongs to, from its `original_key` token.
+
+    The device buffer is positional: slot N is the Nth macro in it, and the key
+    that triggers slot N is the `#009515NN` token in the keymap. List order is
+    therefore not the same thing as slot, and using it meant a profile whose
+    macros were gapped or reordered executed under the wrong keys.
+
+    Returns None when the macro carries no slot token, which is legitimate for a
+    profile that came from a serial board.
+    """
+
+    from . import vial_keymap
+
+    token = str(macro.get("original_key") or "").upper()
+    try:
+        parts = vial_keymap.parse_code(token)
+    except vial_keymap.UnsupportedKeycode:
+        return None
+    if parts.page != vial_keymap.MACRO_TOKEN_PAGE:
+        return None
+    if (parts.usage >> 8) != vial_keymap.MACRO_TOKEN_PREFIX:
+        return None
+    return parts.usage & 0xFF
+
+
+def slot_table(macros: list[dict[str, Any]], *, capacity: MacroCapacity) -> list[dict[str, Any] | None]:
+    """Place each macro in the device slot its token names.
+
+    A macro without a token keeps its list position, so a profile that never
+    used the tokens behaves as before. A token that names a slot outside the
+    device, or that two macros claim, is an error rather than a silent
+    overwrite.
+    """
+
+    table: list[dict[str, Any] | None] = [None] * capacity.count
+    untokened: list[dict[str, Any]] = []
+
+    for macro in macros:
+        slot = macro_slot(macro)
+        if slot is None:
+            untokened.append(macro)
+            continue
+        if slot >= capacity.count:
+            raise MacroCapacityError(
+                f"A macro is assigned to slot {slot}, and this keyboard has "
+                f"{capacity.count}. Nothing was sent."
+            )
+        if table[slot] is not None:
+            raise MacroCapacityError(
+                f"Two macros are assigned to slot {slot}. Nothing was sent."
+            )
+        table[slot] = macro
+
+    for macro in untokened:
+        try:
+            free = table.index(None)
+        except ValueError:
+            raise MacroCapacityError(
+                f"This keyboard stores {capacity.count} macros and the profile "
+                "needs more. Nothing was sent."
+            ) from None
+        table[free] = macro
+
+    return table
+
+
 def encode_macros(macros: list[dict[str, Any]], *, capacity: MacroCapacity) -> bytes:
     """Compile every macro and prove the result fits, before any transmission.
 
@@ -143,12 +210,15 @@ def encode_macros(macros: list[dict[str, Any]], *, capacity: MacroCapacity) -> b
             f"{len(macros)}. Nothing was sent."
         )
 
+    # Indexed by device slot, not by list order: the keymap triggers slot N, so
+    # a macro must land in the slot its token names.
+    table = slot_table(macros, capacity=capacity)
+
     buffer = bytearray()
-    for macro in macros:
-        buffer += encode_macro(macro)
-    # Unused slots still need their terminator, or the device reads the next
-    # macro's bytes as part of this one.
-    buffer += bytes([MACRO_TERMINATOR]) * (capacity.count - len(macros))
+    for macro in table:
+        # An empty slot is still terminated, or the device reads the following
+        # macro's bytes as part of this one.
+        buffer += encode_macro(macro) if macro is not None else bytes([MACRO_TERMINATOR])
 
     if len(buffer) > capacity.buffer_bytes:
         raise MacroCapacityError(
@@ -195,9 +265,16 @@ def decode_macros(buffer: bytes, *, count: int) -> list[dict[str, Any]]:
             position += 3
 
         position += 1  # step over the terminator
+        # `original_key` is the slot's trigger token, not the first event. A
+        # macro read back from slot N must carry the token that triggers slot N,
+        # or the keymap and the macro list disagree about which key runs what.
+        slot = len(macros)
         macros.append(
             {
-                "original_key": events[0] if events else vial_keymap.CODE_NO,
+                "original_key": (
+                    f"#00{vial_keymap.MACRO_TOKEN_PAGE:02X}"
+                    f"{vial_keymap.MACRO_TOKEN_PREFIX:02X}{slot:02X}"
+                ),
                 "layer_key": events,
                 "intvel_ms": delays,
             }
