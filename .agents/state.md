@@ -805,117 +805,60 @@
   tests, the Python 3.11 floor, and all three native installers — and merged on
   2026-07-25. Pull request #2 (`flake-fix`) merged the same day. Work is now on
   `main` at `65a70c9`.
-- AM Neon 80 support is approved and in progress on branch `neon-80-support`,
-  pushed to `origin`. Plan tasks **N1 through N9 are complete**; **N10, hardware
-  verification, is the only one left and is manual**. Nothing has ever been
-  written to the keyboard: every device interaction so far has been read-only.
-  Its owner
-  decisions are recorded in `.agents/decisions.md` under 2026-07-25, and the
-  durable plan is `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`,
-  approved by the owner on 2026-07-25. Plan task N1 is complete in two commits:
-  `d75492f` made `device_mapping.FamilySpec` the single authority for
-  per-family LED track sizes, macro ceilings, frame caps, and transport kind,
-  and converted `validate_config`; `e522a07` gave the browser its mirror in
-  `lighting_targets.js` and converted `app.js`. The load-bearing behavior change
-  is that an unrecognised product no longer falls back to CyberBoard geometry —
-  `activeLedModel()` returns null and the LED editor shows an unsupported-device
-  notice, so a Neon 80 profile cannot be painted with CyberBoard maps before its
-  own support lands. The browser copy cannot import from Python, so it is
-  embedded as a strict-JSON literal that `tests/test_device_mapping.py` parses
-  and compares field by field; changing one side alone fails.
+- AM Neon 80 support is in progress on branch `neon-80-support`, pushed to
+  `origin` (as of `77ff823`). **Plan tasks N1-N9 are implemented; N10, hardware
+  verification, is manual and not started.** Nothing has ever been written to
+  the keyboard — every device interaction so far has been read-only. Decisions
+  in `.agents/decisions.md` (2026-07-25), plan in
+  `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`.
 
-  Plan task N2 is complete in two commits: `94a847a` introduced `DeviceHandle`
-  and a closed transport registry, and `f08fb22` reworked the seam to sit below
-  the protocol encoding after openreview finding or-1 showed the first version
-  passed AM-encoded frames through it, which no other protocol's driver could
-  implement. The owner ruled to rework immediately rather than defer to N5; see
-  `.agents/decisions.md`, "The device seam sits below the protocol encoding".
-  Drivers now receive the logical configuration and plan their own protocol.
+  **Do not treat N1-N9 as finished.** An `openreview codex` pass over N5-N7
+  (`6c396c9..d17c2ca`) returned **ten findings, eight HIGH**, all admitted:
+  every protocol module was sound in isolation while the seams between them and
+  the existing application were not built. Seven are fixed; **n567-9 (partly),
+  n567-10 remain open**. See `.agents/review/index.md` for the scoreboard and
+  `.agents/review/findings/n567-*.md` for detail.
 
-  Tasks N3 to N9 are complete. `hid_transport.py` enumerates the board and runs
-  a three-stage identity gate whose last stage fetches the Vial definition and
-  requires its `name` to read `AM Neon 80`; discovery is shallow and opens no
-  device, and only a resolved device may be approved for a write. `neon_lighting.py`
-  builds the `0xF0` packets and derives the side zone from the head frames.
-  `vial_keymap.py` translates keycodes, `vial_macros.py` the macro buffer, and
-  `neon_driver.py` binds all three to the transport registry. `device_mapping.py`
-  carries the family with axial (89, a 19x6 grid) and head (230, 46x5 row-major)
-  tracks; the browser lays it out from server-published geometry rather than a
-  copied map. The store needed no change and N8 proves it.
+  Modules: `hid_transport.py` (enumeration plus a three-stage identity gate
+  ending in the Vial definition naming `AM Neon 80`; scans are shallow and open
+  no device), `neon_lighting.py` (`0xF0` packets, side derived from head),
+  `vial_keymap.py` (a total bijection over all 65536 QMK keycodes),
+  `vial_macros.py` (slot-indexed buffer sized against device-reported capacity),
+  `neon_driver.py` (binds all three; `preflight` validates everything before the
+  first byte because the three writes cannot be made atomic).
 
-  Facts measured on the owner's board, all read-only, are recorded in the plan's
-  Established facts: Vial protocol 5, keyboard UID `d47af38a35b8ed73`, an
-  XZ-compressed definition naming `AM Neon 80`, **4 layers** (not the serial
-  families' 7), **16 macros** and a **6677-byte** macro buffer, and 90 keys per
-  layer. The board reports itself **locked**, which Vial requires the user to
-  clear physically before any keymap write.
+  Facts measured read-only on the owner's board: Vial protocol 5, keyboard UID
+  `d47af38a35b8ed73`, 4 layers, 90 keys per layer, 16 macros, 6677-byte macro
+  buffer. The board reports itself **locked**; Vial needs a physical key hold
+  before any keymap write.
 
-  Three corrections came from hardware or review and are worth carrying forward.
-  The `vial:f64c2b3c` serial is a fixed string every Vial board reports, not a
-  per-board id; the Vial keyboard UID is per *model*, not per unit; so a device
-  address is derived from the OS endpoint path. And the keycode translation had
-  to become a total bijection over all 65536 QMK codes, because the board's own
-  keymap holds feature codes with no HID spelling and refusing them made the
-  device unreadable.
-
-  A Neon write is not atomic and cannot be: lighting, keymap, and macros are
-  three separate transmissions. `neon_driver.preflight` therefore validates
-  everything findable — keymap translation, macro compilation against
-  device-reported capacity, the full lighting plan, and the lock — before the
-  first byte.
-
-  Five `openreview codex` findings over N3 (`n3-1` to `n3-5`) and two over N4
-  (`n4-1`, `n4-2`) were all admitted and fixed; see `.agents/review/index.md`.
-  An `openreview` over N5 to N7 was dispatched and its verdict is not yet
-  recorded.
-
-  A third `openreview codex` pass — the first over implementation rather than
-  the plan — raised three findings over `65a70c9..94a847a`; all three were
-  admitted after independent verification and all three are fixed (`f08fb22`,
-  `4ff65ee`, `858fdf0`). None of the repairs has been re-reviewed. Detail in
-  `.agents/review/index.md`. The two earlier `openreview codex` passes, over
-  the plan, raised eight findings, all
-  admitted and all closed by two plan revisions; the outcomes are recorded in
-  `.agents/review/outcomes.md`. The recurring defect was that the device
-  protocol was planned well and the application integration was not, so the plan
-  now leads with an authoritative per-family device specification and a
-  transport-neutral device handle, both landing before any Neon code. The
-  decisive finding was that the firmware `real_map`, `h_map`, and `s_map` tables
-  are AW20216 driver-chip coordinates applied inside the firmware, not host-side
-  position maps; transcribing them would scramble every LED. That removed the
-  premise of the GPL relicensing decision, which is superseded — the application
-  stays MIT and the Apache-2.0 driver supplies everything the host needs. The
-  protocol was established by reading published Angry Miao sources and by
-  read-only USB enumeration of the owner's device; nothing has been written to
-  that keyboard. Established facts: the board is a QMK/Vial device at USB
-  `0x05AC:0x024F` with serial `vial:f64c2b3c`, reached over raw HID (usage page
-  `0xFF60`, usage `0x61`) with no CDC-serial port. Lighting uses vendor command
-  `0xF0` in 32-byte packets — `[1]` channel, `[2]` frame index, `[3]` packet
-  index with `255` marking the final packet, `[4]` brightness, `[5]` interval,
-  `[6]` RGB byte count, `[7..30]` eight RGB triples, `[31]` checksum
-  `sum(bytes[0..30]) & 0xFF` — across three zones of three slots each: axial
-  (89 LEDs on a 15x6 grid), head matrix (46x5 = 230), and side (70, derived by
-  downsampling the head frame). The firmware ceiling is 256 frames per slot.
-
-## Next
+  Three corrections worth carrying: the `vial:f64c2b3c` serial is shared by
+  every Vial board; the Vial keyboard UID is per *model*, not per unit (so the
+  device address comes from the OS endpoint path); and the keycode translation
+  had to become total, because the board's own keymap holds QMK feature codes
+  with no HID spelling.
 
 - Do not perform governance work under this product-remediation plan. Any
   governance update requires a separate fresh one-off session.
-- Finish `docs/superpowers/plans/2026-07-25-am-neon-80-support.md` at task
-  **N10, hardware verification**. It is manual, it is the last task, and it is
-  the first time anything writes to the keyboard. It needs the owner present:
-  confirm the board appears in Devices through the real GUI, push an
-  **asymmetric** pattern to one slot and photograph axial, head, and side to
-  prove no map is transposed or mirrored, round-trip a keymap and a macro, and
-  confirm a non-representable code and an oversized macro set are both refused
-  before any write. A symmetric pattern cannot reveal a mirrored map and must
-  not be used. Record the results in the plan, including anything that did not
-  match.
-- Before N10 can write a keymap, the board must be **unlocked from the keyboard
-  itself**; Vial requires a physical key hold and the application reports that
-  as its own actionable state.
-- The `openreview` over N5 to N7 (`6c396c9..d17c2ca`) was dispatched; read its
-  verdict and triage any findings before N10.
+- **Next action: finish the two open review findings, then N10.**
+  `n567-10` (MEDIUM) is the one a user notices first: `app.js:604`
+  `activeLayout` handles Relic and AFA then falls back to a generic matrix, so a
+  Neon keymap renders in an unrelated 25-column layout; and the assignment
+  palette still offers codes `vial_keymap` will reject, instead of filtering to
+  the representable subset at assignment time. The Vial definition already
+  fetched in N3 carries the physical layout to publish.
+  `n567-9` (MEDIUM, partly done) still needs per-device capacity read at device
+  read time overlaid onto the active family spec; the static spec values and the
+  `macroBufferBytes` mirror are already in place.
+- Then **N10, hardware verification** — manual, owner-present, and the first
+  time anything writes to the keyboard. The procedure is written and ready at
+  `docs/neon-80-hardware-verification.md`; record results there and copy the
+  table into the plan. It needs an **asymmetric** test pattern, because a
+  mirrored or transposed LED map looks correct under a symmetric one.
+- The keyboard **stopped enumerating partway through the last session** (zero
+  endpoints at `05AC:024F`). Everything after that point was verified against
+  stand-ins only. Replug and re-confirm identity before N10.
+
 - Known open work recorded during the review, not yet scheduled:
   `validate_config` (`server.py:537`) still calls `writer.plan` to check that a
   configuration encodes, which is the AM serial wire encoder. It runs with no
