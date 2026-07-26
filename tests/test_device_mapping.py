@@ -538,3 +538,53 @@ class NeonFamilyRegistrationTests(unittest.TestCase):
         self.assertEqual(16, spec.macro_tracks)
         self.assertEqual(6677, spec.macro_buffer_bytes)
         self.assertNotEqual(32, spec.macro_tracks)
+
+
+class ServedGeometryTests(unittest.TestCase):
+    """The browser lays out any family from what the server publishes.
+
+    Copying LED maps into JavaScript would create a second authority for tables
+    Python already owns, which is the drift the cross-language spec guard exists
+    to prevent. So the maps travel over the capabilities payload instead.
+    """
+
+    def test_every_published_target_carries_its_pixel_map(self):
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        published = mapping.target_capabilities()
+        for family, entry in published.items():
+            for target in entry["targets"]:
+                with self.subTest(family=family, target=target["name"]):
+                    self.assertIn("map", target)
+                    self.assertEqual(
+                        target["width"] * target["height"], len(target["map"])
+                    )
+                    mapped = [index for index in target["map"] if index >= 0]
+                    # `pixels` is the payload length. A map covers a subset of
+                    # it — several families have payload slots with no source
+                    # pixel — so the invariants are that no payload slot is
+                    # written twice and none is out of range.
+                    self.assertEqual(len(mapped), len(set(mapped)))
+                    self.assertLess(max(mapped), target["pixels"])
+                    self.assertGreaterEqual(min(mapped), 0)
+
+    def test_the_neon_is_fully_describable_without_any_browser_table(self):
+        """N4's browser half depends on this being sufficient on its own."""
+
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        neon = {t["name"]: t for t in mapping.target_capabilities()["NEON"]["targets"]}
+        self.assertEqual({"axial", "head"}, set(neon))
+        self.assertEqual((19, 6), (neon["axial"]["width"], neon["axial"]["height"]))
+        self.assertEqual(89, neon["axial"]["pixels"])
+        self.assertEqual((46, 5), (neon["head"]["width"], neon["head"]["height"]))
+        self.assertEqual(230, neon["head"]["pixels"])
+        # Head is row-major, so its map is the identity: any other map here
+        # would remap a payload the firmware already expects in order.
+        self.assertEqual(list(range(230)), neon["head"]["map"])
+
+    def test_the_browser_carries_no_copy_of_a_led_map(self):
+        app = (ROOT / "am_configurator/web/app.js").read_text(encoding="utf-8")
+
+        self.assertNotIn("NEON_AXIAL", app)
+        self.assertIn("servedGeometry", app)

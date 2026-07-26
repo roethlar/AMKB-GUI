@@ -647,6 +647,12 @@ def target_capabilities() -> dict[str, Any]:
                     "height": height,
                     "pixels": int(layout["pixels"]),
                     "extra_targets": extra,
+                    # The source-pixel -> payload-index map, so the editor can
+                    # lay out any family's track without carrying its own copy
+                    # of these tables. Python stays the single authority; a
+                    # second copy in JavaScript is exactly the drift the
+                    # cross-language guard exists to prevent.
+                    "map": list(layout["map"]),
                 }
             )
         targets[model] = {

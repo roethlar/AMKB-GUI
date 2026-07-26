@@ -470,7 +470,21 @@ const LED_MODELS = {
     name:"Relic 80", keyMap:RELIC_LED_MAP, keyColumns:17, keyRaster:"18×7",
     targets:DEVICE_TARGETS["80"],
   },
+  // No keyMap, keyColumns, or keyRaster: the Neon's axial and head geometry is
+  // served from device_mapping rather than copied here. Python owns those
+  // tables and a second copy is the drift the spec mirror already guards
+  // against; there is no reason to introduce one for the maps.
+  NEON: {
+    name:"AM Neon 80",
+    targets:DEVICE_TARGETS.NEON,
+  },
 };
+
+// Per-target geometry the server publishes from device_mapping.
+function servedGeometry(family, target) {
+  const entries=state.capabilities?.targets?.[family]?.targets;
+  return entries?.find(entry=>entry.name===target) || null;
+}
 const LED_SPEEDS = [255,240,224,208,192,176,160,146,132,118,100,90,76,62,48,34];
 
 function firmwareLedSpeed(value) {
@@ -1406,9 +1420,13 @@ function renderLightingEdit() {
   state.ledFrame=Math.min(state.ledFrame,Math.max(0,frames.length-1));
   const frame=frames[state.ledFrame];
   const gridClass=state.ledTarget==="frames"?"display":state.ledTarget==="spotlight_frames"?"edge":"key";
-  const columns=state.ledTarget==="frames"?40:state.ledTarget==="spotlight_frames"?7:model.keyColumns;
+  // Geometry the server publishes from device_mapping, which is the authority
+  // for these tables. A family whose maps are not hardcoded below — the Neon,
+  // and anything added later — is laid out entirely from this.
+  const servedTarget=servedGeometry(productFamily(productId()),state.ledTarget);
+  const columns=state.ledTarget==="frames"?40:state.ledTarget==="spotlight_frames"?7:(model.keyColumns||servedTarget?.width);
   const physicalLayout=state.ledTarget==="keyframes"?model.physicalLayout:null;
-  const pixelMap=physicalLayout?physicalLayout.map(item=>item.index):state.ledTarget==="keyframes"?model.keyMap:state.ledTarget==="spotlight_frames"?[0,1,2,3,4,5,6]:model.displayMap||Array.from({length},(_,index)=>index);
+  const pixelMap=physicalLayout?physicalLayout.map(item=>item.index):state.ledTarget==="keyframes"?model.keyMap:state.ledTarget==="spotlight_frames"?[0,1,2,3,4,5,6]:(model.displayMap||servedTarget?.map||Array.from({length},(_,index)=>index));
   const mappedCount=new Set(pixelMap.filter(index=>index>=0)).size;
   const focusablePixelCount=physicalLayout?.length||pixelMap.filter(index=>index>=0).length;
   state.ledPixel=Math.min(state.ledPixel,Math.max(0,focusablePixelCount-1));
@@ -1427,7 +1445,8 @@ function renderLightingEdit() {
     const description=body?'Center light':`Key ${label}, matrix ${item.keyIndex}`;
     return `<button class="pixel physical-pixel ${body?'body-led':''}" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${item.index}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;--rotation:${item.rotation}deg;background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="${esc(description)}, LED ${item.index}, ${esc(color)}" title="${esc(description)} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
   }).join("")}</div>`:`<div class="pixel-grid ${gridClass}" role="grid" aria-label="LED paint grid" style="grid-template-columns:repeat(${columns},1fr)">${rasterCells}</div>`;
-  const gifSize=state.ledTarget==="frames"?"40×5":state.ledTarget==="spotlight_frames"?"18×7 → 7 edge LEDs":`${model.keyRaster} → ${mappedCount} mapped LEDs`;
+  const raster=model.keyRaster||(servedTarget?`${servedTarget.width}×${servedTarget.height}`:"");
+  const gifSize=state.ledTarget==="frames"?"40×5":state.ledTarget==="spotlight_frames"?"18×7 → 7 edge LEDs":`${raster} → ${mappedCount} mapped LEDs`;
   const relicKeyTarget=model===LED_MODELS["80"]&&state.ledTarget==="keyframes";
   const pairsRelicGif=relicKeyTarget&&state.relicGifEdges;
   const edgeAutomation=model===LED_MODELS["80"]&&state.ledTarget==="spotlight_frames";
