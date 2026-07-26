@@ -805,8 +805,11 @@
   tests, the Python 3.11 floor, and all three native installers — and merged on
   2026-07-25. Pull request #2 (`flake-fix`) merged the same day. Work is now on
   `main` at `65a70c9`.
-- AM Neon 80 support is approved and in progress on branch `neon-80-support`;
-  no Neon-specific code exists yet, and nothing has been pushed. Its owner
+- AM Neon 80 support is approved and in progress on branch `neon-80-support`,
+  pushed to `origin`. Plan tasks **N1 through N9 are complete**; **N10, hardware
+  verification, is the only one left and is manual**. Nothing has ever been
+  written to the keyboard: every device interaction so far has been read-only.
+  Its owner
   decisions are recorded in `.agents/decisions.md` under 2026-07-25, and the
   durable plan is `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`,
   approved by the owner on 2026-07-25. Plan task N1 is complete in two commits:
@@ -828,6 +831,43 @@
   implement. The owner ruled to rework immediately rather than defer to N5; see
   `.agents/decisions.md`, "The device seam sits below the protocol encoding".
   Drivers now receive the logical configuration and plan their own protocol.
+
+  Tasks N3 to N9 are complete. `hid_transport.py` enumerates the board and runs
+  a three-stage identity gate whose last stage fetches the Vial definition and
+  requires its `name` to read `AM Neon 80`; discovery is shallow and opens no
+  device, and only a resolved device may be approved for a write. `neon_lighting.py`
+  builds the `0xF0` packets and derives the side zone from the head frames.
+  `vial_keymap.py` translates keycodes, `vial_macros.py` the macro buffer, and
+  `neon_driver.py` binds all three to the transport registry. `device_mapping.py`
+  carries the family with axial (89, a 19x6 grid) and head (230, 46x5 row-major)
+  tracks; the browser lays it out from server-published geometry rather than a
+  copied map. The store needed no change and N8 proves it.
+
+  Facts measured on the owner's board, all read-only, are recorded in the plan's
+  Established facts: Vial protocol 5, keyboard UID `d47af38a35b8ed73`, an
+  XZ-compressed definition naming `AM Neon 80`, **4 layers** (not the serial
+  families' 7), **16 macros** and a **6677-byte** macro buffer, and 90 keys per
+  layer. The board reports itself **locked**, which Vial requires the user to
+  clear physically before any keymap write.
+
+  Three corrections came from hardware or review and are worth carrying forward.
+  The `vial:f64c2b3c` serial is a fixed string every Vial board reports, not a
+  per-board id; the Vial keyboard UID is per *model*, not per unit; so a device
+  address is derived from the OS endpoint path. And the keycode translation had
+  to become a total bijection over all 65536 QMK codes, because the board's own
+  keymap holds feature codes with no HID spelling and refusing them made the
+  device unreadable.
+
+  A Neon write is not atomic and cannot be: lighting, keymap, and macros are
+  three separate transmissions. `neon_driver.preflight` therefore validates
+  everything findable — keymap translation, macro compilation against
+  device-reported capacity, the full lighting plan, and the lock — before the
+  first byte.
+
+  Five `openreview codex` findings over N3 (`n3-1` to `n3-5`) and two over N4
+  (`n4-1`, `n4-2`) were all admitted and fixed; see `.agents/review/index.md`.
+  An `openreview` over N5 to N7 was dispatched and its verdict is not yet
+  recorded.
 
   A third `openreview codex` pass — the first over implementation rather than
   the plan — raised three findings over `65a70c9..94a847a`; all three were
@@ -861,12 +901,21 @@
 
 - Do not perform governance work under this product-remediation plan. Any
   governance update requires a separate fresh one-off session.
-- Continue `docs/superpowers/plans/2026-07-25-am-neon-80-support.md` at task N3,
-  raw HID transport and Neon 80 identity — the first task where Neon-specific
-  code exists. N1 and N2, the two pure refactors that had to land first, are
-  both complete. N3 and later tasks add a `hidapi` runtime dependency, Linux
-  udev rules for non-root access, and the resulting native packaging changes,
-  which touch the recently stabilized installers.
+- Finish `docs/superpowers/plans/2026-07-25-am-neon-80-support.md` at task
+  **N10, hardware verification**. It is manual, it is the last task, and it is
+  the first time anything writes to the keyboard. It needs the owner present:
+  confirm the board appears in Devices through the real GUI, push an
+  **asymmetric** pattern to one slot and photograph axial, head, and side to
+  prove no map is transposed or mirrored, round-trip a keymap and a macro, and
+  confirm a non-representable code and an oversized macro set are both refused
+  before any write. A symmetric pattern cannot reveal a mirrored map and must
+  not be used. Record the results in the plan, including anything that did not
+  match.
+- Before N10 can write a keymap, the board must be **unlocked from the keyboard
+  itself**; Vial requires a physical key hold and the application reports that
+  as its own actionable state.
+- The `openreview` over N5 to N7 (`6c396c9..d17c2ca`) was dispatched; read its
+  verdict and triage any findings before N10.
 - Known open work recorded during the review, not yet scheduled:
   `validate_config` (`server.py:537`) still calls `writer.plan` to check that a
   configuration encodes, which is the AM serial wire encoder. It runs with no
