@@ -993,7 +993,9 @@ class _State:
             "operation_gate", PROCESS_OPERATION_GATE
         )
         self._lighting_root_signature: tuple[Any, ...] | None = None
-        self._lighting_reconcile_signature: tuple[int, bytes | None] | None = None
+        self._lighting_reconcile_signature: (
+            tuple[int, bool, bytes | None] | None
+        ) = None
         self._lighting_reconcile_pending = False
         self._lighting_reconcile_worker: threading.Thread | None = None
         if config is not None:
@@ -1187,13 +1189,21 @@ class _State:
             return []
 
         _library, coordinator = self.lighting_services()
-        api_key = store.resolve_xai_key(
-            credential_store=self._credential_store
+        settings = store.load_settings(credential_store=self._credential_store)
+        ai_settings = settings["ai"]
+        api_selected = (
+            ai_settings["enabled"] is True and ai_settings["backend"] == "api"
+        )
+        credential_checked = api_selected
+        api_key = (
+            store.resolve_xai_key(credential_store=self._credential_store)
+            if credential_checked
+            else None
         )
         key_fingerprint = (
             hashlib.sha256(api_key.encode("utf-8")).digest() if api_key else None
         )
-        signature = (id(coordinator), key_fingerprint)
+        signature = (id(coordinator), api_selected, key_fingerprint)
         with self._lighting_lock:
             if not force and signature == self._lighting_reconcile_signature:
                 return []
@@ -1208,6 +1218,15 @@ class _State:
                     api_key=api_key,
                     _admission_token=token,
                 )
+                if actions and not credential_checked:
+                    recovery_key = store.resolve_xai_key(
+                        credential_store=self._credential_store
+                    )
+                    if recovery_key:
+                        actions = coordinator.reconcile_startup(
+                            api_key=recovery_key,
+                            _admission_token=token,
+                        )
                 try:
                     _procedural_library, procedural = self.procedural_services()
                 except RuntimeError:

@@ -2036,6 +2036,7 @@ class _LightingEndpointCoordinator:
         self.library = library
         self.calls: list[tuple[str, tuple, dict]] = []
         self.reconcile_calls: list[str | None] = []
+        self.recovery_actions: list[dict] = []
         self.failure: Exception | None = None
         self.active_job_id: str | None = None
 
@@ -2047,7 +2048,7 @@ class _LightingEndpointCoordinator:
     ):
         del _admission_token
         self.reconcile_calls.append(api_key)
-        return []
+        return list(self.recovery_actions)
 
     def _raise_or_record(self, name: str, args: tuple, kwargs: dict) -> None:
         self.calls.append((name, args, kwargs))
@@ -2060,6 +2061,134 @@ class _LightingEndpointCoordinator:
 
 
 class CombinedReconciliationAdmissionTests(unittest.TestCase):
+    def test_disabled_ai_without_remote_recovery_skips_credential_lookup(self) -> None:
+        class Coordinator:
+            active_job_id = None
+
+            def __init__(self) -> None:
+                self.calls: list[str | None] = []
+
+            def reconcile_startup(
+                self,
+                *,
+                api_key=None,
+                _admission_token=None,
+            ) -> list[dict]:
+                del _admission_token
+                self.calls.append(api_key)
+                return []
+
+        coordinator = Coordinator()
+        state = server._State(
+            None,
+            "test-token",
+            lighting_library=object(),
+            lighting_coordinator=coordinator,
+            credential_store=credentials.MemoryCredentialStore(),
+        )
+        disabled_settings = {"ai": {"enabled": False, "backend": None}}
+        try:
+            with (
+                patch.object(store, "load_settings", return_value=disabled_settings),
+                patch.object(store, "resolve_xai_key") as resolve_key,
+            ):
+                self.assertEqual([], state.reconcile_lighting(force=True))
+        finally:
+            state.close()
+
+        resolve_key.assert_not_called()
+        self.assertEqual([None], coordinator.calls)
+
+    def test_accepted_remote_recovery_resolves_credential_on_demand(self) -> None:
+        action = {"job_id": "job-1", "request_id": "request-1"}
+
+        class Coordinator:
+            active_job_id = None
+
+            def __init__(self) -> None:
+                self.calls: list[str | None] = []
+
+            def reconcile_startup(
+                self,
+                *,
+                api_key=None,
+                _admission_token=None,
+            ) -> list[dict]:
+                del _admission_token
+                self.calls.append(api_key)
+                return [action]
+
+        coordinator = Coordinator()
+        state = server._State(
+            None,
+            "test-token",
+            lighting_library=object(),
+            lighting_coordinator=coordinator,
+            credential_store=credentials.MemoryCredentialStore(),
+        )
+        disabled_settings = {"ai": {"enabled": False, "backend": None}}
+        try:
+            with (
+                patch.object(store, "load_settings", return_value=disabled_settings),
+                patch.object(
+                    store,
+                    "resolve_xai_key",
+                    return_value="recovery-secret",
+                ) as resolve_key,
+            ):
+                self.assertEqual([action], state.reconcile_lighting(force=True))
+        finally:
+            state.close()
+
+        resolve_key.assert_called_once_with(
+            credential_store=state._credential_store
+        )
+        self.assertEqual([None, "recovery-secret"], coordinator.calls)
+
+    def test_enabled_api_resolves_credential_before_reconciliation(self) -> None:
+        class Coordinator:
+            active_job_id = None
+
+            def __init__(self) -> None:
+                self.calls: list[str | None] = []
+
+            def reconcile_startup(
+                self,
+                *,
+                api_key=None,
+                _admission_token=None,
+            ) -> list[dict]:
+                del _admission_token
+                self.calls.append(api_key)
+                return []
+
+        coordinator = Coordinator()
+        state = server._State(
+            None,
+            "test-token",
+            lighting_library=object(),
+            lighting_coordinator=coordinator,
+            credential_store=credentials.MemoryCredentialStore(),
+        )
+        api_settings = {"ai": {"enabled": True, "backend": "api"}}
+        try:
+            with (
+                patch.object(store, "load_settings", return_value=api_settings),
+                patch.object(
+                    store,
+                    "resolve_xai_key",
+                    return_value="api-secret",
+                ) as resolve_key,
+            ):
+                self.assertEqual([], state.reconcile_lighting(force=True))
+        finally:
+            state.close()
+
+        resolve_key.assert_called_once_with(
+            credential_store=state._credential_store
+        )
+        self.assertEqual(["api-secret"], coordinator.calls)
+
     def test_legacy_and_procedural_reconciliation_share_one_state_lease(self) -> None:
         gate = generation.OperationGate()
         procedural_entered = threading.Event()
@@ -2319,6 +2448,9 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self._thread.join(timeout=2)
         store.update_api_key({"provider": "xai", "key": ""})
         coordinator = _LightingEndpointCoordinator(self.library)
+        coordinator.recovery_actions = [
+            {"job_id": "job-1", "request_id": "request-1"}
+        ]
         self._server, url = create_server(
             lighting_library=self.library,
             lighting_coordinator=coordinator,
@@ -2335,7 +2467,10 @@ class LightingStudioEndpointTests(unittest.TestCase):
             {"provider": "xai", "key": "sk-restored-secret"},
         )
         self.assertEqual(200, status)
-        self.assertEqual([None, "sk-restored-secret"], coordinator.reconcile_calls)
+        self.assertEqual(
+            [None, None, "sk-restored-secret"],
+            coordinator.reconcile_calls,
+        )
         self.assertNotIn("sk-restored-secret", json.dumps(response))
 
     def test_reconciliation_waits_for_active_generation_to_finish(self) -> None:
@@ -2365,7 +2500,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
         deadline = time.monotonic() + 2
         while not coordinator.reconcile_calls and time.monotonic() < deadline:
             time.sleep(0.01)
-        self.assertEqual(["sk-lighting-secret"], coordinator.reconcile_calls)
+        self.assertEqual([None], coordinator.reconcile_calls)
 
     def test_retired_generation_stays_gone_while_admission_is_busy(self) -> None:
         gate = generation.OperationGate()
