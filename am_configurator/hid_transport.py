@@ -142,8 +142,8 @@ class HidDeviceInfo:
 
     address: str
     path: bytes
-    vendor_id: int
-    product_id: int
+    usb_vendor_id: int
+    usb_product_id: int
     serial_number: str
     product_string: str
     manufacturer_string: str
@@ -155,8 +155,29 @@ class HidDeviceInfo:
     protocol_version: int = 0
 
     @property
+    def product_id(self) -> str:
+        """The AM product identifier, which is the model — not the USB PID.
+
+        The device routes and the browser both key families off `product_id`.
+        For a serial board that is a string like `CB04`; for this one it is the
+        validated model. Exposing the USB product id under that name would have
+        the browser trying to match a family called `591`.
+        """
+
+        # Falls back to the USB product string so a device that has been
+        # listed but not yet interrogated still shows a name and resolves to a
+        # family. It is not proof of anything and never authorizes a write.
+        return self.model or self.product_string
+
+    @property
     def is_keyboard(self) -> bool:
-        return self.model is not None
+        """A Vial board is a keyboard; which model it is, is a separate question.
+
+        Listing requires only that. `writable` is the property that demands the
+        definition gate, and it is the one that guards a write.
+        """
+
+        return self.is_vial or self.model is not None
 
     @property
     def writable(self) -> bool:
@@ -350,12 +371,19 @@ def fetch_definition(handle) -> dict[str, Any]:
     return definition
 
 
-def identify(entry: dict[str, Any]) -> HidDeviceInfo:
-    """Run the three-stage identity gate against one enumerated endpoint.
+def identify(entry: dict[str, Any], *, deep: bool = True) -> HidDeviceInfo:
+    """Run the identity gate against one enumerated endpoint.
 
     Never raises for an unidentified device: a board that fails a stage is
     returned as non-writable with the reason recorded, because discovery must
     still list it rather than silently omit or, worse, silently accept it.
+
+    `deep=False` stops after the cheap USB stages and opens nothing. Scans run
+    shallow: opening and interrogating every attached Vial board on every scan
+    is slow, contends with other applications for exclusive access, and made the
+    test suite trap at interpreter shutdown. The definition gate then runs when
+    a specific device is resolved, which is the only moment its answer is
+    needed.
     """
 
     serial = str(entry.get("serial_number") or "")
@@ -370,8 +398,8 @@ def identify(entry: dict[str, Any]) -> HidDeviceInfo:
     common = {
         "address": endpoint_address(entry.get("path") or b""),
         "path": entry.get("path") or b"",
-        "vendor_id": int(entry.get("vendor_id") or 0),
-        "product_id": int(entry.get("product_id") or 0),
+        "usb_vendor_id": vendor_id,
+        "usb_product_id": product_id,
         "serial_number": serial,
         "product_string": str(entry.get("product_string") or ""),
         "manufacturer_string": str(entry.get("manufacturer_string") or ""),
@@ -386,6 +414,15 @@ def identify(entry: dict[str, Any]) -> HidDeviceInfo:
             is_vial=False,
             definition_name=None,
             identity_error="This device does not report Vial firmware.",
+        )
+
+    if not deep:
+        return HidDeviceInfo(
+            **common,
+            model=None,
+            is_vial=True,
+            definition_name=None,
+            identity_error=None,
         )
 
     # Stage 3. Ask the board what it is. This is the only stage that can
@@ -433,18 +470,22 @@ def identify(entry: dict[str, Any]) -> HidDeviceInfo:
     )
 
 
-def list_devices() -> list[HidDeviceInfo]:
-    """Every raw-HID candidate, each carrying its own identity verdict."""
+def list_devices(*, deep: bool = False) -> list[HidDeviceInfo]:
+    """Every raw-HID candidate. Shallow by default: opens no device."""
 
-    return [identify(entry) for entry in raw_endpoints()]
+    return [identify(entry, deep=deep) for entry in raw_endpoints()]
 
 
 def find(address: str) -> HidDeviceInfo:
-    """Resolve an address to a currently attached, identified device."""
+    """Resolve an address to a currently attached, fully identified device.
 
-    for info in list_devices():
-        if info.address == address:
-            return info
+    Always deep: this is the answer a caller acts on, so it is the moment the
+    definition gate must run.
+    """
+
+    for entry in raw_endpoints():
+        if endpoint_address(entry.get("path") or b"") == address:
+            return identify(entry, deep=True)
     raise HidDeviceAbsent("That keyboard is no longer attached.")
 
 

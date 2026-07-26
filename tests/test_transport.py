@@ -135,7 +135,15 @@ class SerialDispatchTests(unittest.TestCase):
 
     def test_discovery_pairs_every_device_with_its_own_handle(self) -> None:
         found = SimpleNamespace(port="/dev/one", is_keyboard=True)
-        with patch("am_configurator.device.list_devices", return_value=[found]):
+
+        # Isolate the registry to the serial transport. Discovery now walks
+        # every registered transport, so without this the test enumerates
+        # whatever hardware happens to be plugged into the machine running it.
+        only_serial = {transport.SERIAL: transport.transport_for(transport.SERIAL)}
+        with (
+            patch.dict(transport._TRANSPORTS, only_serial, clear=True),
+            patch("am_configurator.device.list_devices", return_value=[found]),
+        ):
             pairs = transport.discover()
 
         self.assertEqual([(self.handle.__class__(transport.SERIAL, "/dev/one"), found)], pairs)

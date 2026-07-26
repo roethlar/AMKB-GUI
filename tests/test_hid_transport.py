@@ -81,14 +81,16 @@ class IdentityGateTests(unittest.TestCase):
             patch.object(hid_transport, "raw_endpoints", return_value=[_entry()]),
             patch.object(hid_transport, "_open", return_value=decoy),
         ):
-            found = hid_transport.list_devices()
+            found = hid_transport.list_devices(deep=True)
 
         self.assertEqual(1, len(found))
         info = found[0]
         self.assertTrue(info.is_vial)
         self.assertIsNone(info.model)
         self.assertFalse(info.writable)
-        self.assertFalse(info.is_keyboard)
+        # It *is* a keyboard — it simply is not this one. Listing it is right;
+        # the property that must stay false is `writable`.
+        self.assertTrue(info.is_keyboard)
         self.assertIn("Some Other Vial Board", info.identity_error)
         self.assertTrue(decoy.closed)
 
@@ -110,7 +112,7 @@ class IdentityGateTests(unittest.TestCase):
             patch.object(hid_transport, "raw_endpoints", return_value=[_entry()]),
             patch.object(hid_transport, "_open", return_value=real),
         ):
-            info = hid_transport.list_devices()[0]
+            info = hid_transport.list_devices(deep=True)[0]
 
         self.assertEqual("NEON80", info.model)
         self.assertTrue(info.writable)
@@ -122,7 +124,7 @@ class IdentityGateTests(unittest.TestCase):
             patch.object(hid_transport, "raw_endpoints", return_value=[_entry(serial="AM21")]),
             patch.object(hid_transport, "_open", side_effect=AssertionError("must not open")),
         ):
-            info = hid_transport.list_devices()[0]
+            info = hid_transport.list_devices(deep=True)[0]
 
         self.assertFalse(info.is_vial)
         self.assertFalse(info.writable)
@@ -134,7 +136,7 @@ class IdentityGateTests(unittest.TestCase):
             patch.object(hid_transport, "raw_endpoints", return_value=[_entry()]),
             patch.object(hid_transport, "_open", return_value=handle),
         ):
-            hid_transport.list_devices()
+            hid_transport.list_devices(deep=True)
 
         issued = {packet[1] for packet in handle.written}
         self.assertTrue(issued)
@@ -161,6 +163,53 @@ class IdentityGateTests(unittest.TestCase):
             hid_transport.fetch_definition(handle)
 
 
+class ShallowDiscoveryTests(unittest.TestCase):
+    """A scan lists candidates and opens nothing.
+
+    Interrogating every attached Vial board on every scan is slow, contends for
+    exclusive access with other applications, and made the suite trap at
+    interpreter shutdown. The definition gate runs when a device is resolved.
+    """
+
+    def test_a_scan_never_opens_a_device(self) -> None:
+        with (
+            patch.object(hid_transport, "raw_endpoints", return_value=[_entry()]),
+            patch.object(hid_transport, "_open", side_effect=AssertionError("scan opened a device")),
+        ):
+            found = hid_transport.list_devices()
+
+        self.assertEqual(1, len(found))
+        info = found[0]
+        self.assertTrue(info.is_vial)
+        self.assertTrue(info.is_keyboard, "a Vial board must still be listed")
+        self.assertFalse(info.writable, "an uninterrogated device is not writable")
+        self.assertIsNone(info.model)
+        self.assertEqual("AM Neon 80", info.product_id)
+
+    def test_resolving_an_address_runs_the_full_gate(self) -> None:
+        handle = FakeHandle({"name": "AM Neon 80"})
+        with (
+            patch.object(hid_transport, "raw_endpoints", return_value=[_entry()]),
+            patch.object(hid_transport, "_open", return_value=handle),
+        ):
+            info = hid_transport.find(hid_transport.endpoint_address(b"DevSrvsID:1"))
+
+        self.assertEqual("NEON80", info.model)
+        self.assertTrue(info.writable)
+
+    def test_a_listed_device_cannot_be_approved_without_being_resolved(self) -> None:
+        """Listing is not authorization."""
+
+        with (
+            patch.object(hid_transport, "raw_endpoints", return_value=[_entry()]),
+            patch.object(hid_transport, "_open", side_effect=AssertionError("must not open")),
+        ):
+            info = hid_transport.list_devices()[0]
+
+        with self.assertRaises(hid_transport.HidIdentityError):
+            hid_transport.approve_write(info, "NEON80")
+
+
 class AddressIdentityTests(unittest.TestCase):
     """Model identity and instance identity are different questions.
 
@@ -177,7 +226,7 @@ class AddressIdentityTests(unittest.TestCase):
             patch.object(hid_transport, "raw_endpoints", return_value=[_entry(path=path)]),
             patch.object(hid_transport, "_open", return_value=handle),
         ):
-            return hid_transport.list_devices()[0]
+            return hid_transport.list_devices(deep=True)[0]
 
     def test_two_units_of_the_same_model_get_different_addresses(self) -> None:
         # The case that cannot be reproduced with one keyboard: two Neon 80s,
@@ -213,7 +262,7 @@ class AddressIdentityTests(unittest.TestCase):
             patch.object(hid_transport, "raw_endpoints", return_value=[_entry()]),
             patch.object(hid_transport, "_open", return_value=handle),
         ):
-            info = hid_transport.list_devices()[0]
+            info = hid_transport.list_devices(deep=True)[0]
 
         self.assertIsNone(info.model)
         self.assertFalse(info.writable)
@@ -281,7 +330,7 @@ class WriteApprovalTests(unittest.TestCase):
             patch.object(hid_transport, "raw_endpoints", return_value=[_entry(path=path)]),
             patch.object(hid_transport, "_open", return_value=handle),
         ):
-            return hid_transport.list_devices()[0]
+            return hid_transport.list_devices(deep=True)[0]
 
     def test_a_changed_path_invalidates_a_prior_confirmation(self) -> None:
         """A device swapped after confirmation must not inherit the approval."""
@@ -309,7 +358,7 @@ class WriteApprovalTests(unittest.TestCase):
             patch.object(hid_transport, "raw_endpoints", return_value=[_entry()]),
             patch.object(hid_transport, "_open", return_value=decoy),
         ):
-            info = hid_transport.list_devices()[0]
+            info = hid_transport.list_devices(deep=True)[0]
 
         with self.assertRaises(hid_transport.HidIdentityError):
             hid_transport.approve_write(info, "NEON80")
@@ -440,7 +489,7 @@ class OpenFailureClassificationTests(unittest.TestCase):
             patch.object(hid_transport, "raw_endpoints", side_effect=_flaky_endpoints),
             patch.object(hid_transport, "_hid", return_value=fake_hid),
         ):
-            found = hid_transport.list_devices()
+            found = hid_transport.list_devices(deep=True)
 
         self.assertEqual(1, len(found))
         self.assertFalse(found[0].writable)
@@ -466,7 +515,7 @@ class ApprovalIsLoadBearingTests(unittest.TestCase):
             patch.object(hid_transport, "raw_endpoints", return_value=[_entry(path=path)]),
             patch.object(hid_transport, "_open", return_value=handle),
         ):
-            return hid_transport.list_devices()[0]
+            return hid_transport.list_devices(deep=True)[0]
 
     def test_there_is_no_public_way_to_send_without_an_approval(self) -> None:
         """The old public session took a bare path and wrote with no approval."""
@@ -610,7 +659,7 @@ class ErrorSurfaceTests(unittest.TestCase):
                 side_effect=hid_transport.HidPermissionDenied("Permission denied opening the keyboard."),
             ),
         ):
-            info = hid_transport.list_devices()[0]
+            info = hid_transport.list_devices(deep=True)[0]
 
         self.assertIsNotNone(info.identity_error)
         self.assertNotIn("DevSrvsID", info.identity_error)

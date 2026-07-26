@@ -1380,7 +1380,7 @@ class _Handler(BaseHTTPRequestHandler):
                         self.state.last_device_scan = time.monotonic()
                     self._json({
                         "devices": [
-                            {**asdict(info), **handle.as_json()}
+                            transport.device_json(handle, info)
                             for handle, info in found
                         ]
                     })

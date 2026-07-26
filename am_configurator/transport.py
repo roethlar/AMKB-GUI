@@ -209,7 +209,14 @@ def handle_from_payload(body: dict[str, Any]) -> DeviceHandle:
 
 
 def discover() -> list[tuple[DeviceHandle, Any]]:
-    """Every device on every registered transport, paired with its handle."""
+    """Every device on every registered transport, paired with its handle.
+
+    A scan failure propagates. Swallowing it would report "no devices" to a
+    user whose device layer is broken, which is the silent-fallback failure
+    this module exists to avoid; the route already redacts the detail. A
+    transport whose *dependencies* are missing never registers in the first
+    place, which is the case worth tolerating and is handled at registration.
+    """
 
     found: list[tuple[DeviceHandle, Any]] = []
     for transport in _TRANSPORTS.values():
@@ -218,4 +225,51 @@ def discover() -> list[tuple[DeviceHandle, Any]]:
     return found
 
 
+def device_json(handle: DeviceHandle, info: Any) -> dict[str, Any]:
+    """Project one discovered device into the JSON the browser consumes.
+
+    `asdict` alone is not enough. A raw-HID device carries its OS path as
+    `bytes`, which no JSON encoder accepts, and `is_keyboard` is a property
+    rather than a field — the browser filters the device list on exactly that
+    key, so omitting it makes a real keyboard invisible.
+    """
+
+    from dataclasses import asdict, is_dataclass
+
+    payload = asdict(info) if is_dataclass(info) else dict(info)
+    payload = {
+        key: value.hex() if isinstance(value, (bytes, bytearray)) else value
+        for key, value in payload.items()
+    }
+    for derived in ("is_keyboard", "writable"):
+        if hasattr(info, derived):
+            payload[derived] = bool(getattr(info, derived))
+    # Not boolean: `product_id` is the AM product identifier the browser keys
+    # families off, and coercing it to a bool silently made every device report
+    # `product_id: true`.
+    if hasattr(info, "product_id"):
+        payload["product_id"] = getattr(info, "product_id")
+    payload.update(handle.as_json())
+    return payload
+
+
 register_transport(SerialTransport())
+
+
+def register_optional_transports() -> None:
+    """Register transports whose dependencies may be absent.
+
+    The Neon driver needs `hidapi`, which is a runtime dependency but can fail
+    to load on a machine with no HID backend. Discovery for the serial families
+    must not break because of that, so the failure is swallowed here and the
+    Neon simply does not enumerate — the same outcome as the keyboard not being
+    plugged in.
+    """
+
+    try:
+        from . import neon_driver  # noqa: F401  (registers on import)
+    except Exception:
+        pass
+
+
+register_optional_transports()
