@@ -2079,19 +2079,28 @@ class _Handler(BaseHTTPRequestHandler):
             time.sleep(0.1)
             key_layers = link.read_keymap(handle.address, layers=layers)
             time.sleep(0.1)
-            device_macros = link.read_macros(handle.address)
+            macro_state = link.read_macro_state(handle.address)
+            device_macros = macro_state.macros
         stored_config, stored_warning = _stored_device_config(device.product_id or "")
         resolved_macros, macro_read_warning, restored_macro_snapshot = (
             _reconcile_read_macros(
                 device.product_id or "", device_macros, stored_config
             )
         )
+        device_payload = transport.device_json(handle, device)
+        if macro_state.device_reported:
+            device_payload.update(
+                {
+                    "macro_count": macro_state.device_macro_count,
+                    "macro_buffer_bytes": macro_state.device_macro_buffer_bytes,
+                }
+            )
         self._json({
             # Not `asdict`: a raw-HID device carries its OS path as bytes, which
             # no JSON encoder accepts, and its canonical product id is a derived
             # property rather than a field. `asdict` here returned HTTP 500 for
             # every Neon read after the reads had already succeeded.
-            "device": transport.device_json(handle, device),
+            "device": device_payload,
             "layers": key_layers,
             "macros": resolved_macros,
             "macro_references": _macro_references(key_layers),

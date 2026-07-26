@@ -10,7 +10,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
 const {createReviewView, openRenderedDialog, renderReview, reviewBlockedMessage} = LightingReview;
-const {DEVICE_TARGETS, filterAssignmentOptions, productFamily, projectVialKeyLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount} = LightingTargets;
+const {DEVICE_TARGETS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
 
@@ -162,7 +162,12 @@ function productId() {
 }
 
 function activeFamilySpec() {
-  return specForProduct(productId());
+  const spec=specForProduct(productId());
+  const device=state.devices.find(item=>deviceKey(item)===state.loadedDevice);
+  return withDeviceMacroLimits(
+    spec,
+    device&&sameProductFamily(productId(),device.product_id)?device:null,
+  );
 }
 
 function sameProductFamily(left, right) {
@@ -588,10 +593,11 @@ function vendorGroup(usage) {
 
 function renderAssignmentPalette(current) {
   const product=productId();
-  const macrosForPalette=filterAssignmentOptions(product,(state.config.macro_key||[]).map((macro,index)=>({label:`Macro ${index+1}`,code:macro.original_key,category:"Macros"})));
+  const macroTracks=activeFamilySpec().macroTracks;
+  const macrosForPalette=filterAssignmentOptions(product,(state.config.macro_key||[]).map((macro,index)=>({label:`Macro ${index+1}`,code:macro.original_key,category:"Macros"})),macroTracks);
   const extraUsages=[0x46,0x47,0x48,0x49,0x4a,0x4b,0x4c,0x4d,0x4e,0x4f,0x50,0x51,0x52,0x53,0x68];
-  const extras=filterAssignmentOptions(product,[{label:"None",code:"#00000000",category:"Navigation & media"},...extraUsages.map(usage=>standardOption(usage,"Navigation & media")),...KEY_OPTIONS.filter(option=>option.category==="Media")]);
-  const vendorOptions=filterAssignmentOptions(product,Object.entries(VENDOR).map(([usage,label])=>({label,code:makeCode(0x92,Number(usage)),category:vendorGroup(Number(usage))})));
+  const extras=filterAssignmentOptions(product,[{label:"None",code:"#00000000",category:"Navigation & media"},...extraUsages.map(usage=>standardOption(usage,"Navigation & media")),...KEY_OPTIONS.filter(option=>option.category==="Media")],macroTracks);
+  const vendorOptions=filterAssignmentOptions(product,Object.entries(VENDOR).map(([usage,label])=>({label,code:makeCode(0x92,Number(usage)),category:vendorGroup(Number(usage))})),macroTracks);
   const vendorGroups=VENDOR_GROUPS.map(group=>({group,options:vendorOptions.filter(option=>option.category===group)})).filter(entry=>entry.options.length);
   return `<section class="assignment-panel">
     <div class="assignment-heading"><div><strong>Available assignments</strong><small>${state.selected===null?'Select a key on the board first.':`Assigning matrix key ${state.selected}`}</small></div><input id="key-search" class="search-field" type="search" placeholder="Filter keys and controls…"></div>
@@ -1149,8 +1155,15 @@ function wireKeyInspector() {
   $("#raw-code")?.addEventListener("keydown", event => { if (event.key === "Enter") assignSelected(event.currentTarget.value.trim()); });
 }
 
-function totalMacroEvents() {
-  return (state.config.macro_key || []).reduce((sum, macro) => sum + (macro.layer_key || []).length, 0);
+function macroCapacity(candidate=macros()) {
+  return macroCapacityStatus(activeFamilySpec(),candidate);
+}
+
+function macroCapacityError(candidate) {
+  const capacity=macroCapacity(candidate);
+  if(candidate.length>capacity.tracks)return `This keyboard stores ${capacity.tracks} macros; the profile has ${candidate.length}.`;
+  if(capacity.used>capacity.limit)return `These macros use ${capacity.used}/${capacity.limit} ${capacity.unit}. Shorten or remove some macros.`;
+  return "";
 }
 
 function missingMacroTokens() {
@@ -1185,6 +1198,8 @@ function confirmMacroReplacement(existingCount,incomingCount,fileName) {
 
 function applyImportedMacros(result) {
   const incoming=result.macros||[];
+  const capacityError=macroCapacityError(incoming);
+  if(capacityError)throw new Error(capacityError);
   mutate(()=>{state.config.macro_key=clone(incoming);state.macro=0;});
   const events=incoming.reduce((sum,macro)=>sum+(macro.layer_key||[]).length,0);
   const connected=incoming.filter(macro=>layers().some(layer=>(layer.layer||[]).some(code=>String(code).toUpperCase()===macro.original_key))).map(macro=>decodeCode(macro.original_key));
@@ -1240,12 +1255,15 @@ async function applyMacroText(mode) {
   try{
     const generated=await api("/api/macros/text",{method:"POST",body:JSON.stringify({text,delay_ms:delay})});
     const oldCount=(current.layer_key||[]).length;
-    const projected=mode==="append"?totalMacroEvents()+generated.layer_key.length:totalMacroEvents()-oldCount+generated.layer_key.length;
-    const {macroEvents}=activeFamilySpec();
-    if(projected>macroEvents)throw new Error(`This would use ${projected}/${macroEvents} events across the profile.`);
+    const candidate=clone(macros());
+    const next=candidate[state.macro];
+    next.layer_key=mode==="append"?[...(next.layer_key||[]),...generated.layer_key]:generated.layer_key;
+    next.intvel_ms=mode==="append"?[...(next.intvel_ms||[]).slice(0,oldCount),...generated.intvel_ms]:generated.intvel_ms;
+    const capacityError=macroCapacityError(candidate);
+    if(capacityError)throw new Error(capacityError);
     mutate(()=>{
       current.layer_key=mode==="append"?[...(current.layer_key||[]),...generated.layer_key]:generated.layer_key;
-      current.intvel_ms=mode==="append"?[...(current.intvel_ms||[]).slice(0,oldCount),...generated.intvel_ms]:generated.intvel_ms;
+      current.intvel_ms=next.intvel_ms;
     });
     toast("Text converted",`${generated.characters} characters · ${generated.layer_key.length} deterministic events · ${delay}ms between keys`,"success");
   }catch(error){toast("Could not convert text",error.message,"error");}
@@ -1254,14 +1272,14 @@ async function applyMacroText(mode) {
 function renderMacros() {
   state.macro = Math.min(state.macro, Math.max(0,macros().length-1));
   const current = macros()[state.macro];
-  const total = totalMacroEvents();
-  const {macroTracks, macroEvents} = activeFamilySpec();
+  const capacity=macroCapacity();
+  const macroTracks=capacity.tracks;
   const eventOptions = KEY_OPTIONS.filter(option => ["Letters","Numbers","Basic","Function"].includes(option.category) && option.code !== "#00000000");
   const assigned = current ? layers().reduce((sum, layer) => sum + layer.layer.filter(code => code.toUpperCase()===current.original_key.toUpperCase()).length,0) : 0;
   const missing=missingMacroTokens();
   const missingWarning=missing.length?`<div class="write-warning macro-warning"><strong>Macro assignments have no readable actions</strong><p>${missing.map(code=>esc(decodeCode(code))).join(", ")} ${missing.length===1?'is':'are'} assigned in the keymap, but the keyboard returned no matching macro definition. Loading cannot reconstruct those keystrokes; restore them from a saved JSON or recreate them before writing.</p></div>`:"";
   $("#screen").innerHTML = `<div class="screen-shell">
-    <header class="screen-header"><div><p class="eyebrow">Up to ${macroTracks} tracks · ${macroEvents} events</p><h1>Macros</h1><p class="description">Record or arrange exact key-down, key-up, and timing events.</p></div><div class="header-controls"><div><small>${total}/${macroEvents} events</small><div class="limit-meter"><span style="width:${Math.min(100,total*100/macroEvents)}%"></span></div></div><button id="import-macros" class="button ghost">Import macros</button><button id="add-macro" class="button primary">+ New macro</button></div></header>
+    <header class="screen-header"><div><p class="eyebrow">Up to ${macroTracks} tracks · ${capacity.limit} ${capacity.unit}</p><h1>Macros</h1><p class="description">Record or arrange exact key-down, key-up, and timing events.</p></div><div class="header-controls"><div><small>${capacity.used}/${capacity.limit} ${capacity.unit}</small><div class="limit-meter"><span style="width:${capacity.limit?Math.min(100,capacity.used*100/capacity.limit):0}%"></span></div></div><button id="import-macros" class="button ghost">Import macros</button><button id="add-macro" class="button primary">+ New macro</button></div></header>
     ${missingWarning}
     <div class="macro-layout">
       <aside class="card macro-list"><div class="card-header"><strong>Macro library</strong><small>${macros().length}/${macroTracks}</small></div><div class="macro-list-items">
@@ -1293,7 +1311,11 @@ function renderMacros() {
   if (!current) return;
   $("#delete-macro").addEventListener("click", removeMacro);
   $("#add-event").addEventListener("click", () => {
-    if (totalMacroEvents() >= activeFamilySpec().macroEvents) return toast("Event limit reached", "Delete an event before adding another.", "error");
+    const candidate=clone(macros());
+    candidate[state.macro].layer_key.push("#11070004");
+    candidate[state.macro].intvel_ms.push(25);
+    const capacityError=macroCapacityError(candidate);
+    if(capacityError)return toast("Macro capacity reached",capacityError,"error");
     mutate(()=>{current.layer_key.push("#11070004");current.intvel_ms.push(25);});
   });
   $("#record-macro").addEventListener("click", toggleRecording);
@@ -1306,9 +1328,14 @@ function renderMacros() {
   $$("[data-event-key]").forEach(select => select.addEventListener("change",()=>mutate(()=>{
     const i=Number(select.dataset.eventKey);current.layer_key[i]=macroEventCode(select.value,codeParts(current.layer_key[i])?.modifier!==0x10);
   })));
-  $$("[data-delay]").forEach(input => input.addEventListener("change",()=>mutate(()=>{
-    const i=Number(input.dataset.delay);current.intvel_ms[i]=Math.max(0,Math.min(15000,Number(input.value)||0));
-  })));
+  $$("[data-delay]").forEach(input => input.addEventListener("change",()=>{
+    const i=Number(input.dataset.delay);
+    const value=Math.max(0,Math.min(15000,Number(input.value)||0));
+    const candidate=clone(macros());candidate[state.macro].intvel_ms[i]=value;
+    const capacityError=macroCapacityError(candidate);
+    if(capacityError){toast("Macro capacity reached",capacityError,"error");renderMacros();return;}
+    mutate(()=>{current.intvel_ms[i]=value;});
+  }));
   $$("[data-remove]").forEach(button => button.addEventListener("click",()=>mutate(()=>{
     const i=Number(button.dataset.remove);current.layer_key.splice(i,1);current.intvel_ms.splice(i,1);
   })));
@@ -1329,11 +1356,16 @@ function recordEvent(event, down) {
   if (usage === undefined) return;
   event.preventDefault();
   const current = macros()[state.macro];
-  const {macroEvents} = activeFamilySpec();
-  if (!current || totalMacroEvents() >= macroEvents) { state.recording=false; renderMacros(); return toast("Event limit reached",`Recording stopped at ${macroEvents} events.`,"error"); }
   const now = performance.now();
+  if(!current)return;
+  const delay=Math.max(0,Math.min(15000,Math.round(now-state.recordLast)));
+  const candidate=clone(macros());
+  candidate[state.macro].layer_key.push(makeCode(7,usage,down?0x11:0x10));
+  candidate[state.macro].intvel_ms.push(delay);
+  const capacityError=macroCapacityError(candidate);
+  if(capacityError){state.recording=false;renderMacros();return toast("Macro capacity reached",capacityError,"error");}
   current.layer_key.push(makeCode(7,usage,down?0x11:0x10));
-  current.intvel_ms.push(Math.max(0,Math.min(15000,Math.round(now-state.recordLast))));
+  current.intvel_ms.push(delay);
   state.recordLast = now;
   markDirty();
   renderMacros();
@@ -1884,7 +1916,14 @@ async function scanDevices() {
     const previous=new Map(state.devices.map(device=>[deviceKey(device),device]));
     state.devices=(result.devices||[]).map(device=>{
       const known=previous.get(deviceKey(device));
-      return known?.key_layout?.length&&!device.key_layout?.length?{...device,key_layout:known.key_layout}:device;
+      const deep={
+        ...(known?.key_layout?.length&&!device.key_layout?.length?{key_layout:known.key_layout}:{}),
+        ...(Number.isInteger(Number(known?.macro_count))&&Number.isInteger(Number(known?.macro_buffer_bytes))?{
+          macro_count:known.macro_count,
+          macro_buffer_bytes:known.macro_buffer_bytes,
+        }:{}),
+      };
+      return {...device,...deep};
     });
     const keyboards=state.devices.filter(device=>device.is_keyboard);
     $(".status-light").classList.toggle("online",Boolean(keyboards.length));

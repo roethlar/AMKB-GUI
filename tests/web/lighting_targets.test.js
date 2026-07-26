@@ -9,6 +9,7 @@ const {
   UNKNOWN_FAMILY_SPEC,
   familySpec,
   filterAssignmentOptions,
+  macroCapacityStatus,
   neonPaletteAssignment,
   productFamily,
   projectVialKeyLayout,
@@ -16,6 +17,8 @@ const {
   specForProduct,
   supportedFamily,
   trackColorCount,
+  vialMacroBufferUsage,
+  withDeviceMacroLimits,
 } = require("../../am_configurator/web/lighting_targets.js");
 
 class FakeElement {
@@ -205,4 +208,80 @@ test("the Neon palette exposes only assignments its QMK wire format accepts", ()
   assert.equal(neonPaletteAssignment("#01070004"), true);
   assert.equal(neonPaletteAssignment("#11070004"), false);
   assert.equal(neonPaletteAssignment("#00FF5101"), false);
+  assert.deepEqual(
+    filterAssignmentOptions("NEON80", options, 9).map(option => option.label),
+    ["None", "A"],
+  );
+});
+
+test("connected Neon macro limits overlay the static family fallback", () => {
+  const connected = withDeviceMacroLimits(FAMILY_SPECS.NEON, {
+    macro_count: 9,
+    macro_buffer_bytes: 321,
+  });
+
+  assert.equal(connected.macroTracks, 9);
+  assert.equal(connected.macroBufferBytes, 321);
+  assert.equal(FAMILY_SPECS.NEON.macroTracks, 16);
+  assert.equal(withDeviceMacroLimits(FAMILY_SPECS.NEON, {}), FAMILY_SPECS.NEON);
+  assert.equal(withDeviceMacroLimits(FAMILY_SPECS.CB, {
+    macro_count: 9,
+    macro_buffer_bytes: 321,
+  }), FAMILY_SPECS.CB);
+  const none = withDeviceMacroLimits(FAMILY_SPECS.NEON, {
+    macro_count: 0,
+    macro_buffer_bytes: 0,
+  });
+  assert.equal(none.macroTracks, 0);
+  assert.equal(none.macroBufferBytes, 0);
+  assert.deepEqual(macroCapacityStatus(none, []), {
+    used: 0,
+    limit: 0,
+    unit: "bytes",
+    tracks: 0,
+    fits: true,
+  });
+  assert.deepEqual(filterAssignmentOptions("NEON80", [{
+    label: "Macro 1",
+    code: "#00951500",
+  }], 0), []);
+});
+
+test("Neon macro usage meters the exact encoded Vial buffer bytes", () => {
+  const macros = [
+    {
+      layer_key: ["#11070004", "#10070004"],
+      intvel_ms: [25, 0],
+    },
+    {
+      layer_key: ["#00070005"],
+      intvel_ms: [1],
+    },
+  ];
+
+  // Two slot terminators + three three-byte events + two four-byte delays.
+  assert.equal(vialMacroBufferUsage(macros, 2), 19);
+  assert.equal(vialMacroBufferUsage([], 9), 9);
+  assert.deepEqual(macroCapacityStatus({
+    model: "NEON",
+    macroTracks: 2,
+    macroBufferBytes: 18,
+  }, macros), {
+    used: 19,
+    limit: 18,
+    unit: "bytes",
+    tracks: 2,
+    fits: false,
+  });
+  assert.deepEqual(macroCapacityStatus({
+    model: "CB",
+    macroTracks: 32,
+    macroEvents: 200,
+  }, macros), {
+    used: 3,
+    limit: 200,
+    unit: "events",
+    tracks: 32,
+    fits: true,
+  });
 });

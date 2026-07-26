@@ -116,6 +116,7 @@ class RegistrationTests(unittest.TestCase):
             "probe",
             "read_keymap",
             "read_macros",
+            "read_macro_state",
             "write_macros",
             "describe_write",
             "write_config",
@@ -260,6 +261,29 @@ class LayerCountTests(unittest.TestCase):
             driver.read_keymap("hid:00", layers=7)
 
         self.assertEqual(neon_driver.NEON_KEYS_PER_LAYER, captured["keys_per_layer"])
+
+    def test_reading_macros_keeps_the_device_reported_capacity(self) -> None:
+        driver = neon_driver.NeonTransport()
+        session = Session(macro_count=9, macro_bytes=321)
+
+        with (
+            patch.object(neon_driver.hid_transport, "find"),
+            patch.object(neon_driver.hid_transport, "approve_write"),
+            patch.object(
+                neon_driver.hid_transport,
+                "open_approved",
+                return_value=session,
+            ),
+            patch.object(neon_driver.vial_macros, "read_macros", return_value=[]) as read,
+        ):
+            result = driver.read_macro_state("hid:00")
+
+        self.assertEqual([], result.macros)
+        self.assertTrue(result.device_reported)
+        self.assertEqual(9, result.device_macro_count)
+        self.assertEqual(321, result.device_macro_buffer_bytes)
+        read.assert_called_once_with(session, capacity=session.capacity)
+        self.assertTrue(session.closed)
 
 
 class PlanExtractionTests(unittest.TestCase):

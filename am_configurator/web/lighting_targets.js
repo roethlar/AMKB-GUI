@@ -152,10 +152,12 @@
     );
   }
 
-  function filterAssignmentOptions(product, options) {
+  function filterAssignmentOptions(product, options, reportedMacroTracks = null) {
     const values = Array.isArray(options) ? options : [];
     if (productFamily(product) !== "NEON") return values.slice();
-    const macroTracks = FAMILY_SPECS.NEON.macroTracks;
+    const macroTracks = Number.isInteger(reportedMacroTracks) && reportedMacroTracks >= 0
+      ? reportedMacroTracks
+      : FAMILY_SPECS.NEON.macroTracks;
     return values.filter(option => neonPaletteAssignment(option?.code, macroTracks));
   }
 
@@ -177,6 +179,64 @@
   // configuration whose product this build does not recognise.
   function specForProduct(value) {
     return familySpec(value) || UNKNOWN_FAMILY_SPEC;
+  }
+
+  function withDeviceMacroLimits(spec, device) {
+    if (!spec || spec.model !== "NEON") return spec;
+    const macroTracks = Number(device?.macro_count);
+    const macroBufferBytes = Number(device?.macro_buffer_bytes);
+    if (
+      !Number.isInteger(macroTracks) || macroTracks < 0 || macroTracks > 0xFF
+      || !Number.isInteger(macroBufferBytes) || macroBufferBytes < 0
+      || macroBufferBytes > 0xFFFF
+    ) {
+      return spec;
+    }
+    return Object.freeze({...spec, macroTracks, macroBufferBytes});
+  }
+
+  function vialMacroBufferUsage(macros, macroTracks) {
+    const tracks = Number(macroTracks);
+    if (!Number.isInteger(tracks) || tracks < 0) return 0;
+    let bytes = tracks; // Every slot has a one-byte terminator, including empty slots.
+    for (const macro of Array.isArray(macros) ? macros : []) {
+      const events = Array.isArray(macro?.layer_key) ? macro.layer_key : [];
+      const delays = Array.isArray(macro?.intvel_ms) ? macro.intvel_ms : [];
+      for (let index = 0; index < events.length; index += 1) {
+        bytes += 3; // VIA sequence prefix, action, and one-byte HID usage.
+        const delay = Number(delays[index] ?? 0);
+        if (Number.isFinite(delay) && delay !== 0) bytes += 4;
+      }
+    }
+    return bytes;
+  }
+
+  function macroCapacityStatus(spec, macros) {
+    const entries = Array.isArray(macros) ? macros : [];
+    const tracks = Number(spec?.macroTracks) || 0;
+    if (spec?.model === "NEON" && Number(spec.macroBufferBytes) >= 0) {
+      const used = vialMacroBufferUsage(entries, tracks);
+      const limit = Number(spec.macroBufferBytes);
+      return {
+        used,
+        limit,
+        unit: "bytes",
+        tracks,
+        fits: entries.length <= tracks && used <= limit,
+      };
+    }
+    const used = entries.reduce(
+      (sum, macro) => sum + (Array.isArray(macro?.layer_key) ? macro.layer_key.length : 0),
+      0,
+    );
+    const limit = Number(spec?.macroEvents) || 0;
+    return {
+      used,
+      limit,
+      unit: "events",
+      tracks,
+      fits: entries.length <= tracks && used <= limit,
+    };
   }
 
   // Mirrors `FamilySpec.track_colors`: the family's own count where it authors
@@ -231,6 +291,7 @@
     UNKNOWN_FAMILY_SPEC,
     familySpec,
     filterAssignmentOptions,
+    macroCapacityStatus,
     neonPaletteAssignment,
     productFamily,
     projectVialKeyLayout,
@@ -238,5 +299,7 @@
     specForProduct,
     supportedFamily,
     trackColorCount,
+    vialMacroBufferUsage,
+    withDeviceMacroLimits,
   });
 });

@@ -1622,6 +1622,40 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual({"ok": True, "code": "#00920100"}, response)
 
+    def test_device_read_publishes_the_reported_macro_limits(self) -> None:
+        device_layers = [["#00000000"] * 90 for _ in range(4)]
+        device = SimpleNamespace(is_keyboard=True, product_id="NEON80")
+        link = SimpleNamespace(
+            read_keymap=lambda address, *, layers: device_layers,
+            read_macro_state=lambda address: transport.MacroReadResult(
+                [],
+                device_reported=True,
+                device_macro_count=9,
+                device_macro_buffer_bytes=321,
+            ),
+        )
+
+        with (
+            patch.object(transport, "transport_for_handle", return_value=link),
+            patch("am_configurator.server._probe_keyboard", return_value=device),
+            patch.object(
+                transport,
+                "device_json",
+                return_value={"product_id": "NEON80"},
+            ),
+            patch("am_configurator.server._stored_device_config", return_value=(None, None)),
+            patch("am_configurator.server.time.sleep"),
+        ):
+            status, response = self._request(
+                "POST",
+                "/api/device/read",
+                {"port": "/dev/example", "layers": 4},
+            )
+
+        self.assertEqual(200, status)
+        self.assertEqual(9, response["device"]["macro_count"])
+        self.assertEqual(321, response["device"]["macro_buffer_bytes"])
+
     def test_non_ascii_auth_header_is_cleanly_rejected(self) -> None:
         for method, body in ((b"GET", b""), (b"POST", b"{}")):
             with self.subTest(method=method.decode("ascii")):

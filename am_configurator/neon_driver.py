@@ -85,9 +85,21 @@ class NeonTransport:
             session.close()
 
     def read_macros(self, address: str) -> list[dict[str, Any]]:
+        return self.read_macro_state(address).macros
+
+    def read_macro_state(self, address: str) -> transport.MacroReadResult:
+        """Read the macro table and retain the limits reported with it."""
+
         session = self._session(address)
         try:
-            return vial_macros.read_macros(session)
+            capacity = vial_macros.read_capacity(session)
+            macros = vial_macros.read_macros(session, capacity=capacity)
+            return transport.MacroReadResult(
+                macros,
+                device_reported=True,
+                device_macro_count=capacity.count,
+                device_macro_buffer_bytes=capacity.buffer_bytes,
+            )
         finally:
             session.close()
 

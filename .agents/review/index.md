@@ -33,7 +33,7 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | n567-6 | HIGH     | Vial macro encoding discards macro slot identity                       | `[x]`  | `neon-80-support` | codex/openreview  |
 | n567-7 | HIGH     | A full configuration write silently ignores lighting slots 2 and 3     | `[x]`  | `neon-80-support` | codex/openreview  |
 | n567-8 | HIGH     | Successful Neon writes crash before persistence                        | `[x]`  | `neon-80-support` | codex/openreview  |
-| n567-9 | MEDIUM   | Device-reported macro byte capacity never reaches the editor           | `[ ]`  | `neon-80-support` | codex/openreview  |
+| n567-9 | MEDIUM   | Device-reported macro byte capacity never reaches the editor           | `[x]`  | `neon-80-support` | codex/openreview  |
 | n567-10 | MEDIUM   | Neon keymap layout and assignment filtering were not integrated        | `[x]`  | `neon-80-support` | codex/openreview  |
 
 All three raised by the 2026-07-25 openreview codex pass over
@@ -142,7 +142,7 @@ typed write confirmation can never match; and a successful write raises on
 known open work under `or-1` and left unscheduled. Recording a gap is not
 closing it.
 
-Nine findings are repaired and red-proven on the current branch:
+All ten findings are repaired and red-proven on the current branch:
 
 | Findings | Repair |
 |----------|--------|
@@ -150,8 +150,7 @@ Nine findings are repaired and red-proven on the current branch:
 | n567-2 | `8546d54` |
 | n567-5 | `21c8e56` |
 | n567-6 | `77ff823` |
+| n567-9 | `8546d54` (partial), plus the `n567-9:` completion commit |
 | n567-10 | see the `n567-10:` repair commit |
 
-`n567-9` remains open after `8546d54` repaired the static browser mirror but
-left the connected device's reported capacity unprojected. None of these
-repairs has been re-reviewed.
+None of these repairs has been re-reviewed.

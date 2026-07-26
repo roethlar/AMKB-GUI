@@ -63,6 +63,22 @@ class WriteReceipt:
 
 
 @dataclass(frozen=True)
+class MacroReadResult:
+    """Macros plus limits that this particular device reported while reading.
+
+    The serial families do not report macro capacity, so their limits remain
+    family-owned and both device fields stay zero. Vial reports both values;
+    carrying them beside the macros prevents the read route from discarding
+    information the driver already queried.
+    """
+
+    macros: list[dict[str, Any]]
+    device_reported: bool = False
+    device_macro_count: int = 0
+    device_macro_buffer_bytes: int = 0
+
+
+@dataclass(frozen=True)
 class DeviceHandle:
     """Where a device is, and how to talk to it."""
 
@@ -88,6 +104,8 @@ class DeviceTransport(Protocol):
     def read_keymap(self, address: str, *, layers: int) -> list[list[str]]: ...
 
     def read_macros(self, address: str) -> list[dict[str, Any]]: ...
+
+    def read_macro_state(self, address: str) -> MacroReadResult: ...
 
     def write_macros(self, address: str, entries: list[dict[str, Any]]) -> Any: ...
 
@@ -130,6 +148,9 @@ class SerialTransport:
         from . import macros
 
         return macros.read_macros(address)
+
+    def read_macro_state(self, address: str) -> MacroReadResult:
+        return MacroReadResult(self.read_macros(address))
 
     def write_macros(self, address: str, entries: list[dict[str, Any]]) -> Any:
         from . import macros

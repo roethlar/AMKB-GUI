@@ -71,6 +71,13 @@ class SerialDispatchTests(unittest.TestCase):
             self.assertEqual([], self.link.read_macros("/dev/example"))
         read.assert_called_once_with("/dev/example")
 
+        with patch("am_configurator.macros.read_macros", return_value=[]) as read:
+            self.assertEqual(
+                transport.MacroReadResult([]),
+                self.link.read_macro_state("/dev/example"),
+            )
+        read.assert_called_once_with("/dev/example")
+
         with patch("am_configurator.macros.write_macros", return_value=()) as write:
             self.link.write_macros("/dev/example", [{"original_key": "#11000000"}])
         write.assert_called_once_with("/dev/example", [{"original_key": "#11000000"}])
@@ -183,6 +190,9 @@ class NonSerialDriverTests(unittest.TestCase):
 
         def read_macros(self, address: str) -> list[dict]:
             return []
+
+        def read_macro_state(self, address: str) -> transport.MacroReadResult:
+            return transport.MacroReadResult([])
 
         def write_macros(self, address: str, entries: list[dict]) -> None:
             return None

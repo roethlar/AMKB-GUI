@@ -261,3 +261,21 @@ test("Neon keymap wiring uses the validated layout and assignment gate", () => {
   assert.match(assign, /state\.keyAssignmentEpoch!==assignmentEpoch[\s\S]*state\.selected!==selected[\s\S]*state\.layer!==layerIndex[\s\S]*productId\(\)!==product/);
   assert.match(read, /state\.devices=state\.devices\.map[\s\S]*result\.device/);
 });
+
+test("connected Neon macro capacity owns the editor meter and mutation gates", () => {
+  const active=js.slice(js.indexOf("function activeFamilySpec"),js.indexOf("function sameProductFamily"));
+  const macros=js.slice(js.indexOf("function macroCapacity"),js.indexOf("function getPage"));
+
+  assert.match(active,/state\.loadedDevice/);
+  assert.match(active,/withDeviceMacroLimits/);
+  assert.match(macros,/macroCapacityStatus\(activeFamilySpec\(\),candidate\)/);
+  assert.match(macros,/capacity\.used[\s\S]*capacity\.limit[\s\S]*capacity\.unit/);
+  assert.match(macros,/applyImportedMacros[\s\S]*macroCapacityError\(incoming\)/);
+  assert.match(macros,/applyMacroText[\s\S]*macroCapacityError\(candidate\)/);
+  assert.match(macros,/add-event[\s\S]*macroCapacityError\(candidate\)/);
+  assert.match(macros,/recordEvent[\s\S]*macroCapacityError\(candidate\)/);
+  assert.match(server,/macro_state\.device_macro_count/);
+  assert.match(server,/"macro_buffer_bytes": macro_state\.device_macro_buffer_bytes/);
+  const scan=js.slice(js.indexOf("async function scanDevices"),js.indexOf("async function readDevice"));
+  assert.match(scan,/known\?\.macro_count[\s\S]*known\?\.macro_buffer_bytes[\s\S]*macro_count:known\.macro_count[\s\S]*macro_buffer_bytes:known\.macro_buffer_bytes/);
+});
