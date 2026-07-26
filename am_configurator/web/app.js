@@ -10,7 +10,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
 const {createReviewView, openRenderedDialog, renderReview, reviewBlockedMessage} = LightingReview;
-const {DEVICE_TARGETS, productFamily, renderTargetControls, specForProduct, supportedFamily, trackColorCount} = LightingTargets;
+const {DEVICE_TARGETS, filterAssignmentOptions, productFamily, projectVialKeyLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
 
@@ -39,6 +39,7 @@ const state = {
   lightingJobId: restoredLighting.jobId,
   layer: 0,
   selected: null,
+  keyAssignmentEpoch: 0,
   macro: 0,
   recording: false,
   recordLast: 0,
@@ -586,24 +587,34 @@ function vendorGroup(usage) {
 }
 
 function renderAssignmentPalette(current) {
-  const macrosForPalette=(state.config.macro_key||[]).map((macro,index)=>({label:`Macro ${index+1}`,code:macro.original_key,category:"Macros"}));
+  const product=productId();
+  const macrosForPalette=filterAssignmentOptions(product,(state.config.macro_key||[]).map((macro,index)=>({label:`Macro ${index+1}`,code:macro.original_key,category:"Macros"})));
   const extraUsages=[0x46,0x47,0x48,0x49,0x4a,0x4b,0x4c,0x4d,0x4e,0x4f,0x50,0x51,0x52,0x53,0x68];
-  const extras=[{label:"None",code:"#00000000",category:"Navigation & media"},...extraUsages.map(usage=>standardOption(usage,"Navigation & media")),...KEY_OPTIONS.filter(option=>option.category==="Media")];
-  const vendorOptions=Object.entries(VENDOR).map(([usage,label])=>({label,code:makeCode(0x92,Number(usage)),category:vendorGroup(Number(usage))}));
+  const extras=filterAssignmentOptions(product,[{label:"None",code:"#00000000",category:"Navigation & media"},...extraUsages.map(usage=>standardOption(usage,"Navigation & media")),...KEY_OPTIONS.filter(option=>option.category==="Media")]);
+  const vendorOptions=filterAssignmentOptions(product,Object.entries(VENDOR).map(([usage,label])=>({label,code:makeCode(0x92,Number(usage)),category:vendorGroup(Number(usage))})));
+  const vendorGroups=VENDOR_GROUPS.map(group=>({group,options:vendorOptions.filter(option=>option.category===group)})).filter(entry=>entry.options.length);
   return `<section class="assignment-panel">
     <div class="assignment-heading"><div><strong>Available assignments</strong><small>${state.selected===null?'Select a key on the board first.':`Assigning matrix key ${state.selected}`}</small></div><input id="key-search" class="search-field" type="search" placeholder="Filter keys and controls…"></div>
     <div class="assignment-scroll"><div class="qwerty-board assignment-section"><p class="control-label">Standard QWERTY keyboard</p>${QWERTY_ROWS.map(row=>`<div class="qwerty-row">${row.map(item=>item?assignmentButton(standardOption(item[0]),current,item[1]):`<span class="qwerty-spacer"></span>`).join("")}</div>`).join("")}</div></div>
     <div class="assignment-groups">
       <div class="assignment-section"><p class="control-label">Navigation & media</p><div class="assignment-grid">${extras.map(option=>assignmentButton(option,current)).join("")}</div></div>
       <div class="assignment-section"><p class="control-label">Macros</p>${macrosForPalette.length?`<div class="assignment-grid">${macrosForPalette.map(option=>assignmentButton(option,current)).join("")}</div>`:`<small class="palette-empty">Create a macro on the Macros screen to assign it here.</small>`}</div>
-      ${VENDOR_GROUPS.map(group=>`<div class="assignment-section"><p class="control-label">Angry Miao · ${group}</p><div class="assignment-grid">${vendorOptions.filter(option=>option.category===group).map(option=>assignmentButton(option,current)).join("")}</div></div>`).join("")}
+      ${vendorGroups.map(({group,options})=>`<div class="assignment-section"><p class="control-label">Angry Miao · ${group}</p><div class="assignment-grid">${options.map(option=>assignmentButton(option,current)).join("")}</div></div>`).join("")}
     </div>
   </section>`;
 }
 
 function activeLayout() {
-  if (productFamily(productId()) === "80") return {name:"Relic 80", className:"relic", keys:RELIC_LAYOUT};
-  if (productFamily(productId()) === "ALICE") return {name:"AFA", className:"afa", keys:AFA_LAYOUT};
+  const family=productFamily(productId());
+  if (family === "80") return {name:"Relic 80", className:"relic", keys:RELIC_LAYOUT};
+  if (family === "ALICE") return {name:"AFA", className:"afa", keys:AFA_LAYOUT};
+  if (family === "NEON") {
+    const device=state.devices.find(candidate=>deviceKey(candidate)===state.loadedDevice);
+    const keys=projectVialKeyLayout(device);
+    return keys
+      ? {name:"AM Neon 80",className:"neon",keys}
+      : {name:"AM Neon 80",className:"neon",keys:[],unavailable:true};
+  }
   const layer = layers()[state.layer]?.layer || [];
   const keys = [];
   layer.forEach((code, index) => {
@@ -1083,9 +1094,9 @@ function renderKeymap() {
       <div class="editor-grid">
         <section class="card"><div class="card-header"><strong>Layer ${state.layer+1}</strong><small>${layout.keys.length} physical keys</small></div><div class="card-body">
           <div class="keyboard-stage ${layout.className}">
-            ${layout.keys.map(([index,x,y,w=4.8,rotation=0]) => {
+            ${layout.unavailable?'<div class="inspector-empty"><div><strong>Physical layout unavailable</strong><p>Read this Neon keyboard again to load its validated Vial layout.</p></div></div>':layout.keys.map(([index,x,y,w=4.8,rotation=0,height=null]) => {
               const code = layer[index] || "#00000000";
-              return `<button class="keycap ${keyClass(code)} ${state.selected===index?'selected':''}" data-index="${index}" style="left:${x}%;top:${y}%;width:${w}%;transform:rotate(${rotation}deg)" title="Matrix ${index} · ${esc(code)}">${esc(decodeCode(code))}<span>${index}</span></button>`;
+              return `<button class="keycap ${keyClass(code)} ${state.selected===index?'selected':''}" data-index="${index}" style="left:${x}%;top:${y}%;width:${w}%;${height===null?'':`height:${height}%;`}transform:rotate(${rotation}deg)" title="Matrix ${index} · ${esc(code)}">${esc(decodeCode(code))}<span>${index}</span></button>`;
             }).join("")}
           </div>
           ${renderAssignmentPalette(current)}
@@ -1103,15 +1114,28 @@ function renderKeyInspector(layer) {
   const current = layer[state.selected] || "#00000000";
   return `<div class="card-header"><strong>Key ${state.selected}</strong><small>Layer ${state.layer+1}</small></div><div class="card-body">
     <div class="selected-code"><div><strong>${esc(decodeCode(current))}</strong><br><code>${esc(current)}</code></div><span class="pill">${keyClass(current)||'key'}</span></div>
-    <p class="inspector-help">Choose a key from the QWERTY, macro, or Angry Miao palettes below the keyboard. Raw codes remain available for lossless passthrough.</p>
+    <p class="inspector-help">${productFamily(productId())==="NEON"?"Choose a QMK-representable keyboard or macro assignment. Unsupported media, vendor, and raw codes are refused before they change this profile.":"Choose a key from the QWERTY, macro, or Angry Miao palettes below the keyboard. Raw codes remain available for lossless passthrough."}</p>
     <div class="raw-row"><input id="raw-code" class="text-field" value="${esc(current)}" maxlength="9" aria-label="Raw keycode"><button id="apply-raw" class="button ghost">Apply</button></div>
   </div>`;
 }
 
-function assignSelected(code) {
+async function assignSelected(code) {
   if (state.selected === null || !layers()[state.layer]) return;
   if (!/^#[0-9a-f]{8}$/i.test(code)) return toast("Invalid keycode", "Use # followed by exactly eight hexadecimal digits.", "error");
-  mutate(() => { layers()[state.layer].layer[state.selected] = code.toUpperCase(); });
+  const selected=state.selected,layerIndex=state.layer,product=productId();
+  const assignmentEpoch=++state.keyAssignmentEpoch;
+  let normalized=code.toUpperCase();
+  if(productFamily(product)==="NEON"){
+    try{
+      const validation=await api("/api/keymap/assignment",{method:"POST",body:JSON.stringify({product_id:product,code:normalized})});
+      normalized=validation.code;
+    }catch(error){
+      toast("Assignment unavailable",error.message,"error");
+      return;
+    }
+  }
+  if(state.keyAssignmentEpoch!==assignmentEpoch||state.selected!==selected||state.layer!==layerIndex||productId()!==product)return;
+  mutate(() => { layers()[layerIndex].layer[selected] = normalized; });
 }
 
 function wireKeyInspector() {
@@ -1857,7 +1881,11 @@ async function scanDevices() {
   $("#device-actions").hidden=true;
   try {
     const result=await api('/api/devices');
-    state.devices=result.devices||[];
+    const previous=new Map(state.devices.map(device=>[deviceKey(device),device]));
+    state.devices=(result.devices||[]).map(device=>{
+      const known=previous.get(deviceKey(device));
+      return known?.key_layout?.length&&!device.key_layout?.length?{...device,key_layout:known.key_layout}:device;
+    });
     const keyboards=state.devices.filter(device=>device.is_keyboard);
     $(".status-light").classList.toggle("online",Boolean(keyboards.length));
     if(!keyboards.length){
@@ -1884,6 +1912,7 @@ async function readDevice() {
   try{
     const requestedLayers=state.config&&sameProductFamily(productId(),target.product_id)?layers().length||7:7;
     const result=await api('/api/device/read',{method:'POST',body:JSON.stringify({...deviceAddress(target),layers:requestedLayers})});
+    state.devices=state.devices.map(device=>deviceKey(device)===port?{...device,...result.device}:device);
     const switching=state.loadedDevice?state.loadedDevice!==port:Boolean(state.config&&!sameProductFamily(productId(),result.device.product_id));
     if(switching)stashDeviceDocument();
     const restored=switching&&restoreDeviceDocument(port,result.device.product_id);

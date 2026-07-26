@@ -1591,6 +1591,37 @@ class LedGenerateEndpointTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
 
+    def test_key_assignments_use_the_target_familys_wire_vocabulary(self) -> None:
+        for code in ("#00000000", "#00070004", "#0095150F", "#00FF5101"):
+            with self.subTest(code=code):
+                status, response = self._request(
+                    "POST",
+                    "/api/keymap/assignment",
+                    {"product_id": "NEON80", "code": code.lower()},
+                )
+                self.assertEqual(200, status)
+                self.assertEqual({"ok": True, "code": code}, response)
+
+        for code in ("#000C00E9", "#00920100", "#00951510", "#00FF0004"):
+            with self.subTest(code=code):
+                status, response = self._request(
+                    "POST",
+                    "/api/keymap/assignment",
+                    {"product_id": "NEON80", "code": code},
+                )
+                self.assertEqual(400, status)
+                self.assertFalse(response["ok"])
+                self.assertIn(code, response["error"])
+                self.assertIn("cannot be written", response["error"])
+
+        status, response = self._request(
+            "POST",
+            "/api/keymap/assignment",
+            {"product_id": "AM21", "code": "#00920100"},
+        )
+        self.assertEqual(200, status)
+        self.assertEqual({"ok": True, "code": "#00920100"}, response)
+
     def test_non_ascii_auth_header_is_cleanly_rejected(self) -> None:
         for method, body in ((b"GET", b""), (b"POST", b"{}")):
             with self.subTest(method=method.decode("ascii")):
@@ -1885,6 +1916,11 @@ class LedGenerateEndpointTests(unittest.TestCase):
             ("POST", "/api/settings/library", {"current_root": None}),
             ("POST", "/api/settings/privacy", {"version": "anything"}),
             ("POST", "/api/settings/test", {}),
+            (
+                "POST",
+                "/api/keymap/assignment",
+                {"product_id": "NEON80", "code": "#00070004"},
+            ),
             (
                 "POST",
                 "/api/led/generate",

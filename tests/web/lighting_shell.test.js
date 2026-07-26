@@ -244,3 +244,20 @@ test("manual Lighting layout, keyboard controls, narrow windows, and reduced mot
   assert.match(medium,/grid-template-areas:\s*"canvas controls"\s*"frames frames"/);
   assert.match(medium,/overflow-x:\s*auto/);
 });
+
+test("Neon keymap wiring uses the validated layout and assignment gate", () => {
+  const layout = js.slice(js.indexOf("function activeLayout"), js.indexOf("function keyClass"));
+  const palette = js.slice(js.indexOf("function renderAssignmentPalette"), js.indexOf("function activeLayout"));
+  const assign = js.slice(js.indexOf("async function assignSelected"), js.indexOf("function wireKeyInspector"));
+  const read = js.slice(js.indexOf("async function readDevice"), js.indexOf("async function writeDevice"));
+  const neonLayout = layout.slice(layout.indexOf('if (family === "NEON")'), layout.indexOf("const layer"));
+
+  assert.match(layout, /family === "NEON"[\s\S]*projectVialKeyLayout\(device\)/);
+  assert.doesNotMatch(neonLayout, /Matrix layout|Math\.floor\(index \/ 25\)/);
+  assert.match(palette, /filterAssignmentOptions\(product/);
+  assert.match(assign, /api\("\/api\/keymap\/assignment"/);
+  assert.match(assign, /catch\(error\)[\s\S]*return;/);
+  assert.match(assign, /const assignmentEpoch=\+\+state\.keyAssignmentEpoch/);
+  assert.match(assign, /state\.keyAssignmentEpoch!==assignmentEpoch[\s\S]*state\.selected!==selected[\s\S]*state\.layer!==layerIndex[\s\S]*productId\(\)!==product/);
+  assert.match(read, /state\.devices=state\.devices\.map[\s\S]*result\.device/);
+});

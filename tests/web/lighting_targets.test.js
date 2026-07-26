@@ -8,7 +8,10 @@ const {
   FAMILY_SPECS,
   UNKNOWN_FAMILY_SPEC,
   familySpec,
+  filterAssignmentOptions,
+  neonPaletteAssignment,
   productFamily,
+  projectVialKeyLayout,
   renderTargetControls,
   specForProduct,
   supportedFamily,
@@ -159,4 +162,47 @@ test("target controls preserve pressed and destination-locked state", () => {
   assert.deepEqual(host.children.map(button => button.getAttribute("aria-pressed")), ["false", "true"]);
   host.children[0].click();
   assert.equal(selections, 0);
+});
+
+test("the validated Vial layout becomes the physical Neon key geometry", () => {
+  const keys = projectVialKeyLayout({
+    key_layout: [
+      {index: 0, x: 0, y: 0, width: 5, height: 14, rotation: 0},
+      {index: 15, x: 0, y: 18, width: 7.5, height: 14, rotation: 0},
+      {index: 89, x: 90, y: 72, width: 5, height: 14, rotation: 0},
+    ],
+  });
+
+  assert.deepEqual(keys, [
+    [0, 0, 0, 5, 0, 14],
+    [15, 0, 18, 7.5, 0, 14],
+    [89, 90, 72, 5, 0, 14],
+  ]);
+  assert.equal(projectVialKeyLayout({key_layout: []}), null);
+  assert.equal(projectVialKeyLayout({
+    key_layout: [
+      {index: 0, x: 0, y: 0, width: 5, height: 14},
+      {index: 0, x: 10, y: 0, width: 5, height: 14},
+    ],
+  }), null);
+});
+
+test("the Neon palette exposes only assignments its QMK wire format accepts", () => {
+  const options = [
+    {label: "None", code: "#00000000"},
+    {label: "A", code: "#00070004"},
+    {label: "Volume up", code: "#000C00E9"},
+    {label: "Next LED", code: "#00920100"},
+    {label: "Macro 16", code: "#0095150F"},
+    {label: "Macro 17", code: "#00951510"},
+  ];
+
+  assert.deepEqual(
+    filterAssignmentOptions("NEON80", options).map(option => option.label),
+    ["None", "A", "Macro 16"],
+  );
+  assert.deepEqual(filterAssignmentOptions("AM21", options), options);
+  assert.equal(neonPaletteAssignment("#01070004"), true);
+  assert.equal(neonPaletteAssignment("#11070004"), false);
+  assert.equal(neonPaletteAssignment("#00FF5101"), false);
 });

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import lzma
+import math
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -172,6 +173,10 @@ class HidDeviceInfo:
     # AttributeError *after* the hardware had already been written.
     version: str | None = None
     pages: int | None = None
+    # Physical key geometry projected from the validated Vial definition.
+    # Empty on shallow discovery and on a definition whose layout this build
+    # cannot safely interpret; the browser must never invent a fallback.
+    key_layout: tuple[dict[str, int | float], ...] = ()
 
     @property
     def product_id(self) -> str:
@@ -405,6 +410,117 @@ def fetch_definition(handle) -> dict[str, Any]:
     return definition
 
 
+def project_key_layout(
+    definition: dict[str, Any],
+) -> tuple[dict[str, int | float], ...]:
+    """Project Vial's KLE keymap into bounded browser-ready geometry.
+
+    The definition is device-supplied. Only the small KLE subset used by the
+    Neon is accepted: row arrays, numeric x/y offsets and width/height, and
+    ``"row,col"`` matrix positions. Cosmetic fields are ignored. Anything
+    malformed yields no layout, which makes the browser hold the editor back
+    instead of guessing a matrix.
+    """
+
+    try:
+        matrix = definition["matrix"]
+        rows = int(matrix["rows"])
+        cols = int(matrix["cols"])
+        keymap = definition["layouts"]["keymap"]
+    except (KeyError, TypeError, ValueError):
+        return ()
+    if not 0 < rows <= 32 or not 0 < cols <= 32 or not isinstance(keymap, list):
+        return ()
+
+    def number(value: Any, *, positive: bool = False) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError
+        result = float(value)
+        if not math.isfinite(result) or (positive and result <= 0):
+            raise ValueError
+        return result
+
+    projected: list[dict[str, int | float]] = []
+    seen: set[int] = set()
+    cursor_y = -1.0
+    try:
+        for physical_row in keymap:
+            if not isinstance(physical_row, list):
+                raise ValueError
+            cursor_x = 0.0
+            cursor_y += 1.0
+            width = 1.0
+            height = 1.0
+            rotation = 0.0
+            for entry in physical_row:
+                if isinstance(entry, dict):
+                    if "x" in entry:
+                        cursor_x += number(entry["x"])
+                    if "y" in entry:
+                        cursor_y += number(entry["y"])
+                    if "w" in entry:
+                        width = number(entry["w"], positive=True)
+                    if "h" in entry:
+                        height = number(entry["h"], positive=True)
+                    if "r" in entry:
+                        rotation = number(entry["r"])
+                        if rotation:
+                            raise ValueError
+                    # Rotation origins require KLE coordinate transforms. The
+                    # Neon definition has none, so reject rather than place a
+                    # future layout incorrectly.
+                    if "rx" in entry or "ry" in entry:
+                        raise ValueError
+                    continue
+                if not isinstance(entry, str):
+                    raise ValueError
+                position = entry.split(",")
+                if len(position) != 2 or not all(part.isdigit() for part in position):
+                    raise ValueError
+                matrix_row, matrix_col = map(int, position)
+                if matrix_row >= rows or matrix_col >= cols:
+                    raise ValueError
+                index = matrix_row * cols + matrix_col
+                if index in seen or cursor_x < 0 or cursor_y < 0:
+                    raise ValueError
+                seen.add(index)
+                projected.append(
+                    {
+                        "index": index,
+                        "x_units": cursor_x,
+                        "y_units": cursor_y,
+                        "width_units": width,
+                        "height_units": height,
+                        "rotation": rotation,
+                    }
+                )
+                cursor_x += width
+                width = 1.0
+                height = 1.0
+                rotation = 0.0
+    except (TypeError, ValueError):
+        return ()
+
+    if not projected or len(projected) > rows * cols:
+        return ()
+    extent_x = max(float(key["x_units"]) + float(key["width_units"]) for key in projected)
+    extent_y = max(float(key["y_units"]) + float(key["height_units"]) for key in projected)
+    if not 0 < extent_x <= 64 or not 0 < extent_y <= 32:
+        return ()
+
+    return tuple(
+        {
+            "index": int(key["index"]),
+            "x": round(float(key["x_units"]) / extent_x * 95.0, 4),
+            "y": round(float(key["y_units"]) / extent_y * 86.0, 4),
+            "width": round(float(key["width_units"]) / extent_x * 95.0, 4),
+            "height": round(float(key["height_units"]) / extent_y * 86.0, 4),
+            "rotation": round(float(key["rotation"]), 4),
+        }
+        for key in projected
+    )
+
+
 def identify(entry: dict[str, Any], *, deep: bool = True) -> HidDeviceInfo:
     """Run the identity gate against one enumerated endpoint.
 
@@ -500,7 +616,7 @@ def identify(entry: dict[str, Any], *, deep: bool = True) -> HidDeviceInfo:
 
     return HidDeviceInfo(
         **common, model="NEON80", is_vial=True, definition_name=name,
-        identity_error=None,
+        identity_error=None, key_layout=project_key_layout(definition),
     )
 
 

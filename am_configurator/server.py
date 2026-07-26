@@ -390,6 +390,39 @@ def config_transfer_options(config: Any, target_product_id: Any) -> dict[str, An
     }
 
 
+def key_assignment_status(product_id: Any, code: Any) -> dict[str, Any]:
+    """Validate one editor assignment against the target family's wire format."""
+
+    product = str(product_id or "").strip()
+    normalized = str(code or "").strip().upper()
+    if (
+        len(normalized) != 9
+        or not normalized.startswith("#")
+        or any(character not in "0123456789ABCDEF" for character in normalized[1:])
+    ):
+        return {
+            "ok": False,
+            "error": "Use # followed by exactly eight hexadecimal digits.",
+        }
+    try:
+        family = device_mapping.led_model(product)
+    except ValueError:
+        return {
+            "ok": False,
+            "error": f"{product or 'This product'} has no supported keymap format.",
+        }
+    if family != "NEON":
+        return {"ok": True, "code": normalized}
+
+    from . import vial_keymap
+
+    try:
+        vial_keymap.to_qmk(normalized)
+    except vial_keymap.UnsupportedKeycode as error:
+        return {"ok": False, "error": str(error)}
+    return {"ok": True, "code": normalized}
+
+
 def text_to_macro_events(text: Any, delay_ms: Any = 10) -> dict[str, Any]:
     """Compile US-layout text into deterministic macro key-down/up events."""
     if not isinstance(text, str) or not text:
@@ -1458,6 +1491,16 @@ class _Handler(BaseHTTPRequestHandler):
             body = self._body()
             if path == "/api/config/validate":
                 self._json(validate_config(body.get("config")))
+            elif path == "/api/keymap/assignment":
+                if set(body) != {"product_id", "code"}:
+                    raise ValueError(
+                        "Key assignment validation requires product_id and code."
+                    )
+                result = key_assignment_status(body["product_id"], body["code"])
+                self._json(
+                    result,
+                    HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_REQUEST,
+                )
             elif path == "/api/document/sync":
                 self._synchronize_document(body)
             elif path == "/api/config/compatibility":

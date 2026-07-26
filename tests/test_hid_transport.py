@@ -7,7 +7,7 @@ import struct
 import unittest
 from unittest.mock import patch
 
-from am_configurator import hid_transport
+from am_configurator import hid_transport, transport
 
 
 def _definition_blob(payload: dict) -> bytes:
@@ -104,7 +104,12 @@ class IdentityGateTests(unittest.TestCase):
                 "vendorId": "05AC",
                 "productId": "024F",
                 "matrix": {"rows": 6, "cols": 15},
-                "layouts": {},
+                "layouts": {
+                    "keymap": [
+                        [{"c": "#777777"}, "0,0", {"x": 0.25, "w": 2}, "0,1"],
+                        [{"y": 0.25}, "1,0"],
+                    ]
+                },
             }
         )
 
@@ -118,6 +123,30 @@ class IdentityGateTests(unittest.TestCase):
         self.assertTrue(info.writable)
         self.assertIsNone(info.identity_error)
         self.assertEqual("AM Neon 80", info.definition_name)
+        self.assertEqual([0, 1, 15], [key["index"] for key in info.key_layout])
+        self.assertGreater(info.key_layout[1]["width"], info.key_layout[0]["width"])
+        self.assertGreater(info.key_layout[2]["y"], info.key_layout[0]["y"])
+        self.assertTrue(
+            all(
+                0 <= key["x"] < 100
+                and 0 <= key["y"] < 100
+                and key["x"] + key["width"] <= 100
+                and key["y"] + key["height"] <= 100
+                for key in info.key_layout
+            )
+        )
+        payload = transport.device_json(
+            transport.DeviceHandle("hid", info.address), info
+        )
+        self.assertEqual([0, 1, 15], [key["index"] for key in payload["key_layout"]])
+
+    def test_a_malformed_physical_layout_never_becomes_a_guessed_matrix(self) -> None:
+        definition = {
+            "matrix": {"rows": 6, "cols": 15},
+            "layouts": {"keymap": [["0,0", "0,0"]]},
+        }
+
+        self.assertEqual((), hid_transport.project_key_layout(definition))
 
     def test_a_board_without_the_vial_prefix_is_rejected_without_being_opened(self) -> None:
         with (

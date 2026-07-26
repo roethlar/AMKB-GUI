@@ -3,14 +3,15 @@
 ## Now
 
 - AM Neon 80 support is in progress on `neon-80-support`. Plan tasks N1-N9 are
-  implemented but are not finished while `n567-9` (partly repaired) and
-  `n567-10` remain open. Nothing has ever been written to the keyboard; all
-  device interaction so far has been read-only. The approved plan is
+  implemented but are not finished while `n567-9` remains open; `n567-10` is
+  repaired, red-proven, and verified but has not been re-reviewed. Nothing has
+  ever been written to the keyboard; all device interaction so far has been
+  read-only. The approved plan is
   `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`, its governing
   rulings are in `.agents/decisions.md` (2026-07-25), and
   `.agents/review/index.md` owns the finding scoreboard.
-- Next action: repair and red-prove `n567-10`, then finish `n567-9`. After both
-  findings close, perform manual, owner-present N10 hardware verification using
+- Next action: finish and red-prove `n567-9`. After it closes, perform manual,
+  owner-present N10 hardware verification using
   `docs/neon-80-hardware-verification.md`; this is the first authorized point
   at which anything writes to the keyboard.
 

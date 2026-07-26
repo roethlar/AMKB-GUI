@@ -105,6 +105,60 @@
     return id;
   }
 
+  function projectVialKeyLayout(device) {
+    const source = device?.key_layout;
+    if (!Array.isArray(source) || !source.length) return null;
+    const seen = new Set();
+    const keys = [];
+    for (const item of source) {
+      const index = Number(item?.index);
+      const x = Number(item?.x);
+      const y = Number(item?.y);
+      const width = Number(item?.width);
+      const height = Number(item?.height);
+      const rotation = Number(item?.rotation || 0);
+      if (
+        !Number.isInteger(index) || index < 0 || seen.has(index)
+        || ![x, y, width, height, rotation].every(Number.isFinite)
+        || x < 0 || y < 0 || width <= 0 || height <= 0
+        || x + width > 100.001 || y + height > 100.001
+        || Math.abs(rotation) > 180
+      ) {
+        return null;
+      }
+      seen.add(index);
+      keys.push([index, x, y, width, rotation, height]);
+    }
+    return keys;
+  }
+
+  function neonPaletteAssignment(code, macroTracks = 16) {
+    const normalized = String(code || "").toUpperCase();
+    if (!/^#[0-9A-F]{8}$/.test(normalized)) return false;
+    const modifier = Number.parseInt(normalized.slice(1, 3), 16);
+    const page = Number.parseInt(normalized.slice(3, 5), 16);
+    const usage = Number.parseInt(normalized.slice(5, 9), 16);
+    if (modifier === 0 && page === 0 && usage === 0) return true;
+    if (page === 0x07 && usage > 0 && usage <= 0xFF) {
+      const left = modifier & 0x0F;
+      const right = (modifier & 0xF0) >> 4;
+      return !(left && right);
+    }
+    return (
+      modifier === 0
+      && page === 0x95
+      && (usage >> 8) === 0x15
+      && (usage & 0xFF) < macroTracks
+    );
+  }
+
+  function filterAssignmentOptions(product, options) {
+    const values = Array.isArray(options) ? options : [];
+    if (productFamily(product) !== "NEON") return values.slice();
+    const macroTracks = FAMILY_SPECS.NEON.macroTracks;
+    return values.filter(option => neonPaletteAssignment(option?.code, macroTracks));
+  }
+
   // The family key this build actually supports, or null. A null result must
   // never be replaced with a default family: substituting one device's LED
   // geometry for another is how wrong pixel data reaches a keyboard.
@@ -176,7 +230,10 @@
     SPEC_SOURCE,
     UNKNOWN_FAMILY_SPEC,
     familySpec,
+    filterAssignmentOptions,
+    neonPaletteAssignment,
     productFamily,
+    projectVialKeyLayout,
     renderTargetControls,
     specForProduct,
     supportedFamily,
