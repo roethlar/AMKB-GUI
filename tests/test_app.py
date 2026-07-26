@@ -1656,6 +1656,53 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(9, response["device"]["macro_count"])
         self.assertEqual(321, response["device"]["macro_buffer_bytes"])
 
+    def test_device_io_stays_on_one_worker_across_http_requests(self) -> None:
+        device_layers = [["#00000000"] * 90 for _ in range(4)]
+        device = SimpleNamespace(is_keyboard=True, product_id="NEON80")
+        workers = []
+
+        def record(value):
+            workers.append(threading.current_thread())
+            return value
+
+        link = SimpleNamespace(
+            read_keymap=lambda address, *, layers: record(device_layers),
+            read_macro_state=lambda address: record(
+                transport.MacroReadResult([], device_reported=False)
+            ),
+        )
+
+        with (
+            patch.object(transport, "discover", side_effect=lambda: record([])),
+            patch.object(transport, "transport_for_handle", return_value=link),
+            patch(
+                "am_configurator.server._probe_keyboard",
+                side_effect=lambda handle: record(device),
+            ),
+            patch.object(
+                transport,
+                "device_json",
+                return_value={"product_id": "NEON80"},
+            ),
+            patch(
+                "am_configurator.server._stored_device_config",
+                return_value=(None, None),
+            ),
+            patch("am_configurator.server.time.sleep"),
+        ):
+            scan_status, _ = self._request("GET", "/api/devices")
+            read_status, _ = self._request(
+                "POST",
+                "/api/device/read",
+                {"port": "/dev/example", "layers": 4},
+            )
+
+        self.assertEqual(200, scan_status)
+        self.assertEqual(200, read_status)
+        self.assertGreaterEqual(len(workers), 4)
+        self.assertEqual(1, len({id(worker) for worker in workers}))
+        self.assertTrue(workers[0].name.startswith("am-device-io"))
+
     def test_non_ascii_auth_header_is_cleanly_rejected(self) -> None:
         for method, body in ((b"GET", b""), (b"POST", b"{}")):
             with self.subTest(method=method.decode("ascii")):

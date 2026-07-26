@@ -13,6 +13,7 @@ import secrets
 import threading
 import time
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -961,6 +962,15 @@ class _State:
         self._document_snapshot: bytes | None = None
         self._document_revision: str | None = None
         self.device_lock = threading.Lock()
+        # macOS hidapi owns CoreFoundation/IOKit state that is thread-affine.
+        # ThreadingHTTPServer creates a fresh request thread for each call, and
+        # moving a later enumeration to a different thread can trap inside
+        # IOHIDManager. Keep every device operation on one long-lived worker;
+        # the lock still documents and enforces the transport-wide exclusion.
+        self._device_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="am-device-io",
+        )
         self.last_device_scan = 0.0
         # Native desktop builds attach a narrow Library chooser/reveal bridge after
         # creating the loopback server. Browser-only launches leave it unset.
@@ -1115,10 +1125,22 @@ class _State:
         return library, self._procedural_coordinator
 
     def close(self) -> None:
-        capability = self._ai_capability
-        close = getattr(capability, "close", None)
-        if callable(close):
-            close()
+        try:
+            capability = self._ai_capability
+            close = getattr(capability, "close", None)
+            if callable(close):
+                close()
+        finally:
+            self._device_executor.shutdown(wait=True)
+
+    def device_io(self, operation):
+        """Run one complete device operation on the stable HID worker thread."""
+
+        def serialized():
+            with self.device_lock:
+                return operation()
+
+        return self._device_executor.submit(serialized).result()
 
     def lighting_services(self) -> tuple[Any, Any]:
         """Return durable services, refreshing idle production roots from Settings."""
@@ -1416,9 +1438,12 @@ class _Handler(BaseHTTPRequestHandler):
                         }
                     )
                 elif path == "/api/devices":
-                    with self.state.device_lock:
+                    def scan_devices():
                         found = transport.discover()
                         self.state.last_device_scan = time.monotonic()
+                        return found
+
+                    found = self.state.device_io(scan_devices)
                     self._json({
                         "devices": [
                             transport.device_json(handle, info)
@@ -2071,7 +2096,8 @@ class _Handler(BaseHTTPRequestHandler):
         handle = transport.handle_from_payload(body)
         link = transport.transport_for_handle(handle)
         layers = int(body.get("layers") or 7)
-        with self.state.device_lock:
+
+        def read_device():
             self.state.settle_after_scan()
             device = _probe_keyboard(handle)
             if not device or not device.is_keyboard:
@@ -2080,7 +2106,10 @@ class _Handler(BaseHTTPRequestHandler):
             key_layers = link.read_keymap(handle.address, layers=layers)
             time.sleep(0.1)
             macro_state = link.read_macro_state(handle.address)
-            device_macros = macro_state.macros
+            return device, key_layers, macro_state
+
+        device, key_layers, macro_state = self.state.device_io(read_device)
+        device_macros = macro_state.macros
         stored_config, stored_warning = _stored_device_config(device.product_id or "")
         resolved_macros, macro_read_warning, restored_macro_snapshot = (
             _reconcile_read_macros(
@@ -2116,24 +2145,30 @@ class _Handler(BaseHTTPRequestHandler):
     def _write_device(self, body: dict[str, Any]) -> None:
         handle, config, checked = self._write_request(body)
         link = transport.transport_for_handle(handle)
-        with self.state.device_lock:
+
+        def write_device():
             self.state.settle_after_scan()
             before = self._validated_write_target(handle, checked, body)
             receipt = link.write_config(handle.address, config)
-            result = self._finish_accepted_write(
+            return self._finish_accepted_write(
                 handle, config, before, receipt, install_macros=True
             )
+
+        result = self.state.device_io(write_device)
         self._json(result)
 
     def _verify_device_write(self, body: dict[str, Any]) -> None:
         """Finish an ACKed write without transmitting the full configuration again."""
         handle, config, checked = self._write_request(body)
         link = transport.transport_for_handle(handle)
-        with self.state.device_lock:
+
+        def verify_device_write():
             before = self._validated_write_target(handle, checked, body)
-            result = self._finish_accepted_write(
+            return self._finish_accepted_write(
                 handle, config, before, link.describe_write(config), install_macros=False
             )
+
+        result = self.state.device_io(verify_device_write)
         self._json(result)
 
     @staticmethod
