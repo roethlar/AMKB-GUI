@@ -436,12 +436,15 @@ class WriteApproval:
     path: bytes
     confirmation: str
 
+    model_uid: str = ""
+
     def matches(self, info: HidDeviceInfo) -> bool:
         return (
             info.writable
             and info.address == self.address
             and info.model == self.model
             and info.path == self.path
+            and info.firmware_uid == self.model_uid
         )
 
 
@@ -457,18 +460,29 @@ def approve_write(info: HidDeviceInfo, confirmation: str) -> WriteApproval:
             f"Type {info.model} exactly to confirm writing to this keyboard."
         )
     return WriteApproval(
-        address=info.address, model=info.model, path=info.path, confirmation=confirmation
+        address=info.address,
+        model=info.model,
+        path=info.path,
+        confirmation=confirmation,
+        model_uid=info.firmware_uid,
     )
 
 
-class HidSession:
-    """An open raw-HID connection. Use as a context manager."""
+class _RawSession:
+    """An open raw-HID connection.
+
+    Private on purpose. Nothing outside this module may obtain one by path:
+    transmitting to a keyboard goes through `open_approved`, which re-proves
+    identity on the very handle it hands back. A public path-taking session
+    would let any caller skip the approval entirely, which is exactly what it
+    used to do.
+    """
 
     def __init__(self, path: bytes) -> None:
         self._path = path
         self._handle = None
 
-    def __enter__(self) -> HidSession:
+    def __enter__(self) -> _RawSession:
         self._handle = _open(self._path)
         return self
 
@@ -501,3 +515,38 @@ class HidSession:
         if not reply:
             raise HidError("The keyboard did not answer within the timeout.")
         return reply
+
+
+def open_approved(approval: WriteApproval) -> _RawSession:
+    """Open the approved device and re-prove its identity on that same handle.
+
+    Validation during discovery and transmission afterwards used to happen on
+    two different handles, with the device closed in between. That gap is the
+    whole vulnerability: a device swapped after confirmation can occupy the same
+    OS path and receive writes meant for the confirmed keyboard.
+
+    So this re-reads the Vial identity through the handle it returns, and hands
+    back a session only if that identity still matches the approval. The handle
+    is never closed and reopened in between, so nothing can be substituted
+    inside the window.
+    """
+
+    session = _RawSession(approval.path)
+    session.__enter__()
+    try:
+        protocol, uid = fetch_keyboard_uid(session._require())
+        if uid != approval.model_uid or protocol <= 0:
+            raise HidIdentityError(
+                "This is not the keyboard the write was confirmed for."
+            )
+        definition = fetch_definition(session._require())
+        if str(definition.get("name") or "") != NEON_DEFINITION_NAME:
+            raise HidIdentityError(
+                "This is not the keyboard the write was confirmed for."
+            )
+        if endpoint_address(approval.path) != approval.address:
+            raise HidIdentityError("The approved device address no longer matches.")
+    except BaseException:
+        session.close()
+        raise
+    return session

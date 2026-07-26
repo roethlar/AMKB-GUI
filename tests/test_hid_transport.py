@@ -32,7 +32,10 @@ class FakeHandle:
         packet = bytes(data[1:])  # strip the report-ID byte
         self.written.append(packet)
         prefix, sub = packet[0], packet[1]
-        assert prefix == 0xFE, f"unexpected command prefix 0x{prefix:02X}"
+        if prefix != 0xFE:
+            # Non-Vial traffic (a 0xF0 lighting packet, say) is recorded but not
+            # answered. The read-only rule below applies to Vial subcommands.
+            return len(data)
         if sub == 0x00:
             self._queue.append(struct.pack("<I", self.protocol) + self.uid)
         elif sub == 0x01:
@@ -404,6 +407,91 @@ class OpenFailureClassificationTests(unittest.TestCase):
             error = hid_transport._classify_open_failure(b"DevSrvsID:9")
 
         self.assertIsInstance(error, hid_transport.HidDeviceAbsent)
+
+
+class ApprovalIsLoadBearingTests(unittest.TestCase):
+    """An approval that nothing requires is decoration, not a control."""
+
+    def _writable(self, path: bytes = b"DevSrvsID:1", uid: bytes = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"):
+        handle = FakeHandle({"name": "AM Neon 80"})
+        handle.uid = uid
+        with (
+            patch.object(hid_transport, "raw_endpoints", return_value=[_entry(path=path)]),
+            patch.object(hid_transport, "_open", return_value=handle),
+        ):
+            return hid_transport.list_devices()[0]
+
+    def test_there_is_no_public_way_to_send_without_an_approval(self) -> None:
+        """The old public session took a bare path and wrote with no approval."""
+
+        self.assertFalse(
+            hasattr(hid_transport, "HidSession"),
+            "a public path-taking session lets callers skip the approval",
+        )
+        public_senders = [
+            name
+            for name in dir(hid_transport)
+            if not name.startswith("_") and name.lower().endswith("session")
+        ]
+        self.assertEqual([], public_senders, public_senders)
+
+    def test_a_swapped_device_on_the_same_path_is_refused_at_open(self) -> None:
+        """The gap this closes: validation and writing on different handles."""
+
+        approval = hid_transport.approve_write(self._writable(), "NEON80")
+
+        # A different keyboard now answers on the same OS path.
+        impostor = FakeHandle({"name": "Some Other Vial Board"})
+        impostor.uid = b"\x99" * 8
+        with patch.object(hid_transport, "_open", return_value=impostor):
+            with self.assertRaises(hid_transport.HidIdentityError) as raised:
+                hid_transport.open_approved(approval)
+
+        self.assertIn("not the keyboard", str(raised.exception))
+        self.assertTrue(impostor.closed, "the handle must be closed on refusal")
+
+    def test_a_neon_with_a_different_firmware_uid_is_refused(self) -> None:
+        approval = hid_transport.approve_write(self._writable(), "NEON80")
+
+        other = FakeHandle({"name": "AM Neon 80"})
+        other.uid = b"\x01" * 8
+        with patch.object(hid_transport, "_open", return_value=other):
+            with self.assertRaises(hid_transport.HidIdentityError):
+                hid_transport.open_approved(approval)
+
+    def test_the_approved_device_opens_and_can_transmit(self) -> None:
+        approval = hid_transport.approve_write(self._writable(), "NEON80")
+
+        genuine = FakeHandle({"name": "AM Neon 80"})
+        genuine.uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        with patch.object(hid_transport, "_open", return_value=genuine):
+            session = hid_transport.open_approved(approval)
+            try:
+                session.send(bytes([0xF0, 0x0E, 0x01]))
+            finally:
+                session.close()
+
+        self.assertIn(bytes([0xF0, 0x0E, 0x01]).ljust(32, b"\x00"), genuine.written)
+        self.assertTrue(genuine.closed)
+
+    def test_identity_is_reproved_on_the_handle_that_is_returned(self) -> None:
+        """Not on a fresh handle opened afterwards, which reopens the gap."""
+
+        approval = hid_transport.approve_write(self._writable(), "NEON80")
+
+        genuine = FakeHandle({"name": "AM Neon 80"})
+        genuine.uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        opens: list = []
+
+        def _tracking_open(path):
+            opens.append(path)
+            return genuine
+
+        with patch.object(hid_transport, "_open", side_effect=_tracking_open):
+            session = hid_transport.open_approved(approval)
+            session.close()
+
+        self.assertEqual(1, len(opens), "the device must be opened exactly once")
 
 
 class ErrorSurfaceTests(unittest.TestCase):
