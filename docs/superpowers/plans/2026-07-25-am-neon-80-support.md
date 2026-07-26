@@ -101,6 +101,44 @@ LED. Take axial ordering and positions from the Apache-2.0 driver's
     plan's word "immutable" is wrong: read it as stable for the lifetime of one
     connection, and treat any change as invalidating.
 
+### Vial definition fetch (verified on hardware, 2026-07-25)
+
+Read-only probe of the owner's board, using an allowlist that refused any
+non-read subcommand. Nothing was written. These are the constants N3's identity
+gate needs; they were previously unrecorded and must not be re-derived.
+
+Raw HID packets are 32 bytes. `hidapi` requires a leading report-ID byte, so a
+request is `b"\x00" + payload.ljust(32, b"\x00")`.
+
+| Request | Bytes | Response |
+|---|---|---|
+| Keyboard ID | `FE 00` | `u32` LE Vial protocol version, then 8-byte keyboard UID |
+| Definition size | `FE 01` | `u32` LE compressed byte count |
+| Definition block *n* | `FE 02 <n LE16>` | 32 bytes of the compressed payload |
+
+Only `0x00`, `0x01`, and `0x02` are reads. `0x04` (set encoder), `0x06`-`0x08`
+(unlock start / poll / lock) and the settings-set subcommands mutate the board;
+an implementation must never issue them during discovery or identity checking.
+
+Observed on the owner's unit:
+
+- Vial protocol version **5**; keyboard UID `d47af38a35b8ed73`. Note this UID is
+  **not** the `vial:f64c2b3c` serial suffix — they are different values from
+  different sources, and neither is a model identity.
+- Compressed definition is **404 bytes**, magic `fd 37 7a 58` — that is **XZ**,
+  not LZMA-alone. Plain `lzma.decompress` handles it; do not force
+  `FORMAT_ALONE`.
+- Decompressed payload is 1061 bytes of JSON with exactly these top-level keys:
+  `layouts`, `matrix`, `name`, `productId`, `vendorId`.
+- `name` is **`"AM Neon 80"`** — this is the field the identity gate matches on.
+  `vendorId` `05AC`, `productId` `024F`, `matrix` `{rows: 6, cols: 15}`, and
+  `lighting` is absent.
+
+The definition is firmware-authored like the USB strings, so this gate is not
+cryptographic proof of hardware. It is materially stronger than VID/PID or the
+`vial:` prefix — it is the board declaring its own model — and it is the gate
+the approved plan specifies.
+
 ### Upstream sources
 
 `AngryMiao/neon80_driver` — reference web configurator, **Apache-2.0**. This is
