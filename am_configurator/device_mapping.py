@@ -263,6 +263,11 @@ class FamilySpec:
     # means "this family does not express capacity that way" - never None,
     # which would silently disable enforcement (see finding or-3).
     macro_buffer_bytes: int = 0
+    # How many keycodes one layer holds. The serial families share a 25x8
+    # matrix; the Neon reports 6x15 in its own Vial definition. Validation used
+    # to demand 200 for every family, which rejected every keymap the Neon can
+    # produce.
+    keys_per_layer: int = 200
 
     def track_colors(self, field: str) -> int:
         """Exact colour count for one LED track on this family."""
@@ -286,6 +291,8 @@ class FamilySpec:
 # the real check and belongs to plan task N7.
 _NEON_MACRO_TRACKS = 16
 _NEON_MACRO_BUFFER_BYTES = 6677
+# 6 rows x 15 columns, from the definition the board serves.
+_NEON_KEYS_PER_LAYER = 90
 
 _FAMILY_SPECS = {
     model: FamilySpec(
@@ -306,6 +313,7 @@ _FAMILY_SPECS["NEON"] = FamilySpec(
     macro_tracks=_NEON_MACRO_TRACKS,
     macro_events=_NEON_MACRO_BUFFER_BYTES,
     macro_buffer_bytes=_NEON_MACRO_BUFFER_BYTES,
+    keys_per_layer=_NEON_KEYS_PER_LAYER,
 )
 
 # Used when a configuration names a product this build does not recognise.

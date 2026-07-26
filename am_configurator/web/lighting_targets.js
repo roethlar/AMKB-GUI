@@ -46,13 +46,13 @@
     "sharedTrackColors": {"frames": 200, "keyframes": 90, "spotlight_frames": 24},
     "unknownFrameCap": 256,
     "families": {
-      "CB": {"transport": "serial", "frameCap": 80, "macroTracks": 32, "macroEvents": 200,
+      "CB": {"transport": "serial", "frameCap": 80, "macroTracks": 32, "macroEvents": 200, "keysPerLayer": 200,
              "trackColors": {"keyframes": 90, "frames": 200}},
-      "80": {"transport": "serial", "frameCap": 200, "macroTracks": 32, "macroEvents": 200,
+      "80": {"transport": "serial", "frameCap": 200, "macroTracks": 32, "macroEvents": 200, "keysPerLayer": 200,
              "trackColors": {"keyframes": 90, "spotlight_frames": 24}},
-      "ALICE": {"transport": "serial", "frameCap": 186, "macroTracks": 32, "macroEvents": 200,
+      "ALICE": {"transport": "serial", "frameCap": 186, "macroTracks": 32, "macroEvents": 200, "keysPerLayer": 200,
                 "trackColors": {"keyframes": 90}},
-      "NEON": {"transport": "hid", "frameCap": 256, "macroTracks": 16, "macroEvents": 6677,
+      "NEON": {"transport": "hid", "frameCap": 256, "macroTracks": 16, "macroEvents": 6677, "keysPerLayer": 90,
                "macroBufferBytes": 6677,
                "trackColors": {"axial": 89, "head": 230}}
     }
@@ -69,6 +69,10 @@
       frameCap: spec.frameCap,
       macroTracks: spec.macroTracks,
       macroEvents: spec.macroEvents,
+      // Dropping a field here silently hides a real device limit from the
+      // editor, which is how macroBufferBytes went missing (finding n567-9).
+      macroBufferBytes: spec.macroBufferBytes || 0,
+      keysPerLayer: spec.keysPerLayer,
       trackColors: Object.freeze({...spec.trackColors}),
       authoredTracks: Object.freeze(Object.keys(spec.trackColors)),
     });

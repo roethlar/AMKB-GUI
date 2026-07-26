@@ -150,6 +150,7 @@ class BrowserSpecMirrorsPythonTests(unittest.TestCase):
                 self.assertEqual(
                     spec.macro_buffer_bytes, mirrored.get("macroBufferBytes", 0)
                 )
+                self.assertEqual(spec.keys_per_layer, mirrored["keysPerLayer"])
                 self.assertEqual(
                     list(spec.authored_tracks), list(mirrored["trackColors"])
                 )
@@ -445,9 +446,6 @@ class ValidationUsesFamilySpecTests(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class NeonFamilyRegistrationTests(unittest.TestCase):
     """Plan task N4: exactly two authored tracks, and axial payload order.
@@ -588,3 +586,76 @@ class ServedGeometryTests(unittest.TestCase):
 
         self.assertNotIn("NEON_AXIAL", app)
         self.assertIn("servedGeometry", app)
+
+
+class FamilyAwareValidationTests(unittest.TestCase):
+    """`validate_config` must not judge one family by another family's shape.
+
+    Finding n567-2, and a repeat: this was recorded as known open work under
+    or-1 and left unscheduled. Recording a gap is not closing it.
+    """
+
+    def _config(self, product_id, keys, *, pages=None):
+        return {
+            "product_info": {"product_id": product_id},
+            "key_layer": {
+                "layer_num": 4,
+                "layer_data": [{"layer": ["#00070004"] * keys} for _ in range(4)],
+            },
+            "macro_key": [],
+            "page_data": pages if pages is not None else [],
+        }
+
+    def test_a_native_neon_keymap_validates(self):
+        """Four layers of ninety keys, which is what the device actually reports."""
+
+        server = importlib.import_module("am_configurator.server")
+
+        result = server.validate_config(self._config("NEON80", 90))
+        self.assertTrue(result["ok"], result["errors"])
+
+    def test_a_serial_keymap_still_requires_two_hundred(self):
+        server = importlib.import_module("am_configurator.server")
+
+        errors = server.validate_config(self._config("CB04", 90))["errors"]
+        self.assertTrue(
+            any("exactly 200 keycodes" in error for error in errors), errors
+        )
+
+    def test_a_neon_keymap_of_two_hundred_keys_is_rejected(self):
+        """The check is the family's own count, not a minimum."""
+
+        server = importlib.import_module("am_configurator.server")
+
+        errors = server.validate_config(self._config("NEON80", 200))["errors"]
+        self.assertTrue(
+            any("exactly 90 keycodes" in error for error in errors), errors
+        )
+
+    def test_the_serial_wire_encoder_does_not_judge_a_hid_configuration(self):
+        """It is one family's encoder, not a general validator.
+
+        Running it against a Neon configuration rejected every valid one,
+        because it looks for AM serial page structure the Neon does not have.
+        """
+
+        server = importlib.import_module("am_configurator.server")
+
+        result = server.validate_config(self._config("NEON80", 90))
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertIsNone(result.get("frame_plan"))
+        self.assertEqual(
+            [], [e for e in result["errors"] if "Wire encoder" in e]
+        )
+
+    def test_keys_per_layer_comes_from_the_specification(self):
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        self.assertEqual(90, mapping.family_spec("NEON").keys_per_layer)
+        for model in ("CB", "80", "ALICE"):
+            with self.subTest(model=model):
+                self.assertEqual(200, mapping.family_spec(model).keys_per_layer)
+
+
+if __name__ == "__main__":
+    unittest.main()

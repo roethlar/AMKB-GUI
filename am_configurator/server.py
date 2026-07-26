@@ -452,10 +452,13 @@ def validate_config(config: Any) -> dict[str, Any]:
     layers = key_layer.get("layer_data") or []
     if not layers:
         errors.append("key_layer.layer_data is missing.")
+    keys_per_layer = spec.keys_per_layer
     for index, layer_data in enumerate(layers, 1):
         layer = layer_data.get("layer") if isinstance(layer_data, dict) else None
-        if not isinstance(layer, list) or len(layer) != 200:
-            errors.append(f"Layer {index} must contain exactly 200 keycodes.")
+        if not isinstance(layer, list) or len(layer) != keys_per_layer:
+            errors.append(
+                f"Layer {index} must contain exactly {keys_per_layer} keycodes."
+            )
         elif any(not isinstance(code, str) or len(code) != 9 for code in layer):
             errors.append(f"Layer {index} contains a malformed keycode.")
     if key_layer.get("layer_num", len(layers)) != len(layers):
@@ -541,7 +544,12 @@ def validate_config(config: Any) -> dict[str, Any]:
         warnings.append("This is a key-only export; writing it will clear LED pages on the device.")
 
     frame_plan: dict[str, Any] | None = None
-    if not errors:
+    # The serial wire encoder is one family's encoder, not a general validator.
+    # Running it against a Neon configuration rejected every valid one, because
+    # it looks for AM serial page structure the Neon does not have. A device on
+    # another transport is validated by its own driver at write time, where the
+    # preflight already refuses before transmitting.
+    if not errors and spec.transport == device_mapping.SERIAL_TRANSPORT:
         try:
             from . import writer
 
