@@ -190,6 +190,52 @@ class AddressIdentityTests(unittest.TestCase):
         self.assertFalse(approval.matches(other))
 
 
+class BoundedDecompressionTests(unittest.TestCase):
+    """Definition decoding runs against any attached board, before any write."""
+
+    def test_a_small_payload_that_expands_enormously_is_rejected(self) -> None:
+        # 200 MiB of zeros compresses to roughly 30 KB, which passes any
+        # compressed-size cap and then expands in full. Bounding the compressed
+        # size alone bounds the wrong quantity.
+        bomb = lzma.compress(b"\x00" * (200 * 1024 * 1024))
+        self.assertLess(len(bomb), hid_transport._MAX_DEFINITION_BYTES)
+
+        with self.assertRaises(hid_transport.HidIdentityError) as raised:
+            hid_transport._decompress_bounded(bomb)
+        self.assertIn("expands beyond", str(raised.exception))
+
+    def test_fetch_definition_actually_applies_the_bound(self) -> None:
+        """Guards the call site, not just the helper.
+
+        Testing `_decompress_bounded` alone proves nothing about whether
+        `fetch_definition` calls it — reverting the call site to a plain
+        `lzma.decompress` left every helper test green.
+        """
+
+        handle = FakeHandle({"name": "AM Neon 80"})
+        handle.blob = lzma.compress(b"\x00" * (200 * 1024 * 1024))
+        self.assertLess(len(handle.blob), hid_transport._MAX_DEFINITION_BYTES)
+
+        with self.assertRaises(hid_transport.HidIdentityError) as raised:
+            hid_transport.fetch_definition(handle)
+        self.assertIn("expands beyond", str(raised.exception))
+
+    def test_a_normal_definition_still_decodes(self) -> None:
+        payload = json.dumps({"name": "AM Neon 80"}).encode("utf-8")
+        self.assertEqual(payload, hid_transport._decompress_bounded(lzma.compress(payload)))
+
+    def test_a_truncated_stream_is_rejected(self) -> None:
+        blob = lzma.compress(json.dumps({"name": "AM Neon 80"}).encode("utf-8"))
+        with self.assertRaises(hid_transport.HidIdentityError):
+            hid_transport._decompress_bounded(blob[:-8])
+
+    def test_trailing_data_after_the_stream_is_rejected(self) -> None:
+        blob = lzma.compress(json.dumps({"name": "AM Neon 80"}).encode("utf-8"))
+        with self.assertRaises(hid_transport.HidIdentityError) as raised:
+            hid_transport._decompress_bounded(blob + b"junk")
+        self.assertIn("trailing", str(raised.exception))
+
+
 class WriteApprovalTests(unittest.TestCase):
     def _writable(self, path: bytes = b"DevSrvsID:1") -> hid_transport.HidDeviceInfo:
         handle = FakeHandle({"name": "AM Neon 80"})

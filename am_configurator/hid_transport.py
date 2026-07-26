@@ -61,6 +61,12 @@ _VIAL_READ_ONLY = frozenset({_VIAL_GET_KEYBOARD_ID, _VIAL_GET_SIZE, _VIAL_GET_DE
 # must not turn discovery into an unbounded read loop.
 _MAX_DEFINITION_BYTES = 64 * 1024
 
+# The compressed cap above bounds the wrong quantity on its own: 200 MiB of
+# zeros compresses to about 30 KiB, which passes it and then expands in full.
+# Discovery runs against any attached board, so decompression is reachable
+# without a write and must be bounded on its *output*.
+_MAX_DEFINITION_DECOMPRESSED_BYTES = 1024 * 1024
+
 
 class HidError(RuntimeError):
     """Base for raw-HID failures. Messages never contain a device path."""
@@ -199,6 +205,36 @@ def fetch_keyboard_uid(handle) -> tuple[int, str]:
     return struct.unpack("<I", reply[0:4])[0], reply[4:12].hex()
 
 
+def _decompress_bounded(blob: bytes) -> bytes:
+    """Decompress device-supplied data with an explicit ceiling on the output.
+
+    Decompresses incrementally and stops the moment the output would exceed the
+    ceiling, so a small payload that expands enormously is rejected instead of
+    being materialized. A stream that is incomplete, or that carries trailing
+    bytes after its end, is rejected too — a well-formed definition has neither.
+    """
+
+    decompressor = lzma.LZMADecompressor()
+    try:
+        decoded = decompressor.decompress(
+            blob, max_length=_MAX_DEFINITION_DECOMPRESSED_BYTES + 1
+        )
+    except lzma.LZMAError:
+        raise HidIdentityError(
+            "The keyboard's definition could not be decompressed."
+        ) from None
+    if len(decoded) > _MAX_DEFINITION_DECOMPRESSED_BYTES:
+        raise HidIdentityError(
+            "The keyboard's definition expands beyond "
+            f"{_MAX_DEFINITION_DECOMPRESSED_BYTES} bytes and was rejected."
+        )
+    if not decompressor.eof:
+        raise HidIdentityError("The keyboard's definition is truncated or oversized.")
+    if decompressor.unused_data:
+        raise HidIdentityError("The keyboard's definition has trailing data.")
+    return decoded
+
+
 def fetch_definition(handle) -> dict[str, Any]:
     """Fetch and decode the Vial keyboard definition.
 
@@ -216,10 +252,7 @@ def fetch_definition(handle) -> dict[str, Any]:
         blob += _vial_request(
             handle, _VIAL_GET_DEFINITION, block & 0xFF, (block >> 8) & 0xFF
         )
-    try:
-        decoded = lzma.decompress(bytes(blob[:size]))
-    except lzma.LZMAError:
-        raise HidIdentityError("The keyboard's definition could not be decompressed.") from None
+    decoded = _decompress_bounded(bytes(blob[:size]))
     try:
         definition = json.loads(decoded)
     except ValueError:
