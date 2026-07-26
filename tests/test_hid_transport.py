@@ -277,6 +277,101 @@ class WriteApprovalTests(unittest.TestCase):
             hid_transport.approve_write(info, "NEON80")
 
 
+class OpenFailureClassificationTests(unittest.TestCase):
+    """hidapi says only 'open failed', so the cause must be worked out elsewhere."""
+
+    def test_the_binding_really_does_hide_the_cause(self) -> None:
+        """Pins the premise. If a future hidapi reports errno, revisit this."""
+
+        import hid
+
+        handle = hid.device()
+        with self.assertRaises(OSError) as raised:
+            handle.open_path(b"/nonexistent-hid-path")
+        text = str(raised.exception).lower()
+        self.assertNotIn("permission", text)
+        self.assertNotIn("busy", text)
+
+    def test_open_routes_failures_through_the_classifier(self) -> None:
+        """Guards the call site in `_open`, not just the classifier.
+
+        Testing `_classify_open_failure` alone proves nothing: reverting `_open`
+        to the old substring matching left every classifier test green.
+        """
+
+        class RefusingHandle:
+            def open_path(self, path):
+                raise OSError("open failed")
+
+        fake_hid = type("FakeHid", (), {"device": staticmethod(RefusingHandle)})
+
+        with (
+            patch("sys.platform", "linux"),
+            patch("os.path.exists", return_value=True),
+            patch("os.access", return_value=False),
+            patch.object(hid_transport, "_hid", return_value=fake_hid),
+        ):
+            with self.assertRaises(hid_transport.HidPermissionDenied) as raised:
+                hid_transport._open(b"/dev/hidraw3")
+
+        # The exact failure this finding is about: before the fix, a Linux user
+        # with no udev rule was told the keyboard was not attached.
+        self.assertIn("60-am-neon-80.rules", str(raised.exception))
+
+    def test_linux_permission_denied_names_the_udev_remedy(self) -> None:
+        with (
+            patch("sys.platform", "linux"),
+            patch("os.path.exists", return_value=True),
+            patch("os.access", return_value=False),
+        ):
+            error = hid_transport._classify_open_failure(b"/dev/hidraw3")
+
+        self.assertIsInstance(error, hid_transport.HidPermissionDenied)
+        self.assertIn("udev", str(error))
+        self.assertIn("60-am-neon-80.rules", str(error))
+
+    def test_linux_missing_node_is_absent_not_permission(self) -> None:
+        with (
+            patch("sys.platform", "linux"),
+            patch("os.path.exists", return_value=False),
+        ):
+            error = hid_transport._classify_open_failure(b"/dev/hidraw3")
+
+        self.assertIsInstance(error, hid_transport.HidDeviceAbsent)
+
+    def test_linux_accessible_node_that_will_not_open_is_busy(self) -> None:
+        with (
+            patch("sys.platform", "linux"),
+            patch("os.path.exists", return_value=True),
+            patch("os.access", return_value=True),
+        ):
+            error = hid_transport._classify_open_failure(b"/dev/hidraw3")
+
+        self.assertIsInstance(error, hid_transport.HidDeviceBusy)
+
+    def test_an_undeterminable_cause_is_reported_honestly(self) -> None:
+        """Never assert a cause that was not determined."""
+
+        with (
+            patch("sys.platform", "darwin"),
+            patch.object(hid_transport, "raw_endpoints", return_value=[_entry(path=b"DevSrvsID:9")]),
+        ):
+            error = hid_transport._classify_open_failure(b"DevSrvsID:9")
+
+        self.assertIsInstance(error, hid_transport.HidError)
+        self.assertNotIsInstance(error, hid_transport.HidDeviceAbsent)
+        self.assertIn("may be in use", str(error))
+
+    def test_a_vanished_endpoint_is_absent(self) -> None:
+        with (
+            patch("sys.platform", "darwin"),
+            patch.object(hid_transport, "raw_endpoints", return_value=[]),
+        ):
+            error = hid_transport._classify_open_failure(b"DevSrvsID:9")
+
+        self.assertIsInstance(error, hid_transport.HidDeviceAbsent)
+
+
 class ErrorSurfaceTests(unittest.TestCase):
     def test_errors_never_leak_a_device_path(self) -> None:
         path = b"DevSrvsID:4295309077"

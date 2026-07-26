@@ -154,22 +154,59 @@ def raw_endpoints(vendor_id: int = NEON_VENDOR_ID, product_id: int = NEON_PRODUC
     ]
 
 
+def _classify_open_failure(path: bytes) -> HidError:
+    """Work out *why* an open failed, since hidapi will not say.
+
+    The locked hidapi binding raises `OSError('open failed')` for every failure
+    — no errno, no distinguishing text. Matching on that string was dead code:
+    permission problems reported as "not attached", which hid the udev remedy
+    that is the whole point of shipping a rule.
+
+    So classify from the device node instead, where the platform exposes one.
+    On Linux the path is a `/dev/hidraw*` node whose existence and access bits
+    answer the question directly. Elsewhere the path is an opaque OS handle with
+    nothing to inspect, so the honest answer is that the cause is unknown — say
+    that rather than assert a cause that was never determined.
+    """
+
+    import os
+    import sys
+
+    if sys.platform.startswith("linux"):
+        try:
+            node = os.fsdecode(path)
+        except (UnicodeDecodeError, ValueError):
+            node = ""
+        if node.startswith("/dev/"):
+            if not os.path.exists(node):
+                return HidDeviceAbsent("The keyboard is no longer attached.")
+            if not os.access(node, os.R_OK | os.W_OK):
+                return HidPermissionDenied(
+                    "Permission denied opening the keyboard." + _permission_remedy()
+                )
+            # It exists and is accessible, so the most likely remaining cause is
+            # another process holding it exclusively.
+            return HidDeviceBusy(
+                "The keyboard is open in another application; close it and retry."
+            )
+
+    still_present = any(entry.get("path") == path for entry in raw_endpoints())
+    if not still_present:
+        return HidDeviceAbsent("The keyboard is no longer attached.")
+    return HidError(
+        "The keyboard could not be opened. It may be in use by another "
+        "application, or this process may lack permission to open it."
+        + _permission_remedy()
+    )
+
+
 def _open(path: bytes):
     hid = _hid()
     handle = hid.device()
     try:
         handle.open_path(path)
-    except OSError as error:
-        text = str(error).lower()
-        if "permission" in text or "access" in text:
-            raise HidPermissionDenied(
-                "Permission denied opening the keyboard." + _permission_remedy()
-            ) from None
-        if "busy" in text or "in use" in text:
-            raise HidDeviceBusy(
-                "The keyboard is open in another application; close it and retry."
-            ) from None
-        raise HidDeviceAbsent("The keyboard is no longer attached.") from None
+    except OSError:
+        raise _classify_open_failure(path) from None
     return handle
 
 
