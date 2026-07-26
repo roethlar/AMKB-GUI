@@ -86,9 +86,13 @@ def _permission_remedy() -> str:
     import sys
 
     if sys.platform.startswith("linux"):
+        # The remedy is stated inline rather than pointing at docs/, which is
+        # deliberately not shipped in the sdist; the rule file itself is.
         return (
-            " On Linux this usually means the udev rule is not installed; "
-            "see docs/neon-80-linux.md."
+            " On Linux the raw HID node is root-only until a udev rule grants "
+            "access. Install packaging/linux/60-am-neon-80.rules into "
+            "/etc/udev/rules.d/, run 'sudo udevadm control --reload-rules && "
+            "sudo udevadm trigger', then replug the keyboard."
         )
     return ""
 

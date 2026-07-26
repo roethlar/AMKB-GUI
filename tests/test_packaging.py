@@ -455,6 +455,32 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(entry=entry):
                 self.assertIn(entry, allowlisted | excluded)
 
+    def test_the_neon_udev_rule_ships_and_keeps_the_shared_vial_serial(self) -> None:
+        """The Linux permission remedy is useless if the rule is not published.
+
+        The serial in the rule is Vial's fixed magic string, shared by every
+        Vial keyboard. Narrowing it to one board's identifier would silently
+        break the rule for every other unit, so the guard pins it.
+        """
+        rule_path = ROOT / "packaging" / "linux" / "60-am-neon-80.rules"
+        self.assertTrue(rule_path.is_file(), "the udev rule is missing")
+
+        rule = rule_path.read_text(encoding="utf-8")
+        self.assertIn('KERNEL=="hidraw*"', rule)
+        self.assertIn('ATTRS{serial}=="*vial:f64c2b3c*"', rule)
+        self.assertIn('TAG+="uaccess"', rule)
+
+        # It ships because /packaging/ is allowlisted; assert that, rather than
+        # assuming it.
+        self.assertIn("/packaging/", self._sdist_include())
+
+    def test_the_linux_permission_error_names_a_remedy_that_ships(self) -> None:
+        """The message must not point at docs/, which is not in the sdist."""
+        source = (ROOT / "am_configurator" / "hid_transport.py").read_text(encoding="utf-8")
+
+        self.assertIn("packaging/linux/60-am-neon-80.rules", source)
+        self.assertNotIn("docs/neon-80-linux.md", source)
+
     def test_spec_bundles_the_llm_module(self) -> None:
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
 
