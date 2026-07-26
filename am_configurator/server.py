@@ -22,7 +22,7 @@ from socketserver import TCPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, device_mapping, transport
+from . import __version__, device_mapping, macro_text, transport
 
 
 _PKG = Path(__file__).resolve().parent
@@ -69,23 +69,6 @@ _PROVIDER_ERROR_HTTP: dict[str, HTTPStatus] = {
     "bad_response": HTTPStatus.BAD_GATEWAY,
     "unavailable": HTTPStatus.BAD_GATEWAY,
 }
-
-_TEXT_KEY_USAGES: dict[str, tuple[int, bool]] = {
-    "\n": (0x28, False), "\t": (0x2B, False), " ": (0x2C, False),
-    "-": (0x2D, False), "_": (0x2D, True), "=": (0x2E, False), "+": (0x2E, True),
-    "[": (0x2F, False), "{": (0x2F, True), "]": (0x30, False), "}": (0x30, True),
-    "\\": (0x31, False), "|": (0x31, True), ";": (0x33, False), ":": (0x33, True),
-    "'": (0x34, False), '"': (0x34, True), "`": (0x35, False), "~": (0x35, True),
-    ",": (0x36, False), "<": (0x36, True), ".": (0x37, False), ">": (0x37, True),
-    "/": (0x38, False), "?": (0x38, True),
-}
-for _offset, _character in enumerate("abcdefghijklmnopqrstuvwxyz"):
-    _TEXT_KEY_USAGES[_character] = (0x04 + _offset, False)
-    _TEXT_KEY_USAGES[_character.upper()] = (0x04 + _offset, True)
-for _offset, (_plain, _shifted) in enumerate(zip("1234567890", "!@#$%^&*()")):
-    _TEXT_KEY_USAGES[_plain] = (0x1E + _offset, False)
-    _TEXT_KEY_USAGES[_shifted] = (0x1E + _offset, True)
-
 
 class AcceptedWriteError(RuntimeError):
     """The device ACKed the full write, but a later verification step failed."""
@@ -435,37 +418,13 @@ def text_to_macro_events(text: Any, delay_ms: Any = 10) -> dict[str, Any]:
         raise ValueError("The inter-key delay must be a whole number.") from exc
     if not 1 <= delay <= 1000:
         raise ValueError("The inter-key delay must be between 1 and 1000ms.")
-
-    events: list[str] = []
-    delays: list[int] = []
-    shift_down = False
-
-    def emit(usage: int, down: bool, pause: int) -> None:
-        events.append(f"#{0x11 if down else 0x10:02X}07{usage:04X}")
-        delays.append(pause)
-
-    for index, character in enumerate(text):
-        mapping = _TEXT_KEY_USAGES.get(character)
-        if mapping is None:
-            raise ValueError(
-                f"Character {character!r} at position {index + 1} is not available "
-                "on the US keyboard layout."
-            )
-        usage, needs_shift = mapping
-        if needs_shift != shift_down:
-            emit(0xE1, needs_shift, 1)
-            shift_down = needs_shift
-        emit(usage, True, 1)
-        emit(usage, False, delay)
-    if shift_down:
-        emit(0xE1, False, 1)
-    if delays:
-        delays[-1] = 0
-    if len(events) > 200:
-        raise ValueError(
-            f"This text needs {len(events)} macro events; the complete profile limit is 200."
-        )
-    return {"layer_key": events, "intvel_ms": delays, "characters": len(text)}
+    compiled = macro_text.compile_us_text(
+        text,
+        inter_key_delay_ms=delay,
+        transition_delay_ms=1,
+        max_events=200,
+    )
+    return {**compiled, "characters": len(text)}
 
 
 def validate_config(config: Any) -> dict[str, Any]:

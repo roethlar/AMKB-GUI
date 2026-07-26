@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from . import vial_keymap
+from . import macro_text, vial_keymap
 
 
 VIA_MACRO_GET_COUNT = 0x0C
@@ -234,41 +234,87 @@ def decode_macros(buffer: bytes, *, count: int) -> list[dict[str, Any]]:
 
     macros: list[dict[str, Any]] = []
     position = 0
-    for _ in range(count):
+    for slot in range(count):
         events: list[str] = []
         delays: list[int] = []
         while position < len(buffer) and buffer[position] != MACRO_TERMINATOR:
             if buffer[position] != SS_PREFIX:
-                # A literal byte: VIA also allows plain text in a macro. Treat
-                # it as a tap so the macro survives a read rather than being
-                # dropped.
-                events.append(f"#0007{buffer[position]:04X}")
-                delays.append(0)
+                literal = buffer[position]
+                try:
+                    decoded = macro_text.compile_us_text(
+                        chr(literal),
+                        inter_key_delay_ms=0,
+                        transition_delay_ms=0,
+                        release_shift_each_character=True,
+                    )
+                except ValueError as error:
+                    raise MacroEncodingError(
+                        f"Macro slot {slot} contains literal byte 0x{literal:02X}, "
+                        "which is not typable on the US keyboard layout."
+                    ) from error
+                events.extend(decoded["layer_key"])
+                delays.extend(decoded["intvel_ms"])
                 position += 1
                 continue
 
+            if position + 1 >= len(buffer):
+                raise MacroEncodingError(
+                    f"Macro slot {slot} ends inside a Vial action prefix."
+                )
             action = buffer[position + 1]
             if action == SS_DELAY:
+                if position + 3 >= len(buffer):
+                    raise MacroEncodingError(
+                        f"Macro slot {slot} ends inside a Vial delay."
+                    )
+                low, high = buffer[position + 2], buffer[position + 3]
+                if low == 0 or high == 0:
+                    raise MacroEncodingError(
+                        f"Macro slot {slot} contains a truncated Vial delay."
+                    )
+                if not delays:
+                    raise MacroEncodingError(
+                        f"Macro slot {slot} starts with a delay that the shared "
+                        "macro format cannot represent."
+                    )
                 milliseconds = _decode_delay(buffer[position + 2], buffer[position + 3])
-                if delays:
-                    delays[-1] = milliseconds
+                delays[-1] += milliseconds
                 position += 4
                 continue
 
-            modifier = {SS_DOWN: EVENT_PRESS, SS_UP: EVENT_RELEASE, SS_TAP: 0x00}.get(action)
+            if position + 2 >= len(buffer) or buffer[position + 2] == 0:
+                raise MacroEncodingError(
+                    f"Macro slot {slot} ends inside a Vial key action."
+                )
+            usage = buffer[position + 2]
+            if action == SS_TAP:
+                events.extend(
+                    [
+                        f"#{EVENT_PRESS:02X}07{usage:04X}",
+                        f"#{EVENT_RELEASE:02X}07{usage:04X}",
+                    ]
+                )
+                delays.extend([0, 0])
+                position += 3
+                continue
+
+            modifier = {SS_DOWN: EVENT_PRESS, SS_UP: EVENT_RELEASE}.get(action)
             if modifier is None:
                 raise MacroEncodingError(
                     f"The keyboard returned an unknown macro action 0x{action:02X}."
                 )
-            events.append(f"#{modifier:02X}07{buffer[position + 2]:04X}")
+            events.append(f"#{modifier:02X}07{usage:04X}")
             delays.append(0)
             position += 3
 
+        if position >= len(buffer):
+            raise MacroEncodingError(
+                f"Macro slot {slot} has no null terminator in the device buffer."
+            )
         position += 1  # step over the terminator
         # `original_key` is the slot's trigger token, not the first event. A
         # macro read back from slot N must carry the token that triggers slot N,
         # or the keymap and the macro list disagree about which key runs what.
-        slot = len(macros)
         macros.append(
             {
                 "original_key": (

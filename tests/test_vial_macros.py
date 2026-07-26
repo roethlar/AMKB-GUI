@@ -180,6 +180,55 @@ class RoundTripTests(unittest.TestCase):
         self.assertEqual([], recovered[3]["layer_key"])
 
 
+class LiteralTextReadbackTests(unittest.TestCase):
+    """VIA stores typed text as ASCII bytes, not HID usage numbers."""
+
+    def test_literal_text_and_tap_expand_to_real_us_key_transitions(self) -> None:
+        buffer = (
+            b"A!"
+            + bytes([vm.SS_PREFIX, vm.SS_TAP, 0x28])
+            + bytes([vm.MACRO_TERMINATOR])
+        )
+
+        recovered = vm.decode_macros(buffer, count=1)[0]
+
+        self.assertEqual(
+            [
+                "#110700E1",  # Shift down
+                "#11070004",  # A down
+                "#10070004",  # A up
+                "#100700E1",  # Shift up
+                "#110700E1",  # Shift down
+                "#1107001E",  # 1 down, producing !
+                "#1007001E",  # 1 up
+                "#100700E1",  # Shift up
+                "#11070028",  # Enter down
+                "#10070028",  # Enter up
+            ],
+            recovered["layer_key"],
+        )
+        self.assertEqual([0] * 10, recovered["intvel_ms"])
+
+    def test_a_delay_after_tap_belongs_to_the_tap_release(self) -> None:
+        buffer = (
+            bytes([vm.SS_PREFIX, vm.SS_TAP, 0x04])
+            + vm._encode_delay(25)
+            + bytes([vm.MACRO_TERMINATOR])
+        )
+
+        recovered = vm.decode_macros(buffer, count=1)[0]
+
+        self.assertEqual(
+            ["#11070004", "#10070004"],
+            recovered["layer_key"],
+        )
+        self.assertEqual([0, 25], recovered["intvel_ms"])
+
+    def test_non_ascii_literal_is_refused_instead_of_becoming_a_hid_usage(self) -> None:
+        with self.assertRaisesRegex(vm.MacroEncodingError, "literal byte 0x80"):
+            vm.decode_macros(bytes([0x80, vm.MACRO_TERMINATOR]), count=1)
+
+
 class SlotIdentityTests(unittest.TestCase):
     """The buffer is positional: slot N is triggered by the #009515NN token.
 
