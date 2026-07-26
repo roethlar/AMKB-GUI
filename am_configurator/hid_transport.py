@@ -107,10 +107,18 @@ def _permission_remedy() -> str:
 class HidDeviceInfo:
     """One raw-HID endpoint and what identity checking concluded about it.
 
-    `address` is the stable identifier the device handle carries. `path` is the
-    OS handle, which macOS reports as an IOKit registry entry ID that changes
-    across replug — that instability is wanted, because a confirmation must not
-    survive the device being swapped.
+    Two different identities live here and must not be confused.
+
+    `firmware_uid` (Vial `FE 00`) and `definition_name` are **model** identity:
+    Vial's keyboard UID is a firmware build-time constant, so every unit running
+    the same Neon firmware reports the same value. It answers "what model is
+    this", never "which unit is this".
+
+    `address` is **instance** identity — which physical endpoint to talk to —
+    and is derived from the OS device path, the only per-endpoint value
+    available. macOS reports that path as an IOKit registry entry ID that
+    changes across replug; that instability is wanted, because a confirmation
+    must not survive the device being swapped.
     """
 
     address: str
@@ -124,6 +132,8 @@ class HidDeviceInfo:
     is_vial: bool
     definition_name: str | None
     identity_error: str | None
+    firmware_uid: str = ""
+    protocol_version: int = 0
 
     @property
     def is_keyboard(self) -> bool:
@@ -134,6 +144,20 @@ class HidDeviceInfo:
         """Only a device that cleared every identity stage may be written."""
 
         return self.model is not None and self.identity_error is None
+
+
+def endpoint_address(path: bytes) -> str:
+    """An opaque, connection-scoped token for one physical raw-HID endpoint.
+
+    Derived from the OS device path because that is the only per-endpoint value
+    available: the USB serial is identical on every Vial board, and the Vial
+    keyboard UID is identical on every unit of a model. The token is opaque so
+    no caller is tempted to parse a path out of it, and it is not stable across
+    replug — which is correct, because an approval bound to it must not survive
+    the device changing.
+    """
+
+    return "hid:" + path.hex()
 
 
 def _hid():
@@ -310,13 +334,14 @@ def identify(entry: dict[str, Any]) -> HidDeviceInfo:
     serial = str(entry.get("serial_number") or "")
     vendor_id = int(entry.get("vendor_id") or 0)
     product_id = int(entry.get("product_id") or 0)
-    # Deliberately NOT built from the USB serial: every Vial board reports the
-    # same `vial:f64c2b3c` magic string, so an address containing it would
-    # collide between two different boards on this VID/PID. The per-board UID
-    # comes from the device itself below; until it is read, the address is
-    # provisional and the device is not writable anyway.
+    # The address must identify a physical endpoint, and neither USB value can.
+    # Every Vial board reports the same `vial:f64c2b3c` serial, and the Vial
+    # keyboard UID is a firmware build-time constant shared by every unit of a
+    # model — both were tried and both collide between two units. The OS device
+    # path is the only per-endpoint value available, so the address is an opaque
+    # token derived from it.
     common = {
-        "address": f"{vendor_id:04X}:{product_id:04X}:?",
+        "address": endpoint_address(entry.get("path") or b""),
         "path": entry.get("path") or b"",
         "vendor_id": int(entry.get("vendor_id") or 0),
         "product_id": int(entry.get("product_id") or 0),
@@ -346,8 +371,9 @@ def identify(entry: dict[str, Any]) -> HidDeviceInfo:
             identity_error=str(error),
         )
     try:
-        _protocol, uid = fetch_keyboard_uid(handle)
-        common["address"] = f"{vendor_id:04X}:{product_id:04X}:{uid}"
+        protocol, uid = fetch_keyboard_uid(handle)
+        common["firmware_uid"] = uid
+        common["protocol_version"] = protocol
         definition = fetch_definition(handle)
     except HidError as error:
         return HidDeviceInfo(
@@ -358,6 +384,13 @@ def identify(entry: dict[str, Any]) -> HidDeviceInfo:
         handle.close()
 
     name = str(definition.get("name") or "")
+    if protocol <= 0 or uid == "0" * 16:
+        return HidDeviceInfo(
+            **common, model=None, is_vial=True, definition_name=name or None,
+            identity_error=(
+                "This keyboard did not report a coherent Vial identity."
+            ),
+        )
     if name != NEON_DEFINITION_NAME:
         return HidDeviceInfo(
             **common, model=None, is_vial=True, definition_name=name or None,

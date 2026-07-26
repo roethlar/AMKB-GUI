@@ -158,7 +158,13 @@ class IdentityGateTests(unittest.TestCase):
 
 
 class AddressIdentityTests(unittest.TestCase):
-    """Two Vial boards share a USB serial, so an address must not contain it."""
+    """Model identity and instance identity are different questions.
+
+    Two USB-visible values look like unique identifiers and are not. Every Vial
+    board reports the serial `vial:f64c2b3c`. Every *unit of a model* reports
+    the same Vial keyboard UID, because that UID is a firmware build-time
+    constant. Both were used as an address in turn and both collide.
+    """
 
     def _identify(self, uid: bytes, path: bytes = b"DevSrvsID:1"):
         handle = FakeHandle({"name": "AM Neon 80"})
@@ -169,25 +175,53 @@ class AddressIdentityTests(unittest.TestCase):
         ):
             return hid_transport.list_devices()[0]
 
-    def test_two_boards_reporting_the_same_serial_get_different_addresses(self) -> None:
-        # `vial:f64c2b3c` is a fixed magic string every Vial keyboard reports,
-        # so both of these enumerate identically over USB. Only the per-board
-        # UID from `FE 00` tells them apart.
-        first = self._identify(b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73")
-        second = self._identify(b"\x01\x02\x03\x04\x05\x06\x07\x08")
+    def test_two_units_of_the_same_model_get_different_addresses(self) -> None:
+        # The case that cannot be reproduced with one keyboard: two Neon 80s,
+        # same firmware, therefore identical serial AND identical Vial UID.
+        # Only the endpoint differs.
+        same_uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        first = self._identify(same_uid, path=b"DevSrvsID:1")
+        second = self._identify(same_uid, path=b"DevSrvsID:2")
 
         self.assertEqual(first.serial_number, second.serial_number)
-        self.assertNotEqual(first.address, second.address)
-        self.assertNotIn("f64c2b3c", first.address)
-        self.assertIn("d47af38a35b8ed73", first.address)
-
-    def test_an_approval_does_not_transfer_between_boards(self) -> None:
-        approval = hid_transport.approve_write(
-            self._identify(b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"), "NEON80"
+        self.assertEqual(first.firmware_uid, second.firmware_uid)
+        self.assertNotEqual(
+            first.address, second.address,
+            "two units of one model must not share an address",
         )
-        other = self._identify(b"\x01\x02\x03\x04\x05\x06\x07\x08")
 
-        self.assertFalse(approval.matches(other))
+    def test_an_address_leaks_neither_shared_identifier(self) -> None:
+        info = self._identify(b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73")
+
+        self.assertNotIn("f64c2b3c", info.address)
+        self.assertNotIn("d47af38a35b8ed73", info.address)
+
+    def test_the_firmware_uid_is_kept_as_model_identity(self) -> None:
+        info = self._identify(b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73")
+
+        self.assertEqual("d47af38a35b8ed73", info.firmware_uid)
+        self.assertEqual(5, info.protocol_version)
+        self.assertEqual("NEON80", info.model)
+
+    def test_an_incoherent_vial_identity_is_refused(self) -> None:
+        handle = FakeHandle({"name": "AM Neon 80"}, protocol=0)
+        with (
+            patch.object(hid_transport, "raw_endpoints", return_value=[_entry()]),
+            patch.object(hid_transport, "_open", return_value=handle),
+        ):
+            info = hid_transport.list_devices()[0]
+
+        self.assertIsNone(info.model)
+        self.assertFalse(info.writable)
+
+    def test_an_approval_does_not_transfer_between_units(self) -> None:
+        same_uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        approval = hid_transport.approve_write(
+            self._identify(same_uid, path=b"DevSrvsID:1"), "NEON80"
+        )
+        other_unit = self._identify(same_uid, path=b"DevSrvsID:2")
+
+        self.assertFalse(approval.matches(other_unit))
 
 
 class BoundedDecompressionTests(unittest.TestCase):
