@@ -22,6 +22,14 @@
       {key: "keyframes", label: "Per-key"},
       {key: "spotlight_frames", label: "Edge lights"},
     ]),
+    // Exactly the two tracks the Neon authors. The side zone is derived from
+    // the head frames at transmit time and must never appear here: anything
+    // listed becomes independently selectable, which would let a user author a
+    // zone the device cannot receive.
+    NEON: targets([
+      {key: "axial", label: "Per-key"},
+      {key: "head", label: "Head matrix 46×5"},
+    ]),
   });
 
   // --- Per-family device specification ------------------------------------
@@ -43,7 +51,10 @@
       "80": {"transport": "serial", "frameCap": 200, "macroTracks": 32, "macroEvents": 200,
              "trackColors": {"keyframes": 90, "spotlight_frames": 24}},
       "ALICE": {"transport": "serial", "frameCap": 186, "macroTracks": 32, "macroEvents": 200,
-                "trackColors": {"keyframes": 90}}
+                "trackColors": {"keyframes": 90}},
+      "NEON": {"transport": "hid", "frameCap": 256, "macroTracks": 16, "macroEvents": 6677,
+               "macroBufferBytes": 6677,
+               "trackColors": {"axial": 89, "head": 230}}
     }
   }`;
 
@@ -83,6 +94,7 @@
   // uppercased identifier rather than raising, so callers can show it.
   function productFamily(value) {
     const id = String(value || "").toUpperCase();
+    if (id === "NEON" || id === "NEON80" || id === "AM NEON 80") return "NEON";
     if (id === "80" || id === "AM21") return "80";
     if (id === "ALICE") return "ALICE";
     if (id.startsWith("CB")) return "CB";

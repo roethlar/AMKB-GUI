@@ -82,12 +82,14 @@ class FamilySpecTests(unittest.TestCase):
     def test_unknown_family_raises_instead_of_substituting(self):
         mapping = importlib.import_module("am_configurator.device_mapping")
 
-        for model in ("CB", "80", "ALICE"):
+        for model in ("CB", "80", "ALICE", "NEON"):
             self.assertEqual(model, mapping.family_spec(model).model)
         # A caller holding a real device must never be handed another device's
-        # geometry, which is what a silent fallback would do.
+        # geometry, which is what a silent fallback would do. (This used to use
+        # "NEON" as its example of an unknown family; registering that family
+        # made the test pass vacuously, and the failure is what caught it.)
         with self.assertRaises(KeyError):
-            mapping.family_spec("NEON")
+            mapping.family_spec("NOT-A-REGISTERED-FAMILY")
 
     def test_track_colors_come_from_the_layouts_not_a_second_copy(self):
         mapping = importlib.import_module("am_configurator.device_mapping")
@@ -145,6 +147,9 @@ class BrowserSpecMirrorsPythonTests(unittest.TestCase):
                 self.assertEqual(spec.frame_cap, mirrored["frameCap"])
                 self.assertEqual(spec.macro_tracks, mirrored["macroTracks"])
                 self.assertEqual(spec.macro_events, mirrored["macroEvents"])
+                self.assertEqual(
+                    spec.macro_buffer_bytes, mirrored.get("macroBufferBytes", 0)
+                )
                 self.assertEqual(
                     list(spec.authored_tracks), list(mirrored["trackColors"])
                 )
@@ -442,3 +447,94 @@ class ValidationUsesFamilySpecTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NeonFamilyRegistrationTests(unittest.TestCase):
+    """Plan task N4: exactly two authored tracks, and axial payload order.
+
+    The side zone is the trap. It is a real zone the device lights, but it is
+    derived from the head frames at transmit time and is never independently
+    authored, so publishing it would offer the user a track the device cannot
+    receive.
+    """
+
+    def test_neon_publishes_exactly_the_two_authored_tracks(self):
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        spec = mapping.family_spec("NEON")
+        self.assertEqual(("axial", "head"), spec.authored_tracks)
+        self.assertNotIn("side", spec.authored_tracks)
+
+        published = mapping.target_capabilities()["NEON"]["targets"]
+        names = [target["name"] for target in published]
+        self.assertEqual(["axial", "head"], names)
+        self.assertNotIn("side", names)
+
+    def test_neon_track_sizes_match_the_wire_payloads(self):
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        spec = mapping.family_spec("NEON")
+        self.assertEqual(89, spec.track_colors("axial"))
+        self.assertEqual(230, spec.track_colors("head"))
+        self.assertEqual(256, spec.frame_cap)
+        self.assertEqual(mapping.HID_TRANSPORT, spec.transport)
+
+    def test_axial_payload_order_round_trips_to_grid_positions(self):
+        """Array index is payload index; the grid must preserve that exactly."""
+
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        grid = mapping._NEON_AXIAL_MAP
+        width, height = 19, 6
+        self.assertEqual(width * height, len(grid))
+
+        placed = [value for value in grid if value >= 0]
+        self.assertEqual(89, len(placed))
+        # Every payload index appears exactly once: no LED is dropped and none
+        # is written twice, which is what a bad quantization would cause.
+        self.assertEqual(sorted(placed), list(range(89)))
+
+        for x, y, payload_index in mapping._NEON_AXIAL_PLACEMENTS:
+            with self.subTest(payload_index=payload_index):
+                self.assertEqual(payload_index, grid[y * width + x])
+
+        # The assertions above are self-consistent by construction: the grid is
+        # built from these same placements, so they pass however wrong the
+        # placements are. These check the placements against structure taken
+        # from the source coordinates instead.
+        rows: dict[int, list[tuple[int, int]]] = {}
+        for x, y, payload_index in mapping._NEON_AXIAL_PLACEMENTS:
+            rows.setdefault(y, []).append((x, payload_index))
+
+        self.assertEqual([17, 17, 17, 13, 13, 12], [len(rows[y]) for y in sorted(rows)])
+
+        for y, cells in sorted(rows.items()):
+            with self.subTest(row=y):
+                by_position = [index for _, index in sorted(cells)]
+                self.assertEqual(
+                    sorted(by_position),
+                    by_position,
+                    "payload order must ascend left-to-right within a row",
+                )
+
+        # Rows are contiguous runs of payload indices, in top-to-bottom order.
+        starts = [min(index for _, index in rows[y]) for y in sorted(rows)]
+        self.assertEqual(sorted(starts), starts)
+        self.assertEqual(0, starts[0])
+
+    def test_the_head_matrix_is_row_major_with_no_remapping(self):
+        """The host sends head values row-major, so any map here must be identity."""
+
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        self.assertEqual(tuple(range(230)), mapping._NEON_HEAD_MAP)
+
+    def test_neon_capacity_is_the_measured_device_capacity(self):
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        spec = mapping.family_spec("NEON")
+        # Measured by read-only VIA reads on the owner's board, not defaulted
+        # from the serial families, which would claim 32 macros.
+        self.assertEqual(16, spec.macro_tracks)
+        self.assertEqual(6677, spec.macro_buffer_bytes)
+        self.assertNotEqual(32, spec.macro_tracks)

@@ -89,22 +89,24 @@ test("CyberBoard, Relic, and AFA targets render as selectable valid buttons", ()
 });
 
 test("an unsupported product resolves to no family instead of a default one", () => {
-  for (const [product, family] of [["CB04", "CB"], ["cb04", "CB"], ["AM21", "80"], ["80", "80"], ["ALICE", "ALICE"]]) {
+  for (const [product, family] of [["CB04", "CB"], ["cb04", "CB"], ["AM21", "80"], ["80", "80"], ["ALICE", "ALICE"], ["NEON80", "NEON"]]) {
     assert.equal(supportedFamily(product), family);
     assert.equal(familySpec(product).model, family);
   }
 
-  // The Neon 80 speaks a different protocol and has no LED layout in this
-  // build. Answering "CB" here is what would let its pages be painted with
-  // CyberBoard geometry and written to the keyboard.
-  for (const product of ["NEON", "NEON80", "", null, undefined, "AM99"]) {
+  // An unrecognised product must not inherit another device's geometry: that
+  // is what would let its pages be painted with CyberBoard maps and written to
+  // the keyboard. ("NEON" used to be this test's example of an unknown family;
+  // registering that family made the assertion vacuous, and the failure is
+  // what caught it.)
+  for (const product of ["", null, undefined, "AM99", "NOT-A-BOARD"]) {
     assert.equal(supportedFamily(product), null, `${product} must not resolve to a family`);
     assert.equal(familySpec(product), null);
   }
 });
 
 test("an unrecognised product still reports the shared limits for editing", () => {
-  const spec = specForProduct("NEON80");
+  const spec = specForProduct("SOME-UNSHIPPED-BOARD");
 
   assert.equal(spec, UNKNOWN_FAMILY_SPEC);
   assert.equal(spec.model, "");
@@ -139,7 +141,11 @@ test("every family's authored tracks are exactly the targets it offers", () => {
 test("productFamily normalises the identifiers the firmware reports", () => {
   assert.equal(productFamily("CB04"), "CB");
   assert.equal(productFamily("am21"), "80");
-  assert.equal(productFamily("NEON80"), "NEON80");
+  assert.equal(productFamily("neon80"), "NEON");
+  assert.equal(productFamily("AM Neon 80"), "NEON");
+  // An identifier this build does not know passes through uppercased, so the
+  // caller can show it; `supportedFamily` is what refuses it.
+  assert.equal(productFamily("SOME-UNSHIPPED-BOARD"), "SOME-UNSHIPPED-BOARD");
   assert.equal(productFamily(""), "");
   assert.equal(productFamily(null), "");
 });
