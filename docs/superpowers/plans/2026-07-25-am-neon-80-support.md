@@ -154,6 +154,33 @@ cryptographic proof of hardware. It is materially stronger than VID/PID or the
 `vial:` prefix — it is the board declaring its own model — and it is the gate
 the approved plan specifies.
 
+### VIA capacity, measured on hardware 2026-07-25
+
+Read-only VIA reads against the owner's board, behind an allowlist that refused
+every mutating command. Nothing was written.
+
+| Value | Command | Measured |
+|---|---|---|
+| VIA protocol version | `0x01` | 9 |
+| Layer count | `0x11` | **4** |
+| Macro count | `0x0C` | **16** |
+| Macro buffer | `0x0D` | **6677 bytes** |
+
+Three of these contradict assumptions carried from the serial families and must
+not be defaulted:
+
+- **4 layers, not 7.** `_read_device` requests 7 layers by default and the
+  browser asks for `layers().length || 7`. A Neon has four.
+- **16 macros, not 32.** The serial ceiling is double the real one here.
+- **Capacity is 6677 bytes**, with no event-count limit at all — which is why
+  or-3 required the byte budget to be a separate field rather than a different
+  value for `macro_events`.
+
+`macro_events` for this family should be recorded as a *proven upper bound*
+derived from the buffer (no event encodes in fewer than one byte, so the count
+can never exceed the byte budget), never as an invented ceiling. The
+authoritative check is exact byte sizing before a write, which is N7.
+
 ### Upstream sources
 
 `AngryMiao/neon80_driver` — reference web configurator, **Apache-2.0**. This is
