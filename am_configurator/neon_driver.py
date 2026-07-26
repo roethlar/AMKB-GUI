@@ -6,29 +6,38 @@ families. It owns its protocol end to end — lighting packets come from
 `neon_lighting`, discovery and identity from `hid_transport` — which is the
 whole point of the seam sitting below the encoding.
 
-**A Neon write is refused, deliberately and completely, until the keymap and
-macro protocols exist.** The route's write path pushes a configuration, then
-installs macros, then reads the keymap back. Two of those three are not
-implemented yet (plan tasks N6 and N7). A driver that pushed lighting and then
-failed on macros would leave the keyboard holding half a write while the user
-was told it failed — the worst outcome available. So `write_config` refuses
-before transmitting a single packet, and `supports_full_write` is the one flag
-to flip when N6 and N7 land.
+All three protocols are implemented now — lighting (N5), keymap (N6), macros
+(N7) — so a write is no longer refused outright. What replaces the refusal is a
+**preflight**: everything that can be validated is validated before the first
+byte, because these three writes are not one transaction. Lighting packets, a
+keymap buffer, and a macro buffer are separate transmissions, and a failure
+between them leaves the keyboard in a mixed state. Nothing can make that atomic,
+so the next best thing is to make failure-after-the-first-byte as unlikely as
+possible: translate the keymap, compile and size the macros, plan every lighting
+packet, and confirm the device is unlocked — all before transmitting.
+
+The keyboard's own lock is the one thing that cannot be preflighted away and is
+reported as its own actionable state, because only the user can clear it.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from . import device_mapping, hid_transport, neon_lighting, transport
+from . import (
+    device_mapping,
+    hid_transport,
+    neon_lighting,
+    transport,
+    vial_keymap,
+    vial_macros,
+)
 
 
 NEON_TRANSPORT = device_mapping.HID_TRANSPORT
 
-# Flip to True only when read_keymap, read_macros, and write_macros are real.
-# `write_config` refuses while this is False, which is what makes a partial
-# write impossible rather than merely unlikely.
-supports_full_write = False
+# The Neon's key matrix, from the Vial definition its firmware serves.
+NEON_KEYS_PER_LAYER = 90
 
 
 class NeonUnsupportedOperation(hid_transport.HidError):
@@ -53,20 +62,41 @@ class NeonTransport:
     def probe(self, address: str, *, full: bool = False) -> Any:
         return hid_transport.find(address)
 
-    def read_keymap(self, address: str, *, layers: int) -> list[list[str]]:
-        raise NeonUnsupportedOperation(
-            "Reading the keymap from a Neon 80 is not implemented yet."
+    def _session(self, address: str):
+        info = hid_transport.find(address)
+        return hid_transport.open_approved(
+            hid_transport.approve_write(info, info.model or "")
         )
+
+    def read_keymap(self, address: str, *, layers: int) -> list[list[str]]:
+        """Read the keymap. `layers` is ignored in favour of what the device says.
+
+        The route defaults to seven layers, which is the serial families' count.
+        This keyboard has four, and reading seven would run off the end of its
+        buffer.
+        """
+
+        session = self._session(address)
+        try:
+            return vial_keymap.read_keymap(
+                session, keys_per_layer=NEON_KEYS_PER_LAYER
+            )
+        finally:
+            session.close()
 
     def read_macros(self, address: str) -> list[dict[str, Any]]:
-        raise NeonUnsupportedOperation(
-            "Reading macros from a Neon 80 is not implemented yet."
-        )
+        session = self._session(address)
+        try:
+            return vial_macros.read_macros(session)
+        finally:
+            session.close()
 
     def write_macros(self, address: str, entries: list[dict[str, Any]]) -> Any:
-        raise NeonUnsupportedOperation(
-            "Writing macros to a Neon 80 is not implemented yet."
-        )
+        session = self._session(address)
+        try:
+            return vial_macros.write_macros(session, entries)
+        finally:
+            session.close()
 
     def _plan(self, config: dict[str, Any], *, slot: int = 1) -> neon_lighting.LightingPlan:
         pages = config.get("page_data") or []
@@ -94,29 +124,47 @@ class NeonTransport:
             interval=int(page.get("speed_ms", 90)),
         )
 
-    def _refuse_partial_write(self) -> None:
-        if not supports_full_write:
-            raise NeonUnsupportedOperation(
-                "Writing to an AM Neon 80 is not enabled yet: its keymap and "
-                "macro protocols are still to come. Nothing was sent to the "
-                "keyboard. Lighting alone would leave the device holding an "
-                "incomplete write."
+    @staticmethod
+    def _keymap_layers(config: dict[str, Any]) -> list[list[str]]:
+        layer_data = (config.get("key_layer") or {}).get("layer_data") or []
+        return [entry.get("layer", []) for entry in layer_data]
+
+    def preflight(self, session, config: dict[str, Any]) -> neon_lighting.LightingPlan:
+        """Validate everything that can be validated before any byte is sent.
+
+        The three writes are not one transaction and cannot be made one, so this
+        is what stands in for atomicity: every failure that can be found without
+        touching the device is found here.
+        """
+
+        plan = self._plan(config)
+
+        layers = self._keymap_layers(config)
+        if layers:
+            # Raises naming every unsupported key at once.
+            vial_keymap.encode_layers(layers)
+
+        macros = config.get("macro_key") or []
+        capacity = vial_macros.read_capacity(session)
+        vial_macros.encode_macros(macros, capacity=capacity)
+
+        unlocked, held_keys = vial_keymap.unlock_status(session)
+        if not unlocked:
+            raise vial_keymap.KeyboardLocked(
+                "This keyboard is locked. Vial requires it to be unlocked from "
+                f"the keyboard itself: hold the {held_keys} designated key(s) "
+                "until it reports unlocked, then write again. Nothing was "
+                "written."
             )
+        return plan
 
     def describe_write(self, config: dict[str, Any]) -> transport.WriteReceipt:
-        self._refuse_partial_write()
         return transport.WriteReceipt(self._plan(config).packet_count, self.write_unit_label)
 
     def write_config(self, address: str, config: dict[str, Any]) -> transport.WriteReceipt:
-        # Refuse first. Planning would be harmless, but refusing before doing
-        # any work at all is the property worth having.
-        self._refuse_partial_write()
-
-        info = hid_transport.find(address)
-        approval = hid_transport.approve_write(info, info.model or "")
-        plan = self._plan(config)
-        session = hid_transport.open_approved(approval)
+        session = self._session(address)
         try:
+            plan = self.preflight(session, config)
             sent = neon_lighting.push(session, plan)
         finally:
             session.close()

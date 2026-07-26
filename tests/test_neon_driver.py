@@ -3,11 +3,17 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from am_configurator import neon_driver, neon_lighting, transport
+from am_configurator import (
+    neon_driver,
+    neon_lighting,
+    transport,
+    vial_keymap,
+    vial_macros,
+)
 
 
-def _neon_config(frames: int = 2) -> dict:
-    return {
+def _neon_config(frames: int = 2, *, keymap: bool = True, macros: int = 1) -> dict:
+    config: dict = {
         "product_info": {"product_id": "NEON80"},
         "page_data": [
             {
@@ -28,14 +34,68 @@ def _neon_config(frames: int = 2) -> dict:
                 },
             }
         ],
+        "macro_key": [
+            {
+                "original_key": "#11070004",
+                "layer_key": ["#11070004", "#10070004"],
+                "intvel_ms": [25, 0],
+            }
+            for _ in range(macros)
+        ],
     }
+    if keymap:
+        config["key_layer"] = {
+            "layer_num": 4,
+            "layer_data": [
+                {"layer": [f"#0007{(4 + n) % 0x100:04X}" for n in range(90)]}
+                for _ in range(4)
+            ],
+        }
+    return config
+
+
+class Session:
+    """A recorded Neon. Answers the reads the preflight makes."""
+
+    def __init__(self, *, unlocked: bool = True, macro_count: int = 16, macro_bytes: int = 6677):
+        self.unlocked = unlocked
+        self.capacity = vial_macros.MacroCapacity(macro_count, macro_bytes)
+        self.sent: list[bytes] = []
+        self.closed = False
+        self._reply = b""
+
+    def send(self, packet: bytes) -> None:
+        self.sent.append(bytes(packet))
+        reply = bytearray(32)
+        if packet[0] == vial_macros.VIA_MACRO_GET_COUNT:
+            reply[1] = self.capacity.count
+        elif packet[0] == vial_macros.VIA_MACRO_GET_BUFFER_SIZE:
+            reply[1:3] = self.capacity.buffer_bytes.to_bytes(2, "big")
+        elif packet[0] == 0xFE:
+            reply[0] = 1 if self.unlocked else 0
+            reply[1] = 0 if self.unlocked else 2
+        elif packet[0] == neon_lighting.LIGHTING_COMMAND:
+            reply[7] = neon_lighting.REPLY_OK
+        self._reply = bytes(reply)
+
+    def receive(self, timeout_ms: int = 0) -> bytes:
+        return self._reply
+
+    def close(self) -> None:
+        self.closed = True
+
+    @property
+    def lighting_packets(self) -> list[bytes]:
+        return [p for p in self.sent if p and p[0] == neon_lighting.LIGHTING_COMMAND]
 
 
 class RegistrationTests(unittest.TestCase):
     def test_the_neon_driver_is_registered_under_the_hid_transport(self) -> None:
         self.assertIn(neon_driver.NEON_TRANSPORT, transport.transport_kinds())
-        driver = transport.transport_for(neon_driver.NEON_TRANSPORT)
-        self.assertIsInstance(driver, neon_driver.NeonTransport)
+        self.assertIsInstance(
+            transport.transport_for(neon_driver.NEON_TRANSPORT),
+            neon_driver.NeonTransport,
+        )
 
     def test_it_satisfies_the_driver_interface(self) -> None:
         driver = transport.transport_for(neon_driver.NEON_TRANSPORT)
@@ -53,95 +113,120 @@ class RegistrationTests(unittest.TestCase):
                 self.assertTrue(callable(getattr(driver, operation, None)))
 
 
-class PartialWriteRefusalTests(unittest.TestCase):
-    """A write must be refused entirely, not attempted and abandoned.
+class PreflightTests(unittest.TestCase):
+    """Lighting, keymap, and macros are three writes, not one transaction.
 
-    The route's write path pushes a configuration, installs macros, then reads
-    the keymap back. Two of those three do not exist yet. Pushing lighting and
-    then failing on macros would leave the keyboard holding half a write while
-    the user is told it failed, which is the worst available outcome.
+    Nothing can make them atomic. What stands in for atomicity is finding every
+    detectable failure before the first byte, so a write that starts is very
+    unlikely to stop halfway and leave the keyboard mixed.
     """
 
     def setUp(self) -> None:
         self.driver = neon_driver.NeonTransport()
 
-    def test_a_write_is_refused_before_any_device_is_touched(self) -> None:
+    def _write(self, config, session):
         with (
-            patch.object(neon_driver.hid_transport, "find") as find,
-            patch.object(neon_driver.hid_transport, "open_approved") as opened,
-            patch.object(neon_driver.neon_lighting, "push") as pushed,
+            patch.object(neon_driver.hid_transport, "find"),
+            patch.object(neon_driver.hid_transport, "approve_write"),
+            patch.object(neon_driver.hid_transport, "open_approved", return_value=session),
         ):
-            with self.assertRaises(neon_driver.NeonUnsupportedOperation) as raised:
-                self.driver.write_config("hid:00", _neon_config())
+            return self.driver.write_config("hid:00", config)
 
-        self.assertIn("Nothing was sent", str(raised.exception))
-        find.assert_not_called()
-        opened.assert_not_called()
-        pushed.assert_not_called()
-
-    def test_describing_a_write_is_refused_too(self) -> None:
-        with self.assertRaises(neon_driver.NeonUnsupportedOperation):
-            self.driver.describe_write(_neon_config())
-
-    def test_the_unimplemented_operations_name_themselves(self) -> None:
-        for call in (
-            lambda: self.driver.read_keymap("hid:00", layers=4),
-            lambda: self.driver.read_macros("hid:00"),
-            lambda: self.driver.write_macros("hid:00", []),
-        ):
-            with self.subTest():
-                with self.assertRaises(neon_driver.NeonUnsupportedOperation):
-                    call()
-
-    def test_the_refusal_is_one_flag_and_the_lighting_path_is_real(self) -> None:
-        """Once N6 and N7 land, flipping the flag must reach a working push."""
-
-        sent: list[bytes] = []
-
-        class Session:
-            def send(self, packet: bytes) -> None:
-                sent.append(packet)
-
-            def receive(self, timeout_ms: int = 0) -> bytes:
-                reply = bytearray(32)
-                reply[7] = neon_lighting.REPLY_OK
-                return bytes(reply)
-
-            def close(self) -> None:
-                pass
-
-        info = type(
-            "Info", (), {"model": "NEON80", "writable": True, "address": "hid:00"}
-        )()
-
-        with (
-            patch.object(neon_driver, "supports_full_write", True),
-            patch.object(neon_driver.hid_transport, "find", return_value=info),
-            patch.object(neon_driver.hid_transport, "approve_write", return_value=object()),
-            patch.object(neon_driver.hid_transport, "open_approved", return_value=Session()),
-        ):
-            receipt = self.driver.write_config("hid:00", _neon_config())
+    def test_a_valid_configuration_transmits_all_three_channels(self) -> None:
+        session = Session()
+        receipt = self._write(_neon_config(), session)
 
         self.assertGreater(receipt.units, 0)
-        self.assertEqual("lighting packets", receipt.unit_label)
-        self.assertEqual(receipt.units, len(sent))
-        # Three channels were transmitted, not just the two authored tracks.
-        self.assertEqual({0x01, 0x04, 0x07}, {packet[1] for packet in sent})
+        self.assertEqual(receipt.units, len(session.lighting_packets))
+        self.assertEqual({0x01, 0x04, 0x07}, {p[1] for p in session.lighting_packets})
+        self.assertTrue(session.closed)
+
+    def test_a_locked_keyboard_stops_the_write_before_any_lighting(self) -> None:
+        session = Session(unlocked=False)
+
+        with self.assertRaises(vial_keymap.KeyboardLocked) as raised:
+            self._write(_neon_config(), session)
+
+        self.assertIn("Nothing was written", str(raised.exception))
+        self.assertEqual([], session.lighting_packets)
+        self.assertTrue(session.closed, "the session leaked on failure")
+
+    def test_an_unsupported_keycode_stops_the_write_before_any_lighting(self) -> None:
+        config = _neon_config()
+        config["key_layer"]["layer_data"][2]["layer"][7] = "#000C00E9"
+        session = Session()
+
+        with self.assertRaises(vial_keymap.UnsupportedKeycode) as raised:
+            self._write(config, session)
+
+        self.assertIn("layer 2 key 7", str(raised.exception))
+        self.assertEqual([], session.lighting_packets)
+
+    def test_too_many_macros_stop_the_write_before_any_lighting(self) -> None:
+        session = Session(macro_count=16)
+
+        with self.assertRaises(vial_macros.MacroCapacityError):
+            self._write(_neon_config(macros=17), session)
+
+        self.assertEqual([], session.lighting_packets)
+
+    def test_macros_that_overflow_the_byte_budget_stop_the_write(self) -> None:
+        session = Session(macro_count=16, macro_bytes=20)
+
+        with self.assertRaises(vial_macros.MacroCapacityError) as raised:
+            self._write(_neon_config(macros=4), session)
+
+        self.assertIn("Nothing was sent", str(raised.exception))
+        self.assertEqual([], session.lighting_packets)
+
+    def test_the_preflight_runs_before_the_first_lighting_packet(self) -> None:
+        """Ordering is the property, not merely that the checks exist."""
+
+        session = Session(unlocked=False)
+        with self.assertRaises(vial_keymap.KeyboardLocked):
+            self._write(_neon_config(), session)
+
+        # It did talk to the device — capacity and lock are device reads — but
+        # transmitted nothing that changes it.
+        self.assertTrue(session.sent, "the preflight made no device reads")
+        self.assertEqual([], session.lighting_packets)
+
+
+class LayerCountTests(unittest.TestCase):
+    def test_reading_the_keymap_ignores_the_routes_seven_layer_default(self) -> None:
+        """The serial families have seven layers; this keyboard has four."""
+
+        driver = neon_driver.NeonTransport()
+        session = Session()
+        captured: dict = {}
+
+        def _read(sess, *, keys_per_layer):
+            captured["keys_per_layer"] = keys_per_layer
+            return [[]]
+
+        with (
+            patch.object(neon_driver, "_", create=True),
+            patch.object(neon_driver.hid_transport, "find"),
+            patch.object(neon_driver.hid_transport, "approve_write"),
+            patch.object(neon_driver.hid_transport, "open_approved", return_value=session),
+            patch.object(neon_driver.vial_keymap, "read_keymap", _read),
+        ):
+            driver.read_keymap("hid:00", layers=7)
+
+        self.assertEqual(neon_driver.NEON_KEYS_PER_LAYER, captured["keys_per_layer"])
 
 
 class PlanExtractionTests(unittest.TestCase):
     def test_a_slot_with_no_page_is_refused(self) -> None:
-        driver = neon_driver.NeonTransport()
         with self.assertRaises(neon_lighting.NeonLightingError):
-            driver._plan({"page_data": []})
+            neon_driver.NeonTransport()._plan({"page_data": []})
 
     def test_the_plan_uses_the_pages_brightness_and_interval(self) -> None:
-        driver = neon_driver.NeonTransport()
         config = _neon_config()
         config["page_data"][0]["lightness"] = 42
         config["page_data"][0]["speed_ms"] = 7
 
-        plan = driver._plan(config)
+        plan = neon_driver.NeonTransport()._plan(config)
         first = plan.uploads[0].frames[0][0]
         self.assertEqual(42, first[4])
         self.assertEqual(7, first[5])
