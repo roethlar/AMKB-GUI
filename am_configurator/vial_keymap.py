@@ -27,7 +27,9 @@ so it never reaches a device.
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
+from typing import Mapping
 
 
 HID_KEYBOARD_PAGE = 0x07
@@ -329,10 +331,24 @@ VIA_GET_LAYER_COUNT = 0x11
 VIA_GET_BUFFER = 0x12
 VIA_SET_BUFFER = 0x13
 
+# Standard Vial security commands. Unlike keymap/macro/lighting SETs, start and
+# poll only run the volatile physical-unlock handshake. The user still has to
+# hold the matrix positions returned by GET_UNLOCK_STATUS; software cannot
+# bypass that requirement.
+VIAL_GET_UNLOCK_STATUS = 0x05
+VIAL_UNLOCK_START = 0x06
+VIAL_UNLOCK_POLL = 0x07
+
 # A report is 32 bytes: one command, two offset, one length, leaving 28.
 BUFFER_CHUNK = 28
 
 _UNLOCK_STATUS_UNLOCKED = 1
+_UNLOCK_SENTINEL = 0xFF
+# Vial's own GUI polls every 200 ms. The firmware decrements its 50-step
+# counter only when strictly more than 100 ms elapsed; polling at exactly
+# 100 ms can reset the counter instead of advancing it.
+_UNLOCK_POLL_ATTEMPTS = 75
+_UNLOCK_POLL_INTERVAL_SECONDS = 0.2
 
 
 class KeyboardLocked(RuntimeError):
@@ -342,6 +358,20 @@ class KeyboardLocked(RuntimeError):
     user has to hold specific keys on the keyboard itself, which no amount of
     retrying from software will accomplish.
     """
+
+
+@dataclass(frozen=True)
+class UnlockStatus:
+    """The complete read-only Vial lock state.
+
+    GET_UNLOCK_STATUS byte 1 is an in-progress flag, not a key count. The
+    physical matrix positions start at byte 2 as row/column pairs and continue
+    until Vial's 0xFF padding.
+    """
+
+    unlocked: bool
+    in_progress: bool
+    keys: tuple[tuple[int, int], ...]
 
 
 def _via_request(session, command: int, *args: int) -> bytes:
@@ -382,8 +412,18 @@ def read_keymap(session, *, layers: int | None = None, keys_per_layer: int) -> l
     return decode_layers(buffer, layers=layers, keys_per_layer=keys_per_layer)
 
 
-def unlock_status(session) -> tuple[bool, int]:
-    """Whether the board is unlocked, and how many keys it wants held.
+def _unlock_keys(reply: bytes) -> tuple[tuple[int, int], ...]:
+    keys = []
+    for index in range(2, len(reply) - 1, 2):
+        row, column = reply[index], reply[index + 1]
+        if row == _UNLOCK_SENTINEL or column == _UNLOCK_SENTINEL:
+            break
+        keys.append((row, column))
+    return tuple(keys)
+
+
+def unlock_status(session) -> UnlockStatus:
+    """Return lock state, handshake state, and the required matrix positions.
 
     Read-only, and the reason a write can report something the user can act on
     instead of a bare failure.
@@ -392,7 +432,68 @@ def unlock_status(session) -> tuple[bool, int]:
     from . import hid_transport
 
     reply = _via_request(session, 0xFE, hid_transport.VIAL_GET_UNLOCK_STATUS)
-    return reply[0] == _UNLOCK_STATUS_UNLOCKED, reply[1]
+    return UnlockStatus(
+        unlocked=reply[0] == _UNLOCK_STATUS_UNLOCKED,
+        in_progress=bool(reply[1]),
+        keys=_unlock_keys(reply),
+    )
+
+
+def format_unlock_keys(
+    keys: tuple[tuple[int, int], ...],
+    *,
+    names: Mapping[tuple[int, int], str] | None = None,
+) -> str:
+    """Name physical positions without pretending matrix coordinates are keys."""
+
+    labels = [
+        (names or {}).get(key, f"matrix key {key[0]},{key[1]}")
+        for key in keys
+    ]
+    if not labels:
+        return "the designated unlock keys"
+    if len(labels) == 1:
+        return labels[0]
+    return ", ".join(labels[:-1]) + f" and {labels[-1]}"
+
+
+def ensure_unlocked(
+    session,
+    *,
+    key_names: Mapping[tuple[int, int], str] | None = None,
+    poll_attempts: int = _UNLOCK_POLL_ATTEMPTS,
+    poll_interval: float = _UNLOCK_POLL_INTERVAL_SECONDS,
+) -> UnlockStatus:
+    """Run Vial's physical handshake and return only after it succeeds.
+
+    The configuration is fully encoded and sized before callers reach this
+    function. START/POLL change only volatile lock state; no lighting, keymap,
+    or macro SET is sent until the physical combo is accepted.
+    """
+
+    status = unlock_status(session)
+    if status.unlocked:
+        return status
+
+    _via_request(session, 0xFE, VIAL_UNLOCK_START)
+    for _ in range(poll_attempts):
+        time.sleep(poll_interval)
+        reply = _via_request(session, 0xFE, VIAL_UNLOCK_POLL)
+        if reply[0] == _UNLOCK_STATUS_UNLOCKED:
+            return UnlockStatus(
+                unlocked=True,
+                in_progress=bool(reply[1]),
+                keys=status.keys,
+            )
+        if not reply[1]:
+            break
+
+    combo = format_unlock_keys(status.keys, names=key_names)
+    raise KeyboardLocked(
+        "This keyboard is still locked. Hold "
+        f"{combo} together before pressing Write, and keep holding until the "
+        "write begins. Nothing was written."
+    )
 
 
 def write_keymap(session, layers: list[list[str]], *, require_unlocked: bool = True) -> int:
@@ -406,11 +507,12 @@ def write_keymap(session, layers: list[list[str]], *, require_unlocked: bool = T
     payload = encode_layers(layers)
 
     if require_unlocked:
-        unlocked, held_keys = unlock_status(session)
-        if not unlocked:
+        status = unlock_status(session)
+        if not status.unlocked:
+            combo = format_unlock_keys(status.keys)
             raise KeyboardLocked(
                 "This keyboard is locked. Vial requires it to be unlocked from "
-                f"the keyboard itself: hold the {held_keys} designated key(s) "
+                f"the keyboard itself: hold {combo} "
                 "until it reports unlocked, then write again. Nothing was "
                 "written."
             )

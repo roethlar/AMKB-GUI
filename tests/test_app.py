@@ -463,6 +463,24 @@ class DesktopServerTests(unittest.TestCase):
         self.assertNotIn('id="write-button"', picker.group("body"))
         self.assertNotIn('id="write-device"', source)
 
+    def test_neon_write_dialog_explains_the_physical_unlock_combo(self) -> None:
+        html = (ROOT / "am_configurator" / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        script = (ROOT / "am_configurator" / "web" / "app.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('id="write-unlock-note"', html)
+        self.assertIn("Esc and F2", script)
+        self.assertIn('productFamily(device.product_id)==="NEON"', script)
+        self.assertIn("Unlocking, then writing", script)
+        self.assertIn(
+            '$("#write-dialog").addEventListener("cancel",event=>',
+            script,
+        )
+        self.assertIn("event.preventDefault()", script)
+
     def test_incompatible_profile_ui_explains_and_recovers_from_mismatch(self) -> None:
         html = (ROOT / "am_configurator" / "web" / "index.html").read_text(
             encoding="utf-8"

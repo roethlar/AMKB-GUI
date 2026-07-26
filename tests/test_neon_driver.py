@@ -58,8 +58,18 @@ def _neon_config(frames: int = 2, *, keymap: bool = True, macros: int = 1, slots
 class Session:
     """A recorded Neon. Answers the reads the preflight makes."""
 
-    def __init__(self, *, unlocked: bool = True, macro_count: int = 16, macro_bytes: int = 6677):
+    def __init__(
+        self,
+        *,
+        unlocked: bool = True,
+        unlock_after_polls: int | None = None,
+        macro_count: int = 16,
+        macro_bytes: int = 6677,
+    ):
         self.unlocked = unlocked
+        self.unlock_after_polls = unlock_after_polls
+        self.unlock_in_progress = False
+        self.unlock_polls = 0
         self.capacity = vial_macros.MacroCapacity(macro_count, macro_bytes)
         self.sent: list[bytes] = []
         self.closed = False
@@ -73,8 +83,27 @@ class Session:
         elif packet[0] == vial_macros.VIA_MACRO_GET_BUFFER_SIZE:
             reply[1:3] = self.capacity.buffer_bytes.to_bytes(2, "big")
         elif packet[0] == 0xFE:
-            reply[0] = 1 if self.unlocked else 0
-            reply[1] = 0 if self.unlocked else 2
+            command = packet[1]
+            if command == vial_keymap.VIAL_GET_UNLOCK_STATUS:
+                reply[:] = b"\xFF" * len(reply)
+                reply[0] = 1 if self.unlocked else 0
+                reply[1] = 1 if self.unlock_in_progress else 0
+                reply[2:6] = bytes((0, 0, 0, 2))
+            elif command == vial_keymap.VIAL_UNLOCK_START:
+                self.unlock_in_progress = True
+                self.unlock_polls = 0
+            elif command == vial_keymap.VIAL_UNLOCK_POLL:
+                if self.unlock_in_progress:
+                    self.unlock_polls += 1
+                    if (
+                        self.unlock_after_polls is not None
+                        and self.unlock_polls >= self.unlock_after_polls
+                    ):
+                        self.unlocked = True
+                        self.unlock_in_progress = False
+                reply[0] = 1 if self.unlocked else 0
+                reply[1] = 1 if self.unlock_in_progress else 0
+                reply[2] = max(0, 50 - self.unlock_polls)
         elif packet[0] == neon_lighting.LIGHTING_COMMAND:
             reply[7] = neon_lighting.REPLY_OK
         elif packet[0] == vial_keymap.VIA_GET_LAYER_COUNT:
@@ -98,6 +127,14 @@ class Session:
     @property
     def macro_writes(self) -> list[bytes]:
         return [p for p in self.sent if p and p[0] == vial_macros.VIA_MACRO_SET_BUFFER]
+
+    @property
+    def unlock_starts(self) -> list[bytes]:
+        return [
+            packet
+            for packet in self.sent
+            if packet[:2] == bytes((0xFE, vial_keymap.VIAL_UNLOCK_START))
+        ]
 
 
 class RegistrationTests(unittest.TestCase):
@@ -141,6 +178,7 @@ class PreflightTests(unittest.TestCase):
             patch.object(neon_driver.hid_transport, "find"),
             patch.object(neon_driver.hid_transport, "approve_write"),
             patch.object(neon_driver.hid_transport, "open_approved", return_value=session),
+            patch.object(vial_keymap.time, "sleep"),
         ):
             return self.driver.write_config("hid:00", config)
 
@@ -194,9 +232,37 @@ class PreflightTests(unittest.TestCase):
         with self.assertRaises(vial_keymap.KeyboardLocked) as raised:
             self._write(_neon_config(), session)
 
+        self.assertIn("Esc and F2", str(raised.exception))
         self.assertIn("Nothing was written", str(raised.exception))
         self.assertEqual([], session.lighting_packets)
+        self.assertEqual([], session.keymap_writes)
+        self.assertEqual([], session.macro_writes)
+        self.assertEqual(1, len(session.unlock_starts))
         self.assertTrue(session.closed, "the session leaked on failure")
+
+    def test_a_locked_keyboard_is_unlocked_before_the_first_configuration_set(self) -> None:
+        session = Session(unlocked=False, unlock_after_polls=2)
+
+        self._write(_neon_config(), session)
+
+        unlock_polls = [
+            index
+            for index, packet in enumerate(session.sent)
+            if packet[:2] == bytes((0xFE, vial_keymap.VIAL_UNLOCK_POLL))
+        ]
+        first_set = min(
+            index
+            for index, packet in enumerate(session.sent)
+            if packet[0]
+            in {
+                neon_lighting.LIGHTING_COMMAND,
+                vial_keymap.VIA_SET_BUFFER,
+                vial_macros.VIA_MACRO_SET_BUFFER,
+            }
+        )
+        self.assertEqual(2, len(unlock_polls))
+        self.assertLess(unlock_polls[-1], first_set)
+        self.assertTrue(session.unlocked)
 
     def test_an_unsupported_keycode_stops_the_write_before_any_lighting(self) -> None:
         config = _neon_config()
@@ -208,6 +274,7 @@ class PreflightTests(unittest.TestCase):
 
         self.assertIn("layer 2 key 7", str(raised.exception))
         self.assertEqual([], session.lighting_packets)
+        self.assertEqual([], session.unlock_starts)
 
     def test_too_many_macros_stop_the_write_before_any_lighting(self) -> None:
         session = Session(macro_count=16)
@@ -216,6 +283,7 @@ class PreflightTests(unittest.TestCase):
             self._write(_neon_config(macros=17), session)
 
         self.assertEqual([], session.lighting_packets)
+        self.assertEqual([], session.unlock_starts)
 
     def test_macros_that_overflow_the_byte_budget_stop_the_write(self) -> None:
         session = Session(macro_count=16, macro_bytes=20)
@@ -225,6 +293,7 @@ class PreflightTests(unittest.TestCase):
 
         self.assertIn("Nothing was sent", str(raised.exception))
         self.assertEqual([], session.lighting_packets)
+        self.assertEqual([], session.unlock_starts)
 
     def test_the_preflight_runs_before_the_first_lighting_packet(self) -> None:
         """Ordering is the property, not merely that the checks exist."""
@@ -233,8 +302,8 @@ class PreflightTests(unittest.TestCase):
         with self.assertRaises(vial_keymap.KeyboardLocked):
             self._write(_neon_config(), session)
 
-        # It did talk to the device — capacity and lock are device reads — but
-        # transmitted nothing that changes it.
+        # It did talk to the device — capacity reads and the volatile Vial
+        # unlock handshake — but transmitted no lighting, keymap, or macro SET.
         self.assertTrue(session.sent, "the preflight made no device reads")
         self.assertEqual([], session.lighting_packets)
 

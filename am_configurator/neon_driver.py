@@ -38,6 +38,7 @@ NEON_TRANSPORT = device_mapping.HID_TRANSPORT
 
 # The Neon's key matrix, from the Vial definition its firmware serves.
 NEON_KEYS_PER_LAYER = 90
+NEON_UNLOCK_KEY_NAMES = {(0, 0): "Esc", (0, 2): "F2"}
 
 
 class NeonUnsupportedOperation(hid_transport.HidError):
@@ -188,14 +189,10 @@ class NeonTransport:
         capacity = vial_macros.read_capacity(session)
         vial_macros.encode_macros(macros, capacity=capacity)
 
-        unlocked, held_keys = vial_keymap.unlock_status(session)
-        if not unlocked:
-            raise vial_keymap.KeyboardLocked(
-                "This keyboard is locked. Vial requires it to be unlocked from "
-                f"the keyboard itself: hold the {held_keys} designated key(s) "
-                "until it reports unlocked, then write again. Nothing was "
-                "written."
-            )
+        vial_keymap.ensure_unlocked(
+            session,
+            key_names=NEON_UNLOCK_KEY_NAMES,
+        )
         return plans, keymap, macros, capacity
 
     def describe_write(self, config: dict[str, Any]) -> transport.WriteReceipt:

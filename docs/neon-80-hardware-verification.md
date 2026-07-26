@@ -53,6 +53,10 @@ by itself a problem — record it.
       alongside any serial boards.
 - [x] Select the Neon and run **Read keymap & macros**. The dialog completes,
       the document opens, **Save JSON** is enabled, and validation passes.
+- [x] Confirm the rendered macro rows contain 22, 34, 38, and 40 aligned
+      press/release events.
+- [ ] Confirm the per-key lighting canvas uses the real Vial key widths and row
+      offsets rather than evenly sized matrix cells.
 
 This is the step that proves N1 and N2 actually connected it. A device that
 works from a script but not in the GUI means the route or the browser is wrong,
@@ -96,10 +100,14 @@ Use the existing full-write action. The owner has authorized its replacement of
 the lighting configuration; the exact document must still pass every preflight
 before the first SET command.
 
-Expect the board to be **locked**. Vial requires a physical unlock — hold the
-designated keys — and the application reports that as its own state rather than
-a generic failure. That message appearing is itself a passing result for the
-lock handling; unlock and continue.
+Expect the board to be **locked**. Its `GET_UNLOCK_STATUS` response reports
+matrix positions `(0,0)` and `(0,2)`; the served Vial layout and published
+firmware map those physical positions to **Esc + F2**. Type `NEON80`, hold Esc +
+F2 before pressing **Write full configuration**, and keep holding while the app
+starts and polls Vial's physical handshake. Esc must not dismiss the dialog, and
+no lighting, keymap, or macro SET may be sent until the combo is accepted. If
+the combo is not held long enough, an actionable locked status with no
+configuration SET is the passing result.
 
 - [ ] A non-representable keycode is refused with the N6 error naming the key,
       and nothing is written.
@@ -127,12 +135,12 @@ Fill this in as you go. `—` means not attempted.
 | Step | Outcome | Notes |
 |---|---|---|
 | 1. Identity | Pass | Physical board: model `NEON80`, definition `AM Neon 80`, firmware UID `d47af38a35b8ed73`, Vial protocol 5, writable `True`, 87 projected layout keys. Read-only; nothing was written. |
-| 2. Devices in GUI | Partial | Native build 52 listed `NEON80` as USB, completed **Read keymap & macros** without crashing or touching Keychain, and opened a valid document with four 90-key layers and four populated macro slots while retaining the separately reported 16-slot capacity. The macro rows were wrong: literal Vial text bytes had been interpreted as HID usages and taps as single down events. Commit `25f225c` red-proves the repair; an exact GET-only `/api/device/read` against the board now returns event counts 22, 34, 38, and 40, all as aligned press/release transitions. Native build 53 passes bundled smoke; rendered build-53 macro inspection remains to be confirmed. The exported JSON parses and identifies `NEON80`, but it is a keymap/macro profile with synthetic black LED placeholders, not a backup of the current LED setup. No keyboard write was attempted. |
+| 2. Devices in GUI | Partial | Native build 52 listed `NEON80` as USB, completed **Read keymap & macros** without crashing or touching Keychain, and opened a valid document with four 90-key layers and four populated macro slots while retaining the separately reported 16-slot capacity. Commit `25f225c` red-proves the macro decoder repair; native build 53's rendered UI confirms event counts 22, 34, 38, and 40 as aligned press/release transitions. The exported JSON parses and identifies `NEON80`, but it is a keymap/macro profile with synthetic black LED placeholders, not a backup of the current LED setup. The per-key lighting canvas still projects evenly sized matrix cells instead of the real keyboard geometry; the owner requested that correction before the write. No keyboard write was attempted. |
 | 3a. Axial geometry | — | Authorized on 2026-07-26 after the owner found the original source GIF and accepted it as the recovery path. |
 | 3b. Head geometry | — | Same authorization as 3a. |
 | 3c. Side derivation | — | Same authorization as 3a. |
 | 4a. Keymap round trip | — | |
-| 4b. Lock reported | — | |
+| 4b. Lock reported | Ready | Hardware returned locked, not-in-progress, with matrix combo `(0,0)` + `(0,2)` (physical Esc + F2). The old “1 designated key” result was byte 1 misdecoded; it is Vial's in-progress flag. Build 54 now starts/polls the standard handshake after full preflight, labels Esc + F2, and prevents Esc from closing the dialog. Exact-source gate and bundled smoke pass; real-GUI combo acceptance remains. |
 | 4c. Bad keycode refused | — | |
 | 5. Macro overflow refused | — | |
 

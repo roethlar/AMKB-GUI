@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from am_configurator import vial_keymap as vk
 
@@ -164,10 +165,20 @@ class DeviceKeymapTests(unittest.TestCase):
     """Buffer transport, against a recorded session rather than hardware."""
 
     class Session:
-        def __init__(self, buffer: bytes = b"", *, layers: int = 4, unlocked: bool = True):
+        def __init__(
+            self,
+            buffer: bytes = b"",
+            *,
+            layers: int = 4,
+            unlocked: bool = True,
+            unlock_after_polls: int | None = None,
+        ):
             self.buffer = bytearray(buffer)
             self.layers = layers
             self.unlocked = unlocked
+            self.unlock_after_polls = unlock_after_polls
+            self.unlock_in_progress = False
+            self.unlock_polls = 0
             self.sent: list[bytes] = []
             self._reply = b""
 
@@ -188,8 +199,27 @@ class DeviceKeymapTests(unittest.TestCase):
                     self.buffer.extend(b"\x00" * (needed - len(self.buffer)))
                 self.buffer[offset:needed] = packet[4 : 4 + size]
             elif packet[0] == 0xFE:
-                reply[0] = 1 if self.unlocked else 0
-                reply[1] = 0 if self.unlocked else 2
+                command = packet[1]
+                if command == vk.VIAL_GET_UNLOCK_STATUS:
+                    reply[:] = b"\xFF" * len(reply)
+                    reply[0] = 1 if self.unlocked else 0
+                    reply[1] = 1 if self.unlock_in_progress else 0
+                    reply[2:6] = bytes((0, 0, 0, 2))
+                elif command == vk.VIAL_UNLOCK_START:
+                    self.unlock_in_progress = True
+                    self.unlock_polls = 0
+                elif command == vk.VIAL_UNLOCK_POLL:
+                    if self.unlock_in_progress:
+                        self.unlock_polls += 1
+                        if (
+                            self.unlock_after_polls is not None
+                            and self.unlock_polls >= self.unlock_after_polls
+                        ):
+                            self.unlocked = True
+                            self.unlock_in_progress = False
+                    reply[0] = 1 if self.unlocked else 0
+                    reply[1] = 1 if self.unlock_in_progress else 0
+                    reply[2] = max(0, 50 - self.unlock_polls)
             self._reply = bytes(reply)
 
         def receive(self, timeout_ms: int = 0) -> bytes:
@@ -223,6 +253,35 @@ class DeviceKeymapTests(unittest.TestCase):
         self.assertEqual(
             [], [p for p in session.sent if p[0] == vk.VIA_SET_BUFFER],
             "a locked keyboard was written to",
+        )
+
+    def test_unlock_status_decodes_progress_and_the_physical_combo(self) -> None:
+        session = self.Session(unlocked=False)
+        session.unlock_in_progress = True
+
+        status = vk.unlock_status(session)
+
+        self.assertFalse(status.unlocked)
+        self.assertTrue(status.in_progress)
+        self.assertEqual(((0, 0), (0, 2)), status.keys)
+
+    def test_physical_unlock_starts_and_polls_until_the_combo_is_accepted(self) -> None:
+        session = self.Session(unlocked=False, unlock_after_polls=2)
+
+        with patch.object(vk.time, "sleep"):
+            status = vk.ensure_unlocked(session)
+
+        self.assertTrue(status.unlocked)
+        self.assertEqual(((0, 0), (0, 2)), status.keys)
+        commands = [packet[1] for packet in session.sent if packet[0] == 0xFE]
+        self.assertEqual(
+            [
+                vk.VIAL_GET_UNLOCK_STATUS,
+                vk.VIAL_UNLOCK_START,
+                vk.VIAL_UNLOCK_POLL,
+                vk.VIAL_UNLOCK_POLL,
+            ],
+            commands,
         )
 
     def test_an_unsupported_code_is_refused_before_any_byte_is_sent(self) -> None:

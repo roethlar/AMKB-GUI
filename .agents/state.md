@@ -11,8 +11,18 @@
   red-proves the literal/tap decoder repair. A GET-only physical read through
   the exact UI API now returns four 90-key layers and four populated macros as
   real press/release transitions, while retaining the separately reported
-  16-slot/6677-byte capacity. The complete repository gate passes, and native
-  build 53 passes its bundled smoke. Optional xAI credential access remains
+  16-slot/6677-byte capacity. Native build 53's rendered UI confirms the
+  corrected event counts. N10 then exposed that Vial `GET_UNLOCK_STATUS` byte 1
+  had been misread as a held-key count even though it is the
+  unlock-in-progress flag, and that the app never started or polled the physical
+  handshake. The repair decodes the reported matrix combo `(0,0)` + `(0,2)`,
+  starts and polls the standard handshake before the first configuration SET,
+  names the Neon's physical Esc + F2 positions in the GUI, and prevents Esc
+  from dismissing the write dialog. Its red/green repository gate passes 576
+  Python tests, 54 web tests, compile/syntax checks, and package build. Native
+  build 54 passes its bundled launcher smoke; the artifact is
+  `dist/AM-Configurator-0.1.54-macOS-arm64.dmg`. Optional xAI credential access
+  remains
   deferred; no Keychain prompt occurred. Nothing has ever been written to the
   keyboard.
   The exported device-read JSON is **not an LED backup**: the Neon has no LED
@@ -28,18 +38,20 @@
   follow-up in
   `docs/superpowers/plans/2026-07-26-neon-led-preserving-writes.md` is withdrawn
   as unnecessary for N10.
-- Next action: close competing HID/USB consumers, satisfy the Neon's physical
-  Vial unlock, then use the corrected build's real GUI for the authorized N10
-  write and read-back checks.
+- Next action: replace the Neon's misleading matrix-cell LED projection with
+  the real Vial key geometry and widths requested by the owner, then build and
+  use that corrected GUI for the authorized N10 write and read-back checks.
 
 ## Blockers
 
 - N10 has no remaining owner-authorization blocker: the owner explicitly
   authorized replacing the current LED setup after finding the original source
-  GIF. The connected board still reports its Vial write lock, and Angry Miao
-  Master or VM USB forwarding must not hold the HID endpoint during the manual
-  GUI write. Broader device-family checks require their corresponding
-  keyboards; they do not block the offline suite.
+  GIF. The connected board still requires the physical Esc + F2 Vial unlock,
+  and Angry Miao Master or VM USB forwarding must not hold the HID endpoint
+  during the manual GUI write. The current Neon lighting canvas also needs the
+  owner-requested real key sizing before N10 resumes. Broader device-family
+  checks require their corresponding keyboards; they do not block the offline
+  suite.
 - Code signing and notarization are blocked on paid developer accounts, an
   Apple Developer Program membership and an Authenticode certificate. The owner
   declined both on 2026-07-24 as not ready. `README.md` discloses the unsigned

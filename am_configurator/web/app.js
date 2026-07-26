@@ -2003,6 +2003,12 @@ async function writeDevice() {
   state.pendingWrite={device,validation};
   $("#write-title").textContent=`Write to ${device.product_id}`;
   $("#write-token").textContent=device.product_id;
+  const neonWrite=productFamily(device.product_id)==="NEON";
+  const unlockNote=$("#write-unlock-note");
+  unlockNote.hidden=!neonWrite;
+  unlockNote.textContent=neonWrite
+    ?"Physical unlock required: hold Esc and F2 together before pressing Write, then keep holding until the write begins. The app completes validation before starting this unlock handshake."
+    :"";
   const led=validation.led_frames||{};
   $("#write-summary").innerHTML=`<span><strong>${validation.layers}</strong><small>layers</small></span><span><strong>${validation.macros}</strong><small>macros</small></span><span><strong>${validation.frame_plan?.total||0}</strong><small>USB frames</small></span><span><strong>${led.display||0}</strong><small>display frames</small></span><span><strong>${led.per_key||0}</strong><small>per-key frames</small></span><span><strong>${led.edge||0}</strong><small>edge frames</small></span>`;
   const status=$("#write-status");
@@ -2023,9 +2029,10 @@ async function confirmDeviceWrite() {
   if(typedConfirmation.toUpperCase()!==pending.device.product_id.toUpperCase())return;
   const confirmation=pending.device.product_id;
   const button=$("#confirm-write"),cancel=$("#cancel-write"),close=$("#cancel-write-x"),input=$("#write-confirmation"),status=$("#write-status");
+  const neonWrite=productFamily(pending.device.product_id)==="NEON";
   button.disabled=true;cancel.disabled=true;close.disabled=true;input.disabled=true;
-  button.textContent=verifyOnly?'Verifying accepted write…':`Writing ${pending.validation.frame_plan?.total||''} frames…`;
-  status.className='write-status working';status.textContent=verifyOnly?'Reading the keymap again without resending the configuration.':'Writing configuration. Keep the cable connected; verification follows automatically.';
+  button.textContent=verifyOnly?'Verifying accepted write…':neonWrite?'Unlocking, then writing…':`Writing ${pending.validation.frame_plan?.total||''} frames…`;
+  status.className='write-status working';status.textContent=verifyOnly?'Reading the keymap again without resending the configuration.':neonWrite?'Hold Esc and F2 together. Keep holding until the write begins; no lighting, keymap, or macro SET is sent until the combo is accepted.':'Writing configuration. Keep the cable connected; verification follows automatically.';
   try{
     const endpoint=verifyOnly?'/api/device/verify':'/api/device/write';
     const result=await api(endpoint,{method:'POST',body:JSON.stringify({...deviceAddress(pending.device),config:state.config,confirmation})});
@@ -2556,6 +2563,7 @@ $("#return-connected-workspace").addEventListener("click",returnToConnectedWorks
 $("#confirm-write").addEventListener("click",confirmDeviceWrite);
 $("#write-confirmation").addEventListener("input",event=>{$("#confirm-write").disabled=!state.pendingWrite||event.target.value.trim().toUpperCase()!==state.pendingWrite.device.product_id.toUpperCase();});
 $("#write-confirmation").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();if(!$("#confirm-write").disabled)confirmDeviceWrite();}});
+$("#write-dialog").addEventListener("cancel",event=>{if(state.pendingWrite&&productFamily(state.pendingWrite.device.product_id)==="NEON")event.preventDefault();});
 $("#write-dialog").addEventListener("close",()=>{if($("#write-dialog").returnValue==='cancel')state.pendingWrite=null;});
 $("#undo-button").addEventListener("click",undo);
 $("#redo-button").addEventListener("click",redo);
