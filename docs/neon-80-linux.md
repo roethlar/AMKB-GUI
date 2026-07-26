@@ -10,10 +10,16 @@ is the fix.
 
 ## Install the rule
 
-The rule ships with the application at `packaging/linux/60-am-neon-80.rules`.
+The rule ships **inside the application package**, so it is present in a wheel
+install and inside an AppImage, not only in a source checkout. The application's
+permission error prints its exact location. To find it yourself:
 
 ```sh
-sudo cp packaging/linux/60-am-neon-80.rules /etc/udev/rules.d/
+python -c "from am_configurator.hid_transport import udev_rule_path; print(udev_rule_path())"
+```
+
+```sh
+sudo cp "$(python -c 'from am_configurator.hid_transport import udev_rule_path; print(udev_rule_path())')" /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```

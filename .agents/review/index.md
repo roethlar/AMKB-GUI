@@ -18,11 +18,11 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | or-1 | HIGH     | HID driver cannot build its protocol from pre-encoded AM serial frames    | `[x]`  | `neon-80-support` | codex/openreview  |
 | or-2 | HIGH     | `blank_config` hardcodes family track sizes N1 made `device_mapping` own  | `[x]`  | `neon-80-support` | codex/openreview  |
 | or-3 | MEDIUM   | `FamilySpec` macro capacity uses event counts; Vial reports bytes         | `[x]`  | `neon-80-support` | codex/openreview  |
-| n3-1 | HIGH     | Vial UID is per-model, not per-unit; two Neons collide on one address     | `[ ]`  |        | codex/openreview  |
-| n3-2 | HIGH     | `HidSession` writes without requiring a `WriteApproval`                   | `[ ]`  |        | codex/openreview  |
-| n3-3 | HIGH     | udev rule ships only in the sdist; wheel and AppImage users cannot get it | `[ ]`  |        | codex/openreview  |
+| n3-1 | HIGH     | Vial UID is per-model, not per-unit; two Neons collide on one address     | `[x]`  | `neon-80-support` | codex/openreview  |
+| n3-2 | HIGH     | `HidSession` writes without requiring a `WriteApproval`                   | `[x]`  | `neon-80-support` | codex/openreview  |
+| n3-3 | HIGH     | udev rule ships only in the sdist; wheel and AppImage users cannot get it | `[x]`  | `neon-80-support` | codex/openreview  |
 | n3-4 | MEDIUM   | hidapi reports every open failure as `open failed`; udev remedy unreachable | `[ ]` |     | codex/openreview  |
-| n3-5 | MEDIUM   | No decompressed-size bound on device-supplied XZ definition               | `[ ]`  |        | codex/openreview  |
+| n3-5 | MEDIUM   | No decompressed-size bound on device-supplied XZ definition               | `[x]`  | `neon-80-support` | codex/openreview  |
 
 All three raised by the 2026-07-25 openreview codex pass over
 `65a70c9..94a847a` and admitted at intake after independent verification of
@@ -85,3 +85,14 @@ Common thread worth stating: three of the five are guards that were written but
 not made load-bearing. `WriteApproval` exists and nothing requires it; the
 compressed-size cap bounds the wrong quantity; the packaging test asserts the
 sdist and the artifacts that ship to users are the wheel and AppImage.
+
+All five N3 findings are fixed, one commit each, each red-proofed by reverting
+the fix and observing the named guard fail.
+
+Two of the repairs needed a second attempt at the guard, for the same reason the
+review existed: the first version tested a new helper directly and left the call
+site unguarded, so reverting the call site kept every test green. n3-5 and n3-4
+both record that. It is the identical non-load-bearing pattern the pass flagged,
+caught this time by red-proofing rather than by a reviewer.
+
+None of these repairs has been re-reviewed.

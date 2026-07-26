@@ -34,6 +34,7 @@ import json
 import lzma
 import struct
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -88,19 +89,33 @@ class HidIdentityError(HidError):
     """The device is reachable but is not a supported model."""
 
 
+UDEV_RULE_NAME = "60-am-neon-80.rules"
+
+
+def udev_rule_path() -> Path:
+    """Where the shipped udev rule actually is, for this installation.
+
+    The rule travels inside the package rather than in the source tree, because
+    the permission error tells the user to install it and wheel and AppImage
+    users have no source tree to install it from.
+    """
+
+    return Path(__file__).resolve().parent / "data" / UDEV_RULE_NAME
+
+
 def _permission_remedy() -> str:
     import sys
 
-    if sys.platform.startswith("linux"):
-        # The remedy is stated inline rather than pointing at docs/, which is
-        # deliberately not shipped in the sdist; the rule file itself is.
-        return (
-            " On Linux the raw HID node is root-only until a udev rule grants "
-            "access. Install packaging/linux/60-am-neon-80.rules into "
-            "/etc/udev/rules.d/, run 'sudo udevadm control --reload-rules && "
-            "sudo udevadm trigger', then replug the keyboard."
-        )
-    return ""
+    if not sys.platform.startswith("linux"):
+        return ""
+    rule = udev_rule_path()
+    location = str(rule) if rule.is_file() else UDEV_RULE_NAME
+    return (
+        " On Linux the raw HID node is root-only until a udev rule grants "
+        f"access. Install {location} into /etc/udev/rules.d/, run "
+        "'sudo udevadm control --reload-rules && sudo udevadm trigger', then "
+        "replug the keyboard."
+    )
 
 
 @dataclass(frozen=True)

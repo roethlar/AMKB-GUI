@@ -53,6 +53,10 @@ a = Analysis(
     binaries=binaries,
     datas=[
         (str(project / "am_configurator" / "web"), "am_configurator/web"),
+        # The Linux udev rule must reach the user, not only the source archive:
+        # the permission error tells them to install it, and an AppImage user
+        # has no source tree to install it from.
+        (str(project / "am_configurator" / "data"), "am_configurator/data"),
         (str(ffmpeg_binary.with_name("ffmpeg-runtime.json")), "ffmpeg"),
         (str(ffmpeg_metadata / "manifest.json"), "ffmpeg"),
         (str(ffmpeg_metadata / "LGPL-2.1.txt"), "ffmpeg"),
