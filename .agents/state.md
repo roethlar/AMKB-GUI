@@ -6,31 +6,38 @@
   implemented, and `.agents/review/index.md` owns the closed, red-proven review
   scoreboard. N10's physical identity and real-GUI enumeration checks pass.
   The GUI read exposed and red-proved fixes for a macOS hidapi thread-affinity
-  crash and Vial's empty macro-capacity slots entering the portable document.
-  Optional xAI credential access is now deferred, and build 51 launched without
-  a Keychain prompt. The final source passes the repository gate and build 52's
-  bundled native smoke; a direct physical read produces four valid 90-key
-  layers, four real macros, the separately retained 16-slot capacity, and a
-  valid portable configuration. Build 52's final native GUI retry also passes:
-  the read dialog completed, the open document validated, and its pre-write
-  backup was exported to Downloads and parsed as JSON. Nothing has ever been
-  written to the keyboard.
+  crash, Vial's empty macro-capacity slots entering the portable document, and
+  literal Vial text being misread as HID usage numbers. Commit `25f225c`
+  red-proves the literal/tap decoder repair. A GET-only physical read through
+  the exact UI API now returns four 90-key layers and four populated macros as
+  real press/release transitions, while retaining the separately reported
+  16-slot/6677-byte capacity. The complete repository gate passes, and native
+  build 53 passes its bundled smoke. Optional xAI credential access remains
+  deferred; no Keychain prompt occurred. Nothing has ever been written to the
+  keyboard.
+  The exported device-read JSON is **not an LED backup**: the Neon has no LED
+  read-back, and its three custom LED slots in that file are synthetic black
+  placeholders. The owner has prohibited overwriting the current LED setup, so
+  neither the full-write action nor N10's asymmetric lighting push may be used.
   The approved plan is
   `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`, its governing
   rulings are in `.agents/decisions.md` (2026-07-25), and the live hardware
-  record is `docs/neon-80-hardware-verification.md`.
-- Next action: obtain the first-write confirmation recorded in the hardware
-  guide, then push the deliberately asymmetric slot-1 pattern and photograph
-  the axial, head, and side zones.
+  record is `docs/neon-80-hardware-verification.md`. The proposed safe follow-up
+  is `docs/superpowers/plans/2026-07-26-neon-led-preserving-writes.md`.
+- Next action: obtain the owner's approval for the proposed Neon-only,
+  keymap-only/macro-only write plan, then implement it before any remaining N10
+  hardware check.
 
 ## Blockers
 
-- N10's first physical write is intentionally blocked on the owner confirming
-  that the connected Neon may be overwritten, its exported profile is the
-  intended backup, Angry Miao Master and other HID tools are closed, no VM or
-  remote-session USB forwarding is active, and the keyboard can be
-  power-cycled. Broader device-family hardware checks require their
-  corresponding keyboards; neither blocks the offline suite.
+- N10's current full-write route would replace the owner's unrecoverable LED
+  setup with synthetic black frames. It is prohibited. The safe scoped-write
+  follow-up is drafted but unapproved, so keymap and macro hardware round trips
+  remain blocked on that one owner ruling. Lighting geometry verification
+  remains blocked unless a complete trusted LED source becomes available and
+  the owner separately authorizes replacing the current setup. Broader
+  device-family checks require their corresponding keyboards; they do not block
+  the offline suite.
 - Code signing and notarization are blocked on paid developer accounts, an
   Apple Developer Program membership and an Authenticode certificate. The owner
   declined both on 2026-07-24 as not ready. `README.md` discloses the unsigned
