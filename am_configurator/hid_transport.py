@@ -183,6 +183,18 @@ def _vial_request(handle, subcommand: int, *args: int, timeout_ms: int = DEFAULT
     return reply
 
 
+def fetch_keyboard_uid(handle) -> tuple[int, str]:
+    """Return the Vial protocol version and the board's own 8-byte UID.
+
+    This UID — not the USB serial — is what distinguishes two Vial boards. The
+    serial suffix `f64c2b3c` is a fixed magic string every Vial keyboard
+    reports, which is why Vial can publish one udev rule matching it literally.
+    """
+
+    reply = _vial_request(handle, _VIAL_GET_KEYBOARD_ID)
+    return struct.unpack("<I", reply[0:4])[0], reply[4:12].hex()
+
+
 def fetch_definition(handle) -> dict[str, Any]:
     """Fetch and decode the Vial keyboard definition.
 
@@ -222,9 +234,15 @@ def identify(entry: dict[str, Any]) -> HidDeviceInfo:
     """
 
     serial = str(entry.get("serial_number") or "")
-    address = f"{entry.get('vendor_id', 0):04X}:{entry.get('product_id', 0):04X}:{serial}"
+    vendor_id = int(entry.get("vendor_id") or 0)
+    product_id = int(entry.get("product_id") or 0)
+    # Deliberately NOT built from the USB serial: every Vial board reports the
+    # same `vial:f64c2b3c` magic string, so an address containing it would
+    # collide between two different boards on this VID/PID. The per-board UID
+    # comes from the device itself below; until it is read, the address is
+    # provisional and the device is not writable anyway.
     common = {
-        "address": address,
+        "address": f"{vendor_id:04X}:{product_id:04X}:?",
         "path": entry.get("path") or b"",
         "vendor_id": int(entry.get("vendor_id") or 0),
         "product_id": int(entry.get("product_id") or 0),
@@ -254,6 +272,8 @@ def identify(entry: dict[str, Any]) -> HidDeviceInfo:
             identity_error=str(error),
         )
     try:
+        _protocol, uid = fetch_keyboard_uid(handle)
+        common["address"] = f"{vendor_id:04X}:{product_id:04X}:{uid}"
         definition = fetch_definition(handle)
     except HidError as error:
         return HidDeviceInfo(

@@ -23,6 +23,7 @@ class FakeHandle:
     def __init__(self, definition: dict | None, *, protocol: int = 5) -> None:
         self.blob = _definition_blob(definition) if definition is not None else b""
         self.protocol = protocol
+        self.uid = b"\xaa" * 8
         self.written: list[bytes] = []
         self.closed = False
         self._queue: list[bytes] = []
@@ -33,7 +34,7 @@ class FakeHandle:
         prefix, sub = packet[0], packet[1]
         assert prefix == 0xFE, f"unexpected command prefix 0x{prefix:02X}"
         if sub == 0x00:
-            self._queue.append(struct.pack("<I", self.protocol) + b"\xaa" * 8)
+            self._queue.append(struct.pack("<I", self.protocol) + self.uid)
         elif sub == 0x01:
             self._queue.append(struct.pack("<I", len(self.blob)))
         elif sub == 0x02:
@@ -154,6 +155,39 @@ class IdentityGateTests(unittest.TestCase):
 
         with self.assertRaises(hid_transport.HidIdentityError):
             hid_transport.fetch_definition(handle)
+
+
+class AddressIdentityTests(unittest.TestCase):
+    """Two Vial boards share a USB serial, so an address must not contain it."""
+
+    def _identify(self, uid: bytes, path: bytes = b"DevSrvsID:1"):
+        handle = FakeHandle({"name": "AM Neon 80"})
+        handle.uid = uid
+        with (
+            patch.object(hid_transport, "raw_endpoints", return_value=[_entry(path=path)]),
+            patch.object(hid_transport, "_open", return_value=handle),
+        ):
+            return hid_transport.list_devices()[0]
+
+    def test_two_boards_reporting_the_same_serial_get_different_addresses(self) -> None:
+        # `vial:f64c2b3c` is a fixed magic string every Vial keyboard reports,
+        # so both of these enumerate identically over USB. Only the per-board
+        # UID from `FE 00` tells them apart.
+        first = self._identify(b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73")
+        second = self._identify(b"\x01\x02\x03\x04\x05\x06\x07\x08")
+
+        self.assertEqual(first.serial_number, second.serial_number)
+        self.assertNotEqual(first.address, second.address)
+        self.assertNotIn("f64c2b3c", first.address)
+        self.assertIn("d47af38a35b8ed73", first.address)
+
+    def test_an_approval_does_not_transfer_between_boards(self) -> None:
+        approval = hid_transport.approve_write(
+            self._identify(b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"), "NEON80"
+        )
+        other = self._identify(b"\x01\x02\x03\x04\x05\x06\x07\x08")
+
+        self.assertFalse(approval.matches(other))
 
 
 class WriteApprovalTests(unittest.TestCase):

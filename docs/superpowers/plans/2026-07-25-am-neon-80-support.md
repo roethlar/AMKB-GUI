@@ -77,7 +77,22 @@ LED. Take axial ordering and positions from the Apache-2.0 driver's
 - USB `0x05AC:0x024F` (vendor ID is Apple's, borrowed so macOS treats the board
   as a native keyboard; it is not an Apple device).
 - Serial-number string carries a `vial:` prefix; the owner's unit reports
-  `vial:f64c2b3c`. The suffix is a per-board UID and must not be matched on.
+  `vial:f64c2b3c`.
+- **Correction, 2026-07-25.** An earlier revision of this plan recorded the
+  suffix as "a per-board UID". That is wrong, and the error mattered: it makes
+  the USB serial look like a unique device identifier when it is not.
+  `vial:f64c2b3c` is a fixed magic string every Vial keyboard reports. Two
+  independent lines of evidence:
+  - Vial publishes a single udev rule, for all Vial keyboards, that matches
+    `ATTRS{serial}=="*vial:f64c2b3c*"` literally. A per-board value could not
+    serve as a general rule.
+  - The genuine per-board UID is the 8 bytes returned by `FE 00`, measured on
+    the owner's unit as `d47af38a35b8ed73` — a different value from the serial
+    suffix, as recorded under "Vial definition fetch" below.
+
+  Consequence for implementation: **a device address must not be derived from
+  the USB serial**, because two different Vial boards on the same VID/PID share
+  it exactly. Use the `FE 00` keyboard UID.
 - **This pair identifies far less than it appears to.** `0x05AC:0x024F` is
   reused by many unrelated keyboards, and a `vial:` prefix marks any Vial board
   whatsoever. Neither, alone or together, establishes that the connected device
