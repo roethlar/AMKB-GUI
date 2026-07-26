@@ -21,18 +21,18 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | n3-1 | HIGH     | Vial UID is per-model, not per-unit; two Neons collide on one address     | `[x]`  | `neon-80-support` | codex/openreview  |
 | n3-2 | HIGH     | `HidSession` writes without requiring a `WriteApproval`                   | `[x]`  | `neon-80-support` | codex/openreview  |
 | n3-3 | HIGH     | udev rule ships only in the sdist; wheel and AppImage users cannot get it | `[x]`  | `neon-80-support` | codex/openreview  |
-| n3-4 | MEDIUM   | hidapi reports every open failure as `open failed`; udev remedy unreachable | `[ ]` |     | codex/openreview  |
+| n3-4 | MEDIUM   | hidapi reports every open failure as `open failed`; udev remedy unreachable | `[x]` | `neon-80-support` | codex/openreview  |
 | n3-5 | MEDIUM   | No decompressed-size bound on device-supplied XZ definition               | `[x]`  | `neon-80-support` | codex/openreview  |
 | n4-1 | HIGH     | `sudo app > /etc/...` cannot write; the documented remedy always fails    | `[x]`  | `neon-80-support` | codex/openreview  |
 | n4-2 | MEDIUM   | Neon editor renders an invented identity layout before geometry loads    | `[x]`  | `neon-80-support` | codex/openreview  |
-| n567-1 | HIGH     | Neon device reads cannot produce a valid API response                  | `[ ]`  | `neon-80-support` | codex/openreview  |
-| n567-2 | HIGH     | Shared validation rejects every native Neon keymap                     | `[ ]`  | `neon-80-support` | codex/openreview  |
-| n567-3 | HIGH     | Discovery and write confirmation use different product identifiers     | `[ ]`  | `neon-80-support` | codex/openreview  |
-| n567-4 | HIGH     | The enabled full-write path never transmits the keymap                 | `[ ]`  | `neon-80-support` | codex/openreview  |
-| n567-5 | HIGH     | Common application keycodes have no Neon translation                   | `[ ]`  | `neon-80-support` | codex/openreview  |
-| n567-6 | HIGH     | Vial macro encoding discards macro slot identity                       | `[ ]`  | `neon-80-support` | codex/openreview  |
-| n567-7 | HIGH     | A full configuration write silently ignores lighting slots 2 and 3     | `[ ]`  | `neon-80-support` | codex/openreview  |
-| n567-8 | HIGH     | Successful Neon writes crash before persistence                        | `[ ]`  | `neon-80-support` | codex/openreview  |
+| n567-1 | HIGH     | Neon device reads cannot produce a valid API response                  | `[x]`  | `neon-80-support` | codex/openreview  |
+| n567-2 | HIGH     | Shared validation rejects every native Neon keymap                     | `[x]`  | `neon-80-support` | codex/openreview  |
+| n567-3 | HIGH     | Discovery and write confirmation use different product identifiers     | `[x]`  | `neon-80-support` | codex/openreview  |
+| n567-4 | HIGH     | The enabled full-write path never transmits the keymap                 | `[x]`  | `neon-80-support` | codex/openreview  |
+| n567-5 | HIGH     | Common application keycodes have no Neon translation                   | `[x]`  | `neon-80-support` | codex/openreview  |
+| n567-6 | HIGH     | Vial macro encoding discards macro slot identity                       | `[x]`  | `neon-80-support` | codex/openreview  |
+| n567-7 | HIGH     | A full configuration write silently ignores lighting slots 2 and 3     | `[x]`  | `neon-80-support` | codex/openreview  |
+| n567-8 | HIGH     | Successful Neon writes crash before persistence                        | `[x]`  | `neon-80-support` | codex/openreview  |
 | n567-9 | MEDIUM   | Device-reported macro byte capacity never reaches the editor           | `[ ]`  | `neon-80-support` | codex/openreview  |
 | n567-10 | MEDIUM   | Neon keymap layout and assignment filtering were not integrated        | `[ ]`  | `neon-80-support` | codex/openreview  |
 
@@ -141,3 +141,16 @@ typed write confirmation can never match; and a successful write raises on
 `n567-2` is a self-inflicted repeat: it is the `validate_config` gap recorded as
 known open work under `or-1` and left unscheduled. Recording a gap is not
 closing it.
+
+Eight findings are repaired and red-proven on the current branch:
+
+| Findings | Repair |
+|----------|--------|
+| n567-1, n567-3, n567-4, n567-7, n567-8 | `48398c9` |
+| n567-2 | `8546d54` |
+| n567-5 | `21c8e56` |
+| n567-6 | `77ff823` |
+
+`n567-9` remains open after `8546d54` repaired the static browser mirror but
+left the connected device's reported capacity unprojected. `n567-10` remains
+open. None of these repairs has been re-reviewed.

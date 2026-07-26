@@ -82,11 +82,9 @@ differ by protocol, not merely by link.
 
 ## Known gaps
 
-`validate_config` (`server.py:537`) still calls `writer.plan` to check that a
-configuration encodes. That is validation rather than transmission, it runs with
-no device attached, and it will need a per-family answer — a Neon configuration
-would be rejected by the AM wire encoder. Out of scope for this finding;
-belongs with plan task N4. Recorded so it is not mistaken for settled.
+Closed by `8546d54` under `n567-2`: validation now takes exact keymap geometry
+from `FamilySpec`, and the AM wire encoder runs only for serial families.
+Non-serial drivers retain their own preflight before transmission.
 
 ## Owner decision (resolved)
 
