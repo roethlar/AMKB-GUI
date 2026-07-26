@@ -18,6 +18,11 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | or-1 | HIGH     | HID driver cannot build its protocol from pre-encoded AM serial frames    | `[x]`  | `neon-80-support` | codex/openreview  |
 | or-2 | HIGH     | `blank_config` hardcodes family track sizes N1 made `device_mapping` own  | `[x]`  | `neon-80-support` | codex/openreview  |
 | or-3 | MEDIUM   | `FamilySpec` macro capacity uses event counts; Vial reports bytes         | `[x]`  | `neon-80-support` | codex/openreview  |
+| n3-1 | HIGH     | Vial UID is per-model, not per-unit; two Neons collide on one address     | `[ ]`  |        | codex/openreview  |
+| n3-2 | HIGH     | `HidSession` writes without requiring a `WriteApproval`                   | `[ ]`  |        | codex/openreview  |
+| n3-3 | HIGH     | udev rule ships only in the sdist; wheel and AppImage users cannot get it | `[ ]`  |        | codex/openreview  |
+| n3-4 | MEDIUM   | hidapi reports every open failure as `open failed`; udev remedy unreachable | `[ ]` |     | codex/openreview  |
+| n3-5 | MEDIUM   | No decompressed-size bound on device-supplied XZ definition               | `[ ]`  |        | codex/openreview  |
 
 All three raised by the 2026-07-25 openreview codex pass over
 `65a70c9..94a847a` and admitted at intake after independent verification of
@@ -59,3 +64,24 @@ standing "defaults, just codex" direction. The T5 escalation a reopen normally
 triggers therefore had no stronger tier to reach; the redispatch opened a fresh
 session at the same routing, which is recorded rather than presented as an
 escalation.
+
+## N3 pass — 2026-07-25
+
+`openreview codex` over `16901d8..abf32d7` (plan task N3) returned `findings`
+with five, all admitted at intake. Three were verified empirically rather than
+accepted on prose:
+
+- n3-3: `unzip -l` on the built wheel finds the udev rule **0 times**.
+- n3-4: `open_path` on a bad path raises `OSError('open failed')` — no
+  `permission` or `busy` substring exists to match, so every failure is reported
+  as "no longer attached".
+- n3-5: 200 MiB of zeros compresses to **30,644 bytes**, which passes the 64 KiB
+  compressed-size cap and then expands in full.
+
+n3-1 and n3-2 are code-reading findings, both plain from the source. n3-1 cannot
+be fully confirmed here — it needs a second Neon 80 — and its record says so.
+
+Common thread worth stating: three of the five are guards that were written but
+not made load-bearing. `WriteApproval` exists and nothing requires it; the
+compressed-size cap bounds the wrong quantity; the packaging test asserts the
+sdist and the artifacts that ship to users are the wheel and AppImage.
