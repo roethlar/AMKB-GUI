@@ -56,8 +56,18 @@ _HID_RIGHT_MASK = 0xF0
 
 _CODE_PATTERN = re.compile(r"^#[0-9A-Fa-f]{8}$")
 
+# The application spells "no key here" as #00000000 — page 0x00, usage 0 —
+# everywhere in the palette and the editor. QMK spells it KC_NO, 0x0000. Without
+# this mapping, clearing a single key made the whole Neon keymap fail preflight.
 KC_NO = 0x0000
-CODE_NO = "#00070000"
+CODE_NO = "#00000000"
+
+# Application macro tokens. #009515NN references macro slot NN, and the device
+# has sixteen slots. QMK's Vial macro keycodes start at QK_MACRO.
+MACRO_TOKEN_PAGE = 0x95
+MACRO_TOKEN_PREFIX = 0x15
+QK_MACRO_BASE = 0x7700
+MACRO_SLOTS = 16
 
 
 class UnsupportedKeycode(ValueError):
@@ -127,6 +137,21 @@ def to_qmk(code: str) -> int:
 
     parts = parse_code(code)
 
+    if code.upper() == CODE_NO:
+        return KC_NO
+
+    if parts.page == MACRO_TOKEN_PAGE and (parts.usage >> 8) == MACRO_TOKEN_PREFIX:
+        slot = parts.usage & 0xFF
+        if slot >= MACRO_SLOTS:
+            raise UnsupportedKeycode(
+                code,
+                f"it references macro slot {slot}; this keyboard has "
+                f"{MACRO_SLOTS}",
+            )
+        if parts.modifier:
+            raise UnsupportedKeycode(code, "a macro reference takes no modifier")
+        return QK_MACRO_BASE + slot
+
     if parts.page == QMK_PASSTHROUGH_PAGE:
         if parts.modifier:
             raise UnsupportedKeycode(
@@ -146,6 +171,12 @@ def to_qmk(code: str) -> int:
             code,
             f"usage page 0x{parts.page:02X} has no QMK equivalent; only the HID "
             f"keyboard page 0x{HID_KEYBOARD_PAGE:02X} translates",
+        )
+    if parts.usage == 0 and parts.modifier == 0:
+        raise UnsupportedKeycode(
+            code,
+            f"an empty key is spelled {CODE_NO}; keeping two spellings for one "
+            "keycode would make read-back unstable",
         )
     if parts.usage > MAX_BASIC_USAGE:
         raise UnsupportedKeycode(
@@ -170,6 +201,13 @@ def from_qmk(value: int) -> str:
 
     if not 0 <= value <= 0xFFFF:
         raise ValueError(f"{value!r} is not a 16-bit keycode.")
+
+    if value == KC_NO:
+        return CODE_NO
+
+    if QK_MACRO_BASE <= value < QK_MACRO_BASE + MACRO_SLOTS:
+        slot = value - QK_MACRO_BASE
+        return f"#00{MACRO_TOKEN_PAGE:02X}{MACRO_TOKEN_PREFIX:02X}{slot:02X}"
 
     usage = value & 0xFF
     mods = (value >> 8) & 0x1F

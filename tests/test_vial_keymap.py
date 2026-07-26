@@ -18,6 +18,11 @@ class InjectivityTests(unittest.TestCase):
         for usage in range(0x00, 0x100):
             for modifier in (0x00, 0x01, 0x02, 0x04, 0x08, 0x0F, 0x10, 0x20, 0x40, 0x80, 0xF0):
                 code = f"#{modifier:02X}07{usage:04X}"
+                if code == "#00070000":
+                    # An empty key is spelled #00000000. This page-7 form is
+                    # rejected as a duplicate spelling of the same keycode,
+                    # which is what keeps read-back stable.
+                    continue
                 with self.subTest(code=code):
                     value = vk.to_qmk(code)
                     self.assertEqual(code, vk.from_qmk(value))
@@ -228,6 +233,48 @@ class DeviceKeymapTests(unittest.TestCase):
             vk.write_keymap(session, layers)
 
         self.assertEqual([], session.sent, "the device was touched before validation")
+
+
+class UiEmittableCodeTests(unittest.TestCase):
+    """Every code the palette can produce must translate.
+
+    Finding n567-5: clearing a key or assigning a macro made the entire keymap
+    fail preflight, because the two most common assignments in the application
+    had no mapping at all.
+    """
+
+    def test_clearing_a_key_translates(self) -> None:
+        self.assertEqual(vk.KC_NO, vk.to_qmk("#00000000"))
+        self.assertEqual("#00000000", vk.from_qmk(vk.KC_NO))
+
+    def test_an_empty_key_has_exactly_one_spelling(self) -> None:
+        with self.assertRaises(vk.UnsupportedKeycode) as raised:
+            vk.to_qmk("#00070000")
+        self.assertIn("#00000000", raised.exception.reason)
+
+    def test_every_macro_slot_translates(self) -> None:
+        for slot in range(vk.MACRO_SLOTS):
+            code = f"#009515{slot:02X}"
+            with self.subTest(slot=slot):
+                value = vk.to_qmk(code)
+                self.assertEqual(vk.QK_MACRO_BASE + slot, value)
+                self.assertEqual(code, vk.from_qmk(value))
+
+    def test_a_macro_slot_the_device_lacks_is_refused(self) -> None:
+        with self.assertRaises(vk.UnsupportedKeycode) as raised:
+            vk.to_qmk("#00951510")
+        self.assertIn("macro slot 16", raised.exception.reason)
+
+    def test_a_realistic_keymap_with_clears_and_macros_encodes(self) -> None:
+        layer = [f"#0007{(4 + n) % 0x100:04X}" for n in range(90)]
+        layer[0] = "#00000000"
+        layer[1] = "#00951500"
+        layer[2] = "#0095150F"
+
+        encoded = vk.encode_layers([layer])
+        self.assertEqual(90 * 2, len(encoded))
+        self.assertEqual([layer], vk.decode_layers(encoded, layers=1, keys_per_layer=90))
+
 
 if __name__ == "__main__":
     unittest.main()
