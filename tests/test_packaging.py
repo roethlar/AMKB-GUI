@@ -769,6 +769,23 @@ class ReleaseInfoTests(unittest.TestCase):
             script,
         )
 
+    def test_the_udev_install_command_elevates_the_write_not_the_reader(self) -> None:
+        """`sudo app > /etc/...` cannot work, however natural it looks.
+
+        The shell opens a `>` target as the invoking user, before `sudo` runs,
+        so redirecting into a root-owned directory fails with permission denied
+        no matter how the application is elevated. Only the write may be
+        elevated, which means piping into `tee`.
+        """
+        doc = (ROOT / "docs" / "neon-80-linux.md").read_text(encoding="utf-8")
+        source = (ROOT / "am_configurator" / "hid_transport.py").read_text(encoding="utf-8")
+
+        for name, text in (("docs", doc), ("runtime", source)):
+            with self.subTest(surface=name):
+                self.assertIn("sudo tee", text)
+                self.assertNotIn("sudo ./AM_Configurator.AppImage --print-udev-rule >", text)
+                self.assertNotIn("sudo am-configurator --print-udev-rule >", text)
+                self.assertNotIn("--print-udev-rule > /etc/udev", text)
 
 if __name__ == "__main__":
     unittest.main()

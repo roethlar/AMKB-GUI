@@ -2762,3 +2762,36 @@ class SpotlightProtocolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NeonEditorGeometryGuardTests(unittest.TestCase):
+    """The editor must never invent a layout it does not have.
+
+    An identity map renders a plausible grid at the wrong positions. A user
+    painting on it authors LED positions that do not exist on the device, and
+    the result is saved and written as if it were correct.
+    """
+
+    def _app_source(self) -> str:
+        return (ROOT / "am_configurator" / "web" / "app.js").read_text(encoding="utf-8")
+
+    def test_a_family_without_embedded_maps_refuses_to_render_without_geometry(self) -> None:
+        source = self._app_source()
+        compact = re.sub(r"\s+", "", source)
+
+        self.assertIn(
+            "if(!model.keyMap&&!model.displayMap&&!model.physicalLayout&&!servedTarget){",
+            compact,
+        )
+        self.assertIn("geometryUnavailableNotice()", source)
+
+    def test_geometry_loads_before_the_first_render_and_without_ai(self) -> None:
+        """Bundling it with the AI calls let a slow AI status delay the layout."""
+        source = self._app_source()
+        compact = re.sub(r"\s+", "", source)
+
+        self.assertIn("awaitloadDeviceGeometry();render();", compact)
+        # The capabilities call must not sit in the AI bundle any more.
+        ai_bundle = re.search(r"asyncfunctionloadAiConfig\(\)\{(.*?)\}", compact)
+        self.assertIsNotNone(ai_bundle)
+        self.assertNotIn("led/capabilities", ai_bundle.group(1))

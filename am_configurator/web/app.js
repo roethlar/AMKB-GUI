@@ -485,6 +485,11 @@ function servedGeometry(family, target) {
   const entries=state.capabilities?.targets?.[family]?.targets;
   return entries?.find(entry=>entry.name===target) || null;
 }
+
+function geometryUnavailableNotice() {
+  const loading=state.capabilities===null;
+  return `<div class="empty-state"><p class="eyebrow">${loading?"Loading device layout":"Device layout unavailable"}</p><h1>${loading?"Fetching the LED layout for this keyboard…":"The LED layout for this keyboard could not be loaded."}</h1><p>${loading?"The editor opens once the layout arrives.":"Reload the application to try again. Editing is held back deliberately: painting against a guessed layout would author LED positions that do not exist on the device."}</p></div>`;
+}
 const LED_SPEEDS = [255,240,224,208,192,176,160,146,132,118,100,90,76,62,48,34];
 
 function firmwareLedSpeed(value) {
@@ -1424,9 +1429,17 @@ function renderLightingEdit() {
   // for these tables. A family whose maps are not hardcoded below — the Neon,
   // and anything added later — is laid out entirely from this.
   const servedTarget=servedGeometry(productFamily(productId()),state.ledTarget);
+  // A family with no embedded maps depends entirely on served geometry. Until
+  // that arrives, refuse to render an editor rather than invent one: an
+  // identity map is a plausible-looking but wrong layout, and a user painting
+  // against it would be authoring positions that do not exist on the device.
+  if(!model.keyMap&&!model.displayMap&&!model.physicalLayout&&!servedTarget){
+    $("#lighting-edit-content").innerHTML=geometryUnavailableNotice();
+    return;
+  }
   const columns=state.ledTarget==="frames"?40:state.ledTarget==="spotlight_frames"?7:(model.keyColumns||servedTarget?.width);
   const physicalLayout=state.ledTarget==="keyframes"?model.physicalLayout:null;
-  const pixelMap=physicalLayout?physicalLayout.map(item=>item.index):state.ledTarget==="keyframes"?model.keyMap:state.ledTarget==="spotlight_frames"?[0,1,2,3,4,5,6]:(model.displayMap||servedTarget?.map||Array.from({length},(_,index)=>index));
+  const pixelMap=physicalLayout?physicalLayout.map(item=>item.index):state.ledTarget==="keyframes"?(model.keyMap||servedTarget?.map):state.ledTarget==="spotlight_frames"?[0,1,2,3,4,5,6]:(model.displayMap||servedTarget?.map||Array.from({length},(_,index)=>index));
   const mappedCount=new Set(pixelMap.filter(index=>index>=0)).size;
   const focusablePixelCount=physicalLayout?.length||pixelMap.filter(index=>index>=0).length;
   state.ledPixel=Math.min(state.ledPixel,Math.max(0,focusablePixelCount-1));
@@ -2203,11 +2216,19 @@ function applyReviewedLighting() {
   toast("Lighting applied",`${Number(result.source_frames||0)} frames added to Custom ${destination.slot-4}. The keyboard has not been written.`,"success");
 }
 
+// Device geometry is not an AI concern and must not wait on one. It decides
+// whether the editor can render at all, so it is fetched on its own before the
+// first render; bundling it with the optional AI calls meant a slow or failing
+// AI status could leave the editor with no layout.
+async function loadDeviceGeometry() {
+  try{state.capabilities=await api("/api/led/capabilities");}
+  catch(error){state.capabilities=undefined;}
+}
+
 async function loadAiConfig() {
-  const requests=await Promise.allSettled([api("/api/led/capabilities"),api("/api/settings"),api("/api/ai/status")]);
-  if(requests[0].status==="fulfilled")state.capabilities=requests[0].value;
-  if(requests[1].status==="fulfilled")state.settings=requests[1].value;
-  if(requests[2].status==="fulfilled")state.aiStatus=requests[2].value;
+  const requests=await Promise.allSettled([api("/api/settings"),api("/api/ai/status")]);
+  if(requests[0].status==="fulfilled")state.settings=requests[0].value;
+  if(requests[1].status==="fulfilled")state.aiStatus=requests[1].value;
   if(shouldDiscoverLocalModels(state.lighting.route,state.aiStatus)){
     try{state.localModels=normalizeLocalModels(await api("/api/ai/local/models"));}
     catch(error){state.localModels=localModelRefreshFailed(state.localModels);}
@@ -2558,6 +2579,7 @@ window.addEventListener('pagehide',clearLibraryAssetUrls);
   try{
     const result=await api('/api/config');
     if(result.config){state.config=result.config;state.documentRevision=result.document_revision||null;state.fileName=`AM-${productId()}-config.json`;}
+    await loadDeviceGeometry();
     render();
     restoreLightingJob();
     scanDevices();

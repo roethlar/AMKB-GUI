@@ -18,16 +18,21 @@ which a file path does not: inside an AppImage the package lives on a temporary
 mount that vanishes when the application exits, and the shell's Python cannot
 import it.
 
+Note the `| sudo tee` rather than `sudo ... >`. The shell opens a `>` target as
+*you*, before `sudo` runs, so redirecting into `/etc/udev/rules.d/` fails with
+permission denied however the command is elevated. Piping into `tee` elevates
+the write itself and leaves the application running unprivileged.
+
 **AppImage:**
 
 ```sh
-sudo ./AM_Configurator.AppImage --print-udev-rule > /etc/udev/rules.d/60-am-neon-80.rules
+./AM_Configurator.AppImage --print-udev-rule | sudo tee /etc/udev/rules.d/60-am-neon-80.rules >/dev/null
 ```
 
 **Wheel or source install:**
 
 ```sh
-sudo am-configurator --print-udev-rule > /etc/udev/rules.d/60-am-neon-80.rules
+am-configurator --print-udev-rule | sudo tee /etc/udev/rules.d/60-am-neon-80.rules >/dev/null
 ```
 
 Then reload udev:

@@ -113,10 +113,12 @@ def _permission_remedy() -> str:
     # path is worthless to exactly the users who most need this message.
     return (
         " On Linux the raw HID node is root-only until a udev rule grants "
-        "access. Run the application with --print-udev-rule and redirect it, "
-        f"e.g. 'sudo <this application> --print-udev-rule > /etc/udev/rules.d/"
-        f"{UDEV_RULE_NAME}', then 'sudo udevadm control --reload-rules && sudo "
-        "udevadm trigger', then replug the keyboard."
+        "access. Run this application with --print-udev-rule and pipe it into "
+        f"tee, e.g. '<this application> --print-udev-rule | sudo tee "
+        f"/etc/udev/rules.d/{UDEV_RULE_NAME} >/dev/null'. A plain 'sudo ... >' "
+        "redirect cannot work: the shell opens the target as you, before sudo "
+        "runs. Then 'sudo udevadm control --reload-rules && sudo udevadm "
+        "trigger', and replug the keyboard."
     )
 
 

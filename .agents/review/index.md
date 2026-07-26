@@ -23,6 +23,8 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | n3-3 | HIGH     | udev rule ships only in the sdist; wheel and AppImage users cannot get it | `[x]`  | `neon-80-support` | codex/openreview  |
 | n3-4 | MEDIUM   | hidapi reports every open failure as `open failed`; udev remedy unreachable | `[ ]` |     | codex/openreview  |
 | n3-5 | MEDIUM   | No decompressed-size bound on device-supplied XZ definition               | `[x]`  | `neon-80-support` | codex/openreview  |
+| n4-1 | HIGH     | `sudo app > /etc/...` cannot write; the documented remedy always fails    | `[x]`  | `neon-80-support` | codex/openreview  |
+| n4-2 | MEDIUM   | Neon editor renders an invented identity layout before geometry loads    | `[x]`  | `neon-80-support` | codex/openreview  |
 
 All three raised by the 2026-07-25 openreview codex pass over
 `65a70c9..94a847a` and admitted at intake after independent verification of
@@ -96,3 +98,14 @@ both record that. It is the identical non-load-bearing pattern the pass flagged,
 caught this time by red-proofing rather than by a reviewer.
 
 None of these repairs has been re-reviewed.
+
+## N4 pass — 2026-07-25
+
+`openreview codex` over `eb21629..179f052` returned `findings` with two, both
+admitted and both fixed. n4-1 was self-inflicted by the n3-3 repair: fixing the
+AppImage problem introduced a shell problem, and the guard written alongside it
+only checked that the text mentioned the flag.
+
+Its replacement guard was itself not collected — appended below the module's
+`__main__` block, outside any class — so the first red-proof passed against a
+deliberately broken document. Caught by noticing the suite count had not moved.
