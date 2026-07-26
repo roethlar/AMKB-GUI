@@ -11,12 +11,16 @@ it, and report.
 ## Before starting
 
 - [ ] One AM Neon 80 connected by USB, and no other application holding it —
-      close Vial, VIA, and QMK Toolbox. The app reports contention separately
-      from a permission problem, so if it says the device is busy, that is why.
+      close Angry Miao Master, Vial, VIA, QMK Toolbox, and other HID tools. The
+      app reports contention separately from a permission problem, so if it
+      says the device is busy, that is why.
 - [ ] On Linux only: the udev rule installed, per `docs/neon-80-linux.md`.
-- [ ] A profile you are willing to overwrite. **This overwrites lighting slot 1,
-      the keymap, and all macros on the device.** Read the current state first
-      (step 2) so you have it recorded.
+- [x] The current profile was read, validated, and exported before any write as
+      `~/Downloads/AM-NEON80-pre-N10-2026-07-26.json`.
+- [ ] The owner confirms the connected Neon may be overwritten. **This
+      overwrites lighting slot 1, the keymap, and all macros on the device.**
+- [ ] No VM or remote-session USB forwarding is active.
+- [ ] The keyboard can be power-cycled if recovery is needed.
 
 ## 1. Identity
 
@@ -42,6 +46,8 @@ by itself a problem — record it.
 
 - [x] Launch the application normally and open Devices. The Neon appears
       alongside any serial boards.
+- [x] Select the Neon and run **Read keymap & macros**. The dialog completes,
+      the document opens, **Save JSON** is enabled, and validation passes.
 
 This is the step that proves N1 and N2 actually connected it. A device that
 works from a script but not in the GUI means the route or the browser is wrong,
@@ -104,7 +110,7 @@ Fill this in as you go. `—` means not attempted.
 | Step | Outcome | Notes |
 |---|---|---|
 | 1. Identity | Pass | Physical board: model `NEON80`, definition `AM Neon 80`, firmware UID `d47af38a35b8ed73`, Vial protocol 5, writable `True`, 87 projected layout keys. Read-only; nothing was written. |
-| 2. Devices in GUI | Pass (enumeration); read retry pending | Native build 49 listed `NEON80` as USB and enabled **Read keymap & macros**. The first read exposed a macOS hidapi thread-affinity crash. Build 51 completed the physical read without crashing or touching Keychain, then exposed twelve empty Vial capacity slots that made the portable document invalid. The red-proven repair retains four real macros and the separately reported 16-slot capacity; a direct physical read now yields four valid 90-key layers and a valid configuration. Build 52's final GUI retry is waiting at macOS Downloads-folder permission for the configured Library root. No keyboard write was attempted. |
+| 2. Devices in GUI | Pass | Native build 52 listed `NEON80` as USB, completed **Read keymap & macros** without crashing or touching Keychain, and opened a document with four 90-key layers and four real macros while retaining the separately reported 16-slot capacity. **Save JSON** was enabled; validation reported `4 layers · 4 macros · 8 pages`, with no document-sync failure. The pre-write backup `~/Downloads/AM-NEON80-pre-N10-2026-07-26.json` is 47,351 bytes, parses as JSON, identifies `NEON80`, and has SHA-256 `380600c9ef6898fc7abf16de1ecc11d92181f5fae9b9d35da0924cf56c41f20d`. No keyboard write was attempted. |
 | 3a. Axial geometry | — | |
 | 3b. Head geometry | — | |
 | 3c. Side derivation | — | |
