@@ -382,6 +382,15 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("MIT License", licence)
         # FFmpeg's separate LGPL obligation must not regress alongside it.
         self.assertIn("GNU Lesser General Public License", notices)
+        # The Neon's axial LED payload ordering is derived from the Apache-2.0
+        # neon80_driver. The obligation attaches to the derived data, so the
+        # attribution has to travel in every artifact, not only the repository.
+        self.assertIn("neon80_driver", notices)
+        self.assertIn("Apache License, Version 2.0", notices)
+        # And the application's own licence is unchanged: the superseding
+        # decision keeps it MIT, so a stray GPL grant here would be a
+        # regression, not an addition.
+        self.assertNotIn("GNU General Public License", licence)
 
     def _sdist_include(self) -> list[str]:
         metadata = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))
