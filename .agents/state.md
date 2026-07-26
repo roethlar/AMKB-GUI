@@ -17,27 +17,29 @@
   keyboard.
   The exported device-read JSON is **not an LED backup**: the Neon has no LED
   read-back, and its three custom LED slots in that file are synthetic black
-  placeholders. The owner has prohibited overwriting the current LED setup, so
-  neither the full-write action nor N10's asymmetric lighting push may be used.
+  placeholders. On 2026-07-26 the owner found the original GIF used for the
+  current lighting, accepted it as the recovery source, and explicitly
+  authorized overwriting the connected Neon's LED setup for N10. The full-write
+  action and asymmetric lighting push may now be used.
   The approved plan is
   `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`, its governing
   rulings are in `.agents/decisions.md` (2026-07-25), and the live hardware
-  record is `docs/neon-80-hardware-verification.md`. The proposed safe follow-up
-  is `docs/superpowers/plans/2026-07-26-neon-led-preserving-writes.md`.
-- Next action: obtain the owner's approval for the proposed Neon-only,
-  keymap-only/macro-only write plan, then implement it before any remaining N10
-  hardware check.
+  record is `docs/neon-80-hardware-verification.md`. The proposed scoped-write
+  follow-up in
+  `docs/superpowers/plans/2026-07-26-neon-led-preserving-writes.md` is withdrawn
+  as unnecessary for N10.
+- Next action: close competing HID/USB consumers, satisfy the Neon's physical
+  Vial unlock, then use the corrected build's real GUI for the authorized N10
+  write and read-back checks.
 
 ## Blockers
 
-- N10's current full-write route would replace the owner's unrecoverable LED
-  setup with synthetic black frames. It is prohibited. The safe scoped-write
-  follow-up is drafted but unapproved, so keymap and macro hardware round trips
-  remain blocked on that one owner ruling. Lighting geometry verification
-  remains blocked unless a complete trusted LED source becomes available and
-  the owner separately authorizes replacing the current setup. Broader
-  device-family checks require their corresponding keyboards; they do not block
-  the offline suite.
+- N10 has no remaining owner-authorization blocker: the owner explicitly
+  authorized replacing the current LED setup after finding the original source
+  GIF. The connected board still reports its Vial write lock, and Angry Miao
+  Master or VM USB forwarding must not hold the HID endpoint during the manual
+  GUI write. Broader device-family checks require their corresponding
+  keyboards; they do not block the offline suite.
 - Code signing and notarization are blocked on paid developer accounts, an
   Apple Developer Program membership and an Authenticode certificate. The owner
   declined both on 2026-07-24 as not ready. `README.md` discloses the unsigned

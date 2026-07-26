@@ -1,9 +1,11 @@
 # Neon 80 LED-Preserving Writes
 
-**Status:** Proposed on 2026-07-26; implementation is blocked on owner approval.
-This is a narrow follow-up to N10 of
-`docs/superpowers/plans/2026-07-25-am-neon-80-support.md`. It does not authorize
-a hardware write.
+**Status:** Withdrawn on 2026-07-26 without implementation. The owner found the
+original GIF used for the current lighting, accepted it as the recovery source,
+and explicitly authorized overwriting the connected Neon's LEDs for N10. The
+existing full-write route can therefore complete the approved N10 workflow.
+This document remains only as the record of the considered alternative and
+does not authorize a scoped-write implementation.
 
 ## Problem
 
@@ -14,13 +16,14 @@ keyboard's current LEDs.
 
 The only shipped write path is `/api/device/write`. For the Neon it calls
 `NeonTransport.write_config`, which sends `0xF0` lighting packets before writing
-the keymap and macros. Using that path with a device-read document would replace
-the current LED setup with the synthetic frames. The owner has explicitly
-prohibited overwriting the current LED setup.
+the keymap and macros. Using that path with a device-read document replaces the
+current LED setup with the synthetic frames. The owner initially prohibited
+that replacement, then withdrew the prohibition after finding the original
+source GIF and explicitly authorized it for N10.
 
-N10 still needs a real-GUI keymap round trip and macro safety checks. Those can
-be performed without touching lighting because Vial addresses the keymap and
-macro buffers independently.
+N10 still needs a real-GUI keymap round trip, macro safety checks, and asymmetric
+lighting geometry verification. They will use the already-approved full-write
+workflow; this scoped-write proposal is not required for that work.
 
 ## Safety contract
 

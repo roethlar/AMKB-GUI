@@ -17,13 +17,13 @@ it, and report.
 - [ ] On Linux only: the udev rule installed, per `docs/neon-80-linux.md`.
 - [x] The current keymap and macros were read, validated, and exported before
       any write as `~/Downloads/AM-NEON80-pre-N10-2026-07-26.json`.
-- [ ] A complete trusted source for the current LED setup is available before
-      any full write. **The device-read export does not satisfy this:** Neon
-      firmware exposes no LED-frame read-back, so its LED slots are synthetic
-      black placeholders.
-- [x] The owner has prohibited overwriting the connected Neon's current LED
-      setup. Do not use the full-write action or run the asymmetric lighting
-      step under this constraint.
+- [x] The owner found the original GIF used for the current LED setup and
+      accepted it as the recovery source. **The device-read export is still not
+      an LED backup:** Neon firmware exposes no LED-frame read-back, so its LED
+      slots are synthetic black placeholders.
+- [x] On 2026-07-26 the owner explicitly authorized overwriting the connected
+      Neon's LED setup for N10. The full-write action and asymmetric lighting
+      step may now be used.
 - [ ] No VM or remote-session USB forwarding is active.
 - [ ] The keyboard can be power-cycled if recovery is needed.
 
@@ -66,9 +66,9 @@ target.
 - [ ] Push a **deliberately asymmetric** pattern to slot 1 and photograph the
       axial, head, and side zones.
 
-**Blocked:** this step overwrites the current lighting slot, and the owner has
-prohibited that. It may resume only if a complete trusted LED source becomes
-available and the owner separately authorizes replacing the current setup.
+**Authorized:** this step overwrites the current lighting configuration. On
+2026-07-26 the owner found the original source GIF, accepted it as the recovery
+path, and explicitly authorized the replacement for N10.
 
 **A symmetric pattern is not acceptable here.** A mirrored or transposed map
 looks correct under any symmetric image; only an asymmetric one can reveal it.
@@ -92,8 +92,9 @@ that identifies the defect precisely.
 - [ ] Read the keymap through the GUI, change one key, write it back, read
       again, and confirm the change persisted and nothing else moved.
 
-Use only an approved keymap-scoped write that proves it emits no lighting or
-macro command. The current full-write action is not acceptable for this step.
+Use the existing full-write action. The owner has authorized its replacement of
+the lighting configuration; the exact document must still pass every preflight
+before the first SET command.
 
 Expect the board to be **locked**. Vial requires a physical unlock — hold the
 designated keys — and the application reports that as its own state rather than
@@ -110,8 +111,9 @@ apply. Expected: refused, naming the layer and key index.
 
 - [ ] A macro set larger than the device holds is refused **before any write**.
 
-Use only an approved macro-scoped write that proves it emits no lighting or
-keymap command. The current full-write action is not acceptable for this step.
+The oversized configuration must be submitted through the existing GUI
+full-write action so its complete preflight is exercised. Expected: refusal
+before any lighting, keymap, or macro SET command.
 
 The board reports 16 macros and 6677 bytes. Build 17 macros, or a set that
 compiles past the byte budget, and apply. Expected: refused, saying nothing was
@@ -126,9 +128,9 @@ Fill this in as you go. `—` means not attempted.
 |---|---|---|
 | 1. Identity | Pass | Physical board: model `NEON80`, definition `AM Neon 80`, firmware UID `d47af38a35b8ed73`, Vial protocol 5, writable `True`, 87 projected layout keys. Read-only; nothing was written. |
 | 2. Devices in GUI | Partial | Native build 52 listed `NEON80` as USB, completed **Read keymap & macros** without crashing or touching Keychain, and opened a valid document with four 90-key layers and four populated macro slots while retaining the separately reported 16-slot capacity. The macro rows were wrong: literal Vial text bytes had been interpreted as HID usages and taps as single down events. Commit `25f225c` red-proves the repair; an exact GET-only `/api/device/read` against the board now returns event counts 22, 34, 38, and 40, all as aligned press/release transitions. Native build 53 passes bundled smoke; rendered build-53 macro inspection remains to be confirmed. The exported JSON parses and identifies `NEON80`, but it is a keymap/macro profile with synthetic black LED placeholders, not a backup of the current LED setup. No keyboard write was attempted. |
-| 3a. Axial geometry | Blocked | Owner prohibited overwriting the current LED setup; no readable or trusted backup exists. |
-| 3b. Head geometry | Blocked | Same constraint as 3a. |
-| 3c. Side derivation | Blocked | Same constraint as 3a. |
+| 3a. Axial geometry | — | Authorized on 2026-07-26 after the owner found the original source GIF and accepted it as the recovery path. |
+| 3b. Head geometry | — | Same authorization as 3a. |
+| 3c. Side derivation | — | Same authorization as 3a. |
 | 4a. Keymap round trip | — | |
 | 4b. Lock reported | — | |
 | 4c. Bad keycode refused | — | |
