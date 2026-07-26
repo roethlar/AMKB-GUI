@@ -265,6 +265,23 @@ class LayerCountTests(unittest.TestCase):
     def test_reading_macros_keeps_the_device_reported_capacity(self) -> None:
         driver = neon_driver.NeonTransport()
         session = Session(macro_count=9, macro_bytes=321)
+        slots = [
+            {
+                "original_key": "#00951500",
+                "layer_key": ["#11070004"],
+                "intvel_ms": [0],
+            },
+            {
+                "original_key": "#00951501",
+                "layer_key": [],
+                "intvel_ms": [],
+            },
+            {
+                "original_key": "#00951502",
+                "layer_key": ["#11070005"],
+                "intvel_ms": [0],
+            },
+        ]
 
         with (
             patch.object(neon_driver.hid_transport, "find"),
@@ -274,11 +291,15 @@ class LayerCountTests(unittest.TestCase):
                 "open_approved",
                 return_value=session,
             ),
-            patch.object(neon_driver.vial_macros, "read_macros", return_value=[]) as read,
+            patch.object(
+                neon_driver.vial_macros,
+                "read_macros",
+                return_value=slots,
+            ) as read,
         ):
             result = driver.read_macro_state("hid:00")
 
-        self.assertEqual([], result.macros)
+        self.assertEqual([slots[0], slots[2]], result.macros)
         self.assertTrue(result.device_reported)
         self.assertEqual(9, result.device_macro_count)
         self.assertEqual(321, result.device_macro_buffer_bytes)

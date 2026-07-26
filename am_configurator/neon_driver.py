@@ -93,7 +93,12 @@ class NeonTransport:
         session = self._session(address)
         try:
             capacity = vial_macros.read_capacity(session)
-            macros = vial_macros.read_macros(session, capacity=capacity)
+            slots = vial_macros.read_macros(session, capacity=capacity)
+            # Vial returns one record for every capacity slot, including empty
+            # terminators. Empty slots are not portable macro definitions—the
+            # shared schema rejects a macro with no events—but their capacity
+            # still travels separately below.
+            macros = [macro for macro in slots if macro.get("layer_key")]
             return transport.MacroReadResult(
                 macros,
                 device_reported=True,
