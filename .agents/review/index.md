@@ -25,6 +25,16 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | n3-5 | MEDIUM   | No decompressed-size bound on device-supplied XZ definition               | `[x]`  | `neon-80-support` | codex/openreview  |
 | n4-1 | HIGH     | `sudo app > /etc/...` cannot write; the documented remedy always fails    | `[x]`  | `neon-80-support` | codex/openreview  |
 | n4-2 | MEDIUM   | Neon editor renders an invented identity layout before geometry loads    | `[x]`  | `neon-80-support` | codex/openreview  |
+| n567-1 | HIGH     | Neon device reads cannot produce a valid API response                  | `[ ]`  | `neon-80-support` | codex/openreview  |
+| n567-2 | HIGH     | Shared validation rejects every native Neon keymap                     | `[ ]`  | `neon-80-support` | codex/openreview  |
+| n567-3 | HIGH     | Discovery and write confirmation use different product identifiers     | `[ ]`  | `neon-80-support` | codex/openreview  |
+| n567-4 | HIGH     | The enabled full-write path never transmits the keymap                 | `[ ]`  | `neon-80-support` | codex/openreview  |
+| n567-5 | HIGH     | Common application keycodes have no Neon translation                   | `[ ]`  | `neon-80-support` | codex/openreview  |
+| n567-6 | HIGH     | Vial macro encoding discards macro slot identity                       | `[ ]`  | `neon-80-support` | codex/openreview  |
+| n567-7 | HIGH     | A full configuration write silently ignores lighting slots 2 and 3     | `[ ]`  | `neon-80-support` | codex/openreview  |
+| n567-8 | HIGH     | Successful Neon writes crash before persistence                        | `[ ]`  | `neon-80-support` | codex/openreview  |
+| n567-9 | MEDIUM   | Device-reported macro byte capacity never reaches the editor           | `[ ]`  | `neon-80-support` | codex/openreview  |
+| n567-10 | MEDIUM   | Neon keymap layout and assignment filtering were not integrated        | `[ ]`  | `neon-80-support` | codex/openreview  |
 
 All three raised by the 2026-07-25 openreview codex pass over
 `65a70c9..94a847a` and admitted at intake after independent verification of
@@ -109,3 +119,25 @@ only checked that the text mentioned the flag.
 Its replacement guard was itself not collected — appended below the module's
 `__main__` block, outside any class — so the first red-proof passed against a
 deliberately broken document. Caught by noticing the suite count had not moved.
+
+## N5-N7 pass — 2026-07-26
+
+`openreview codex` over `6c396c9..d17c2ca` returned **ten findings, eight HIGH**,
+all admitted. The pass is the most valuable one so far and the reason is worth
+stating plainly.
+
+Each protocol module — lighting, keymap, macros — is sound in isolation and well
+guarded. The **seams between them and the existing application were not built**,
+and unit tests over well-formed inputs could not reveal that. The plan's tasks
+were implemented as units and reported complete; end to end, a user could not
+have used the keyboard.
+
+The clearest examples: `write_config` preflights the keymap and never transmits
+it; only lighting slot 1 is written while slots 2 and 3 are silently skipped;
+discovery and deep identification report different `product_id` values so the
+typed write confirmation can never match; and a successful write raises on
+`after.version` before persisting anything.
+
+`n567-2` is a self-inflicted repeat: it is the `validate_config` gap recorded as
+known open work under `or-1` and left unscheduled. Recording a gap is not
+closing it.
