@@ -734,7 +734,7 @@ def _run_ollama_recipe_smoke() -> None:
 
 def _run_ffmpeg_media_smoke() -> None:
     """Resolve the bundled runtime and process real MP4 frames fully offline."""
-    from .device_mapping import MODEL_FRAME_CAPS
+    from .device_mapping import MODEL_FRAME_CAPS, target_capabilities
     from .ffmpeg_runtime import get_ffmpeg_runtime
     from .media import process_video_frames
 
@@ -747,14 +747,20 @@ def _run_ffmpeg_media_smoke() -> None:
     if not fixture.is_file():
         raise SystemExit("Desktop smoke test failed: bundled MP4 fixture is unavailable.")
     ffmpeg = get_ffmpeg_runtime()
-    geometry = {"CB": (15, 6), "80": (18, 7), "ALICE": (16, 5)}
-    loops = {"CB": "smooth", "80": "none", "ALICE": "ping_pong"}
+    capabilities = target_capabilities()
+    loop_modes = ("smooth", "none", "ping_pong")
     with tempfile.TemporaryDirectory(prefix="am-media-smoke-") as temporary:
         root = Path(temporary)
         work = root / ".work"
         work.mkdir()
-        for family, frame_count in MODEL_FRAME_CAPS.items():
-            width, height = geometry[family]
+        for index, (family, frame_count) in enumerate(MODEL_FRAME_CAPS.items()):
+            targets = capabilities.get(family, {}).get("targets", [])
+            if not targets:
+                raise SystemExit(
+                    f"Desktop smoke test failed: {family} has no media geometry."
+                )
+            width = int(targets[0]["width"])
+            height = int(targets[0]["height"])
             result = process_video_frames(
                 fixture.resolve(),
                 root / f"frames-{family}",
@@ -763,7 +769,7 @@ def _run_ffmpeg_media_smoke() -> None:
                 width=width,
                 height=height,
                 frame_count=frame_count,
-                loop_mode=loops[family],
+                loop_mode=loop_modes[index % len(loop_modes)],
                 deadline=time.monotonic() + 60,
             )
             if len(result.frame_paths) != frame_count or any(not path.is_file() for path in result.frame_paths):
