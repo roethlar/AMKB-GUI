@@ -184,7 +184,12 @@ class ShallowDiscoveryTests(unittest.TestCase):
         self.assertTrue(info.is_keyboard, "a Vial board must still be listed")
         self.assertFalse(info.writable, "an uninterrogated device is not writable")
         self.assertIsNone(info.model)
-        self.assertEqual("AM Neon 80", info.product_id)
+        # The canonical id, not the USB product string. Reporting the string
+        # here and the model after identification meant the browser asked the
+        # user to confirm one value while the server demanded the other, so no
+        # write could succeed (finding n567-3).
+        self.assertEqual("NEON80", info.product_id)
+        self.assertEqual("AM Neon 80", info.product_string)
 
     def test_resolving_an_address_runs_the_full_gate(self) -> None:
         handle = FakeHandle({"name": "AM Neon 80"})
@@ -672,3 +677,61 @@ class ErrorSurfaceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CanonicalProductIdTests(unittest.TestCase):
+    """One product id, everywhere. A write confirmation is compared against it.
+
+    Finding n567-3: discovery reported the USB product string and deep
+    identification reported the model, so the browser asked the user to confirm
+    one value and the server demanded the other. No Neon write could succeed.
+    """
+
+    def test_the_id_is_identical_before_and_after_identification(self) -> None:
+        handle = FakeHandle({"name": "AM Neon 80"})
+
+        with (
+            patch.object(hid_transport, "raw_endpoints", return_value=[_entry()]),
+            patch.object(hid_transport, "_open", return_value=handle),
+        ):
+            shallow = hid_transport.list_devices()[0]
+            deep = hid_transport.find(shallow.address)
+
+        self.assertEqual(shallow.product_id, deep.product_id)
+        self.assertEqual("NEON80", shallow.product_id)
+
+    def test_the_untrusted_usb_string_stays_separate(self) -> None:
+        with (
+            patch.object(hid_transport, "raw_endpoints", return_value=[_entry()]),
+            patch.object(hid_transport, "_open", side_effect=AssertionError("must not open")),
+        ):
+            info = hid_transport.list_devices()[0]
+
+        self.assertNotEqual(info.product_id, info.product_string)
+        self.assertEqual("AM Neon 80", info.product_string)
+
+    def test_an_unrecognised_board_has_no_product_id(self) -> None:
+        """It must not inherit a family from a firmware-authored string."""
+
+        entry = _entry()
+        entry["product_string"] = "Some Other Vial Board"
+        with (
+            patch.object(hid_transport, "raw_endpoints", return_value=[entry]),
+            patch.object(hid_transport, "_open", side_effect=AssertionError("must not open")),
+        ):
+            info = hid_transport.list_devices()[0]
+
+        self.assertEqual("", info.product_id)
+
+    def test_device_info_carries_the_fields_every_route_reads(self) -> None:
+        """`version` was absent, so a successful write raised after mutating."""
+
+        with (
+            patch.object(hid_transport, "raw_endpoints", return_value=[_entry()]),
+            patch.object(hid_transport, "_open", side_effect=AssertionError("must not open")),
+        ):
+            info = hid_transport.list_devices()[0]
+
+        for field in ("version", "pages", "product_id", "is_keyboard"):
+            with self.subTest(field=field):
+                self.assertTrue(hasattr(info, field))

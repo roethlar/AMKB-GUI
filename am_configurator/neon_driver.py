@@ -98,6 +98,29 @@ class NeonTransport:
         finally:
             session.close()
 
+    def _plans(self, config: dict[str, Any]) -> list[neon_lighting.LightingPlan]:
+        """One plan per custom slot the configuration actually carries.
+
+        The device has three user slots and a full write means all of them.
+        Planning only slot 1 left pages 6 and 7 stale on the keyboard while the
+        application reported the whole configuration written, and lighting has
+        no read-back that could have revealed it.
+        """
+
+        plans = []
+        for slot in neon_lighting.SLOTS:
+            try:
+                plans.append(self._plan(config, slot=slot))
+            except neon_lighting.NeonLightingError:
+                # A configuration need not populate every slot; one that does
+                # not is skipped rather than failing the write.
+                continue
+        if not plans:
+            raise neon_lighting.NeonLightingError(
+                "The configuration has no custom lighting slots to write."
+            )
+        return plans
+
     def _plan(self, config: dict[str, Any], *, slot: int = 1) -> neon_lighting.LightingPlan:
         pages = config.get("page_data") or []
         page = next(
@@ -129,7 +152,7 @@ class NeonTransport:
         layer_data = (config.get("key_layer") or {}).get("layer_data") or []
         return [entry.get("layer", []) for entry in layer_data]
 
-    def preflight(self, session, config: dict[str, Any]) -> neon_lighting.LightingPlan:
+    def preflight(self, session, config: dict[str, Any]):
         """Validate everything that can be validated before any byte is sent.
 
         The three writes are not one transaction and cannot be made one, so this
@@ -137,12 +160,12 @@ class NeonTransport:
         touching the device is found here.
         """
 
-        plan = self._plan(config)
+        plans = self._plans(config)
 
         layers = self._keymap_layers(config)
-        if layers:
-            # Raises naming every unsupported key at once.
-            vial_keymap.encode_layers(layers)
+        # Encode now and reuse the bytes, so the keymap that was validated is
+        # exactly the keymap transmitted.
+        keymap = vial_keymap.encode_layers(layers) if layers else b""
 
         macros = config.get("macro_key") or []
         capacity = vial_macros.read_capacity(session)
@@ -156,16 +179,33 @@ class NeonTransport:
                 "until it reports unlocked, then write again. Nothing was "
                 "written."
             )
-        return plan
+        return plans, keymap, macros, capacity
 
     def describe_write(self, config: dict[str, Any]) -> transport.WriteReceipt:
-        return transport.WriteReceipt(self._plan(config).packet_count, self.write_unit_label)
+        return transport.WriteReceipt(
+            sum(plan.packet_count for plan in self._plans(config)), self.write_unit_label
+        )
 
     def write_config(self, address: str, config: dict[str, Any]) -> transport.WriteReceipt:
+        """Write everything the configuration holds: lighting, keymap, macros.
+
+        Transmitted in that order over one approved session. The keymap used to
+        be validated here and never sent, which left key assignments silently
+        unapplied while the write reported success.
+        """
+
         session = self._session(address)
         try:
-            plan = self.preflight(session, config)
-            sent = neon_lighting.push(session, plan)
+            plans, keymap, macros, capacity = self.preflight(session, config)
+
+            sent = 0
+            for plan in plans:
+                sent += neon_lighting.push(session, plan)
+
+            if keymap:
+                vial_keymap.write_keymap(session, self._keymap_layers(config))
+            if macros:
+                vial_macros.write_macros(session, macros, capacity=capacity)
         finally:
             session.close()
         return transport.WriteReceipt(sent, self.write_unit_label)

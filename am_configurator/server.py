@@ -2036,7 +2036,11 @@ class _Handler(BaseHTTPRequestHandler):
             )
         )
         self._json({
-            "device": asdict(device),
+            # Not `asdict`: a raw-HID device carries its OS path as bytes, which
+            # no JSON encoder accepts, and its canonical product id is a derived
+            # property rather than a field. `asdict` here returned HTTP 500 for
+            # every Neon read after the reads had already succeeded.
+            "device": transport.device_json(handle, device),
             "layers": key_layers,
             "macros": resolved_macros,
             "macro_references": _macro_references(key_layers),
@@ -2145,12 +2149,14 @@ class _Handler(BaseHTTPRequestHandler):
                 "completed. Reconnect it and retry verification instead of resending."
             )
         clean = {key: value for key, value in config.items() if key != "_provenance"}
-        store.save_current(after.product_id, clean, version=after.version)
+        store.save_current(
+            after.product_id, clean, version=getattr(after, "version", None)
+        )
         snapshot = store.snapshot(after.product_id, clean)
         document_revision = self.state.synchronize_document(clean)
         return {
             "ok": True,
-            "device": asdict(after),
+            "device": transport.device_json(handle, after),
             "write_units": receipt.units,
             "write_unit_label": receipt.unit_label,
             "macros": len(expected_macros),

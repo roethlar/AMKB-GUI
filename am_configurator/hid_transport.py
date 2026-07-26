@@ -46,6 +46,11 @@ RAW_USAGE = 0x61
 VIAL_SERIAL_PREFIX = "vial:"
 NEON_DEFINITION_NAME = "AM Neon 80"
 
+# The canonical product identifier for each raw-HID family. This is the value
+# the routes, the browser, and the typed write confirmation all use; the USB
+# product string is a display name and is never substituted for it.
+CANONICAL_PRODUCT_IDS = {"NEON": "NEON80"}
+
 REPORT_LENGTH = 32
 DEFAULT_TIMEOUT_MS = 1000
 
@@ -160,20 +165,43 @@ class HidDeviceInfo:
     firmware_uid: str = ""
     protocol_version: int = 0
 
+    # Part of the contract every transport's device info satisfies, because the
+    # routes read them for any device. A serial board reports a firmware version
+    # string and a page count; this one has neither, and `None` says so rather
+    # than the attribute being absent — an absent attribute raised
+    # AttributeError *after* the hardware had already been written.
+    version: str | None = None
+    pages: int | None = None
+
     @property
     def product_id(self) -> str:
-        """The AM product identifier, which is the model — not the USB PID.
+        """The canonical AM product identifier. One value, everywhere.
 
-        The device routes and the browser both key families off `product_id`.
-        For a serial board that is a string like `CB04`; for this one it is the
-        validated model. Exposing the USB product id under that name would have
-        the browser trying to match a family called `591`.
+        The device routes and the browser key families off `product_id`, and a
+        write confirmation is compared against it exactly. It must therefore
+        read the same during a shallow scan and after deep identification — an
+        earlier version returned the USB product string (`AM Neon 80`) while
+        scanning and the model (`NEON80`) after, so the browser asked the user to
+        confirm one value and the server demanded the other, and no write could
+        ever succeed.
+
+        The untrusted USB string stays available as `product_string`, for
+        display only.
         """
 
-        # Falls back to the USB product string so a device that has been
-        # listed but not yet interrogated still shows a name and resolves to a
-        # family. It is not proof of anything and never authorizes a write.
-        return self.model or self.product_string
+        if self.model:
+            return self.model
+        # Not yet interrogated. Resolve the canonical id from the USB string
+        # rather than exposing the string itself, so the value never changes
+        # shape between scan and identification. A device this build does not
+        # recognise yields "", which is what keeps it out of every family.
+        from . import device_mapping
+
+        try:
+            family = device_mapping.led_model(self.product_string)
+        except ValueError:
+            return ""
+        return CANONICAL_PRODUCT_IDS.get(family, "")
 
     @property
     def is_keyboard(self) -> bool:

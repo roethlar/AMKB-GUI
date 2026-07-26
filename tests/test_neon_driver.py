@@ -12,12 +12,12 @@ from am_configurator import (
 )
 
 
-def _neon_config(frames: int = 2, *, keymap: bool = True, macros: int = 1) -> dict:
+def _neon_config(frames: int = 2, *, keymap: bool = True, macros: int = 1, slots: int = 3) -> dict:
     config: dict = {
         "product_info": {"product_id": "NEON80"},
         "page_data": [
             {
-                "page_index": 5,
+                "page_index": page,
                 "lightness": 100,
                 "speed_ms": 90,
                 "axial": {
@@ -33,6 +33,7 @@ def _neon_config(frames: int = 2, *, keymap: bool = True, macros: int = 1) -> di
                     ]
                 },
             }
+            for page in range(5, 5 + slots)
         ],
         "macro_key": [
             {
@@ -76,6 +77,8 @@ class Session:
             reply[1] = 0 if self.unlocked else 2
         elif packet[0] == neon_lighting.LIGHTING_COMMAND:
             reply[7] = neon_lighting.REPLY_OK
+        elif packet[0] == vial_keymap.VIA_GET_LAYER_COUNT:
+            reply[1] = 4
         self._reply = bytes(reply)
 
     def receive(self, timeout_ms: int = 0) -> bytes:
@@ -87,6 +90,14 @@ class Session:
     @property
     def lighting_packets(self) -> list[bytes]:
         return [p for p in self.sent if p and p[0] == neon_lighting.LIGHTING_COMMAND]
+
+    @property
+    def keymap_writes(self) -> list[bytes]:
+        return [p for p in self.sent if p and p[0] == vial_keymap.VIA_SET_BUFFER]
+
+    @property
+    def macro_writes(self) -> list[bytes]:
+        return [p for p in self.sent if p and p[0] == vial_macros.VIA_MACRO_SET_BUFFER]
 
 
 class RegistrationTests(unittest.TestCase):
@@ -132,14 +143,49 @@ class PreflightTests(unittest.TestCase):
         ):
             return self.driver.write_config("hid:00", config)
 
-    def test_a_valid_configuration_transmits_all_three_channels(self) -> None:
+    def test_a_valid_configuration_transmits_everything_it_holds(self) -> None:
+        """Lighting, keymap, and macros. The keymap used to be silently skipped."""
+
         session = Session()
         receipt = self._write(_neon_config(), session)
 
         self.assertGreater(receipt.units, 0)
         self.assertEqual(receipt.units, len(session.lighting_packets))
-        self.assertEqual({0x01, 0x04, 0x07}, {p[1] for p in session.lighting_packets})
+        self.assertTrue(session.keymap_writes, "the keymap was never transmitted")
+        self.assertTrue(session.macro_writes, "the macros were never transmitted")
         self.assertTrue(session.closed)
+
+    def test_every_custom_lighting_slot_is_written(self) -> None:
+        """Three user slots, nine channels. Writing only slot 1 left two stale."""
+
+        session = Session()
+        self._write(_neon_config(slots=3), session)
+
+        channels = {p[1] for p in session.lighting_packets}
+        self.assertEqual(
+            {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09},
+            channels,
+            "not every slot's axial, head, and side channel was written",
+        )
+
+    def test_a_configuration_with_one_slot_writes_only_that_slot(self) -> None:
+        session = Session()
+        self._write(_neon_config(slots=1), session)
+
+        self.assertEqual(
+            {0x01, 0x04, 0x07}, {p[1] for p in session.lighting_packets}
+        )
+
+    def test_the_transmitted_keymap_is_the_one_that_was_validated(self) -> None:
+        session = Session()
+        config = _neon_config()
+        self._write(config, session)
+
+        expected = vial_keymap.encode_layers(
+            [entry["layer"] for entry in config["key_layer"]["layer_data"]]
+        )
+        rebuilt = b"".join(p[4 : 4 + p[3]] for p in session.keymap_writes)
+        self.assertEqual(expected, rebuilt)
 
     def test_a_locked_keyboard_stops_the_write_before_any_lighting(self) -> None:
         session = Session(unlocked=False)
