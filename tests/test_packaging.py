@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import subprocess
 import sys
 import tomllib
@@ -500,6 +502,30 @@ class ReleaseInfoTests(unittest.TestCase):
         source = (ROOT / "am_configurator" / "hid_transport.py").read_text(encoding="utf-8")
         self.assertNotIn("packaging/linux/60-am-neon-80.rules", source)
         self.assertNotIn("docs/neon-80-linux.md", source)
+
+    def test_the_rule_is_obtainable_without_a_filesystem_path(self) -> None:
+        """A path is worthless to an AppImage user, who has the greatest need.
+
+        Inside an AppImage the package sits on a temporary mount that vanishes
+        on exit, and the shell's Python cannot import it to ask where it is. So
+        the application prints the rule's contents, which works identically for
+        an AppImage, a wheel, and a source checkout.
+        """
+        from am_configurator import desktop, hid_transport
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            self.assertEqual(0, desktop.main(["--print-udev-rule"]))
+        self.assertIn('ATTRS{serial}=="*vial:f64c2b3c*"', buffer.getvalue())
+
+        # The guidance must not tell a user to resolve a path.
+        remedy = hid_transport._permission_remedy.__doc__ or ""
+        source = (ROOT / "am_configurator" / "hid_transport.py").read_text(encoding="utf-8")
+        self.assertIn("--print-udev-rule", source)
+
+        doc = (ROOT / "docs" / "neon-80-linux.md").read_text(encoding="utf-8")
+        self.assertIn("--print-udev-rule", doc)
+        self.assertNotIn("from am_configurator.hid_transport import udev_rule_path", doc)
 
     def test_spec_bundles_the_llm_module(self) -> None:
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")

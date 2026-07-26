@@ -10,16 +10,29 @@ is the fix.
 
 ## Install the rule
 
-The rule ships **inside the application package**, so it is present in a wheel
-install and inside an AppImage, not only in a source checkout. The application's
-permission error prints its exact location. To find it yourself:
+The rule ships **inside the application**, so it is present in a wheel install
+and inside an AppImage, not only in a source checkout.
+
+Ask the application to print it. This works the same way for every install kind,
+which a file path does not: inside an AppImage the package lives on a temporary
+mount that vanishes when the application exits, and the shell's Python cannot
+import it.
+
+**AppImage:**
 
 ```sh
-python -c "from am_configurator.hid_transport import udev_rule_path; print(udev_rule_path())"
+sudo ./AM_Configurator.AppImage --print-udev-rule > /etc/udev/rules.d/60-am-neon-80.rules
 ```
 
+**Wheel or source install:**
+
 ```sh
-sudo cp "$(python -c 'from am_configurator.hid_transport import udev_rule_path; print(udev_rule_path())')" /etc/udev/rules.d/
+sudo am-configurator --print-udev-rule > /etc/udev/rules.d/60-am-neon-80.rules
+```
+
+Then reload udev:
+
+```sh
 sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```

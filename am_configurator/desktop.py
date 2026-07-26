@@ -895,6 +895,33 @@ def run_desktop(config_paths: list[str] | None = None, *, debug: bool = False) -
     return 0
 
 
+def _print_udev_rule() -> int:
+    """Write the udev rule to stdout.
+
+    Prints the rule's *contents*, not its path, because the path is useless to
+    the users who most need it. Inside an AppImage the package lives on a
+    temporary mount that disappears when the application exits, and the shell's
+    Python cannot import it to ask where it is. Contents on stdout work
+    identically for a wheel install, an AppImage, and a source checkout:
+
+        sudo ./AM_Configurator.AppImage --print-udev-rule \\
+            > /etc/udev/rules.d/60-am-neon-80.rules
+    """
+
+    from . import hid_transport
+
+    rule = hid_transport.udev_rule_path()
+    if not rule.is_file():
+        print(
+            f"The udev rule {hid_transport.UDEV_RULE_NAME} is missing from this "
+            "installation.",
+            file=sys.stderr,
+        )
+        return 1
+    sys.stdout.write(rule.read_text(encoding="utf-8"))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="am-configurator",
@@ -909,6 +936,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--debug",
         action="store_true",
         help="enable the native webview's developer diagnostics",
+    )
+    parser.add_argument(
+        "--print-udev-rule",
+        action="store_true",
+        help=(
+            "print the Linux udev rule for the AM Neon 80 to stdout, so it can "
+            "be redirected into /etc/udev/rules.d/"
+        ),
     )
     parser.add_argument(
         "--smoke-test",
@@ -930,6 +965,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=argparse.SUPPRESS,
     )
     args = parser.parse_args(argv)
+    if args.print_udev_rule:
+        return _print_udev_rule()
     if args.smoke_test:
         return run_smoke_test()
     if args.native_policy_smoke:

@@ -108,13 +108,15 @@ def _permission_remedy() -> str:
 
     if not sys.platform.startswith("linux"):
         return ""
-    rule = udev_rule_path()
-    location = str(rule) if rule.is_file() else UDEV_RULE_NAME
+    # Tell the user how to *obtain* the rule, not where it sits: inside an
+    # AppImage the path is on a temporary mount that disappears on exit, so a
+    # path is worthless to exactly the users who most need this message.
     return (
         " On Linux the raw HID node is root-only until a udev rule grants "
-        f"access. Install {location} into /etc/udev/rules.d/, run "
-        "'sudo udevadm control --reload-rules && sudo udevadm trigger', then "
-        "replug the keyboard."
+        "access. Run the application with --print-udev-rule and redirect it, "
+        f"e.g. 'sudo <this application> --print-udev-rule > /etc/udev/rules.d/"
+        f"{UDEV_RULE_NAME}', then 'sudo udevadm control --reload-rules && sudo "
+        "udevadm trigger', then replug the keyboard."
     )
 
 
