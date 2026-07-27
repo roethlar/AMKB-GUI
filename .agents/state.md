@@ -38,12 +38,24 @@
   checksum. Commit `7dc9399` validates that firmware-shaped echo. Its gate
   passes 577 Python tests, 55 web tests, compile/syntax checks, and package
   builds; native build 56 and its bundled smoke pass, with artifact
-  `dist/AM-Configurator-0.1.56-macOS-arm64.dmg`. The asymmetric retry document
-  remains ready with red/green/blue/yellow axial corners, matching head corners
-  plus a white center, and side data derived from the head. Angry Miao Master,
-  Vial, VIA, and QMK Toolbox are not running; UTM offers **Connect…** for AM
-  Neon 80, confirming the board is not forwarded to the VM. Optional xAI
-  credential access remains deferred; no Keychain prompt occurred.
+  `dist/AM-Configurator-0.1.56-macOS-arm64.dmg`. Build 56 accepted the complete
+  full write, and the owner reports that the LEDs now match the application.
+  Its accepted-write verification did not complete. A subsequent GET-only
+  diagnostic proved all four keymap layers match exactly and isolated the
+  failure to macros: the prepared artifact still contained the pre-fix legacy
+  literal representation, so its `10/14/18/17` tap entries read back as
+  `20/28/36/34` transitions instead of the previously verified
+  `22/34/38/40`. No macro plaintext was exposed. The original profile's
+  deterministic literal/tap distinction has been recovered into
+  `/Users/michael/Downloads/AM-NEON80-N10-asymmetric-macro-recovered-2026-07-26.json`
+  (SHA-256 `74a92c53c6f341f9d41942236cce76ba2ab67484afb0c0158d20e693cf4aadc5`);
+  it passes complete configuration validation and an exact offline Vial macro
+  encode/decode round trip at the target event counts. Build 56 is running from
+  its exact DMG path with that recovery profile, the resolved `NEON80`, typed
+  confirmation, and final full-write button armed. Angry Miao Master, Vial,
+  VIA, and QMK Toolbox are not running; UTM offers **Connect…** for AM Neon 80,
+  confirming the board is not forwarded to the VM. Optional xAI credential
+  access remains deferred; no Keychain prompt occurred.
   The exported device-read JSON is **not an LED backup**: the Neon has no LED
   read-back, and its three custom LED slots in that file are synthetic black
   placeholders. On 2026-07-26 the owner found the original GIF used for the
@@ -57,12 +69,12 @@
   follow-up in
   `docs/superpowers/plans/2026-07-26-neon-led-preserving-writes.md` is withdrawn
   as unnecessary for N10.
-- Next action: stop build 55, unmount its DMG, launch build 56 from its exact
-  DMG path with the prepared asymmetric document, select the resolved `NEON80`,
-  verify `4 layers · 4 macros · 8 pages`, and arm the typed-confirmation dialog.
-  Then, while the owner holds Esc + F2, press **Write full configuration** and
-  inspect the axial, head, and side markers before continuing the keymap
-  round-trip and refusal/read-back checks.
+- Next action: while the owner holds Esc + F2, press **Write full
+  configuration** in the already-armed build-56 recovery dialog and keep the
+  combo held until the write begins. Confirm the accepted write verifies the
+  four layers and recovered macro transition counts, then inspect the axial,
+  head, and side markers before continuing the deliberate one-key round trip
+  and refusal checks.
 
 ## Blockers
 
