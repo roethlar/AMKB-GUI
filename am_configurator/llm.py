@@ -30,6 +30,9 @@ _VIDEO_REQUEST_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._~-]{0,199}", re.ASCII
 XAI_API_HOST = "api.x.ai"
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
 XAI_VIDEO_STATUS_URL = "https://api.x.ai/v1/videos/{request_id}"
+ANTHROPIC_API_HOST = "api.anthropic.com"
+ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_API_VERSION = "2023-06-01"
 
 # Stable ProviderError codes (design §Typed errors), each mapped to a local
 # HTTP status by the server. Listed here as the contract of record.
@@ -56,6 +59,16 @@ class ProviderTransportSpec:
     auth_prefix: str
     static_headers: tuple[tuple[str, str], ...] = ()
     path_prefix: str = "/v1/"
+
+
+ANTHROPIC_MESSAGES_TRANSPORT = ProviderTransportSpec(
+    provider="anthropic",
+    url=ANTHROPIC_MESSAGES_URL,
+    host=ANTHROPIC_API_HOST,
+    auth_header="x-api-key",
+    auth_prefix="",
+    static_headers=(("anthropic-version", ANTHROPIC_API_VERSION),),
+)
 
 
 @dataclass(frozen=True)
@@ -155,11 +168,17 @@ def _provider_error_usage(error: urllib.error.HTTPError) -> ProviderUsage:
         return MISSING_PROVIDER_USAGE
 
 
-def _call_provider(transport, url: str, payload: dict, api_key: str, deadline: float) -> dict:
+def _call_provider(
+    transport,
+    endpoint: object,
+    payload: dict,
+    api_key: str,
+    deadline: float,
+) -> dict:
     """Invoke an injected transport while preserving typed, redacted failures."""
     failure: ProviderError | None = None
     try:
-        response = transport(url, payload, api_key, deadline)
+        response = transport(endpoint, payload, api_key, deadline)
     except ProviderError as exc:
         code = exc.code if exc.code in PROVIDER_ERROR_CODES else "unavailable"
         failure = ProviderError(

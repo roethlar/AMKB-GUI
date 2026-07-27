@@ -316,6 +316,51 @@ class CapabilityTests(unittest.TestCase):
         self.assertEqual(["deepseek"], status_calls)
         self.assertEqual([], resolve_calls)
 
+    def test_anthropic_setup_and_generation_share_one_registry_identity(self) -> None:
+        self.settings["ai"].update({"enabled": True, "backend": "api"})
+        self.settings["ai"]["api"]["selected_provider"] = "anthropic"
+        api = self._selected_api()
+        api.update(
+            {
+                "model_id": "claude-sonnet-5",
+                "disclosure_version": ai_catalog.provider_disclosure_version(
+                    "anthropic"
+                ),
+                "disclosure_at": "2026-07-27T12:00:00+00:00",
+            }
+        )
+        self.credential = "anthropic-private"
+        provider = _Provider()
+        service = self._service(provider=provider)
+
+        self.assertEqual("setup_required", service.status()["reason"])
+        status = service.test_backend(
+            "api",
+            deadline=time.monotonic() + 10,
+            cancelled=lambda: False,
+        )
+
+        self.assertTrue(status["ready"])
+        self.assertEqual("anthropic", status["api"]["provider"])
+        self.assertEqual("claude-sonnet-5", status["api"]["model_id"])
+        self.assertEqual(1, provider.calls)
+        self.assertIs(provider, service.provider_for_generation())
+        self.assertEqual(
+            ("fingerprint", "api", "anthropic", api["setup_fingerprint"]),
+            self.writes[-1],
+        )
+
+    def test_default_registry_constructs_the_anthropic_adapter(self) -> None:
+        from am_configurator.recipe_provider import AnthropicRecipeProvider
+
+        provider = AICapabilityService._default_api_provider(
+            "anthropic",
+            "anthropic-private",
+            "claude-sonnet-5",
+        )
+
+        self.assertIsInstance(provider, AnthropicRecipeProvider)
+
     def test_capability_polling_has_no_managed_model_or_runtime_path(self) -> None:
         source = inspect.getsource(ai_capability)
         for forbidden in (

@@ -12,6 +12,7 @@ from typing import Any
 
 CATALOG_SCHEMA_VERSION = 2
 PRICING_AS_OF = "2026-07-20"
+ANTHROPIC_PRICING_AS_OF = "2026-07-27"
 USD_TICKS_PER_DOLLAR = 10_000_000_000
 RECIPE_API_MAX_INPUT_TOKENS = 32_768
 RECIPE_API_MAX_OUTPUT_TOKENS = 1536
@@ -60,6 +61,35 @@ _XAI_MODELS = [
     },
 ]
 
+# Verified 2026-07-27 against Anthropic's first-party model and pricing tables:
+# https://platform.claude.com/docs/en/about-claude/models/overview
+# https://platform.claude.com/docs/en/about-claude/pricing
+_ANTHROPIC_MODELS = [
+    {
+        "id": "claude-sonnet-5",
+        "label": "Claude Sonnet 5",
+        "pricing": {
+            # Introductory first-party price through 2026-08-31.
+            "input_per_million_tokens_usd_ticks": 20_000_000_000,
+            "output_per_million_tokens_usd_ticks": 100_000_000_000,
+        },
+        "pricing_as_of": ANTHROPIC_PRICING_AS_OF,
+        "max_output_tokens": RECIPE_API_MAX_OUTPUT_TOKENS,
+        "reasoning_effort": "medium",
+    },
+    {
+        "id": "claude-opus-5",
+        "label": "Claude Opus 5",
+        "pricing": {
+            "input_per_million_tokens_usd_ticks": 50_000_000_000,
+            "output_per_million_tokens_usd_ticks": 250_000_000_000,
+        },
+        "pricing_as_of": ANTHROPIC_PRICING_AS_OF,
+        "max_output_tokens": RECIPE_API_MAX_OUTPUT_TOKENS,
+        "reasoning_effort": "medium",
+    },
+]
+
 
 def _provider(
     label: str,
@@ -83,7 +113,12 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
         default_model="grok-4.5",
         models=_XAI_MODELS,
     ),
-    "anthropic": _provider("Anthropic", "json_schema"),
+    "anthropic": _provider(
+        "Anthropic",
+        "json_schema",
+        default_model="claude-sonnet-5",
+        models=_ANTHROPIC_MODELS,
+    ),
     "openai": _provider("OpenAI", "json_schema"),
     "gemini": _provider("Gemini", "json_schema"),
     "moonshot": _provider("Kimi / Moonshot", "json_object"),
@@ -163,6 +198,17 @@ def validate_provider_model(
     return model_id
 
 
+def provider_model_metadata(provider: object, model_id: object) -> dict[str, Any]:
+    normalized_provider = validate_api_provider(provider)
+    normalized_model = validate_provider_model(normalized_provider, model_id)
+    model = next(
+        choice
+        for choice in PROVIDER_CATALOG[normalized_provider]["models"]
+        if choice["id"] == normalized_model
+    )
+    return copy.deepcopy(model)
+
+
 def validate_model(role: str, model_id: object) -> str:
     """Compatibility validator for the existing xAI recipe adapter."""
 
@@ -179,24 +225,46 @@ def recipe_max_cost_usd_ticks(
 ) -> int | None:
     """Return the dated worst-case estimate, or ``None`` when unavailable."""
 
-    normalized_provider = validate_api_provider(provider)
-    normalized_model = validate_provider_model(normalized_provider, model_id)
-    choice = next(
-        model
-        for model in PROVIDER_CATALOG[normalized_provider]["models"]
-        if model["id"] == normalized_model
+    choice = provider_model_metadata(provider, model_id)
+    pricing = choice.get("pricing")
+    if not isinstance(pricing, dict):
+        return None
+    return recipe_usage_cost_usd_ticks(
+        provider,
+        model_id,
+        input_tokens=RECIPE_API_MAX_INPUT_TOKENS,
+        output_tokens=int(choice["max_output_tokens"]),
     )
+
+
+def recipe_usage_cost_usd_ticks(
+    provider: str,
+    model_id: object,
+    *,
+    input_tokens: object,
+    output_tokens: object,
+) -> int | None:
+    """Price exact reported token counts with the catalog's dated estimate."""
+
+    if (
+        isinstance(input_tokens, bool)
+        or not isinstance(input_tokens, int)
+        or input_tokens < 0
+        or isinstance(output_tokens, bool)
+        or not isinstance(output_tokens, int)
+        or output_tokens < 0
+    ):
+        raise ValueError("provider token usage must be non-negative integers")
+    choice = provider_model_metadata(provider, model_id)
     pricing = choice.get("pricing")
     if not isinstance(pricing, dict):
         return None
     input_ticks = (
-        RECIPE_API_MAX_INPUT_TOKENS
-        * pricing["input_per_million_tokens_usd_ticks"]
+        input_tokens * pricing["input_per_million_tokens_usd_ticks"]
         + 999_999
     ) // 1_000_000
     output_ticks = (
-        int(choice["max_output_tokens"])
-        * pricing["output_per_million_tokens_usd_ticks"]
+        output_tokens * pricing["output_per_million_tokens_usd_ticks"]
         + 999_999
     ) // 1_000_000
     return int(input_ticks + output_ticks)

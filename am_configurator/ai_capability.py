@@ -11,6 +11,7 @@ from typing import Any, Callable
 from . import ai_catalog, credentials, llm, procedural, store
 from .ollama_client import OllamaClient, OllamaError, OllamaModel, valid_model_digest, valid_model_id
 from .recipe_provider import (
+    AnthropicRecipeProvider,
     OllamaRecipeProvider,
     RecipeRequest,
     XaiRecipeProvider,
@@ -154,6 +155,8 @@ class AICapabilityService:
     def _default_api_provider(provider: str, key: str, model_id: str):
         if provider == "xai":
             return XaiRecipeProvider(key, model_id=model_id)
+        if provider == "anthropic":
+            return AnthropicRecipeProvider(key, model_id=model_id)
         raise ValueError("API provider adapter is unavailable")
 
     def _default_ollama_provider(self, model: OllamaModel):

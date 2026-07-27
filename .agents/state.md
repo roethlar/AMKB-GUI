@@ -138,24 +138,29 @@
   compile/syntax checks, and package builds.
 - The owner-approved unified Lighting implementation in
   `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` is
-  active. Slice 2 is complete: catalog schema 2 names the six fixed API
+  active. Slices 2-3 are complete. Catalog schema 2 names the six fixed API
   providers; settings schema 6 preserves the complete xAI record through a
   credential-free v5 migration; provider-scoped vault operations, environment
   overrides, disclosure records, setup fingerprints, capability caches, and
   the bounded JSON transport are in place. Capability polling and setup resolve
   only the selected provider, never access the vault while AI is off or Local
   is selected, and retain the existing xAI request and durable-generation
-  behavior. Unknown cost estimates are now represented by `null`, while old
-  numeric manifests remain valid. Provider-specific save/delete rollback, v5
-  preservation, older migrations, future-schema refusal, selected-provider
-  access, error redaction, transport origin/header bounds, and nullable costs
-  were red-proven. The full gate passes 588 Python tests, 57 web tests,
-  compile/syntax checks, and source/wheel builds. The heavy procedural recovery
-  fixture now uses the production 180-second operation deadline instead of a
-  flaky 30-second test-only override. No real provider request, credential
-  mutation, Keychain prompt, model mutation, or hardware write occurred. Next
-  action is slice 3, the Anthropic recipe adapter. Local `main` remains
-  unpublished; the push policy requires a fresh explicit owner go.
+  behavior. Unknown cost estimates are represented by `null`, while old numeric
+  manifests remain valid. Anthropic now has curated Sonnet 5 and Opus 5
+  choices, one pinned Messages request with documented structured output and
+  fixed effort, complete local recipe validation, refusal/stop handling, dated
+  usage-cost estimation, and shared setup/generation registry wiring.
+  Provider-specific save/delete rollback, migrations and future-schema refusal,
+  selected-provider access, error redaction, transport bounds, Anthropic
+  schema/usage/output handling, cancellation, one-paid-request behavior, and
+  no-retry behavior were red-proven. The full gate passes 594 Python tests, 57
+  web tests, compile/syntax checks, and source/wheel builds. The heavy
+  procedural recovery fixture uses the production 180-second operation
+  deadline instead of a flaky 30-second test-only override. No real provider
+  request, credential mutation, Keychain prompt, model mutation, or hardware
+  write occurred. Next action is slice 4, the OpenAI recipe adapter. Local
+  `main` remains unpublished; the push policy requires a fresh explicit owner
+  go.
 
 ## Blockers
 

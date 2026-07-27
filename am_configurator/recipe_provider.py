@@ -123,6 +123,126 @@ def _xai_output_text(response: dict[str, Any]) -> str:
     return "".join(texts)
 
 
+_ANTHROPIC_UNSUPPORTED_SCHEMA_KEYS = {
+    "exclusiveMaximum",
+    "exclusiveMinimum",
+    "maxItems",
+    "maxLength",
+    "maxProperties",
+    "maximum",
+    "minContains",
+    "minLength",
+    "minProperties",
+    "minimum",
+    "multipleOf",
+    "uniqueItems",
+}
+
+
+def _anthropic_output_schema(value: object) -> object:
+    """Project the local recipe schema onto Anthropic's documented subset."""
+
+    if isinstance(value, dict):
+        projected = {}
+        for key, child in value.items():
+            if key in _ANTHROPIC_UNSUPPORTED_SCHEMA_KEYS:
+                continue
+            if key == "minItems" and child not in (0, 1):
+                continue
+            projected[key] = _anthropic_output_schema(child)
+        return projected
+    if isinstance(value, list):
+        return [_anthropic_output_schema(child) for child in value]
+    return value
+
+
+def _anthropic_usage(
+    response: dict[str, Any],
+    model_id: str,
+) -> llm.ProviderUsage:
+    if "usage" not in response:
+        return llm.MISSING_PROVIDER_USAGE
+    usage = response["usage"]
+    if not isinstance(usage, dict):
+        raise llm.ProviderError("bad_response", "provider usage was not an object")
+    values: dict[str, int] = {}
+    for field in (
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    ):
+        value = usage.get(field, 0)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise llm.ProviderError(
+                "bad_response",
+                "provider token usage was invalid",
+            )
+        values[field] = value
+    if "input_tokens" not in usage or "output_tokens" not in usage:
+        raise llm.ProviderError(
+            "bad_response",
+            "provider token usage was incomplete",
+        )
+    try:
+        cost = ai_catalog.recipe_usage_cost_usd_ticks(
+            "anthropic",
+            model_id,
+            input_tokens=(
+                values["input_tokens"]
+                + values["cache_creation_input_tokens"]
+                + values["cache_read_input_tokens"]
+            ),
+            output_tokens=values["output_tokens"],
+        )
+    except ValueError:
+        raise llm.ProviderError(
+            "bad_response",
+            "provider token usage was invalid",
+        ) from None
+    return llm.ProviderUsage(cost_in_usd_ticks=cost, reported=True)
+
+
+def _anthropic_output_text(response: dict[str, Any]) -> str:
+    if response.get("type") != "message" or response.get("role") != "assistant":
+        raise llm.ProviderError("bad_response", "Recipe response was not a message.")
+    content = response.get("content")
+    if not isinstance(content, list):
+        raise llm.ProviderError("bad_response", "Recipe response omitted content.")
+    stop_reason = response.get("stop_reason")
+    refused = stop_reason == "refusal"
+    texts: list[str] = []
+    for block in content:
+        if not isinstance(block, dict) or not isinstance(block.get("type"), str):
+            raise llm.ProviderError(
+                "bad_response",
+                "Recipe response contained an invalid content block.",
+            )
+        block_type = block["type"]
+        if block_type == "refusal":
+            refused = True
+        elif block_type == "text" and isinstance(block.get("text"), str):
+            texts.append(block["text"])
+        elif block_type not in {"thinking", "redacted_thinking"}:
+            raise llm.ProviderError(
+                "bad_response",
+                "Recipe response contained unsupported content.",
+            )
+    if refused:
+        raise llm.ProviderError("moderation", "The provider declined this prompt.")
+    if stop_reason != "end_turn":
+        raise llm.ProviderError(
+            "bad_response",
+            "Recipe response ended before completion.",
+        )
+    if len(texts) != 1 or not texts[0]:
+        raise llm.ProviderError(
+            "bad_response",
+            "Recipe response contained no complete text.",
+        )
+    return texts[0]
+
+
 class XaiRecipeProvider:
     """Exactly one bounded xAI Responses request for one strict recipe."""
 
@@ -207,6 +327,104 @@ class XaiRecipeProvider:
             recipe=recipe,
             backend="api",
             provider="xai",
+            model_id=self._model_id,
+            usage=usage_value,
+        )
+
+
+class AnthropicRecipeProvider:
+    """Exactly one Anthropic Messages request for one validated recipe."""
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        model_id: str = "claude-sonnet-5",
+        transport=None,
+    ) -> None:
+        if not isinstance(api_key, str) or not api_key:
+            raise llm.ProviderError("config", "API credential is missing.")
+        try:
+            normalized = ai_catalog.validate_provider_model("anthropic", model_id)
+            metadata = ai_catalog.provider_model_metadata("anthropic", normalized)
+        except ValueError:
+            raise llm.ProviderError(
+                "config",
+                "API recipe model is unavailable.",
+            ) from None
+        assert isinstance(normalized, str)
+        self._model_id = normalized
+        self._max_output_tokens = int(metadata["max_output_tokens"])
+        self._reasoning_effort = str(metadata["reasoning_effort"])
+        self._api_key = api_key
+        self._transport = (
+            llm._provider_json_request if transport is None else transport
+        )
+
+    def generate(
+        self,
+        request: RecipeRequest,
+        deadline: float,
+        cancelled: Callable[[], bool],
+    ) -> RecipeResult:
+        prompt, system_prompt, schema = _request_parts(request)
+        _check_start(deadline, cancelled)
+        payload = {
+            "model": self._model_id,
+            "max_tokens": self._max_output_tokens,
+            "stream": False,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": prompt}],
+            "output_config": {
+                "effort": self._reasoning_effort,
+                "format": {
+                    "type": "json_schema",
+                    "schema": _anthropic_output_schema(schema),
+                },
+            },
+        }
+        response = llm._call_provider(
+            self._transport,
+            llm.ANTHROPIC_MESSAGES_TRANSPORT,
+            payload,
+            self._api_key,
+            deadline,
+        )
+        usage = _anthropic_usage(response, self._model_id)
+        failure: llm.ProviderError | None = None
+        try:
+            recipe = _validated_recipe_text(_anthropic_output_text(response))
+        except llm.ProviderError as error:
+            failure = llm.ProviderError(
+                error.code,
+                str(error),
+                retry_after=error.retry_after,
+                usage=usage,
+            )
+            recipe = None
+        if failure is not None:
+            raise failure
+        if recipe is None:
+            raise llm.ProviderError(
+                "bad_response",
+                "Recipe output failed validation.",
+                usage=usage,
+            )
+        if cancelled():
+            raise llm.ProviderError(
+                "unavailable",
+                "Recipe generation was cancelled.",
+                usage=usage,
+            )
+        usage_value = (
+            {"cost_in_usd_ticks": usage.cost_in_usd_ticks}
+            if usage.reported and usage.cost_in_usd_ticks is not None
+            else None
+        )
+        return RecipeResult(
+            recipe=recipe,
+            backend="api",
+            provider="anthropic",
             model_id=self._model_id,
             usage=usage_value,
         )
@@ -301,6 +519,7 @@ class OllamaRecipeProvider:
 
 
 __all__ = [
+    "AnthropicRecipeProvider",
     "LOCAL_MAX_RETRIES",
     "LOCAL_OUTPUT_TOKENS",
     "MAX_RECIPE_PROMPT_CHARS",

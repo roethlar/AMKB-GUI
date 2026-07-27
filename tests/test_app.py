@@ -1098,14 +1098,7 @@ class GrokTransportTests(unittest.TestCase):
 
     def test_provider_json_transport_uses_only_its_pinned_origin_and_headers(self) -> None:
         opener = _RecordingOpener(response=_FakeResponse(b'{"ok":true}'))
-        spec = llm.ProviderTransportSpec(
-            provider="anthropic",
-            url="https://api.anthropic.com/v1/messages",
-            host="api.anthropic.com",
-            auth_header="x-api-key",
-            auth_prefix="",
-            static_headers=(("anthropic-version", "2023-06-01"),),
-        )
+        spec = llm.ANTHROPIC_MESSAGES_TRANSPORT
 
         result = llm._provider_json_request(
             spec,
@@ -1127,6 +1120,8 @@ class GrokTransportTests(unittest.TestCase):
             "2023-06-01",
             _request_header(request, "anthropic-version"),
         )
+        self.assertEqual("api.anthropic.com", spec.host)
+        self.assertEqual("https://api.anthropic.com/v1/messages", spec.url)
         self.assertNotIn("provider-secret", request.full_url)
         self.assertGreater(timeout, 0)
 

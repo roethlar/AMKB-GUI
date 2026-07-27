@@ -8,6 +8,7 @@ from am_configurator import ai_catalog, llm, procedural
 from am_configurator.ollama_client import OllamaModel
 from am_configurator.recipe_inference import build_ollama_recipe_payload
 from am_configurator.recipe_provider import (
+    AnthropicRecipeProvider,
     OllamaRecipeProvider,
     RecipeRequest,
     XaiRecipeProvider,
@@ -65,6 +66,23 @@ def _xai_response(recipe: dict, *, cost: int | None = 123) -> dict:
     }
     if cost is not None:
         response["usage"] = {"cost_in_usd_ticks": cost}
+    return response
+
+
+def _anthropic_response(
+    recipe: dict,
+    *,
+    stop_reason: str = "end_turn",
+    usage: dict | None = None,
+) -> dict:
+    response = {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": json.dumps(recipe)}],
+        "stop_reason": stop_reason,
+    }
+    if usage is not None:
+        response["usage"] = usage
     return response
 
 
@@ -142,6 +160,204 @@ class XaiRecipeProviderTests(unittest.TestCase):
 
         self.assertEqual("unavailable", captured.exception.code)
         self.assertEqual(456, captured.exception.usage.cost_in_usd_ticks)
+
+
+class AnthropicRecipeProviderTests(unittest.TestCase):
+    def test_current_catalog_and_one_messages_call_use_the_strict_contract(
+        self,
+    ) -> None:
+        catalog = ai_catalog.catalog_view()["providers"]["anthropic"]
+        self.assertEqual("claude-sonnet-5", catalog["default_model"])
+        self.assertEqual(
+            ["claude-sonnet-5", "claude-opus-5"],
+            [model["id"] for model in catalog["models"]],
+        )
+        self.assertTrue(
+            all(model["reasoning_effort"] == "medium" for model in catalog["models"])
+        )
+        self.assertEqual(
+            808_960_000,
+            ai_catalog.recipe_max_cost_usd_ticks(
+                "anthropic",
+                "claude-sonnet-5",
+            ),
+        )
+
+        calls: list[tuple] = []
+        usage = {
+            "input_tokens": 1000,
+            "output_tokens": 200,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+        }
+
+        def transport(spec, payload, api_key, deadline):
+            calls.append((spec, payload, api_key, deadline))
+            return _anthropic_response(_recipe(), usage=usage)
+
+        provider = AnthropicRecipeProvider("anthropic-private", transport=transport)
+        result = provider.generate(_request(), time.monotonic() + 10, lambda: False)
+
+        self.assertEqual(1, len(calls))
+        spec, payload, api_key, _deadline = calls[0]
+        self.assertIs(llm.ANTHROPIC_MESSAGES_TRANSPORT, spec)
+        self.assertEqual("anthropic-private", api_key)
+        self.assertEqual("claude-sonnet-5", payload["model"])
+        self.assertEqual(1536, payload["max_tokens"])
+        self.assertIs(payload["stream"], False)
+        self.assertIn("18x7", payload["system"])
+        self.assertEqual(
+            [{"role": "user", "content": _request().prompt}],
+            payload["messages"],
+        )
+        self.assertEqual("medium", payload["output_config"]["effort"])
+        output_format = payload["output_config"]["format"]
+        self.assertEqual("json_schema", output_format["type"])
+        sent_schema = output_format["schema"]
+        self.assertEqual(False, sent_schema["additionalProperties"])
+
+        def schema_keys(value):
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    yield key
+                    yield from schema_keys(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from schema_keys(child)
+
+        sent_keys = set(schema_keys(sent_schema))
+        self.assertTrue(
+            {
+                "minimum",
+                "maximum",
+                "multipleOf",
+                "minLength",
+                "maxLength",
+                "maxItems",
+            }.isdisjoint(sent_keys)
+        )
+        self.assertIn("maximum", set(schema_keys(procedural.recipe_schema())))
+        self.assertEqual(_recipe(), result.recipe)
+        self.assertEqual("api", result.backend)
+        self.assertEqual("anthropic", result.provider)
+        self.assertEqual("claude-sonnet-5", result.model_id)
+        self.assertEqual({"cost_in_usd_ticks": 40_000_000}, result.usage)
+
+    def test_missing_usage_succeeds_and_malformed_usage_fails_once(self) -> None:
+        calls = 0
+        responses = iter(
+            (
+                _anthropic_response(_recipe()),
+                _anthropic_response(
+                    _recipe(),
+                    usage={"input_tokens": True, "output_tokens": 10},
+                ),
+            )
+        )
+
+        def transport(*_args):
+            nonlocal calls
+            calls += 1
+            return next(responses)
+
+        provider = AnthropicRecipeProvider("anthropic-private", transport=transport)
+        result = provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertIsNone(result.usage)
+
+        with self.assertRaises(llm.ProviderError) as captured:
+            provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertEqual("bad_response", captured.exception.code)
+        self.assertEqual(2, calls)
+        self.assertNotIn("anthropic-private", str(captured.exception))
+
+    def test_refusal_and_incomplete_stop_are_typed_and_never_retried(self) -> None:
+        usage = {"input_tokens": 100, "output_tokens": 20}
+        responses = (
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "refusal",
+                        "refusal": "provider-body-secret",
+                    }
+                ],
+                "stop_reason": "refusal",
+                "usage": usage,
+            },
+            _anthropic_response(
+                _recipe(),
+                stop_reason="max_tokens",
+                usage=usage,
+            ),
+        )
+        expected_codes = ("moderation", "bad_response")
+        for response, code in zip(responses, expected_codes, strict=True):
+            calls = 0
+
+            def transport(*_args):
+                nonlocal calls
+                calls += 1
+                return response
+
+            provider = AnthropicRecipeProvider(
+                "anthropic-private",
+                transport=transport,
+            )
+            with self.subTest(code=code):
+                with self.assertRaises(llm.ProviderError) as captured:
+                    provider.generate(
+                        _request(),
+                        time.monotonic() + 10,
+                        lambda: False,
+                    )
+                self.assertEqual(code, captured.exception.code)
+                self.assertEqual(1, calls)
+                self.assertTrue(captured.exception.usage.reported)
+                self.assertNotIn("provider-body-secret", str(captured.exception))
+
+    def test_cancellation_and_invalid_recipe_never_make_a_paid_retry(self) -> None:
+        calls = 0
+
+        def invalid_transport(*_args):
+            nonlocal calls
+            calls += 1
+            return _anthropic_response(
+                {"provider-body-secret": "never expose this"},
+                usage={"input_tokens": 100, "output_tokens": 20},
+            )
+
+        provider = AnthropicRecipeProvider(
+            "anthropic-private",
+            transport=invalid_transport,
+        )
+        with self.assertRaises(llm.ProviderError) as cancelled:
+            provider.generate(_request(), time.monotonic() + 10, lambda: True)
+        self.assertEqual("unavailable", cancelled.exception.code)
+        self.assertEqual(0, calls)
+
+        with self.assertRaises(llm.ProviderError) as invalid:
+            provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertEqual("bad_response", invalid.exception.code)
+        self.assertEqual(1, calls)
+        self.assertNotIn("provider-body-secret", str(invalid.exception))
+
+        checks = iter((False, True))
+        post_call = AnthropicRecipeProvider(
+            "anthropic-private",
+            transport=lambda *_args: _anthropic_response(
+                _recipe(),
+                usage={"input_tokens": 100, "output_tokens": 20},
+            ),
+        )
+        with self.assertRaises(llm.ProviderError) as late:
+            post_call.generate(
+                _request(),
+                time.monotonic() + 10,
+                lambda: next(checks),
+            )
+        self.assertEqual("unavailable", late.exception.code)
+        self.assertTrue(late.exception.usage.reported)
 
 
 class _OllamaClient:
