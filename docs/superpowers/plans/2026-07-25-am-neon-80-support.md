@@ -551,6 +551,17 @@ Manual, and last. Automated tests must never reach the physical keyboard.
   is refused before any write.
 - Record results here, including anything that did not match.
 
+Current hardware results as of 2026-07-27; the detailed live record is
+`docs/neon-80-hardware-verification.md`.
+
+| Check | Outcome | Evidence |
+|---|---|---|
+| Identity and real GUI | Pass | The physical board passed the definition gate as `NEON80`; native build 56 reads and targets it through Devices. |
+| Asymmetric lighting orientation | Partial | Build 56 completed the axial, head, and derived-side upload, and the owner reports that the LEDs match the application. Explicit axial/head/side orientation inspection or photographs remain open. |
+| Keymap and macro round trip | Pass | A recovered four-macro profile completed a full write and read-back at event counts `22, 34, 38, 40`. A deliberate layer 4 matrix-index-89 End→F12 change read back as the only keymap difference; End was restored and the final GUI read-back is semantically identical to the recovery profile. |
+| N6 unsupported assignment | Pass | Layer 1 matrix key 0 refused `#000C00E9` as a non-QMK-representable usage-page-`0x0C` code, retained Esc, and opened no write confirmation. |
+| N7 macro overflow | Pass | The GUI full-write action refused a local 17-macro profile before confirmation. A fresh device read still returned the original four macros at `22, 34, 38, 40` events. |
+
 ## Verification
 
 Run the repository entry point from `.agents/repo-guidance.md` (Verification)

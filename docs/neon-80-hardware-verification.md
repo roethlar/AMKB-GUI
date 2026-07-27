@@ -93,7 +93,7 @@ that identifies the defect precisely.
 
 ## 4. Keymap round trip
 
-- [ ] Read the keymap through the GUI, change one key, write it back, read
+- [x] Read the keymap through the GUI, change one key, write it back, read
       again, and confirm the change persisted and nothing else moved.
 
 Use the existing full-write action. The owner has authorized its replacement of
@@ -109,7 +109,7 @@ no lighting, keymap, or macro SET may be sent until the combo is accepted. If
 the combo is not held long enough, an actionable locked status with no
 configuration SET is the passing result.
 
-- [ ] A non-representable keycode is refused with the N6 error naming the key,
+- [x] A non-representable keycode is refused with the N6 error naming the key,
       and nothing is written.
 
 Assign a consumer-page code (for example `#000C00E9`, volume up) to a key and
@@ -117,7 +117,7 @@ apply. Expected: refused, naming the layer and key index.
 
 ## 5. Macro capacity
 
-- [ ] A macro set larger than the device holds is refused **before any write**.
+- [x] A macro set larger than the device holds is refused **before any write**.
 
 The oversized configuration must be submitted through the existing GUI
 full-write action so its complete preflight is exercised. Expected: refusal
@@ -139,10 +139,10 @@ Fill this in as you go. `—` means not attempted.
 | 3a. Axial geometry | Partial | Build 55 accepted the physical unlock and changed the axial/QWERTY lighting before the app stopped. Hardware and firmware source proved response byte 7 is echoed RGB data, not an ACK status: the red `0xFF` payload byte was misclassified as rejection after its packet landed. Commit `7dc9399` red-proves and corrects the echo handling. Build 56 then accepted the complete full write, and the owner reports that the LEDs match the application; the explicit orientation inspection/photograph is still pending. |
 | 3b. Head geometry | Partial | Build 56 transmitted the 46x5 head matrix with four corner markers plus a white center. The explicit orientation inspection/photograph is still pending. |
 | 3c. Side derivation | Partial | Build 56 transmitted side data derived from the asymmetric head pattern. The explicit orientation inspection/photograph is still pending. UTM shows **Connect…** for AM Neon 80 (not forwarded), and Angry Miao Master, Vial, VIA, and QMK Toolbox are not running. |
-| 4a. Keymap round trip | Partial | A GET-only build-56 follow-up proved all four written layers match the prepared profile exactly. Accepted-write verification then isolated a macro-only mismatch: the prepared artifact still carried the pre-fix legacy-literal representation and produced doubled transition counts on read-back. No macro plaintext was exposed. A recovered profile restores the previously verified event counts `22, 34, 38, 40` and round-trips through the Vial encoder exactly offline. Its corrective build-56 full write completed and verified; the persisted current profile and newest history snapshot match it exactly with four 90-key layers, eight lighting pages, and the recovered macro counts. The deliberate one-key change/read-back/restore check remains pending. |
+| 4a. Keymap round trip | Pass | A GET-only build-56 follow-up proved all four written layers match the prepared profile exactly. Accepted-write verification then isolated a macro-only mismatch: the prepared artifact still carried the pre-fix legacy-literal representation and produced doubled transition counts on read-back. No macro plaintext was exposed. A recovered profile restores the previously verified event counts `22, 34, 38, 40` and round-trips through the Vial encoder exactly offline. Its corrective build-56 full write completed and verified. The deliberate GUI round trip then changed only layer 4 matrix index 89 from End (`#0007004D`) to F12 (`#00070045`); read-back showed exactly that one difference. End was restored, and `AM-NEON80-final-readback-2026-07-27.json` is semantically identical to the recovery profile, including the four macro event counts. The open document retained the recovery LED data because Neon firmware has no LED read-back. |
 | 4b. Lock reported | Pass | Hardware returned locked, not-in-progress, with matrix combo `(0,0)` + `(0,2)` (physical Esc + F2). Build 55 accepted the real Esc + F2 handshake and proceeded into the lighting upload; no configuration SET preceded acceptance. |
-| 4c. Bad keycode refused | — | |
-| 5. Macro overflow refused | — | |
+| 4c. Bad keycode refused | Pass | With layer 1 matrix key 0 selected, applying consumer-page volume-up code `#000C00E9` returned **Assignment unavailable**: usage page `0x0C` has no QMK equivalent and only HID keyboard page `0x07` translates. The selected key remained Esc (`#00070029`), no write confirmation opened, and no device write occurred. |
+| 5. Macro overflow refused | Pass | A local 17-macro profile was submitted through **Write to NEON80** without exposing macro plaintext. Full-write validation refused it with `macro_key contains more than 16 macros.` before any confirmation dialog or device SET. After restoring the local four-macro profile, a fresh GUI device read showed the keyboard still held four macros with event counts `22, 34, 38, 40`. |
 
 Copy the completed table into
 `docs/superpowers/plans/2026-07-25-am-neon-80-support.md` under N10 when done.

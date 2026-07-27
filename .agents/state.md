@@ -39,26 +39,35 @@
   passes 577 Python tests, 55 web tests, compile/syntax checks, and package
   builds; native build 56 and its bundled smoke pass, with artifact
   `dist/AM-Configurator-0.1.56-macOS-arm64.dmg`. Build 56 accepted the complete
-  full write, and the owner reports that the LEDs now match the application.
-  Its accepted-write verification did not complete. A subsequent GET-only
-  diagnostic proved all four keymap layers match exactly and isolated the
-  failure to macros: the prepared artifact still contained the pre-fix legacy
-  literal representation, so its `10/14/18/17` tap entries read back as
-  `20/28/36/34` transitions instead of the previously verified
-  `22/34/38/40`. No macro plaintext was exposed. The original profile's
-  deterministic literal/tap distinction has been recovered into
+  full write, and the owner reports that the LEDs now match the application. A
+  subsequent GET-only diagnostic proved all four keymap layers match exactly
+  and isolated the first verification failure to macros: the prepared artifact
+  still contained the pre-fix legacy-literal representation, so its
+  `10/14/18/17` tap entries read back as `20/28/36/34` transitions instead of
+  the previously verified `22/34/38/40`. The original profile's deterministic
+  literal/tap distinction has been recovered into
   `/Users/michael/Downloads/AM-NEON80-N10-asymmetric-macro-recovered-2026-07-26.json`
   (SHA-256 `74a92c53c6f341f9d41942236cce76ba2ab67484afb0c0158d20e693cf4aadc5`);
   it passes complete configuration validation and an exact offline Vial macro
   encode/decode round trip at the target event counts. A second build-56 full
-  write with that recovery profile completed and verified. The post-write
+  write with that recovery profile completed and verified. The persisted
   `current.json` and newest history snapshot match the recovery document
   exactly: four 90-key layers, eight lighting pages, and macro event counts
-  `22/34/38/40`. Build 56 remains open from its exact DMG path after closing
-  the successful write dialog. Angry Miao Master, Vial, VIA, and QMK Toolbox
-  are not running; UTM offers **Connect…** for AM Neon 80, confirming the board
-  is not forwarded to the VM. Optional xAI credential access remains deferred;
-  no Keychain prompt occurred.
+  `22/34/38/40`. The deliberate GUI keymap round trip then changed only layer 4
+  matrix index 89 from End (`#0007004D`) to F12 (`#00070045`), read back exactly
+  that one difference, restored End, and confirmed
+  `/Users/michael/Downloads/AM-NEON80-final-readback-2026-07-27.json` is
+  semantically identical to the recovery profile. The N6 refusal check selected
+  layer 1 matrix key 0 and applied `#000C00E9`; build 56 rejected usage page
+  `0x0C` as non-QMK-representable, retained Esc (`#00070029`), and opened no
+  write confirmation. The macro-capacity check built a local 17-macro profile
+  and invoked the GUI full-write action; validation refused more than 16 macros
+  before confirmation or any device SET. After the four-macro local state was
+  restored, a fresh device read again rendered event counts `22/34/38/40`. No
+  macro plaintext was exposed. Build 56 remains open from its exact DMG path.
+  Angry Miao Master, Vial, VIA, and QMK Toolbox are not running; UTM offers
+  **Connect…** for AM Neon 80, confirming the board is not forwarded to the VM.
+  Optional xAI credential access remains deferred; no Keychain prompt occurred.
   The exported device-read JSON is **not an LED backup**: the Neon has no LED
   read-back, and its three custom LED slots in that file are synthetic black
   placeholders. On 2026-07-26 the owner found the original GIF used for the
@@ -72,18 +81,18 @@
   follow-up in
   `docs/superpowers/plans/2026-07-26-neon-led-preserving-writes.md` is withdrawn
   as unnecessary for N10.
-- Next action: inspect/photograph the axial, head, and side markers, then run
-  the deliberate one-key write/read/restore round trip and the unsupported
-  keycode and macro-overflow refusal checks through build 56.
+- Next action: have the owner inspect or photograph the axial, head, and side
+  markers and explicitly confirm their orientation; then record that ruling and
+  close N10.
 
 ## Blockers
 
-- N10 has no remaining owner-authorization blocker: the owner explicitly
-  authorized replacing the current LED setup after finding the original source
-  GIF. The connected board still requires the physical Esc + F2 Vial unlock,
-  and Angry Miao Master or VM USB forwarding must not hold the HID endpoint
-  during the manual GUI write. Broader device-family checks require their
-  corresponding keyboards; they do not block the offline suite.
+- N10's only remaining acceptance blocker is owner-visible orientation evidence.
+  The owner reports that the LEDs match the application, but the axial,
+  46x5-head, and derived-side zones have not yet been explicitly checked or
+  photographed for mirroring, rotation, row direction, and derivation. No
+  further hardware write is currently required. Broader device-family checks
+  require their corresponding keyboards; they do not block the offline suite.
 - Code signing and notarization are blocked on paid developer accounts, an
   Apple Developer Program membership and an Authenticode certificate. The owner
   declined both on 2026-07-24 as not ready. `README.md` discloses the unsigned
