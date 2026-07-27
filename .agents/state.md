@@ -28,17 +28,22 @@
   confirmed the rendered rows `17/17/17/13/13/12`, correct modifiers and
   inverted-T arrows. The red/green repository gate passes 576 Python tests and
   55 web tests; native build 55 and its bundled smoke pass, with artifact
-  `dist/AM-Configurator-0.1.55-macOS-arm64.dmg`. Build 55 is now running from
-  its read-only DMG with a GET-only Neon read open. Slot 1 has an asymmetric
-  hardware-test pattern ready: axial corners are red/green/blue/yellow; the
-  46x5 head matrix has the same four corner markers plus a white center marker.
-  GUI validation passes (`4 layers · 4 macros · 8 pages`), `NEON80` is typed in
-  the write dialog, and the final button is armed. Angry Miao Master, Vial, VIA,
-  and QMK Toolbox are not running; UTM offers **Connect…** for AM Neon 80, which
-  confirms the board is not forwarded to the VM. The dialog is waiting only
-  for the owner to hold Esc + F2 before the agent presses the final write
-  button. Optional xAI credential access remains deferred; no Keychain prompt
-  occurred. Nothing has ever been written to the keyboard.
+  `dist/AM-Configurator-0.1.55-macOS-arm64.dmg`. A build-55 full-write attempt
+  passed the typed confirmation and physical Esc + F2 unlock, and the owner
+  visually confirmed that it changed the axial/QWERTY lighting. The app then
+  stopped during the lighting transfer, before the head/side lighting or any
+  keymap or macro SET. Firmware source and hardware behavior proved that the
+  Neon echoes accepted lighting packets: response byte 7 is RGB payload, not
+  an ACK status, and the terminal packet echo mutates the packet index and
+  checksum. Commit `7dc9399` validates that firmware-shaped echo. Its gate
+  passes 577 Python tests, 55 web tests, compile/syntax checks, and package
+  builds; native build 56 and its bundled smoke pass, with artifact
+  `dist/AM-Configurator-0.1.56-macOS-arm64.dmg`. The asymmetric retry document
+  remains ready with red/green/blue/yellow axial corners, matching head corners
+  plus a white center, and side data derived from the head. Angry Miao Master,
+  Vial, VIA, and QMK Toolbox are not running; UTM offers **Connect…** for AM
+  Neon 80, confirming the board is not forwarded to the VM. Optional xAI
+  credential access remains deferred; no Keychain prompt occurred.
   The exported device-read JSON is **not an LED backup**: the Neon has no LED
   read-back, and its three custom LED slots in that file are synthetic black
   placeholders. On 2026-07-26 the owner found the original GIF used for the
@@ -52,10 +57,12 @@
   follow-up in
   `docs/superpowers/plans/2026-07-26-neon-led-preserving-writes.md` is withdrawn
   as unnecessary for N10.
-- Next action: while the owner holds Esc + F2 on the Neon, press **Write full
-  configuration** in the already-armed build-55 dialog and keep the combo held
-  until the write begins. Then photograph/inspect the axial, head, and side
-  markers before continuing the keymap round-trip and refusal/read-back checks.
+- Next action: stop build 55, unmount its DMG, launch build 56 from its exact
+  DMG path with the prepared asymmetric document, select the resolved `NEON80`,
+  verify `4 layers · 4 macros · 8 pages`, and arm the typed-confirmation dialog.
+  Then, while the owner holds Esc + F2, press **Write full configuration** and
+  inspect the axial, head, and side markers before continuing the keymap
+  round-trip and refusal/read-back checks.
 
 ## Blockers
 
