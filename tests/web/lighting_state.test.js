@@ -121,7 +121,7 @@ class FakeEventTarget {
   }
 }
 
-test("Ollama discovery is deferred until Settings or an enabled local backend", () => {
+test("Ollama discovery stays behind an enabled Local AI switch", () => {
   const disabled={enabled:false,backend:"local"};
   const localEnabled={enabled:true,backend:"local"};
   const apiEnabled={enabled:true,backend:"api"};
@@ -129,7 +129,9 @@ test("Ollama discovery is deferred until Settings or an enabled local backend", 
   assert.equal(shouldDiscoverLocalModels(ROUTES.EDIT,null),false);
   assert.equal(shouldDiscoverLocalModels(ROUTES.EDIT,apiEnabled),false);
   assert.equal(shouldDiscoverLocalModels(ROUTES.EDIT,localEnabled),true);
-  assert.equal(shouldDiscoverLocalModels(ROUTES.SETTINGS,disabled),true);
+  assert.equal(shouldDiscoverLocalModels(ROUTES.SETTINGS,disabled),false);
+  assert.equal(shouldDiscoverLocalModels(ROUTES.SETTINGS,localEnabled),true);
+  assert.equal(shouldDiscoverLocalModels(ROUTES.SETTINGS,apiEnabled),false);
 });
 
 test("epoch load ownership lets refresh supersede an in-flight asset safely", () => {

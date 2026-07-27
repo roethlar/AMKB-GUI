@@ -623,7 +623,7 @@ class DesktopServerTests(unittest.TestCase):
                 self.assertIn(b"AM Configurator", page)
                 version_badge = (
                     f'id="app-version" title="Application version">'
-                    f"v{__version__}</span>"
+                    f"Version {__version__}</span>"
                 ).encode()
                 self.assertIn(
                     version_badge,

@@ -190,8 +190,7 @@
   }
 
   function shouldDiscoverLocalModels(route, status) {
-    return route === ROUTES.SETTINGS
-      || (status?.enabled === true && status?.backend === "local");
+    return status?.enabled === true && status?.backend === "local";
   }
 
   function projectLocalModelPicker(inventory, local = {}, previousValue = "") {

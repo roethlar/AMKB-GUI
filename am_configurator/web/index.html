@@ -13,8 +13,8 @@
       <div class="brand">
         <img class="brand-mark" src="/icon.png" alt="">
         <div>
-          <strong>AM Configurator <span class="app-version" id="app-version" title="Application version">v__AM_VERSION__</span></strong>
-          <small>Local keyboard studio</small>
+          <strong>AM Configurator</strong>
+          <span class="app-version" id="app-version" title="Application version">Version __AM_VERSION__</span>
         </div>
       </div>
       <div class="document-meta">
@@ -158,8 +158,9 @@
               </section>
               <div id="settings-mutable">
               <section class="settings-section" aria-labelledby="settings-ai-title">
-                <div class="settings-section-heading"><div><h2 id="settings-ai-title">Optional AI features</h2><p>Off by default. Local generation uses models already installed in Ollama and never downloads model weights.</p></div><span id="settings-ai-state" class="pill muted">Off</span></div>
-                <label class="settings-row" for="settings-ai-enabled"><span><strong>Enable after setup passes</strong><small>Turning this off immediately hides generation without affecting the manual editor or Library.</small></span><input id="settings-ai-enabled" type="checkbox"></label>
+                <div class="settings-section-heading"><div><h2 id="settings-ai-title">AI features</h2><p>One switch controls all optional AI setup and generation.</p></div><span id="settings-ai-state" class="pill muted">Off</span></div>
+                <label class="settings-row" for="settings-ai-enabled"><span><strong>AI features</strong><small>Turn on to configure AI. Turning off hides all AI controls without affecting the manual editor or Library.</small></span><input id="settings-ai-enabled" type="checkbox" role="switch" aria-controls="settings-ai-details"></label>
+                <div id="settings-ai-details" hidden>
                 <fieldset id="settings-ai-panels" class="settings-ai-panels">
                   <legend>Backend</legend>
                   <label class="check-row"><input id="settings-ai-local" type="radio" name="settings-ai-backend" value="local"><span><strong>Local</strong><small>Primary option. Uses a model already installed in Ollama on this computer.</small></span></label>
@@ -173,8 +174,8 @@
                     <button id="settings-local-select" type="button" class="button ghost">Use selected model</button>
                   </div>
                   <p id="settings-local-model" class="settings-key-state">No Ollama model selected.</p>
-                  <div class="button-row settings-local-actions"><button id="settings-local-test" type="button" class="button primary">Test &amp; enable</button><button id="settings-local-clear" type="button" class="button ghost">Clear selection</button></div>
-                  <p class="control-help">AM Configurator only lists local models Ollama already has. It never pulls or removes a model.</p>
+                  <div class="button-row settings-local-actions"><button id="settings-local-test" type="button" class="button primary">Test setup</button><button id="settings-local-clear" type="button" class="button ghost">Clear selection</button></div>
+                  <p class="control-help">AM Configurator only lists local models Ollama already has. It never downloads model weights, pulls models, or removes them.</p>
                 </div>
                 <div id="settings-api-panel" class="settings-backend-panel" hidden>
                   <div class="settings-rows">
@@ -186,7 +187,8 @@
                     <div class="button-row settings-key-actions"><button id="settings-api-save-key" type="button" class="button ghost">Save key</button><button id="settings-api-remove" type="button" class="button ghost">Remove</button></div>
                   </div>
                   <label class="check-row"><input id="settings-api-disclosure-ack" type="checkbox"><span><strong>Allow prompt data to leave this computer</strong><small>Your prompt and the selected keyboard raster dimensions go to xAI. Keymaps, macros, and device identity do not. API use may cost money under your provider account.</small></span></label>
-                  <button id="settings-api-test" type="button" class="button primary">Test &amp; enable API</button>
+                  <button id="settings-api-test" type="button" class="button primary">Test setup</button>
+                </div>
                 </div>
               </section>
 

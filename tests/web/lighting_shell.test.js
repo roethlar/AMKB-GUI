@@ -92,6 +92,42 @@ test("Settings exposes only installed Ollama models and the curated API", () => 
   assert.match(restore,/await synchronizeOpenDocument\(\)/);
 });
 
+test("one master switch owns and hides every AI setup control", () => {
+  const toggle=html.match(/<input id="settings-ai-enabled"[^>]*>/)?.[0]||"";
+  const details=html.match(/<div id="settings-ai-details"[^>]*>/)?.[0]||"";
+  assert.match(toggle,/type="checkbox"/);
+  assert.match(toggle,/role="switch"/);
+  assert.match(toggle,/aria-controls="settings-ai-details"/);
+  assert.match(details,/\shidden(?:\s|>)/);
+  assert.ok(
+    html.indexOf('id="settings-ai-enabled"')<
+    html.indexOf('id="settings-ai-details"') &&
+    html.indexOf('id="settings-ai-details"')<
+    html.indexOf('id="settings-ai-local"')
+  );
+  assert.doesNotMatch(html,/Enable after setup passes|Test &amp; enable/);
+  assert.match(html,/Test setup/);
+
+  const populate=js.slice(js.indexOf("function populateSettings"),js.indexOf("async function refreshSettingsData"));
+  assert.match(populate,/\$\("#settings-ai-details"\)\.hidden=!enabled/);
+  const toggleAction=js.slice(js.indexOf("async function setAiEnabled"),js.indexOf("async function selectAiBackend"));
+  assert.match(toggleAction,/api\("\/api\/settings\/ai"/);
+  assert.match(toggleAction,/JSON\.stringify\(\{enabled,backend/);
+  const backendAction=js.slice(js.indexOf("async function selectAiBackend"),js.indexOf("async function refreshLocalModels"));
+  assert.doesNotMatch(backendAction,/enabled\s*:/);
+  const setupAction=js.slice(js.indexOf("async function testAiBackend"),js.indexOf("async function saveApiCredential"));
+  assert.doesNotMatch(setupAction,/enabled\s*:\s*false/);
+  assert.match(js,/\$\("#settings-ai-enabled"\)\.addEventListener\("change",event=>void setAiEnabled\(event\.target\.checked\)\)/);
+});
+
+test("the global header presents the injected runtime version as a badge", () => {
+  assert.match(
+    html,
+    /id="app-version" title="Application version">Version __AM_VERSION__<\/span>/
+  );
+  assert.match(css,/\.app-version\s*\{[^}]*border:[^}]*font-size:\s*11px[^}]*font-weight:\s*700/);
+});
+
 test("Settings explains incompatible Ollama discovery without adding show", () => {
   assert.match(js,/normalizeLocalModels\(await api\("\/api\/ai\/local\/models"\)\)/);
   assert.match(js,/Ollama must be upgraded before local AI can discover installed models/);
@@ -120,7 +156,7 @@ test("API setup stays secondary, explicit, and confined to Settings", () => {
   assert.doesNotMatch(generation,/settings-api|credential|privacy|disclosure|provider|model_id/);
 });
 
-test("saving Settings lets the server validate backend re-enablement", () => {
+test("saving Settings persists intent without client-side readiness forgery", () => {
   const save=js.slice(js.indexOf("async function saveSettings"),js.indexOf("function showDeviceDialog"));
   assert.match(save,/api\("\/api\/settings\/ai"/);
   assert.doesNotMatch(save,/enabled\s*&&\s*!aiReady\(\)/);

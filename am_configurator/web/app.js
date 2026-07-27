@@ -2336,7 +2336,7 @@ function refreshAiGate() {
 
 function aiReasonText(reason,status=state.aiStatus) {
   return ({
-    disabled:"Optional generation is off.",backend_unselected:"Choose a backend.",ollama_unavailable:"Start Ollama on this computer, then refresh the installed models.",upgrade_required:"Upgrade Ollama to use local AI, then refresh the installed models.",model_missing:"Choose one of the models already installed in Ollama.",model_unavailable:"The selected Ollama model is no longer installed with the same identity. Refresh and choose it again.",setup_required:"Run the setup test to enable this backend.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_invalid:"The API credential is invalid.",credential_missing:"Save an API credential.",disclosure_required:"Accept the API data disclosure.",auth_invalid:"The API credential was rejected.",ready:"Ready.",
+    disabled:"AI features are off.",backend_unselected:"Choose a backend.",ollama_unavailable:"Start Ollama on this computer, then refresh the installed models.",upgrade_required:"Upgrade Ollama to use local AI, then refresh the installed models.",model_missing:"Choose one of the models already installed in Ollama.",model_unavailable:"The selected Ollama model is no longer installed with the same identity. Refresh and choose it again.",setup_required:"Run the setup test for this backend.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_invalid:"The API credential is invalid.",credential_missing:"Save an API credential.",disclosure_required:"Accept the API data disclosure.",auth_invalid:"The API credential was rejected.",ready:"Ready.",
   })[reason]||"Setup needs attention.";
 }
 
@@ -2373,6 +2373,7 @@ async function openSettings({returnToGeneration=false}={}) {
 
 function populateSettings() {
   const status=state.aiStatus;
+  const enabled=Boolean(status?.enabled);
   const backend=status?.backend||"local";
   const migration=state.settings?.migration||{};
   const migrationBlocked=migration.required===true;
@@ -2391,10 +2392,11 @@ function populateSettings() {
   $("#settings-migration-discard").disabled=!canDiscardLegacyCredential||!confirm.checked;
   $("#settings-mutable").inert=migrationBlocked;
   $("#settings-save").disabled=migrationBlocked||state.settingsSaveBusy;
-  $("#settings-ai-enabled").checked=Boolean(status?.enabled);
+  $("#settings-ai-enabled").checked=enabled;
+  $("#settings-ai-details").hidden=!enabled;
   $("#settings-ai-local").checked=backend==="local";
   $("#settings-ai-api").checked=backend==="api";
-  $("#settings-ai-state").textContent=aiReady()?"Ready":status?.enabled?"Needs repair":"Off";
+  $("#settings-ai-state").textContent=aiReady()?"Ready":enabled?"Setup needed":"Off";
   $("#settings-ai-state").className=`pill ${aiReady()?"":"muted"}`;
   $("#settings-local-panel").hidden=backend!=="local";
   $("#settings-api-panel").hidden=backend!=="api";
@@ -2412,8 +2414,8 @@ function populateSettings() {
     else if(pickerProjection.selectionState==="none")localGuidance="Choose one of the models already installed in Ollama.";
     else if(pickerProjection.selectionState==="removed")localGuidance="The selected model is no longer installed. Refresh and choose another model.";
     else if(pickerProjection.selectionState==="digest_changed")localGuidance="The selected model name now has a different identity. Select it again, then rerun setup.";
-    else if(!local.setup_tested)localGuidance="Run Test & enable to verify this model can create lighting recipes.";
-    else localGuidance=status?.enabled?"Ready.":"This model passed setup. Turn on Optional AI features to use it.";
+    else if(!local.setup_tested)localGuidance="Run Test setup to verify this model can create lighting recipes.";
+    else localGuidance="Ready.";
   }
   $("#settings-local-state").textContent=localGuidance;
   const selectedSuffix=pickerProjection.selectionState==="selected"?" · installed":pickerProjection.selectionState==="removed"?" · no longer installed":pickerProjection.selectionState==="digest_changed"?" · installed identity changed":pickerProjection.selectionState==="transient_failure"?" · refresh needed":"";
@@ -2441,13 +2443,36 @@ async function refreshSettingsData() {
   refreshAiGate();
 }
 
+async function setAiEnabled(enabled) {
+  const toggle=$("#settings-ai-enabled");
+  const backend=selectedAiBackend();
+  toggle.disabled=true;
+  $("#settings-ai-details").hidden=!enabled;
+  setSettingsStatus(enabled?"Turning on AI features…":"Turning off AI features…","working");
+  try{
+    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled,backend,provider:"xai",model_id:"grok-4.5"})});
+    if(enabled&&state.aiStatus.backend==="local")await refreshLocalModels({quiet:true});
+    else{
+      if(!enabled)state.localModels={available:null,models:[],reason:null,loading:false};
+      populateSettings();
+    }
+    refreshAiGate();
+    setSettingsStatus(enabled?(aiReady()?"AI features are on and ready.":`${aiReasonText(state.aiStatus.reason)} Configure the selected backend below.`):"AI features are off. All AI setup and generation controls are hidden.");
+  }catch(error){
+    populateSettings();
+    refreshAiGate();
+    setSettingsStatus(error.message,"error");
+  }finally{toggle.disabled=false;}
+}
+
 async function selectAiBackend(backend) {
   setSettingsStatus("Updating backend…","working");
   try{
-    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled:false,backend})});
-    populateSettings();
+    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend})});
+    if(backend==="local")await refreshLocalModels({quiet:true});
+    else populateSettings();
     refreshAiGate();
-    setSettingsStatus(backend==="local"?"Local backend selected. Choose an installed Ollama model, then test it.":"API backend selected. Save a credential, accept the disclosure, and test.");
+    setSettingsStatus(backend==="local"?"Local backend selected. Choose an installed Ollama model, then test its setup.":"API backend selected. Save a credential, accept the disclosure, and test its setup.");
   }catch(error){setSettingsStatus(error.message,"error");}
 }
 
@@ -2466,7 +2491,7 @@ async function selectOllamaModel() {
   const modelId=$("#settings-local-model-select").value;
   if(!modelId){setSettingsStatus("Choose an installed Ollama model first.","error");return;}
   setSettingsStatus(`Selecting ${modelId}…`,"working");
-  try{state.aiStatus=await api("/api/ai/local/select",{method:"POST",body:JSON.stringify({model_id:modelId})});populateSettings();refreshAiGate();setSettingsStatus(`${modelId} selected. Run Test & enable.`);}
+  try{state.aiStatus=await api("/api/ai/local/select",{method:"POST",body:JSON.stringify({model_id:modelId})});populateSettings();refreshAiGate();setSettingsStatus(`${modelId} selected. Run Test setup.`);}
   catch(error){setSettingsStatus(error.message,"error");}
 }
 
@@ -2477,9 +2502,9 @@ async function clearLocalModel() {
 }
 
 async function testAiBackend(backend) {
-  setSettingsStatus(backend==="local"?"Testing the selected model through local Ollama…":"Testing the API backend…","working");
+  setSettingsStatus(backend==="local"?"Testing the selected model through local Ollama…":"Testing the API setup…","working");
   try{
-    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled:false,backend,provider:"xai",model_id:"grok-4.5"})});
+    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend,provider:"xai",model_id:"grok-4.5"})});
     if(backend==="api"){
       const key=$("#settings-api-key").value.trim();
       if(key){state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:"xai",key})});$("#settings-api-key").value="";}
@@ -2492,7 +2517,7 @@ async function testAiBackend(backend) {
     }
     state.aiStatus=await api("/api/ai/test",{method:"POST",body:JSON.stringify({backend})});
     await refreshSettingsData();
-    setSettingsStatus(backend==="local"?"Local generation is enabled with the selected Ollama model.":"API generation is enabled.");
+    setSettingsStatus(backend==="local"?"Local setup passed. AI generation is ready.":"API setup passed. AI generation is ready.");
   }catch(error){
     try{state.aiStatus=await api("/api/ai/status");populateSettings();refreshAiGate();}catch(refreshError){}
     setSettingsStatus(aiErrorMessage(error),"error");
@@ -2503,7 +2528,7 @@ async function saveApiCredential() {
   const key=$("#settings-api-key").value.trim();
   if(!key){setSettingsStatus("Enter an API key to save.","error");return;}
   setSettingsStatus("Saving credential securely…","working");
-  try{state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:"xai",key})});$("#settings-api-key").value="";populateSettings();setSettingsStatus("Credential saved. Run Test & enable API.");}
+  try{state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:"xai",key})});$("#settings-api-key").value="";populateSettings();setSettingsStatus("Credential saved. Run Test setup.");}
   catch(error){setSettingsStatus(error.message,"error");}
 }
 
@@ -2581,7 +2606,7 @@ $("#settings-save").addEventListener("click",()=>saveSettings());
 $("#settings-done").addEventListener("click",()=>state.settings?.migration?.required?finishSettings():saveSettings({exit:true}));
 $("#settings-migration-confirm").addEventListener("change",populateSettings);
 $("#settings-migration-discard").addEventListener("click",discardLegacyApiCredential);
-$("#settings-ai-enabled").addEventListener("change",event=>{if(!event.target.checked)void selectAiBackend(selectedAiBackend());});
+$("#settings-ai-enabled").addEventListener("change",event=>void setAiEnabled(event.target.checked));
 $("#settings-ai-local").addEventListener("change",()=>selectAiBackend("local"));
 $("#settings-ai-api").addEventListener("change",()=>selectAiBackend("api"));
 $("#settings-local-refresh").addEventListener("click",()=>refreshLocalModels());
