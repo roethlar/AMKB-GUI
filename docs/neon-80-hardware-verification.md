@@ -130,6 +130,19 @@ compiles past the byte budget, and apply. Expected: refused, saying nothing was
 sent. Then confirm the device still holds its previous macros — this is the
 property that matters, because a Vial macro write replaces the whole buffer.
 
+## 6. Independent lighting timelines
+
+- [x] A populated slot with different axial and head frame counts transmits both
+      authored timelines and the head-derived side-screen timeline.
+- [x] A malformed populated slot is rejected before any configuration SET
+      instead of being silently omitted.
+
+The exact reproduction document is
+`~/Downloads/AM-NEON80-config.json` (SHA-256
+`745b107a4ae0a6cfd239ff95a9162382cab89cfde426f815b137dc70f55ebb90`).
+Slot 1 contains 24 axial frames and 60 head frames; the side-screen channel
+derives 60 frames from the head timeline.
+
 ## Results
 
 Fill this in as you go. `—` means not attempted.
@@ -145,6 +158,7 @@ Fill this in as you go. `—` means not attempted.
 | 4b. Lock reported | Pass | Hardware returned locked, not-in-progress, with matrix combo `(0,0)` + `(0,2)` (physical Esc + F2). Build 55 accepted the real Esc + F2 handshake and proceeded into the lighting upload; no configuration SET preceded acceptance. |
 | 4c. Bad keycode refused | Pass | With layer 1 matrix key 0 selected, applying consumer-page volume-up code `#000C00E9` returned **Assignment unavailable**: usage page `0x0C` has no QMK equivalent and only HID keyboard page `0x07` translates. The selected key remained Esc (`#00070029`), no write confirmation opened, and no device write occurred. |
 | 5. Macro overflow refused | Pass | A local 17-macro profile was submitted through **Write to NEON80** without exposing macro plaintext. Full-write validation refused it with `macro_key contains more than 16 macros.` before any confirmation dialog or device SET. After restoring the local four-macro profile, a fresh GUI device read showed the keyboard still held four macros with event counts `22, 34, 38, 40`. |
+| 6. Independent lighting timelines | Pass | Build 59 incorrectly required equal axial and head frame counts. It silently omitted populated slot 1, sent only the two unchanged black slots (100 packets), then verified keymap/macros and falsely reported success because Neon firmware has no LED read-back. The official `AngryMiao/neon80_driver` behavior confirms that the channel timelines are independent. Commit `8eeb684` gives axial, head, and derived side-screen channels their own final terminators; commit `bc659a1` makes any malformed populated slot fail before the first SET. Both regressions were red-proven. Build 60 completed the corrected 2,668-packet full write through the normal GUI after typed `NEON80` confirmation and physical Esc + F2 unlock. Keymap/macro verification passed, `current.json` and history snapshot `2026-07-27T19-21-00-288560Z` match the source SHA-256 exactly, and the owner visually confirmed that the keyboard lighting changed. |
 
 Copy the completed table into
 `docs/superpowers/plans/2026-07-25-am-neon-80-support.md` under N10 when done.

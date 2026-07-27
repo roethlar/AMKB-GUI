@@ -95,16 +95,34 @@
   channel is not underglow; the official driver labels it “side screen lights”
   (`side_screen_lights` / `侧屏幕灯`), and the owner confirms that the physical
   keyboard has no underglow LEDs. It contributes to the same perforated top
-  display. N10 is complete. Build 56 remains open from its exact DMG path. Angry
-  Miao Master, Vial, VIA, and QMK Toolbox are not running; UTM offers
+  display. N10 is complete. Angry Miao Master, Vial, VIA, and QMK Toolbox are
+  not running; UTM offers
   **Connect…** for AM Neon 80, confirming the board is not forwarded to the VM.
   Optional xAI credential access remains deferred; no Keychain prompt occurred.
   The exported device-read JSON is **not an LED backup**: the Neon has no LED
   read-back, and its three custom LED slots in that file are synthetic black
   placeholders. On 2026-07-26 the owner found the original GIF used for the
   current lighting, accepted it as the recovery source, and explicitly
-  authorized overwriting the connected Neon's LED setup for N10. The full-write
-  action and asymmetric lighting push may now be used.
+  authorized overwriting the connected Neon's LED setup for N10. A later
+  build-59 write exposed a false-success path: the driver incorrectly required
+  equal axial/head timeline lengths and silently omitted the populated slot. It
+  sent only unchanged empty slots, then keymap/macro verification passed because
+  Neon firmware cannot read LEDs back. The official
+  `AngryMiao/neon80_driver` behavior confirms that the channel timelines are
+  independent. Commit `8eeb684` gives axial, head, and derived side-screen
+  channels their own final terminators; commit `bc659a1` makes malformed
+  populated slots fail before any SET. Both regressions were red-proven, and
+  the full gate passes 581 Python tests, 57 web tests, compile/syntax checks,
+  and source/wheel builds. Native build 60 passes bundled and mounted-DMG
+  frozen smoke tests; its checksum-verified artifact is
+  `dist/AM-Configurator-0.1.60-macOS-arm64.dmg` (SHA-256
+  `724e68cfcfda993b904ae393373596b4f14f370a8a4d2a61b430bd3451ebe8d9`).
+  A real build-60 write of the unequal-timeline document completed through the
+  normal GUI after typed confirmation and physical Esc + F2 unlock, then
+  verified keymaps and macros. Persisted current state and history match the
+  source byte-for-byte, and the owner visually confirmed that the keyboard
+  lighting changed. The exact packet count, document hash, and snapshot are in
+  `docs/neon-80-hardware-verification.md`.
   The approved plan is
   `docs/superpowers/plans/2026-07-25-am-neon-80-support.md`, its governing
   rulings are in `.agents/decisions.md` (2026-07-25), and the live hardware
@@ -119,9 +137,9 @@
   was red-proven, and the repository gate passes 578 Python tests, 55 web tests,
   compile/syntax checks, and package builds.
 - Next action: no AI-switch, Neon, installer-workflow, integration, or branch
-  cleanup remains. Future work starts from `main`. Local `main` will be five
-  commits ahead of `origin/main` after this verification record is committed;
-  the push policy requires a fresh explicit owner go before publishing them.
+  cleanup remains. Future work starts from `main`. Local `main` is eight commits
+  ahead of `origin/main`; the push policy requires a fresh explicit owner go
+  before publishing them.
 
 ## Blockers
 

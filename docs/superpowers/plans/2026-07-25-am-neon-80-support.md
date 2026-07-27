@@ -453,19 +453,24 @@ New module `am_configurator/neon_lighting.py`, reached through the N2 handle.
   head, and side-screen colours derived from the head frames per the algorithm
   above.
 - Build 32-byte packets per the table, including checksum; `packIndex` is `255`
-  on the final packet of the final frame, else the packet index.
+  on the final packet of each channel's final frame, else the packet index.
 - Honour the existing operation deadline and cancellation predicate as
   `procedural_generation.py` does; publish throttled progress.
-- Verify each reply: `0x01` continues, `0xFF` aborts with a typed error naming
-  zone and frame. A partial upload must never report success.
-- Reject frame counts above 256 and per-track lengths that do not match the spec
-  before sending any packet.
+- Verify each reply as the firmware-shaped packet echo described above,
+  including the terminal packet's mutated index and checksum. RGB payload bytes
+  are not status bytes. A partial upload must never report success.
+- Axial and head are independent timelines and may have different frame counts;
+  side-screen inherits the head timeline. Reject counts above 256 and any
+  channel frame whose LED payload length does not match its channel spec before
+  sending any packet. A malformed populated slot must fail closed rather than
+  being omitted from the write.
 - Wire the Lighting Apply path so a Neon target applies through this module.
 
-Red-proof: a golden-packet test capturing every emitted byte for a three-frame
-effect across all three channels, asserting checksums, the `255` terminator, and
-that the side channel matches the derivation. Removing the derivation or the
-terminator rule must fail it.
+Red-proof: golden-packet tests capture every emitted byte for both equal and
+unequal axial/head timelines, asserting checksums, each channel's `255`
+terminator, and that the side channel matches the head-derived timeline.
+Removing the derivation or a terminator, requiring equal timeline lengths, or
+silently omitting a malformed populated slot must fail.
 
 ### N6. Vial keymap and the unsupported-code policy
 
@@ -564,6 +569,7 @@ Current hardware results as of 2026-07-27; the detailed live record is
 |---|---|---|
 | Identity and real GUI | Pass | The physical board passed the definition gate as `NEON80`; native build 56 reads and targets it through Devices. |
 | Asymmetric lighting orientation | Pass | Build 56 completed the axial, head, and derived side-screen upload. The owner's photograph shows the expected red/blue/green/yellow corners on both the keys and perforated top display, plus the head-only white center, with no mirroring, rotation, or transposition. The owner confirms that this keyboard has no underglow; the protocol's third channel is the top display's “side screen lights.” |
+| Unequal lighting timelines | Pass | Build 59 falsely reported success for `AM-NEON80-config.json`: slot 1's 24 axial and 60 head frames failed an incorrect equality check, so the populated slot was silently omitted and only two unchanged black slots were sent. Commits `8eeb684` and `bc659a1` give each channel its own timeline and terminator and make malformed populated slots fail before any SET. Build 60 completed and verified the corrected 2,668-packet full write; the persisted snapshot matches the source SHA-256 `745b107a4ae0a6cfd239ff95a9162382cab89cfde426f815b137dc70f55ebb90`, and the owner visually confirmed that the keyboard lighting changed. |
 | Keymap and macro round trip | Pass | A recovered four-macro profile completed a full write and read-back at event counts `22, 34, 38, 40`. A deliberate layer 4 matrix-index-89 End→F12 change read back as the only keymap difference; End was restored and the final GUI read-back is semantically identical to the recovery profile. |
 | N6 unsupported assignment | Pass | Layer 1 matrix key 0 refused `#000C00E9` as a non-QMK-representable usage-page-`0x0C` code, retained Esc, and opened no write confirmation. |
 | N7 macro overflow | Pass | The GUI full-write action refused a local 17-macro profile before confirmation. A fresh device read still returned the original four macros at `22, 34, 38, 40` events. |
