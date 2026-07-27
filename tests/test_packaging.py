@@ -242,6 +242,24 @@ class ReleaseInfoTests(unittest.TestCase):
         for variable in ("$gpg", "$bash", "$cc", "$ar", "$ranlib", "$strip"):
             self.assertIn(variable, workflow)
 
+    def test_desktop_workflow_stages_ffmpeg_source_only_on_cache_miss(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+        source_stage = workflow.split(
+            "- name: Stage pinned FFmpeg source",
+            1,
+        )[1].split(
+            "- name: Prepare verified FFmpeg runtime",
+            1,
+        )[0]
+
+        self.assertIn("id: ffmpeg-cache", workflow)
+        self.assertIn(
+            "if: steps.ffmpeg-cache.outputs.cache-hit != 'true'",
+            source_stage,
+        )
+
     def test_desktop_workflow_has_no_obsolete_vulkan_setup(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
             encoding="utf-8"

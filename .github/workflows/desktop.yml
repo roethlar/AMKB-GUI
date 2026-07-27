@@ -84,11 +84,13 @@ jobs:
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-zlib
       - name: Cache verified FFmpeg runtime
+        id: ffmpeg-cache
         uses: actions/cache@v4
         with:
           path: build/ffmpeg/ffmpeg-*
           key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('packaging/ffmpeg/manifest.json') }}
       - name: Stage pinned FFmpeg source
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force build/ffmpeg/sources | Out-Null

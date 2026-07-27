@@ -91,6 +91,12 @@
   follow-up in
   `docs/superpowers/plans/2026-07-26-neon-led-preserving-writes.md` is withdrawn
   as unnecessary for N10.
+- The Desktop installers workflow skips pinned FFmpeg source downloads when the
+  exact current-platform runtime cache is restored; the preparation helper still
+  verifies the cached runtime before the native build. This closes the Windows
+  x64 failures caused by contacting `ffmpeg.org` despite a cache hit. The guard
+  was red-proven, and the repository gate passes 578 Python tests, 55 web tests,
+  compile/syntax checks, and package builds.
 - Next action: no Neon implementation, verification, integration, or branch
   cleanup remains. Future work starts from `main`.
 
