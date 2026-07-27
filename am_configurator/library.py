@@ -1023,11 +1023,16 @@ def _validate_manifest(value: object, *, expected_job_id: str | None = None) -> 
         raise ManifestError("The job cost record has an unsupported schema.")
     estimated_ticks = costs["estimated_ticks"]
     if (
-        not isinstance(estimated_ticks, int)
-        or isinstance(estimated_ticks, bool)
-        or estimated_ticks < 0
+        estimated_ticks is not None
+        and (
+            not isinstance(estimated_ticks, int)
+            or isinstance(estimated_ticks, bool)
+            or estimated_ticks < 0
+        )
     ):
-        raise ManifestError("The job cost ticks must be non-negative integers.")
+        raise ManifestError(
+            "The job cost estimate must be a non-negative integer or null."
+        )
     actual_by_operation = costs["actual_by_operation"]
     if not isinstance(actual_by_operation, dict):
         raise ManifestError("The job cost record is invalid.")
@@ -1335,7 +1340,7 @@ class GeneratedAssetLibrary:
                 "progress": {"completed": 0, "total": None},
                 "assets": [],
                 "costs": {
-                    "estimated_ticks": 0,
+                    "estimated_ticks": None,
                     "actual_by_operation": {},
                     "actual_incomplete": False,
                 },

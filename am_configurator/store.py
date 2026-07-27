@@ -40,6 +40,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import ai_catalog
 from .atomic_io import fsync_directory, replace_file
 
 if os.name == "nt":
@@ -298,7 +299,7 @@ def snapshot(product_id: str, ir: dict) -> Path:
 # verified OS credential store before the old file is atomically replaced.
 
 KEY_MASK = "•" * 8  # Legacy UI display mask; never a legal credential value
-SETTINGS_SCHEMA_VERSION = 5
+SETTINGS_SCHEMA_VERSION = 6
 LOOP_MODES = ("smooth", "none", "ping_pong")
 MIN_CANDIDATE_COUNT = 1
 MAX_CANDIDATE_COUNT = 8
@@ -318,7 +319,7 @@ _LEGACY_V2_DEFAULT_MODELS = {
 # Kept until the superseded provider-registry generator is removed in Task 16.
 _KNOWN_INTERPRETERS = _LEGACY_INTERPRETERS
 _KNOWN_RENDERERS = _LEGACY_RENDERERS
-_KNOWN_KEY_PROVIDERS = ("xai",)
+_KNOWN_KEY_PROVIDERS = ai_catalog.API_PROVIDER_IDS
 
 
 class SettingsUnavailableError(ValueError):
@@ -386,8 +387,17 @@ class CredentialStoreUnavailableError(ValueError):
         super().__init__("Secure credential storage is unavailable.")
 
 
+def _api_provider_settings(*, model_id: str | None = None) -> dict:
+    return {
+        "model_id": model_id,
+        "setup_fingerprint": None,
+        "disclosure_version": None,
+        "disclosure_at": None,
+    }
+
+
 def _default_settings() -> dict:
-    """A fresh copy of the credential-free Ollama/API-only schema v5 defaults."""
+    """A fresh copy of the credential-free Ollama/API-only schema v6 defaults."""
     return {
         "schema_version": SETTINGS_SCHEMA_VERSION,
         "ai": {
@@ -399,11 +409,13 @@ def _default_settings() -> dict:
                 "setup_fingerprint": None,
             },
             "api": {
-                "provider": "xai",
-                "model_id": "grok-4.5",
-                "setup_fingerprint": None,
-                "disclosure_version": None,
-                "disclosure_at": None,
+                "selected_provider": "xai",
+                "providers": {
+                    provider: _api_provider_settings(
+                        model_id="grok-4.5" if provider == "xai" else None
+                    )
+                    for provider in _KNOWN_KEY_PROVIDERS
+                },
             },
         },
         "library": {"current_root": None, "roots": []},
@@ -411,9 +423,24 @@ def _default_settings() -> dict:
     }
 
 
+def _default_v5_settings() -> dict:
+    """Former single-provider API shape used only for strict v5 migration."""
+
+    result = _default_settings()
+    result["schema_version"] = 5
+    result["ai"]["api"] = {
+        "provider": "xai",
+        "model_id": "grok-4.5",
+        "setup_fingerprint": None,
+        "disclosure_version": None,
+        "disclosure_at": None,
+    }
+    return result
+
+
 def _default_v4_settings() -> dict:
     """Former Ollama/direct-GGUF shape used only for strict v4 migration."""
-    result = _default_settings()
+    result = _default_v5_settings()
     result["schema_version"] = 4
     result["ai"]["local"] = {
         "source": "ollama",
@@ -426,7 +453,7 @@ def _default_v4_settings() -> dict:
 
 def _default_v3_settings() -> dict:
     """Former credential-free shape used only for strict v3 migration."""
-    result = _default_settings()
+    result = _default_v5_settings()
     result["schema_version"] = 3
     result["ai"]["local"] = {"setup_fingerprint": None}
     return result
@@ -846,8 +873,8 @@ def _validate_v4_settings(values: object) -> dict:
     return result
 
 
-def _validate_settings(values: object) -> dict:
-    """Strict-validate and normalize the credential-free v5 settings shape."""
+def _validate_v5_settings(values: object) -> dict:
+    """Strict-validate and normalize the former credential-free v5 shape."""
 
     settings = _object(values, "settings")
     _reject_unknown(
@@ -855,9 +882,9 @@ def _validate_settings(values: object) -> dict:
         {"schema_version", "ai", "library", "generation"},
         "settings",
     )
-    if settings.get("schema_version") != SETTINGS_SCHEMA_VERSION:
+    if settings.get("schema_version") != 5:
         raise ValueError("unsupported settings schema_version")
-    result = _default_settings()
+    result = _default_v5_settings()
 
     ai = _object(settings.get("ai", {}), "settings 'ai'")
     _reject_unknown(ai, {"enabled", "backend", "local", "api"}, "ai settings")
@@ -942,8 +969,132 @@ def _validate_settings(values: object) -> dict:
     return result
 
 
-def _project_v2_settings(settings: dict) -> dict:
+def _validate_settings(values: object) -> dict:
+    """Strict-validate and normalize credential-free schema v6 settings."""
+
+    settings = _object(values, "settings")
+    _reject_unknown(
+        settings,
+        {"schema_version", "ai", "library", "generation"},
+        "settings",
+    )
+    if settings.get("schema_version") != SETTINGS_SCHEMA_VERSION:
+        raise ValueError("unsupported settings schema_version")
     result = _default_settings()
+
+    ai = _object(settings.get("ai", {}), "settings 'ai'")
+    _reject_unknown(ai, {"enabled", "backend", "local", "api"}, "ai settings")
+    enabled = ai.get("enabled", False)
+    backend = ai.get("backend")
+    if type(enabled) is not bool:
+        raise ValueError("ai enabled must be true or false")
+    if backend not in {None, "local", "api"}:
+        raise ValueError("ai backend must be local, api, or null")
+    if enabled and backend is None:
+        raise ValueError("enabled AI requires a selected backend")
+
+    from .ollama_client import valid_model_digest, valid_model_id
+
+    local = _object(ai.get("local", {}), "settings 'ai.local'")
+    _reject_unknown(
+        local,
+        {"model_id", "model_digest", "setup_fingerprint"},
+        "local AI settings",
+    )
+    local_model_id = local.get("model_id")
+    local_model_digest = local.get("model_digest")
+    if (local_model_id is None) != (local_model_digest is None):
+        raise ValueError("Ollama model identity must be complete or empty")
+    if local_model_id is not None and not valid_model_id(local_model_id):
+        raise ValueError("Ollama model_id is invalid")
+    if local_model_digest is not None and not valid_model_digest(local_model_digest):
+        raise ValueError("Ollama model_digest is invalid")
+
+    api = _object(ai.get("api", {}), "settings 'ai.api'")
+    _reject_unknown(api, {"selected_provider", "providers"}, "API AI settings")
+    selected_provider = ai_catalog.validate_api_provider(
+        api.get("selected_provider", "xai")
+    )
+    providers = _object(
+        api.get("providers", {}),
+        "settings 'ai.api.providers'",
+    )
+    if set(providers) != set(_KNOWN_KEY_PROVIDERS):
+        raise ValueError("API provider settings must contain every supported provider")
+    normalized_providers: dict[str, dict] = {}
+    for provider in _KNOWN_KEY_PROVIDERS:
+        provider_settings = _object(
+            providers[provider],
+            f"settings 'ai.api.providers.{provider}'",
+        )
+        _reject_unknown(
+            provider_settings,
+            {
+                "model_id",
+                "setup_fingerprint",
+                "disclosure_version",
+                "disclosure_at",
+            },
+            f"{provider} API settings",
+        )
+        model_id = ai_catalog.validate_provider_model(
+            provider,
+            provider_settings.get("model_id"),
+            allow_none=True,
+        )
+        setup_fingerprint = _fingerprint(
+            provider_settings.get("setup_fingerprint"),
+            f"{provider} setup_fingerprint",
+        )
+        disclosure_version = _optional_text(
+            provider_settings.get("disclosure_version"),
+            f"{provider} disclosure_version",
+        )
+        disclosure_at = _optional_text(
+            provider_settings.get("disclosure_at"),
+            f"{provider} disclosure_at",
+        )
+        if (disclosure_version is None) != (disclosure_at is None):
+            raise ValueError(
+                f"{provider} disclosure version and timestamp must be set together"
+            )
+        if model_id is None and setup_fingerprint is not None:
+            raise ValueError("API setup requires a selected provider model")
+        normalized_providers[provider] = {
+            "model_id": model_id,
+            "setup_fingerprint": setup_fingerprint,
+            "disclosure_version": disclosure_version,
+            "disclosure_at": disclosure_at,
+        }
+
+    result["ai"] = {
+        "enabled": enabled,
+        "backend": backend,
+        "local": {
+            "model_id": local_model_id,
+            "model_digest": local_model_digest,
+            "setup_fingerprint": _fingerprint(
+                local.get("setup_fingerprint"),
+                "local setup_fingerprint",
+            ),
+        },
+        "api": {
+            "selected_provider": selected_provider,
+            "providers": normalized_providers,
+        },
+    }
+    result["library"] = _validate_library(settings.get("library", {}))
+    generation = _object(settings.get("generation", {}), "settings 'generation'")
+    _reject_unknown(generation, {"loop_mode"}, "generation settings")
+    loop_mode = generation.get("loop_mode", "smooth")
+    if loop_mode not in LOOP_MODES:
+        raise ValueError("loop_mode must be smooth, none, or ping_pong")
+    result["generation"] = {"loop_mode": loop_mode}
+    return result
+
+
+def _project_v2_settings(settings: dict) -> dict:
+    result = _default_v5_settings()
     result["library"] = {
         "current_root": settings["library"]["current_root"],
         "roots": list(settings["library"]["roots"]),
@@ -959,7 +1110,7 @@ def _project_v2_settings(settings: dict) -> dict:
 
 
 def _project_v3_settings(settings: dict) -> dict:
-    result = _default_settings()
+    result = _default_v5_settings()
     result["ai"]["enabled"] = settings["ai"]["enabled"]
     result["ai"]["backend"] = settings["ai"]["backend"]
     result["ai"]["api"] = dict(settings["ai"]["api"])
@@ -974,7 +1125,7 @@ def _project_v3_settings(settings: dict) -> dict:
 def _project_v4_settings(settings: dict) -> dict:
     """Project v4 to Ollama/API-only v5 without touching model files."""
 
-    result = _default_settings()
+    result = _default_v5_settings()
     result["ai"]["enabled"] = settings["ai"]["enabled"]
     result["ai"]["backend"] = settings["ai"]["backend"]
     if settings["ai"]["local"]["source"] == "ollama":
@@ -992,20 +1143,52 @@ def _project_v4_settings(settings: dict) -> dict:
     return result
 
 
+def _project_v5_settings(settings: dict) -> dict:
+    """Wrap the complete v5 xAI record without touching credential storage."""
+
+    result = _default_settings()
+    result["ai"]["enabled"] = settings["ai"]["enabled"]
+    result["ai"]["backend"] = settings["ai"]["backend"]
+    result["ai"]["local"] = dict(settings["ai"]["local"])
+    result["ai"]["api"]["selected_provider"] = "xai"
+    result["ai"]["api"]["providers"]["xai"] = {
+        field: settings["ai"]["api"][field]
+        for field in (
+            "model_id",
+            "setup_fingerprint",
+            "disclosure_version",
+            "disclosure_at",
+        )
+    }
+    result["library"] = {
+        "current_root": settings["library"]["current_root"],
+        "roots": list(settings["library"]["roots"]),
+    }
+    result["generation"] = dict(settings["generation"])
+    return result
+
+
 def _validate_migration_projection(settings: dict) -> dict:
     try:
-        return _validate_settings(settings)
+        validated_v5 = _validate_v5_settings(settings)
+        return _validate_settings(_project_v5_settings(validated_v5))
     except ValueError:
         raise SettingsMigrationValidationError() from None
 
 
 def _decode_settings(values: object) -> tuple[dict, str | None, bool]:
-    """Return ``(normalized_v5, legacy_xai_key, migration_required)``."""
+    """Return ``(normalized_v6, legacy_xai_key, migration_required)``."""
 
     if isinstance(values, dict):
         version = values.get("schema_version")
         if version == SETTINGS_SCHEMA_VERSION:
             return _validate_settings(values), None, False
+        if version == 5:
+            return (
+                _validate_migration_projection(_validate_v5_settings(values)),
+                None,
+                True,
+            )
         if version == 4:
             projected = _project_v4_settings(_validate_v4_settings(values))
             return _validate_migration_projection(projected), None, True
@@ -1059,12 +1242,12 @@ def _resolved_credential_store(credential_store=None):
     return default_credential_store()
 
 
-def _restore_credential(vault, previous: str | None) -> None:
+def _restore_credential(vault, provider: str, previous: str | None) -> None:
     with contextlib.suppress(Exception):
         if previous is None:
-            vault.delete("xai")
+            vault.delete(provider)
         else:
-            vault.set("xai", previous)
+            vault.set(provider, previous)
 
 
 def _migrate_legacy_settings(
@@ -1104,27 +1287,27 @@ def _migrate_legacy_settings(
             vault.set("xai", legacy_key)
         if vault.get("xai") != legacy_key:
             if changed:
-                _restore_credential(vault, previous)
+                _restore_credential(vault, "xai", previous)
             return settings, "credential_store_unavailable"
         try:
             _write_settings_file(path, settings)
         except OSError:
             if changed:
-                _restore_credential(vault, previous)
+                _restore_credential(vault, "xai", previous)
             return settings, SettingsMigrationWriteError.code
     except credentials.InvalidCredentialError:
         if previous_known and changed:
-            _restore_credential(vault, previous)
+            _restore_credential(vault, "xai", previous)
         return settings, InvalidAPICredentialError.code
     except Exception:
         if previous_known and changed:
-            _restore_credential(vault, previous)
+            _restore_credential(vault, "xai", previous)
         return settings, "credential_store_unavailable"
     return settings, None
 
 
 def load_settings_with_status(*, credential_store=None) -> tuple[dict, str | None]:
-    """Return schema v5 settings and a pathless migration-retry reason."""
+    """Return schema v6 settings and a pathless migration-retry reason."""
 
     path = settings_path()
     try:
@@ -1174,7 +1357,7 @@ def load_settings_with_status(*, credential_store=None) -> tuple[dict, str | Non
 
 
 def load_settings(*, credential_store=None) -> dict:
-    """Load credential-free schema v5 settings, retrying safe migrations."""
+    """Load credential-free schema v6 settings, retrying safe migrations."""
 
     return load_settings_with_status(credential_store=credential_store)[0]
 
@@ -1255,7 +1438,7 @@ def save_settings(
     *,
     credential_store=None,
 ) -> dict:
-    """Persist strict v5 settings or accept the temporary legacy key form."""
+    """Persist strict v6 settings or accept the temporary legacy key form."""
 
     if isinstance(values, dict) and values.get("schema_version") == SETTINGS_SCHEMA_VERSION:
         normalized = _validate_settings(values)
@@ -1317,19 +1500,19 @@ def update_api_key(values: object, *, credential_store=None) -> dict:
                 raise CredentialStoreUnavailableError()
         except credentials.InvalidCredentialError:
             if previous_known and changed:
-                _restore_credential(vault, previous)
+                _restore_credential(vault, provider, previous)
             raise InvalidAPICredentialError() from None
         except Exception:
             if previous_known and changed:
-                _restore_credential(vault, previous)
+                _restore_credential(vault, provider, previous)
             raise CredentialStoreUnavailableError() from None
-        settings["ai"]["api"]["setup_fingerprint"] = None
+        settings["ai"]["api"]["providers"][provider]["setup_fingerprint"] = None
         normalized_settings = _validate_settings(settings)
         try:
             _write_settings_file(path, normalized_settings)
         except OSError:
             if previous_known and changed:
-                _restore_credential(vault, previous)
+                _restore_credential(vault, provider, previous)
             raise SettingsUnavailableError() from None
     return normalized_settings
 
@@ -1349,12 +1532,23 @@ def update_ai_settings(
         raise ValueError("AI enabled must be true or false")
     if "backend" in body and body["backend"] not in {None, "local", "api"}:
         raise ValueError("AI backend must be local, api, or null")
-    if "provider" in body and body["provider"] != "xai":
-        raise ValueError("API AI provider is unsupported")
-    if "model_id" in body and body["model_id"] != "grok-4.5":
-        raise ValueError("API AI model is unsupported")
+    if "model_id" in body and "provider" not in body:
+        raise ValueError("API model_id requires its provider")
+    provider = None
+    model_id = None
+    if "provider" in body:
+        provider = ai_catalog.validate_api_provider(body["provider"])
+        if "model_id" in body:
+            model_id = ai_catalog.validate_provider_model(provider, body["model_id"])
 
     def mutate(settings: dict) -> None:
+        if provider is not None:
+            api = settings["ai"]["api"]
+            provider_settings = api["providers"][provider]
+            if "model_id" in body and provider_settings["model_id"] != model_id:
+                provider_settings["model_id"] = model_id
+                provider_settings["setup_fingerprint"] = None
+            api["selected_provider"] = provider
         if "backend" in body:
             settings["ai"]["backend"] = body["backend"]
         if "enabled" in body:
@@ -1384,14 +1578,25 @@ def set_ai_setup_fingerprint(
     backend: str,
     fingerprint: str | None,
     *,
+    provider: str | None = None,
     credential_store=None,
 ) -> dict:
     if backend not in {"local", "api"}:
         raise ValueError("AI backend must be local or api")
     normalized = _fingerprint(fingerprint, "setup fingerprint")
+    if provider is not None:
+        provider = ai_catalog.validate_api_provider(provider)
 
     def mutate(settings: dict) -> None:
-        settings["ai"][backend]["setup_fingerprint"] = normalized
+        if backend == "local":
+            if provider is not None:
+                raise ValueError("Local AI setup does not accept an API provider")
+            settings["ai"]["local"]["setup_fingerprint"] = normalized
+            return
+        selected = settings["ai"]["api"]["selected_provider"]
+        if provider is not None and provider != selected:
+            raise ValueError("API setup provider is no longer selected")
+        settings["ai"]["api"]["providers"][selected]["setup_fingerprint"] = normalized
 
     return _mutate_settings(mutate, credential_store=credential_store)
 
@@ -1444,27 +1649,34 @@ def update_library_root(values: object, *, credential_store=None) -> dict:
 
 def acknowledge_privacy(values: object, *, credential_store=None) -> dict:
     """Record explicit acknowledgment of only the current data-flow disclosure."""
-    from . import ai_catalog
-
     body = _object(values, "privacy settings")
-    _reject_unknown(body, {"version"}, "privacy settings")
-    if set(body) != {"version"}:
-        raise ValueError("privacy settings require version")
-    if body["version"] != ai_catalog.PRIVACY_DISCLOSURE_VERSION:
+    _reject_unknown(body, {"provider", "version"}, "privacy settings")
+    if set(body) != {"provider", "version"}:
+        raise ValueError("privacy settings require provider and version")
+    provider = ai_catalog.validate_api_provider(body["provider"])
+    disclosure_version = ai_catalog.provider_disclosure_version(provider)
+    if body["version"] != disclosure_version:
         raise ValueError("only the current privacy disclosure can be acknowledged")
 
     def mutate(settings: dict) -> None:
-        settings["ai"]["api"][
-            "disclosure_version"
-        ] = ai_catalog.PRIVACY_DISCLOSURE_VERSION
-        settings["ai"]["api"]["disclosure_at"] = _now_iso()
-        settings["ai"]["api"]["setup_fingerprint"] = None
+        api = settings["ai"]["api"]
+        if api["selected_provider"] != provider:
+            raise ValueError("privacy provider is no longer selected")
+        provider_settings = api["providers"][provider]
+        provider_settings["disclosure_version"] = disclosure_version
+        provider_settings["disclosure_at"] = _now_iso()
+        provider_settings["setup_fingerprint"] = None
 
     return _mutate_settings(mutate, credential_store=credential_store)
 
 
-def credential_status(*, credential_store=None) -> dict[str, bool]:
-    env = os.environ.get("XAI_API_KEY")
+def credential_status(
+    provider: str = "xai",
+    *,
+    credential_store=None,
+) -> dict[str, bool]:
+    provider = ai_catalog.validate_api_provider(provider)
+    env = os.environ.get(ai_catalog.provider_environment_variable(provider))
     vault = _resolved_credential_store(credential_store)
     from . import credentials
 
@@ -1481,7 +1693,7 @@ def credential_status(*, credential_store=None) -> dict[str, bool]:
             invalid = True
     elif available:
         try:
-            stored = vault.get("xai")
+            stored = vault.get(provider)
         except credentials.InvalidCredentialError:
             invalid = True
         except Exception:
@@ -1494,10 +1706,11 @@ def credential_status(*, credential_store=None) -> dict[str, bool]:
     }
 
 
-def resolve_xai_key(*, credential_store=None) -> str | None:
+def resolve_api_key(provider: str, *, credential_store=None) -> str | None:
     """Resolve the explicit environment override, then the secure OS vault."""
 
-    env = os.environ.get("XAI_API_KEY")
+    provider = ai_catalog.validate_api_provider(provider)
+    env = os.environ.get(ai_catalog.provider_environment_variable(provider))
     if env:
         from . import credentials
 
@@ -1512,9 +1725,15 @@ def resolve_xai_key(*, credential_store=None) -> str | None:
         return None
     vault = _resolved_credential_store(credential_store)
     try:
-        return vault.get("xai") if vault.available() else None
+        return vault.get(provider) if vault.available() else None
     except Exception:
         return None
+
+
+def resolve_xai_key(*, credential_store=None) -> str | None:
+    """Compatibility wrapper for historical xAI-only recovery paths."""
+
+    return resolve_api_key("xai", credential_store=credential_store)
 
 
 def _check(cond: bool, msg: str) -> None:

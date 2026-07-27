@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 # Fixed by design v3 (docs/design/llm-led-generator.md); do not re-derive here.
 
 MAX_PROVIDER_RESPONSE = 25_000_000  # bounded read cap on any upstream body (bytes)
+MAX_PROVIDER_REQUEST = 25_000_000
 PER_CALL_TIMEOUT = 30.0  # hard ceiling on any single upstream call; the deadline caps it lower
 _VIDEO_REQUEST_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._~-]{0,199}", re.ASCII)
 
@@ -42,6 +43,20 @@ PROVIDER_ERROR_CODES = (
     "bad_response",
     "unavailable",
 )
+
+
+@dataclass(frozen=True)
+class ProviderTransportSpec:
+    """One compiled HTTPS origin and authentication contract."""
+
+    provider: str
+    url: str
+    host: str
+    auth_header: str
+    auth_prefix: str
+    static_headers: tuple[tuple[str, str], ...] = ()
+    path_prefix: str = "/v1/"
+
 
 @dataclass(frozen=True)
 class ProviderUsage:
@@ -259,6 +274,186 @@ def _default_opener():
     return director.open
 
 
+def _validate_provider_spec(spec: ProviderTransportSpec) -> None:
+    if not isinstance(spec, ProviderTransportSpec):
+        raise ProviderError("config", "provider transport specification is invalid")
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", spec.provider):
+        raise ProviderError("config", "provider identifier is invalid")
+    if (
+        not isinstance(spec.host, str)
+        or not spec.host
+        or not isinstance(spec.path_prefix, str)
+        or not spec.path_prefix.startswith("/")
+    ):
+        raise ProviderError("config", "provider origin is invalid")
+    try:
+        parsed = urllib.parse.urlsplit(spec.url)
+    except (TypeError, ValueError):
+        raise ProviderError("config", "provider URL is invalid") from None
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != spec.host
+        or parsed.hostname != spec.host
+        or parsed.username is not None
+        or parsed.password is not None
+        or not parsed.path.startswith(spec.path_prefix)
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ProviderError("config", "provider URL is not an allowed HTTPS URL")
+    try:
+        if parsed.port is not None:
+            raise ProviderError("config", "provider URL must not specify a port")
+    except ValueError:
+        raise ProviderError("config", "provider URL has an invalid port") from None
+    header_token = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+", re.ASCII)
+    if not isinstance(spec.auth_header, str) or not header_token.fullmatch(
+        spec.auth_header
+    ):
+        raise ProviderError("config", "provider authentication header is invalid")
+    if (
+        not isinstance(spec.auth_prefix, str)
+        or "\r" in spec.auth_prefix
+        or "\n" in spec.auth_prefix
+    ):
+        raise ProviderError("config", "provider authentication scheme is invalid")
+    for name, value in spec.static_headers:
+        if (
+            not isinstance(name, str)
+            or not header_token.fullmatch(name)
+            or not isinstance(value, str)
+            or not value
+            or "\r" in value
+            or "\n" in value
+        ):
+            raise ProviderError("config", "provider static header is invalid")
+        if name.lower() in {"authorization", "content-type", spec.auth_header.lower()}:
+            raise ProviderError("config", "provider static header is reserved")
+
+
+def _provider_json_request(
+    spec: ProviderTransportSpec,
+    payload: dict,
+    api_key: str,
+    deadline: float,
+    *,
+    opener=None,
+) -> dict:
+    """Perform exactly one bounded, proxy-free JSON POST to a compiled origin."""
+
+    _validate_provider_spec(spec)
+    if (
+        not isinstance(api_key, str)
+        or not api_key
+        or any(ord(character) < 32 or ord(character) == 127 for character in api_key)
+    ):
+        raise ProviderError("config", "provider credential is invalid")
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ProviderError(
+            "timeout", "provider deadline exceeded before the request started"
+        )
+    try:
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError):
+        raise ProviderError("config", "provider request payload is invalid") from None
+    if len(body) > MAX_PROVIDER_REQUEST:
+        raise ProviderError(
+            "config",
+            f"provider request exceeded the {MAX_PROVIDER_REQUEST}-byte cap",
+        )
+    if opener is None:
+        opener = _default_opener()
+    headers = {
+        "Content-Type": "application/json",
+        spec.auth_header: f"{spec.auth_prefix}{api_key}",
+    }
+    headers.update(dict(spec.static_headers))
+    request = urllib.request.Request(
+        spec.url,
+        data=body,
+        method="POST",
+        headers=headers,
+    )
+    timeout = min(remaining, PER_CALL_TIMEOUT)
+    try:
+        response = opener(request, timeout=timeout)
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+        retry_after = _parse_retry_after(exc.headers.get("Retry-After"))
+        usage = _provider_error_usage(exc)
+        _close_quietly(exc)
+        if code in (401, 403):
+            raise ProviderError(
+                "auth",
+                "provider rejected the API key; check the key in Settings",
+                usage=usage,
+            ) from None
+        if code == 429:
+            raise ProviderError(
+                "rate_limited",
+                "provider rate limit reached; retry later",
+                retry_after=retry_after,
+                usage=usage,
+            ) from None
+        if 500 <= code <= 599:
+            raise ProviderError(
+                "unavailable",
+                f"provider is temporarily unavailable (HTTP {code})",
+                usage=usage,
+            ) from None
+        raise ProviderError(
+            "bad_response",
+            f"provider returned an unexpected status (HTTP {code})",
+            usage=usage,
+        ) from None
+    except urllib.error.URLError as exc:
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, (TimeoutError, socket.timeout)):
+            raise ProviderError(
+                "timeout", _redact(f"provider request timed out: {exc}", api_key)
+            ) from None
+        raise ProviderError(
+            "offline", _redact(f"could not reach the provider: {exc}", api_key)
+        ) from None
+    except (TimeoutError, socket.timeout) as exc:
+        raise ProviderError(
+            "timeout", _redact(f"provider request timed out: {exc}", api_key)
+        ) from None
+    except (ssl.SSLError, OSError) as exc:
+        raise ProviderError(
+            "offline", _redact(f"could not reach the provider: {exc}", api_key)
+        ) from None
+
+    try:
+        raw = response.read(MAX_PROVIDER_RESPONSE + 1)
+    except (TimeoutError, socket.timeout) as exc:
+        raise ProviderError(
+            "timeout", _redact(f"provider response read timed out: {exc}", api_key)
+        ) from None
+    except (ssl.SSLError, OSError) as exc:
+        raise ProviderError(
+            "offline", _redact(f"provider response read failed: {exc}", api_key)
+        ) from None
+    finally:
+        _close_quietly(response)
+
+    if len(raw) > MAX_PROVIDER_RESPONSE:
+        raise ProviderError(
+            "bad_response",
+            f"provider response exceeded the {MAX_PROVIDER_RESPONSE}-byte cap",
+        )
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise ProviderError(
+            "bad_response", "provider response was not valid JSON"
+        ) from None
+    if not isinstance(parsed, dict):
+        raise ProviderError("bad_response", "provider response was not a JSON object")
+    return parsed
+
+
 def _xai_request(
     url: str,
     payload: dict,
@@ -282,107 +477,19 @@ def _xai_request(
     (``auth`` / ``rate_limited`` / ``unavailable`` / ``bad_response`` /
     ``offline`` / ``timeout``) and the API key is redacted from every message.
     """
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        raise ProviderError(
-            "timeout", "provider deadline exceeded before the request started"
-        )
-
-    url = _validate_xai_url(url)
-    if opener is None:
-        opener = _default_opener()
-
-    timeout = min(remaining, PER_CALL_TIMEOUT)
-    body = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        url,
-        data=body,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
+    return _provider_json_request(
+        ProviderTransportSpec(
+            provider="xai",
+            url=url,
+            host=XAI_API_HOST,
+            auth_header="Authorization",
+            auth_prefix="Bearer ",
+        ),
+        payload,
+        api_key,
+        deadline,
+        opener=opener,
     )
-
-    try:
-        response = opener(request, timeout=timeout)
-    except urllib.error.HTTPError as exc:
-        code = exc.code
-        retry_after = _parse_retry_after(exc.headers.get("Retry-After"))
-        usage = _provider_error_usage(exc)
-        _close_quietly(exc)
-        if code in (401, 403):
-            raise ProviderError(
-                "auth",
-                "provider rejected the API key; check the key in Settings",
-                usage=usage,
-            ) from exc
-        if code == 429:
-            raise ProviderError(
-                "rate_limited",
-                "provider rate limit reached; retry later",
-                retry_after=retry_after,
-                usage=usage,
-            ) from exc
-        if 500 <= code <= 599:
-            raise ProviderError(
-                "unavailable",
-                f"provider is temporarily unavailable (HTTP {code})",
-                usage=usage,
-            ) from exc
-        raise ProviderError(
-            "bad_response",
-            f"provider returned an unexpected status (HTTP {code})",
-            usage=usage,
-        ) from exc
-    except urllib.error.URLError as exc:
-        reason = getattr(exc, "reason", None)
-        if isinstance(reason, (TimeoutError, socket.timeout)):
-            raise ProviderError(
-                "timeout", _redact(f"provider request timed out: {exc}", api_key)
-            ) from exc
-        raise ProviderError(
-            "offline", _redact(f"could not reach the provider: {exc}", api_key)
-        ) from exc
-    except (TimeoutError, socket.timeout) as exc:
-        raise ProviderError(
-            "timeout", _redact(f"provider request timed out: {exc}", api_key)
-        ) from exc
-    except (ssl.SSLError, OSError) as exc:
-        raise ProviderError(
-            "offline", _redact(f"could not reach the provider: {exc}", api_key)
-        ) from exc
-
-    try:
-        raw = response.read(MAX_PROVIDER_RESPONSE + 1)
-    except (TimeoutError, socket.timeout) as exc:
-        raise ProviderError(
-            "timeout", _redact(f"provider response read timed out: {exc}", api_key)
-        ) from exc
-    except (ssl.SSLError, OSError) as exc:
-        raise ProviderError(
-            "offline", _redact(f"provider response read failed: {exc}", api_key)
-        ) from exc
-    finally:
-        _close_quietly(response)
-
-    if len(raw) > MAX_PROVIDER_RESPONSE:
-        raise ProviderError(
-            "bad_response",
-            f"provider response exceeded the {MAX_PROVIDER_RESPONSE}-byte cap",
-        )
-
-    try:
-        parsed = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as exc:
-        raise ProviderError(
-            "bad_response", _redact(f"provider response was not valid JSON: {exc}", api_key)
-        ) from exc
-
-    if not isinstance(parsed, dict):
-        raise ProviderError("bad_response", "provider response was not a JSON object")
-
-    return parsed
 
 
 def _xai_get_request(

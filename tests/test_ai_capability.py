@@ -18,7 +18,7 @@ from am_configurator.recipe_provider import RecipeResult
 
 
 DEFAULTS = {
-    "schema_version": 5,
+    "schema_version": 6,
     "ai": {
         "enabled": False,
         "backend": None,
@@ -28,11 +28,16 @@ DEFAULTS = {
             "setup_fingerprint": None,
         },
         "api": {
-            "provider": "xai",
-            "model_id": "grok-4.5",
-            "setup_fingerprint": None,
-            "disclosure_version": None,
-            "disclosure_at": None,
+            "selected_provider": "xai",
+            "providers": {
+                provider: {
+                    "model_id": "grok-4.5" if provider == "xai" else None,
+                    "setup_fingerprint": None,
+                    "disclosure_version": None,
+                    "disclosure_at": None,
+                }
+                for provider in ai_catalog.API_PROVIDER_IDS
+            },
         },
     },
     "library": {"current_root": None, "roots": []},
@@ -130,6 +135,10 @@ class CapabilityTests(unittest.TestCase):
         self.credential = None
         self.writes: list[tuple] = []
 
+    def _selected_api(self) -> dict:
+        api = self.settings["ai"]["api"]
+        return api["providers"][api["selected_provider"]]
+
     def _service(
         self,
         *,
@@ -139,12 +148,19 @@ class CapabilityTests(unittest.TestCase):
         ollama_available=True,
         ollama_error=None,
     ):
-        def write_fingerprint(backend, fingerprint):
-            self.writes.append(("fingerprint", backend, fingerprint))
-            self.settings["ai"][backend]["setup_fingerprint"] = fingerprint
+        def write_fingerprint(backend, fingerprint, *, provider=None):
+            self.writes.append(("fingerprint", backend, provider, fingerprint))
+            if backend == "api":
+                selected = self.settings["ai"]["api"]["selected_provider"]
+                self.assertEqual(selected, provider)
+                self.settings["ai"]["api"]["providers"][selected][
+                    "setup_fingerprint"
+                ] = fingerprint
+            else:
+                self.settings["ai"][backend]["setup_fingerprint"] = fingerprint
             return copy.deepcopy(self.settings)
 
-        credential_status = lambda: {
+        credential_status = lambda _provider: {
             "available": credential_available,
             "configured": self.credential is not None,
             "external": False,
@@ -153,9 +169,9 @@ class CapabilityTests(unittest.TestCase):
         return AICapabilityService(
             settings_loader=lambda: copy.deepcopy(self.settings),
             credential_status_loader=credential_status,
-            credential_resolver=lambda: self.credential,
+            credential_resolver=lambda _provider: self.credential,
             fingerprint_writer=write_fingerprint,
-            api_provider_factory=lambda key, model: provider or _Provider(),
+            api_provider_factory=lambda _provider, key, model: provider or _Provider(),
             ollama_client=_OllamaClient(
                 self.ollama_models,
                 available=ollama_available,
@@ -200,7 +216,7 @@ class CapabilityTests(unittest.TestCase):
         ollama = _OllamaClient([self.ollama_model])
         credential_calls = 0
 
-        def credential_status():
+        def credential_status(_provider):
             nonlocal credential_calls
             credential_calls += 1
             raise AssertionError("disabled status probed the credential store")
@@ -208,7 +224,7 @@ class CapabilityTests(unittest.TestCase):
         service = AICapabilityService(
             settings_loader=lambda: copy.deepcopy(self.settings),
             credential_status_loader=credential_status,
-            credential_resolver=lambda: (_ for _ in ()).throw(
+            credential_resolver=lambda _provider: (_ for _ in ()).throw(
                 AssertionError("disabled status resolved a credential")
             ),
             ollama_client=ollama,
@@ -234,7 +250,7 @@ class CapabilityTests(unittest.TestCase):
         ollama = _OllamaClient([self.ollama_model])
         credential_calls = 0
 
-        def credential_status():
+        def credential_status(_provider):
             nonlocal credential_calls
             credential_calls += 1
             return {
@@ -247,7 +263,7 @@ class CapabilityTests(unittest.TestCase):
         service = AICapabilityService(
             settings_loader=lambda: copy.deepcopy(self.settings),
             credential_status_loader=credential_status,
-            credential_resolver=lambda: "sk-selected-backend-only",
+            credential_resolver=lambda _provider: "sk-selected-backend-only",
             ollama_client=ollama,
         )
         self.assertTrue(service.status()["ready"])
@@ -255,11 +271,11 @@ class CapabilityTests(unittest.TestCase):
         self.assertEqual(0, credential_calls)
 
         self.credential = "sk-selected-backend-only"
-        api = self.settings["ai"]["api"]
+        api = self._selected_api()
         api["disclosure_version"] = ai_catalog.PRIVACY_DISCLOSURE_VERSION
         api["disclosure_at"] = "2026-07-22T00:00:00+00:00"
         api["setup_fingerprint"] = api_setup_fingerprint(
-            api["provider"],
+            self.settings["ai"]["api"]["selected_provider"],
             api["model_id"],
             self.credential,
             api["disclosure_version"],
@@ -269,6 +285,36 @@ class CapabilityTests(unittest.TestCase):
         self.assertTrue(service.status()["ready"])
         self.assertEqual(1, ollama.calls)
         self.assertEqual(1, credential_calls)
+
+    def test_api_status_reads_only_the_selected_provider(self) -> None:
+        self.settings["ai"].update({"enabled": True, "backend": "api"})
+        self.settings["ai"]["api"]["selected_provider"] = "deepseek"
+        status_calls: list[str] = []
+        resolve_calls: list[str] = []
+
+        service = AICapabilityService(
+            settings_loader=lambda: copy.deepcopy(self.settings),
+            credential_status_loader=lambda provider: (
+                status_calls.append(provider)
+                or {
+                    "available": True,
+                    "configured": False,
+                    "external": False,
+                    "invalid": False,
+                }
+            ),
+            credential_resolver=lambda provider: (
+                resolve_calls.append(provider) or None
+            ),
+            ollama_client=_OllamaClient([]),
+        )
+
+        status = service.status()
+
+        self.assertEqual("model_missing", status["reason"])
+        self.assertEqual("deepseek", status["api"]["provider"])
+        self.assertEqual(["deepseek"], status_calls)
+        self.assertEqual([], resolve_calls)
 
     def test_capability_polling_has_no_managed_model_or_runtime_path(self) -> None:
         source = inspect.getsource(ai_capability)
@@ -338,7 +384,7 @@ class CapabilityTests(unittest.TestCase):
 
         self.credential = "sk-private"
         self.assertEqual("disclosure_required", service.status()["reason"])
-        api = self.settings["ai"]["api"]
+        api = self._selected_api()
         api["disclosure_version"] = ai_catalog.PRIVACY_DISCLOSURE_VERSION
         api["disclosure_at"] = "2026-07-21T00:00:00+00:00"
         self.assertEqual("setup_required", service.status()["reason"])
@@ -492,7 +538,7 @@ class CapabilityTests(unittest.TestCase):
         failure = _FailingProvider("auth")
         self.credential = "sk-private-auth"
         self.settings["ai"].update({"enabled": True, "backend": "api"})
-        api = self.settings["ai"]["api"]
+        api = self._selected_api()
         api["disclosure_version"] = ai_catalog.PRIVACY_DISCLOSURE_VERSION
         api["disclosure_at"] = "2026-07-21T00:00:00+00:00"
         api["setup_fingerprint"] = api_setup_fingerprint(
@@ -521,7 +567,7 @@ class CapabilityTests(unittest.TestCase):
         failure = _FailingProvider("offline")
         self.credential = "sk-private-transient"
         self.settings["ai"].update({"enabled": True, "backend": "api"})
-        api = self.settings["ai"]["api"]
+        api = self._selected_api()
         api["disclosure_version"] = ai_catalog.PRIVACY_DISCLOSURE_VERSION
         api["disclosure_at"] = "2026-07-21T00:00:00+00:00"
         fingerprint = api_setup_fingerprint(
@@ -571,21 +617,21 @@ class CapabilityTests(unittest.TestCase):
                 raise TimeoutError("test did not release provider construction")
             return provider
 
-        def api_factory(_credential, _model_id):
+        def api_factory(_provider, _credential, _model_id):
             provider = object()
             api_created.append(provider)
             return provider
 
         service = AICapabilityService(
             settings_loader=lambda: copy.deepcopy(self.settings),
-            credential_status_loader=lambda: {
+            credential_status_loader=lambda _provider: {
                 "available": True,
                 "configured": self.credential is not None,
                 "external": False,
                 "invalid": False,
             },
-            credential_resolver=lambda: self.credential,
-            fingerprint_writer=lambda *_args: None,
+            credential_resolver=lambda _provider: self.credential,
+            fingerprint_writer=lambda *_args, **_kwargs: None,
             api_provider_factory=api_factory,
             ollama_client=_OllamaClient(self.ollama_models),
             ollama_provider_factory=local_factory,
@@ -618,7 +664,7 @@ class CapabilityTests(unittest.TestCase):
 
         self.credential = "sk-provider-cache-one"
         self.settings["ai"]["backend"] = "api"
-        api = self.settings["ai"]["api"]
+        api = self._selected_api()
         api["disclosure_version"] = ai_catalog.PRIVACY_DISCLOSURE_VERSION
         api["disclosure_at"] = "2026-07-22T00:00:00+00:00"
         api["setup_fingerprint"] = api_setup_fingerprint(

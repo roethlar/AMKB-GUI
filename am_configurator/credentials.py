@@ -9,8 +9,20 @@ from typing import Any, Protocol
 
 SERVICE_IDENTIFIER = "dev.amconfigurator.ai"
 XAI_USERNAME = "xai"
+ANTHROPIC_USERNAME = "anthropic"
+OPENAI_USERNAME = "openai"
+GEMINI_USERNAME = "gemini"
+MOONSHOT_USERNAME = "moonshot"
+DEEPSEEK_USERNAME = "deepseek"
 MAX_CREDENTIAL_CHARS = 4096
-_PROVIDER_USERNAMES = {"xai": XAI_USERNAME}
+_PROVIDER_USERNAMES = {
+    "xai": XAI_USERNAME,
+    "anthropic": ANTHROPIC_USERNAME,
+    "openai": OPENAI_USERNAME,
+    "gemini": GEMINI_USERNAME,
+    "moonshot": MOONSHOT_USERNAME,
+    "deepseek": DEEPSEEK_USERNAME,
+}
 
 
 class CredentialStoreError(RuntimeError):
@@ -197,12 +209,17 @@ def default_credential_store() -> CredentialStore:
 
 
 __all__ = [
+    "ANTHROPIC_USERNAME",
     "CredentialStore",
     "CredentialStoreError",
+    "DEEPSEEK_USERNAME",
+    "GEMINI_USERNAME",
     "InvalidCredentialError",
     "KeyringCredentialStore",
     "MAX_CREDENTIAL_CHARS",
     "MemoryCredentialStore",
+    "MOONSHOT_USERNAME",
+    "OPENAI_USERNAME",
     "SERVICE_IDENTIFIER",
     "XAI_USERNAME",
     "default_credential_store",

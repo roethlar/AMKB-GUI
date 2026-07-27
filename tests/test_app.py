@@ -58,7 +58,7 @@ from am_configurator.device import candidate_ports
 from am_configurator.protocol import exclusive_serial_kwargs
 from am_configurator.macros import macro_frames, parse_macro_frames
 from am_configurator.writer import car_light_data_frames, car_light_info_frames
-from am_configurator import credentials, device_mapping, llm, server, store
+from am_configurator import ai_catalog, credentials, device_mapping, llm, server, store
 from am_configurator import generation
 from am_configurator.library import (
     GeneratedAssetLibrary,
@@ -67,7 +67,7 @@ from am_configurator.library import (
 
 
 _DEFAULT_SETTINGS = {
-    "schema_version": 5,
+    "schema_version": 6,
     "ai": {
         "enabled": False,
         "backend": None,
@@ -77,11 +77,16 @@ _DEFAULT_SETTINGS = {
             "setup_fingerprint": None,
         },
         "api": {
-            "provider": "xai",
-            "model_id": "grok-4.5",
-            "setup_fingerprint": None,
-            "disclosure_version": None,
-            "disclosure_at": None,
+            "selected_provider": "xai",
+            "providers": {
+                provider: {
+                    "model_id": "grok-4.5" if provider == "xai" else None,
+                    "setup_fingerprint": None,
+                    "disclosure_version": None,
+                    "disclosure_at": None,
+                }
+                for provider in ai_catalog.API_PROVIDER_IDS
+            },
         },
     },
     "library": {"current_root": None, "roots": []},
@@ -156,38 +161,33 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertFalse(store.settings_path().exists())
 
     def test_catalog_has_only_curated_recipe_models_and_integer_prices(self) -> None:
-        from am_configurator import ai_catalog
-
         catalog = ai_catalog.catalog_view()
-        self.assertEqual(catalog["schema_version"], 1)
-        self.assertEqual(catalog["pricing_as_of"], "2026-07-20")
-        expected = {
-            "interpreter": {
-                "default": "grok-4.5",
-                "choices": {
-                    "grok-4.5": {
-                        "input_per_million_tokens_usd_ticks": 20_000_000_000,
-                        "output_per_million_tokens_usd_ticks": 60_000_000_000,
-                    },
-                    "grok-4.3": {
-                        "input_per_million_tokens_usd_ticks": 12_500_000_000,
-                        "output_per_million_tokens_usd_ticks": 25_000_000_000,
-                    },
-                },
-            },
-        }
-        observed = {}
-        for role, role_data in catalog["roles"].items():
-            observed[role] = {
-                "default": role_data["default"],
-                "choices": {
-                    choice["id"]: choice["pricing"] for choice in role_data["choices"]
-                },
-            }
-            for choice in role_data["choices"]:
-                self.assertTrue(choice["pricing"])
-                self.assertTrue(all(type(value) is int for value in choice["pricing"].values()))
-        self.assertEqual(observed, expected)
+        self.assertEqual(catalog["schema_version"], 2)
+        self.assertEqual(catalog["pricing_as_of"], ai_catalog.PRICING_AS_OF)
+        self.assertEqual(set(catalog["providers"]), set(ai_catalog.API_PROVIDER_IDS))
+        self.assertNotIn("roles", catalog)
+        for provider, metadata in catalog["providers"].items():
+            self.assertIsInstance(metadata["label"], str)
+            self.assertTrue(metadata["label"])
+            self.assertEqual(
+                metadata["disclosure_version"],
+                ai_catalog.provider_disclosure_version(provider),
+            )
+            self.assertIn(
+                metadata["structured_output"],
+                {"json_schema", "json_object"},
+            )
+            ids = [model["id"] for model in metadata["models"]]
+            self.assertEqual(len(ids), len(set(ids)))
+            if metadata["default_model"] is not None:
+                self.assertIn(metadata["default_model"], ids)
+            for model in metadata["models"]:
+                pricing = model.get("pricing")
+                if pricing is not None:
+                    self.assertTrue(pricing)
+                    self.assertTrue(
+                        all(type(value) is int for value in pricing.values())
+                    )
         self.assertEqual(ai_catalog.DEFAULT_MODELS, {"interpreter": "grok-4.5"})
 
     def test_v1_file_migrates_in_place_without_losing_key(self) -> None:
@@ -206,11 +206,11 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual("sk-existing", store.resolve_xai_key())
         self.assertFalse(path.with_name(path.name + ".bad").exists())
         saved = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(saved["schema_version"], 5)
+        self.assertEqual(saved["schema_version"], 6)
         self.assertNotIn("llm", saved)
         self.assertNotIn("sk-existing", path.read_text(encoding="utf-8"))
 
-    def test_v5_round_trip(self) -> None:
+    def test_v6_round_trip(self) -> None:
         payload = copy.deepcopy(_DEFAULT_SETTINGS)
         payload["ai"]["backend"] = "local"
         payload["ai"]["local"]["setup_fingerprint"] = "a" * 64
@@ -325,21 +325,26 @@ class SettingsStoreTests(unittest.TestCase):
 
         store.update_api_key({"provider": "xai", "key": "sk-private"})
         with self.assertRaises(ValueError):
-            store.acknowledge_privacy({"version": "older-disclosure"})
+            store.acknowledge_privacy(
+                {"provider": "xai", "version": "older-disclosure"}
+            )
         with self.assertRaises(ValueError):
             store.acknowledge_privacy({
+                "provider": "xai",
                 "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
                 "extra": True,
             })
         saved = store.acknowledge_privacy({
+            "provider": "xai",
             "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
         })
+        api = saved["ai"]["api"]["providers"]["xai"]
         self.assertEqual(
-            saved["ai"]["api"]["disclosure_version"],
+            api["disclosure_version"],
             ai_catalog.PRIVACY_DISCLOSURE_VERSION,
         )
         self.assertRegex(
-            saved["ai"]["api"]["disclosure_at"],
+            api["disclosure_at"],
             r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$",
         )
         self.assertEqual(store.resolve_xai_key(), "sk-private")
@@ -1091,6 +1096,58 @@ class GrokTransportTests(unittest.TestCase):
         self.assertLessEqual(timeout, 30.0)
         self.assertGreater(timeout, 0.0)
 
+    def test_provider_json_transport_uses_only_its_pinned_origin_and_headers(self) -> None:
+        opener = _RecordingOpener(response=_FakeResponse(b'{"ok":true}'))
+        spec = llm.ProviderTransportSpec(
+            provider="anthropic",
+            url="https://api.anthropic.com/v1/messages",
+            host="api.anthropic.com",
+            auth_header="x-api-key",
+            auth_prefix="",
+            static_headers=(("anthropic-version", "2023-06-01"),),
+        )
+
+        result = llm._provider_json_request(
+            spec,
+            {"messages": []},
+            "provider-secret",
+            self._future_deadline(),
+            opener=opener,
+        )
+
+        self.assertEqual({"ok": True}, result)
+        self.assertEqual(1, len(opener.calls))
+        request, timeout = opener.calls[0]
+        self.assertEqual("https://api.anthropic.com/v1/messages", request.full_url)
+        self.assertEqual(
+            "provider-secret",
+            _request_header(request, "x-api-key"),
+        )
+        self.assertEqual(
+            "2023-06-01",
+            _request_header(request, "anthropic-version"),
+        )
+        self.assertNotIn("provider-secret", request.full_url)
+        self.assertGreater(timeout, 0)
+
+        invalid = llm.ProviderTransportSpec(
+            provider="anthropic",
+            url="https://attacker.invalid/v1/messages",
+            host="api.anthropic.com",
+            auth_header="x-api-key",
+            auth_prefix="",
+        )
+        with self.assertRaises(llm.ProviderError):
+            llm._provider_json_request(
+                invalid,
+                {},
+                "provider-secret",
+                self._future_deadline(),
+                opener=lambda *_args, **_kwargs: self.fail(
+                    "invalid origin reached opener"
+                ),
+            )
+
     def test_xai_transport_pins_origin_and_never_contacts_invalid_urls(self) -> None:
         invalid_urls = (
             "http://api.x.ai/v1/responses",
@@ -1818,7 +1875,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
 
         status, data = self._request("GET", "/api/settings")
         self.assertEqual(status, 200)
-        self.assertEqual(data["schema_version"], 5)
+        self.assertEqual(data["schema_version"], 6)
         self.assertNotIn("llm", data)
         self.assertNotIn("candidate_count", data["generation"])
         # The raw key never returns to the browser, anywhere in the payload.
@@ -1871,6 +1928,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(store.resolve_xai_key(), key)
 
         status, data = self._request("POST", "/api/settings/privacy", {
+            "provider": "xai",
             "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
         })
         self.assertEqual(status, 200)
@@ -1902,10 +1960,14 @@ class LedGenerateEndpointTests(unittest.TestCase):
             ("/api/settings/preferences", {"loop_mode": "crossfade"}),
             ("/api/settings/preferences", {"unknown": True}),
             ("/api/settings/library", {"current_root": None, "unknown": True}),
-            ("/api/settings/privacy", {"version": "old"}),
+            ("/api/settings/privacy", {"provider": "xai", "version": "old"}),
             (
                 "/api/settings/privacy",
-                {"version": ai_catalog.PRIVACY_DISCLOSURE_VERSION, "unknown": True},
+                {
+                    "provider": "xai",
+                    "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
+                    "unknown": True,
+                },
             ),
         )
         for path, body in invalid_cases:
@@ -2188,7 +2250,13 @@ class CombinedReconciliationAdmissionTests(unittest.TestCase):
             lighting_coordinator=coordinator,
             credential_store=credentials.MemoryCredentialStore(),
         )
-        api_settings = {"ai": {"enabled": True, "backend": "api"}}
+        api_settings = {
+            "ai": {
+                "enabled": True,
+                "backend": "api",
+                "api": {"selected_provider": "xai"},
+            }
+        }
         try:
             with (
                 patch.object(store, "load_settings", return_value=api_settings),
@@ -2352,7 +2420,9 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.root = Path(self._tmp) / "generated"
         store.update_library_root({"current_root": str(self.root)})
         store.update_api_key({"provider": "xai", "key": "sk-lighting-secret"})
-        store.acknowledge_privacy({"version": "2026-07-20-xai-v1"})
+        store.acknowledge_privacy(
+            {"provider": "xai", "version": "2026-07-20-xai-v1"}
+        )
         self.library = GeneratedAssetLibrary(self.root, minimum_free_bytes=1)
         self.coordinator = _LightingEndpointCoordinator(self.library)
         self._server, url = create_server(

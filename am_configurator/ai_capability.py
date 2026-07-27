@@ -79,7 +79,10 @@ def api_setup_fingerprint(
 ) -> str:
     """Bind readiness to the API configuration without retaining the key."""
 
-    if provider != "xai" or model_id != "grok-4.5":
+    try:
+        provider = ai_catalog.validate_api_provider(provider)
+        normalized_model = ai_catalog.validate_provider_model(provider, model_id)
+    except ValueError:
         raise ValueError("API provider or model is invalid")
     try:
         credential = credentials.validate_credential(credential)
@@ -95,7 +98,7 @@ def api_setup_fingerprint(
     return _sha256_object({
         "kind": "api",
         "provider": provider,
-        "model_id": model_id,
+        "model_id": normalized_model,
         "credential_identity_sha256": credential_identity,
         "recipe_schema_version": procedural.SCHEMA_VERSION,
         "disclosure_version": disclosure_version,
@@ -125,7 +128,7 @@ class AICapabilityService:
             else credential_status_loader
         )
         self._credential_resolver = (
-            store.resolve_xai_key if credential_resolver is None else credential_resolver
+            store.resolve_api_key if credential_resolver is None else credential_resolver
         )
         self._fingerprint_writer = (
             store.set_ai_setup_fingerprint
@@ -148,8 +151,10 @@ class AICapabilityService:
         self._failure_reasons: dict[str, tuple[str, str]] = {}
 
     @staticmethod
-    def _default_api_provider(key: str, model_id: str):
-        return XaiRecipeProvider(key, model_id=model_id)
+    def _default_api_provider(provider: str, key: str, model_id: str):
+        if provider == "xai":
+            return XaiRecipeProvider(key, model_id=model_id)
+        raise ValueError("API provider adapter is unavailable")
 
     def _default_ollama_provider(self, model: OllamaModel):
         return OllamaRecipeProvider(model, client=self._ollama_client)
@@ -267,9 +272,11 @@ class AICapabilityService:
         }
 
     def _api_components(self, settings: dict[str, Any]) -> dict[str, Any]:
-        api = settings["ai"]["api"]
+        api_settings = settings["ai"]["api"]
+        provider = api_settings["selected_provider"]
+        api = api_settings["providers"][provider]
         try:
-            status = self._credential_status_loader()
+            status = self._credential_status_loader(provider)
         except Exception:
             status = {}
         available = status.get("available") is True
@@ -277,21 +284,22 @@ class AICapabilityService:
         external = status.get("external") is True
         invalid = status.get("invalid") is True
         disclosure_current = (
-            api["disclosure_version"] == ai_catalog.PRIVACY_DISCLOSURE_VERSION
+            api["disclosure_version"]
+            == ai_catalog.provider_disclosure_version(provider)
             and isinstance(api["disclosure_at"], str)
             and bool(api["disclosure_at"])
         )
         credential = None
         if configured and not invalid and (available or external):
             try:
-                credential = self._credential_resolver()
+                credential = self._credential_resolver(provider)
             except Exception:
                 credential = None
         expected = None
         if credential and disclosure_current:
             try:
                 expected = api_setup_fingerprint(
-                    api["provider"],
+                    provider,
                     api["model_id"],
                     credential,
                     api["disclosure_version"],
@@ -307,13 +315,19 @@ class AICapabilityService:
             "credential": credential,
             "disclosure_current": disclosure_current,
             "expected": expected,
+            "provider": provider,
+            "model_id": api["model_id"],
+            "setup_fingerprint": api["setup_fingerprint"],
         }
 
     @staticmethod
     def _unprobed_api_components(settings: dict[str, Any]) -> dict[str, Any]:
-        api = settings["ai"]["api"]
+        api_settings = settings["ai"]["api"]
+        provider = api_settings["selected_provider"]
+        api = api_settings["providers"][provider]
         disclosure_current = (
-            api["disclosure_version"] == ai_catalog.PRIVACY_DISCLOSURE_VERSION
+            api["disclosure_version"]
+            == ai_catalog.provider_disclosure_version(provider)
             and isinstance(api["disclosure_at"], str)
             and bool(api["disclosure_at"])
         )
@@ -325,6 +339,9 @@ class AICapabilityService:
             "credential": None,
             "disclosure_current": disclosure_current,
             "expected": None,
+            "provider": provider,
+            "model_id": api["model_id"],
+            "setup_fingerprint": api["setup_fingerprint"],
         }
 
     def _remembered_reason(self, backend: str, component: str | None) -> str | None:
@@ -354,8 +371,7 @@ class AICapabilityService:
                 api = self._api_components(settings)
                 api_tested = (
                     api["expected"] is not None
-                    and settings["ai"]["api"]["setup_fingerprint"]
-                    == api["expected"]
+                    and api["setup_fingerprint"] == api["expected"]
                 )
 
             ready = False
@@ -380,7 +396,9 @@ class AICapabilityService:
                         reason = "ready"
                         ready = True
             elif backend == "api":
-                if api["invalid"]:
+                if api["model_id"] is None:
+                    reason = "model_missing"
+                elif api["invalid"]:
                     reason = "credential_invalid"
                 elif not api["available"] and not api["external"]:
                     reason = "credential_store_unavailable"
@@ -389,7 +407,10 @@ class AICapabilityService:
                 elif not api["disclosure_current"]:
                     reason = "disclosure_required"
                 else:
-                    reason = self._remembered_reason("api", api["expected"])
+                    reason = self._remembered_reason(
+                        f"api:{api['provider']}",
+                        api["expected"],
+                    )
                     if reason is None and not api_tested:
                         reason = "setup_required"
                     elif reason is None:
@@ -416,8 +437,8 @@ class AICapabilityService:
                     "provider": local["provider"],
                 },
                 "api": {
-                    "provider": settings["ai"]["api"]["provider"],
-                    "model_id": settings["ai"]["api"]["model_id"],
+                    "provider": api["provider"],
+                    "model_id": api["model_id"],
                     "credential_set": api["configured"],
                     "disclosure_current": api["disclosure_current"],
                     "setup_tested": api_tested,
@@ -478,14 +499,16 @@ class AICapabilityService:
         components = self._api_components(settings)
         credential = components["credential"]
         identity = components["expected"]
+        provider_id = components["provider"]
         if credential is None or not isinstance(identity, str):
             raise AICapabilityError("credential_missing")
         return self._provider_for_identity(
-            "api",
+            f"api:{provider_id}",
             identity,
             lambda: self._api_provider_factory(
+                provider_id,
                 credential,
-                settings["ai"]["api"]["model_id"],
+                components["model_id"],
             ),
         )
 
@@ -526,7 +549,7 @@ class AICapabilityService:
             )
         else:
             components = self._api_components(settings)
-            api = settings["ai"]["api"]
+            provider_id = components["provider"]
             fingerprint = components["expected"]
             if not components["available"] and not components["external"]:
                 raise llm.ProviderError(
@@ -539,10 +562,12 @@ class AICapabilityService:
             if fingerprint is None:
                 raise llm.ProviderError("config", "API setup is invalid.")
             provider = self._provider_for_identity(
-                "api",
+                f"api:{provider_id}",
                 fingerprint,
                 lambda: self._api_provider_factory(
-                    components["credential"], api["model_id"]
+                    provider_id,
+                    components["credential"],
+                    components["model_id"],
                 ),
             )
 
@@ -551,14 +576,31 @@ class AICapabilityService:
         except llm.ProviderError as error:
             if backend == "api" and error.code in {"auth", "config"}:
                 reason = "auth_invalid" if error.code == "auth" else "model_unavailable"
-                self._failure_reasons[backend] = (reason, fingerprint)
-                self._fingerprint_writer(backend, None)
+                failure_key = f"api:{components['provider']}"
+                self._failure_reasons[failure_key] = (reason, fingerprint)
+                self._fingerprint_writer(
+                    backend,
+                    None,
+                    provider=components["provider"],
+                )
             elif error.code not in {"offline", "timeout", "rate_limited", "unavailable"}:
-                self._failure_reasons[backend] = ("setup_required", fingerprint)
+                failure_key = (
+                    f"api:{components['provider']}" if backend == "api" else backend
+                )
+                self._failure_reasons[failure_key] = ("setup_required", fingerprint)
             raise
 
-        self._fingerprint_writer(backend, fingerprint)
-        self._failure_reasons.pop(backend, None)
+        if backend == "api":
+            failure_key = f"api:{components['provider']}"
+            self._fingerprint_writer(
+                backend,
+                fingerprint,
+                provider=components["provider"],
+            )
+        else:
+            failure_key = backend
+            self._fingerprint_writer(backend, fingerprint)
+        self._failure_reasons.pop(failure_key, None)
         return self.status()
 
     def close(self) -> None:

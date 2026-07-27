@@ -136,15 +136,26 @@
   x64 failures caused by contacting `ffmpeg.org` despite a cache hit. The guard
   was red-proven, and the repository gate passes 578 Python tests, 55 web tests,
   compile/syntax checks, and package builds.
-- Next action: the owner approved
-  `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` on
-  2026-07-27. Implementation is active; slice 2 is the provider registry,
-  settings-v6 migration, and provider-scoped credential foundation. Its
-  invariants are selected-provider-only credential access, no Keychain access
-  while AI is off or Local is selected, and unchanged xAI behavior through the
-  new registry. Local `main` is eleven commits ahead of `origin/main` after this
-  approval record; the push policy still requires a fresh explicit owner go
-  before publishing.
+- The owner-approved unified Lighting implementation in
+  `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` is
+  active. Slice 2 is complete: catalog schema 2 names the six fixed API
+  providers; settings schema 6 preserves the complete xAI record through a
+  credential-free v5 migration; provider-scoped vault operations, environment
+  overrides, disclosure records, setup fingerprints, capability caches, and
+  the bounded JSON transport are in place. Capability polling and setup resolve
+  only the selected provider, never access the vault while AI is off or Local
+  is selected, and retain the existing xAI request and durable-generation
+  behavior. Unknown cost estimates are now represented by `null`, while old
+  numeric manifests remain valid. Provider-specific save/delete rollback, v5
+  preservation, older migrations, future-schema refusal, selected-provider
+  access, error redaction, transport origin/header bounds, and nullable costs
+  were red-proven. The full gate passes 588 Python tests, 57 web tests,
+  compile/syntax checks, and source/wheel builds. The heavy procedural recovery
+  fixture now uses the production 180-second operation deadline instead of a
+  flaky 30-second test-only override. No real provider request, credential
+  mutation, Keychain prompt, model mutation, or hardware write occurred. Next
+  action is slice 3, the Anthropic recipe adapter. Local `main` remains
+  unpublished; the push policy requires a fresh explicit owner go.
 
 ## Blockers
 

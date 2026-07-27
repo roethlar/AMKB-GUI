@@ -2512,7 +2512,7 @@ async function testAiBackend(backend) {
         if(!$("#settings-api-disclosure-ack").checked)throw new Error("Accept the API data disclosure before testing.");
         const version=state.capabilities?.privacy_disclosure_version;
         if(!version)throw new Error("The current API disclosure is unavailable.");
-        state.settings=await api("/api/settings/privacy",{method:"POST",body:JSON.stringify({version})});
+        state.settings=await api("/api/settings/privacy",{method:"POST",body:JSON.stringify({provider:state.aiStatus?.api?.provider||"xai",version})});
       }
     }
     state.aiStatus=await api("/api/ai/test",{method:"POST",body:JSON.stringify({backend})});

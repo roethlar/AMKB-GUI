@@ -600,10 +600,11 @@ def _run_disabled_ai_smoke() -> None:
                 settings_loader=lambda: store.load_settings(
                     credential_store=credentials
                 ),
-                credential_status_loader=lambda: store.credential_status(
+                credential_status_loader=lambda provider: store.credential_status(
+                    provider,
                     credential_store=credentials
                 ),
-                credential_resolver=lambda: None,
+                credential_resolver=lambda _provider: None,
                 api_provider_factory=provider_created,
             )
             try:

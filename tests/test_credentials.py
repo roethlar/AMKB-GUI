@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from am_configurator import credentials, store
+from am_configurator import ai_catalog, credentials, store
 
 
 V3_DEFAULTS = {
@@ -70,6 +70,42 @@ V5_DEFAULTS = {
             "setup_fingerprint": None,
             "disclosure_version": None,
             "disclosure_at": None,
+        },
+    },
+    "library": {"current_root": None, "roots": []},
+    "generation": {"loop_mode": "smooth"},
+}
+
+
+def _provider_record(*, model_id: str | None = None) -> dict:
+    return {
+        "model_id": model_id,
+        "setup_fingerprint": None,
+        "disclosure_version": None,
+        "disclosure_at": None,
+    }
+
+
+V6_DEFAULTS = {
+    "schema_version": 6,
+    "ai": {
+        "enabled": False,
+        "backend": None,
+        "local": {
+            "model_id": None,
+            "model_digest": None,
+            "setup_fingerprint": None,
+        },
+        "api": {
+            "selected_provider": "xai",
+            "providers": {
+                "xai": _provider_record(model_id="grok-4.5"),
+                "anthropic": _provider_record(),
+                "openai": _provider_record(),
+                "gemini": _provider_record(),
+                "moonshot": _provider_record(),
+                "deepseek": _provider_record(),
+            },
         },
     },
     "library": {"current_root": None, "roots": []},
@@ -163,6 +199,17 @@ class CredentialAdapterTests(unittest.TestCase):
             )
         )
 
+        backend.calls.clear()
+        for provider in ai_catalog.API_PROVIDER_IDS:
+            adapter.set(provider, f"secret-{provider}")
+            self.assertEqual(f"secret-{provider}", adapter.get(provider))
+            adapter.delete(provider)
+        observed_usernames = {call[2] for call in backend.calls}
+        self.assertEqual(set(ai_catalog.API_PROVIDER_IDS), observed_usernames)
+        self.assertTrue(
+            all(call[1] == credentials.SERVICE_IDENTIFIER for call in backend.calls)
+        )
+
         for module, name in (
             ("keyring.backends.null", "Keyring"),
             ("keyrings.alt.file", "PlaintextKeyring"),
@@ -216,16 +263,21 @@ class CredentialAdapterTests(unittest.TestCase):
         self.assertNotIn("sk-secret", str(captured.exception))
 
 
-class SettingsV5Tests(unittest.TestCase):
+class SettingsV6Tests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = Path(tempfile.mkdtemp(prefix="am-settings-v3-"))
         self.saved = {
             name: os.environ.get(name)
-            for name in ("AM_CONFIGURATOR_DATA_DIR", "XDG_DATA_HOME", "XAI_API_KEY")
+            for name in (
+                "AM_CONFIGURATOR_DATA_DIR",
+                "XDG_DATA_HOME",
+                *ai_catalog.PROVIDER_ENVIRONMENT_VARIABLES.values(),
+            )
         }
         os.environ["AM_CONFIGURATOR_DATA_DIR"] = str(self.directory / "data")
         os.environ.pop("XDG_DATA_HOME", None)
-        os.environ.pop("XAI_API_KEY", None)
+        for name in ai_catalog.PROVIDER_ENVIRONMENT_VARIABLES.values():
+            os.environ.pop(name, None)
         self.vault = credentials.MemoryCredentialStore()
 
     def tearDown(self) -> None:
@@ -247,12 +299,136 @@ class SettingsV5Tests(unittest.TestCase):
         settings, reason = store.load_settings_with_status(
             credential_store=self.vault
         )
-        self.assertEqual(V5_DEFAULTS, settings)
+        self.assertEqual(V6_DEFAULTS, settings)
         self.assertIsNone(reason)
         self.assertFalse(store.settings_path().exists())
 
+    def test_v5_migration_preserves_xai_without_reading_the_vault(self) -> None:
+        configured = copy.deepcopy(V5_DEFAULTS)
+        configured["ai"]["enabled"] = True
+        configured["ai"]["backend"] = "api"
+        configured["ai"]["api"].update(
+            {
+                "model_id": "grok-4.5",
+                "setup_fingerprint": "a" * 64,
+                "disclosure_version": "2026-07-20-xai-v1",
+                "disclosure_at": "2026-07-20T12:00:00+00:00",
+            }
+        )
+        self._write(configured)
+
+        class NoCredentialAccess:
+            def __getattr__(self, name):
+                raise AssertionError(f"v5 migration attempted vault operation {name}")
+
+        settings, reason = store.load_settings_with_status(
+            credential_store=NoCredentialAccess()
+        )
+
+        self.assertIsNone(reason)
+        self.assertEqual(6, settings["schema_version"])
+        self.assertEqual("xai", settings["ai"]["api"]["selected_provider"])
+        self.assertEqual(
+            {
+                field: configured["ai"]["api"][field]
+                for field in (
+                    "model_id",
+                    "setup_fingerprint",
+                    "disclosure_version",
+                    "disclosure_at",
+                )
+            },
+            settings["ai"]["api"]["providers"]["xai"],
+        )
+        for provider in ai_catalog.API_PROVIDER_IDS:
+            if provider != "xai":
+                self.assertEqual(
+                    _provider_record(),
+                    settings["ai"]["api"]["providers"][provider],
+                )
+        self.assertEqual(settings, json.loads(store.settings_path().read_text("utf-8")))
+
+    def test_provider_credentials_are_isolated_and_environment_scoped(self) -> None:
+        store.save_settings(copy.deepcopy(V6_DEFAULTS), credential_store=self.vault)
+        for provider in ai_catalog.API_PROVIDER_IDS:
+            store.update_api_key(
+                {"provider": provider, "key": f"secret-{provider}"},
+                credential_store=self.vault,
+            )
+
+        for provider in ai_catalog.API_PROVIDER_IDS:
+            self.assertEqual(
+                f"secret-{provider}",
+                store.resolve_api_key(provider, credential_store=self.vault),
+            )
+
+        os.environ["GEMINI_API_KEY"] = "environment-gemini"
+        self.assertEqual(
+            "environment-gemini",
+            store.resolve_api_key("gemini", credential_store=self.vault),
+        )
+        self.assertEqual(
+            "secret-openai",
+            store.resolve_api_key("openai", credential_store=self.vault),
+        )
+        self.assertEqual("secret-gemini", self.vault.get("gemini"))
+
+    def test_credential_status_reads_only_the_requested_provider(self) -> None:
+        calls: list[tuple[str, str | None]] = []
+
+        class TrackingVault(credentials.MemoryCredentialStore):
+            def available(self) -> bool:
+                calls.append(("available", None))
+                return super().available()
+
+            def get(self, provider: str) -> str | None:
+                calls.append(("get", provider))
+                return super().get(provider)
+
+        vault = TrackingVault()
+        vault.set("deepseek", "deepseek-secret")
+        calls.clear()
+
+        status = store.credential_status("deepseek", credential_store=vault)
+
+        self.assertTrue(status["configured"])
+        self.assertEqual(
+            [("available", None), ("get", "deepseek")],
+            calls,
+        )
+
+    def test_switching_provider_preserves_every_provider_record(self) -> None:
+        configured = copy.deepcopy(V6_DEFAULTS)
+        configured["ai"]["api"]["providers"]["xai"].update(
+            {
+                "setup_fingerprint": "a" * 64,
+                "disclosure_version": "2026-07-20-xai-v1",
+                "disclosure_at": "2026-07-20T12:00:00+00:00",
+            }
+        )
+        store.save_settings(configured, credential_store=self.vault)
+
+        switched = store.update_ai_settings(
+            {"provider": "deepseek"},
+            credential_store=self.vault,
+        )
+        self.assertEqual("deepseek", switched["ai"]["api"]["selected_provider"])
+        self.assertEqual(
+            configured["ai"]["api"]["providers"]["xai"],
+            switched["ai"]["api"]["providers"]["xai"],
+        )
+
+        restored = store.update_ai_settings(
+            {"provider": "xai"},
+            credential_store=self.vault,
+        )
+        self.assertEqual(
+            configured["ai"]["api"]["providers"]["xai"],
+            restored["ai"]["api"]["providers"]["xai"],
+        )
+
     def test_transient_read_errors_preserve_exact_settings_bytes(self) -> None:
-        original = self._write(copy.deepcopy(V5_DEFAULTS))
+        original = self._write(copy.deepcopy(V6_DEFAULTS))
         path = store.settings_path()
         real_read_text = Path.read_text
 
@@ -268,13 +444,13 @@ class SettingsV5Tests(unittest.TestCase):
                         credential_store=self.vault
                     )
 
-                self.assertEqual(V5_DEFAULTS, settings)
+                self.assertEqual(V6_DEFAULTS, settings)
                 self.assertEqual("settings_unavailable", reason)
                 self.assertEqual(original, path.read_bytes())
                 self.assertFalse(path.with_name(path.name + ".bad").exists())
 
     def test_updates_fail_closed_when_settings_cannot_be_read(self) -> None:
-        original = self._write(copy.deepcopy(V5_DEFAULTS))
+        original = self._write(copy.deepcopy(V6_DEFAULTS))
         path = store.settings_path()
         real_read_text = Path.read_text
 
@@ -297,7 +473,7 @@ class SettingsV5Tests(unittest.TestCase):
     def test_windows_settings_replace_retries_a_concurrent_reader(self) -> None:
         from am_configurator import atomic_io
 
-        self._write(copy.deepcopy(V5_DEFAULTS))
+        self._write(copy.deepcopy(V6_DEFAULTS))
         path = store.settings_path()
         real_replace = atomic_io.os.replace
         sharing_failures = 0
@@ -332,7 +508,7 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertEqual("ping_pong", json.loads(path.read_text("utf-8"))["generation"]["loop_mode"])
 
     def test_settings_publication_fsyncs_its_parent_directory(self) -> None:
-        self._write(copy.deepcopy(V5_DEFAULTS))
+        self._write(copy.deepcopy(V6_DEFAULTS))
         path = store.settings_path()
 
         with patch("am_configurator.store.fsync_directory") as sync_directory:
@@ -372,7 +548,7 @@ class SettingsV5Tests(unittest.TestCase):
             credential_store=self.vault
         )
 
-        self.assertEqual(V5_DEFAULTS, settings)
+        self.assertEqual(V6_DEFAULTS, settings)
         self.assertEqual("settings_schema_unsupported", reason)
         self.assertEqual(original, path.read_bytes())
         self.assertFalse(path.with_name(path.name + ".bad").exists())
@@ -392,14 +568,14 @@ class SettingsV5Tests(unittest.TestCase):
         )
         self.assertIsNone(reason)
         self.assertEqual("sk-only-copy", self.vault.get("xai"))
-        self.assertEqual(5, settings["schema_version"])
+        self.assertEqual(6, settings["schema_version"])
         self.assertFalse(settings["ai"]["enabled"])
         self.assertIsNone(settings["ai"]["backend"])
         self.assertEqual(str(library.resolve()), settings["library"]["current_root"])
         self.assertEqual("ping_pong", settings["generation"]["loop_mode"])
         self.assertEqual(
             "2026-07-20-xai-v1",
-            settings["ai"]["api"]["disclosure_version"],
+            settings["ai"]["api"]["providers"]["xai"]["disclosure_version"],
         )
         disk = store.settings_path().read_text("utf-8")
         self.assertNotIn("sk-only-copy", disk)
@@ -416,7 +592,7 @@ class SettingsV5Tests(unittest.TestCase):
             credential_store=self.vault
         )
 
-        self.assertEqual(V5_DEFAULTS, settings)
+        self.assertEqual(V6_DEFAULTS, settings)
         self.assertEqual("settings_migration_invalid", reason)
         self.assertEqual("sk-existing-vault", self.vault.get("xai"))
         self.assertEqual(original, store.settings_path().read_bytes())
@@ -449,7 +625,7 @@ class SettingsV5Tests(unittest.TestCase):
                     settings, reason = store.load_settings_with_status(
                         credential_store=self.vault
                     )
-                self.assertEqual(V5_DEFAULTS, settings)
+                self.assertEqual(V6_DEFAULTS, settings)
                 self.assertEqual("settings_migration_invalid", reason)
                 self.assertEqual(original, store.settings_path().read_bytes())
 
@@ -464,7 +640,7 @@ class SettingsV5Tests(unittest.TestCase):
         )
 
         self.assertIsNone(reason)
-        self.assertEqual(5, settings["schema_version"])
+        self.assertEqual(6, settings["schema_version"])
         self.assertEqual(
             {
                 "model_id": None,
@@ -475,7 +651,7 @@ class SettingsV5Tests(unittest.TestCase):
         )
         self.assertTrue(settings["ai"]["enabled"])
         self.assertEqual("local", settings["ai"]["backend"])
-        self.assertEqual(5, json.loads(store.settings_path().read_text())["schema_version"])
+        self.assertEqual(6, json.loads(store.settings_path().read_text())["schema_version"])
 
     def test_v4_gguf_selection_migrates_without_touching_model_file(self) -> None:
         model = self.directory / "owner-model.gguf"
@@ -511,7 +687,7 @@ class SettingsV5Tests(unittest.TestCase):
             )
 
         self.assertIsNone(reason)
-        self.assertEqual(5, settings["schema_version"])
+        self.assertEqual(6, settings["schema_version"])
         self.assertEqual(
             {"model_id": None, "model_digest": None, "setup_fingerprint": None},
             settings["ai"]["local"],
@@ -521,7 +697,7 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertEqual("ping_pong", settings["generation"]["loop_mode"])
         self.assertEqual(
             "2026-07-20-xai-v1",
-            settings["ai"]["api"]["disclosure_version"],
+            settings["ai"]["api"]["providers"]["xai"]["disclosure_version"],
         )
         self.assertEqual(b"GGUF-owner-bytes", model.read_bytes())
         after = model.stat()
@@ -578,7 +754,7 @@ class SettingsV5Tests(unittest.TestCase):
         )
         self.assertIsNone(reason)
         self.assertEqual("sk-only-copy", self.vault.get("xai"))
-        self.assertEqual(5, settings["schema_version"])
+        self.assertEqual(6, settings["schema_version"])
         self.assertNotIn("sk-only-copy", store.settings_path().read_text("utf-8"))
 
     def test_invalid_legacy_credential_is_not_a_vault_outage(self) -> None:
@@ -669,9 +845,9 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertEqual(original, store.settings_path().read_bytes())
 
     def test_strict_updates_never_persist_credentials_and_invalidate_setup(self) -> None:
-        configured = copy.deepcopy(V5_DEFAULTS)
+        configured = copy.deepcopy(V6_DEFAULTS)
         configured["ai"]["backend"] = "api"
-        configured["ai"]["api"]["setup_fingerprint"] = "a" * 64
+        configured["ai"]["api"]["providers"]["xai"]["setup_fingerprint"] = "a" * 64
         store.save_settings(configured, credential_store=self.vault)
 
         updated = store.update_api_key(
@@ -679,7 +855,9 @@ class SettingsV5Tests(unittest.TestCase):
             credential_store=self.vault,
         )
         self.assertEqual("sk-new-private", self.vault.get("xai"))
-        self.assertIsNone(updated["ai"]["api"]["setup_fingerprint"])
+        self.assertIsNone(
+            updated["ai"]["api"]["providers"]["xai"]["setup_fingerprint"]
+        )
         self.assertNotIn("sk-new-private", store.settings_path().read_text("utf-8"))
 
         updated = store.update_ai_settings(
@@ -688,7 +866,9 @@ class SettingsV5Tests(unittest.TestCase):
         )
         self.assertTrue(updated["ai"]["enabled"])
         self.assertEqual("api", updated["ai"]["backend"])
-        self.assertIsNone(updated["ai"]["api"]["setup_fingerprint"])
+        self.assertIsNone(
+            updated["ai"]["api"]["providers"]["xai"]["setup_fingerprint"]
+        )
         with self.assertRaises(ValueError):
             store.update_generation_settings(
                 {"loop_mode": "smooth", "unknown": True},
@@ -700,7 +880,7 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertEqual("none", updated["generation"]["loop_mode"])
 
     def test_master_intent_can_be_saved_without_backend_readiness(self) -> None:
-        configured = copy.deepcopy(V5_DEFAULTS)
+        configured = copy.deepcopy(V6_DEFAULTS)
         configured["ai"].update({"enabled": True, "backend": "local"})
 
         saved = store.save_settings(configured, credential_store=self.vault)
@@ -710,9 +890,9 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertIsNone(saved["ai"]["local"]["setup_fingerprint"])
 
     def test_failed_key_update_restores_the_previous_vault_value(self) -> None:
-        configured = copy.deepcopy(V5_DEFAULTS)
+        configured = copy.deepcopy(V6_DEFAULTS)
         configured["ai"]["backend"] = "api"
-        configured["ai"]["api"]["setup_fingerprint"] = "a" * 64
+        configured["ai"]["api"]["providers"]["xai"]["setup_fingerprint"] = "a" * 64
         store.save_settings(configured, credential_store=self.vault)
         before = store.settings_path().read_bytes()
         self.vault.set("xai", "sk-existing-vault")
@@ -727,8 +907,37 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertEqual("sk-existing-vault", self.vault.get("xai"))
         self.assertEqual(before, store.settings_path().read_bytes())
 
+    def test_failed_provider_key_save_and_delete_restore_only_that_provider(
+        self,
+    ) -> None:
+        store.save_settings(copy.deepcopy(V6_DEFAULTS), credential_store=self.vault)
+        self.vault.set("xai", "xai-untouched")
+        self.vault.set("moonshot", "moonshot-existing")
+        self.vault.set("deepseek", "deepseek-existing")
+        before = store.settings_path().read_bytes()
+
+        for provider, desired, previous in (
+            ("moonshot", "moonshot-replacement", "moonshot-existing"),
+            ("deepseek", "", "deepseek-existing"),
+        ):
+            with self.subTest(provider=provider):
+                with patch.object(
+                    store,
+                    "_write_settings_file",
+                    side_effect=OSError("disk"),
+                ):
+                    with self.assertRaises(store.SettingsUnavailableError):
+                        store.update_api_key(
+                            {"provider": provider, "key": desired},
+                            credential_store=self.vault,
+                        )
+
+                self.assertEqual(previous, self.vault.get(provider))
+                self.assertEqual("xai-untouched", self.vault.get("xai"))
+                self.assertEqual(before, store.settings_path().read_bytes())
+
     def test_invalid_key_input_is_distinct_from_an_unavailable_vault(self) -> None:
-        store.save_settings(copy.deepcopy(V5_DEFAULTS), credential_store=self.vault)
+        store.save_settings(copy.deepcopy(V6_DEFAULTS), credential_store=self.vault)
         before = store.settings_path().read_bytes()
         invalid_values = (
             "sk-line\nbreak",
@@ -760,7 +969,7 @@ class SettingsV5Tests(unittest.TestCase):
         )
 
     def test_malformed_stored_credential_is_reported_without_exposure(self) -> None:
-        store.save_settings(copy.deepcopy(V5_DEFAULTS), credential_store=self.vault)
+        store.save_settings(copy.deepcopy(V6_DEFAULTS), credential_store=self.vault)
         malformed = "sk-stored\nsecret"
         self.vault._values["xai"] = malformed
 
@@ -780,7 +989,7 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertNotIn(malformed, str(captured.exception))
 
     def test_environment_override_is_external_and_never_written(self) -> None:
-        store.save_settings(copy.deepcopy(V5_DEFAULTS), credential_store=self.vault)
+        store.save_settings(copy.deepcopy(V6_DEFAULTS), credential_store=self.vault)
         before = store.settings_path().read_bytes()
         os.environ["XAI_API_KEY"] = "sk-environment-only"
 

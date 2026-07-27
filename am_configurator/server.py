@@ -851,6 +851,8 @@ def _settings_view(*, credential_store=None) -> dict[str, Any]:
     settings, reason = store.load_settings_with_status(
         credential_store=credential_store
     )
+    api_settings = settings["ai"]["api"]
+    selected_api = api_settings["providers"][api_settings["selected_provider"]]
     migration_required = reason in {
         store.InvalidAPICredentialError.code,
         store.SettingsMigrationCredentialError.code,
@@ -869,8 +871,8 @@ def _settings_view(*, credential_store=None) -> dict[str, Any]:
         },
         "generation": {
             "loop_mode": settings["generation"]["loop_mode"],
-            "privacy_ack_version": settings["ai"]["api"]["disclosure_version"],
-            "privacy_ack_at": settings["ai"]["api"]["disclosure_at"],
+            "privacy_ack_version": selected_api["disclosure_version"],
+            "privacy_ack_at": selected_api["disclosure_at"],
         },
     }
 
@@ -1040,16 +1042,19 @@ class _State:
                     settings_loader=lambda: store.load_settings(
                         credential_store=credential_store
                     ),
-                    credential_status_loader=lambda: store.credential_status(
+                    credential_status_loader=lambda provider: store.credential_status(
+                        provider,
                         credential_store=credential_store
                     ),
-                    credential_resolver=lambda: store.resolve_xai_key(
+                    credential_resolver=lambda provider: store.resolve_api_key(
+                        provider,
                         credential_store=credential_store
                     ),
-                    fingerprint_writer=lambda backend, fingerprint: (
+                    fingerprint_writer=lambda backend, fingerprint, **kwargs: (
                         store.set_ai_setup_fingerprint(
                             backend,
                             fingerprint,
+                            provider=kwargs.get("provider"),
                             credential_store=credential_store,
                         )
                     ),
@@ -1146,7 +1151,9 @@ class _State:
         settings = store.load_settings(credential_store=self._credential_store)
         ai_settings = settings["ai"]
         api_selected = (
-            ai_settings["enabled"] is True and ai_settings["backend"] == "api"
+            ai_settings["enabled"] is True
+            and ai_settings["backend"] == "api"
+            and ai_settings["api"]["selected_provider"] == "xai"
         )
         credential_checked = api_selected
         api_key = (

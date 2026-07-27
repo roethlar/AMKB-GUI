@@ -1500,6 +1500,7 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
 
     def test_public_views_hide_paths_and_reject_secret_manifest_values(self) -> None:
         job = self._create_job(prompt="public prompt")
+        self.assertIsNone(job["costs"]["estimated_ticks"])
         asset = self.library.bank_asset(
             job["job_id"],
             kind="concept",
