@@ -50,10 +50,6 @@ _AXIAL_BASE = 0x01
 _HEAD_BASE = 0x04
 _SIDE_BASE = 0x07
 
-REPLY_OK = 0x01
-REPLY_FAIL = 0xFF
-_REPLY_STATUS_INDEX = 7
-
 _FINAL_PACKET_MARKER = 255
 
 
@@ -62,9 +58,9 @@ class NeonLightingError(RuntimeError):
 
 
 class NeonLightingRejected(NeonLightingError):
-    """The keyboard answered `0xFF` to a packet.
+    """The keyboard did not return the expected packet echo.
 
-    Names the zone and frame, because a rejection partway through an upload
+    Names the zone and frame, because an unexpected reply partway through an upload
     leaves the device holding an incomplete effect and the user needs to know
     which one.
     """
@@ -154,6 +150,21 @@ def build_frame_packets(
         packet[31] = _checksum(packet)
         packets.append(bytes(packet))
     return packets
+
+
+def _expected_reply(packet: bytes, packet_index: int) -> bytes:
+    """Return the echo produced by the Neon's vendor-lighting firmware.
+
+    The reply has no status byte: byte 7 is the first echoed RGB byte. On the
+    final packet, firmware replaces the 0xFF terminator with that packet's real
+    index before recomputing the checksum and returning the report.
+    """
+
+    expected = bytearray(packet)
+    if expected[3] == _FINAL_PACKET_MARKER:
+        expected[3] = packet_index & 0xFF
+        expected[31] = _checksum(expected)
+    return bytes(expected)
 
 
 @dataclass(frozen=True)
@@ -267,9 +278,9 @@ def push(
     opens a device, so it cannot write to a keyboard that has not cleared the
     identity gate and a typed confirmation.
 
-    A rejected packet raises immediately: continuing past `0xFF` would leave the
-    device holding a partial effect while the caller believed the write
-    succeeded.
+    The firmware echoes accepted vendor-lighting reports; it does not return a
+    separate status byte. An unexpected echo raises immediately so the caller
+    never reports a partial effect as complete.
     """
 
     total = plan.packet_count
@@ -278,7 +289,7 @@ def push(
 
     for upload in plan.uploads:
         for frame_index, frame in enumerate(upload.frames):
-            for packet in frame:
+            for packet_index, packet in enumerate(frame):
                 if is_cancelled is not None and is_cancelled():
                     raise NeonLightingError("The lighting push was cancelled.")
                 if deadline is not None and time.monotonic() > deadline:
@@ -286,12 +297,11 @@ def push(
 
                 session.send(packet)
                 reply = session.receive()
-                status = reply[_REPLY_STATUS_INDEX] if len(reply) > _REPLY_STATUS_INDEX else REPLY_FAIL
-                if status != REPLY_OK:
+                if reply != _expected_reply(packet, packet_index):
                     raise NeonLightingRejected(
-                        f"The keyboard rejected the {upload.zone} zone at frame "
-                        f"{frame_index} (reply 0x{status:02X}). The effect on the "
-                        "device is incomplete."
+                        f"The keyboard returned an unexpected reply for the "
+                        f"{upload.zone} zone at frame {frame_index}. The effect "
+                        "on the device is incomplete."
                     )
 
                 sent += 1

@@ -237,8 +237,15 @@ a track that the next head upload silently overwrites.
 | `[31]` | checksum | `sum(bytes[0..30]) & 0xFF` |
 
 The driver transmits `sendPacket.slice(1)` under HID command `0xF0`, so byte
-`[0]` is the command selector and bytes `[1..31]` are the payload. Reply is
-`0x01` for success and `0xFF` for failure, read from index 7 of the response.
+`[0]` is the command selector and bytes `[1..31]` are the payload.
+
+**N10 hardware correction (2026-07-26):** the firmware echoes an accepted
+packet; it does not return a separate status byte. Response byte `[7]` is the
+first echoed RGB byte, so `0xFF` is valid colour data rather than failure. On
+the terminal packet, firmware replaces pack index `0xFF` with the packet's real
+index and recomputes the checksum before echoing it. The application validates
+that firmware-shaped echo. The earlier status-byte interpretation partially
+wrote the axial zone before mistaking its red corner byte for rejection.
 
 Packetization: 8 LEDs per packet, so 89 axial LEDs produce 12 packets (the last
 carrying 1 LED) and 230 head LEDs produce 29 packets (the last carrying 6).

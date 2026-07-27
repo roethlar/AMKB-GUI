@@ -212,19 +212,27 @@ class PlanValidationTests(unittest.TestCase):
 
 
 class FakeSession:
-    """Records packets and answers them. Never touches hardware."""
+    """Records packets and returns the firmware's packet echo."""
 
-    def __init__(self, fail_at: int | None = None) -> None:
+    def __init__(self, corrupt_at: int | None = None) -> None:
         self.sent: list[bytes] = []
-        self.fail_at = fail_at
+        self.corrupt_at = corrupt_at
 
     def send(self, packet: bytes) -> None:
         self.sent.append(packet)
 
     def receive(self, timeout_ms: int = 0) -> bytes:
-        reply = bytearray(32)
-        failing = self.fail_at is not None and len(self.sent) - 1 == self.fail_at
-        reply[7] = nl.REPLY_FAIL if failing else nl.REPLY_OK
+        reply = bytearray(self.sent[-1])
+        if reply[3] == 0xFF:
+            same_frame = [
+                packet
+                for packet in self.sent
+                if packet[1] == reply[1] and packet[2] == reply[2]
+            ]
+            reply[3] = len(same_frame) - 1
+            reply[31] = sum(reply[:31]) & 0xFF
+        if self.corrupt_at is not None and len(self.sent) - 1 == self.corrupt_at:
+            reply[1] ^= 0x01
         return bytes(reply)
 
 
@@ -239,10 +247,19 @@ class PushTests(unittest.TestCase):
         self.assertEqual(self.plan.packet_count, sent)
         self.assertEqual(self.plan.packet_count, len(session.sent))
 
-    def test_a_rejection_aborts_and_names_the_zone_and_frame(self) -> None:
-        """A partial upload must never be reported as success."""
+    def test_an_echoed_red_payload_byte_is_not_a_rejection(self) -> None:
+        """Firmware byte 7 is echoed RGB data, so 0xFF is a valid red channel."""
 
-        session = FakeSession(fail_at=0)
+        plan = nl.plan_push([_axial("#FF0000")], [_head("#00FF00")], slot=1)
+        session = FakeSession()
+
+        self.assertEqual(plan.packet_count, nl.push(session, plan))
+        self.assertEqual(plan.packet_count, len(session.sent))
+
+    def test_an_unexpected_echo_aborts_and_names_the_zone_and_frame(self) -> None:
+        """A reply that does not echo the accepted packet must stop the upload."""
+
+        session = FakeSession(corrupt_at=0)
         with self.assertRaises(nl.NeonLightingRejected) as raised:
             nl.push(session, self.plan)
 

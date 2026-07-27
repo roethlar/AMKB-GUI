@@ -105,7 +105,17 @@ class Session:
                 reply[1] = 1 if self.unlock_in_progress else 0
                 reply[2] = max(0, 50 - self.unlock_polls)
         elif packet[0] == neon_lighting.LIGHTING_COMMAND:
-            reply[7] = neon_lighting.REPLY_OK
+            reply[:] = packet
+            if reply[3] == 0xFF:
+                same_frame = [
+                    sent
+                    for sent in self.sent
+                    if sent[0] == neon_lighting.LIGHTING_COMMAND
+                    and sent[1] == reply[1]
+                    and sent[2] == reply[2]
+                ]
+                reply[3] = len(same_frame) - 1
+                reply[31] = sum(reply[:31]) & 0xFF
         elif packet[0] == vial_keymap.VIA_GET_LAYER_COUNT:
             reply[1] = 4
         self._reply = bytes(reply)
