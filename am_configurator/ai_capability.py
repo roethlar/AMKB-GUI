@@ -12,6 +12,7 @@ from . import ai_catalog, credentials, llm, procedural, store
 from .ollama_client import OllamaClient, OllamaError, OllamaModel, valid_model_digest, valid_model_id
 from .recipe_provider import (
     AnthropicRecipeProvider,
+    GeminiRecipeProvider,
     OllamaRecipeProvider,
     OpenAIRecipeProvider,
     RecipeRequest,
@@ -160,6 +161,8 @@ class AICapabilityService:
             return AnthropicRecipeProvider(key, model_id=model_id)
         if provider == "openai":
             return OpenAIRecipeProvider(key, model_id=model_id)
+        if provider == "gemini":
+            return GeminiRecipeProvider(key, model_id=model_id)
         raise ValueError("API provider adapter is unavailable")
 
     def _default_ollama_provider(self, model: OllamaModel):

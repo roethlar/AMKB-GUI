@@ -35,6 +35,10 @@ ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_API_VERSION = "2023-06-01"
 OPENAI_API_HOST = "api.openai.com"
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
+GEMINI_API_HOST = "generativelanguage.googleapis.com"
+GEMINI_INTERACTIONS_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/interactions"
+)
 
 # Stable ProviderError codes (design §Typed errors), each mapped to a local
 # HTTP status by the server. Listed here as the contract of record.
@@ -78,6 +82,15 @@ OPENAI_RESPONSES_TRANSPORT = ProviderTransportSpec(
     host=OPENAI_API_HOST,
     auth_header="Authorization",
     auth_prefix="Bearer ",
+)
+
+GEMINI_INTERACTIONS_TRANSPORT = ProviderTransportSpec(
+    provider="gemini",
+    url=GEMINI_INTERACTIONS_URL,
+    host=GEMINI_API_HOST,
+    auth_header="x-goog-api-key",
+    auth_prefix="",
+    path_prefix="/v1beta/",
 )
 
 

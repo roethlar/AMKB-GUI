@@ -14,6 +14,7 @@ CATALOG_SCHEMA_VERSION = 2
 PRICING_AS_OF = "2026-07-20"
 ANTHROPIC_PRICING_AS_OF = "2026-07-27"
 OPENAI_PRICING_AS_OF = "2026-07-27"
+GEMINI_PRICING_AS_OF = "2026-07-27"
 USD_TICKS_PER_DOLLAR = 10_000_000_000
 RECIPE_API_MAX_INPUT_TOKENS = 32_768
 RECIPE_API_MAX_OUTPUT_TOKENS = 1536
@@ -122,6 +123,39 @@ _OPENAI_MODELS = [
     },
 ]
 
+# Verified 2026-07-27 against Google's first-party stable-model, thinking,
+# structured-output, Interactions API, and standard paid-tier pricing pages:
+# https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash
+# https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite
+# https://ai.google.dev/gemini-api/docs/thinking
+# https://ai.google.dev/gemini-api/docs/structured-output
+# https://ai.google.dev/api/interactions-api
+# https://ai.google.dev/gemini-api/docs/pricing
+_GEMINI_MODELS = [
+    {
+        "id": "gemini-3.6-flash",
+        "label": "Gemini 3.6 Flash",
+        "pricing": {
+            "input_per_million_tokens_usd_ticks": 15_000_000_000,
+            "output_per_million_tokens_usd_ticks": 75_000_000_000,
+        },
+        "pricing_as_of": GEMINI_PRICING_AS_OF,
+        "max_output_tokens": RECIPE_API_MAX_OUTPUT_TOKENS,
+        "reasoning_effort": "medium",
+    },
+    {
+        "id": "gemini-3.5-flash-lite",
+        "label": "Gemini 3.5 Flash-Lite",
+        "pricing": {
+            "input_per_million_tokens_usd_ticks": 3_000_000_000,
+            "output_per_million_tokens_usd_ticks": 25_000_000_000,
+        },
+        "pricing_as_of": GEMINI_PRICING_AS_OF,
+        "max_output_tokens": RECIPE_API_MAX_OUTPUT_TOKENS,
+        "reasoning_effort": "minimal",
+    },
+]
+
 
 def _provider(
     label: str,
@@ -157,7 +191,12 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
         default_model="gpt-5.6-sol",
         models=_OPENAI_MODELS,
     ),
-    "gemini": _provider("Gemini", "json_schema"),
+    "gemini": _provider(
+        "Gemini",
+        "json_schema",
+        default_model="gemini-3.6-flash",
+        models=_GEMINI_MODELS,
+    ),
     "moonshot": _provider("Kimi / Moonshot", "json_object"),
     "deepseek": _provider("DeepSeek", "json_object"),
 }

@@ -9,6 +9,7 @@ from am_configurator.ollama_client import OllamaModel
 from am_configurator.recipe_inference import build_ollama_recipe_payload
 from am_configurator.recipe_provider import (
     AnthropicRecipeProvider,
+    GeminiRecipeProvider,
     OllamaRecipeProvider,
     OpenAIRecipeProvider,
     RecipeRequest,
@@ -113,6 +114,32 @@ def _openai_response(
                         "annotations": [],
                     }
                 ],
+            },
+        ],
+    }
+    if usage is not None:
+        response["usage"] = usage
+    return response
+
+
+def _gemini_response(
+    recipe: dict,
+    *,
+    status: str = "completed",
+    usage: dict | None = None,
+) -> dict:
+    response = {
+        "object": "interaction",
+        "status": status,
+        "steps": [
+            {
+                "type": "thought",
+                "signature": "opaque-provider-signature",
+                "summary": [],
+            },
+            {
+                "type": "model_output",
+                "content": [{"type": "text", "text": json.dumps(recipe)}],
             },
         ],
     }
@@ -560,6 +587,228 @@ class OpenAIRecipeProviderTests(unittest.TestCase):
             transport=lambda *_args: _openai_response(
                 _recipe(),
                 usage={"input_tokens": 100, "output_tokens": 20},
+            ),
+        )
+        with self.assertRaises(llm.ProviderError) as late:
+            post_call.generate(
+                _request(),
+                time.monotonic() + 10,
+                lambda: next(checks),
+            )
+        self.assertEqual("unavailable", late.exception.code)
+        self.assertTrue(late.exception.usage.reported)
+
+
+class GeminiRecipeProviderTests(unittest.TestCase):
+    def test_current_catalog_and_one_interactions_call_use_the_schema_contract(
+        self,
+    ) -> None:
+        catalog = ai_catalog.catalog_view()["providers"]["gemini"]
+        self.assertEqual("gemini-3.6-flash", catalog["default_model"])
+        self.assertEqual(
+            ["gemini-3.6-flash", "gemini-3.5-flash-lite"],
+            [model["id"] for model in catalog["models"]],
+        )
+        self.assertEqual(
+            ["medium", "minimal"],
+            [model["reasoning_effort"] for model in catalog["models"]],
+        )
+        self.assertEqual(
+            606_720_000,
+            ai_catalog.recipe_max_cost_usd_ticks("gemini", "gemini-3.6-flash"),
+        )
+
+        calls: list[tuple] = []
+        usage = {
+            "total_input_tokens": 1000,
+            "total_output_tokens": 200,
+            "total_thought_tokens": 50,
+            "total_tokens": 1250,
+        }
+
+        def transport(spec, payload, api_key, deadline):
+            calls.append((spec, payload, api_key, deadline))
+            return _gemini_response(_recipe(), usage=usage)
+
+        provider = GeminiRecipeProvider("gemini-private", transport=transport)
+        result = provider.generate(_request(), time.monotonic() + 10, lambda: False)
+
+        self.assertEqual(1, len(calls))
+        spec, payload, api_key, _deadline = calls[0]
+        self.assertIs(llm.GEMINI_INTERACTIONS_TRANSPORT, spec)
+        self.assertEqual("gemini-private", api_key)
+        self.assertEqual("gemini-3.6-flash", payload["model"])
+        self.assertIs(payload["store"], False)
+        self.assertIs(payload["stream"], False)
+        self.assertIs(payload["background"], False)
+        self.assertEqual(_request().prompt, payload["input"])
+        self.assertIn("18x7", payload["system_instruction"])
+        self.assertEqual(
+            {
+                "max_output_tokens": 1536,
+                "thinking_level": "medium",
+                "thinking_summaries": "none",
+            },
+            payload["generation_config"],
+        )
+        response_format = payload["response_format"]
+        self.assertEqual("text", response_format["type"])
+        self.assertEqual("application/json", response_format["mime_type"])
+        projected_schema = response_format["schema"]
+        serialized_schema = json.dumps(projected_schema, sort_keys=True)
+        self.assertNotIn('"pattern"', serialized_schema)
+        self.assertNotIn('"const"', serialized_schema)
+        self.assertEqual(
+            [1],
+            projected_schema["properties"]["schema_version"]["enum"],
+        )
+        self.assertEqual(
+            6,
+            projected_schema["properties"]["layers"]["maxItems"],
+        )
+        self.assertEqual(_recipe(), result.recipe)
+        self.assertEqual("api", result.backend)
+        self.assertEqual("gemini", result.provider)
+        self.assertEqual("gemini-3.6-flash", result.model_id)
+        self.assertEqual({"cost_in_usd_ticks": 33_750_000}, result.usage)
+
+    def test_lite_model_sends_its_documented_minimal_thinking_level(self) -> None:
+        calls: list[dict] = []
+
+        def transport(_spec, payload, _api_key, _deadline):
+            calls.append(payload)
+            return _gemini_response(_recipe())
+
+        provider = GeminiRecipeProvider(
+            "gemini-private",
+            model_id="gemini-3.5-flash-lite",
+            transport=transport,
+        )
+        result = provider.generate(_request(), time.monotonic() + 10, lambda: False)
+
+        self.assertEqual(1, len(calls))
+        self.assertEqual(
+            "minimal",
+            calls[0]["generation_config"]["thinking_level"],
+        )
+        self.assertEqual("gemini-3.5-flash-lite", result.model_id)
+
+    def test_missing_usage_succeeds_and_malformed_usage_fails_once(self) -> None:
+        calls = 0
+        responses = iter(
+            (
+                _gemini_response(_recipe()),
+                _gemini_response(
+                    _recipe(),
+                    usage={
+                        "total_input_tokens": True,
+                        "total_output_tokens": 10,
+                    },
+                ),
+            )
+        )
+
+        def transport(*_args):
+            nonlocal calls
+            calls += 1
+            return next(responses)
+
+        provider = GeminiRecipeProvider("gemini-private", transport=transport)
+        result = provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertIsNone(result.usage)
+
+        with self.assertRaises(llm.ProviderError) as captured:
+            provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertEqual("bad_response", captured.exception.code)
+        self.assertEqual(2, calls)
+        self.assertNotIn("gemini-private", str(captured.exception))
+
+    def test_noncompleted_or_unsupported_output_fails_once_without_body_text(
+        self,
+    ) -> None:
+        usage = {
+            "total_input_tokens": 100,
+            "total_output_tokens": 20,
+            "total_thought_tokens": 5,
+        }
+        failed = _gemini_response(
+            _recipe(),
+            status="failed",
+            usage=usage,
+        )
+        failed["error"] = {"message": "provider-body-secret"}
+        unsupported = _gemini_response(_recipe(), usage=usage)
+        unsupported["steps"] = [
+            {
+                "type": "function_call",
+                "name": "provider-body-secret",
+                "arguments": {},
+            }
+        ]
+        for response in (failed, unsupported):
+            calls = 0
+
+            def transport(*_args):
+                nonlocal calls
+                calls += 1
+                return response
+
+            provider = GeminiRecipeProvider(
+                "gemini-private",
+                transport=transport,
+            )
+            with self.subTest(status=response["status"]):
+                with self.assertRaises(llm.ProviderError) as captured:
+                    provider.generate(
+                        _request(),
+                        time.monotonic() + 10,
+                        lambda: False,
+                    )
+                self.assertEqual("bad_response", captured.exception.code)
+                self.assertEqual(1, calls)
+                self.assertTrue(captured.exception.usage.reported)
+                self.assertNotIn("provider-body-secret", str(captured.exception))
+
+    def test_cancellation_and_invalid_recipe_never_make_a_paid_retry(self) -> None:
+        calls = 0
+
+        def invalid_transport(*_args):
+            nonlocal calls
+            calls += 1
+            return _gemini_response(
+                {"provider-body-secret": "never expose this"},
+                usage={
+                    "total_input_tokens": 100,
+                    "total_output_tokens": 20,
+                    "total_thought_tokens": 5,
+                },
+            )
+
+        provider = GeminiRecipeProvider(
+            "gemini-private",
+            transport=invalid_transport,
+        )
+        with self.assertRaises(llm.ProviderError) as cancelled:
+            provider.generate(_request(), time.monotonic() + 10, lambda: True)
+        self.assertEqual("unavailable", cancelled.exception.code)
+        self.assertEqual(0, calls)
+
+        with self.assertRaises(llm.ProviderError) as invalid:
+            provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertEqual("bad_response", invalid.exception.code)
+        self.assertEqual(1, calls)
+        self.assertNotIn("provider-body-secret", str(invalid.exception))
+
+        checks = iter((False, True))
+        post_call = GeminiRecipeProvider(
+            "gemini-private",
+            transport=lambda *_args: _gemini_response(
+                _recipe(),
+                usage={
+                    "total_input_tokens": 100,
+                    "total_output_tokens": 20,
+                    "total_thought_tokens": 5,
+                },
             ),
         )
         with self.assertRaises(llm.ProviderError) as late:

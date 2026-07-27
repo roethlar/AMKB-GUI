@@ -340,6 +340,142 @@ def _openai_output_text(response: dict[str, Any]) -> str:
     return texts[0]
 
 
+_GEMINI_UNSUPPORTED_SCHEMA_KEYS = {
+    "maxLength",
+    "minLength",
+    "pattern",
+}
+
+
+def _gemini_output_schema(value: object) -> object:
+    """Project the recipe schema onto Gemini's documented JSON Schema subset."""
+
+    if isinstance(value, dict):
+        projected = {}
+        for key, child in value.items():
+            if key in _GEMINI_UNSUPPORTED_SCHEMA_KEYS:
+                continue
+            if key == "const":
+                projected["enum"] = [_gemini_output_schema(child)]
+                continue
+            projected[key] = _gemini_output_schema(child)
+        return projected
+    if isinstance(value, list):
+        return [_gemini_output_schema(child) for child in value]
+    return value
+
+
+def _gemini_usage(
+    response: dict[str, Any],
+    model_id: str,
+) -> llm.ProviderUsage:
+    if "usage" not in response:
+        return llm.MISSING_PROVIDER_USAGE
+    usage = response["usage"]
+    if not isinstance(usage, dict):
+        raise llm.ProviderError("bad_response", "provider usage was not an object")
+    values: dict[str, int] = {}
+    for field in (
+        "total_input_tokens",
+        "total_output_tokens",
+        "total_thought_tokens",
+    ):
+        value = usage.get(field, 0)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise llm.ProviderError(
+                "bad_response",
+                "provider token usage was invalid",
+            )
+        values[field] = value
+    if "total_input_tokens" not in usage or "total_output_tokens" not in usage:
+        raise llm.ProviderError(
+            "bad_response",
+            "provider token usage was incomplete",
+        )
+    try:
+        cost = ai_catalog.recipe_usage_cost_usd_ticks(
+            "gemini",
+            model_id,
+            input_tokens=values["total_input_tokens"],
+            output_tokens=(
+                values["total_output_tokens"] + values["total_thought_tokens"]
+            ),
+        )
+    except ValueError:
+        raise llm.ProviderError(
+            "bad_response",
+            "provider token usage was invalid",
+        ) from None
+    return llm.ProviderUsage(cost_in_usd_ticks=cost, reported=True)
+
+
+def _gemini_output_text(response: dict[str, Any]) -> str:
+    if response.get("object") != "interaction":
+        raise llm.ProviderError(
+            "bad_response",
+            "Recipe response was not an interaction.",
+        )
+    if response.get("status") != "completed":
+        raise llm.ProviderError(
+            "bad_response",
+            "Recipe response ended before completion.",
+        )
+    steps = response.get("steps")
+    if not isinstance(steps, list):
+        raise llm.ProviderError("bad_response", "Recipe response omitted steps.")
+    texts: list[str] = []
+    model_outputs = 0
+    for step in steps:
+        if not isinstance(step, dict) or not isinstance(step.get("type"), str):
+            raise llm.ProviderError(
+                "bad_response",
+                "Recipe response contained an invalid step.",
+            )
+        step_type = step["type"]
+        if step_type == "thought":
+            if not isinstance(step.get("signature"), str):
+                raise llm.ProviderError(
+                    "bad_response",
+                    "Recipe response contained an invalid thought step.",
+                )
+            summary = step.get("summary", [])
+            if not isinstance(summary, list):
+                raise llm.ProviderError(
+                    "bad_response",
+                    "Recipe response contained an invalid thought step.",
+                )
+            continue
+        if step_type != "model_output":
+            raise llm.ProviderError(
+                "bad_response",
+                "Recipe response contained unsupported output.",
+            )
+        model_outputs += 1
+        content = step.get("content")
+        if not isinstance(content, list):
+            raise llm.ProviderError(
+                "bad_response",
+                "Recipe response omitted model content.",
+            )
+        for block in content:
+            if (
+                not isinstance(block, dict)
+                or block.get("type") != "text"
+                or not isinstance(block.get("text"), str)
+            ):
+                raise llm.ProviderError(
+                    "bad_response",
+                    "Recipe response contained unsupported content.",
+                )
+            texts.append(block["text"])
+    if model_outputs < 1 or not texts or not all(texts):
+        raise llm.ProviderError(
+            "bad_response",
+            "Recipe response contained no complete text.",
+        )
+    return "".join(texts)
+
+
 class XaiRecipeProvider:
     """Exactly one bounded xAI Responses request for one strict recipe."""
 
@@ -630,6 +766,108 @@ class OpenAIRecipeProvider:
         )
 
 
+class GeminiRecipeProvider:
+    """Exactly one Gemini Interactions request for one validated recipe."""
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        model_id: str = "gemini-3.6-flash",
+        transport=None,
+    ) -> None:
+        if not isinstance(api_key, str) or not api_key:
+            raise llm.ProviderError("config", "API credential is missing.")
+        try:
+            normalized = ai_catalog.validate_provider_model("gemini", model_id)
+            metadata = ai_catalog.provider_model_metadata("gemini", normalized)
+        except ValueError:
+            raise llm.ProviderError(
+                "config",
+                "API recipe model is unavailable.",
+            ) from None
+        assert isinstance(normalized, str)
+        self._model_id = normalized
+        self._max_output_tokens = int(metadata["max_output_tokens"])
+        self._thinking_level = str(metadata["reasoning_effort"])
+        self._api_key = api_key
+        self._transport = (
+            llm._provider_json_request if transport is None else transport
+        )
+
+    def generate(
+        self,
+        request: RecipeRequest,
+        deadline: float,
+        cancelled: Callable[[], bool],
+    ) -> RecipeResult:
+        prompt, system_prompt, schema = _request_parts(request)
+        _check_start(deadline, cancelled)
+        payload = {
+            "model": self._model_id,
+            "input": prompt,
+            "system_instruction": system_prompt,
+            "response_format": {
+                "type": "text",
+                "mime_type": "application/json",
+                "schema": _gemini_output_schema(schema),
+            },
+            "stream": False,
+            "store": False,
+            "background": False,
+            "generation_config": {
+                "max_output_tokens": self._max_output_tokens,
+                "thinking_level": self._thinking_level,
+                "thinking_summaries": "none",
+            },
+        }
+        response = llm._call_provider(
+            self._transport,
+            llm.GEMINI_INTERACTIONS_TRANSPORT,
+            payload,
+            self._api_key,
+            deadline,
+        )
+        usage = _gemini_usage(response, self._model_id)
+        failure: llm.ProviderError | None = None
+        try:
+            recipe = _validated_recipe_text(_gemini_output_text(response))
+        except llm.ProviderError as error:
+            failure = llm.ProviderError(
+                error.code,
+                str(error),
+                retry_after=error.retry_after,
+                usage=usage,
+            )
+            recipe = None
+        if failure is not None:
+            raise failure
+        if recipe is None:
+            raise llm.ProviderError(
+                "bad_response",
+                "Recipe output failed validation.",
+                usage=usage,
+            )
+        if cancelled():
+            raise llm.ProviderError(
+                "unavailable",
+                "Recipe generation was cancelled.",
+                usage=usage,
+            )
+        usage_value = (
+            {"cost_in_usd_ticks": usage.cost_in_usd_ticks}
+            if usage.reported and usage.cost_in_usd_ticks is not None
+            else None
+        )
+        return RecipeResult(
+            recipe=recipe,
+            backend="api",
+            provider="gemini",
+            model_id=self._model_id,
+            usage=usage_value,
+        )
+
+
 def _ollama_output_text(response: dict[str, Any]) -> str:
     message = response.get("message")
     if not isinstance(message, dict) or not isinstance(message.get("content"), str):
@@ -720,6 +958,7 @@ class OllamaRecipeProvider:
 
 __all__ = [
     "AnthropicRecipeProvider",
+    "GeminiRecipeProvider",
     "LOCAL_MAX_RETRIES",
     "LOCAL_OUTPUT_TOKENS",
     "MAX_RECIPE_PROMPT_CHARS",

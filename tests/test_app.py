@@ -1148,6 +1148,33 @@ class GrokTransportTests(unittest.TestCase):
         self.assertNotIn("provider-secret", request.full_url)
         self.assertGreater(timeout, 0)
 
+        opener = _RecordingOpener(response=_FakeResponse(b'{"ok":true}'))
+        spec = llm.GEMINI_INTERACTIONS_TRANSPORT
+        result = llm._provider_json_request(
+            spec,
+            {"input": "hello"},
+            "provider-secret",
+            self._future_deadline(),
+            opener=opener,
+        )
+
+        self.assertEqual({"ok": True}, result)
+        self.assertEqual(1, len(opener.calls))
+        request, timeout = opener.calls[0]
+        self.assertEqual(
+            "https://generativelanguage.googleapis.com/v1beta/interactions",
+            request.full_url,
+        )
+        self.assertEqual(
+            "provider-secret",
+            _request_header(request, "x-goog-api-key"),
+        )
+        self.assertIsNone(_request_header(request, "Authorization"))
+        self.assertEqual("generativelanguage.googleapis.com", spec.host)
+        self.assertNotIn("provider-secret", request.full_url)
+        self.assertEqual("", request.selector.partition("?")[2])
+        self.assertGreater(timeout, 0)
+
         invalid = llm.ProviderTransportSpec(
             provider="anthropic",
             url="https://attacker.invalid/v1/messages",

@@ -406,6 +406,51 @@ class CapabilityTests(unittest.TestCase):
 
         self.assertIsInstance(provider, OpenAIRecipeProvider)
 
+    def test_gemini_setup_and_generation_share_one_registry_identity(self) -> None:
+        self.settings["ai"].update({"enabled": True, "backend": "api"})
+        self.settings["ai"]["api"]["selected_provider"] = "gemini"
+        api = self._selected_api()
+        api.update(
+            {
+                "model_id": "gemini-3.6-flash",
+                "disclosure_version": ai_catalog.provider_disclosure_version(
+                    "gemini"
+                ),
+                "disclosure_at": "2026-07-27T12:00:00+00:00",
+            }
+        )
+        self.credential = "gemini-private"
+        provider = _Provider()
+        service = self._service(provider=provider)
+
+        self.assertEqual("setup_required", service.status()["reason"])
+        status = service.test_backend(
+            "api",
+            deadline=time.monotonic() + 10,
+            cancelled=lambda: False,
+        )
+
+        self.assertTrue(status["ready"])
+        self.assertEqual("gemini", status["api"]["provider"])
+        self.assertEqual("gemini-3.6-flash", status["api"]["model_id"])
+        self.assertEqual(1, provider.calls)
+        self.assertIs(provider, service.provider_for_generation())
+        self.assertEqual(
+            ("fingerprint", "api", "gemini", api["setup_fingerprint"]),
+            self.writes[-1],
+        )
+
+    def test_default_registry_constructs_the_gemini_adapter(self) -> None:
+        from am_configurator.recipe_provider import GeminiRecipeProvider
+
+        provider = AICapabilityService._default_api_provider(
+            "gemini",
+            "gemini-private",
+            "gemini-3.6-flash",
+        )
+
+        self.assertIsInstance(provider, GeminiRecipeProvider)
+
     def test_capability_polling_has_no_managed_model_or_runtime_path(self) -> None:
         source = inspect.getsource(ai_capability)
         for forbidden in (
