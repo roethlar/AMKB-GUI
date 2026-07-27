@@ -121,18 +121,19 @@ class NeonTransport:
 
         The device has three user slots and a full write means all of them.
         Planning only slot 1 left pages 6 and 7 stale on the keyboard while the
-        application reported the whole configuration written, and lighting has
-        no read-back that could have revealed it.
+        application reported the whole configuration written. Only an absent
+        page is skippable: a populated slot that does not plan cleanly must abort
+        preflight because lighting has no read-back that could reveal an omission.
         """
 
+        pages = config.get("page_data") or []
         plans = []
         for slot in neon_lighting.SLOTS:
-            try:
-                plans.append(self._plan(config, slot=slot))
-            except neon_lighting.NeonLightingError:
-                # A configuration need not populate every slot; one that does
-                # not is skipped rather than failing the write.
+            if not any(
+                int(page.get("page_index", -1)) == slot + 4 for page in pages
+            ):
                 continue
+            plans.append(self._plan(config, slot=slot))
         if not plans:
             raise neon_lighting.NeonLightingError(
                 "The configuration has no custom lighting slots to write."

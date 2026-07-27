@@ -217,6 +217,18 @@ class PreflightTests(unittest.TestCase):
             "not every slot's axial, head, and side channel was written",
         )
 
+    def test_a_malformed_populated_slot_stops_before_any_set(self) -> None:
+        config = _neon_config(frames=1, slots=2)
+        config["page_data"][0]["axial"]["frame_data"][0]["frame_RGB"].pop()
+        session = Session()
+
+        with self.assertRaises(neon_lighting.NeonLightingError):
+            self._write(config, session)
+
+        self.assertEqual([], session.lighting_packets)
+        self.assertEqual([], session.keymap_writes)
+        self.assertEqual([], session.macro_writes)
+
     def test_a_configuration_with_one_slot_writes_only_that_slot(self) -> None:
         session = Session()
         self._write(_neon_config(slots=1), session)
