@@ -118,6 +118,9 @@ test("one master switch owns and hides every AI setup control", () => {
   const setupAction=js.slice(js.indexOf("async function testAiBackend"),js.indexOf("async function saveApiCredential"));
   assert.doesNotMatch(setupAction,/enabled\s*:\s*false/);
   assert.match(js,/\$\("#settings-ai-enabled"\)\.addEventListener\("change",event=>void setAiEnabled\(event\.target\.checked\)\)/);
+  assert.match(css,/\.settings-row input\[role="switch"\]\s*\{[^}]*appearance:\s*none[^}]*width:\s*44px[^}]*border-radius:\s*999px/);
+  assert.match(css,/\.settings-row input\[role="switch"\]:checked\s*\{[^}]*background:\s*var\(--violet\)/);
+  assert.match(css,/\.settings-row input\[role="switch"\]:checked::before\s*\{[^}]*translateX\(20px\)/);
 });
 
 test("the global header presents the injected runtime version as a badge", () => {
