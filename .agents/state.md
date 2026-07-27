@@ -64,8 +64,15 @@
   and invoked the GUI full-write action; validation refused more than 16 macros
   before confirmation or any device SET. After the four-macro local state was
   restored, a fresh device read again rendered event counts `22/34/38/40`. No
-  macro plaintext was exposed. Build 56 remains open from its exact DMG path.
-  Angry Miao Master, Vial, VIA, and QMK Toolbox are not running; UTM offers
+  macro plaintext was exposed. The owner's 2026-07-27 photograph closes the
+  remaining lighting check: the QWERTY and perforated top display both show the
+  asymmetric red/blue/green/yellow corners in the expected orientation, and the
+  white center appears only in the authored head matrix. The protocol's “side”
+  channel is not underglow; the official driver labels it “side screen lights”
+  (`side_screen_lights` / `侧屏幕灯`), and the owner confirms that the physical
+  keyboard has no underglow LEDs. It contributes to the same perforated top
+  display. N10 is complete. Build 56 remains open from its exact DMG path. Angry
+  Miao Master, Vial, VIA, and QMK Toolbox are not running; UTM offers
   **Connect…** for AM Neon 80, confirming the board is not forwarded to the VM.
   Optional xAI credential access remains deferred; no Keychain prompt occurred.
   The exported device-read JSON is **not an LED backup**: the Neon has no LED
@@ -81,18 +88,13 @@
   follow-up in
   `docs/superpowers/plans/2026-07-26-neon-led-preserving-writes.md` is withdrawn
   as unnecessary for N10.
-- Next action: have the owner inspect or photograph the axial, head, and side
-  markers and explicitly confirm their orientation; then record that ruling and
-  close N10.
+- Next action: the Neon implementation and N10 hardware verification are
+  complete. Any push remains owner-gated by `.agents/push-policy.md`.
 
 ## Blockers
 
-- N10's only remaining acceptance blocker is owner-visible orientation evidence.
-  The owner reports that the LEDs match the application, but the axial,
-  46x5-head, and derived-side zones have not yet been explicitly checked or
-  photographed for mirroring, rotation, row direction, and derivation. No
-  further hardware write is currently required. Broader device-family checks
-  require their corresponding keyboards; they do not block the offline suite.
+- N10 has no remaining blocker. Broader device-family checks require their
+  corresponding keyboards; they do not block the completed Neon scope.
 - Code signing and notarization are blocked on paid developer accounts, an
   Apple Developer Program membership and an Authenticode certificate. The owner
   declined both on 2026-07-24 as not ready. `README.md` discloses the unsigned

@@ -189,7 +189,7 @@ the implementation source:
 | File | Contents needed |
 |---|---|
 | `src/804/utils/keyboard-api.ts` | `setRGB` packet construction, VIA command enum, `calculateSumCheck` |
-| `src/804/light-library/device-push.ts` | Channel walk, packetization, side-zone derivation |
+| `src/804/light-library/device-push.ts` | Channel walk, packetization, side-screen derivation |
 | `src/804/light-library/payload.ts` | Frame-length validation: matrix 230, axial 89 |
 | `src/804/axialDefinitionsData.ts` | Axial LED order and positions; array index is payload index |
 
@@ -206,15 +206,18 @@ Firmware `app_flash.h` and the driver's `setRGB` docstring agree exactly.
 |---|---|---|---|---|
 | `0x01`–`0x03` | `CMD_KEY_LED1..3` | axial (per-switch) | 89 | 512 |
 | `0x04`–`0x06` | `CMD_HEAD_LED1..3` | head matrix, 46x5 | 230 | 1024 |
-| `0x07`–`0x09` | `CMD_SIDE_LED1..3` | side | 70 | 256 |
+| `0x07`–`0x09` | `CMD_SIDE_LED1..3` | side-screen LEDs within the perforated top display | 70 | 256 |
 | `0x0A`–`0x0D` | `CMD_DEFAT_HEAD1/2`, `CMD_DEFAT_SIDE1/2` | factory defaults | | |
 | `0x0E` | `CMD_OTHER_CMD` | control; driver sends `F0 0E 01` | | |
 
 Three user slots per zone. `USER_FRAME_MAX` is **256 frames per slot**.
 
 **Two authored tracks, three channels.** The driver pushes one authored light
-effect to slot *N* as channels *N*, *N+3*, and *N+6* — axial, head, and side —
-deriving side from the head frames at transmit time. Side is therefore **never
+effect to slot *N* as channels *N*, *N+3*, and *N+6* — axial, head, and
+side-screen — deriving side-screen colours from the head frames at transmit
+time. The official driver labels the third step “side screen lights”
+(`side_screen_lights` / `侧屏幕灯`); N10 confirmed that it is part of the
+perforated top display, not case-edge underglow. It is therefore **never
 independently authored** and must not become a selectable track. This matters
 concretely: `device_mapping.py:427` `target_capabilities()` publishes every
 `_LAYOUTS` entry as a selectable target, so adding side there would offer users
@@ -250,7 +253,7 @@ wrote the axial zone before mistaking its red corner byte for rejection.
 Packetization: 8 LEDs per packet, so 89 axial LEDs produce 12 packets (the last
 carrying 1 LED) and 230 head LEDs produce 29 packets (the last carrying 6).
 
-### Side-zone derivation
+### Side-screen derivation
 
 Derived from head frames at transmit time. Reproduce exactly:
 
@@ -447,7 +450,8 @@ test asserts axial payload order round-trips to the expected grid positions.
 New module `am_configurator/neon_lighting.py`, reached through the N2 handle.
 
 - One authored effect pushes to slot *N* as channels *N*, *N+3*, *N+6*: axial,
-  head, and side derived from the head frames per the algorithm above.
+  head, and side-screen colours derived from the head frames per the algorithm
+  above.
 - Build 32-byte packets per the table, including checksum; `packIndex` is `255`
   on the final packet of the final frame, else the packet index.
 - Honour the existing operation deadline and cancellation predicate as
@@ -543,9 +547,11 @@ Manual, and last. Automated tests must never reach the physical keyboard.
   definition-based model check accepts the real board.
 - Confirm Neon 80 appears in Devices through the real GUI — the check that
   proves N1 and N2 actually connected it.
-- Push a known **asymmetric** pattern to one slot; photograph axial, head, and
-  side and confirm LED positions and orientation. An asymmetric pattern is
-  required: a symmetric one cannot reveal a transposed or mirrored map.
+- Push a known **asymmetric** pattern to one slot; photograph the axial keys and
+  perforated top display, then confirm the authored head and derived side-screen
+  colours share the expected orientation. There is no case-edge underglow zone.
+  An asymmetric pattern is required: a symmetric one cannot reveal a transposed
+  or mirrored map.
 - Round-trip a keymap and a macro through the GUI, including confirming a
   non-representable code is refused with the N6 error and an oversized macro set
   is refused before any write.
@@ -557,10 +563,12 @@ Current hardware results as of 2026-07-27; the detailed live record is
 | Check | Outcome | Evidence |
 |---|---|---|
 | Identity and real GUI | Pass | The physical board passed the definition gate as `NEON80`; native build 56 reads and targets it through Devices. |
-| Asymmetric lighting orientation | Partial | Build 56 completed the axial, head, and derived-side upload, and the owner reports that the LEDs match the application. Explicit axial/head/side orientation inspection or photographs remain open. |
+| Asymmetric lighting orientation | Pass | Build 56 completed the axial, head, and derived side-screen upload. The owner's photograph shows the expected red/blue/green/yellow corners on both the keys and perforated top display, plus the head-only white center, with no mirroring, rotation, or transposition. The owner confirms that this keyboard has no underglow; the protocol's third channel is the top display's “side screen lights.” |
 | Keymap and macro round trip | Pass | A recovered four-macro profile completed a full write and read-back at event counts `22, 34, 38, 40`. A deliberate layer 4 matrix-index-89 End→F12 change read back as the only keymap difference; End was restored and the final GUI read-back is semantically identical to the recovery profile. |
 | N6 unsupported assignment | Pass | Layer 1 matrix key 0 refused `#000C00E9` as a non-QMK-representable usage-page-`0x0C` code, retained Esc, and opened no write confirmation. |
 | N7 macro overflow | Pass | The GUI full-write action refused a local 17-macro profile before confirmation. A fresh device read still returned the original four macros at `22, 34, 38, 40` events. |
+
+N10 is complete.
 
 ## Verification
 

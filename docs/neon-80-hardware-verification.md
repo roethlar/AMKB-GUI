@@ -67,8 +67,9 @@ target.
 
 ## 3. Lighting geometry — asymmetric pattern
 
-- [ ] Push a **deliberately asymmetric** pattern to slot 1 and photograph the
-      axial, head, and side zones.
+- [x] Push a **deliberately asymmetric** pattern to slot 1 and photograph the
+      axial keys and perforated top display. The firmware's third channel is
+      side-screen lighting within that display, not case-edge underglow.
 
 **Authorized:** this step overwrites the current lighting configuration. On
 2026-07-26 the owner found the original source GIF, accepted it as the recovery
@@ -81,12 +82,13 @@ diagonal, or a colour gradient running one way.
 
 Check, from the photographs:
 
-- [ ] Axial: the lit position is where the pattern says it should be, not
+- [x] Axial: the lit position is where the pattern says it should be, not
       mirrored left-to-right and not rotated.
-- [ ] Head: the 46x5 matrix runs in the direction expected, row-major.
-- [ ] Side: derived from the head frames, so it should follow the head pattern
-      rather than showing something unrelated. This is the zone most likely to
-      be wrong, because it is the only one computed rather than authored.
+- [x] Head: the 46x5 matrix runs in the direction expected, row-major.
+- [x] Side-screen: the 70 derived LEDs within the perforated top display follow
+      the head pattern rather than showing something unrelated. The official
+      driver labels this channel “side screen lights” (`side_screen_lights` /
+      `侧屏幕灯`); the physical keyboard has no underglow LEDs.
 
 If a zone is mirrored or transposed, record which one and in which direction —
 that identifies the defect precisely.
@@ -136,9 +138,9 @@ Fill this in as you go. `—` means not attempted.
 |---|---|---|
 | 1. Identity | Pass | Physical board: model `NEON80`, definition `AM Neon 80`, firmware UID `d47af38a35b8ed73`, Vial protocol 5, writable `True`, 87 projected layout keys. Read-only; nothing was written. |
 | 2. Devices in GUI | Pass | Native build 52 listed `NEON80` as USB, completed **Read keymap & macros** without crashing or touching Keychain, and opened a valid document with four 90-key layers and four populated macro slots while retaining the separately reported 16-slot capacity. Commit `25f225c` red-proves the macro decoder repair; native build 53's rendered UI confirms event counts 22, 34, 38, and 40 as aligned press/release transitions. A GET-only source-GUI read then rendered all 89 axial LEDs on the connected board's 87-key Vial geometry in rows `17/17/17/13/13/12`, with real modifier widths, row offsets, inverted-T arrows, and LEDs 80–82 grouped into one 7-unit spacebar. The exported JSON remains a keymap/macro profile with synthetic black LED placeholders, not a backup of the current LED setup. The 576-Python/55-web gate, native build 55, and bundled smoke pass. No keyboard write was attempted. |
-| 3a. Axial geometry | Partial | Build 55 accepted the physical unlock and changed the axial/QWERTY lighting before the app stopped. Hardware and firmware source proved response byte 7 is echoed RGB data, not an ACK status: the red `0xFF` payload byte was misclassified as rejection after its packet landed. Commit `7dc9399` red-proves and corrects the echo handling. Build 56 then accepted the complete full write, and the owner reports that the LEDs match the application; the explicit orientation inspection/photograph is still pending. |
-| 3b. Head geometry | Partial | Build 56 transmitted the 46x5 head matrix with four corner markers plus a white center. The explicit orientation inspection/photograph is still pending. |
-| 3c. Side derivation | Partial | Build 56 transmitted side data derived from the asymmetric head pattern. The explicit orientation inspection/photograph is still pending. UTM shows **Connect…** for AM Neon 80 (not forwarded), and Angry Miao Master, Vial, VIA, and QMK Toolbox are not running. |
+| 3a. Axial geometry | Pass | Build 55 accepted the physical unlock and changed the axial/QWERTY lighting before the app stopped. Hardware and firmware source proved response byte 7 is echoed RGB data, not an ACK status: the red `0xFF` payload byte was misclassified as rejection after its packet landed. Commit `7dc9399` red-proves and corrects the echo handling. Build 56 then accepted the complete full write. The owner's 2026-07-27 photograph shows red at Esc, blue at left Ctrl, green at Pause, and yellow at right arrow: the asymmetric QWERTY pattern is neither mirrored nor rotated. |
+| 3b. Head geometry | Pass | Build 56 transmitted the 46x5 head matrix with four corner markers plus a white center. The owner's photograph shows red upper-left, blue lower-left, green upper-right, yellow lower-right, and white in the center of the perforated top display, matching the application without mirroring, rotation, or transposition. |
+| 3c. Side-screen derivation | Pass | Build 56 transmitted the 70-value channel derived from the head pattern. This is not underglow: the official driver calls it “side screen lights,” and the owner confirms that the physical keyboard has no underglow LEDs. It contributes to the same perforated top display, whose photograph shows a coherent continuation of the four corner colours; the white center appearing only in the authored head matrix is expected. UTM shows **Connect…** for AM Neon 80 (not forwarded), and Angry Miao Master, Vial, VIA, and QMK Toolbox are not running. |
 | 4a. Keymap round trip | Pass | A GET-only build-56 follow-up proved all four written layers match the prepared profile exactly. Accepted-write verification then isolated a macro-only mismatch: the prepared artifact still carried the pre-fix legacy-literal representation and produced doubled transition counts on read-back. No macro plaintext was exposed. A recovered profile restores the previously verified event counts `22, 34, 38, 40` and round-trips through the Vial encoder exactly offline. Its corrective build-56 full write completed and verified. The deliberate GUI round trip then changed only layer 4 matrix index 89 from End (`#0007004D`) to F12 (`#00070045`); read-back showed exactly that one difference. End was restored, and `AM-NEON80-final-readback-2026-07-27.json` is semantically identical to the recovery profile, including the four macro event counts. The open document retained the recovery LED data because Neon firmware has no LED read-back. |
 | 4b. Lock reported | Pass | Hardware returned locked, not-in-progress, with matrix combo `(0,0)` + `(0,2)` (physical Esc + F2). Build 55 accepted the real Esc + F2 handshake and proceeded into the lighting upload; no configuration SET preceded acceptance. |
 | 4c. Bad keycode refused | Pass | With layer 1 matrix key 0 selected, applying consumer-page volume-up code `#000C00E9` returned **Assignment unavailable**: usage page `0x0C` has no QMK equivalent and only HID keyboard page `0x07` translates. The selected key remained Esc (`#00070029`), no write confirmation opened, and no device write occurred. |
