@@ -13,6 +13,7 @@ from typing import Any
 CATALOG_SCHEMA_VERSION = 2
 PRICING_AS_OF = "2026-07-20"
 ANTHROPIC_PRICING_AS_OF = "2026-07-27"
+OPENAI_PRICING_AS_OF = "2026-07-27"
 USD_TICKS_PER_DOLLAR = 10_000_000_000
 RECIPE_API_MAX_INPUT_TOKENS = 32_768
 RECIPE_API_MAX_OUTPUT_TOKENS = 1536
@@ -90,6 +91,37 @@ _ANTHROPIC_MODELS = [
     },
 ]
 
+# Verified 2026-07-27 against OpenAI's current resolver, model pages, and
+# standard token pricing:
+# https://developers.openai.com/api/docs/guides/latest-model
+# https://developers.openai.com/api/docs/models/gpt-5.6-sol
+# https://developers.openai.com/api/docs/models/gpt-5.6-terra
+# https://developers.openai.com/api/docs/pricing
+_OPENAI_MODELS = [
+    {
+        "id": "gpt-5.6-sol",
+        "label": "GPT-5.6 Sol",
+        "pricing": {
+            "input_per_million_tokens_usd_ticks": 50_000_000_000,
+            "output_per_million_tokens_usd_ticks": 300_000_000_000,
+        },
+        "pricing_as_of": OPENAI_PRICING_AS_OF,
+        "max_output_tokens": RECIPE_API_MAX_OUTPUT_TOKENS,
+        "reasoning_effort": "medium",
+    },
+    {
+        "id": "gpt-5.6-terra",
+        "label": "GPT-5.6 Terra",
+        "pricing": {
+            "input_per_million_tokens_usd_ticks": 25_000_000_000,
+            "output_per_million_tokens_usd_ticks": 150_000_000_000,
+        },
+        "pricing_as_of": OPENAI_PRICING_AS_OF,
+        "max_output_tokens": RECIPE_API_MAX_OUTPUT_TOKENS,
+        "reasoning_effort": "medium",
+    },
+]
+
 
 def _provider(
     label: str,
@@ -119,7 +151,12 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
         default_model="claude-sonnet-5",
         models=_ANTHROPIC_MODELS,
     ),
-    "openai": _provider("OpenAI", "json_schema"),
+    "openai": _provider(
+        "OpenAI",
+        "json_schema",
+        default_model="gpt-5.6-sol",
+        models=_OPENAI_MODELS,
+    ),
     "gemini": _provider("Gemini", "json_schema"),
     "moonshot": _provider("Kimi / Moonshot", "json_object"),
     "deepseek": _provider("DeepSeek", "json_object"),

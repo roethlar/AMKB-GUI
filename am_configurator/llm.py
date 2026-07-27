@@ -33,6 +33,8 @@ XAI_VIDEO_STATUS_URL = "https://api.x.ai/v1/videos/{request_id}"
 ANTHROPIC_API_HOST = "api.anthropic.com"
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_API_VERSION = "2023-06-01"
+OPENAI_API_HOST = "api.openai.com"
+OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 
 # Stable ProviderError codes (design §Typed errors), each mapped to a local
 # HTTP status by the server. Listed here as the contract of record.
@@ -68,6 +70,14 @@ ANTHROPIC_MESSAGES_TRANSPORT = ProviderTransportSpec(
     auth_header="x-api-key",
     auth_prefix="",
     static_headers=(("anthropic-version", ANTHROPIC_API_VERSION),),
+)
+
+OPENAI_RESPONSES_TRANSPORT = ProviderTransportSpec(
+    provider="openai",
+    url=OPENAI_RESPONSES_URL,
+    host=OPENAI_API_HOST,
+    auth_header="Authorization",
+    auth_prefix="Bearer ",
 )
 
 

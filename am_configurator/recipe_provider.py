@@ -243,6 +243,103 @@ def _anthropic_output_text(response: dict[str, Any]) -> str:
     return texts[0]
 
 
+def _openai_usage(
+    response: dict[str, Any],
+    model_id: str,
+) -> llm.ProviderUsage:
+    if "usage" not in response:
+        return llm.MISSING_PROVIDER_USAGE
+    usage = response["usage"]
+    if not isinstance(usage, dict):
+        raise llm.ProviderError("bad_response", "provider usage was not an object")
+    values: dict[str, int] = {}
+    for field in ("input_tokens", "output_tokens"):
+        value = usage.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise llm.ProviderError(
+                "bad_response",
+                "provider token usage was invalid",
+            )
+        values[field] = value
+    try:
+        cost = ai_catalog.recipe_usage_cost_usd_ticks(
+            "openai",
+            model_id,
+            input_tokens=values["input_tokens"],
+            output_tokens=values["output_tokens"],
+        )
+    except ValueError:
+        raise llm.ProviderError(
+            "bad_response",
+            "provider token usage was invalid",
+        ) from None
+    return llm.ProviderUsage(cost_in_usd_ticks=cost, reported=True)
+
+
+def _openai_output_text(response: dict[str, Any]) -> str:
+    if response.get("object") != "response":
+        raise llm.ProviderError("bad_response", "Recipe response was not a response.")
+    if response.get("status") != "completed":
+        raise llm.ProviderError(
+            "bad_response",
+            "Recipe response ended before completion.",
+        )
+    output = response.get("output")
+    if not isinstance(output, list):
+        raise llm.ProviderError("bad_response", "Recipe response omitted output.")
+    texts: list[str] = []
+    refused = False
+    messages = 0
+    for item in output:
+        if not isinstance(item, dict) or not isinstance(item.get("type"), str):
+            raise llm.ProviderError(
+                "bad_response",
+                "Recipe response contained an invalid output item.",
+            )
+        item_type = item["type"]
+        if item_type == "reasoning":
+            continue
+        if item_type != "message":
+            raise llm.ProviderError(
+                "bad_response",
+                "Recipe response contained unsupported output.",
+            )
+        messages += 1
+        if (
+            item.get("role") != "assistant"
+            or item.get("status") != "completed"
+            or not isinstance(item.get("content"), list)
+        ):
+            raise llm.ProviderError(
+                "bad_response",
+                "Recipe response contained an incomplete message.",
+            )
+        for block in item["content"]:
+            if not isinstance(block, dict) or not isinstance(block.get("type"), str):
+                raise llm.ProviderError(
+                    "bad_response",
+                    "Recipe response contained an invalid content block.",
+                )
+            block_type = block["type"]
+            if block_type == "refusal":
+                refused = True
+            elif block_type == "output_text" and isinstance(block.get("text"), str):
+                texts.append(block["text"])
+            else:
+                raise llm.ProviderError(
+                    "bad_response",
+                    "Recipe response contained unsupported content.",
+                )
+    if refused:
+        raise llm.ProviderError("moderation", "The provider declined this prompt.")
+    if messages != 1 or len(texts) != 1 or not texts[0]:
+        raise llm.ProviderError(
+            "bad_response",
+            "Recipe response contained no complete text.",
+        )
+    return texts[0]
+
+
 class XaiRecipeProvider:
     """Exactly one bounded xAI Responses request for one strict recipe."""
 
@@ -430,6 +527,109 @@ class AnthropicRecipeProvider:
         )
 
 
+class OpenAIRecipeProvider:
+    """Exactly one OpenAI Responses request for one validated recipe."""
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        model_id: str = "gpt-5.6-sol",
+        transport=None,
+    ) -> None:
+        if not isinstance(api_key, str) or not api_key:
+            raise llm.ProviderError("config", "API credential is missing.")
+        try:
+            normalized = ai_catalog.validate_provider_model("openai", model_id)
+            metadata = ai_catalog.provider_model_metadata("openai", normalized)
+        except ValueError:
+            raise llm.ProviderError(
+                "config",
+                "API recipe model is unavailable.",
+            ) from None
+        assert isinstance(normalized, str)
+        self._model_id = normalized
+        self._max_output_tokens = int(metadata["max_output_tokens"])
+        self._reasoning_effort = str(metadata["reasoning_effort"])
+        self._api_key = api_key
+        self._transport = (
+            llm._provider_json_request if transport is None else transport
+        )
+
+    def generate(
+        self,
+        request: RecipeRequest,
+        deadline: float,
+        cancelled: Callable[[], bool],
+    ) -> RecipeResult:
+        prompt, system_prompt, schema = _request_parts(request)
+        _check_start(deadline, cancelled)
+        payload = {
+            "model": self._model_id,
+            "store": False,
+            "stream": False,
+            "max_output_tokens": self._max_output_tokens,
+            "reasoning": {"effort": self._reasoning_effort},
+            "input": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "animation_recipe",
+                    "strict": True,
+                    "schema": schema,
+                }
+            },
+        }
+        response = llm._call_provider(
+            self._transport,
+            llm.OPENAI_RESPONSES_TRANSPORT,
+            payload,
+            self._api_key,
+            deadline,
+        )
+        usage = _openai_usage(response, self._model_id)
+        failure: llm.ProviderError | None = None
+        try:
+            recipe = _validated_recipe_text(_openai_output_text(response))
+        except llm.ProviderError as error:
+            failure = llm.ProviderError(
+                error.code,
+                str(error),
+                retry_after=error.retry_after,
+                usage=usage,
+            )
+            recipe = None
+        if failure is not None:
+            raise failure
+        if recipe is None:
+            raise llm.ProviderError(
+                "bad_response",
+                "Recipe output failed validation.",
+                usage=usage,
+            )
+        if cancelled():
+            raise llm.ProviderError(
+                "unavailable",
+                "Recipe generation was cancelled.",
+                usage=usage,
+            )
+        usage_value = (
+            {"cost_in_usd_ticks": usage.cost_in_usd_ticks}
+            if usage.reported and usage.cost_in_usd_ticks is not None
+            else None
+        )
+        return RecipeResult(
+            recipe=recipe,
+            backend="api",
+            provider="openai",
+            model_id=self._model_id,
+            usage=usage_value,
+        )
+
+
 def _ollama_output_text(response: dict[str, Any]) -> str:
     message = response.get("message")
     if not isinstance(message, dict) or not isinstance(message.get("content"), str):
@@ -524,6 +724,7 @@ __all__ = [
     "LOCAL_OUTPUT_TOKENS",
     "MAX_RECIPE_PROMPT_CHARS",
     "OllamaRecipeProvider",
+    "OpenAIRecipeProvider",
     "RecipeProvider",
     "RecipeRequest",
     "RecipeResult",

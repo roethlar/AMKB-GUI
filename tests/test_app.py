@@ -1125,6 +1125,29 @@ class GrokTransportTests(unittest.TestCase):
         self.assertNotIn("provider-secret", request.full_url)
         self.assertGreater(timeout, 0)
 
+        opener = _RecordingOpener(response=_FakeResponse(b'{"ok":true}'))
+        spec = llm.OPENAI_RESPONSES_TRANSPORT
+        result = llm._provider_json_request(
+            spec,
+            {"input": []},
+            "provider-secret",
+            self._future_deadline(),
+            opener=opener,
+        )
+
+        self.assertEqual({"ok": True}, result)
+        self.assertEqual(1, len(opener.calls))
+        request, timeout = opener.calls[0]
+        self.assertEqual("https://api.openai.com/v1/responses", request.full_url)
+        self.assertEqual(
+            "Bearer provider-secret",
+            _request_header(request, "Authorization"),
+        )
+        self.assertEqual("api.openai.com", spec.host)
+        self.assertEqual("https://api.openai.com/v1/responses", spec.url)
+        self.assertNotIn("provider-secret", request.full_url)
+        self.assertGreater(timeout, 0)
+
         invalid = llm.ProviderTransportSpec(
             provider="anthropic",
             url="https://attacker.invalid/v1/messages",

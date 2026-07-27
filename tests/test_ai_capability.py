@@ -361,6 +361,51 @@ class CapabilityTests(unittest.TestCase):
 
         self.assertIsInstance(provider, AnthropicRecipeProvider)
 
+    def test_openai_setup_and_generation_share_one_registry_identity(self) -> None:
+        self.settings["ai"].update({"enabled": True, "backend": "api"})
+        self.settings["ai"]["api"]["selected_provider"] = "openai"
+        api = self._selected_api()
+        api.update(
+            {
+                "model_id": "gpt-5.6-sol",
+                "disclosure_version": ai_catalog.provider_disclosure_version(
+                    "openai"
+                ),
+                "disclosure_at": "2026-07-27T12:00:00+00:00",
+            }
+        )
+        self.credential = "openai-private"
+        provider = _Provider()
+        service = self._service(provider=provider)
+
+        self.assertEqual("setup_required", service.status()["reason"])
+        status = service.test_backend(
+            "api",
+            deadline=time.monotonic() + 10,
+            cancelled=lambda: False,
+        )
+
+        self.assertTrue(status["ready"])
+        self.assertEqual("openai", status["api"]["provider"])
+        self.assertEqual("gpt-5.6-sol", status["api"]["model_id"])
+        self.assertEqual(1, provider.calls)
+        self.assertIs(provider, service.provider_for_generation())
+        self.assertEqual(
+            ("fingerprint", "api", "openai", api["setup_fingerprint"]),
+            self.writes[-1],
+        )
+
+    def test_default_registry_constructs_the_openai_adapter(self) -> None:
+        from am_configurator.recipe_provider import OpenAIRecipeProvider
+
+        provider = AICapabilityService._default_api_provider(
+            "openai",
+            "openai-private",
+            "gpt-5.6-sol",
+        )
+
+        self.assertIsInstance(provider, OpenAIRecipeProvider)
+
     def test_capability_polling_has_no_managed_model_or_runtime_path(self) -> None:
         source = inspect.getsource(ai_capability)
         for forbidden in (

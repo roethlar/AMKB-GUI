@@ -10,6 +10,7 @@ from am_configurator.recipe_inference import build_ollama_recipe_payload
 from am_configurator.recipe_provider import (
     AnthropicRecipeProvider,
     OllamaRecipeProvider,
+    OpenAIRecipeProvider,
     RecipeRequest,
     XaiRecipeProvider,
 )
@@ -80,6 +81,40 @@ def _anthropic_response(
         "role": "assistant",
         "content": [{"type": "text", "text": json.dumps(recipe)}],
         "stop_reason": stop_reason,
+    }
+    if usage is not None:
+        response["usage"] = usage
+    return response
+
+
+def _openai_response(
+    recipe: dict,
+    *,
+    status: str = "completed",
+    usage: dict | None = None,
+) -> dict:
+    response = {
+        "object": "response",
+        "status": status,
+        "error": None,
+        "incomplete_details": (
+            None if status == "completed" else {"reason": "max_output_tokens"}
+        ),
+        "output": [
+            {"type": "reasoning", "id": "rs_test", "summary": []},
+            {
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": json.dumps(recipe),
+                        "annotations": [],
+                    }
+                ],
+            },
+        ],
     }
     if usage is not None:
         response["usage"] = usage
@@ -346,6 +381,183 @@ class AnthropicRecipeProviderTests(unittest.TestCase):
         post_call = AnthropicRecipeProvider(
             "anthropic-private",
             transport=lambda *_args: _anthropic_response(
+                _recipe(),
+                usage={"input_tokens": 100, "output_tokens": 20},
+            ),
+        )
+        with self.assertRaises(llm.ProviderError) as late:
+            post_call.generate(
+                _request(),
+                time.monotonic() + 10,
+                lambda: next(checks),
+            )
+        self.assertEqual("unavailable", late.exception.code)
+        self.assertTrue(late.exception.usage.reported)
+
+
+class OpenAIRecipeProviderTests(unittest.TestCase):
+    def test_current_catalog_and_one_responses_call_use_the_strict_contract(
+        self,
+    ) -> None:
+        catalog = ai_catalog.catalog_view()["providers"]["openai"]
+        self.assertEqual("gpt-5.6-sol", catalog["default_model"])
+        self.assertEqual(
+            ["gpt-5.6-sol", "gpt-5.6-terra"],
+            [model["id"] for model in catalog["models"]],
+        )
+        self.assertTrue(
+            all(model["reasoning_effort"] == "medium" for model in catalog["models"])
+        )
+        self.assertEqual(
+            2_099_200_000,
+            ai_catalog.recipe_max_cost_usd_ticks("openai", "gpt-5.6-sol"),
+        )
+
+        calls: list[tuple] = []
+        usage = {
+            "input_tokens": 1000,
+            "input_tokens_details": {
+                "cached_tokens": 0,
+                "cache_write_tokens": 0,
+            },
+            "output_tokens": 200,
+            "output_tokens_details": {"reasoning_tokens": 50},
+            "total_tokens": 1200,
+        }
+
+        def transport(spec, payload, api_key, deadline):
+            calls.append((spec, payload, api_key, deadline))
+            return _openai_response(_recipe(), usage=usage)
+
+        provider = OpenAIRecipeProvider("openai-private", transport=transport)
+        result = provider.generate(_request(), time.monotonic() + 10, lambda: False)
+
+        self.assertEqual(1, len(calls))
+        spec, payload, api_key, _deadline = calls[0]
+        self.assertIs(llm.OPENAI_RESPONSES_TRANSPORT, spec)
+        self.assertEqual("openai-private", api_key)
+        self.assertEqual("gpt-5.6-sol", payload["model"])
+        self.assertIs(payload["store"], False)
+        self.assertIs(payload["stream"], False)
+        self.assertEqual(1536, payload["max_output_tokens"])
+        self.assertEqual({"effort": "medium"}, payload["reasoning"])
+        self.assertIn("18x7", payload["input"][0]["content"])
+        self.assertEqual(_request().prompt, payload["input"][1]["content"])
+        output_format = payload["text"]["format"]
+        self.assertEqual("json_schema", output_format["type"])
+        self.assertEqual("animation_recipe", output_format["name"])
+        self.assertIs(output_format["strict"], True)
+        self.assertEqual(procedural.recipe_schema(), output_format["schema"])
+        self.assertEqual(_recipe(), result.recipe)
+        self.assertEqual("api", result.backend)
+        self.assertEqual("openai", result.provider)
+        self.assertEqual("gpt-5.6-sol", result.model_id)
+        self.assertEqual({"cost_in_usd_ticks": 110_000_000}, result.usage)
+
+    def test_missing_usage_succeeds_and_malformed_usage_fails_once(self) -> None:
+        calls = 0
+        responses = iter(
+            (
+                _openai_response(_recipe()),
+                _openai_response(
+                    _recipe(),
+                    usage={"input_tokens": True, "output_tokens": 10},
+                ),
+            )
+        )
+
+        def transport(*_args):
+            nonlocal calls
+            calls += 1
+            return next(responses)
+
+        provider = OpenAIRecipeProvider("openai-private", transport=transport)
+        result = provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertIsNone(result.usage)
+
+        with self.assertRaises(llm.ProviderError) as captured:
+            provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertEqual("bad_response", captured.exception.code)
+        self.assertEqual(2, calls)
+        self.assertNotIn("openai-private", str(captured.exception))
+
+    def test_refusal_and_incomplete_response_are_typed_and_never_retried(
+        self,
+    ) -> None:
+        usage = {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120}
+        refusal = _openai_response(_recipe(), usage=usage)
+        refusal["output"] = [
+            {
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [
+                    {
+                        "type": "refusal",
+                        "refusal": "provider-body-secret",
+                    }
+                ],
+            }
+        ]
+        incomplete = _openai_response(
+            _recipe(),
+            status="incomplete",
+            usage=usage,
+        )
+        for response, code in (
+            (refusal, "moderation"),
+            (incomplete, "bad_response"),
+        ):
+            calls = 0
+
+            def transport(*_args):
+                nonlocal calls
+                calls += 1
+                return response
+
+            provider = OpenAIRecipeProvider("openai-private", transport=transport)
+            with self.subTest(code=code):
+                with self.assertRaises(llm.ProviderError) as captured:
+                    provider.generate(
+                        _request(),
+                        time.monotonic() + 10,
+                        lambda: False,
+                    )
+                self.assertEqual(code, captured.exception.code)
+                self.assertEqual(1, calls)
+                self.assertTrue(captured.exception.usage.reported)
+                self.assertNotIn("provider-body-secret", str(captured.exception))
+
+    def test_cancellation_and_invalid_recipe_never_make_a_paid_retry(self) -> None:
+        calls = 0
+
+        def invalid_transport(*_args):
+            nonlocal calls
+            calls += 1
+            return _openai_response(
+                {"provider-body-secret": "never expose this"},
+                usage={"input_tokens": 100, "output_tokens": 20},
+            )
+
+        provider = OpenAIRecipeProvider(
+            "openai-private",
+            transport=invalid_transport,
+        )
+        with self.assertRaises(llm.ProviderError) as cancelled:
+            provider.generate(_request(), time.monotonic() + 10, lambda: True)
+        self.assertEqual("unavailable", cancelled.exception.code)
+        self.assertEqual(0, calls)
+
+        with self.assertRaises(llm.ProviderError) as invalid:
+            provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertEqual("bad_response", invalid.exception.code)
+        self.assertEqual(1, calls)
+        self.assertNotIn("provider-body-secret", str(invalid.exception))
+
+        checks = iter((False, True))
+        post_call = OpenAIRecipeProvider(
+            "openai-private",
+            transport=lambda *_args: _openai_response(
                 _recipe(),
                 usage={"input_tokens": 100, "output_tokens": 20},
             ),

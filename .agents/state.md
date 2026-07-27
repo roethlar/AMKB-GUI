@@ -138,7 +138,7 @@
   compile/syntax checks, and package builds.
 - The owner-approved unified Lighting implementation in
   `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` is
-  active. Slices 2-3 are complete. Catalog schema 2 names the six fixed API
+  active. Slices 2-4 are complete. Catalog schema 2 names the six fixed API
   providers; settings schema 6 preserves the complete xAI record through a
   credential-free v5 migration; provider-scoped vault operations, environment
   overrides, disclosure records, setup fingerprints, capability caches, and
@@ -153,12 +153,18 @@
   Provider-specific save/delete rollback, migrations and future-schema refusal,
   selected-provider access, error redaction, transport bounds, Anthropic
   schema/usage/output handling, cancellation, one-paid-request behavior, and
-  no-retry behavior were red-proven. The full gate passes 594 Python tests, 57
-  web tests, compile/syntax checks, and source/wheel builds. The heavy
+  no-retry behavior were red-proven. OpenAI now has curated GPT-5.6 Sol and
+  GPT-5.6 Terra choices, one pinned Responses request with strict structured
+  output, disabled storage and streaming, explicit reasoning effort, complete
+  local recipe validation, refusal/completion handling, dated usage-cost
+  estimation, and shared setup/generation registry wiring. Its request,
+  transport, usage, output, cancellation, one-paid-request, and no-retry guards
+  were red-proven. The full gate passes 600 Python tests, 57 web tests,
+  compile/syntax checks, and source/wheel builds. The heavy
   procedural recovery fixture uses the production 180-second operation
   deadline instead of a flaky 30-second test-only override. No real provider
   request, credential mutation, Keychain prompt, model mutation, or hardware
-  write occurred. Next action is slice 4, the OpenAI recipe adapter. Local
+  write occurred. Next action is slice 5, the Gemini recipe adapter. Local
   `main` remains unpublished; the push policy requires a fresh explicit owner
   go.
 
