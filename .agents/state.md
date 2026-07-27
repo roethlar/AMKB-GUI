@@ -2,9 +2,12 @@
 
 ## Now
 
-- AM Neon 80 support is in progress on `neon-80-support`. Plan tasks N1-N9 are
-  implemented, and `.agents/review/index.md` owns the closed, red-proven review
-  scoreboard. N10's physical identity and real-GUI enumeration checks pass.
+- AM Neon 80 support is complete on `main`. Merge commit `f3ed88c` integrates
+  the former `neon-80-support` branch, which was deleted locally and from
+  `origin` after a direct content comparison proved that deleting it would lose
+  nothing. Plan tasks N1-N9 are implemented, and `.agents/review/index.md` owns
+  the closed, red-proven review scoreboard. N10's physical identity and
+  real-GUI enumeration checks pass.
   The GUI read exposed and red-proved fixes for a macOS hidapi thread-affinity
   crash, Vial's empty macro-capacity slots entering the portable document, and
   literal Vial text being misread as HID usage numbers. Commit `25f225c`
@@ -88,8 +91,8 @@
   follow-up in
   `docs/superpowers/plans/2026-07-26-neon-led-preserving-writes.md` is withdrawn
   as unnecessary for N10.
-- Next action: the Neon implementation and N10 hardware verification are
-  complete. Any push remains owner-gated by `.agents/push-policy.md`.
+- Next action: no Neon implementation, verification, integration, or branch
+  cleanup remains. Future work starts from `main`.
 
 ## Blockers
 
