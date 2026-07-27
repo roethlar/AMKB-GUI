@@ -1,8 +1,8 @@
 # AI Master Switch and Visible Runtime Version
 
-**Status:** Approved by the owner's explicit implementation request on
-2026-07-27. This plan implements the same-day decision that AI enablement is
-user intent while backend readiness independently gates generation.
+**Status:** Complete on 2026-07-27. The owner's explicit implementation request
+approved this plan, which implements the same-day decision that AI enablement
+is user intent while backend readiness independently gates generation.
 
 ## Problem
 
@@ -119,3 +119,20 @@ authorized by this plan.
 4. Red-prove the new guards, run the full gate, build/smoke/visually inspect the
    native package, update `.agents/state.md`, and commit the verification
    record.
+
+## Outcome
+
+- Commits `4991188`, `b088731`, and `0086f5b` implement the backend contract,
+  Settings interaction, visible runtime version, and native switch styling.
+- The focused persistence, route, setup-ownership, hidden-settings, discovery,
+  version, and switch-style guards were each red-proven before restoration.
+- The repository gate passes 579 Python tests and 57 web tests, plus
+  compile/syntax checks and source/wheel package builds.
+- Native build 59 passes the frozen smoke test from both the signed application
+  bundle and the mounted DMG. The verified installer is
+  `dist/AM-Configurator-0.1.59-macOS-arm64.dmg`.
+- An isolated build-59 native-window inspection confirms `Version 0.1.59` is
+  visible, the off state contains one styled switch and no AI setup controls,
+  the on state persists immediately and reveals Local/API configuration, and
+  switching off hides the configuration again. The inspection made no provider
+  request, credential access, model mutation/download, or hardware write.

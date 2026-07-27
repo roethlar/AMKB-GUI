@@ -2,6 +2,27 @@
 
 ## Now
 
+- The AI master-switch and visible-version work is complete on `main`. AI
+  enablement now persists as user intent before backend setup is ready; backend
+  selection and setup tests cannot change that intent, while generation still
+  requires both enabled and ready. Settings shows exactly one styled AI switch
+  while off and performs no automatic Ollama discovery; switching on
+  immediately reveals Local/API setup and switching off hides it without
+  deleting configuration or Library content. The global header displays the
+  server-injected runtime version as a distinct `Version <version>` badge.
+  Focused persistence, route, setup-ownership, hidden-settings, discovery,
+  version, and switch-style regressions were red-proven. The full repository
+  gate passes 579 Python tests, 57 web tests, compile/syntax checks, and package
+  builds. Native build 59 passes frozen smoke from the signed app and mounted
+  DMG; its checksum-verified artifact is
+  `dist/AM-Configurator-0.1.59-macOS-arm64.dmg`. An isolated native-window check
+  confirms the `Version 0.1.59` badge, the styled off/on states, immediate
+  persisted enablement, revealed setup while on, and hidden setup after
+  restoring off. No provider request, credential access, model
+  mutation/download, or hardware write was performed. The approved and
+  completed plan is
+  `docs/superpowers/plans/2026-07-27-ai-master-switch.md`; the governing ruling
+  is the 2026-07-27 AI master-switch entry in `.agents/decisions.md`.
 - AM Neon 80 support is complete on `main`. Merge commit `f3ed88c` integrates
   the former `neon-80-support` branch, which was deleted locally and from
   `origin` after a direct content comparison proved that deleting it would lose
@@ -97,8 +118,10 @@
   x64 failures caused by contacting `ffmpeg.org` despite a cache hit. The guard
   was red-proven, and the repository gate passes 578 Python tests, 55 web tests,
   compile/syntax checks, and package builds.
-- Next action: no Neon implementation, verification, integration, or branch
-  cleanup remains. Future work starts from `main`.
+- Next action: no AI-switch, Neon, installer-workflow, integration, or branch
+  cleanup remains. Future work starts from `main`. Local `main` will be five
+  commits ahead of `origin/main` after this verification record is committed;
+  the push policy requires a fresh explicit owner go before publishing them.
 
 ## Blockers
 
