@@ -1,5 +1,30 @@
 # Repository Decisions
 
+## 2026-07-27 — One AI switch owns intent; readiness only gates use
+
+Status: approved by the owner on 2026-07-27 through the explicit request to
+replace the broken AI enable/setup interaction.
+
+- Settings has one master AI on/off switch. It is the only control that changes
+  whether optional AI is enabled.
+- When the switch is off, Settings hides every AI backend and setup control and
+  the application performs no automatic Ollama discovery. Manual lighting and
+  previously generated Library content remain available.
+- Turning the switch on persists that intent immediately and reveals backend
+  setup even when no backend is ready. Setup failures leave the switch on and
+  the repair controls visible.
+- Backend selection and setup tests never turn AI on or off. A successful setup
+  test records readiness for the selected backend; it does not own enablement.
+- Outside Settings, generation remains hidden and unavailable until the master
+  switch is on and the selected backend's current setup is valid. Changing a
+  model, credential, disclosure, or backend can therefore remove readiness
+  without changing the owner's on/off choice.
+
+This supersedes the 2026-07-21 Optional AI decision only where that decision
+coupled enablement to a successful setup test. Its manual-first default,
+hidden-until-ready generation boundary, local/API backend constraints, privacy
+requirements, and Library preservation remain authoritative.
+
 ## 2026-07-25 — The device seam sits below the protocol encoding
 
 The device driver interface takes the logical configuration, never
