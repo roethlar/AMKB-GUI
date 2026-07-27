@@ -10,9 +10,10 @@ Slot *N* transmits as channels *N*, *N+3*, and *N+6*: axial, head, side.
 
 Packets are 32 bytes. Byte `[0]` is the command selector and `[1..31]` are the
 payload the driver actually sends, so the checksum covers `[0..30]`. `packIndex`
-is the packet's index within its frame, except on the very last packet of the
-very last frame, where it is `255` — that terminator is what tells the firmware
-the upload is complete, so a stream that omits it leaves the device waiting.
+is the packet's index within its frame, except on the last packet of each
+channel's last frame, where it is `255` — that terminator is what tells the
+firmware the channel upload is complete, so a stream that omits it leaves the
+device waiting.
 
 Nothing here opens a device. Transmission takes an already-approved session from
 `hid_transport.open_approved`, which is the only thing that may write to a
@@ -138,8 +139,8 @@ def build_frame_packets(
         packet[0] = LIGHTING_COMMAND
         packet[1] = channel
         packet[2] = frame_index & 0xFF
-        # The terminator marks the end of the whole upload, not the end of a
-        # frame: only the last packet of the last frame carries it.
+        # The terminator marks the end of this channel upload, not merely the
+        # end of a frame: only the last packet of the channel's last frame has it.
         packet[3] = (
             _FINAL_PACKET_MARKER if (is_final_frame and last_of_frame) else index & 0xFF
         )
@@ -209,16 +210,14 @@ def plan_push(
 
     if slot not in SLOTS:
         raise NeonLightingError(f"Slot must be one of {SLOTS}, got {slot}.")
-    if len(axial_frames) != len(head_frames):
-        raise NeonLightingError(
-            "The axial and head tracks must have the same frame count "
-            f"({len(axial_frames)} and {len(head_frames)})."
-        )
     if not axial_frames:
-        raise NeonLightingError("An effect must contain at least one frame.")
-    if len(axial_frames) > MAX_FRAMES:
+        raise NeonLightingError("The axial track must contain at least one frame.")
+    if not head_frames:
+        raise NeonLightingError("The head track must contain at least one frame.")
+    if len(axial_frames) > MAX_FRAMES or len(head_frames) > MAX_FRAMES:
         raise NeonLightingError(
-            f"An effect may hold at most {MAX_FRAMES} frames, got {len(axial_frames)}."
+            f"Each track may hold at most {MAX_FRAMES} frames, got "
+            f"{len(axial_frames)} axial and {len(head_frames)} head."
         )
     for index, frame in enumerate(axial_frames):
         if len(frame) != AXIAL_LED_COUNT:
@@ -234,10 +233,9 @@ def plan_push(
             )
 
     side_frames = [derive_side_frame(frame) for frame in head_frames]
-    last = len(axial_frames) - 1
-
     def _channel_upload(zone: str, base: int, frames: Sequence[Sequence[str]]):
         channel = base + slot - 1
+        last = len(frames) - 1
         built = tuple(
             tuple(
                 build_frame_packets(

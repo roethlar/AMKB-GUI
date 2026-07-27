@@ -187,21 +187,42 @@ class PlanValidationTests(unittest.TestCase):
                 with self.assertRaises(nl.NeonLightingError):
                     nl.plan_push(axial, head, slot=1)
 
-    def test_mismatched_frame_counts_are_refused(self) -> None:
-        with self.assertRaises(nl.NeonLightingError):
-            nl.plan_push([_axial(), _axial()], [_head()], slot=1)
+    def test_channels_may_have_independent_frame_counts(self) -> None:
+        plan = nl.plan_push(
+            [_axial(), _axial()],
+            [_head(), _head(), _head()],
+            slot=1,
+        )
 
-    def test_more_than_the_frame_cap_is_refused(self) -> None:
-        with self.assertRaises(nl.NeonLightingError):
-            nl.plan_push(
-                [_axial()] * (nl.MAX_FRAMES + 1),
-                [_head()] * (nl.MAX_FRAMES + 1),
-                slot=1,
+        axial, head, side = plan.uploads
+        self.assertEqual([2, 3, 3], [len(upload.frames) for upload in plan.uploads])
+        for upload in (axial, head, side):
+            terminators = [
+                (frame_index, packet_index)
+                for frame_index, frame in enumerate(upload.frames)
+                for packet_index, packet in enumerate(frame)
+                if packet[3] == 255
+            ]
+            self.assertEqual(
+                [(len(upload.frames) - 1, len(upload.frames[-1]) - 1)],
+                terminators,
+                upload.zone,
             )
 
+    def test_more_than_the_frame_cap_is_refused(self) -> None:
+        for axial, head in (
+            ([_axial()] * (nl.MAX_FRAMES + 1), [_head()]),
+            ([_axial()], [_head()] * (nl.MAX_FRAMES + 1)),
+        ):
+            with self.subTest(axial=len(axial), head=len(head)):
+                with self.assertRaises(nl.NeonLightingError):
+                    nl.plan_push(axial, head, slot=1)
+
     def test_an_empty_effect_and_a_bad_slot_are_refused(self) -> None:
-        with self.assertRaises(nl.NeonLightingError):
-            nl.plan_push([], [], slot=1)
+        for axial, head in (([], [_head()]), ([_axial()], []), ([], [])):
+            with self.subTest(axial=len(axial), head=len(head)):
+                with self.assertRaises(nl.NeonLightingError):
+                    nl.plan_push(axial, head, slot=1)
         with self.assertRaises(nl.NeonLightingError):
             nl.plan_push([_axial()], [_head()], slot=4)
 

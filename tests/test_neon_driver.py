@@ -225,6 +225,27 @@ class PreflightTests(unittest.TestCase):
             {0x01, 0x04, 0x07}, {p[1] for p in session.lighting_packets}
         )
 
+    def test_a_slot_writes_independent_axial_and_head_frame_counts(self) -> None:
+        config = _neon_config(frames=1, slots=1)
+        config["page_data"][0]["axial"]["frame_data"].append(
+            {"frame_RGB": ["#070809"] * neon_lighting.AXIAL_LED_COUNT}
+        )
+        session = Session()
+
+        self._write(config, session)
+
+        frames_by_channel = {
+            channel: {
+                packet[2]
+                for packet in session.lighting_packets
+                if packet[1] == channel
+            }
+            for channel in (0x01, 0x04, 0x07)
+        }
+        self.assertEqual({0, 1}, frames_by_channel[0x01])
+        self.assertEqual({0}, frames_by_channel[0x04])
+        self.assertEqual({0}, frames_by_channel[0x07])
+
     def test_the_transmitted_keymap_is_the_one_that_was_validated(self) -> None:
         session = Session()
         config = _neon_config()
