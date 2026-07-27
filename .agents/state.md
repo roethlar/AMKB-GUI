@@ -137,9 +137,13 @@
   was red-proven, and the repository gate passes 578 Python tests, 55 web tests,
   compile/syntax checks, and package builds.
 - Next action: no AI-switch, Neon, installer-workflow, integration, or branch
-  cleanup remains. Future work starts from `main`. Local `main` is eight commits
-  ahead of `origin/main`; the push policy requires a fresh explicit owner go
-  before publishing them.
+  cleanup remains. The new unified Lighting Studio and mixed Library plan is
+  drafted at
+  `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md`.
+  Implementation is blocked on its single Generated-source representation
+  decision and subsequent explicit plan approval. Local `main` will be nine
+  commits ahead of `origin/main` after this planning record is committed; the
+  push policy requires a fresh explicit owner go before publishing them.
 
 ## Blockers
 

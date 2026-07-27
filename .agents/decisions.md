@@ -1,5 +1,36 @@
 # Repository Decisions
 
+## 2026-07-27 — Lighting is one integrated studio with a unified Library
+
+Status: approved by the owner on 2026-07-27 by selecting the full image-studio
+direction and specifying the unified Lighting and Library workflow.
+
+- Lighting is one cohesive section. Manual per-key, per-frame painting, basic
+  deterministic animation, media composition, optional AI generation, and
+  Library review are parts of that section rather than separate products or a
+  detached generation dialog.
+- Manual editing remains available without AI. When the master AI switch is
+  off, Lighting exposes no AI-specific source choice, prompt, status, or setup
+  copy. When it is on, the source chooser presents GIF import and Generated as
+  the two media-source choices; backend readiness still prevents an actual
+  generation request until setup is valid.
+- Every successfully imported GIF and every completed generated result is
+  retained in Library. Manually authored per-key lighting can also be saved to
+  Library.
+- Library is a mixed local collection, not only a generation-job browser. It
+  includes media sources, saved lighting compositions, and saved keyboard
+  profile/mapping files, and it provides a remove action.
+- Loading from Library is compatibility-gated against the open or connected
+  keyboard. The application imports only server-validated compatible sections,
+  explains blocked sections, never changes the destination identity, and never
+  treats a partial import as permission to write hardware.
+
+This supersedes the editor-first decision only where it prescribed a separate
+generation dialog or drawer, and supersedes the video-first Library only where
+it modeled the visible collection solely as generation jobs. It preserves the
+manual-first default, the AI master switch, durable local banking, explicit
+document-only Apply, and the separately confirmed hardware-write boundary.
+
 ## 2026-07-27 — One AI switch owns intent; readiness only gates use
 
 Status: approved by the owner on 2026-07-27 through the explicit request to
