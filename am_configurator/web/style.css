@@ -418,6 +418,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .physical-pixel span, .physical-pixel small { display: block; max-width: calc(100% - 4px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; pointer-events: none; text-shadow: 0 1px 3px #000, 0 0 2px #000; }
 .physical-pixel span { font-size: clamp(6px, .58vw, 9px); font-weight: 700; }
 .physical-pixel small { font-size: clamp(5px, .48vw, 7px); opacity: .78; }
+.pixel-grid.physical .physical-pixel.multi-led { border-radius: 0; }
+.pixel-grid.physical .physical-pixel.multi-led:not(.group-first) { border-left-color: rgba(255,255,255,.04); }
+.pixel-grid.physical .physical-pixel.multi-led.group-first { border-radius: 6px 0 0 6px; }
+.pixel-grid.physical .physical-pixel.multi-led.group-last { border-radius: 0 6px 6px 0; }
+.pixel-grid.physical .physical-pixel.multi-led:hover { transform: rotate(var(--rotation, 0deg)) scale(1.025); }
 .pixel-grid.physical .body-led { border-radius: 999px; border-color: var(--violet-2); }
 .led-controls { position: sticky; top: 20px; }
 .control-group { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }

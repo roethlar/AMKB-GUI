@@ -132,6 +132,92 @@
     return keys;
   }
 
+  function projectVialLedLayout(device, target) {
+    const keys = projectVialKeyLayout(device);
+    const width = Number(target?.width);
+    const height = Number(target?.height);
+    const pixelCount = Number(target?.pixels ?? target?.count);
+    const map = target?.map;
+    if (
+      !keys
+      || !Number.isInteger(width) || width <= 0
+      || !Number.isInteger(height) || height <= 0
+      || !Array.isArray(map) || map.length !== width * height
+    ) {
+      return null;
+    }
+
+    const keyRows = [];
+    for (const key of [...keys].sort((a, b) => a[2] - b[2] || a[1] - b[1])) {
+      let row = keyRows.find(candidate => Math.abs(candidate.y - key[2]) < 0.001);
+      if (!row) {
+        row = {y: key[2], keys: []};
+        keyRows.push(row);
+      }
+      row.keys.push(key);
+    }
+    keyRows.sort((a, b) => a.y - b.y);
+    if (keyRows.length !== height) return null;
+
+    const projected = [];
+    const seenPixels = new Set();
+    for (let rowIndex = 0; rowIndex < height; rowIndex += 1) {
+      const rowKeys = [...keyRows[rowIndex].keys].sort((a, b) => a[1] - b[1]);
+      const rowPixels = map
+        .slice(rowIndex * width, (rowIndex + 1) * width)
+        .map((index, x) => ({index: Number(index), x}))
+        .filter(item => Number.isInteger(item.index) && item.index >= 0);
+      if (rowPixels.length < rowKeys.length) return null;
+
+      const ledsPerKey = Array(rowKeys.length).fill(1);
+      let extras = rowPixels.length - rowKeys.length;
+      if (extras) {
+        const widest = rowKeys.reduce(
+          (best, key, index) => key[3] > rowKeys[best][3] ? index : best,
+          0,
+        );
+        while (extras > 0) {
+          ledsPerKey[widest] += 1;
+          extras -= 1;
+        }
+      }
+
+      let pixelOffset = 0;
+      for (let keyOffset = 0; keyOffset < rowKeys.length; keyOffset += 1) {
+        const key = rowKeys[keyOffset];
+        const groupCount = ledsPerKey[keyOffset];
+        const segmentWidth = key[3] / groupCount;
+        for (let groupPosition = 0; groupPosition < groupCount; groupPosition += 1) {
+          const pixel = rowPixels[pixelOffset + groupPosition];
+          if (!pixel || seenPixels.has(pixel.index)) return null;
+          seenPixels.add(pixel.index);
+          projected.push({
+            index: pixel.index,
+            keyIndex: key[0],
+            x: key[1] + segmentWidth * groupPosition,
+            y: key[2],
+            w: segmentWidth,
+            h: key[5],
+            rotation: key[4],
+            groupPosition,
+            groupCount,
+            showLabel: groupCount === 1 || groupPosition === Math.floor(groupCount / 2),
+          });
+        }
+        pixelOffset += groupCount;
+      }
+      if (pixelOffset !== rowPixels.length) return null;
+    }
+
+    if (
+      seenPixels.size !== projected.length
+      || (Number.isInteger(pixelCount) && pixelCount >= 0 && projected.length !== pixelCount)
+    ) {
+      return null;
+    }
+    return projected;
+  }
+
   function neonPaletteAssignment(code, macroTracks = 16) {
     const normalized = String(code || "").toUpperCase();
     if (!/^#[0-9A-F]{8}$/.test(normalized)) return false;
@@ -295,6 +381,7 @@
     neonPaletteAssignment,
     productFamily,
     projectVialKeyLayout,
+    projectVialLedLayout,
     renderTargetControls,
     specForProduct,
     supportedFamily,

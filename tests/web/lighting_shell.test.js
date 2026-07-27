@@ -253,6 +253,8 @@ test("Neon keymap wiring uses the validated layout and assignment gate", () => {
   const neonLayout = layout.slice(layout.indexOf('if (family === "NEON")'), layout.indexOf("const layer"));
 
   assert.match(layout, /family === "NEON"[\s\S]*projectVialKeyLayout\(device\)/);
+  assert.match(js, /state\.ledTarget==="axial"[\s\S]*projectVialLedLayout\(device,servedTarget\)/);
+  assert.match(css, /\.physical-pixel\.multi-led[\s\S]*\.group-first[\s\S]*\.group-last/);
   assert.doesNotMatch(neonLayout, /Matrix layout|Math\.floor\(index \/ 25\)/);
   assert.match(palette, /filterAssignmentOptions\(product/);
   assert.match(assign, /api\("\/api\/keymap\/assignment"/);

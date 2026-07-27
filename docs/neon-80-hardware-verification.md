@@ -55,7 +55,7 @@ by itself a problem — record it.
       the document opens, **Save JSON** is enabled, and validation passes.
 - [x] Confirm the rendered macro rows contain 22, 34, 38, and 40 aligned
       press/release events.
-- [ ] Confirm the per-key lighting canvas uses the real Vial key widths and row
+- [x] Confirm the per-key lighting canvas uses the real Vial key widths and row
       offsets rather than evenly sized matrix cells.
 
 This is the step that proves N1 and N2 actually connected it. A device that
@@ -135,7 +135,7 @@ Fill this in as you go. `—` means not attempted.
 | Step | Outcome | Notes |
 |---|---|---|
 | 1. Identity | Pass | Physical board: model `NEON80`, definition `AM Neon 80`, firmware UID `d47af38a35b8ed73`, Vial protocol 5, writable `True`, 87 projected layout keys. Read-only; nothing was written. |
-| 2. Devices in GUI | Partial | Native build 52 listed `NEON80` as USB, completed **Read keymap & macros** without crashing or touching Keychain, and opened a valid document with four 90-key layers and four populated macro slots while retaining the separately reported 16-slot capacity. Commit `25f225c` red-proves the macro decoder repair; native build 53's rendered UI confirms event counts 22, 34, 38, and 40 as aligned press/release transitions. The exported JSON parses and identifies `NEON80`, but it is a keymap/macro profile with synthetic black LED placeholders, not a backup of the current LED setup. The per-key lighting canvas still projects evenly sized matrix cells instead of the real keyboard geometry; the owner requested that correction before the write. No keyboard write was attempted. |
+| 2. Devices in GUI | Pass | Native build 52 listed `NEON80` as USB, completed **Read keymap & macros** without crashing or touching Keychain, and opened a valid document with four 90-key layers and four populated macro slots while retaining the separately reported 16-slot capacity. Commit `25f225c` red-proves the macro decoder repair; native build 53's rendered UI confirms event counts 22, 34, 38, and 40 as aligned press/release transitions. A GET-only source-GUI read then rendered all 89 axial LEDs on the connected board's 87-key Vial geometry in rows `17/17/17/13/13/12`, with real modifier widths, row offsets, inverted-T arrows, and LEDs 80–82 grouped into one 7-unit spacebar. The exported JSON remains a keymap/macro profile with synthetic black LED placeholders, not a backup of the current LED setup. The 576-Python/55-web gate, native build 55, and bundled smoke pass. No keyboard write was attempted. |
 | 3a. Axial geometry | — | Authorized on 2026-07-26 after the owner found the original source GIF and accepted it as the recovery path. |
 | 3b. Head geometry | — | Same authorization as 3a. |
 | 3c. Side derivation | — | Same authorization as 3a. |

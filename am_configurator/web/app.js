@@ -10,7 +10,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
 const {createReviewView, openRenderedDialog, renderReview, reviewBlockedMessage} = LightingReview;
-const {DEVICE_TARGETS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
+const {DEVICE_TARGETS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
 
@@ -1494,7 +1494,12 @@ function renderLightingEdit() {
     return;
   }
   const columns=state.ledTarget==="frames"?40:state.ledTarget==="spotlight_frames"?7:(model.keyColumns||servedTarget?.width);
-  const physicalLayout=state.ledTarget==="keyframes"?model.physicalLayout:null;
+  const device=state.devices.find(candidate=>deviceKey(candidate)===state.loadedDevice);
+  const physicalLayout=state.ledTarget==="keyframes"
+    ?model.physicalLayout
+    :state.ledTarget==="axial"
+      ?projectVialLedLayout(device,servedTarget)
+      :null;
   const pixelMap=physicalLayout?physicalLayout.map(item=>item.index):state.ledTarget==="keyframes"?(model.keyMap||servedTarget?.map):state.ledTarget==="spotlight_frames"?[0,1,2,3,4,5,6]:(model.displayMap||servedTarget?.map||Array.from({length},(_,index)=>index));
   const mappedCount=new Set(pixelMap.filter(index=>index>=0)).size;
   const focusablePixelCount=physicalLayout?.length||pixelMap.filter(index=>index>=0).length;
@@ -1510,9 +1515,12 @@ function renderLightingEdit() {
   const pixelCanvas=!frame?`<div class="event-empty"><button id="first-frame" class="button primary">Create first frame</button></div>`:physicalLayout?`<div class="pixel-grid physical afa-led-board" role="grid" aria-label="LED paint grid">${physicalLayout.map((item,position)=>{
     const color=safeRgbColor(frame.frame_RGB[item.index]);
     const body=item.keyIndex===null;
-    const label=body?item.label:decodeCode(keyLabels[item.keyIndex]||"#00000000");
-    const description=body?'Center light':`Key ${label}, matrix ${item.keyIndex}`;
-    return `<button class="pixel physical-pixel ${body?'body-led':''}" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${item.index}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;--rotation:${item.rotation}deg;background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="${esc(description)}, LED ${item.index}, ${esc(color)}" title="${esc(description)} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
+    const keyLabel=body?item.label:decodeCode(keyLabels[item.keyIndex]||"#00000000");
+    const label=item.showLabel===false?"":keyLabel;
+    const description=body?'Center light':`Key ${keyLabel}, matrix ${item.keyIndex}`;
+    const grouped=item.groupCount>1;
+    const groupClass=grouped?`multi-led ${item.groupPosition===0?'group-first':''} ${item.groupPosition===item.groupCount-1?'group-last':''}`:"";
+    return `<button class="pixel physical-pixel ${body?'body-led':''} ${groupClass}" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${item.index}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;height:${item.h??10.7}%;--rotation:${item.rotation}deg;background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="${esc(description)}, LED ${item.index}, ${esc(color)}" title="${esc(description)} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
   }).join("")}</div>`:`<div class="pixel-grid ${gridClass}" role="grid" aria-label="LED paint grid" style="grid-template-columns:repeat(${columns},1fr)">${rasterCells}</div>`;
   const raster=model.keyRaster||(servedTarget?`${servedTarget.width}×${servedTarget.height}`:"");
   const gifSize=state.ledTarget==="frames"?"40×5":state.ledTarget==="spotlight_frames"?"18×7 → 7 edge LEDs":`${raster} → ${mappedCount} mapped LEDs`;

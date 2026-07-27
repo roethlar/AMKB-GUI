@@ -13,6 +13,7 @@ const {
   neonPaletteAssignment,
   productFamily,
   projectVialKeyLayout,
+  projectVialLedLayout,
   renderTargetControls,
   specForProduct,
   supportedFamily,
@@ -165,6 +166,35 @@ test("target controls preserve pressed and destination-locked state", () => {
   assert.deepEqual(host.children.map(button => button.getAttribute("aria-pressed")), ["false", "true"]);
   host.children[0].click();
   assert.equal(selections, 0);
+});
+
+test("the Neon axial LEDs inherit real key widths from the Vial layout", () => {
+  const layout = projectVialLedLayout(
+    {
+      key_layout: [
+        {index: 0, x: 0, y: 0, width: 10, height: 14, rotation: 0},
+        {index: 1, x: 10, y: 0, width: 10, height: 14, rotation: 0},
+        {index: 2, x: 20, y: 0, width: 60, height: 14, rotation: 0},
+        {index: 3, x: 80, y: 0, width: 10, height: 14, rotation: 0},
+      ],
+    },
+    {width: 6, height: 1, count: 6, map: [0, 1, 2, 3, 4, 5]},
+  );
+
+  assert.deepEqual(layout.map(item => item.index), [0, 1, 2, 3, 4, 5]);
+  assert.deepEqual(layout.map(item => item.keyIndex), [0, 1, 2, 2, 2, 3]);
+  assert.deepEqual(
+    layout.slice(2, 5).map(item => [item.x, item.w, item.groupPosition, item.groupCount]),
+    [[20, 20, 0, 3], [40, 20, 1, 3], [60, 20, 2, 3]],
+  );
+  assert.deepEqual(layout.slice(2, 5).map(item => item.showLabel), [false, true, false]);
+  assert.equal(
+    projectVialLedLayout(
+      {key_layout: [{index: 0, x: 0, y: 0, width: 10, height: 14, rotation: 0}]},
+      {width: 1, height: 2, count: 1, map: [0, -1]},
+    ),
+    null,
+  );
 });
 
 test("the validated Vial layout becomes the physical Neon key geometry", () => {
