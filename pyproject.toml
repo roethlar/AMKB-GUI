@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 dependencies = [
+  "hidapi>=0.14.0",
   "keyring==25.7.0",
   "pillow>=10.0",
   "pyserial>=3.5",
@@ -27,6 +28,10 @@ am-configurator = "am_configurator.desktop:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["am_configurator"]
+# Non-Python files are not picked up by `packages` alone. The udev rule has to
+# reach wheel users because the Linux permission error instructs them to install
+# it, and a wheel user has no source archive.
+artifacts = ["am_configurator/data/*.rules"]
 
 # Allowlist, not a denylist. Governance artifacts are installed by an external
 # toolkit, so anything not named here must stay out of published artifacts by

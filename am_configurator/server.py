@@ -13,6 +13,7 @@ import secrets
 import threading
 import time
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,7 +22,7 @@ from socketserver import TCPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, device_mapping
+from . import __version__, device_mapping, macro_text, transport
 
 
 _PKG = Path(__file__).resolve().parent
@@ -69,23 +70,6 @@ _PROVIDER_ERROR_HTTP: dict[str, HTTPStatus] = {
     "unavailable": HTTPStatus.BAD_GATEWAY,
 }
 
-_TEXT_KEY_USAGES: dict[str, tuple[int, bool]] = {
-    "\n": (0x28, False), "\t": (0x2B, False), " ": (0x2C, False),
-    "-": (0x2D, False), "_": (0x2D, True), "=": (0x2E, False), "+": (0x2E, True),
-    "[": (0x2F, False), "{": (0x2F, True), "]": (0x30, False), "}": (0x30, True),
-    "\\": (0x31, False), "|": (0x31, True), ";": (0x33, False), ":": (0x33, True),
-    "'": (0x34, False), '"': (0x34, True), "`": (0x35, False), "~": (0x35, True),
-    ",": (0x36, False), "<": (0x36, True), ".": (0x37, False), ">": (0x37, True),
-    "/": (0x38, False), "?": (0x38, True),
-}
-for _offset, _character in enumerate("abcdefghijklmnopqrstuvwxyz"):
-    _TEXT_KEY_USAGES[_character] = (0x04 + _offset, False)
-    _TEXT_KEY_USAGES[_character.upper()] = (0x04 + _offset, True)
-for _offset, (_plain, _shifted) in enumerate(zip("1234567890", "!@#$%^&*()")):
-    _TEXT_KEY_USAGES[_plain] = (0x1E + _offset, False)
-    _TEXT_KEY_USAGES[_shifted] = (0x1E + _offset, True)
-
-
 class AcceptedWriteError(RuntimeError):
     """The device ACKed the full write, but a later verification step failed."""
 
@@ -127,9 +111,19 @@ def blank_config(
     macros: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Create a writable, all-local profile when no AM JSON was opened first."""
-    upper = device_id.upper()
-    product_id = "80" if upper == "AM21" else upper
-    relic = product_id == "80"
+    product_id = device_mapping.config_product_id(device_id)
+    spec = device_mapping.spec_for_product(device_id)
+    key_colors = spec.track_colors("keyframes")
+    # `frames` and `keyframes` are emitted for every family regardless of what it
+    # authors, which is how these profiles have always been shaped. Every *other*
+    # authored track comes from the specification by name, so a family is not
+    # limited to the track names this function happens to mention: a device
+    # authoring, say, an axial and a head track gets both, correctly sized.
+    extra_tracks = tuple(
+        (track, spec.track_colors(track))
+        for track in spec.authored_tracks
+        if track not in ("frames", "keyframes")
+    )
 
     pages: list[dict[str, Any]] = []
     for index in range(8):
@@ -150,19 +144,20 @@ def blank_config(
                 "valid": 1 if custom else 0,
                 "frame_num": 1 if custom else 0,
                 "frame_data": (
-                    [{"frame_index": 0, "frame_RGB": ["#000000"] * 90}]
+                    [{"frame_index": 0, "frame_RGB": ["#000000"] * key_colors}]
                     if custom else []
                 ),
             },
         }
-        if relic and custom:
-            page["spotlight_frames"] = {
-                "valid": 1,
-                "frame_num": 1,
-                "frame_data": [
-                    {"frame_index": 0, "frame_RGB": ["#000000"] * 24}
-                ],
-            }
+        if custom:
+            for track, colors in extra_tracks:
+                page[track] = {
+                    "valid": 1,
+                    "frame_num": 1,
+                    "frame_data": [
+                        {"frame_index": 0, "frame_RGB": ["#000000"] * colors}
+                    ],
+                }
         pages.append(page)
 
     return {
@@ -379,6 +374,39 @@ def config_transfer_options(config: Any, target_product_id: Any) -> dict[str, An
     }
 
 
+def key_assignment_status(product_id: Any, code: Any) -> dict[str, Any]:
+    """Validate one editor assignment against the target family's wire format."""
+
+    product = str(product_id or "").strip()
+    normalized = str(code or "").strip().upper()
+    if (
+        len(normalized) != 9
+        or not normalized.startswith("#")
+        or any(character not in "0123456789ABCDEF" for character in normalized[1:])
+    ):
+        return {
+            "ok": False,
+            "error": "Use # followed by exactly eight hexadecimal digits.",
+        }
+    try:
+        family = device_mapping.led_model(product)
+    except ValueError:
+        return {
+            "ok": False,
+            "error": f"{product or 'This product'} has no supported keymap format.",
+        }
+    if family != "NEON":
+        return {"ok": True, "code": normalized}
+
+    from . import vial_keymap
+
+    try:
+        vial_keymap.to_qmk(normalized)
+    except vial_keymap.UnsupportedKeycode as error:
+        return {"ok": False, "error": str(error)}
+    return {"ok": True, "code": normalized}
+
+
 def text_to_macro_events(text: Any, delay_ms: Any = 10) -> dict[str, Any]:
     """Compile US-layout text into deterministic macro key-down/up events."""
     if not isinstance(text, str) or not text:
@@ -390,37 +418,13 @@ def text_to_macro_events(text: Any, delay_ms: Any = 10) -> dict[str, Any]:
         raise ValueError("The inter-key delay must be a whole number.") from exc
     if not 1 <= delay <= 1000:
         raise ValueError("The inter-key delay must be between 1 and 1000ms.")
-
-    events: list[str] = []
-    delays: list[int] = []
-    shift_down = False
-
-    def emit(usage: int, down: bool, pause: int) -> None:
-        events.append(f"#{0x11 if down else 0x10:02X}07{usage:04X}")
-        delays.append(pause)
-
-    for index, character in enumerate(text):
-        mapping = _TEXT_KEY_USAGES.get(character)
-        if mapping is None:
-            raise ValueError(
-                f"Character {character!r} at position {index + 1} is not available "
-                "on the US keyboard layout."
-            )
-        usage, needs_shift = mapping
-        if needs_shift != shift_down:
-            emit(0xE1, needs_shift, 1)
-            shift_down = needs_shift
-        emit(usage, True, 1)
-        emit(usage, False, delay)
-    if shift_down:
-        emit(0xE1, False, 1)
-    if delays:
-        delays[-1] = 0
-    if len(events) > 200:
-        raise ValueError(
-            f"This text needs {len(events)} macro events; the complete profile limit is 200."
-        )
-    return {"layer_key": events, "intvel_ms": delays, "characters": len(text)}
+    compiled = macro_text.compile_us_text(
+        text,
+        inter_key_delay_ms=delay,
+        transition_delay_ms=1,
+        max_events=200,
+    )
+    return {**compiled, "characters": len(text)}
 
 
 def validate_config(config: Any) -> dict[str, Any]:
@@ -432,23 +436,30 @@ def validate_config(config: Any) -> dict[str, Any]:
     product = ((config.get("product_info") or {}).get("product_id"))
     if not isinstance(product, str) or not product:
         errors.append("product_info.product_id is missing.")
+    # One authority for this family's track sizes and macro ceilings; an
+    # unrecognised product falls back to the shared counts rather than being
+    # rejected outright, as it always has been.
+    spec = device_mapping.spec_for_product(product)
 
     key_layer = config.get("key_layer") or {}
     layers = key_layer.get("layer_data") or []
     if not layers:
         errors.append("key_layer.layer_data is missing.")
+    keys_per_layer = spec.keys_per_layer
     for index, layer_data in enumerate(layers, 1):
         layer = layer_data.get("layer") if isinstance(layer_data, dict) else None
-        if not isinstance(layer, list) or len(layer) != 200:
-            errors.append(f"Layer {index} must contain exactly 200 keycodes.")
+        if not isinstance(layer, list) or len(layer) != keys_per_layer:
+            errors.append(
+                f"Layer {index} must contain exactly {keys_per_layer} keycodes."
+            )
         elif any(not isinstance(code, str) or len(code) != 9 for code in layer):
             errors.append(f"Layer {index} contains a malformed keycode.")
     if key_layer.get("layer_num", len(layers)) != len(layers):
         errors.append("key_layer.layer_num does not match layer_data.")
 
     macros = config.get("macro_key") or []
-    if len(macros) > 32:
-        errors.append("macro_key contains more than 32 macros.")
+    if len(macros) > spec.macro_tracks:
+        errors.append(f"macro_key contains more than {spec.macro_tracks} macros.")
     event_total = 0
     for index, macro in enumerate(macros, 1):
         events = macro.get("layer_key") or []
@@ -456,14 +467,19 @@ def validate_config(config: Any) -> dict[str, Any]:
         event_total += len(events)
         if not events:
             errors.append(f"Macro {index} has no events.")
-        if len(events) > 200:
-            errors.append(f"Macro {index} contains more than 200 events.")
+        if len(events) > spec.macro_events:
+            errors.append(
+                f"Macro {index} contains more than {spec.macro_events} events."
+            )
         if len(delays) < max(0, len(events) - 1):
             errors.append(f"Macro {index} is missing delays between events.")
         if any(not isinstance(delay, int) or not 0 <= delay <= 65535 for delay in delays[:len(events)]):
             errors.append(f"Macro {index} has a delay outside 0..65535ms.")
-    if event_total > 200:
-        errors.append(f"Macros contain {event_total} events in total; the device limit is 200.")
+    if event_total > spec.macro_events:
+        errors.append(
+            f"Macros contain {event_total} events in total; the device limit is "
+            f"{spec.macro_events}."
+        )
     readable_layers = [
         item.get("layer", [])
         for item in layers
@@ -487,7 +503,8 @@ def validate_config(config: Any) -> dict[str, Any]:
     led_frames = {"display": 0, "per_key": 0, "edge": 0}
     for page in pages:
         page_index = page.get("page_index", "?")
-        for field, expected in (("frames", 200), ("keyframes", 90), ("spotlight_frames", 24)):
+        for field in ("frames", "keyframes", "spotlight_frames"):
+            expected = spec.track_colors(field)
             track = page.get(field)
             if (
                 field == "spotlight_frames"
@@ -520,7 +537,12 @@ def validate_config(config: Any) -> dict[str, Any]:
         warnings.append("This is a key-only export; writing it will clear LED pages on the device.")
 
     frame_plan: dict[str, Any] | None = None
-    if not errors:
+    # The serial wire encoder is one family's encoder, not a general validator.
+    # Running it against a Neon configuration rejected every valid one, because
+    # it looks for AM serial page structure the Neon does not have. A device on
+    # another transport is validated by its own driver at write time, where the
+    # preflight already refuses before transmitting.
+    if not errors and spec.transport == device_mapping.SERIAL_TRANSPORT:
         try:
             from . import writer
 
@@ -769,20 +791,20 @@ def _keymap_differences(
 
 
 def _verify_keymap_readback(
-    port: str,
+    handle: transport.DeviceHandle,
     expected: list[list[str]],
     *,
     attempts: int = _KEYMAP_VERIFY_ATTEMPTS,
     retry_seconds: float = _KEYMAP_VERIFY_RETRY_SECONDS,
 ) -> list[list[str]]:
     """Retry read-back while the keyboard finishes committing its flash."""
-    from . import reader
+    link = transport.transport_for_handle(handle)
 
     last_actual: list[list[str]] = []
     last_error: Exception | None = None
     for attempt in range(max(1, attempts)):
         try:
-            last_actual = reader.read_keymap(port, layers=len(expected))
+            last_actual = link.read_keymap(handle.address, layers=len(expected))
             last_error = None
             if not _keymap_differences(expected, last_actual)[0]:
                 return last_actual
@@ -805,14 +827,14 @@ def _verify_keymap_readback(
     )
 
 
-def _probe_keyboard(port: str, attempts: int = 3) -> Any:
+def _probe_keyboard(handle: transport.DeviceHandle, attempts: int = 3) -> Any:
     """Probe with a short settle retry; macOS can hold a just-scanned CDC port."""
-    from . import device as device_module
+    link = transport.transport_for_handle(handle)
 
     result = None
     for attempt in range(attempts):
         try:
-            result = device_module.probe(port, full=True)
+            result = link.probe(handle.address, full=True)
         except OSError:
             result = None
         if result and result.is_keyboard:
@@ -899,6 +921,15 @@ class _State:
         self._document_snapshot: bytes | None = None
         self._document_revision: str | None = None
         self.device_lock = threading.Lock()
+        # macOS hidapi owns CoreFoundation/IOKit state that is thread-affine.
+        # ThreadingHTTPServer creates a fresh request thread for each call, and
+        # moving a later enumeration to a different thread can trap inside
+        # IOHIDManager. Keep every device operation on one long-lived worker;
+        # the lock still documents and enforces the transport-wide exclusion.
+        self._device_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="am-device-io",
+        )
         self.last_device_scan = 0.0
         # Native desktop builds attach a narrow Library chooser/reveal bridge after
         # creating the loopback server. Browser-only launches leave it unset.
@@ -921,7 +952,9 @@ class _State:
             "operation_gate", PROCESS_OPERATION_GATE
         )
         self._lighting_root_signature: tuple[Any, ...] | None = None
-        self._lighting_reconcile_signature: tuple[int, bytes | None] | None = None
+        self._lighting_reconcile_signature: (
+            tuple[int, bool, bytes | None] | None
+        ) = None
         self._lighting_reconcile_pending = False
         self._lighting_reconcile_worker: threading.Thread | None = None
         if config is not None:
@@ -1053,10 +1086,22 @@ class _State:
         return library, self._procedural_coordinator
 
     def close(self) -> None:
-        capability = self._ai_capability
-        close = getattr(capability, "close", None)
-        if callable(close):
-            close()
+        try:
+            capability = self._ai_capability
+            close = getattr(capability, "close", None)
+            if callable(close):
+                close()
+        finally:
+            self._device_executor.shutdown(wait=True)
+
+    def device_io(self, operation):
+        """Run one complete device operation on the stable HID worker thread."""
+
+        def serialized():
+            with self.device_lock:
+                return operation()
+
+        return self._device_executor.submit(serialized).result()
 
     def lighting_services(self) -> tuple[Any, Any]:
         """Return durable services, refreshing idle production roots from Settings."""
@@ -1103,13 +1148,21 @@ class _State:
             return []
 
         _library, coordinator = self.lighting_services()
-        api_key = store.resolve_xai_key(
-            credential_store=self._credential_store
+        settings = store.load_settings(credential_store=self._credential_store)
+        ai_settings = settings["ai"]
+        api_selected = (
+            ai_settings["enabled"] is True and ai_settings["backend"] == "api"
+        )
+        credential_checked = api_selected
+        api_key = (
+            store.resolve_xai_key(credential_store=self._credential_store)
+            if credential_checked
+            else None
         )
         key_fingerprint = (
             hashlib.sha256(api_key.encode("utf-8")).digest() if api_key else None
         )
-        signature = (id(coordinator), key_fingerprint)
+        signature = (id(coordinator), api_selected, key_fingerprint)
         with self._lighting_lock:
             if not force and signature == self._lighting_reconcile_signature:
                 return []
@@ -1124,6 +1177,15 @@ class _State:
                     api_key=api_key,
                     _admission_token=token,
                 )
+                if actions and not credential_checked:
+                    recovery_key = store.resolve_xai_key(
+                        credential_store=self._credential_store
+                    )
+                    if recovery_key:
+                        actions = coordinator.reconcile_startup(
+                            api_key=recovery_key,
+                            _admission_token=token,
+                        )
                 try:
                     _procedural_library, procedural = self.procedural_services()
                 except RuntimeError:
@@ -1354,12 +1416,18 @@ class _Handler(BaseHTTPRequestHandler):
                         }
                     )
                 elif path == "/api/devices":
-                    from . import device
-
-                    with self.state.device_lock:
-                        devices = device.list_devices(full=True)
+                    def scan_devices():
+                        found = transport.discover()
                         self.state.last_device_scan = time.monotonic()
-                    self._json({"devices": [asdict(d) for d in devices]})
+                        return found
+
+                    found = self.state.device_io(scan_devices)
+                    self._json({
+                        "devices": [
+                            transport.device_json(handle, info)
+                            for handle, info in found
+                        ]
+                    })
                 elif path == "/api/settings":
                     self._json(
                         _settings_view(
@@ -1426,6 +1494,16 @@ class _Handler(BaseHTTPRequestHandler):
             body = self._body()
             if path == "/api/config/validate":
                 self._json(validate_config(body.get("config")))
+            elif path == "/api/keymap/assignment":
+                if set(body) != {"product_id", "code"}:
+                    raise ValueError(
+                        "Key assignment validation requires product_id and code."
+                    )
+                result = key_assignment_status(body["product_id"], body["code"])
+                self._json(
+                    result,
+                    HTTPStatus.OK if result["ok"] else HTTPStatus.BAD_REQUEST,
+                )
             elif path == "/api/document/sync":
                 self._synchronize_document(body)
             elif path == "/api/config/compatibility":
@@ -1993,30 +2071,43 @@ class _Handler(BaseHTTPRequestHandler):
         self._json({"revealed": revealed})
 
     def _read_device(self, body: dict[str, Any]) -> None:
-        from . import macros as macro_protocol
-        from . import reader
-
-        port = str(body.get("port") or "")
+        handle = transport.handle_from_payload(body)
+        link = transport.transport_for_handle(handle)
         layers = int(body.get("layers") or 7)
-        if not port:
-            raise ValueError("A serial port is required.")
-        with self.state.device_lock:
+
+        def read_device():
             self.state.settle_after_scan()
-            device = _probe_keyboard(port)
+            device = _probe_keyboard(handle)
             if not device or not device.is_keyboard:
-                raise ValueError("The selected port is not a supported Angry Miao keyboard.")
+                raise ValueError("The selected device is not a supported Angry Miao keyboard.")
             time.sleep(0.1)
-            key_layers = reader.read_keymap(port, layers=layers)
+            key_layers = link.read_keymap(handle.address, layers=layers)
             time.sleep(0.1)
-            device_macros = macro_protocol.read_macros(port)
+            macro_state = link.read_macro_state(handle.address)
+            return device, key_layers, macro_state
+
+        device, key_layers, macro_state = self.state.device_io(read_device)
+        device_macros = macro_state.macros
         stored_config, stored_warning = _stored_device_config(device.product_id or "")
         resolved_macros, macro_read_warning, restored_macro_snapshot = (
             _reconcile_read_macros(
                 device.product_id or "", device_macros, stored_config
             )
         )
+        device_payload = transport.device_json(handle, device)
+        if macro_state.device_reported:
+            device_payload.update(
+                {
+                    "macro_count": macro_state.device_macro_count,
+                    "macro_buffer_bytes": macro_state.device_macro_buffer_bytes,
+                }
+            )
         self._json({
-            "device": asdict(device),
+            # Not `asdict`: a raw-HID device carries its OS path as bytes, which
+            # no JSON encoder accepts, and its canonical product id is a derived
+            # property rather than a field. `asdict` here returned HTTP 500 for
+            # every Neon read after the reads had already succeeded.
+            "device": device_payload,
             "layers": key_layers,
             "macros": resolved_macros,
             "macro_references": _macro_references(key_layers),
@@ -2030,51 +2121,51 @@ class _Handler(BaseHTTPRequestHandler):
         })
 
     def _write_device(self, body: dict[str, Any]) -> None:
-        from . import writer
+        handle, config, checked = self._write_request(body)
+        link = transport.transport_for_handle(handle)
 
-        port, config, checked = self._write_request(body)
-        with self.state.device_lock:
+        def write_device():
             self.state.settle_after_scan()
-            before = self._validated_write_target(port, checked, body)
-            frame_plan = writer.plan(config)
-            ok, reply = writer.write_config(port, frame_plan.frames)
-            if not ok:
-                raise RuntimeError(f"Device rejected JSON_END: {reply.hex() or 'no response'}")
-            time.sleep(writer.SETTLE_SECONDS)
-            result = self._finish_accepted_write(
-                port, config, before, frame_plan.total, install_macros=True
+            before = self._validated_write_target(handle, checked, body)
+            receipt = link.write_config(handle.address, config)
+            return self._finish_accepted_write(
+                handle, config, before, receipt, install_macros=True
             )
+
+        result = self.state.device_io(write_device)
         self._json(result)
 
     def _verify_device_write(self, body: dict[str, Any]) -> None:
         """Finish an ACKed write without transmitting the full configuration again."""
-        from . import writer
+        handle, config, checked = self._write_request(body)
+        link = transport.transport_for_handle(handle)
 
-        port, config, checked = self._write_request(body)
-        with self.state.device_lock:
-            before = self._validated_write_target(port, checked, body)
-            frame_plan = writer.plan(config)
-            result = self._finish_accepted_write(
-                port, config, before, frame_plan.total, install_macros=False
+        def verify_device_write():
+            before = self._validated_write_target(handle, checked, body)
+            return self._finish_accepted_write(
+                handle, config, before, link.describe_write(config), install_macros=False
             )
+
+        result = self.state.device_io(verify_device_write)
         self._json(result)
 
     @staticmethod
-    def _write_request(body: dict[str, Any]) -> tuple[str, dict[str, Any], dict[str, Any]]:
-        port = str(body.get("port") or "")
+    def _write_request(
+        body: dict[str, Any],
+    ) -> tuple[transport.DeviceHandle, dict[str, Any], dict[str, Any]]:
         config = body.get("config")
         checked = validate_config(config)
         if not checked["ok"]:
             raise ValueError("Configuration is invalid: " + "; ".join(checked["errors"]))
-        if not port:
-            raise ValueError("A serial port is required.")
-        return port, config, checked
+        return transport.handle_from_payload(body), config, checked
 
     @staticmethod
-    def _validated_write_target(port: str, checked: dict[str, Any], body: dict[str, Any]) -> Any:
-        before = _probe_keyboard(port)
+    def _validated_write_target(
+        handle: transport.DeviceHandle, checked: dict[str, Any], body: dict[str, Any]
+    ) -> Any:
+        before = _probe_keyboard(handle)
         if not before or not before.is_keyboard or not before.product_id:
-            raise ValueError("The selected port is not a supported Angry Miao keyboard.")
+            raise ValueError("The selected device is not a supported Angry Miao keyboard.")
         config_id = str(checked["product_id"])
         if not _device_matches_config(before.product_id, config_id):
             raise ValueError(
@@ -2087,15 +2178,16 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _finish_accepted_write(
         self,
-        port: str,
+        handle: transport.DeviceHandle,
         config: dict[str, Any],
         before: Any,
-        frame_total: int,
+        receipt: transport.WriteReceipt,
         *,
         install_macros: bool,
     ) -> dict[str, Any]:
-        from . import macros
         from . import store
+
+        link = transport.transport_for_handle(handle)
 
         expected_layers = [
             [code.upper() for code in item["layer"]]
@@ -2107,11 +2199,11 @@ class _Handler(BaseHTTPRequestHandler):
         # keymap read-back can abort verification. The verify-only endpoint never
         # writes; it only checks what the accepted write left on the device.
         if install_macros:
-            macros.write_macros(port, expected_macros)
+            link.write_macros(handle.address, expected_macros)
             time.sleep(0.25)
 
-        _verify_keymap_readback(port, expected_layers)
-        read_macros = macros.read_macros(port)
+        _verify_keymap_readback(handle, expected_layers)
+        read_macros = link.read_macros(handle.address)
         macro_verification = _classify_macro_readback(
             before.product_id, expected_macros, read_macros
         )
@@ -2123,20 +2215,23 @@ class _Handler(BaseHTTPRequestHandler):
                 "sending the full configuration again."
             )
 
-        after = _probe_keyboard(port)
+        after = _probe_keyboard(handle)
         if not after or after.product_id != before.product_id:
             raise AcceptedWriteError(
                 "Device accepted the configuration but disappeared before verification "
                 "completed. Reconnect it and retry verification instead of resending."
             )
         clean = {key: value for key, value in config.items() if key != "_provenance"}
-        store.save_current(after.product_id, clean, version=after.version)
+        store.save_current(
+            after.product_id, clean, version=getattr(after, "version", None)
+        )
         snapshot = store.snapshot(after.product_id, clean)
         document_revision = self.state.synchronize_document(clean)
         return {
             "ok": True,
-            "device": asdict(after),
-            "frames": frame_total,
+            "device": transport.device_json(handle, after),
+            "write_units": receipt.units,
+            "write_unit_label": receipt.unit_label,
             "macros": len(expected_macros),
             "macro_verification": macro_verification["status"],
             "macro_warning": macro_verification["warning"],

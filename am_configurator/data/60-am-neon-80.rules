@@ -1,0 +1,21 @@
+# AM Configurator — non-root access to QMK/Vial raw HID keyboards on Linux.
+#
+# Without this, opening the AM Neon 80's raw HID interface fails with a
+# permission error for a normal desktop user, because hidraw nodes are
+# root-only by default.
+#
+# The serial match is deliberate and is Vial's own published rule.
+# "vial:f64c2b3c" is NOT a per-board identifier — every Vial keyboard reports
+# that exact magic string, which is what lets one rule cover all of them. Do not
+# "fix" it to the UID of a particular board; that would break every other unit.
+#
+# TAG+="uaccess" hands the device to the user holding the active local seat,
+# which is what a desktop application needs; MODE is the fallback for systems
+# without logind.
+#
+# Install:
+#   sudo cp 60-am-neon-80.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# Then replug the keyboard.
+
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{serial}=="*vial:f64c2b3c*", MODE="0660", TAG+="uaccess"

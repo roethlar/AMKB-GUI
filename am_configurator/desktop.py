@@ -734,7 +734,7 @@ def _run_ollama_recipe_smoke() -> None:
 
 def _run_ffmpeg_media_smoke() -> None:
     """Resolve the bundled runtime and process real MP4 frames fully offline."""
-    from .device_mapping import MODEL_FRAME_CAPS
+    from .device_mapping import MODEL_FRAME_CAPS, target_capabilities
     from .ffmpeg_runtime import get_ffmpeg_runtime
     from .media import process_video_frames
 
@@ -747,14 +747,20 @@ def _run_ffmpeg_media_smoke() -> None:
     if not fixture.is_file():
         raise SystemExit("Desktop smoke test failed: bundled MP4 fixture is unavailable.")
     ffmpeg = get_ffmpeg_runtime()
-    geometry = {"CB": (15, 6), "80": (18, 7), "ALICE": (16, 5)}
-    loops = {"CB": "smooth", "80": "none", "ALICE": "ping_pong"}
+    capabilities = target_capabilities()
+    loop_modes = ("smooth", "none", "ping_pong")
     with tempfile.TemporaryDirectory(prefix="am-media-smoke-") as temporary:
         root = Path(temporary)
         work = root / ".work"
         work.mkdir()
-        for family, frame_count in MODEL_FRAME_CAPS.items():
-            width, height = geometry[family]
+        for index, (family, frame_count) in enumerate(MODEL_FRAME_CAPS.items()):
+            targets = capabilities.get(family, {}).get("targets", [])
+            if not targets:
+                raise SystemExit(
+                    f"Desktop smoke test failed: {family} has no media geometry."
+                )
+            width = int(targets[0]["width"])
+            height = int(targets[0]["height"])
             result = process_video_frames(
                 fixture.resolve(),
                 root / f"frames-{family}",
@@ -763,7 +769,7 @@ def _run_ffmpeg_media_smoke() -> None:
                 width=width,
                 height=height,
                 frame_count=frame_count,
-                loop_mode=loops[family],
+                loop_mode=loop_modes[index % len(loop_modes)],
                 deadline=time.monotonic() + 60,
             )
             if len(result.frame_paths) != frame_count or any(not path.is_file() for path in result.frame_paths):
@@ -895,6 +901,33 @@ def run_desktop(config_paths: list[str] | None = None, *, debug: bool = False) -
     return 0
 
 
+def _print_udev_rule() -> int:
+    """Write the udev rule to stdout.
+
+    Prints the rule's *contents*, not its path, because the path is useless to
+    the users who most need it. Inside an AppImage the package lives on a
+    temporary mount that disappears when the application exits, and the shell's
+    Python cannot import it to ask where it is. Contents on stdout work
+    identically for a wheel install, an AppImage, and a source checkout:
+
+        sudo ./AM_Configurator.AppImage --print-udev-rule \\
+            > /etc/udev/rules.d/60-am-neon-80.rules
+    """
+
+    from . import hid_transport
+
+    rule = hid_transport.udev_rule_path()
+    if not rule.is_file():
+        print(
+            f"The udev rule {hid_transport.UDEV_RULE_NAME} is missing from this "
+            "installation.",
+            file=sys.stderr,
+        )
+        return 1
+    sys.stdout.write(rule.read_text(encoding="utf-8"))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="am-configurator",
@@ -909,6 +942,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--debug",
         action="store_true",
         help="enable the native webview's developer diagnostics",
+    )
+    parser.add_argument(
+        "--print-udev-rule",
+        action="store_true",
+        help=(
+            "print the Linux udev rule for the AM Neon 80 to stdout, so it can "
+            "be redirected into /etc/udev/rules.d/"
+        ),
     )
     parser.add_argument(
         "--smoke-test",
@@ -930,6 +971,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         help=argparse.SUPPRESS,
     )
     args = parser.parse_args(argv)
+    if args.print_udev_rule:
+        return _print_udev_rule()
     if args.smoke_test:
         return run_smoke_test()
     if args.native_policy_smoke:

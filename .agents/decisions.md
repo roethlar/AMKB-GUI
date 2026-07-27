@@ -1,5 +1,119 @@
 # Repository Decisions
 
+## 2026-07-25 — The device seam sits below the protocol encoding
+
+The device driver interface takes the logical configuration, never
+protocol-encoded bytes. A driver plans and transmits its own protocol; the
+routes stay ignorant of frames, reports, and packet formats.
+
+Owner ruling on openreview finding or-1
+(`.agents/review/findings/or-1.md`), which found that N2's first
+implementation (commit `94a847a`) dispatched on a device handle but left
+`writer.plan(config)` in the route and passed AM 64-byte frames through
+`write_config(address, frames)`. A raw-HID driver cannot construct `0xF0`
+lighting packets or Vial keymap writes from that representation, so the
+abstraction would have had to be rebuilt at plan task N5.
+
+The owner chose to rework N2 immediately rather than defer the cost to N5,
+where more code would depend on the wrong seam. Recorded wording: option **A**,
+"Rework N2 now under the corrected design".
+
+Consequences that outlive this task:
+
+- Protocol-specific error text (`"Device rejected JSON_END"`) belongs to the
+  driver that speaks that protocol, never to transport-neutral code.
+- A write result reports a protocol-native unit count plus its label, rather
+  than assuming every device writes "frames".
+- `server.py` does not import `writer`; frame planning is serial-driver-internal.
+- The existing commit is not rewritten. The rework lands as a new commit, per
+  the Git Safety rule against restructuring history without an explicit go.
+
+## 2026-07-25 — License follows capability; Neon 80 stays MIT for now
+
+Status: approved by the owner on 2026-07-25. This supersedes the relicensing
+decision below, which was made on a premise that later proved false.
+
+- The owner's standing instruction is that the licensing choice is an **output**
+  of building the most capable application, never a constraint on it. The owner
+  is indifferent between MIT, GPL, and other open-source licensing, and is
+  building to fill a community gap rather than for profit.
+- The premise of the superseded decision was that finished LED coordinate tables
+  in the GPL-2.0 firmware would save transcription work. That premise is false:
+  `real_map`, `h_map`, and `s_map` are `{chip_index, x, y}` AW20216 driver
+  coordinates that the firmware applies **after** receiving a frame. The host
+  transmits a linear payload, so copying those tables would map twice and
+  scramble every LED. They are the wrong data, not a shortcut.
+- Everything the host actually needs is available under permissive terms or is
+  uncopyrightable fact: axial ordering and positions from the Apache-2.0
+  `axialDefinitionsData.ts`, the side-derivation algorithm from Apache-2.0
+  `device-push.ts`, and geometry constants, packet layout, channel numbering,
+  and frame ceilings as interface facts.
+- Therefore the application **remains MIT**. `LICENSE` and the `pyproject.toml`
+  license field are unchanged, and no relicensing task exists.
+- `THIRD_PARTY_NOTICES` still gains an Apache-2.0 attribution for
+  `AngryMiao/neon80_driver`, which is genuinely used as a reference client.
+- This is deferred, not foreclosed. If implementation later needs substantial
+  expressive material from the GPL-2.0 firmware — a ported effect algorithm
+  rather than an interface fact — relicensing is reconsidered **at that point**,
+  under the same rule: whichever choice builds the more capable application
+  wins, and the license follows.
+- Reading the GPL-2.0 firmware to establish facts remains permitted and is how
+  the protocol was derived; establishing a fact is not copying expression.
+
+## 2026-07-25 — AM Neon 80 protocol sources and GPL relicensing
+
+Status: **superseded** on 2026-07-25 by the decision above, after an
+`openreview codex` pass established that the GPL firmware tables this decision
+was built to permit copying are firmware-internal chip coordinates and must not
+be copied at all. Retained as the record of a decision made and reversed on
+evidence. Its original wording follows.
+
+Status when approved: approved by the owner on 2026-07-25, after the owner was
+shown the licensing consequence and chose it explicitly.
+
+- Neon 80 support may derive from both published Angry Miao sources:
+  `AngryMiao/neon_80_embedded` (keyboard firmware, GPL-2.0) and
+  `AngryMiao/neon80_driver` (reference web configurator, Apache-2.0). This
+  includes transcribing LED coordinate tables directly from the GPL firmware
+  rather than re-deriving equivalent data from the permissive source.
+- Because GPL-2.0 material enters the distributed application, the project
+  relicenses to GPL-2.0-or-later. `LICENSE` and the `pyproject.toml` license
+  field state that license.
+- The pre-existing MIT notice covering the `cyberboard-cli`-derived protocol
+  layer (Copyright 2026 GeneralD) is retained as a third-party notice and is
+  not removed or altered; MIT material combines into the GPL work unchanged.
+- `THIRD_PARTY_NOTICES` gains attributions for the GPL-2.0 firmware and the
+  Apache-2.0 driver. The existing packaging guards that require license files
+  in every native artifact continue to apply and are updated to match.
+- GPL binary distribution carries a corresponding-source obligation; the
+  public repository satisfies it and `README.md` states where source lives.
+- This change is one-way in practice: returning to MIT requires removing all
+  GPL-derived material from the tree.
+- FFmpeg's separate LGPL bundling and its attestation system are unaffected.
+
+## 2026-07-25 — AM Neon 80 supported at full parity or not at all
+
+Status: approved by the owner on 2026-07-25.
+
+- The AM Neon 80 is shipped as a supported device family only at full parity
+  with the existing CyberBoard, Relic 80, and AFA families. A lighting-only or
+  otherwise partial Neon 80 device family is not shipped.
+- Parity means lighting animation upload, keymap read and write, macro read and
+  write, layer handling, and profile store/backup participation, reached through
+  the application's existing surfaces rather than a device-specific UI.
+- LED frame read-back is outside parity because no supported family has it; the
+  AM serial families expose no LED-frame read path either.
+- The Neon 80 does not speak the Angry Miao CDC-serial protocol. It is a
+  QMK/Vial device reached over raw HID (usage page `0xFF60`, usage `0x61`),
+  identified by USB `0x05AC:0x024F` with a `vial:`-prefixed serial number, so it
+  shares no transport with the existing serial device and protocol modules.
+- Lighting uses the vendor raw-HID command `0xF0`: three zones (per-switch
+  axial, head matrix, side), three user slots per zone, and a firmware ceiling
+  of 256 frames per slot. Keymap and macro work use the standard Vial dynamic
+  keymap and macro buffers.
+- Hardware write safety is unchanged: device writes remain manual, initiated
+  from the GUI, and gated on device/model matching plus typed confirmation.
+
 ## 2026-07-22 — Ollama/API-only AI backends
 
 Status: approved by the owner on 2026-07-22. This supersedes every product,

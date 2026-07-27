@@ -638,6 +638,8 @@ def build_ffmpeg_frame_command(
     content_frame_count: object,
 ) -> tuple[str, ...]:
     """Build the fixed local-only argv used to decode compact content frames."""
+    from .device_mapping import MAX_FRAMES
+
     binary = _absolute_regular_file(ffmpeg_path, "FFmpeg runtime", executable=True)
     source = _absolute_regular_file(source_path, "source video")
     pattern = _absolute_output_pattern(output_pattern)
@@ -645,7 +647,7 @@ def build_ffmpeg_frame_command(
     if (
         isinstance(content_frame_count, bool)
         or not isinstance(content_frame_count, int)
-        or not 1 <= content_frame_count <= 200
+        or not 1 <= content_frame_count <= MAX_FRAMES
     ):
         raise MediaError("config", "animation content frame count is invalid")
     filter_graph = ",".join(

@@ -244,3 +244,40 @@ test("manual Lighting layout, keyboard controls, narrow windows, and reduced mot
   assert.match(medium,/grid-template-areas:\s*"canvas controls"\s*"frames frames"/);
   assert.match(medium,/overflow-x:\s*auto/);
 });
+
+test("Neon keymap wiring uses the validated layout and assignment gate", () => {
+  const layout = js.slice(js.indexOf("function activeLayout"), js.indexOf("function keyClass"));
+  const palette = js.slice(js.indexOf("function renderAssignmentPalette"), js.indexOf("function activeLayout"));
+  const assign = js.slice(js.indexOf("async function assignSelected"), js.indexOf("function wireKeyInspector"));
+  const read = js.slice(js.indexOf("async function readDevice"), js.indexOf("async function writeDevice"));
+  const neonLayout = layout.slice(layout.indexOf('if (family === "NEON")'), layout.indexOf("const layer"));
+
+  assert.match(layout, /family === "NEON"[\s\S]*projectVialKeyLayout\(device\)/);
+  assert.match(js, /state\.ledTarget==="axial"[\s\S]*projectVialLedLayout\(device,servedTarget\)/);
+  assert.match(css, /\.physical-pixel\.multi-led[\s\S]*\.group-first[\s\S]*\.group-last/);
+  assert.doesNotMatch(neonLayout, /Matrix layout|Math\.floor\(index \/ 25\)/);
+  assert.match(palette, /filterAssignmentOptions\(product/);
+  assert.match(assign, /api\("\/api\/keymap\/assignment"/);
+  assert.match(assign, /catch\(error\)[\s\S]*return;/);
+  assert.match(assign, /const assignmentEpoch=\+\+state\.keyAssignmentEpoch/);
+  assert.match(assign, /state\.keyAssignmentEpoch!==assignmentEpoch[\s\S]*state\.selected!==selected[\s\S]*state\.layer!==layerIndex[\s\S]*productId\(\)!==product/);
+  assert.match(read, /state\.devices=state\.devices\.map[\s\S]*result\.device/);
+});
+
+test("connected Neon macro capacity owns the editor meter and mutation gates", () => {
+  const active=js.slice(js.indexOf("function activeFamilySpec"),js.indexOf("function sameProductFamily"));
+  const macros=js.slice(js.indexOf("function macroCapacity"),js.indexOf("function getPage"));
+
+  assert.match(active,/state\.loadedDevice/);
+  assert.match(active,/withDeviceMacroLimits/);
+  assert.match(macros,/macroCapacityStatus\(activeFamilySpec\(\),candidate\)/);
+  assert.match(macros,/capacity\.used[\s\S]*capacity\.limit[\s\S]*capacity\.unit/);
+  assert.match(macros,/applyImportedMacros[\s\S]*macroCapacityError\(incoming\)/);
+  assert.match(macros,/applyMacroText[\s\S]*macroCapacityError\(candidate\)/);
+  assert.match(macros,/add-event[\s\S]*macroCapacityError\(candidate\)/);
+  assert.match(macros,/recordEvent[\s\S]*macroCapacityError\(candidate\)/);
+  assert.match(server,/macro_state\.device_macro_count/);
+  assert.match(server,/"macro_buffer_bytes": macro_state\.device_macro_buffer_bytes/);
+  const scan=js.slice(js.indexOf("async function scanDevices"),js.indexOf("async function readDevice"));
+  assert.match(scan,/known\?\.macro_count[\s\S]*known\?\.macro_buffer_bytes[\s\S]*macro_count:known\.macro_count[\s\S]*macro_buffer_bytes:known\.macro_buffer_bytes/);
+});

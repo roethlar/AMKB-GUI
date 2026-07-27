@@ -742,12 +742,15 @@ class AnimationProcessorTests(unittest.TestCase):
             (80, "smooth"): 70,
             (200, "smooth"): 175,
             (186, "smooth"): 162,
+            (256, "smooth"): 224,
             (80, "none"): 80,
             (200, "none"): 200,
             (186, "none"): 186,
+            (256, "none"): 256,
             (80, "ping_pong"): 41,
             (200, "ping_pong"): 101,
             (186, "ping_pong"): 94,
+            (256, "ping_pong"): 129,
         }
         for arguments, count in expected.items():
             with self.subTest(arguments=arguments):
@@ -784,6 +787,7 @@ class AnimationProcessorTests(unittest.TestCase):
             (80, "smooth", 160, 36),
             (200, "none", 128, 32),
             (186, "ping_pong", 144, 36),
+            (256, "smooth", 19, 6),
         )
         for frame_count, loop_mode, width, height in cases:
             with self.subTest(frame_count=frame_count, loop_mode=loop_mode), tempfile.TemporaryDirectory() as tmp:
@@ -1135,6 +1139,7 @@ class AnimationProcessorTests(unittest.TestCase):
             (80, "smooth", 15, 6),
             (200, "none", 18, 7),
             (186, "ping_pong", 16, 5),
+            (256, "smooth", 19, 6),
         )
         for frame_count, loop_mode, width, height in cases:
             with self.subTest(frame_count=frame_count, loop_mode=loop_mode), tempfile.TemporaryDirectory() as tmp:

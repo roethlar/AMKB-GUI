@@ -10,7 +10,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
 const {createReviewView, openRenderedDialog, renderReview, reviewBlockedMessage} = LightingReview;
-const {DEVICE_TARGETS, renderTargetControls} = LightingTargets;
+const {DEVICE_TARGETS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
 
@@ -39,6 +39,7 @@ const state = {
   lightingJobId: restoredLighting.jobId,
   layer: 0,
   selected: null,
+  keyAssignmentEpoch: 0,
   macro: 0,
   recording: false,
   recordLast: 0,
@@ -54,8 +55,8 @@ const state = {
   undo: [],
   redo: [],
   devices: [],
-  selectedPort: null,
-  loadedPort: null,
+  selectedDevice: null,
+  loadedDevice: null,
   deviceDocuments: new Map(),
   pendingWrite: null,
   capabilities: null,
@@ -160,12 +161,13 @@ function productId() {
   return state.config?.product_info?.product_id || "—";
 }
 
-function productFamily(value) {
-  const id = String(value || "").toUpperCase();
-  if (id === "80" || id === "AM21") return "80";
-  if (id === "ALICE") return "ALICE";
-  if (id.startsWith("CB")) return "CB";
-  return id;
+function activeFamilySpec() {
+  const spec=specForProduct(productId());
+  const device=state.devices.find(item=>deviceKey(item)===state.loadedDevice);
+  return withDeviceMacroLimits(
+    spec,
+    device&&sameProductFamily(productId(),device.product_id)?device:null,
+  );
 }
 
 function sameProductFamily(left, right) {
@@ -329,7 +331,7 @@ async function readFiles(input, merge) {
     const incoming=mergeConfigs(configs);
     if(!incoming?.key_layer)throw new Error("No key_layer was found in the selected JSON.");
 
-    const activeDevice=state.devices.find(device=>device.port===state.loadedPort)||selectedDevice();
+    const activeDevice=state.devices.find(device=>deviceKey(device)===state.loadedDevice)||selectedDevice();
     const target=merge&&state.config
       ? {product_id:productId(),label:`${productLabel(productId())} (${productId()})`,kind:"document"}
       : !merge&&activeDevice?activeDevice:null;
@@ -352,7 +354,7 @@ async function readFiles(input, merge) {
     if (!combined?.key_layer) throw new Error("No key_layer was found in the selected JSON.");
     if (!effectiveMerge) {
       stashDeviceDocument();
-      state.loadedPort = null;
+      state.loadedDevice = null;
     }
     if (effectiveMerge && state.config) pushUndo();
     state.config = combined;
@@ -474,7 +476,26 @@ const LED_MODELS = {
     name:"Relic 80", keyMap:RELIC_LED_MAP, keyColumns:17, keyRaster:"18×7",
     targets:DEVICE_TARGETS["80"],
   },
+  // No keyMap, keyColumns, or keyRaster: the Neon's axial and head geometry is
+  // served from device_mapping rather than copied here. Python owns those
+  // tables and a second copy is the drift the spec mirror already guards
+  // against; there is no reason to introduce one for the maps.
+  NEON: {
+    name:"AM Neon 80",
+    targets:DEVICE_TARGETS.NEON,
+  },
 };
+
+// Per-target geometry the server publishes from device_mapping.
+function servedGeometry(family, target) {
+  const entries=state.capabilities?.targets?.[family]?.targets;
+  return entries?.find(entry=>entry.name===target) || null;
+}
+
+function geometryUnavailableNotice() {
+  const loading=state.capabilities===null;
+  return `<div class="empty-state"><p class="eyebrow">${loading?"Loading device layout":"Device layout unavailable"}</p><h1>${loading?"Fetching the LED layout for this keyboard…":"The LED layout for this keyboard could not be loaded."}</h1><p>${loading?"The editor opens once the layout arrives.":"Reload the application to try again. Editing is held back deliberately: painting against a guessed layout would author LED positions that do not exist on the device."}</p></div>`;
+}
 const LED_SPEEDS = [255,240,224,208,192,176,160,146,132,118,100,90,76,62,48,34];
 
 function firmwareLedSpeed(value) {
@@ -482,11 +503,16 @@ function firmwareLedSpeed(value) {
   return LED_SPEEDS.reduce((best,speed)=>Math.abs(speed-duration)<Math.abs(best-duration)?speed:best,LED_SPEEDS[0]);
 }
 
+// Null when this build has no LED geometry for the loaded product. Callers must
+// handle that rather than substituting a default family: editing an unknown
+// device with CyberBoard maps is how wrong pixel data reaches a keyboard.
 function activeLedModel() {
-  const id=productFamily(productId());
-  if(id==="80")return LED_MODELS["80"];
-  if(id==="ALICE")return LED_MODELS.ALICE;
-  return LED_MODELS.CB;
+  const family=supportedFamily(productId());
+  return family===null?null:LED_MODELS[family];
+}
+
+function unsupportedDeviceNotice(action) {
+  return `<div class="empty-state"><p class="eyebrow">Unsupported device</p><h1>No lighting profile for ${esc(productId())}.</h1><p>This build has no LED layout for that product, so ${action} would use another keyboard's geometry. Load a profile for a supported device.</p></div>`;
 }
 
 const HID_NAMES = {};
@@ -566,24 +592,35 @@ function vendorGroup(usage) {
 }
 
 function renderAssignmentPalette(current) {
-  const macrosForPalette=(state.config.macro_key||[]).map((macro,index)=>({label:`Macro ${index+1}`,code:macro.original_key,category:"Macros"}));
+  const product=productId();
+  const macroTracks=activeFamilySpec().macroTracks;
+  const macrosForPalette=filterAssignmentOptions(product,(state.config.macro_key||[]).map((macro,index)=>({label:`Macro ${index+1}`,code:macro.original_key,category:"Macros"})),macroTracks);
   const extraUsages=[0x46,0x47,0x48,0x49,0x4a,0x4b,0x4c,0x4d,0x4e,0x4f,0x50,0x51,0x52,0x53,0x68];
-  const extras=[{label:"None",code:"#00000000",category:"Navigation & media"},...extraUsages.map(usage=>standardOption(usage,"Navigation & media")),...KEY_OPTIONS.filter(option=>option.category==="Media")];
-  const vendorOptions=Object.entries(VENDOR).map(([usage,label])=>({label,code:makeCode(0x92,Number(usage)),category:vendorGroup(Number(usage))}));
+  const extras=filterAssignmentOptions(product,[{label:"None",code:"#00000000",category:"Navigation & media"},...extraUsages.map(usage=>standardOption(usage,"Navigation & media")),...KEY_OPTIONS.filter(option=>option.category==="Media")],macroTracks);
+  const vendorOptions=filterAssignmentOptions(product,Object.entries(VENDOR).map(([usage,label])=>({label,code:makeCode(0x92,Number(usage)),category:vendorGroup(Number(usage))})),macroTracks);
+  const vendorGroups=VENDOR_GROUPS.map(group=>({group,options:vendorOptions.filter(option=>option.category===group)})).filter(entry=>entry.options.length);
   return `<section class="assignment-panel">
     <div class="assignment-heading"><div><strong>Available assignments</strong><small>${state.selected===null?'Select a key on the board first.':`Assigning matrix key ${state.selected}`}</small></div><input id="key-search" class="search-field" type="search" placeholder="Filter keys and controls…"></div>
     <div class="assignment-scroll"><div class="qwerty-board assignment-section"><p class="control-label">Standard QWERTY keyboard</p>${QWERTY_ROWS.map(row=>`<div class="qwerty-row">${row.map(item=>item?assignmentButton(standardOption(item[0]),current,item[1]):`<span class="qwerty-spacer"></span>`).join("")}</div>`).join("")}</div></div>
     <div class="assignment-groups">
       <div class="assignment-section"><p class="control-label">Navigation & media</p><div class="assignment-grid">${extras.map(option=>assignmentButton(option,current)).join("")}</div></div>
       <div class="assignment-section"><p class="control-label">Macros</p>${macrosForPalette.length?`<div class="assignment-grid">${macrosForPalette.map(option=>assignmentButton(option,current)).join("")}</div>`:`<small class="palette-empty">Create a macro on the Macros screen to assign it here.</small>`}</div>
-      ${VENDOR_GROUPS.map(group=>`<div class="assignment-section"><p class="control-label">Angry Miao · ${group}</p><div class="assignment-grid">${vendorOptions.filter(option=>option.category===group).map(option=>assignmentButton(option,current)).join("")}</div></div>`).join("")}
+      ${vendorGroups.map(({group,options})=>`<div class="assignment-section"><p class="control-label">Angry Miao · ${group}</p><div class="assignment-grid">${options.map(option=>assignmentButton(option,current)).join("")}</div></div>`).join("")}
     </div>
   </section>`;
 }
 
 function activeLayout() {
-  if (productFamily(productId()) === "80") return {name:"Relic 80", className:"relic", keys:RELIC_LAYOUT};
-  if (productFamily(productId()) === "ALICE") return {name:"AFA", className:"afa", keys:AFA_LAYOUT};
+  const family=productFamily(productId());
+  if (family === "80") return {name:"Relic 80", className:"relic", keys:RELIC_LAYOUT};
+  if (family === "ALICE") return {name:"AFA", className:"afa", keys:AFA_LAYOUT};
+  if (family === "NEON") {
+    const device=state.devices.find(candidate=>deviceKey(candidate)===state.loadedDevice);
+    const keys=projectVialKeyLayout(device);
+    return keys
+      ? {name:"AM Neon 80",className:"neon",keys}
+      : {name:"AM Neon 80",className:"neon",keys:[],unavailable:true};
+  }
   const layer = layers()[state.layer]?.layer || [];
   const keys = [];
   layer.forEach((code, index) => {
@@ -633,7 +670,9 @@ function navigateTo(route, {replace = false, focusHeading = false} = {}) {
 
 function documentDescriptor() {
   if (!state.config) return null;
-  const targets = activeLedModel().targets.map(target => target.key);
+  const model = activeLedModel();
+  if (!model) return null;
+  const targets = model.targets.map(target => target.key);
   return {
     family: productFamily(productId()),
     productId: productId(),
@@ -1014,7 +1053,7 @@ function renderLightingShell() {
   });
 
   const targetHost = $("#lighting-target-controls");
-  const targets = state.config ? activeLedModel().targets : [];
+  const targets = (state.config && activeLedModel()?.targets) || [];
   if (targets.length && !targets.some(target => target.key === state.ledTarget)) state.ledTarget = targets[0].key;
   renderTargetControls(targetHost,targets,state.ledTarget,destinationLocked,target=>{
     state.ledTarget = target;
@@ -1061,9 +1100,9 @@ function renderKeymap() {
       <div class="editor-grid">
         <section class="card"><div class="card-header"><strong>Layer ${state.layer+1}</strong><small>${layout.keys.length} physical keys</small></div><div class="card-body">
           <div class="keyboard-stage ${layout.className}">
-            ${layout.keys.map(([index,x,y,w=4.8,rotation=0]) => {
+            ${layout.unavailable?'<div class="inspector-empty"><div><strong>Physical layout unavailable</strong><p>Read this Neon keyboard again to load its validated Vial layout.</p></div></div>':layout.keys.map(([index,x,y,w=4.8,rotation=0,height=null]) => {
               const code = layer[index] || "#00000000";
-              return `<button class="keycap ${keyClass(code)} ${state.selected===index?'selected':''}" data-index="${index}" style="left:${x}%;top:${y}%;width:${w}%;transform:rotate(${rotation}deg)" title="Matrix ${index} · ${esc(code)}">${esc(decodeCode(code))}<span>${index}</span></button>`;
+              return `<button class="keycap ${keyClass(code)} ${state.selected===index?'selected':''}" data-index="${index}" style="left:${x}%;top:${y}%;width:${w}%;${height===null?'':`height:${height}%;`}transform:rotate(${rotation}deg)" title="Matrix ${index} · ${esc(code)}">${esc(decodeCode(code))}<span>${index}</span></button>`;
             }).join("")}
           </div>
           ${renderAssignmentPalette(current)}
@@ -1081,15 +1120,28 @@ function renderKeyInspector(layer) {
   const current = layer[state.selected] || "#00000000";
   return `<div class="card-header"><strong>Key ${state.selected}</strong><small>Layer ${state.layer+1}</small></div><div class="card-body">
     <div class="selected-code"><div><strong>${esc(decodeCode(current))}</strong><br><code>${esc(current)}</code></div><span class="pill">${keyClass(current)||'key'}</span></div>
-    <p class="inspector-help">Choose a key from the QWERTY, macro, or Angry Miao palettes below the keyboard. Raw codes remain available for lossless passthrough.</p>
+    <p class="inspector-help">${productFamily(productId())==="NEON"?"Choose a QMK-representable keyboard or macro assignment. Unsupported media, vendor, and raw codes are refused before they change this profile.":"Choose a key from the QWERTY, macro, or Angry Miao palettes below the keyboard. Raw codes remain available for lossless passthrough."}</p>
     <div class="raw-row"><input id="raw-code" class="text-field" value="${esc(current)}" maxlength="9" aria-label="Raw keycode"><button id="apply-raw" class="button ghost">Apply</button></div>
   </div>`;
 }
 
-function assignSelected(code) {
+async function assignSelected(code) {
   if (state.selected === null || !layers()[state.layer]) return;
   if (!/^#[0-9a-f]{8}$/i.test(code)) return toast("Invalid keycode", "Use # followed by exactly eight hexadecimal digits.", "error");
-  mutate(() => { layers()[state.layer].layer[state.selected] = code.toUpperCase(); });
+  const selected=state.selected,layerIndex=state.layer,product=productId();
+  const assignmentEpoch=++state.keyAssignmentEpoch;
+  let normalized=code.toUpperCase();
+  if(productFamily(product)==="NEON"){
+    try{
+      const validation=await api("/api/keymap/assignment",{method:"POST",body:JSON.stringify({product_id:product,code:normalized})});
+      normalized=validation.code;
+    }catch(error){
+      toast("Assignment unavailable",error.message,"error");
+      return;
+    }
+  }
+  if(state.keyAssignmentEpoch!==assignmentEpoch||state.selected!==selected||state.layer!==layerIndex||productId()!==product)return;
+  mutate(() => { layers()[layerIndex].layer[selected] = normalized; });
 }
 
 function wireKeyInspector() {
@@ -1103,8 +1155,15 @@ function wireKeyInspector() {
   $("#raw-code")?.addEventListener("keydown", event => { if (event.key === "Enter") assignSelected(event.currentTarget.value.trim()); });
 }
 
-function totalMacroEvents() {
-  return (state.config.macro_key || []).reduce((sum, macro) => sum + (macro.layer_key || []).length, 0);
+function macroCapacity(candidate=macros()) {
+  return macroCapacityStatus(activeFamilySpec(),candidate);
+}
+
+function macroCapacityError(candidate) {
+  const capacity=macroCapacity(candidate);
+  if(candidate.length>capacity.tracks)return `This keyboard stores ${capacity.tracks} macros; the profile has ${candidate.length}.`;
+  if(capacity.used>capacity.limit)return `These macros use ${capacity.used}/${capacity.limit} ${capacity.unit}. Shorten or remove some macros.`;
+  return "";
 }
 
 function missingMacroTokens() {
@@ -1118,10 +1177,11 @@ function missingMacroTokens() {
 }
 
 function addMacro() {
-  if (macros().length >= 32) return toast("Macro limit reached", "This profile supports up to 32 macros.", "error");
+  const {macroTracks} = activeFamilySpec();
+  if (macros().length >= macroTracks) return toast("Macro limit reached", `This profile supports up to ${macroTracks} macros.`, "error");
   const used = new Set(macros().map(macro => macro.original_key.toUpperCase()));
   let tokenCode = null;
-  for (let i=0;i<32;i++) {
+  for (let i=0;i<macroTracks;i++) {
     const candidate = makeCode(0x95,0x1500+i);
     if (!used.has(candidate)) { tokenCode = candidate; break; }
   }
@@ -1138,6 +1198,8 @@ function confirmMacroReplacement(existingCount,incomingCount,fileName) {
 
 function applyImportedMacros(result) {
   const incoming=result.macros||[];
+  const capacityError=macroCapacityError(incoming);
+  if(capacityError)throw new Error(capacityError);
   mutate(()=>{state.config.macro_key=clone(incoming);state.macro=0;});
   const events=incoming.reduce((sum,macro)=>sum+(macro.layer_key||[]).length,0);
   const connected=incoming.filter(macro=>layers().some(layer=>(layer.layer||[]).some(code=>String(code).toUpperCase()===macro.original_key))).map(macro=>decodeCode(macro.original_key));
@@ -1193,11 +1255,15 @@ async function applyMacroText(mode) {
   try{
     const generated=await api("/api/macros/text",{method:"POST",body:JSON.stringify({text,delay_ms:delay})});
     const oldCount=(current.layer_key||[]).length;
-    const projected=mode==="append"?totalMacroEvents()+generated.layer_key.length:totalMacroEvents()-oldCount+generated.layer_key.length;
-    if(projected>200)throw new Error(`This would use ${projected}/200 events across the profile.`);
+    const candidate=clone(macros());
+    const next=candidate[state.macro];
+    next.layer_key=mode==="append"?[...(next.layer_key||[]),...generated.layer_key]:generated.layer_key;
+    next.intvel_ms=mode==="append"?[...(next.intvel_ms||[]).slice(0,oldCount),...generated.intvel_ms]:generated.intvel_ms;
+    const capacityError=macroCapacityError(candidate);
+    if(capacityError)throw new Error(capacityError);
     mutate(()=>{
       current.layer_key=mode==="append"?[...(current.layer_key||[]),...generated.layer_key]:generated.layer_key;
-      current.intvel_ms=mode==="append"?[...(current.intvel_ms||[]).slice(0,oldCount),...generated.intvel_ms]:generated.intvel_ms;
+      current.intvel_ms=next.intvel_ms;
     });
     toast("Text converted",`${generated.characters} characters · ${generated.layer_key.length} deterministic events · ${delay}ms between keys`,"success");
   }catch(error){toast("Could not convert text",error.message,"error");}
@@ -1206,16 +1272,17 @@ async function applyMacroText(mode) {
 function renderMacros() {
   state.macro = Math.min(state.macro, Math.max(0,macros().length-1));
   const current = macros()[state.macro];
-  const total = totalMacroEvents();
+  const capacity=macroCapacity();
+  const macroTracks=capacity.tracks;
   const eventOptions = KEY_OPTIONS.filter(option => ["Letters","Numbers","Basic","Function"].includes(option.category) && option.code !== "#00000000");
   const assigned = current ? layers().reduce((sum, layer) => sum + layer.layer.filter(code => code.toUpperCase()===current.original_key.toUpperCase()).length,0) : 0;
   const missing=missingMacroTokens();
   const missingWarning=missing.length?`<div class="write-warning macro-warning"><strong>Macro assignments have no readable actions</strong><p>${missing.map(code=>esc(decodeCode(code))).join(", ")} ${missing.length===1?'is':'are'} assigned in the keymap, but the keyboard returned no matching macro definition. Loading cannot reconstruct those keystrokes; restore them from a saved JSON or recreate them before writing.</p></div>`:"";
   $("#screen").innerHTML = `<div class="screen-shell">
-    <header class="screen-header"><div><p class="eyebrow">Up to 32 tracks · 200 events</p><h1>Macros</h1><p class="description">Record or arrange exact key-down, key-up, and timing events.</p></div><div class="header-controls"><div><small>${total}/200 events</small><div class="limit-meter"><span style="width:${Math.min(100,total/2)}%"></span></div></div><button id="import-macros" class="button ghost">Import macros</button><button id="add-macro" class="button primary">+ New macro</button></div></header>
+    <header class="screen-header"><div><p class="eyebrow">Up to ${macroTracks} tracks · ${capacity.limit} ${capacity.unit}</p><h1>Macros</h1><p class="description">Record or arrange exact key-down, key-up, and timing events.</p></div><div class="header-controls"><div><small>${capacity.used}/${capacity.limit} ${capacity.unit}</small><div class="limit-meter"><span style="width:${capacity.limit?Math.min(100,capacity.used*100/capacity.limit):0}%"></span></div></div><button id="import-macros" class="button ghost">Import macros</button><button id="add-macro" class="button primary">+ New macro</button></div></header>
     ${missingWarning}
     <div class="macro-layout">
-      <aside class="card macro-list"><div class="card-header"><strong>Macro library</strong><small>${macros().length}/32</small></div><div class="macro-list-items">
+      <aside class="card macro-list"><div class="card-header"><strong>Macro library</strong><small>${macros().length}/${macroTracks}</small></div><div class="macro-list-items">
         ${macros().length ? macros().map((macro,i) => `<button class="macro-item ${i===state.macro?'active':''}" data-macro="${i}"><span><strong>${esc(decodeCode(macro.original_key))}</strong><small>${(macro.layer_key||[]).length} events</small></span><span class="macro-token">${esc(macro.original_key.slice(-2))}</span></button>`).join("") : `<div class="event-empty">No macros yet.<br>Create one to begin.</div>`}
       </div></aside>
       <section class="card macro-editor">${current ? `<div class="card-header"><strong>${esc(decodeCode(current.original_key))}</strong><small>Assigned to ${assigned} key${assigned===1?'':'s'}</small></div>
@@ -1244,7 +1311,11 @@ function renderMacros() {
   if (!current) return;
   $("#delete-macro").addEventListener("click", removeMacro);
   $("#add-event").addEventListener("click", () => {
-    if (totalMacroEvents() >= 200) return toast("Event limit reached", "Delete an event before adding another.", "error");
+    const candidate=clone(macros());
+    candidate[state.macro].layer_key.push("#11070004");
+    candidate[state.macro].intvel_ms.push(25);
+    const capacityError=macroCapacityError(candidate);
+    if(capacityError)return toast("Macro capacity reached",capacityError,"error");
     mutate(()=>{current.layer_key.push("#11070004");current.intvel_ms.push(25);});
   });
   $("#record-macro").addEventListener("click", toggleRecording);
@@ -1257,9 +1328,14 @@ function renderMacros() {
   $$("[data-event-key]").forEach(select => select.addEventListener("change",()=>mutate(()=>{
     const i=Number(select.dataset.eventKey);current.layer_key[i]=macroEventCode(select.value,codeParts(current.layer_key[i])?.modifier!==0x10);
   })));
-  $$("[data-delay]").forEach(input => input.addEventListener("change",()=>mutate(()=>{
-    const i=Number(input.dataset.delay);current.intvel_ms[i]=Math.max(0,Math.min(15000,Number(input.value)||0));
-  })));
+  $$("[data-delay]").forEach(input => input.addEventListener("change",()=>{
+    const i=Number(input.dataset.delay);
+    const value=Math.max(0,Math.min(15000,Number(input.value)||0));
+    const candidate=clone(macros());candidate[state.macro].intvel_ms[i]=value;
+    const capacityError=macroCapacityError(candidate);
+    if(capacityError){toast("Macro capacity reached",capacityError,"error");renderMacros();return;}
+    mutate(()=>{current.intvel_ms[i]=value;});
+  }));
   $$("[data-remove]").forEach(button => button.addEventListener("click",()=>mutate(()=>{
     const i=Number(button.dataset.remove);current.layer_key.splice(i,1);current.intvel_ms.splice(i,1);
   })));
@@ -1280,10 +1356,16 @@ function recordEvent(event, down) {
   if (usage === undefined) return;
   event.preventDefault();
   const current = macros()[state.macro];
-  if (!current || totalMacroEvents() >= 200) { state.recording=false; renderMacros(); return toast("Event limit reached","Recording stopped at 200 events.","error"); }
   const now = performance.now();
+  if(!current)return;
+  const delay=Math.max(0,Math.min(15000,Math.round(now-state.recordLast)));
+  const candidate=clone(macros());
+  candidate[state.macro].layer_key.push(makeCode(7,usage,down?0x11:0x10));
+  candidate[state.macro].intvel_ms.push(delay);
+  const capacityError=macroCapacityError(candidate);
+  if(capacityError){state.recording=false;renderMacros();return toast("Macro capacity reached",capacityError,"error");}
   current.layer_key.push(makeCode(7,usage,down?0x11:0x10));
-  current.intvel_ms.push(Math.max(0,Math.min(15000,Math.round(now-state.recordLast))));
+  current.intvel_ms.push(delay);
   state.recordLast = now;
   markDirty();
   renderMacros();
@@ -1294,13 +1376,18 @@ function getPage(index) {
 }
 
 function createLedPages() {
+  const spec = activeFamilySpec();
+  const keyColors = trackColorCount(spec, "keyframes");
+  const edgeColorCount = spec.authoredTracks.includes("spotlight_frames")
+    ? trackColorCount(spec, "spotlight_frames")
+    : null;
   mutate(() => {
     state.config.page_data = Array.from({length:8},(_,index)=>({
       valid:index<3?1:(index>=5?1:0),page_index:index,lightness:100,speed_ms:90,
       color:{default:false,back_rgb:"#000000",rgb:"#000000"},word_page:{valid:0,word_len:0,unicode:[]},
       frames:{valid:0,frame_num:0,frame_data:[]},
-      keyframes:{valid:index>=5?1:0,frame_num:index>=5?1:0,frame_data:index>=5?[{frame_index:0,frame_RGB:Array(90).fill("#000000")}]:[]},
-      ...(productFamily(productId())==="80"&&index>=5?{spotlight_frames:{valid:1,frame_num:1,frame_data:[{frame_index:0,frame_RGB:Array(24).fill("#000000")}]}}:{}),
+      keyframes:{valid:index>=5?1:0,frame_num:index>=5?1:0,frame_data:index>=5?[{frame_index:0,frame_RGB:Array(keyColors).fill("#000000")}]:[]},
+      ...(edgeColorCount!==null&&index>=5?{spotlight_frames:{valid:1,frame_num:1,frame_data:[{frame_index:0,frame_RGB:Array(edgeColorCount).fill("#000000")}]}}:{}),
     }));
     state.config.page_num = 8;
   });
@@ -1308,14 +1395,14 @@ function createLedPages() {
 
 function trackInfo() {
   const page = getPage(state.ledSlot);
-  const lengths = {frames:200,keyframes:90,spotlight_frames:24};
-  return {page, track:page?.[state.ledTarget], length:lengths[state.ledTarget]};
+  const length = trackColorCount(activeFamilySpec(), state.ledTarget);
+  return {page, track:page?.[state.ledTarget], length};
 }
 
 function ensureTrack() {
   const page = getPage(state.ledSlot);
   if (!page) return null;
-  const length = {frames:200,keyframes:90,spotlight_frames:24}[state.ledTarget];
+  const length = trackColorCount(activeFamilySpec(), state.ledTarget);
   if (!page[state.ledTarget]) page[state.ledTarget]={valid:1,frame_num:0,frame_data:[]};
   const track = page[state.ledTarget];
   if (!track.frame_data?.length) {
@@ -1331,14 +1418,16 @@ function currentFrame() {
   return track.frame_data[state.ledFrame];
 }
 
+// The track length comes from the spec; the seven authored edge zones padded
+// into it remain Relic-specific geometry, which belongs with the LED maps.
 function edgeColors(colors) {
-  const result=Array(24).fill("#000000");
+  const result=Array(trackColorCount(activeFamilySpec(),"spotlight_frames")).fill("#000000");
   for(let index=0;index<7;index++)result[index]=colors[index]||"#000000";
   return result;
 }
 
 function resampleEdgeAnimation(sourceFrames, count) {
-  const sources=sourceFrames?.length?sourceFrames:[Array(24).fill("#000000")];
+  const sources=sourceFrames?.length?sourceFrames:[edgeColors([])];
   return Array.from({length:count},(_,index)=>{
     const sourceIndex=Math.min(sources.length-1,Math.floor(index*sources.length/count));
     const source=sources[sourceIndex]?.frame_RGB||sources[sourceIndex]||[];
@@ -1381,6 +1470,10 @@ function renderLightingEdit() {
   }
   const page = getPage(state.ledSlot);
   const model=activeLedModel();
+  if (!model) {
+    $("#lighting-edit-content").innerHTML=unsupportedDeviceNotice("painting these pages");
+    return;
+  }
   const targets=model.targets;
   if (!targets.some(target=>target.key===state.ledTarget)) state.ledTarget=targets[0].key;
   const {track,length}=trackInfo();
@@ -1388,9 +1481,26 @@ function renderLightingEdit() {
   state.ledFrame=Math.min(state.ledFrame,Math.max(0,frames.length-1));
   const frame=frames[state.ledFrame];
   const gridClass=state.ledTarget==="frames"?"display":state.ledTarget==="spotlight_frames"?"edge":"key";
-  const columns=state.ledTarget==="frames"?40:state.ledTarget==="spotlight_frames"?7:model.keyColumns;
-  const physicalLayout=state.ledTarget==="keyframes"?model.physicalLayout:null;
-  const pixelMap=physicalLayout?physicalLayout.map(item=>item.index):state.ledTarget==="keyframes"?model.keyMap:state.ledTarget==="spotlight_frames"?[0,1,2,3,4,5,6]:model.displayMap||Array.from({length},(_,index)=>index);
+  // Geometry the server publishes from device_mapping, which is the authority
+  // for these tables. A family whose maps are not hardcoded below — the Neon,
+  // and anything added later — is laid out entirely from this.
+  const servedTarget=servedGeometry(productFamily(productId()),state.ledTarget);
+  // A family with no embedded maps depends entirely on served geometry. Until
+  // that arrives, refuse to render an editor rather than invent one: an
+  // identity map is a plausible-looking but wrong layout, and a user painting
+  // against it would be authoring positions that do not exist on the device.
+  if(!model.keyMap&&!model.displayMap&&!model.physicalLayout&&!servedTarget){
+    $("#lighting-edit-content").innerHTML=geometryUnavailableNotice();
+    return;
+  }
+  const columns=state.ledTarget==="frames"?40:state.ledTarget==="spotlight_frames"?7:(model.keyColumns||servedTarget?.width);
+  const device=state.devices.find(candidate=>deviceKey(candidate)===state.loadedDevice);
+  const physicalLayout=state.ledTarget==="keyframes"
+    ?model.physicalLayout
+    :state.ledTarget==="axial"
+      ?projectVialLedLayout(device,servedTarget)
+      :null;
+  const pixelMap=physicalLayout?physicalLayout.map(item=>item.index):state.ledTarget==="keyframes"?(model.keyMap||servedTarget?.map):state.ledTarget==="spotlight_frames"?[0,1,2,3,4,5,6]:(model.displayMap||servedTarget?.map||Array.from({length},(_,index)=>index));
   const mappedCount=new Set(pixelMap.filter(index=>index>=0)).size;
   const focusablePixelCount=physicalLayout?.length||pixelMap.filter(index=>index>=0).length;
   state.ledPixel=Math.min(state.ledPixel,Math.max(0,focusablePixelCount-1));
@@ -1405,11 +1515,15 @@ function renderLightingEdit() {
   const pixelCanvas=!frame?`<div class="event-empty"><button id="first-frame" class="button primary">Create first frame</button></div>`:physicalLayout?`<div class="pixel-grid physical afa-led-board" role="grid" aria-label="LED paint grid">${physicalLayout.map((item,position)=>{
     const color=safeRgbColor(frame.frame_RGB[item.index]);
     const body=item.keyIndex===null;
-    const label=body?item.label:decodeCode(keyLabels[item.keyIndex]||"#00000000");
-    const description=body?'Center light':`Key ${label}, matrix ${item.keyIndex}`;
-    return `<button class="pixel physical-pixel ${body?'body-led':''}" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${item.index}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;--rotation:${item.rotation}deg;background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="${esc(description)}, LED ${item.index}, ${esc(color)}" title="${esc(description)} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
+    const keyLabel=body?item.label:decodeCode(keyLabels[item.keyIndex]||"#00000000");
+    const label=item.showLabel===false?"":keyLabel;
+    const description=body?'Center light':`Key ${keyLabel}, matrix ${item.keyIndex}`;
+    const grouped=item.groupCount>1;
+    const groupClass=grouped?`multi-led ${item.groupPosition===0?'group-first':''} ${item.groupPosition===item.groupCount-1?'group-last':''}`:"";
+    return `<button class="pixel physical-pixel ${body?'body-led':''} ${groupClass}" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${item.index}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;height:${item.h??10.7}%;--rotation:${item.rotation}deg;background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="${esc(description)}, LED ${item.index}, ${esc(color)}" title="${esc(description)} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
   }).join("")}</div>`:`<div class="pixel-grid ${gridClass}" role="grid" aria-label="LED paint grid" style="grid-template-columns:repeat(${columns},1fr)">${rasterCells}</div>`;
-  const gifSize=state.ledTarget==="frames"?"40×5":state.ledTarget==="spotlight_frames"?"18×7 → 7 edge LEDs":`${model.keyRaster} → ${mappedCount} mapped LEDs`;
+  const raster=model.keyRaster||(servedTarget?`${servedTarget.width}×${servedTarget.height}`:"");
+  const gifSize=state.ledTarget==="frames"?"40×5":state.ledTarget==="spotlight_frames"?"18×7 → 7 edge LEDs":`${raster} → ${mappedCount} mapped LEDs`;
   const relicKeyTarget=model===LED_MODELS["80"]&&state.ledTarget==="keyframes";
   const pairsRelicGif=relicKeyTarget&&state.relicGifEdges;
   const edgeAutomation=model===LED_MODELS["80"]&&state.ledTarget==="spotlight_frames";
@@ -1667,8 +1781,20 @@ async function validateCurrent(showSuccess = true) {
   } catch(error){toast("Validation failed",error.message,"error");return null;}
 }
 
+// A device's identity is its transport plus its address on that transport, not
+// a bare port: a raw-HID keyboard has no serial port, and two transports can
+// hand out addresses that collide as plain strings.
+function deviceKey(device) {
+  return device?`${device.transport}:${device.address}`:null;
+}
+
+// The handle fields a device request body carries.
+function deviceAddress(device) {
+  return {transport:device.transport,address:device.address};
+}
+
 function selectedDevice() {
-  return state.devices.find(device=>device.port===state.selectedPort)||null;
+  return state.devices.find(device=>deviceKey(device)===state.selectedDevice)||null;
 }
 
 function mismatchedDevice() {
@@ -1687,7 +1813,7 @@ function updateCompatibilityBanner() {
   const targetName=`${productLabel(device.product_id)} (${device.product_id})`;
   $("#compatibility-title").textContent=`${sourceName} profile · ${targetName} connected`;
   $("#compatibility-detail").textContent=`This JSON cannot be written to ${device.product_id}. Save JSON still works; keymaps and LED tracks cannot cross layouts.`;
-  const saved=state.deviceDocuments.get(device.port);
+  const saved=state.deviceDocuments.get(deviceKey(device));
   const hasMacros=Array.isArray(state.config.macro_key)&&state.config.macro_key.length>0;
   $("#import-banner-macros").hidden=!(saved&&hasMacros);
   const returnButton=$("#return-connected-workspace");
@@ -1697,7 +1823,7 @@ function updateCompatibilityBanner() {
 async function importDetachedMacros() {
   const device=mismatchedDevice();
   if(!device||!state.config)return;
-  const saved=state.deviceDocuments.get(device.port);
+  const saved=state.deviceDocuments.get(deviceKey(device));
   if(!saved)return toast("No keyboard workspace to restore",`Load ${device.product_id} before importing macros into it.`,"error");
   const source=clone(state.config),sourceName=state.fileName;
   try{
@@ -1705,9 +1831,9 @@ async function importDetachedMacros() {
     const incoming=result.macros||[];
     const existing=(saved.config?.macro_key||[]).length;
     if(!confirmMacroReplacement(existing,incoming.length,sourceName))return;
-    if(!restoreDeviceDocument(device.port,device.product_id))throw new Error(`The saved ${device.product_id} workspace is no longer compatible.`);
-    state.loadedPort=device.port;
-    state.selectedPort=device.port;
+    if(!restoreDeviceDocument(deviceKey(device),device.product_id))throw new Error(`The saved ${device.product_id} workspace is no longer compatible.`);
+    state.loadedDevice=deviceKey(device);
+    state.selectedDevice=deviceKey(device);
     applyImportedMacros(result);
     await synchronizeOpenDocument();
   }catch(error){toast("Could not import macros",error.message,"error");}
@@ -1717,27 +1843,27 @@ async function returnToConnectedWorkspace() {
   const device=mismatchedDevice();
   if(!device)return;
   if(state.dirty&&!confirm(`Discard unsaved changes to ${state.fileName} and return to ${device.product_id}?`))return;
-  if(restoreDeviceDocument(device.port,device.product_id)){
-    state.loadedPort=device.port;
-    state.selectedPort=device.port;
+  if(restoreDeviceDocument(deviceKey(device),device.product_id)){
+    state.loadedDevice=deviceKey(device);
+    state.selectedDevice=deviceKey(device);
     await synchronizeOpenDocument();
     render();
     toast("Keyboard workspace restored",`${device.product_id} · ${state.fileName}`,"success");
     return;
   }
-  state.selectedPort=device.port;
+  state.selectedDevice=deviceKey(device);
   await readDevice();
 }
 
 function deviceSwitchesWorkspace(device) {
   if(!device||!state.config)return false;
-  if(state.loadedPort)return state.loadedPort!==device.port;
+  if(state.loadedDevice)return state.loadedDevice!==deviceKey(device);
   return !sameProductFamily(productId(),device.product_id);
 }
 
 function stashDeviceDocument() {
-  if(!state.loadedPort||!state.config)return;
-  state.deviceDocuments.set(state.loadedPort,{
+  if(!state.loadedDevice||!state.config)return;
+  state.deviceDocuments.set(state.loadedDevice,{
     config:state.config,
     fileName:state.fileName,
     dirty:state.dirty,
@@ -1783,8 +1909,8 @@ function updateDeviceActions() {
     return;
   }
   read.disabled=false;
-  read.textContent=deviceSwitchesWorkspace(device)?`Switch to ${device.product_id}`:state.loadedPort===device.port?"Refresh keymap & macros":"Read keymap & macros";
-  const wrongWorkspace=!sameProductFamily(productId(),device.product_id)||(state.loadedPort&&state.loadedPort!==device.port);
+  read.textContent=deviceSwitchesWorkspace(device)?`Switch to ${device.product_id}`:state.loadedDevice===deviceKey(device)?"Refresh keymap & macros":"Read keymap & macros";
+  const wrongWorkspace=!sameProductFamily(productId(),device.product_id)||(state.loadedDevice&&state.loadedDevice!==deviceKey(device));
   write.textContent=`Write to ${device.product_id}`;
   write.disabled=!state.config||Boolean(wrongWorkspace);
   write.title=wrongWorkspace?"Load this keyboard before writing its configuration.":"";
@@ -1795,33 +1921,46 @@ async function scanDevices() {
   $("#device-actions").hidden=true;
   try {
     const result=await api('/api/devices');
-    state.devices=result.devices||[];
+    const previous=new Map(state.devices.map(device=>[deviceKey(device),device]));
+    state.devices=(result.devices||[]).map(device=>{
+      const known=previous.get(deviceKey(device));
+      const deep={
+        ...(known?.key_layout?.length&&!device.key_layout?.length?{key_layout:known.key_layout}:{}),
+        ...(Number.isInteger(Number(known?.macro_count))&&Number.isInteger(Number(known?.macro_buffer_bytes))?{
+          macro_count:known.macro_count,
+          macro_buffer_bytes:known.macro_buffer_bytes,
+        }:{}),
+      };
+      return {...device,...deep};
+    });
     const keyboards=state.devices.filter(device=>device.is_keyboard);
     $(".status-light").classList.toggle("online",Boolean(keyboards.length));
     if(!keyboards.length){
-      state.selectedPort=null;
+      state.selectedDevice=null;
       $("#device-list").innerHTML='<div class="event-empty">No supported keyboard found.<br>Connect it by USB, not through the dongle.</div>';
       updateDeviceActions();
       return;
     }
-    if(!keyboards.some(device=>device.port===state.selectedPort)){
-      state.selectedPort=keyboards.some(device=>device.port===state.loadedPort)?state.loadedPort:null;
+    if(!keyboards.some(device=>deviceKey(device)===state.selectedDevice)){
+      state.selectedDevice=keyboards.some(device=>deviceKey(device)===state.loadedDevice)?state.loadedDevice:null;
     }
-    $("#device-list").innerHTML=keyboards.map(device=>{const active=device.port===state.loadedPort;return `<button type="button" class="device-card ${device.port===state.selectedPort?'selected':''} ${active?'active-device':''}" data-port="${esc(device.port)}"><span><strong>${esc(device.product_id)}</strong><small>${esc(device.version||'Firmware version unavailable')} · pages ${device.pages??'?'}</small></span><span class="pill">${active?'Active':'USB'}</span></button>`;}).join('');
-    $$('.device-card').forEach(card=>card.addEventListener('click',()=>{state.selectedPort=card.dataset.port;$$('.device-card').forEach(node=>node.classList.toggle('selected',node===card));updateDeviceActions();}));
+    $("#device-list").innerHTML=keyboards.map(device=>{const active=deviceKey(device)===state.loadedDevice;return `<button type="button" class="device-card ${deviceKey(device)===state.selectedDevice?'selected':''} ${active?'active-device':''}" data-device="${esc(deviceKey(device))}"><span><strong>${esc(device.product_id)}</strong><small>${esc(device.version||'Firmware version unavailable')} · pages ${device.pages??'?'}</small></span><span class="pill">${active?'Active':'USB'}</span></button>`;}).join('');
+    $$('.device-card').forEach(card=>card.addEventListener('click',()=>{state.selectedDevice=card.dataset.device;$$('.device-card').forEach(node=>node.classList.toggle('selected',node===card));updateDeviceActions();}));
     $("#device-actions").hidden=false;
     updateDeviceActions();
   }catch(error){$("#device-list").innerHTML=`<div class="event-empty">${esc(error.message)}</div>`;toast('Device scan failed',error.message,'error');}
 }
 
 async function readDevice() {
-  if(!state.selectedPort)return;
-  const port=state.selectedPort;
+  const target=selectedDevice();
+  if(!target)return;
+  const port=deviceKey(target);
   const button=$("#read-device");button.disabled=true;button.textContent='Reading…';
   try{
-    const requestedLayers=state.config&&sameProductFamily(productId(),selectedDevice()?.product_id)?layers().length||7:7;
-    const result=await api('/api/device/read',{method:'POST',body:JSON.stringify({port,layers:requestedLayers})});
-    const switching=state.loadedPort?state.loadedPort!==port:Boolean(state.config&&!sameProductFamily(productId(),result.device.product_id));
+    const requestedLayers=state.config&&sameProductFamily(productId(),target.product_id)?layers().length||7:7;
+    const result=await api('/api/device/read',{method:'POST',body:JSON.stringify({...deviceAddress(target),layers:requestedLayers})});
+    state.devices=state.devices.map(device=>deviceKey(device)===port?{...device,...result.device}:device);
+    const switching=state.loadedDevice?state.loadedDevice!==port:Boolean(state.config&&!sameProductFamily(productId(),result.device.product_id));
     if(switching)stashDeviceDocument();
     const restored=switching&&restoreDeviceDocument(port,result.device.product_id);
     const preserved=Boolean(state.config)&&(!switching||restored);
@@ -1848,8 +1987,8 @@ async function readDevice() {
       state.undo=[];state.redo=[];
       resetDocumentView();
     }
-    state.loadedPort=port;
-    state.selectedPort=port;
+    state.loadedDevice=port;
+    state.selectedDevice=port;
     if(!await synchronizeOpenDocument())throw new Error(state.documentSyncError||"The device document could not be synchronized.");
     markDirty();render();
     $("#device-dialog").close();
@@ -1864,14 +2003,20 @@ async function readDevice() {
 
 async function writeDevice() {
   if(!state.config)return;
-  if(!state.selectedPort){toast('Choose a write target','Select the keyboard you intend to write.','error');showDeviceDialog();return;}
-  const device=state.devices.find(item=>item.port===state.selectedPort);
+  if(!state.selectedDevice){toast('Choose a write target','Select the keyboard you intend to write.','error');showDeviceDialog();return;}
+  const device=state.devices.find(item=>deviceKey(item)===state.selectedDevice);
   if(!device)return toast('Write unavailable','Select the connected keyboard again.','error');
-  if(!sameProductFamily(productId(),device.product_id)||(state.loadedPort&&state.loadedPort!==device.port))return toast('Write unavailable','Load the selected keyboard before writing its configuration.','error');
+  if(!sameProductFamily(productId(),device.product_id)||(state.loadedDevice&&state.loadedDevice!==deviceKey(device)))return toast('Write unavailable','Load the selected keyboard before writing its configuration.','error');
   const validation=await validateCurrent(false);if(!validation?.ok)return;
   state.pendingWrite={device,validation};
   $("#write-title").textContent=`Write to ${device.product_id}`;
   $("#write-token").textContent=device.product_id;
+  const neonWrite=productFamily(device.product_id)==="NEON";
+  const unlockNote=$("#write-unlock-note");
+  unlockNote.hidden=!neonWrite;
+  unlockNote.textContent=neonWrite
+    ?"Physical unlock required: hold Esc and F2 together before pressing Write, then keep holding until the write begins. The app completes validation before starting this unlock handshake."
+    :"";
   const led=validation.led_frames||{};
   $("#write-summary").innerHTML=`<span><strong>${validation.layers}</strong><small>layers</small></span><span><strong>${validation.macros}</strong><small>macros</small></span><span><strong>${validation.frame_plan?.total||0}</strong><small>USB frames</small></span><span><strong>${led.display||0}</strong><small>display frames</small></span><span><strong>${led.per_key||0}</strong><small>per-key frames</small></span><span><strong>${led.edge||0}</strong><small>edge frames</small></span>`;
   const status=$("#write-status");
@@ -1892,17 +2037,18 @@ async function confirmDeviceWrite() {
   if(typedConfirmation.toUpperCase()!==pending.device.product_id.toUpperCase())return;
   const confirmation=pending.device.product_id;
   const button=$("#confirm-write"),cancel=$("#cancel-write"),close=$("#cancel-write-x"),input=$("#write-confirmation"),status=$("#write-status");
+  const neonWrite=productFamily(pending.device.product_id)==="NEON";
   button.disabled=true;cancel.disabled=true;close.disabled=true;input.disabled=true;
-  button.textContent=verifyOnly?'Verifying accepted write…':`Writing ${pending.validation.frame_plan?.total||''} frames…`;
-  status.className='write-status working';status.textContent=verifyOnly?'Reading the keymap again without resending the configuration.':'Writing configuration. Keep the cable connected; verification follows automatically.';
+  button.textContent=verifyOnly?'Verifying accepted write…':neonWrite?'Unlocking, then writing…':`Writing ${pending.validation.frame_plan?.total||''} frames…`;
+  status.className='write-status working';status.textContent=verifyOnly?'Reading the keymap again without resending the configuration.':neonWrite?'Hold Esc and F2 together. Keep holding until the write begins; no lighting, keymap, or macro SET is sent until the combo is accepted.':'Writing configuration. Keep the cable connected; verification follows automatically.';
   try{
     const endpoint=verifyOnly?'/api/device/verify':'/api/device/write';
-    const result=await api(endpoint,{method:'POST',body:JSON.stringify({port:pending.device.port,config:state.config,confirmation})});
+    const result=await api(endpoint,{method:'POST',body:JSON.stringify({...deviceAddress(pending.device),config:state.config,confirmation})});
     if(result.document_revision){state.documentRevision=result.document_revision;state.documentSyncError="";}
     markDirty(false);$("#write-dialog").close();state.pendingWrite=null;
     const partialMacros=result.macro_verification==='partial';
     const macroWarning=result.macro_warning?`\n${result.macro_warning}`:'';
-    toast(partialMacros?'Write accepted; macro tail unreadable':'Write verified',`${result.device.product_id} · ${result.frames} configuration frames · ${result.macros} macros\nSnapshot ${result.snapshot}${macroWarning}`,partialMacros?'':'success');
+    toast(partialMacros?'Write accepted; macro tail unreadable':'Write verified',`${result.device.product_id} · ${result.write_units} ${result.write_unit_label} · ${result.macros} macros\nSnapshot ${result.snapshot}${macroWarning}`,partialMacros?'':'success');
   }catch(error){
     if(error.accepted){
       pending.verifyOnly=true;
@@ -2014,7 +2160,7 @@ function generationDialogContext() {
   const target=manifest?.target||proceduralTargetSnapshot();
   const targetKey=target.targets?.[0]||state.ledTarget;
   const model=LED_MODELS[productFamily(target.family||target.product_id)]||activeLedModel();
-  const targetLabel=model.targets.find(item=>item.key===targetKey)?.label||targetKey;
+  const targetLabel=model?.targets.find(item=>item.key===targetKey)?.label||targetKey;
   const destinationSlot=state.conceptDestination?.slot||state.ledSlot;
   return {manifest,target,targetKey,targetLabel,destinationSlot,busy:state.conceptSubmitting||["in_progress","accepted","processing"].includes(state.lighting.activeJob?.status)};
 }
@@ -2153,11 +2299,19 @@ function applyReviewedLighting() {
   toast("Lighting applied",`${Number(result.source_frames||0)} frames added to Custom ${destination.slot-4}. The keyboard has not been written.`,"success");
 }
 
+// Device geometry is not an AI concern and must not wait on one. It decides
+// whether the editor can render at all, so it is fetched on its own before the
+// first render; bundling it with the optional AI calls meant a slow or failing
+// AI status could leave the editor with no layout.
+async function loadDeviceGeometry() {
+  try{state.capabilities=await api("/api/led/capabilities");}
+  catch(error){state.capabilities=undefined;}
+}
+
 async function loadAiConfig() {
-  const requests=await Promise.allSettled([api("/api/led/capabilities"),api("/api/settings"),api("/api/ai/status")]);
-  if(requests[0].status==="fulfilled")state.capabilities=requests[0].value;
-  if(requests[1].status==="fulfilled")state.settings=requests[1].value;
-  if(requests[2].status==="fulfilled")state.aiStatus=requests[2].value;
+  const requests=await Promise.allSettled([api("/api/settings"),api("/api/ai/status")]);
+  if(requests[0].status==="fulfilled")state.settings=requests[0].value;
+  if(requests[1].status==="fulfilled")state.aiStatus=requests[1].value;
   if(shouldDiscoverLocalModels(state.lighting.route,state.aiStatus)){
     try{state.localModels=normalizeLocalModels(await api("/api/ai/local/models"));}
     catch(error){state.localModels=localModelRefreshFailed(state.localModels);}
@@ -2417,6 +2571,7 @@ $("#return-connected-workspace").addEventListener("click",returnToConnectedWorks
 $("#confirm-write").addEventListener("click",confirmDeviceWrite);
 $("#write-confirmation").addEventListener("input",event=>{$("#confirm-write").disabled=!state.pendingWrite||event.target.value.trim().toUpperCase()!==state.pendingWrite.device.product_id.toUpperCase();});
 $("#write-confirmation").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();if(!$("#confirm-write").disabled)confirmDeviceWrite();}});
+$("#write-dialog").addEventListener("cancel",event=>{if(state.pendingWrite&&productFamily(state.pendingWrite.device.product_id)==="NEON")event.preventDefault();});
 $("#write-dialog").addEventListener("close",()=>{if($("#write-dialog").returnValue==='cancel')state.pendingWrite=null;});
 $("#undo-button").addEventListener("click",undo);
 $("#redo-button").addEventListener("click",redo);
@@ -2508,6 +2663,7 @@ window.addEventListener('pagehide',clearLibraryAssetUrls);
   try{
     const result=await api('/api/config');
     if(result.config){state.config=result.config;state.documentRevision=result.document_revision||null;state.fileName=`AM-${productId()}-config.json`;}
+    await loadDeviceGeometry();
     render();
     restoreLightingJob();
     scanDevices();

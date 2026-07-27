@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import subprocess
 import sys
 import tomllib
@@ -380,6 +382,15 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("MIT License", licence)
         # FFmpeg's separate LGPL obligation must not regress alongside it.
         self.assertIn("GNU Lesser General Public License", notices)
+        # The Neon's axial LED payload ordering is derived from the Apache-2.0
+        # neon80_driver. The obligation attaches to the derived data, so the
+        # attribution has to travel in every artifact, not only the repository.
+        self.assertIn("neon80_driver", notices)
+        self.assertIn("Apache License, Version 2.0", notices)
+        # And the application's own licence is unchanged: the superseding
+        # decision keeps it MIT, so a stray GPL grant here would be a
+        # regression, not an addition.
+        self.assertNotIn("GNU General Public License", licence)
 
     def _sdist_include(self) -> list[str]:
         metadata = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))
@@ -454,6 +465,76 @@ class ReleaseInfoTests(unittest.TestCase):
         for entry in entries:
             with self.subTest(entry=entry):
                 self.assertIn(entry, allowlisted | excluded)
+
+    def test_the_neon_udev_rule_ships_and_keeps_the_shared_vial_serial(self) -> None:
+        """The Linux permission remedy is useless if the rule is not published.
+
+        The serial in the rule is Vial's fixed magic string, shared by every
+        Vial keyboard. Narrowing it to one board's identifier would silently
+        break the rule for every other unit, so the guard pins it.
+        """
+        rule_path = ROOT / "am_configurator" / "data" / "60-am-neon-80.rules"
+        self.assertTrue(rule_path.is_file(), "the udev rule is missing")
+
+        rule = rule_path.read_text(encoding="utf-8")
+        self.assertIn('KERNEL=="hidraw*"', rule)
+        self.assertIn('ATTRS{serial}=="*vial:f64c2b3c*"', rule)
+        self.assertIn('TAG+="uaccess"', rule)
+
+    def test_the_udev_rule_reaches_the_artifacts_users_actually_install(self) -> None:
+        """Checking the sdist alone is what let this ship broken.
+
+        A wheel user and an AppImage user have no source archive. The previous
+        guard asserted only that /packaging/ was on the sdist allowlist, which
+        looked like coverage and was not: the built wheel contained the rule
+        zero times.
+        """
+        # Wheel: `packages` does not carry non-Python files by itself.
+        wheel = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        artifacts = wheel["tool"]["hatch"]["build"]["targets"]["wheel"].get("artifacts", [])
+        self.assertTrue(
+            any("rules" in pattern for pattern in artifacts),
+            f"the wheel ships no udev rule: {artifacts}",
+        )
+
+        # PyInstaller bundle, which is what the AppImage wraps.
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
+        self.assertIn('"am_configurator" / "data"', spec)
+        self.assertIn('"am_configurator/data"', spec)
+
+    def test_the_runtime_names_the_rule_where_it_is_actually_installed(self) -> None:
+        """The message must resolve a real path, not a source-tree path."""
+        from am_configurator import hid_transport
+
+        self.assertTrue(hid_transport.udev_rule_path().is_file())
+
+        source = (ROOT / "am_configurator" / "hid_transport.py").read_text(encoding="utf-8")
+        self.assertNotIn("packaging/linux/60-am-neon-80.rules", source)
+        self.assertNotIn("docs/neon-80-linux.md", source)
+
+    def test_the_rule_is_obtainable_without_a_filesystem_path(self) -> None:
+        """A path is worthless to an AppImage user, who has the greatest need.
+
+        Inside an AppImage the package sits on a temporary mount that vanishes
+        on exit, and the shell's Python cannot import it to ask where it is. So
+        the application prints the rule's contents, which works identically for
+        an AppImage, a wheel, and a source checkout.
+        """
+        from am_configurator import desktop, hid_transport
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            self.assertEqual(0, desktop.main(["--print-udev-rule"]))
+        self.assertIn('ATTRS{serial}=="*vial:f64c2b3c*"', buffer.getvalue())
+
+        # The guidance must not tell a user to resolve a path.
+        remedy = hid_transport._permission_remedy.__doc__ or ""
+        source = (ROOT / "am_configurator" / "hid_transport.py").read_text(encoding="utf-8")
+        self.assertIn("--print-udev-rule", source)
+
+        doc = (ROOT / "docs" / "neon-80-linux.md").read_text(encoding="utf-8")
+        self.assertIn("--print-udev-rule", doc)
+        self.assertNotIn("from am_configurator.hid_transport import udev_rule_path", doc)
 
     def test_spec_bundles_the_llm_module(self) -> None:
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
@@ -697,6 +778,23 @@ class ReleaseInfoTests(unittest.TestCase):
             script,
         )
 
+    def test_the_udev_install_command_elevates_the_write_not_the_reader(self) -> None:
+        """`sudo app > /etc/...` cannot work, however natural it looks.
+
+        The shell opens a `>` target as the invoking user, before `sudo` runs,
+        so redirecting into a root-owned directory fails with permission denied
+        no matter how the application is elevated. Only the write may be
+        elevated, which means piping into `tee`.
+        """
+        doc = (ROOT / "docs" / "neon-80-linux.md").read_text(encoding="utf-8")
+        source = (ROOT / "am_configurator" / "hid_transport.py").read_text(encoding="utf-8")
+
+        for name, text in (("docs", doc), ("runtime", source)):
+            with self.subTest(surface=name):
+                self.assertIn("sudo tee", text)
+                self.assertNotIn("sudo ./AM_Configurator.AppImage --print-udev-rule >", text)
+                self.assertNotIn("sudo am-configurator --print-udev-rule >", text)
+                self.assertNotIn("--print-udev-rule > /etc/udev", text)
 
 if __name__ == "__main__":
     unittest.main()

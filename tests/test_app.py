@@ -27,7 +27,7 @@ from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
-from am_configurator import __version__
+from am_configurator import __version__, transport
 from am_configurator.device_mapping import (
     MAX_FRAMES,
     firmware_led_speed,
@@ -404,7 +404,9 @@ class DesktopServerTests(unittest.TestCase):
     def test_keyboard_probe_does_not_shadow_device_module(self) -> None:
         keyboard = SimpleNamespace(is_keyboard=True)
         with patch("am_configurator.device.probe", return_value=keyboard) as probe:
-            result = _probe_keyboard("/dev/example", attempts=1)
+            result = _probe_keyboard(
+                transport.DeviceHandle(transport.SERIAL, "/dev/example"), attempts=1
+            )
 
         self.assertIs(keyboard, result)
         probe.assert_called_once_with("/dev/example", full=True)
@@ -439,8 +441,12 @@ class DesktopServerTests(unittest.TestCase):
         )
         self.assertIsNotNone(create_pages)
         compact = re.sub(r"\s+", "", create_pages.group("body"))
+        # The edge track is gated on the family actually authoring it, and only
+        # for the custom slots. Comparing the raw product id instead would miss
+        # AM21, which is the Relic's reported identifier.
+        self.assertIn('edgeColorCount!==null&&index>=5', compact)
         self.assertIn(
-            'productFamily(productId())==="80"&&index>=5',
+            'spec.authoredTracks.includes("spotlight_frames")',
             compact,
         )
         self.assertNotIn('productId().toUpperCase()==="80"', compact)
@@ -456,6 +462,24 @@ class DesktopServerTests(unittest.TestCase):
         self.assertIn('id="write-button"', toolbar.group("body"))
         self.assertNotIn('id="write-button"', picker.group("body"))
         self.assertNotIn('id="write-device"', source)
+
+    def test_neon_write_dialog_explains_the_physical_unlock_combo(self) -> None:
+        html = (ROOT / "am_configurator" / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        script = (ROOT / "am_configurator" / "web" / "app.js").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('id="write-unlock-note"', html)
+        self.assertIn("Esc and F2", script)
+        self.assertIn('productFamily(device.product_id)==="NEON"', script)
+        self.assertIn("Unlocking, then writing", script)
+        self.assertIn(
+            '$("#write-dialog").addEventListener("cancel",event=>',
+            script,
+        )
+        self.assertIn("event.preventDefault()", script)
 
     def test_incompatible_profile_ui_explains_and_recovers_from_mismatch(self) -> None:
         html = (ROOT / "am_configurator" / "web" / "index.html").read_text(
@@ -553,7 +577,10 @@ class DesktopServerTests(unittest.TestCase):
             patch("am_configurator.server.time.sleep") as sleep,
         ):
             actual = _verify_keymap_readback(
-                "/dev/example", expected, attempts=2, retry_seconds=0.01
+                transport.DeviceHandle(transport.SERIAL, "/dev/example"),
+                expected,
+                attempts=2,
+                retry_seconds=0.01,
             )
         self.assertEqual(expected, actual)
         self.assertEqual(2, read.call_count)
@@ -572,7 +599,10 @@ class DesktopServerTests(unittest.TestCase):
             self.assertRaisesRegex(AcceptedWriteError, "layer 1 key 1"),
         ):
             _verify_keymap_readback(
-                "/dev/example", expected, attempts=2, retry_seconds=0.01
+                transport.DeviceHandle(transport.SERIAL, "/dev/example"),
+                expected,
+                attempts=2,
+                retry_seconds=0.01,
             )
 
     def test_loopback_server_can_be_owned_by_a_native_window(self) -> None:
@@ -1579,6 +1609,118 @@ class LedGenerateEndpointTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
 
+    def test_key_assignments_use_the_target_familys_wire_vocabulary(self) -> None:
+        for code in ("#00000000", "#00070004", "#0095150F", "#00FF5101"):
+            with self.subTest(code=code):
+                status, response = self._request(
+                    "POST",
+                    "/api/keymap/assignment",
+                    {"product_id": "NEON80", "code": code.lower()},
+                )
+                self.assertEqual(200, status)
+                self.assertEqual({"ok": True, "code": code}, response)
+
+        for code in ("#000C00E9", "#00920100", "#00951510", "#00FF0004"):
+            with self.subTest(code=code):
+                status, response = self._request(
+                    "POST",
+                    "/api/keymap/assignment",
+                    {"product_id": "NEON80", "code": code},
+                )
+                self.assertEqual(400, status)
+                self.assertFalse(response["ok"])
+                self.assertIn(code, response["error"])
+                self.assertIn("cannot be written", response["error"])
+
+        status, response = self._request(
+            "POST",
+            "/api/keymap/assignment",
+            {"product_id": "AM21", "code": "#00920100"},
+        )
+        self.assertEqual(200, status)
+        self.assertEqual({"ok": True, "code": "#00920100"}, response)
+
+    def test_device_read_publishes_the_reported_macro_limits(self) -> None:
+        device_layers = [["#00000000"] * 90 for _ in range(4)]
+        device = SimpleNamespace(is_keyboard=True, product_id="NEON80")
+        link = SimpleNamespace(
+            read_keymap=lambda address, *, layers: device_layers,
+            read_macro_state=lambda address: transport.MacroReadResult(
+                [],
+                device_reported=True,
+                device_macro_count=9,
+                device_macro_buffer_bytes=321,
+            ),
+        )
+
+        with (
+            patch.object(transport, "transport_for_handle", return_value=link),
+            patch("am_configurator.server._probe_keyboard", return_value=device),
+            patch.object(
+                transport,
+                "device_json",
+                return_value={"product_id": "NEON80"},
+            ),
+            patch("am_configurator.server._stored_device_config", return_value=(None, None)),
+            patch("am_configurator.server.time.sleep"),
+        ):
+            status, response = self._request(
+                "POST",
+                "/api/device/read",
+                {"port": "/dev/example", "layers": 4},
+            )
+
+        self.assertEqual(200, status)
+        self.assertEqual(9, response["device"]["macro_count"])
+        self.assertEqual(321, response["device"]["macro_buffer_bytes"])
+
+    def test_device_io_stays_on_one_worker_across_http_requests(self) -> None:
+        device_layers = [["#00000000"] * 90 for _ in range(4)]
+        device = SimpleNamespace(is_keyboard=True, product_id="NEON80")
+        workers = []
+
+        def record(value):
+            workers.append(threading.current_thread())
+            return value
+
+        link = SimpleNamespace(
+            read_keymap=lambda address, *, layers: record(device_layers),
+            read_macro_state=lambda address: record(
+                transport.MacroReadResult([], device_reported=False)
+            ),
+        )
+
+        with (
+            patch.object(transport, "discover", side_effect=lambda: record([])),
+            patch.object(transport, "transport_for_handle", return_value=link),
+            patch(
+                "am_configurator.server._probe_keyboard",
+                side_effect=lambda handle: record(device),
+            ),
+            patch.object(
+                transport,
+                "device_json",
+                return_value={"product_id": "NEON80"},
+            ),
+            patch(
+                "am_configurator.server._stored_device_config",
+                return_value=(None, None),
+            ),
+            patch("am_configurator.server.time.sleep"),
+        ):
+            scan_status, _ = self._request("GET", "/api/devices")
+            read_status, _ = self._request(
+                "POST",
+                "/api/device/read",
+                {"port": "/dev/example", "layers": 4},
+            )
+
+        self.assertEqual(200, scan_status)
+        self.assertEqual(200, read_status)
+        self.assertGreaterEqual(len(workers), 4)
+        self.assertEqual(1, len({id(worker) for worker in workers}))
+        self.assertTrue(workers[0].name.startswith("am-device-io"))
+
     def test_non_ascii_auth_header_is_cleanly_rejected(self) -> None:
         for method, body in ((b"GET", b""), (b"POST", b"{}")):
             with self.subTest(method=method.decode("ascii")):
@@ -1875,6 +2017,11 @@ class LedGenerateEndpointTests(unittest.TestCase):
             ("POST", "/api/settings/test", {}),
             (
                 "POST",
+                "/api/keymap/assignment",
+                {"product_id": "NEON80", "code": "#00070004"},
+            ),
+            (
+                "POST",
                 "/api/led/generate",
                 {"prompt": "p", "product_id": "CB04", "targets": ["frames"]},
             ),
@@ -1907,6 +2054,7 @@ class _LightingEndpointCoordinator:
         self.library = library
         self.calls: list[tuple[str, tuple, dict]] = []
         self.reconcile_calls: list[str | None] = []
+        self.recovery_actions: list[dict] = []
         self.failure: Exception | None = None
         self.active_job_id: str | None = None
 
@@ -1918,7 +2066,7 @@ class _LightingEndpointCoordinator:
     ):
         del _admission_token
         self.reconcile_calls.append(api_key)
-        return []
+        return list(self.recovery_actions)
 
     def _raise_or_record(self, name: str, args: tuple, kwargs: dict) -> None:
         self.calls.append((name, args, kwargs))
@@ -1931,6 +2079,134 @@ class _LightingEndpointCoordinator:
 
 
 class CombinedReconciliationAdmissionTests(unittest.TestCase):
+    def test_disabled_ai_without_remote_recovery_skips_credential_lookup(self) -> None:
+        class Coordinator:
+            active_job_id = None
+
+            def __init__(self) -> None:
+                self.calls: list[str | None] = []
+
+            def reconcile_startup(
+                self,
+                *,
+                api_key=None,
+                _admission_token=None,
+            ) -> list[dict]:
+                del _admission_token
+                self.calls.append(api_key)
+                return []
+
+        coordinator = Coordinator()
+        state = server._State(
+            None,
+            "test-token",
+            lighting_library=object(),
+            lighting_coordinator=coordinator,
+            credential_store=credentials.MemoryCredentialStore(),
+        )
+        disabled_settings = {"ai": {"enabled": False, "backend": None}}
+        try:
+            with (
+                patch.object(store, "load_settings", return_value=disabled_settings),
+                patch.object(store, "resolve_xai_key") as resolve_key,
+            ):
+                self.assertEqual([], state.reconcile_lighting(force=True))
+        finally:
+            state.close()
+
+        resolve_key.assert_not_called()
+        self.assertEqual([None], coordinator.calls)
+
+    def test_accepted_remote_recovery_resolves_credential_on_demand(self) -> None:
+        action = {"job_id": "job-1", "request_id": "request-1"}
+
+        class Coordinator:
+            active_job_id = None
+
+            def __init__(self) -> None:
+                self.calls: list[str | None] = []
+
+            def reconcile_startup(
+                self,
+                *,
+                api_key=None,
+                _admission_token=None,
+            ) -> list[dict]:
+                del _admission_token
+                self.calls.append(api_key)
+                return [action]
+
+        coordinator = Coordinator()
+        state = server._State(
+            None,
+            "test-token",
+            lighting_library=object(),
+            lighting_coordinator=coordinator,
+            credential_store=credentials.MemoryCredentialStore(),
+        )
+        disabled_settings = {"ai": {"enabled": False, "backend": None}}
+        try:
+            with (
+                patch.object(store, "load_settings", return_value=disabled_settings),
+                patch.object(
+                    store,
+                    "resolve_xai_key",
+                    return_value="recovery-secret",
+                ) as resolve_key,
+            ):
+                self.assertEqual([action], state.reconcile_lighting(force=True))
+        finally:
+            state.close()
+
+        resolve_key.assert_called_once_with(
+            credential_store=state._credential_store
+        )
+        self.assertEqual([None, "recovery-secret"], coordinator.calls)
+
+    def test_enabled_api_resolves_credential_before_reconciliation(self) -> None:
+        class Coordinator:
+            active_job_id = None
+
+            def __init__(self) -> None:
+                self.calls: list[str | None] = []
+
+            def reconcile_startup(
+                self,
+                *,
+                api_key=None,
+                _admission_token=None,
+            ) -> list[dict]:
+                del _admission_token
+                self.calls.append(api_key)
+                return []
+
+        coordinator = Coordinator()
+        state = server._State(
+            None,
+            "test-token",
+            lighting_library=object(),
+            lighting_coordinator=coordinator,
+            credential_store=credentials.MemoryCredentialStore(),
+        )
+        api_settings = {"ai": {"enabled": True, "backend": "api"}}
+        try:
+            with (
+                patch.object(store, "load_settings", return_value=api_settings),
+                patch.object(
+                    store,
+                    "resolve_xai_key",
+                    return_value="api-secret",
+                ) as resolve_key,
+            ):
+                self.assertEqual([], state.reconcile_lighting(force=True))
+        finally:
+            state.close()
+
+        resolve_key.assert_called_once_with(
+            credential_store=state._credential_store
+        )
+        self.assertEqual(["api-secret"], coordinator.calls)
+
     def test_legacy_and_procedural_reconciliation_share_one_state_lease(self) -> None:
         gate = generation.OperationGate()
         procedural_entered = threading.Event()
@@ -2190,6 +2466,9 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self._thread.join(timeout=2)
         store.update_api_key({"provider": "xai", "key": ""})
         coordinator = _LightingEndpointCoordinator(self.library)
+        coordinator.recovery_actions = [
+            {"job_id": "job-1", "request_id": "request-1"}
+        ]
         self._server, url = create_server(
             lighting_library=self.library,
             lighting_coordinator=coordinator,
@@ -2206,7 +2485,10 @@ class LightingStudioEndpointTests(unittest.TestCase):
             {"provider": "xai", "key": "sk-restored-secret"},
         )
         self.assertEqual(200, status)
-        self.assertEqual([None, "sk-restored-secret"], coordinator.reconcile_calls)
+        self.assertEqual(
+            [None, None, "sk-restored-secret"],
+            coordinator.reconcile_calls,
+        )
         self.assertNotIn("sk-restored-secret", json.dumps(response))
 
     def test_reconciliation_waits_for_active_generation_to_finish(self) -> None:
@@ -2236,7 +2518,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
         deadline = time.monotonic() + 2
         while not coordinator.reconcile_calls and time.monotonic() < deadline:
             time.sleep(0.01)
-        self.assertEqual(["sk-lighting-secret"], coordinator.reconcile_calls)
+        self.assertEqual([None], coordinator.reconcile_calls)
 
     def test_retired_generation_stays_gone_while_admission_is_busy(self) -> None:
         gate = generation.OperationGate()
@@ -2750,3 +3032,36 @@ class SpotlightProtocolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NeonEditorGeometryGuardTests(unittest.TestCase):
+    """The editor must never invent a layout it does not have.
+
+    An identity map renders a plausible grid at the wrong positions. A user
+    painting on it authors LED positions that do not exist on the device, and
+    the result is saved and written as if it were correct.
+    """
+
+    def _app_source(self) -> str:
+        return (ROOT / "am_configurator" / "web" / "app.js").read_text(encoding="utf-8")
+
+    def test_a_family_without_embedded_maps_refuses_to_render_without_geometry(self) -> None:
+        source = self._app_source()
+        compact = re.sub(r"\s+", "", source)
+
+        self.assertIn(
+            "if(!model.keyMap&&!model.displayMap&&!model.physicalLayout&&!servedTarget){",
+            compact,
+        )
+        self.assertIn("geometryUnavailableNotice()", source)
+
+    def test_geometry_loads_before_the_first_render_and_without_ai(self) -> None:
+        """Bundling it with the AI calls let a slow AI status delay the layout."""
+        source = self._app_source()
+        compact = re.sub(r"\s+", "", source)
+
+        self.assertIn("awaitloadDeviceGeometry();render();", compact)
+        # The capabilities call must not sit in the AI bundle any more.
+        ai_bundle = re.search(r"asyncfunctionloadAiConfig\(\)\{(.*?)\}", compact)
+        self.assertIsNotNone(ai_bundle)
+        self.assertNotIn("led/capabilities", ai_bundle.group(1))
