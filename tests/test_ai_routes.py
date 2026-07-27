@@ -156,7 +156,7 @@ class _Capability:
     def provider_for_generation(self):
         return self.provider
 
-    def test_and_enable(self, backend, *, deadline, cancelled):
+    def test_backend(self, backend, *, deadline, cancelled):
         self.test_calls.append(backend)
         return self.status()
 
@@ -481,25 +481,10 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.assertNotIn(secret, json.dumps(response))
         self.assertIsNone(self.credentials.get("xai"))
 
-    def test_unchanged_tested_backend_can_be_reenabled_without_another_test(self) -> None:
-        store.update_ai_settings(
-            {"enabled": True, "backend": "local"},
-            ready=True,
-            credential_store=self.credentials,
-        )
-        status, _response = self._request(
-            "POST", "/api/settings/ai", {"enabled": False, "backend": "local"}
-        )
-        self.assertEqual(200, status)
-        self.assertFalse(
-            store.load_settings(credential_store=self.credentials)["ai"]["enabled"]
-        )
-
-        self.capability.status_value.update({
-            "enabled": False,
-            "ready": False,
-            "reason": "disabled",
-        })
+    def test_master_switch_persists_intent_before_setup_without_running_it(self) -> None:
+        before = store.load_settings(credential_store=self.credentials)
+        self.assertFalse(before["ai"]["enabled"])
+        self.assertIsNone(before["ai"]["local"]["setup_fingerprint"])
 
         status, _response = self._request(
             "POST",
@@ -513,11 +498,22 @@ class OptionalAIRouteTests(unittest.TestCase):
         )
 
         self.assertEqual(200, status)
-        self.assertTrue(
+        enabled = store.load_settings(credential_store=self.credentials)
+        self.assertTrue(enabled["ai"]["enabled"])
+        self.assertEqual("local", enabled["ai"]["backend"])
+        self.assertIsNone(enabled["ai"]["local"]["setup_fingerprint"])
+        self.assertEqual([], self.capability.validation_calls)
+        self.assertEqual([], self.capability.test_calls)
+
+        status, _response = self._request(
+            "POST",
+            "/api/settings/ai",
+            {"enabled": False, "backend": "local"},
+        )
+        self.assertEqual(200, status)
+        self.assertFalse(
             store.load_settings(credential_store=self.credentials)["ai"]["enabled"]
         )
-        self.assertEqual(["local"], self.capability.validation_calls)
-        self.assertEqual([], self.capability.test_calls)
 
     def test_blocked_legacy_migration_requires_confirmed_credential_discard(self) -> None:
         secret = "sk-only-legacy-route-copy"
@@ -849,7 +845,7 @@ class OptionalAIRouteTests(unittest.TestCase):
         def rate_limited(*_args, **_kwargs):
             raise ProviderError("rate_limited", "slow down", retry_after=7)
 
-        self.capability.test_and_enable = rate_limited
+        self.capability.test_backend = rate_limited
         status, response = self._request(
             "POST", "/api/ai/test", {"backend": "local"}
         )

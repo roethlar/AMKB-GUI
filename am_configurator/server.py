@@ -1053,11 +1053,6 @@ class _State:
                             credential_store=credential_store,
                         )
                     ),
-                    ai_settings_writer=lambda values, **kwargs: store.update_ai_settings(
-                        values,
-                        credential_store=credential_store,
-                        **kwargs,
-                    ),
                     ollama_client=self._ollama_client,
                 )
             return self._ai_capability
@@ -1605,23 +1600,8 @@ class _Handler(BaseHTTPRequestHandler):
             raise ValueError("The optional AI settings request is empty.")
         self._require_ai_idle()
         capability = self.state.ai_services()
-        current = capability.status()
-        selected_backend = body.get("backend", current["backend"])
-        selected_provider = body.get("provider", current["api"]["provider"])
-        selected_model = body.get("model_id", current["api"]["model_id"])
-        will_enable = body.get("enabled", current["enabled"])
-        ready = False
-        if will_enable:
-            ready = capability.backend_setup_valid(selected_backend)
-            if selected_backend == "api":
-                ready = (
-                    ready
-                    and selected_provider == current["api"]["provider"]
-                    and selected_model == current["api"]["model_id"]
-                )
         store.update_ai_settings(
             body,
-            ready=ready,
             credential_store=self.state._credential_store,
         )
         self._json(capability.status())
@@ -1662,7 +1642,7 @@ class _Handler(BaseHTTPRequestHandler):
         capability = self.state.ai_services()
         token, cancelled = self.state._generation_gate.begin("ai-setup-test")
         try:
-            status = capability.test_and_enable(
+            status = capability.test_backend(
                 body["backend"],
                 deadline=time.monotonic() + 180.0,
                 cancelled=cancelled.is_set,

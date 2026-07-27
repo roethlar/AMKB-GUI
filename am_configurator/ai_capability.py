@@ -114,7 +114,6 @@ class AICapabilityService:
         credential_status_loader=None,
         credential_resolver=None,
         fingerprint_writer=None,
-        ai_settings_writer=None,
         api_provider_factory=None,
         ollama_client: OllamaClient | None = None,
         ollama_provider_factory=None,
@@ -132,9 +131,6 @@ class AICapabilityService:
             store.set_ai_setup_fingerprint
             if fingerprint_writer is None
             else fingerprint_writer
-        )
-        self._ai_settings_writer = (
-            store.update_ai_settings if ai_settings_writer is None else ai_settings_writer
         )
         self._api_provider_factory = (
             self._default_api_provider
@@ -454,40 +450,6 @@ class AICapabilityService:
                 },
             }
 
-    def backend_setup_valid(
-        self,
-        backend: str,
-    ) -> bool:
-        """Return whether one backend's current setup still matches its test."""
-
-        try:
-            settings = self._settings_loader()
-            if backend == "local":
-                local = self._local_components(settings)
-                fingerprint = local["expected"]
-                return (
-                    local["service_available"] is True
-                    and local["selected"] is True
-                    and local["verified"] is True
-                    and fingerprint is not None
-                    and settings["ai"]["local"]["setup_fingerprint"] == fingerprint
-                    and self._remembered_reason("local", fingerprint) is None
-                )
-            if backend == "api":
-                api = self._api_components(settings)
-                fingerprint = api["expected"]
-                return (
-                    (api["available"] is True or api["external"] is True)
-                    and api["configured"] is True
-                    and api["disclosure_current"] is True
-                    and fingerprint is not None
-                    and settings["ai"]["api"]["setup_fingerprint"] == fingerprint
-                    and self._remembered_reason("api", fingerprint) is None
-                )
-            return False
-        except Exception:
-            return False
-
     def require_ready(self) -> dict[str, Any]:
         """Recompute readiness at the invocation boundary and fail closed."""
 
@@ -527,7 +489,7 @@ class AICapabilityService:
             ),
         )
 
-    def test_and_enable(
+    def test_backend(
         self,
         backend: str,
         *,
@@ -537,6 +499,8 @@ class AICapabilityService:
         if backend not in {"local", "api"}:
             raise ValueError("AI backend must be local or api")
         settings = self._settings_loader()
+        if settings["ai"]["enabled"] is not True:
+            raise AICapabilityError("disabled")
         if settings["ai"]["backend"] != backend:
             raise ValueError("Tested AI backend must match the selected backend")
         if cancelled() or deadline <= time.monotonic():
@@ -595,10 +559,6 @@ class AICapabilityService:
 
         self._fingerprint_writer(backend, fingerprint)
         self._failure_reasons.pop(backend, None)
-        self._ai_settings_writer(
-            {"enabled": True, "backend": backend},
-            ready=True,
-        )
         return self.status()
 
     def close(self) -> None:

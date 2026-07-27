@@ -682,18 +682,13 @@ class SettingsV5Tests(unittest.TestCase):
         self.assertIsNone(updated["ai"]["api"]["setup_fingerprint"])
         self.assertNotIn("sk-new-private", store.settings_path().read_text("utf-8"))
 
-        with self.assertRaises(ValueError):
-            store.update_ai_settings(
-                {"enabled": True, "backend": "api"},
-                ready=False,
-                credential_store=self.vault,
-            )
         updated = store.update_ai_settings(
-            {"enabled": False, "backend": "local"},
-            ready=False,
+            {"enabled": True, "backend": "api"},
             credential_store=self.vault,
         )
-        self.assertEqual("local", updated["ai"]["backend"])
+        self.assertTrue(updated["ai"]["enabled"])
+        self.assertEqual("api", updated["ai"]["backend"])
+        self.assertIsNone(updated["ai"]["api"]["setup_fingerprint"])
         with self.assertRaises(ValueError):
             store.update_generation_settings(
                 {"loop_mode": "smooth", "unknown": True},
@@ -703,6 +698,16 @@ class SettingsV5Tests(unittest.TestCase):
             {"loop_mode": "none"}, credential_store=self.vault
         )
         self.assertEqual("none", updated["generation"]["loop_mode"])
+
+    def test_master_intent_can_be_saved_without_backend_readiness(self) -> None:
+        configured = copy.deepcopy(V5_DEFAULTS)
+        configured["ai"].update({"enabled": True, "backend": "local"})
+
+        saved = store.save_settings(configured, credential_store=self.vault)
+
+        self.assertTrue(saved["ai"]["enabled"])
+        self.assertEqual("local", saved["ai"]["backend"])
+        self.assertIsNone(saved["ai"]["local"]["setup_fingerprint"])
 
     def test_failed_key_update_restores_the_previous_vault_value(self) -> None:
         configured = copy.deepcopy(V5_DEFAULTS)

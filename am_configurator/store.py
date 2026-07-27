@@ -1254,14 +1254,11 @@ def save_settings(
     values: dict,
     *,
     credential_store=None,
-    ready: bool = False,
 ) -> dict:
     """Persist strict v5 settings or accept the temporary legacy key form."""
 
     if isinstance(values, dict) and values.get("schema_version") == SETTINGS_SCHEMA_VERSION:
         normalized = _validate_settings(values)
-        if normalized["ai"]["enabled"] and not ready:
-            raise ValueError("AI cannot be enabled until setup is ready.")
         path = settings_path()
         with _settings_lock():
             _settings_for_update(path, credential_store=credential_store)
@@ -1340,10 +1337,9 @@ def update_api_key(values: object, *, credential_store=None) -> dict:
 def update_ai_settings(
     values: object,
     *,
-    ready: bool = False,
     credential_store=None,
 ) -> dict:
-    """Update explicit AI intent/backend without allowing readiness forgery."""
+    """Update explicit AI intent/backend without accepting readiness fields."""
 
     body = _object(values, "AI settings")
     _reject_unknown(body, {"enabled", "backend", "provider", "model_id"}, "AI settings")
@@ -1363,8 +1359,6 @@ def update_ai_settings(
             settings["ai"]["backend"] = body["backend"]
         if "enabled" in body:
             settings["ai"]["enabled"] = body["enabled"]
-        if settings["ai"]["enabled"] and not ready:
-            raise ValueError("AI cannot be enabled until setup is ready.")
 
     return _mutate_settings(mutate, credential_store=credential_store)
 
