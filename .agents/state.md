@@ -50,12 +50,15 @@
   `/Users/michael/Downloads/AM-NEON80-N10-asymmetric-macro-recovered-2026-07-26.json`
   (SHA-256 `74a92c53c6f341f9d41942236cce76ba2ab67484afb0c0158d20e693cf4aadc5`);
   it passes complete configuration validation and an exact offline Vial macro
-  encode/decode round trip at the target event counts. Build 56 is running from
-  its exact DMG path with that recovery profile, the resolved `NEON80`, typed
-  confirmation, and final full-write button armed. Angry Miao Master, Vial,
-  VIA, and QMK Toolbox are not running; UTM offers **Connect…** for AM Neon 80,
-  confirming the board is not forwarded to the VM. Optional xAI credential
-  access remains deferred; no Keychain prompt occurred.
+  encode/decode round trip at the target event counts. A second build-56 full
+  write with that recovery profile completed and verified. The post-write
+  `current.json` and newest history snapshot match the recovery document
+  exactly: four 90-key layers, eight lighting pages, and macro event counts
+  `22/34/38/40`. Build 56 remains open from its exact DMG path after closing
+  the successful write dialog. Angry Miao Master, Vial, VIA, and QMK Toolbox
+  are not running; UTM offers **Connect…** for AM Neon 80, confirming the board
+  is not forwarded to the VM. Optional xAI credential access remains deferred;
+  no Keychain prompt occurred.
   The exported device-read JSON is **not an LED backup**: the Neon has no LED
   read-back, and its three custom LED slots in that file are synthetic black
   placeholders. On 2026-07-26 the owner found the original GIF used for the
@@ -69,12 +72,9 @@
   follow-up in
   `docs/superpowers/plans/2026-07-26-neon-led-preserving-writes.md` is withdrawn
   as unnecessary for N10.
-- Next action: while the owner holds Esc + F2, press **Write full
-  configuration** in the already-armed build-56 recovery dialog and keep the
-  combo held until the write begins. Confirm the accepted write verifies the
-  four layers and recovered macro transition counts, then inspect the axial,
-  head, and side markers before continuing the deliberate one-key round trip
-  and refusal checks.
+- Next action: inspect/photograph the axial, head, and side markers, then run
+  the deliberate one-key write/read/restore round trip and the unsupported
+  keycode and macro-overflow refusal checks through build 56.
 
 ## Blockers
 
