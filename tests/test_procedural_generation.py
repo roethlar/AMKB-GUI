@@ -138,7 +138,6 @@ class ProceduralGenerationTests(unittest.TestCase):
             _Capability(provider),
             operation_gate=OperationGate(),
             launcher=self._inline,
-            operation_timeout_seconds=30,
         )
 
     def test_local_job_banks_exact_recipe_raster_preview_and_mapping(self) -> None:
