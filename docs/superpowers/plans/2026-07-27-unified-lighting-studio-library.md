@@ -1,10 +1,9 @@
 # Unified Lighting Studio and Asset Library
 
-**Status:** Revised draft, ready for owner approval on 2026-07-27. The owner
-approved the integrated Studio, mixed Library, imported-media/AI separation,
-local still animation, and six API recipe providers recorded in
-`.agents/decisions.md`. No implementation work is approved until this revised
-plan receives an explicit go.
+**Status:** Approved by the owner for implementation on 2026-07-27. The
+approved scope is the integrated Studio, mixed Library, imported-media/AI
+separation, local still animation, and six API recipe providers recorded in
+`.agents/decisions.md`.
 
 ## Goal
 

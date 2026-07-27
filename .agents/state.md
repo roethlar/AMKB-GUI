@@ -136,17 +136,15 @@
   x64 failures caused by contacting `ffmpeg.org` despite a cache hit. The guard
   was red-proven, and the repository gate passes 578 Python tests, 55 web tests,
   compile/syntax checks, and package builds.
-- Next action: no AI-switch, Neon, installer-workflow, integration, or branch
-  cleanup remains. The new unified Lighting Studio and mixed Library plan is
-  revised and ready for explicit owner approval at
-  `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md`.
-  Its settled scope keeps imported GIF/PNG/BMP media, local deterministic
-  animation, and the media compositor separate from exact-target AI procedural
-  generation; API generation adds Anthropic, OpenAI, Gemini, Kimi/Moonshot, and
-  DeepSeek beside xAI, with Ollama retained as Local. No product decision
-  remains open. Implementation is blocked only on explicit approval of the
-  revised plan. Local `main` is ten commits ahead of `origin/main`; the push
-  policy requires a fresh explicit owner go before publishing them.
+- Next action: the owner approved
+  `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` on
+  2026-07-27. Implementation is active; slice 2 is the provider registry,
+  settings-v6 migration, and provider-scoped credential foundation. Its
+  invariants are selected-provider-only credential access, no Keychain access
+  while AI is off or Local is selected, and unchanged xAI behavior through the
+  new registry. Local `main` is eleven commits ahead of `origin/main` after this
+  approval record; the push policy still requires a fresh explicit owner go
+  before publishing.
 
 ## Blockers
 
