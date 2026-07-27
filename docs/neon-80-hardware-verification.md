@@ -10,7 +10,7 @@ it, and report.
 
 ## Before starting
 
-- [ ] One AM Neon 80 connected by USB, and no other application holding it —
+- [x] One AM Neon 80 connected by USB, and no other application holding it —
       close Angry Miao Master, Vial, VIA, QMK Toolbox, and other HID tools. The
       app reports contention separately from a permission problem, so if it
       says the device is busy, that is why.
@@ -24,7 +24,7 @@ it, and report.
 - [x] On 2026-07-26 the owner explicitly authorized overwriting the connected
       Neon's LED setup for N10. The full-write action and asymmetric lighting
       step may now be used.
-- [ ] No VM or remote-session USB forwarding is active.
+- [x] No VM or remote-session USB forwarding is active.
 - [ ] The keyboard can be power-cycled if recovery is needed.
 
 ## 1. Identity
@@ -136,9 +136,9 @@ Fill this in as you go. `—` means not attempted.
 |---|---|---|
 | 1. Identity | Pass | Physical board: model `NEON80`, definition `AM Neon 80`, firmware UID `d47af38a35b8ed73`, Vial protocol 5, writable `True`, 87 projected layout keys. Read-only; nothing was written. |
 | 2. Devices in GUI | Pass | Native build 52 listed `NEON80` as USB, completed **Read keymap & macros** without crashing or touching Keychain, and opened a valid document with four 90-key layers and four populated macro slots while retaining the separately reported 16-slot capacity. Commit `25f225c` red-proves the macro decoder repair; native build 53's rendered UI confirms event counts 22, 34, 38, and 40 as aligned press/release transitions. A GET-only source-GUI read then rendered all 89 axial LEDs on the connected board's 87-key Vial geometry in rows `17/17/17/13/13/12`, with real modifier widths, row offsets, inverted-T arrows, and LEDs 80–82 grouped into one 7-unit spacebar. The exported JSON remains a keymap/macro profile with synthetic black LED placeholders, not a backup of the current LED setup. The 576-Python/55-web gate, native build 55, and bundled smoke pass. No keyboard write was attempted. |
-| 3a. Axial geometry | — | Authorized on 2026-07-26 after the owner found the original source GIF and accepted it as the recovery path. |
-| 3b. Head geometry | — | Same authorization as 3a. |
-| 3c. Side derivation | — | Same authorization as 3a. |
+| 3a. Axial geometry | Ready | Authorized on 2026-07-26 after the owner found the original source GIF and accepted it as the recovery path. Build 55 has red/green/blue/yellow markers at the four axial corners, validation passes, and the typed-confirmation write dialog is armed; nothing has been sent. |
+| 3b. Head geometry | Ready | The 46x5 head matrix has the same four corner markers plus a white center marker. The armed full write is waiting for the owner to hold Esc + F2. |
+| 3c. Side derivation | Ready | The write will derive side data from the asymmetric head pattern. UTM shows **Connect…** for AM Neon 80 (not forwarded), and Angry Miao Master, Vial, VIA, and QMK Toolbox are not running. |
 | 4a. Keymap round trip | — | |
 | 4b. Lock reported | Ready | Hardware returned locked, not-in-progress, with matrix combo `(0,0)` + `(0,2)` (physical Esc + F2). The old “1 designated key” result was byte 1 misdecoded; it is Vial's in-progress flag. Build 54 now starts/polls the standard handshake after full preflight, labels Esc + F2, and prevents Esc from closing the dialog. Exact-source gate and bundled smoke pass; real-GUI combo acceptance remains. |
 | 4c. Bad keycode refused | — | |

@@ -28,9 +28,17 @@
   confirmed the rendered rows `17/17/17/13/13/12`, correct modifiers and
   inverted-T arrows. The red/green repository gate passes 576 Python tests and
   55 web tests; native build 55 and its bundled smoke pass, with artifact
-  `dist/AM-Configurator-0.1.55-macOS-arm64.dmg`. Optional xAI credential access
-  remains deferred; no Keychain prompt occurred. Nothing has ever been written
-  to the keyboard.
+  `dist/AM-Configurator-0.1.55-macOS-arm64.dmg`. Build 55 is now running from
+  its read-only DMG with a GET-only Neon read open. Slot 1 has an asymmetric
+  hardware-test pattern ready: axial corners are red/green/blue/yellow; the
+  46x5 head matrix has the same four corner markers plus a white center marker.
+  GUI validation passes (`4 layers · 4 macros · 8 pages`), `NEON80` is typed in
+  the write dialog, and the final button is armed. Angry Miao Master, Vial, VIA,
+  and QMK Toolbox are not running; UTM offers **Connect…** for AM Neon 80, which
+  confirms the board is not forwarded to the VM. The dialog is waiting only
+  for the owner to hold Esc + F2 before the agent presses the final write
+  button. Optional xAI credential access remains deferred; no Keychain prompt
+  occurred. Nothing has ever been written to the keyboard.
   The exported device-read JSON is **not an LED backup**: the Neon has no LED
   read-back, and its three custom LED slots in that file are synthetic black
   placeholders. On 2026-07-26 the owner found the original GIF used for the
@@ -44,9 +52,10 @@
   follow-up in
   `docs/superpowers/plans/2026-07-26-neon-led-preserving-writes.md` is withdrawn
   as unnecessary for N10.
-- Next action: use the corrected GUI for the authorized N10 asymmetric
-  lighting write and photographed geometry checks, then complete the keymap
-  round-trip and refusal/read-back checks.
+- Next action: while the owner holds Esc + F2 on the Neon, press **Write full
+  configuration** in the already-armed build-55 dialog and keep the combo held
+  until the write begins. Then photograph/inspect the axial, head, and side
+  markers before continuing the keymap round-trip and refusal/read-back checks.
 
 ## Blockers
 
