@@ -1,5 +1,30 @@
 # Repository Decisions
 
+## 2026-07-27 — Imported media and AI generation stay separate
+
+Status: approved by the owner on 2026-07-27 while resolving the unified
+Lighting Studio plan.
+
+- The compositor imports GIF animations plus PNG and BMP still images. Imported
+  media may be panned, zoomed, stretched, and mapped to a lighting target.
+- PNG and BMP begin as one still frame. Pulse, hue cycle, sweep, pan, zoom, and
+  related deterministic effects can animate imported stills entirely locally.
+- AI never animates, interprets, resizes, pans, or otherwise edits imported
+  media. There is no AI media-source radio and no AI motion-planning path.
+- Existing AI generation remains a separate exact-target procedural-lighting
+  operation inside the cohesive Lighting Studio. Its validated recipe renders
+  directly to destination LED frames and does not pass through the media
+  compositor.
+- API recipe generation supports xAI plus Anthropic, OpenAI, Gemini,
+  Kimi/Moonshot, and DeepSeek. Ollama remains the Local backend. Every provider
+  produces the same strict locally validated recipe and every final animation
+  is rendered locally.
+
+This supersedes the same-day integrated-Studio decision only where that
+decision described GIF import and Generated as two media-source choices. The AI
+master switch, hidden-when-off UI, backend readiness gate, local banking,
+document-only Apply, and hardware-write boundary remain unchanged.
+
 ## 2026-07-27 — Lighting is one integrated studio with a unified Library
 
 Status: approved by the owner on 2026-07-27 by selecting the full image-studio

@@ -138,12 +138,15 @@
   compile/syntax checks, and package builds.
 - Next action: no AI-switch, Neon, installer-workflow, integration, or branch
   cleanup remains. The new unified Lighting Studio and mixed Library plan is
-  drafted at
+  revised and ready for explicit owner approval at
   `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md`.
-  Implementation is blocked on its single Generated-source representation
-  decision and subsequent explicit plan approval. Local `main` will be nine
-  commits ahead of `origin/main` after this planning record is committed; the
-  push policy requires a fresh explicit owner go before publishing them.
+  Its settled scope keeps imported GIF/PNG/BMP media, local deterministic
+  animation, and the media compositor separate from exact-target AI procedural
+  generation; API generation adds Anthropic, OpenAI, Gemini, Kimi/Moonshot, and
+  DeepSeek beside xAI, with Ollama retained as Local. No product decision
+  remains open. Implementation is blocked only on explicit approval of the
+  revised plan. Local `main` is ten commits ahead of `origin/main`; the push
+  policy requires a fresh explicit owner go before publishing them.
 
 ## Blockers
 
