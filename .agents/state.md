@@ -2,6 +2,16 @@
 
 ## Now
 
+- The canonical release-version correction is in flight as of `0ccfd66`. The
+  owner explicitly approved `0.1.64` after identifying that choosing `0.1.34`
+  would regress below native builds that had already displayed `0.1.63`.
+  Uncommitted mechanical edits currently set `_version.py`, packaging
+  expectations, installer/install copy, README, and the bug form to `0.1.64`,
+  and rename the release notes and Reddit draft from `0.1.34` to `0.1.64`.
+  `.agents/decisions.md`, the public-release plan, and the older release
+  evidence in this state file have not yet been reconciled. No focused test,
+  red proof, cumulative gate, or `0.1.64` native build has run. Do not push,
+  tag, publish, or reuse the invalidated `0.1.34` preflight as release evidence.
 - The AI master-switch and visible-version work is complete on `main`. AI
   enablement now persists as user intent before backend setup is ready; backend
   selection and setup tests cannot change that intent, while generation still
@@ -387,6 +397,14 @@
   or Reddit post occurred during this preflight. Push, final GitHub candidate
   qualification, exact-artifact hardware acceptance, release publication, and
   Reddit posting retain their explicit gates.
+
+## Next
+
+- Finish the selective `0.1.64` authority update while retaining `0.1.34` only
+  where it describes the historical workflow-run and invalidated preflight;
+  then audit version references, red-prove the canonical-version guard, run the
+  complete repository and Python 3.11 gates, build and verify a fresh `0.1.64`
+  native candidate, update release evidence, and commit the completed slice.
 
 ## Blockers
 
