@@ -1359,6 +1359,7 @@ class _Handler(BaseHTTPRequestHandler):
         from .library import (
             AssetNotFoundError,
             InvalidIdentifierError,
+            LibraryItemStateError,
             LibraryRootError,
             ManifestError,
         )
@@ -1389,6 +1390,9 @@ class _Handler(BaseHTTPRequestHandler):
             return True
         if isinstance(exc, InvalidIdentifierError):
             self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return True
+        if isinstance(exc, LibraryItemStateError):
+            self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
             return True
         if isinstance(exc, ManifestError):
             self._json(
@@ -1584,6 +1588,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._native_choose_library(body)
             elif path == "/api/native/reveal-library":
                 self._native_reveal_library(body)
+            elif path.startswith("/api/library/items/"):
+                self._library_post(path, body)
             elif path == "/api/lighting/effects":
                 self._start_procedural_effect(body)
             elif path == "/api/lighting/concepts" or path.startswith(
@@ -1612,9 +1618,55 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(payload, HTTPStatus.BAD_REQUEST)
         except Exception as exc:  # noqa: BLE001 - API boundary
             handled = (
-                path.startswith("/api/lighting/") or self._is_ai_path(path)
+                path.startswith("/api/library/")
+                or path.startswith("/api/lighting/")
+                or self._is_ai_path(path)
             ) and self._lighting_error(exc)
             if not handled:
+                self._internal_error(exc)
+
+    def do_DELETE(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if not self._authorized():
+            self._json(
+                {"error": "Unauthorized local request."},
+                HTTPStatus.FORBIDDEN,
+            )
+            return
+        try:
+            if parsed.query:
+                raise ValueError(
+                    "Library deletion does not accept query fields."
+                )
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+            except ValueError as exc:
+                raise ValueError(
+                    "Library deletion does not accept a request body."
+                ) from exc
+            if (
+                content_length != 0
+                or self.headers.get("Transfer-Encoding")
+            ):
+                raise ValueError(
+                    "Library deletion does not accept a request body."
+                )
+            parts = path.strip("/").split("/")
+            if len(parts) != 4 or parts[:3] != ["api", "library", "items"]:
+                self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+                return
+            catalog = self.state.library_catalog()
+            self._json(
+                catalog.delete_forever(
+                    parts[3],
+                    active_catalog_ids=self._active_library_catalog_ids(),
+                )
+            )
+        except ValueError as exc:
+            self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        except Exception as exc:  # noqa: BLE001 - API boundary
+            if not self._lighting_error(exc):
                 self._internal_error(exc)
 
     @staticmethod
@@ -1843,6 +1895,46 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._json({"job_id": manifest["job_id"]}, status)
 
+    def _active_library_catalog_ids(self) -> set[str]:
+        active_ids = {
+            getattr(self.state._generation_gate, "active_job_id", None),
+            getattr(self.state._lighting_coordinator, "active_job_id", None),
+            getattr(self.state._procedural_coordinator, "active_job_id", None),
+        }
+        return {
+            f"job:{job_id}"
+            for job_id in active_ids
+            if isinstance(job_id, str) and job_id
+        }
+
+    def _library_post(self, path: str, body: dict[str, Any]) -> None:
+        if urlparse(self.path).query:
+            raise ValueError(
+                "Library mutations do not accept query fields."
+            )
+        if body:
+            raise ValueError(
+                "The Library mutation body has unsupported fields."
+            )
+        parts = path.strip("/").split("/")
+        if (
+            len(parts) != 5
+            or parts[:3] != ["api", "library", "items"]
+            or parts[4] not in {"remove", "restore"}
+        ):
+            self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+            return
+        catalog = self.state.library_catalog()
+        operation = (
+            catalog.remove if parts[4] == "remove" else catalog.restore
+        )
+        self._json(
+            operation(
+                parts[3],
+                active_catalog_ids=self._active_library_catalog_ids(),
+            )
+        )
+
     def _library_get(self, path: str, query: str) -> None:
         catalog = self.state.library_catalog()
         if path == "/api/library/items":
@@ -1871,6 +1963,7 @@ class _Handler(BaseHTTPRequestHandler):
             "status",
             "kind",
             "compatibility",
+            "removed",
             "query",
         }:
             raise ValueError("The Library query has unsupported fields.")
@@ -1910,6 +2003,10 @@ class _Handler(BaseHTTPRequestHandler):
             )
         ):
             raise ValueError("compatibility filter is invalid.")
+        removed_value = values.get("removed", ["false"])[0]
+        if removed_value not in {"true", "false"}:
+            raise ValueError("removed filter is invalid.")
+        removed = removed_value == "true"
         search = values.get("query", [""])[0]
         if len(search) > 200:
             raise ValueError("query filter is too long.")
@@ -1920,6 +2017,7 @@ class _Handler(BaseHTTPRequestHandler):
                 statuses=statuses,
                 kind=kind,
                 compatibility=compatibility,
+                removed=removed,
                 query=search,
             )
         )

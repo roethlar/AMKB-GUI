@@ -138,7 +138,7 @@
   compile/syntax checks, and package builds.
 - The owner-approved unified Lighting implementation in
   `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` is
-  active. Slices 2-9 are complete. Catalog schema 2 names the six fixed API
+  active. Slices 2-10 are complete. Catalog schema 2 names the six fixed API
   providers; settings schema 6 preserves the complete xAI record through a
   credential-free v5 migration; provider-scoped vault operations, environment
   overrides, disclosure records, setup fingerprints, capability caches, and
@@ -205,13 +205,24 @@
   `cancelled` before the cancel-request manifest update. Cancellation accepts
   that terminal state, records `cancel_requested_at`, releases admission, and
   still refuses ready or interrupted jobs; the old behavior was red-proven.
-  The clean full gate passes 630 Python tests, 59 web tests, compile/syntax
+  Library removal now moves exactly one owned job/item UUID directory into the
+  same root's private `.trash`, keeps removed detail/assets browseable, restores
+  by the inverse rename, and deletes forever only an exact link-free trashed
+  directory. Normal and Removed catalog pages are disjoint; live/trash
+  collisions, cross-root ambiguity, active operations, nonterminal jobs,
+  unsafe ownership directories, links/path escapes, mutation query/body
+  fields, and deletion of live content all fail closed. Historical jobs remain
+  in their original root, manifest bytes survive remove/restore unchanged, and
+  device-history/sibling sentinels are untouched. All removal, restore,
+  permanent-delete, active-state, cross-root, link, pathless API, and exact
+  deletion guards were red-proven. The clean full gate passes 636 Python tests,
+  59 web tests, compile/syntax
   checks, and source/wheel builds. The heavy
   procedural recovery fixture uses the production 180-second operation
   deadline instead of a flaky 30-second test-only override. No real provider
   request, credential mutation, Keychain prompt, model mutation/download,
-  hardware write, push, or release occurred. Next action is slice 10,
-  reversible Library removal. Local
+  real Library mutation/deletion, hardware write, push, or release occurred.
+  Next action is slice 11, device signatures and section compatibility. Local
   `main` remains unpublished; the push policy requires a fresh explicit owner
   go.
 

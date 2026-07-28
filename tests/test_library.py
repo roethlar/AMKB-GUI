@@ -24,6 +24,8 @@ from am_configurator.library import (
     GeneratedAssetLibrary,
     InvalidIdentifierError,
     LibraryCatalog,
+    LibraryItemActiveError,
+    LibraryItemStateError,
     LibraryRootError,
     ManifestError,
     SavedItemLibrary,
@@ -2123,6 +2125,259 @@ class LibraryCatalogTests(unittest.TestCase):
         )
         with resolved.open_verified() as stream:
             self.assertEqual(b"ocean", stream.read())
+
+
+class LibraryRemovalTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self._tmp.name)
+        self.root = self.base / "library"
+        self.jobs = GeneratedAssetLibrary(self.root, minimum_free_bytes=1)
+        self.saved = SavedItemLibrary(self.root, minimum_free_bytes=1)
+        self.catalog = LibraryCatalog(self.jobs, self.saved)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _media(self, name: str, data: bytes = b"saved") -> dict:
+        return self.saved.create_item(
+            kind="media_source",
+            origin="media_import",
+            name=name,
+            source={
+                "asset_id": "original",
+                "width": 1,
+                "height": 1,
+                "frame_count": 1,
+                "duration_ms": 0,
+            },
+            assets={
+                "original": {
+                    "kind": "source",
+                    "mime_type": "image/png",
+                    "data": data,
+                }
+            },
+        )
+
+    def _job(self, prompt: str = "removable job") -> dict:
+        manifest = self.jobs.create_job(
+            prompt=prompt,
+            target={
+                "family": "CB",
+                "product_id": "CB_TEST",
+                "raster": {"width": 20, "height": 5},
+                "targets": ["frames"],
+            },
+            models={
+                "interpreter": "test",
+                "concept": "test",
+                "video": "test",
+            },
+            loop_mode="smooth",
+        )
+        return self.jobs.update_manifest(
+            manifest["job_id"],
+            {"status": "ready", "phase": "ready"},
+        )
+
+    def test_remove_restore_and_delete_forever_target_only_one_owned_item(self) -> None:
+        target = self._media("target.png", b"target")
+        sibling = self._media("sibling.png", b"sibling")
+        catalog_id = f"item:{target['item_id']}"
+        target_live = self.root / "items" / target["item_id"]
+        sibling_live = self.root / "items" / sibling["item_id"]
+
+        removed = self.catalog.remove(catalog_id)
+        target_trash = self.root / ".trash" / "items" / target["item_id"]
+        self.assertTrue(removed["removed"])
+        self.assertFalse(target_live.exists())
+        self.assertTrue(target_trash.is_dir())
+        self.assertTrue(sibling_live.is_dir())
+        if os.name != "nt":
+            self.assertEqual(
+                0o700,
+                stat.S_IMODE((self.root / ".trash").stat().st_mode),
+            )
+            self.assertEqual(
+                0o700,
+                stat.S_IMODE((self.root / ".trash" / "items").stat().st_mode),
+            )
+        live_page = self.catalog.page(page=1, limit=10)
+        self.assertEqual(
+            [f"item:{sibling['item_id']}"],
+            [item["catalog_id"] for item in live_page["items"]],
+        )
+        removed_page = self.catalog.page(page=1, limit=10, removed=True)
+        self.assertEqual([catalog_id], [item["catalog_id"] for item in removed_page["items"]])
+        owned = self.catalog.resolve_asset(
+            catalog_id,
+            target["assets"][0]["asset_id"],
+        )
+        with owned.open_verified() as stream:
+            self.assertEqual(b"target", stream.read())
+
+        restored = self.catalog.restore(catalog_id)
+        self.assertFalse(restored["removed"])
+        self.assertTrue(target_live.is_dir())
+        self.assertFalse(target_trash.exists())
+        self.assertTrue(sibling_live.is_dir())
+        with self.assertRaises(LibraryItemStateError):
+            self.catalog.delete_forever(catalog_id)
+
+        self.catalog.remove(catalog_id)
+        deleted = self.catalog.delete_forever(catalog_id)
+        self.assertEqual({"catalog_id": catalog_id, "deleted": True}, deleted)
+        self.assertFalse(target_trash.exists())
+        self.assertTrue(sibling_live.is_dir())
+        with self.assertRaises(ManifestError):
+            self.catalog.get(catalog_id)
+
+    def test_remove_and_restore_keep_historical_jobs_in_their_own_root(self) -> None:
+        historical_root = self.base / "historical"
+        historical_jobs = GeneratedAssetLibrary(
+            historical_root,
+            minimum_free_bytes=1,
+        )
+        historical_saved = SavedItemLibrary(
+            historical_root,
+            minimum_free_bytes=1,
+        )
+        historical_catalog = LibraryCatalog(historical_jobs, historical_saved)
+        job = historical_catalog.jobs.create_job(
+            prompt="historical job",
+            target={
+                "family": "CB",
+                "product_id": "CB_TEST",
+                "raster": {"width": 20, "height": 5},
+                "targets": ["frames"],
+            },
+            models={
+                "interpreter": "test",
+                "concept": "test",
+                "video": "test",
+            },
+            loop_mode="smooth",
+        )
+        historical_catalog.jobs.update_manifest(
+            job["job_id"],
+            {"status": "ready", "phase": "ready"},
+        )
+        mixed = LibraryCatalog(
+            GeneratedAssetLibrary(
+                self.root,
+                historical_roots=[historical_root],
+                minimum_free_bytes=1,
+            )
+        )
+        catalog_id = f"job:{job['job_id']}"
+        manifest_path = historical_root / "jobs" / job["job_id"] / "manifest.json"
+        before = manifest_path.read_bytes()
+
+        mixed.remove(catalog_id)
+        trashed = historical_root / ".trash" / "jobs" / job["job_id"]
+        self.assertTrue(trashed.is_dir())
+        self.assertFalse((self.root / ".trash").exists())
+        self.assertEqual(before, (trashed / "manifest.json").read_bytes())
+        mixed.restore(catalog_id)
+        self.assertTrue(manifest_path.is_file())
+        self.assertEqual(before, manifest_path.read_bytes())
+
+    def test_active_and_ambiguous_catalog_items_are_never_moved(self) -> None:
+        target = self._media("active.png")
+        catalog_id = f"item:{target['item_id']}"
+        live = self.root / "items" / target["item_id"]
+        with self.assertRaises(LibraryItemActiveError):
+            self.catalog.remove(
+                catalog_id,
+                active_catalog_ids={catalog_id},
+            )
+        self.assertTrue(live.is_dir())
+        self.catalog.remove(
+            catalog_id,
+            active_catalog_ids={"job:00000000-0000-4000-8000-000000000000"},
+        )
+        self.catalog.restore(catalog_id)
+
+        historical = self.base / "duplicate-root"
+        duplicate_parent = historical / "items"
+        duplicate_parent.mkdir(parents=True)
+        shutil.copytree(live, duplicate_parent / target["item_id"])
+        ambiguous = LibraryCatalog(
+            GeneratedAssetLibrary(
+                self.root,
+                historical_roots=[historical],
+                minimum_free_bytes=1,
+            )
+        )
+        with self.assertRaises(LibraryItemStateError):
+            ambiguous.remove(catalog_id)
+        self.assertTrue(live.is_dir())
+        self.assertTrue((duplicate_parent / target["item_id"]).is_dir())
+
+        active_job = self.jobs.create_job(
+            prompt="active",
+            target={
+                "family": "CB",
+                "product_id": "CB_TEST",
+                "raster": {"width": 20, "height": 5},
+                "targets": ["frames"],
+            },
+            models={
+                "interpreter": "test",
+                "concept": "test",
+                "video": "test",
+            },
+            loop_mode="smooth",
+        )
+        with self.assertRaises(LibraryItemActiveError):
+            self.catalog.remove(f"job:{active_job['job_id']}")
+        self.assertTrue((self.root / "jobs" / active_job["job_id"]).is_dir())
+
+    def test_delete_forever_rejects_links_and_preserves_external_targets(self) -> None:
+        target = self._media("linked.png")
+        catalog_id = f"item:{target['item_id']}"
+        self.catalog.remove(catalog_id)
+        trashed = self.root / ".trash" / "items" / target["item_id"]
+        external = self.base / "external.txt"
+        external.write_bytes(b"keep")
+        link = trashed / "result" / "escape"
+        if not GeneratedAssetLibraryTests._try_symlink(external, link):
+            self.skipTest("symlinks are unavailable")
+        with self.assertRaises(ManifestError):
+            self.catalog.delete_forever(catalog_id)
+        self.assertEqual(b"keep", external.read_bytes())
+        self.assertTrue(trashed.is_dir())
+
+    def test_remove_refuses_a_trash_root_link_without_touching_its_target(self) -> None:
+        target = self._media("unsafe-trash.png")
+        catalog_id = f"item:{target['item_id']}"
+        external = self.base / "external-trash"
+        external.mkdir()
+        if os.name != "nt":
+            os.chmod(external, 0o755)
+        sentinel = external / "keep.txt"
+        sentinel.write_bytes(b"keep")
+        external_mode = stat.S_IMODE(external.stat().st_mode)
+        if not GeneratedAssetLibraryTests._try_symlink(
+            external,
+            self.root / ".trash",
+            directory=True,
+        ):
+            self.skipTest("symlinks are unavailable")
+        with self.assertRaises(ManifestError):
+            self.catalog.remove(catalog_id)
+        with self.assertRaises(ManifestError):
+            self.catalog._owned_container(
+                self.root,
+                "item",
+                removed=True,
+                create=True,
+            )
+        self.assertEqual(b"keep", sentinel.read_bytes())
+        self.assertEqual(external_mode, stat.S_IMODE(external.stat().st_mode))
+        self.assertEqual(["keep.txt"], [path.name for path in external.iterdir()])
+        self.assertTrue((self.root / "items" / target["item_id"]).is_dir())
 
 
 if __name__ == "__main__":

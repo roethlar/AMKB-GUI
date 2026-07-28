@@ -16,6 +16,9 @@ asset UUIDs.
 Saved-item schema version 1 uses an exact kind discriminator, publishes a whole
 private ``items/<uuid>`` directory through one rename, and exposes jobs/items
 through namespaced catalog IDs. Corrupt entries are isolated per directory.
+Removal moves one exact owned UUID directory to the same root's private trash;
+restore reverses that rename, while permanent deletion accepts only a
+link-free trashed directory.
 
 On POSIX, created job directories/files are explicitly owner-only.  On Windows,
 CPython 3.11.10+, 3.12.4+, and 3.13+ honor ``mkdir(mode=0o700)`` with a private
@@ -301,6 +304,14 @@ class LibraryError(RuntimeError):
 
 class LibraryRootError(LibraryError):
     """The configured library root is absent or fails preflight."""
+
+
+class LibraryItemStateError(LibraryError):
+    """A Library mutation conflicts with the item's current owned state."""
+
+
+class LibraryItemActiveError(LibraryItemStateError):
+    """A Library item cannot move while its operation is active."""
 
 
 class ManifestError(LibraryError):
@@ -926,6 +937,22 @@ def _job_lock(job_dir: Path):
                     msvcrt.locking(file.fileno(), msvcrt.LK_UNLCK, 1)
                 else:
                     fcntl.flock(file.fileno(), fcntl.LOCK_UN)
+
+
+def _tree_contains_linklike(path: Path) -> bool:
+    try:
+        with os.scandir(path) as entries:
+            for entry in entries:
+                details = entry.stat(follow_symlinks=False)
+                if entry.is_symlink() or _stat_is_reparse_point(details):
+                    return True
+                if stat.S_ISDIR(details.st_mode) and _tree_contains_linklike(
+                    Path(entry.path)
+                ):
+                    return True
+    except OSError as exc:
+        raise ManifestError("The trashed Library item is unsafe.") from exc
+    return False
 
 
 def _is_sensitive_key(key: str) -> bool:
@@ -2971,7 +2998,7 @@ class SavedItemLibrary:
 
 
 class LibraryCatalog:
-    """Read-only mixed projection over generated jobs and saved items."""
+    """Mixed projection plus reversible owned-state mutations for Library data."""
 
     def __init__(
         self,
@@ -2989,7 +3016,7 @@ class LibraryCatalog:
         )
 
     @staticmethod
-    def _job_summary(manifest: dict) -> dict:
+    def _job_summary(manifest: dict, *, removed: bool = False) -> dict:
         target = copy.deepcopy(manifest["target"])
         prompt = manifest["prompt"]
         name = prompt.strip() or "Untitled generation"
@@ -3013,11 +3040,11 @@ class LibraryCatalog:
             "frame_count": None,
             "asset_count": len(manifest["assets"]),
             "compatibility": None,
-            "removed": False,
+            "removed": removed,
         }
 
     @staticmethod
-    def _saved_summary(manifest: dict) -> dict:
+    def _saved_summary(manifest: dict, *, removed: bool = False) -> dict:
         source = manifest["source"]
         return {
             "catalog_id": _catalog_id("item", manifest["item_id"]),
@@ -3035,7 +3062,7 @@ class LibraryCatalog:
             "frame_count": source["frame_count"] if source is not None else None,
             "asset_count": len(manifest["assets"]),
             "compatibility": None,
-            "removed": False,
+            "removed": removed,
         }
 
     @staticmethod
@@ -3053,6 +3080,192 @@ class LibraryCatalog:
             "message": error["message"],
         }
 
+    def _roots_for_namespace(self, namespace: str) -> list[Path]:
+        if namespace == "job":
+            return self.jobs._roots()
+        if namespace == "item":
+            return self.saved_items._roots()
+        raise InvalidIdentifierError("catalog namespace is invalid")
+
+    @staticmethod
+    def _namespace_directory(namespace: str) -> str:
+        if namespace == "job":
+            return "jobs"
+        if namespace == "item":
+            return "items"
+        raise InvalidIdentifierError("catalog namespace is invalid")
+
+    @classmethod
+    def _owned_container(
+        cls,
+        root: Path,
+        namespace: str,
+        *,
+        removed: bool,
+        create: bool = False,
+    ) -> Path | None:
+        directory_name = cls._namespace_directory(namespace)
+        parts = (".trash", directory_name) if removed else (directory_name,)
+        current = root
+        for part in parts:
+            candidate = current / part
+            if create:
+                if candidate.exists() or candidate.is_symlink():
+                    if _is_linklike(candidate) or not candidate.is_dir():
+                        raise ManifestError(
+                            "A Library ownership directory is unsafe."
+                        )
+                else:
+                    _make_private_directory(candidate)
+                if _is_linklike(candidate) or not candidate.is_dir():
+                    raise ManifestError(
+                        "A Library ownership directory is unsafe."
+                    )
+                if os.name != "nt":
+                    os.chmod(candidate, 0o700)
+                else:
+                    _set_windows_private_directory_dacl(candidate)
+            if not candidate.exists():
+                return None
+            if _is_linklike(candidate) or not candidate.is_dir():
+                raise ManifestError("A Library ownership directory is unsafe.")
+            current = candidate
+        try:
+            canonical_root = root.resolve(strict=True)
+            canonical_container = current.resolve(strict=True)
+            relative = canonical_container.relative_to(canonical_root)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ManifestError("A Library ownership directory is unsafe.") from exc
+        if relative.parts != parts:
+            raise ManifestError("A Library ownership directory is unsafe.")
+        return current
+
+    @staticmethod
+    def _read_owned_manifest(
+        namespace: str,
+        directory: Path,
+        identifier: str,
+    ) -> dict:
+        if namespace == "job":
+            return _read_manifest(directory / "manifest.json", identifier)
+        return _read_saved_manifest(directory / "manifest.json", identifier)
+
+    @staticmethod
+    def _public_owned_manifest(namespace: str, manifest: dict) -> dict:
+        if namespace == "job":
+            return GeneratedAssetLibrary._public_manifest(manifest)
+        return SavedItemLibrary._public_manifest(manifest)
+
+    def _summary(
+        self,
+        namespace: str,
+        manifest: dict,
+        *,
+        removed: bool,
+    ) -> dict:
+        if namespace == "job":
+            return self._job_summary(manifest, removed=removed)
+        return self._saved_summary(manifest, removed=removed)
+
+    def _scan_removed_namespace(
+        self,
+        namespace: str,
+    ) -> tuple[list[dict], list[dict]]:
+        manifests: list[dict] = []
+        errors: list[dict] = []
+        seen: set[str] = set()
+        for root in self._roots_for_namespace(namespace):
+            try:
+                container = self._owned_container(
+                    root,
+                    namespace,
+                    removed=True,
+                )
+            except ManifestError:
+                errors.append(
+                    {
+                        "catalog_id": None,
+                        "namespace": namespace,
+                        "code": "root_unavailable",
+                        "message": "A recorded Library trash root could not be read.",
+                    }
+                )
+                continue
+            if container is None:
+                continue
+            try:
+                entries = sorted(container.iterdir(), key=lambda path: path.name)
+            except OSError:
+                errors.append(
+                    {
+                        "catalog_id": None,
+                        "namespace": namespace,
+                        "code": "root_unavailable",
+                        "message": "A recorded Library trash root could not be read.",
+                    }
+                )
+                continue
+            for entry in entries:
+                try:
+                    identifier = _canonical_uuid(
+                        entry.name,
+                        f"{namespace} ID",
+                    )
+                except InvalidIdentifierError:
+                    continue
+                catalog_id = _catalog_id(namespace, identifier)
+                try:
+                    if _is_linklike(entry) or not entry.is_dir():
+                        raise ManifestError(
+                            "This removed Library manifest could not be read."
+                        )
+                    try:
+                        canonical_container = container.resolve(strict=True)
+                        canonical_entry = entry.resolve(strict=True)
+                        relative = canonical_entry.relative_to(
+                            canonical_container
+                        )
+                    except (OSError, RuntimeError, ValueError) as exc:
+                        raise ManifestError(
+                            "This removed Library manifest could not be read."
+                        ) from exc
+                    if relative.parts != (identifier,):
+                        raise ManifestError(
+                            "This removed Library manifest could not be read."
+                        )
+                    manifest = self._read_owned_manifest(
+                        namespace,
+                        entry,
+                        identifier,
+                    )
+                except ManifestError:
+                    errors.append(
+                        {
+                            "catalog_id": catalog_id,
+                            "namespace": namespace,
+                            "code": "corrupt_manifest",
+                            "message": (
+                                "This removed Library manifest could not be read."
+                            ),
+                        }
+                    )
+                    continue
+                if identifier in seen:
+                    errors.append(
+                        {
+                            "catalog_id": catalog_id,
+                            "namespace": namespace,
+                            "code": "duplicate_removed_item",
+                            "message": (
+                                "A duplicate removed Library ID was ignored."
+                            ),
+                        }
+                    )
+                    continue
+                seen.add(identifier)
+                manifests.append(manifest)
+        return manifests, errors
+
     def scan(self) -> dict:
         job_scan = self.jobs.scan()
         item_scan = self.saved_items.scan()
@@ -3064,14 +3277,6 @@ class LibraryCatalog:
             self._saved_summary(manifest)
             for manifest in item_scan["items"]
         )
-        items.sort(
-            key=lambda item: (
-                item["updated_at"],
-                item["created_at"],
-                item["catalog_id"],
-            ),
-            reverse=True,
-        )
         errors = [
             self._catalog_error("job", error)
             for error in job_scan["errors"]
@@ -3079,6 +3284,40 @@ class LibraryCatalog:
         errors.extend(
             self._catalog_error("item", error)
             for error in item_scan["errors"]
+        )
+        seen_catalog_ids = {item["catalog_id"] for item in items}
+        for namespace in ("job", "item"):
+            removed_manifests, removed_errors = self._scan_removed_namespace(
+                namespace
+            )
+            errors.extend(removed_errors)
+            for manifest in removed_manifests:
+                summary = self._summary(
+                    namespace,
+                    self._public_owned_manifest(namespace, manifest),
+                    removed=True,
+                )
+                if summary["catalog_id"] in seen_catalog_ids:
+                    errors.append(
+                        {
+                            "catalog_id": summary["catalog_id"],
+                            "namespace": namespace,
+                            "code": "duplicate_catalog_item",
+                            "message": (
+                                "A duplicate live and removed Library ID was ignored."
+                            ),
+                        }
+                    )
+                    continue
+                seen_catalog_ids.add(summary["catalog_id"])
+                items.append(summary)
+        items.sort(
+            key=lambda item: (
+                item["updated_at"],
+                item["created_at"],
+                item["catalog_id"],
+            ),
+            reverse=True,
         )
         return {"items": items, "errors": errors}
 
@@ -3108,6 +3347,7 @@ class LibraryCatalog:
         statuses: set[str] | frozenset[str] = frozenset(),
         kind: str = "",
         compatibility: str = "",
+        removed: bool = False,
         query: str = "",
     ) -> dict:
         if type(page) is not int or page < 1:
@@ -3125,6 +3365,8 @@ class LibraryCatalog:
             "incompatible",
         }:
             raise ValueError("compatibility filter is invalid.")
+        if type(removed) is not bool:
+            raise ValueError("removed filter is invalid.")
         if (
             not isinstance(statuses, (set, frozenset))
             or any(
@@ -3142,6 +3384,8 @@ class LibraryCatalog:
         scanned = self.scan()
         matches = []
         for item in scanned["items"]:
+            if item["removed"] is not removed:
+                continue
             if statuses and item["status"] not in statuses:
                 continue
             if kind and item["kind"] != kind:
@@ -3164,13 +3408,105 @@ class LibraryCatalog:
             "errors": scanned["errors"],
         }
 
-    def get(self, catalog_id: str) -> dict:
+    def _find_locations(
+        self,
+        namespace: str,
+        identifier: str,
+        *,
+        removed: bool,
+    ) -> list[tuple[Path, Path, dict]]:
+        locations: list[tuple[Path, Path, dict]] = []
+        for root in self._roots_for_namespace(namespace):
+            container = self._owned_container(
+                root,
+                namespace,
+                removed=removed,
+            )
+            if container is None:
+                continue
+            candidate = container / identifier
+            if not candidate.exists() and not candidate.is_symlink():
+                continue
+            if _is_linklike(candidate) or not candidate.is_dir():
+                raise ManifestError("A Library item directory is unsafe.")
+            try:
+                canonical_container = container.resolve(strict=True)
+                canonical_candidate = candidate.resolve(strict=True)
+                relative = canonical_candidate.relative_to(canonical_container)
+            except (OSError, RuntimeError, ValueError) as exc:
+                raise ManifestError("A Library item directory is unsafe.") from exc
+            if relative.parts != (identifier,):
+                raise ManifestError("A Library item directory is unsafe.")
+            manifest = self._read_owned_manifest(
+                namespace,
+                candidate,
+                identifier,
+            )
+            locations.append((root, candidate, manifest))
+        return locations
+
+    def _single_location(
+        self,
+        catalog_id: str,
+        *,
+        removed: bool | None,
+    ) -> tuple[str, str, Path, Path, dict, bool]:
         namespace, identifier = _parse_catalog_id(catalog_id)
-        if namespace == "job":
-            manifest = self.jobs.get_job(identifier)
-            return {**self._job_summary(manifest), "job": manifest}
-        manifest = self.saved_items.get_item(identifier)
-        return {**self._saved_summary(manifest), "item": manifest}
+        states = (False, True) if removed is None else (removed,)
+        locations = [
+            (root, directory, manifest, state)
+            for state in states
+            for root, directory, manifest in self._find_locations(
+                namespace,
+                identifier,
+                removed=state,
+            )
+        ]
+        if not locations:
+            raise ManifestError("The Library item was not found.")
+        if len(locations) != 1:
+            raise LibraryItemStateError(
+                "The Library item ownership is ambiguous."
+            )
+        root, directory, manifest, state = locations[0]
+        return namespace, identifier, root, directory, manifest, state
+
+    def _detail(
+        self,
+        namespace: str,
+        manifest: dict,
+        *,
+        removed: bool,
+    ) -> dict:
+        public = self._public_owned_manifest(namespace, manifest)
+        summary = self._summary(namespace, public, removed=removed)
+        return {
+            **summary,
+            "job" if namespace == "job" else "item": public,
+        }
+
+    @staticmethod
+    def _validated_active_ids(
+        active_catalog_ids: set[str] | frozenset[str],
+    ) -> set[str]:
+        if not isinstance(active_catalog_ids, (set, frozenset)):
+            raise TypeError("active_catalog_ids must be a set")
+        result: set[str] = set()
+        for catalog_id in active_catalog_ids:
+            namespace, identifier = _parse_catalog_id(catalog_id)
+            result.add(_catalog_id(namespace, identifier))
+        return result
+
+    def get(self, catalog_id: str) -> dict:
+        (
+            namespace,
+            _identifier,
+            _root,
+            _directory,
+            manifest,
+            removed,
+        ) = self._single_location(catalog_id, removed=None)
+        return self._detail(namespace, manifest, removed=removed)
 
     def resolve_asset(
         self,
@@ -3179,18 +3515,238 @@ class LibraryCatalog:
         *,
         verify_content: bool = True,
     ) -> OwnedAsset:
-        namespace, identifier = _parse_catalog_id(catalog_id)
+        (
+            namespace,
+            _identifier,
+            _root,
+            directory,
+            manifest,
+            _removed,
+        ) = self._single_location(catalog_id, removed=None)
+        canonical_asset_id = _canonical_uuid(asset_id, "asset ID")
         if namespace == "job":
-            return self.jobs.resolve_asset(
-                identifier,
-                asset_id,
-                verify_content=verify_content,
+            owned = self.jobs._owned_record(
+                directory,
+                manifest,
+                canonical_asset_id,
             )
-        return self.saved_items.resolve_asset(
+        else:
+            owned = self.saved_items._owned_record(
+                directory,
+                manifest,
+                canonical_asset_id,
+            )
+        with owned.open_verified(verify_content=verify_content):
+            pass
+        return owned
+
+    def _move(
+        self,
+        catalog_id: str,
+        *,
+        source_removed: bool,
+        active_catalog_ids: set[str] | frozenset[str],
+    ) -> dict:
+        namespace, identifier = _parse_catalog_id(catalog_id)
+        canonical_catalog_id = _catalog_id(namespace, identifier)
+        active = self._validated_active_ids(active_catalog_ids)
+        if canonical_catalog_id in active:
+            raise LibraryItemActiveError(
+                "The Library item has an active operation."
+            )
+        try:
+            (
+                _namespace,
+                _identifier,
+                root,
+                source,
+                manifest,
+                _state,
+            ) = self._single_location(
+                canonical_catalog_id,
+                removed=source_removed,
+            )
+        except ManifestError:
+            opposite = self._find_locations(
+                namespace,
+                identifier,
+                removed=not source_removed,
+            )
+            if opposite:
+                raise LibraryItemStateError(
+                    "The Library item is already in the requested state."
+                ) from None
+            raise
+        if (
+            not source_removed
+            and namespace == "job"
+            and manifest["status"] not in _TERMINAL_OR_IDLE_STATUSES
+        ):
+            raise LibraryItemActiveError(
+                "The generated Library job is still active."
+            )
+        if self._find_locations(
+            namespace,
             identifier,
-            asset_id,
-            verify_content=verify_content,
+            removed=not source_removed,
+        ):
+            raise LibraryItemStateError(
+                "The Library item exists in both live and removed storage."
+            )
+        with _job_lock(root):
+            (
+                _namespace,
+                _identifier,
+                locked_root,
+                locked_source,
+                locked_manifest,
+                _state,
+            ) = self._single_location(
+                canonical_catalog_id,
+                removed=source_removed,
+            )
+            if locked_root != root or locked_source != source:
+                raise LibraryItemStateError(
+                    "The Library item changed while the operation was starting."
+                )
+            if (
+                not source_removed
+                and namespace == "job"
+                and locked_manifest["status"] not in _TERMINAL_OR_IDLE_STATUSES
+            ):
+                raise LibraryItemActiveError(
+                    "The generated Library job is still active."
+                )
+            if self._find_locations(
+                namespace,
+                identifier,
+                removed=not source_removed,
+            ):
+                raise LibraryItemStateError(
+                    "The Library item destination is already occupied."
+                )
+            destination_container = self._owned_container(
+                root,
+                namespace,
+                removed=not source_removed,
+                create=True,
+            )
+            assert destination_container is not None
+            destination = destination_container / identifier
+            if destination.exists() or _is_linklike(destination):
+                raise LibraryItemStateError(
+                    "The Library item destination is already occupied."
+                )
+            try:
+                os.rename(source, destination)
+                _fsync_directory(source.parent)
+                _fsync_directory(destination.parent)
+                _fsync_directory(root)
+            except OSError as exc:
+                raise LibraryItemStateError(
+                    "The Library item could not be moved."
+                ) from exc
+            moved_manifest = self._read_owned_manifest(
+                namespace,
+                destination,
+                identifier,
+            )
+        return self._detail(
+            namespace,
+            moved_manifest,
+            removed=not source_removed,
         )
+
+    def remove(
+        self,
+        catalog_id: str,
+        *,
+        active_catalog_ids: set[str] | frozenset[str] = frozenset(),
+    ) -> dict:
+        return self._move(
+            catalog_id,
+            source_removed=False,
+            active_catalog_ids=active_catalog_ids,
+        )
+
+    def restore(
+        self,
+        catalog_id: str,
+        *,
+        active_catalog_ids: set[str] | frozenset[str] = frozenset(),
+    ) -> dict:
+        return self._move(
+            catalog_id,
+            source_removed=True,
+            active_catalog_ids=active_catalog_ids,
+        )
+
+    def delete_forever(
+        self,
+        catalog_id: str,
+        *,
+        active_catalog_ids: set[str] | frozenset[str] = frozenset(),
+    ) -> dict:
+        namespace, identifier = _parse_catalog_id(catalog_id)
+        canonical_catalog_id = _catalog_id(namespace, identifier)
+        active = self._validated_active_ids(active_catalog_ids)
+        if canonical_catalog_id in active:
+            raise LibraryItemActiveError(
+                "The Library item has an active operation."
+            )
+        try:
+            (
+                _namespace,
+                _identifier,
+                root,
+                directory,
+                _manifest,
+                _state,
+            ) = self._single_location(
+                canonical_catalog_id,
+                removed=True,
+            )
+        except ManifestError:
+            if self._find_locations(
+                namespace,
+                identifier,
+                removed=False,
+            ):
+                raise LibraryItemStateError(
+                    "Only a removed Library item can be deleted forever."
+                ) from None
+            raise
+        if self._find_locations(namespace, identifier, removed=False):
+            raise LibraryItemStateError(
+                "The Library item exists in both live and removed storage."
+            )
+        with _job_lock(root):
+            (
+                _namespace,
+                _identifier,
+                locked_root,
+                locked_directory,
+                _manifest,
+                _state,
+            ) = self._single_location(
+                canonical_catalog_id,
+                removed=True,
+            )
+            if locked_root != root or locked_directory != directory:
+                raise LibraryItemStateError(
+                    "The Library item changed while deletion was starting."
+                )
+            if _tree_contains_linklike(directory):
+                raise ManifestError("The trashed Library item contains an unsafe link.")
+            try:
+                shutil.rmtree(directory)
+                _fsync_directory(directory.parent)
+                _fsync_directory(root)
+            except OSError as exc:
+                raise LibraryItemStateError(
+                    "The removed Library item could not be deleted."
+                ) from exc
+        return {"catalog_id": canonical_catalog_id, "deleted": True}
 
 
 __all__ = [
@@ -3200,6 +3756,8 @@ __all__ = [
     "InvalidIdentifierError",
     "LibraryCatalog",
     "LibraryError",
+    "LibraryItemActiveError",
+    "LibraryItemStateError",
     "LibraryRootError",
     "MANIFEST_SCHEMA_VERSION",
     "ManifestError",

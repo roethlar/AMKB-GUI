@@ -2605,6 +2605,24 @@ class LightingStudioEndpointTests(unittest.TestCase):
                 "00000000-0000-4000-8000-000000000000",
                 None,
             ),
+            (
+                "POST",
+                "/api/library/items/"
+                "item:00000000-0000-4000-8000-000000000000/remove",
+                {},
+            ),
+            (
+                "POST",
+                "/api/library/items/"
+                "item:00000000-0000-4000-8000-000000000000/restore",
+                {},
+            ),
+            (
+                "DELETE",
+                "/api/library/items/"
+                "item:00000000-0000-4000-8000-000000000000",
+                None,
+            ),
             ("GET", "/api/lighting/jobs/00000000-0000-4000-8000-000000000000", None),
             ("POST", "/api/lighting/jobs/00000000-0000-4000-8000-000000000000/cancel", {}),
             ("GET", "/api/lighting/assets/00000000-0000-4000-8000-000000000000/00000000-0000-4000-8000-000000000000", None),
@@ -2930,10 +2948,92 @@ class LightingStudioEndpointTests(unittest.TestCase):
             "status=ready&status=failed",
             "kind=not-a-kind",
             "compatibility=imaginary",
+            "removed=maybe",
         ):
             with self.subTest(query=query):
                 status, _ = self._request("GET", f"/api/library/items?{query}")
                 self.assertEqual(400, status)
+
+    def test_library_remove_restore_and_delete_routes_are_exact_and_active_safe(
+        self,
+    ) -> None:
+        saved_library = SavedItemLibrary(self.root, minimum_free_bytes=1)
+        saved = saved_library.create_item(
+            kind="media_source",
+            origin="media_import",
+            name="Disposable.png",
+            source={
+                "asset_id": "original",
+                "width": 1,
+                "height": 1,
+                "frame_count": 1,
+                "duration_ms": 0,
+            },
+            assets={
+                "original": {
+                    "kind": "source",
+                    "mime_type": "image/png",
+                    "data": b"disposable",
+                }
+            },
+        )
+        catalog_id = f"item:{saved['item_id']}"
+        route = f"/api/library/items/{catalog_id}"
+        device_history_sentinel = Path(self._tmp) / "device-history.json"
+        device_history_sentinel.write_bytes(b"unchanged")
+
+        status, _ = self._request("POST", f"{route}/remove", {"extra": True})
+        self.assertEqual(400, status)
+        status, removed = self._request("POST", f"{route}/remove", {})
+        self.assertEqual(200, status)
+        self.assertTrue(removed["removed"])
+        self.assertNotIn(str(self.root), json.dumps(removed))
+        status, removed_page = self._request(
+            "GET",
+            "/api/library/items?removed=true",
+        )
+        self.assertEqual(200, status)
+        self.assertEqual([catalog_id], [item["catalog_id"] for item in removed_page["items"]])
+        status, live_page = self._request(
+            "GET",
+            "/api/library/items?removed=false",
+        )
+        self.assertEqual(200, status)
+        self.assertNotIn(
+            catalog_id,
+            [item["catalog_id"] for item in live_page["items"]],
+        )
+
+        status, restored = self._request("POST", f"{route}/restore", {})
+        self.assertEqual(200, status)
+        self.assertFalse(restored["removed"])
+        self.assertNotIn(str(self.root), json.dumps(restored))
+        status, _ = self._request("DELETE", route)
+        self.assertEqual(409, status)
+
+        job = self._job(prompt="active removal", status="ready")
+        self.coordinator.active_job_id = job["job_id"]
+        status, _ = self._request(
+            "POST",
+            f"/api/library/items/job:{job['job_id']}/remove",
+            {},
+        )
+        self.assertEqual(409, status)
+        self.coordinator.active_job_id = None
+        self.assertTrue((self.root / "jobs" / job["job_id"]).is_dir())
+
+        status, _ = self._request("POST", f"{route}/remove", {})
+        self.assertEqual(200, status)
+        status, _ = self._request("DELETE", f"{route}?force=true")
+        self.assertEqual(400, status)
+        status, _ = self._request("DELETE", route, {"force": True})
+        self.assertEqual(400, status)
+        status, deleted = self._request("DELETE", route)
+        self.assertEqual(200, status)
+        self.assertEqual({"catalog_id": catalog_id, "deleted": True}, deleted)
+        self.assertEqual(b"unchanged", device_history_sentinel.read_bytes())
+        status, _ = self._request("GET", route)
+        self.assertEqual(404, status)
 
     def test_asset_streaming_enforces_ownership_mime_and_bounded_single_ranges(self) -> None:
         job = self._job()
