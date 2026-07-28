@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.util
 import io
+import json
+import os
 import subprocess
 import sys
 import tomllib
@@ -21,6 +24,10 @@ from build_tools.release_info import (
     normalize_arch,
     project_version,
 )
+from build_tools.release_manifest import (
+    ReleaseManifestError,
+    write_release_metadata,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +44,242 @@ _SDIST_FORBIDDEN = (
     "docs/superpowers/",
     "docs/verification/",
 )
+
+
+class ReleaseManifestTests(unittest.TestCase):
+    VERSION = "0.1.34"
+    COMMIT = "0123456789abcdef0123456789abcdef01234567"
+    REPOSITORY = "roethlar/AMKB-GUI"
+    FILENAMES = (
+        "AM-Configurator-0.1.34-macOS-arm64.dmg",
+        "AM-Configurator-0.1.34-Windows-x64-Setup.exe",
+        "AM-Configurator-0.1.34-Linux-x86_64.AppImage",
+    )
+
+    def _write_candidates(self, root: Path) -> dict[str, bytes]:
+        payloads = {
+            self.FILENAMES[2]: b"linux candidate\n",
+            self.FILENAMES[1]: b"windows candidate\n",
+            self.FILENAMES[0]: b"macOS candidate\n",
+        }
+        for filename, payload in payloads.items():
+            (root / filename).write_bytes(payload)
+        return payloads
+
+    def _write_metadata(
+        self,
+        root: Path,
+        *,
+        version: str | None = None,
+        commit: str | None = None,
+        output_root: Path | None = None,
+    ) -> tuple[Path, Path]:
+        destination = output_root or root.parent / "metadata"
+        manifest = destination / "release-manifest.json"
+        checksums = destination / "SHA256SUMS.txt"
+        write_release_metadata(
+            version=version or self.VERSION,
+            source_commit=commit or self.COMMIT,
+            workflow_run_id=30369190195,
+            workflow_run_number=34,
+            repository=self.REPOSITORY,
+            candidate_root=root,
+            manifest_path=manifest,
+            checksums_path=checksums,
+        )
+        return manifest, checksums
+
+    def test_happy_path_is_deterministic_sorted_and_pathless(self) -> None:
+        with TemporaryDirectory(prefix="am-release-private-owner-") as temporary:
+            workspace = Path(temporary)
+            candidates = workspace / "candidate-installers"
+            candidates.mkdir()
+            payloads = self._write_candidates(candidates)
+
+            first_manifest, first_checksums = self._write_metadata(candidates)
+            second_manifest, second_checksums = self._write_metadata(
+                candidates,
+                output_root=workspace / "metadata-copy",
+            )
+
+            self.assertEqual(first_manifest.read_bytes(), second_manifest.read_bytes())
+            self.assertEqual(first_checksums.read_bytes(), second_checksums.read_bytes())
+            self.assertNotIn(b"\r", first_manifest.read_bytes())
+            self.assertNotIn(b"\r", first_checksums.read_bytes())
+
+            manifest = json.loads(first_manifest.read_text(encoding="utf-8"))
+            self.assertEqual(1, manifest["schema_version"])
+            self.assertEqual(self.VERSION, manifest["app_version"])
+            self.assertEqual(self.COMMIT, manifest["source_commit"])
+            self.assertEqual(self.REPOSITORY, manifest["repository"])
+            self.assertEqual(
+                {"run_id": 30369190195, "run_number": 34},
+                manifest["workflow"],
+            )
+            filenames = [artifact["filename"] for artifact in manifest["artifacts"]]
+            self.assertEqual(sorted(self.FILENAMES), filenames)
+            for artifact in manifest["artifacts"]:
+                payload = payloads[artifact["filename"]]
+                self.assertEqual(len(payload), artifact["byte_size"])
+                self.assertEqual(
+                    hashlib.sha256(payload).hexdigest(),
+                    artifact["sha256"],
+                )
+
+            expected_rows = [
+                f"{hashlib.sha256(payloads[name]).hexdigest()}  {name}"
+                for name in sorted(self.FILENAMES)
+            ]
+            self.assertEqual(
+                "\n".join(expected_rows) + "\n",
+                first_checksums.read_text(encoding="utf-8"),
+            )
+            published = first_manifest.read_text(encoding="utf-8")
+            self.assertNotIn(str(workspace), published)
+            self.assertNotIn("private-owner", published)
+
+    def test_filename_version_mismatch_is_rejected(self) -> None:
+        with TemporaryDirectory() as temporary:
+            candidates = Path(temporary) / "candidate-installers"
+            candidates.mkdir()
+            self._write_candidates(candidates)
+
+            with self.assertRaises(ReleaseManifestError):
+                self._write_metadata(candidates, version="0.1.35")
+
+    def test_missing_platform_is_rejected(self) -> None:
+        with TemporaryDirectory() as temporary:
+            candidates = Path(temporary) / "candidate-installers"
+            candidates.mkdir()
+            self._write_candidates(candidates)
+            (candidates / self.FILENAMES[0]).unlink()
+
+            with self.assertRaises(ReleaseManifestError):
+                self._write_metadata(candidates)
+
+    def test_extra_or_nested_installer_is_rejected(self) -> None:
+        with TemporaryDirectory() as temporary:
+            candidates = Path(temporary) / "candidate-installers"
+            candidates.mkdir()
+            self._write_candidates(candidates)
+            duplicate = candidates / "duplicate"
+            duplicate.mkdir()
+            (duplicate / self.FILENAMES[0]).write_bytes(b"duplicate")
+
+            with self.assertRaises(ReleaseManifestError):
+                self._write_metadata(candidates)
+
+    def test_empty_installer_is_rejected(self) -> None:
+        with TemporaryDirectory() as temporary:
+            candidates = Path(temporary) / "candidate-installers"
+            candidates.mkdir()
+            self._write_candidates(candidates)
+            (candidates / self.FILENAMES[1]).write_bytes(b"")
+
+            with self.assertRaises(ReleaseManifestError):
+                self._write_metadata(candidates)
+
+    @unittest.skipIf(os.name == "nt", "Windows CI cannot create symlinks reliably")
+    def test_symlinked_installer_is_rejected(self) -> None:
+        with TemporaryDirectory() as temporary:
+            candidates = Path(temporary) / "candidate-installers"
+            candidates.mkdir()
+            self._write_candidates(candidates)
+            expected = candidates / self.FILENAMES[2]
+            expected.unlink()
+            target = candidates / "candidate.bin"
+            target.write_bytes(b"candidate")
+            expected.symlink_to(target)
+
+            with self.assertRaises(ReleaseManifestError):
+                self._write_metadata(candidates)
+
+    @unittest.skipIf(os.name == "nt", "Windows CI cannot create symlinks reliably")
+    def test_candidate_path_cannot_escape_the_supplied_root(self) -> None:
+        with TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            candidates = workspace / "candidate-installers"
+            candidates.mkdir()
+            self._write_candidates(candidates)
+            expected = candidates / self.FILENAMES[0]
+            expected.unlink()
+            outside = workspace / "outside.dmg"
+            outside.write_bytes(b"outside")
+            expected.symlink_to(outside)
+
+            with self.assertRaises(ReleaseManifestError):
+                self._write_metadata(candidates)
+
+    def test_malformed_version_commit_and_run_identity_are_rejected(self) -> None:
+        with TemporaryDirectory() as temporary:
+            candidates = Path(temporary) / "candidate-installers"
+            candidates.mkdir()
+            self._write_candidates(candidates)
+            for invalid in ("0.1", "01.1.34", "0.1.34.dev1", "v0.1.34"):
+                with self.subTest(version=invalid), self.assertRaises(
+                    ReleaseManifestError
+                ):
+                    self._write_metadata(candidates, version=invalid)
+            for invalid in ("ABC", "a" * 39, "A" * 40, "g" * 40):
+                with self.subTest(commit=invalid), self.assertRaises(
+                    ReleaseManifestError
+                ):
+                    self._write_metadata(candidates, commit=invalid)
+
+            destination = candidates.parent / "invalid-run"
+            with self.assertRaises(ReleaseManifestError):
+                write_release_metadata(
+                    version=self.VERSION,
+                    source_commit=self.COMMIT,
+                    workflow_run_id=0,
+                    workflow_run_number=34,
+                    repository=self.REPOSITORY,
+                    candidate_root=candidates,
+                    manifest_path=destination / "release-manifest.json",
+                    checksums_path=destination / "SHA256SUMS.txt",
+                )
+
+    def test_conflicting_replacement_changes_neither_output(self) -> None:
+        with TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            candidates = workspace / "candidate-installers"
+            candidates.mkdir()
+            self._write_candidates(candidates)
+            destination = workspace / "metadata"
+            destination.mkdir()
+            manifest = destination / "release-manifest.json"
+            checksums = destination / "SHA256SUMS.txt"
+            manifest.write_bytes(b"different manifest\n")
+
+            with self.assertRaises(ReleaseManifestError):
+                self._write_metadata(candidates, output_root=destination)
+
+            self.assertEqual(b"different manifest\n", manifest.read_bytes())
+            self.assertFalse(checksums.exists())
+
+    def test_workflow_collects_exact_candidates_only_after_all_installers(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+        metadata_job = workflow.split("  candidate-metadata:\n", 1)[1]
+
+        self.assertIn("needs: installer", metadata_job)
+        self.assertIn("github.event_name == 'workflow_dispatch'", metadata_job)
+        self.assertIn("github.event_name == 'push'", metadata_job)
+        self.assertIn("github.ref == 'refs/heads/main'", metadata_job)
+        self.assertIn(
+            "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+            metadata_job,
+        )
+        self.assertIn("merge-multiple: true", metadata_job)
+        self.assertIn("build_tools/release_manifest.py", metadata_job)
+        self.assertIn("--commit \"${{ github.sha }}\"", metadata_job)
+        self.assertIn("--run-id \"${{ github.run_id }}\"", metadata_job)
+        self.assertIn("--run-number \"${{ github.run_number }}\"", metadata_job)
+        self.assertIn("--repository \"${{ github.repository }}\"", metadata_job)
+        self.assertIn("release-manifest.json", metadata_job)
+        self.assertIn("SHA256SUMS.txt", metadata_job)
+        self.assertIn("retention-days: 30", metadata_job)
 
 
 class ReleaseInfoTests(unittest.TestCase):
@@ -148,7 +391,10 @@ class ReleaseInfoTests(unittest.TestCase):
             project["tool"]["hatch"]["version"]["path"],
         )
         self.assertEqual("0.1.34", __version__)
-        self.assertNotIn("github.run_number", workflow)
+        installer_job = workflow.split("  candidate-metadata:\n", 1)[0]
+        self.assertNotIn("github.run_number", installer_job)
+        self.assertEqual(1, workflow.count("github.run_number"))
+        self.assertIn('--run-number "${{ github.run_number }}"', workflow)
         self.assertNotIn("stamp --build-number", workflow)
         self.assertIn("version --github-output", workflow)
         self.assertNotIn("reserve_local_build_number", build_script)

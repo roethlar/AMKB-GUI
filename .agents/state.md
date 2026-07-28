@@ -331,8 +331,15 @@
   The focused server, state, and syntax checks pass. The connected-browser
   controller currently enumerates no browser session even though Chrome,
   extension, and native-host diagnostics pass, so the wide/narrow visual check
-  remains queued for the cumulative UI gate. Push, hardware write, release
-  publication, and Reddit posting retain their explicit gates.
+  remains queued for the cumulative UI gate. The strict release-metadata helper
+  now accepts only the exact three canonical installers, streams deterministic
+  SHA-256 metadata, rejects unsafe/ambiguous candidates and conflicting output,
+  and keeps workflow run identity as provenance only. The Desktop workflow
+  collects metadata only after all installers succeed on `main` push or manual
+  dispatch, using immutable `actions/download-artifact` source. Its ten focused
+  guards were red-proven and the complete packaging module passes. Push,
+  hardware write, release publication, and Reddit posting retain their explicit
+  gates.
 
 ## Blockers
 

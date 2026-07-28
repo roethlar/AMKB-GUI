@@ -151,3 +151,44 @@ jobs:
           path: ${{ matrix.installer }}
           if-no-files-found: error
           retention-days: 30
+
+  candidate-metadata:
+    name: Candidate metadata
+    needs: installer
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read canonical application version
+        id: build_version
+        run: python build_tools/release_info.py version --github-output
+      - name: Download native installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: AM-Configurator-${{ steps.build_version.outputs.version }}-*
+          path: candidate-installers
+          merge-multiple: true
+      - name: Generate release metadata
+        run: |
+          mkdir -p candidate-metadata
+          python build_tools/release_manifest.py \
+            --version "${{ steps.build_version.outputs.version }}" \
+            --commit "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --run-number "${{ github.run_number }}" \
+            --repository "${{ github.repository }}" \
+            --input-dir candidate-installers \
+            --manifest candidate-metadata/release-manifest.json \
+            --checksums candidate-metadata/SHA256SUMS.txt
+      - name: Upload candidate metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: AM-Configurator-${{ steps.build_version.outputs.version }}-candidate-metadata
+          path: |
+            candidate-metadata/release-manifest.json
+            candidate-metadata/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
