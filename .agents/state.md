@@ -308,19 +308,29 @@
   `dist/AM-Configurator-0.1.63-macOS-arm64.dmg` (SHA-256
   `f240d3c511e91e51080965a64293b5cd5173d635ffbcf88662da97622384fd8b`).
   No real provider request, credential access or mutation, Keychain prompt,
-  model mutation/download, real Library mutation/deletion, hardware write,
-  push, or release occurred. Local `main` remains unpublished; the push policy
-  requires a fresh explicit owner go.
+  model mutation/download, real Library mutation/deletion, hardware write, or
+  release occurred during the final acceptance. `main` and tag `v0.1.11` were
+  subsequently pushed to `origin`; GitHub CI and all three Desktop installer
+  jobs passed at `8b50fb9`.
+
+- The 2026-07-28 unsigned-public-beta release plan is drafted at
+  `docs/superpowers/plans/2026-07-28-unsigned-public-beta-release.md`. The owner
+  settled that no Apple Developer Program membership, Authenticode certificate,
+  or other paid signing account is available. The plan recommends the next
+  successful `main` installer version as an unsigned GitHub prerelease, adds
+  free hashes/keyless provenance, exact-artifact platform and Neon acceptance,
+  corrected public documentation, release notes, and a Reddit-safe claim
+  boundary. Implementation and publication await plan approval.
 
 ## Blockers
 
 - N10 has no remaining blocker. Broader device-family checks require their
   corresponding keyboards; they do not block the completed Neon scope.
-- Code signing and notarization are blocked on paid developer accounts, an
-  Apple Developer Program membership and an Authenticode certificate. The owner
-  declined both on 2026-07-24 as not ready. `README.md` discloses the unsigned
-  state; note that on macOS 15+ an ad-hoc-signed download is not merely a
-  warning, the user must approve it through System Settings.
+- Paid platform signing and notarization are unavailable by settled owner
+  constraint. The release path must remain unsigned: deterministic macOS
+  ad-hoc signing only, no notarization, and no Windows Authenticode certificate.
+  `README.md` discloses the current unsigned state; on macOS 15+ an
+  ad-hoc-signed download requires approval through System Settings.
 - One decision is waiting on the owner: whether to remove the Windows
   verification leftovers on `netwatch-01`, recorded in `.agents/machines.md`.
   They are harmless and useful for further Windows work.

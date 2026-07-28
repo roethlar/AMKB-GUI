@@ -1,5 +1,26 @@
 # Repository Decisions
 
+## 2026-07-28 — Public releases cannot depend on paid signing accounts
+
+Status: approved by the owner on 2026-07-28 as a fixed constraint for the
+public-release plan.
+
+- No release path may require an Apple Developer Program membership,
+  Authenticode certificate, paid developer/signing account, or borrowed signing
+  identity.
+- macOS may retain deterministic ad-hoc signing for bundle integrity, but the
+  app remains not notarized and must never be represented as Developer
+  ID-signed. Windows remains Authenticode-unsigned.
+- Missing platform signing is disclosed plainly in install instructions,
+  release notes, and announcement copy. Documentation uses only the narrow
+  per-application OS approval flow and never directs users to disable
+  Gatekeeper, SmartScreen, Defender, or equivalent protections globally.
+- Free hashes and keyless GitHub build provenance may strengthen artifact
+  integrity, but must not be described as substitutes for platform publisher
+  trust.
+- The unsigned constraint waives no build, test, packaging, provenance,
+  hardware-safety, release-identity, or public-claim gate.
+
 ## 2026-07-27 — Imported media and AI generation stay separate
 
 Status: approved by the owner on 2026-07-27 while resolving the unified
