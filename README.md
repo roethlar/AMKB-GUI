@@ -16,9 +16,9 @@
 </p>
 
 AM Configurator works with Angry Miao's JSON profile format and communicates
-directly with supported keyboards over USB serial. Configuration stays on your
-computer: there is no account, cloud service, or dependency on the reference
-CLI repository.
+directly with supported keyboards over USB. Manual editing, imports, and the
+Library work locally without an account or cloud service. Optional AI features
+are separate, off by default, and described below.
 
 ## Download
 
@@ -29,23 +29,24 @@ CLI repository.
 | Linux x86-64 | `.AppImage` | Executes the finished AppImage in extract-and-run mode |
 
 Packaged releases belong on the [GitHub Releases page](https://github.com/roethlar/AMKB-GUI/releases).
-Before the first tagged release is published, download the current installers
-from the latest successful [Desktop installers workflow](https://github.com/roethlar/AMKB-GUI/actions/workflows/desktop.yml?query=branch%3Amain+is%3Asuccess).
-Every installer workflow run receives an increasing build version based on its
-GitHub run number. For example, run 11 is version `0.1.11`. That version appears
-in the app, the installer filename, and the downloadable artifact name, and is
-shared by the macOS, Windows, and Linux builds from that run.
+That page is the only public installer source; workflow artifacts are temporary
+release candidates for maintainers. Each release also provides SHA-256
+checksums and free GitHub build attestations.
 
-The installers are not code-signed yet. macOS Gatekeeper and Windows
-SmartScreen may warn on first launch; review the downloaded file and repository
-before approving it.
+The packages are not platform code-signed. The macOS app has an ad-hoc
+integrity signature but no Apple notarization, and the Windows installer has no
+Authenticode publisher signature. macOS or Windows may therefore request
+approval on first launch. Follow the narrow per-application steps in
+[Installing AM Configurator](docs/installing.md); do not disable operating-system
+security globally.
 
 ## Keyboard-shaped keymaps
 
 Choose a physical key on the board, then assign from a familiar QWERTY palette,
-macros, or Angry Miao-specific controls. All seven firmware layers remain
-visible and the Relic, CyberBoard, and Alice layouts retain their physical
-shape.
+macros, or Angry Miao-specific controls. Every layer present in the profile
+remains visible, and each supported model retains its physical shape. Neon,
+Relic, CyberBoard, and Alice layouts use correctly sized keys rather than a raw
+firmware matrix.
 
 ![Relic 80 keymap editor with the Q key selected](docs/images/keymap.png)
 
@@ -53,58 +54,88 @@ shape.
 
 Record exact key-down/key-up events when you need them, import compatible
 macros from another profile, or paste text and let the app generate deterministic
-keystrokes with a fixed inter-key delay. The editor displays the firmware budget
-of 32 macro tracks and 200 events across the complete profile.
+keystrokes with a fixed inter-key delay. The editor displays the selected
+keyboard's own macro capacity instead of assuming one budget for every model.
 
 ![Macro editor showing text converted into deterministic keystrokes](docs/images/macros.png)
 
-## LED animation for the actual hardware
+## One Lighting Studio and Library
 
-Paint frames, preview animation, import GIFs, and choose only timing values the
-firmware can represent. GIF pixels pass through the selected keyboard's own LED
-map, including the CyberBoard's 40×5 display, AFA body lights, and the Relic 80's
-separate per-key and seven-LED edge tracks.
+Paint individual LEDs per frame on a keyboard-shaped canvas, preview the
+timeline, and choose only timing values the destination firmware can represent.
+Multi-LED keys remain individually labelled and editable. The same Studio maps
+the CyberBoard's 40×5 display, AFA body lights, Relic 80 per-key and edge
+tracks, and the Neon 80 axial and top-display targets.
 
 ![Relic 80 LED Studio with animation frames and timing controls](docs/images/led-studio.png)
 
-Relic edge lights can follow a GIF or remain independent. **Static color**,
-**Pulse color**, and **Hold painted frame** generate the edge track to match the
-key animation's frame count, so a 200-frame GIF does not require 200 frames of
-manual repainting. Variable GIF delays are resampled onto one of the 16 firmware
-timing steps, and imported animations are capped at 256 frames.
+Import GIF, PNG, and BMP media, then pan, zoom, or stretch it inside the
+destination overlay before applying it. GIF timing is resampled across the
+complete source timeline under the keyboard's frame limit. Still images can be
+animated locally with Pulse, Hue cycle, Sweep, Shimmer, and Move & zoom. None
+of those tools requires AI.
+
+Imported media, manual compositions, generated lighting, and keyboard profiles
+can all be saved in the mixed Library. Removal is reversible, and profile
+imports show keymap, macro, and lighting compatibility separately so a user can
+apply only the sections the destination keyboard can safely accept.
+
+### Optional AI
+
+AI is off by default. While it is off, AI controls and setup fields are hidden,
+there is no automatic Ollama discovery, and manual Lighting and Library tools
+remain fully available. Enabling it allows either an already-installed local
+Ollama model or a configured xAI, Anthropic, OpenAI, Gemini, Kimi/Moonshot, or
+DeepSeek API adapter. The app never downloads a local model.
+
+A remote provider can receive the entered prompt and structured recipe request,
+and use may cost money under the user's provider account. Imported images,
+keymaps, macros, device identifiers, and Library files are not sent as part of
+that request. Generated results are saved to the same Library as manual and
+imported work. Remote adapters remain experimental unless the release notes
+explicitly record a live qualification.
 
 ## Supported keyboards
 
-| Keyboard family | Firmware identity | LED editor |
-|---|---|---|
-| CyberBoard | `CB…` | Sparse physical layout plus 40×5 display |
-| AM Relic 80 | USB `AM21`, JSON `80` | Physical per-key layout plus seven edge LEDs |
-| AM AFA / AFA 2 | `ALICE` | Physical Alice layout and body lights |
+| Keyboard family | Firmware identity | Keymap and macro model | Lighting model |
+|---|---|---|---|
+| CyberBoard | `CB…` | Firmware-defined layers and macro budget | Sparse physical layout plus 40×5 display |
+| AM Relic 80 | USB `AM21`, JSON `80` | Physical 80% layout with model-specific limits | Per-key layout plus seven edge LEDs |
+| AM AFA / AFA 2 | `ALICE` | Physical Alice layout with model-specific limits | Alice key geometry and body lights |
+| AM Neon 80 | `NEON80` | 87-key physical layout, four keymap layers, and 16 macros | 89 axial LEDs, 46×5 head matrix, and derived top-display channel |
 
-Firmware revisions can differ. Keep an official JSON backup before the first
-write to a board or firmware version you have not previously tested.
+Firmware revisions can differ. Keep a complete portable JSON with known LED
+data, or the original media needed to reconstruct it, before the first write to
+a board or firmware version you have not previously tested.
 
 ## Safe device workflow
 
-1. Connect one keyboard by USB and open **Devices**.
-2. Select the board and choose **Read keymap & macros**, or open a complete JSON
+1. Close AM Master, Vial, VIA, QMK Toolbox, and any other application that may
+   own the keyboard.
+2. Connect one keyboard by USB and open **Devices**.
+3. Select the board and choose **Read keymap & macros**, or open a complete JSON
    profile when its LED data must be preserved.
-3. Edit keymaps, macros, and LED slots locally.
-4. Save a portable JSON backup.
-5. Choose the always-visible **Write to keyboard** button and type the displayed
-   device ID to confirm the full write.
+4. Edit keymaps, macros, and Lighting slots locally.
+5. Save a portable JSON backup.
+6. Choose the always-visible **Write to keyboard** button and type the displayed
+   device ID to confirm the full write. Neon 80 also requires its physical
+   Esc+F2 unlock.
 
-Selecting a device never writes to it. A confirmed write replaces the complete
-device configuration—LEDs, keymaps, and macros—and performs keymap/macro
-read-back before recording a verified local snapshot.
+Selecting or reading a device never writes to it. A confirmed full write
+replaces keymaps, macros, and LED data, then performs keymap/macro read-back
+before recording a verified local snapshot. Lighting verification remains
+visual where firmware cannot read stored LED frames.
 
-### Why LED state needs a JSON backup
+### Why Neon LED state needs a source backup
 
-The firmware protocol exposes keymap and macro reads but does not expose stored
-LED frames. After a verified write, AM Configurator retains the complete profile
-on that computer so later keymap or macro edits can preserve the known LEDs.
-That record does not travel with the keyboard. Use **Save JSON** and open the
-portable profile when moving to another machine.
+Neon firmware does not expose LED read-back. A device read is therefore not a
+lighting backup: its LED placeholders are synthetic and do not describe the
+current pattern. After a verified write, AM Configurator retains the submitted
+complete profile on that computer so later edits can preserve those known LEDs,
+but that record does not travel with the keyboard. Use **Save JSON**, keep the
+original media/configuration, and open the portable profile when moving to
+another machine. Linux users also need the
+[Neon 80 udev instructions](docs/neon-80-linux.md).
 
 ## Run from source
 
@@ -161,6 +192,8 @@ node --test tests/web/*.test.js
 node --check am_configurator/web/lighting_state.js
 node --check am_configurator/web/lighting_review.js
 node --check am_configurator/web/lighting_targets.js
+node --check am_configurator/web/lighting_composer.js
+node --check am_configurator/web/library_state.js
 node --check am_configurator/web/app.js
 uv build
 ```

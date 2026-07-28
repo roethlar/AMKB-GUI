@@ -6,7 +6,8 @@ Configurator cannot open it as a normal desktop user until a udev rule grants
 access. macOS and Windows need no equivalent step.
 
 If the application reports *"Permission denied opening the keyboard"*, this page
-is the fix.
+is the fix. See [Installing AM Configurator](installing.md) for AppImage hash,
+provenance, and first-launch checks.
 
 ## Install the rule
 
@@ -26,7 +27,7 @@ the write itself and leaves the application running unprivileged.
 **AppImage:**
 
 ```sh
-./AM_Configurator.AppImage --print-udev-rule | sudo tee /etc/udev/rules.d/60-am-neon-80.rules >/dev/null
+./AM-Configurator-0.1.34-Linux-x86_64.AppImage --print-udev-rule | sudo tee /etc/udev/rules.d/60-am-neon-80.rules >/dev/null
 ```
 
 **Wheel or source install:**
@@ -78,10 +79,10 @@ error, and that the keyboard was replugged afterwards.
 
 ## If it still fails
 
-- **Another application holds the device.** Vial, VIA, QMK Toolbox, or a second
-  copy of AM Configurator will claim the raw HID interface exclusively. Close it
-  and retry; the application reports this case separately from a permission
-  problem.
+- **Another application holds the device.** AM Master, Vial, VIA, QMK Toolbox,
+  or a second copy of AM Configurator can claim the raw HID interface
+  exclusively. Close it and retry; the application reports this case separately
+  from a permission problem.
 - **Flatpak or Snap sandboxing.** A confined package may not see `/dev/hidraw*`
-  regardless of udev. Grant the sandbox raw-device access, or run the
-  unconfined build.
+  regardless of udev. Use the verified AppImage from the GitHub Release when a
+  confined package cannot reach the device.

@@ -344,7 +344,13 @@
   action pinned to commit `e8998f9`. Pull requests and manual candidates remain
   unable to request an OIDC token. The focused provenance guard was red-proven,
   and public install guidance now includes the `gh attestation verify` command
-  without presenting provenance as platform signing. Push, hardware write,
+  without presenting provenance as platform signing. Public documentation now
+  sends users only to GitHub Releases, names Neon 80's actual layout, lighting,
+  layer, and macro limits, describes the unified Studio/Library and off-by-
+  default AI behavior, explains complete writes and absent Neon LED read-back,
+  and gives hash/attestation plus narrow macOS, Windows, and Linux launch
+  instructions without security-bypass commands. The public-doc guard was
+  red-proven and the complete packaging module passes. Push, hardware write,
   release publication, and Reddit posting retain their explicit gates.
 
 ## Blockers

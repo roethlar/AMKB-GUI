@@ -1113,5 +1113,68 @@ class ReleaseInfoTests(unittest.TestCase):
                 self.assertNotIn("sudo am-configurator --print-udev-rule >", text)
                 self.assertNotIn("--print-udev-rule > /etc/udev", text)
 
+    def test_public_docs_describe_the_current_release_without_security_bypasses(
+        self,
+    ) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        installing = (ROOT / "docs" / "installing.md").read_text(encoding="utf-8")
+        neon_linux = (ROOT / "docs" / "neon-80-linux.md").read_text(
+            encoding="utf-8"
+        )
+        download = readme.split("## Download", 1)[1].split("\n## ", 1)[0]
+        public_docs = "\n".join((readme, installing, neon_linux))
+        collapsed = " ".join(public_docs.split())
+
+        self.assertNotIn("Before the first tagged release", readme)
+        self.assertNotIn("increasing build version", readme)
+        self.assertNotIn("Desktop installers workflow", download)
+        self.assertIn(
+            "https://github.com/roethlar/AMKB-GUI/releases",
+            download,
+        )
+        self.assertIn("| AM Neon 80 | `NEON80` |", readme)
+        for expected in (
+            "87-key physical layout",
+            "89 axial LEDs",
+            "46×5",
+            "four keymap layers",
+            "16 macros",
+            "GIF, PNG, and BMP",
+            "pan, zoom, or stretch",
+            "Pulse, Hue cycle, Sweep, Shimmer, and Move & zoom",
+            "AI is off by default",
+            "no automatic Ollama discovery",
+            "full write replaces keymaps, macros, and LED data",
+            "does not expose LED read-back",
+            "docs/neon-80-linux.md",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, collapsed)
+
+        for expected in (
+            "SHA256SUMS.txt",
+            "gh attestation verify",
+            "System Settings",
+            "Privacy & Security",
+            "Open Anyway",
+            "More info",
+            "Run anyway",
+            "Get-FileHash",
+            "chmod +x",
+        ):
+            with self.subTest(installing=expected):
+                self.assertIn(expected, installing)
+
+        for prohibited in (
+            "xattr -dr",
+            "spctl --master-disable",
+            "disable gatekeeper",
+            "disable smartscreen",
+            "disable defender",
+            "defender exclusion",
+        ):
+            with self.subTest(prohibited=prohibited):
+                self.assertNotIn(prohibited, public_docs.casefold())
+
 if __name__ == "__main__":
     unittest.main()
