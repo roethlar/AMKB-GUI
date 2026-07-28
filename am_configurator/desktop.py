@@ -37,7 +37,7 @@ _NATIVE_POLICY_VERIFY_KEYS = (
     "downloads_supported",
     "csp_enforced",
     "loopback_loaded",
-    "settings_ollama_api_only",
+    "settings_provider_catalog_only",
 )
 _NATIVE_POLICY_TIMEOUT_SECONDS = 45
 
@@ -246,14 +246,33 @@ def _native_policy_probe_script(phase: str) -> str:
   );
   const bridgeKeys = Object.keys(api).sort();
   const settings = document.querySelector("#settings-screen");
+  const settingsButton = document.querySelector("#settings-button");
+  const aiDetails = document.querySelector("#settings-ai-details");
   const localPanel = document.querySelector("#settings-local-panel");
   const apiPanel = document.querySelector("#settings-api-panel");
-  const settingsText = settings ? settings.textContent : "";
   const backendValues = settings
     ? Array.from(settings.querySelectorAll(
         'input[name="settings-ai-backend"]'
       )).map(input => input.value).sort()
     : [];
+  const expectedProviders = [
+    "anthropic",
+    "deepseek",
+    "gemini",
+    "moonshot",
+    "openai",
+    "xai"
+  ];
+  const providerValues = () => settings
+    ? Array.from(settings.querySelectorAll(
+        "#settings-api-provider option"
+      )).map(option => option.value).filter(Boolean).sort()
+    : [];
+  if (providerValues().join(",") !== expectedProviders.join(",")) {{
+    if (settings && settings.hidden && settingsButton) settingsButton.click();
+    return;
+  }}
+  const settingsText = settings ? settings.textContent : "";
   const anchor = document.createElement("a");
   const ALLOW_DOWNLOADS = "download" in anchor &&
     typeof Blob === "function" &&
@@ -297,11 +316,13 @@ def _native_policy_probe_script(phase: str) -> str:
     loopback_loaded: location.protocol === "http:" &&
       location.hostname === "127.0.0.1" &&
       document.title.includes("AM Configurator") && Boolean(settings),
-    settings_ollama_api_only:
+    settings_provider_catalog_only:
       backendValues.join(",") === "api,local" &&
-      /Ollama/.test(settingsText) && /xAI/.test(settingsText) &&
+      providerValues().join(",") === expectedProviders.join(",") &&
+      /Ollama/.test(settingsText) &&
       !/(GGUF|llama\\.cpp|direct model)/i.test(settingsText) &&
       Boolean(localPanel) && Boolean(apiPanel) &&
+      Boolean(aiDetails) && aiDetails.hidden &&
       !settings.querySelector('input[type="file"]'),
     csp
   }});
@@ -420,13 +441,14 @@ def _run_native_policy_probe(phase: str, raw_root: str | Path) -> int:
             stage = "load"
             if not window.events.loaded.wait(15):
                 raise TimeoutError("Native renderer did not finish loading.")
-            stage = "inject"
-            window.run_js(_native_policy_probe_script(phase))
-            stage = "report"
+            probe_script = _native_policy_probe_script(phase)
             deadline = time.monotonic() + 10
             current_url = ""
             raw = None
             while time.monotonic() < deadline:
+                stage = "inject"
+                window.run_js(probe_script)
+                stage = "report"
                 current_url = window.get_current_url() or ""
                 fragment = urlsplit(current_url).fragment
                 prefix = "/__native_policy__/"
@@ -448,7 +470,12 @@ def _run_native_policy_probe(phase: str, raw_root: str | Path) -> int:
             elif not isinstance(payload, dict) or any(
                 payload.get(name) is not True for name in required
             ):
-                result["reason"] = "browser_policy_failed"
+                failed = (
+                    [name for name in required if payload.get(name) is not True]
+                    if isinstance(payload, dict)
+                    else ["payload"]
+                )
+                result["reason"] = "browser_policy_failed_" + "_".join(failed)
             elif current.query or "token=" in current_url:
                 result["reason"] = "token_history_failed"
             else:
@@ -497,6 +524,11 @@ class _OfflineOllamaInventory:
         return ()
 
 
+def _offline_device_discovery() -> list[tuple[Any, Any]]:
+    """Keep automated native acceptance away from attached keyboards."""
+    return []
+
+
 def run_native_policy_smoke() -> int:
     """Verify native renderer policy in two isolated frozen child processes."""
     from .credentials import MemoryCredentialStore
@@ -512,6 +544,7 @@ def run_native_policy_smoke() -> int:
             server, url = create_server(
                 ollama_client=_OfflineOllamaInventory(),
                 credential_store=MemoryCredentialStore(),
+                device_discovery=_offline_device_discovery,
             )
             server_thread = threading.Thread(
                 target=server.serve_forever,
@@ -829,8 +862,37 @@ def run_smoke_test() -> int:
             server_started = True
             with urlopen(url, timeout=5) as response:  # noqa: S310 - loopback URL we created
                 page = response.read()
-            if response.status != 200 or b"AM Configurator" not in page:
+            if response.status != 200 or any(
+                marker not in page
+                for marker in (
+                    b"AM Configurator",
+                    b'data-library-filter="sources"',
+                    b'data-library-filter="removed"',
+                )
+            ):
                 raise SystemExit("Desktop smoke test failed: bundled UI did not load.")
+            parsed_url = urlsplit(url)
+            asset_markers = {
+                "lighting_composer.js": b"renderColorEffect",
+                "library_state.js": b"libraryCatalogQuery",
+                "app.js": b"async function applyLibraryProfile",
+                "style.css": b".library-pagination",
+            }
+            for asset_name, marker in asset_markers.items():
+                asset_url = (
+                    f"{parsed_url.scheme}://{parsed_url.netloc}/{asset_name}"
+                    f"?{parsed_url.query}"
+                )
+                with urlopen(
+                    asset_url,
+                    timeout=5,
+                ) as response:  # noqa: S310 - loopback URL we created
+                    asset = response.read()
+                if response.status != 200 or marker not in asset:
+                    raise SystemExit(
+                        "Desktop smoke test failed: "
+                        f"bundled {asset_name} did not load."
+                    )
         finally:
             if server is not None:
                 if server_started:

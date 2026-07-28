@@ -2050,6 +2050,37 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(1, len({id(worker) for worker in workers}))
         self.assertTrue(workers[0].name.startswith("am-device-io"))
 
+    def test_injected_device_discovery_keeps_native_smoke_off_hardware(self) -> None:
+        workers: list[str] = []
+
+        def offline_discovery():
+            workers.append(threading.current_thread().name)
+            return []
+
+        isolated_server, url = create_server(device_discovery=offline_discovery)
+        isolated_thread = threading.Thread(
+            target=isolated_server.serve_forever,
+            daemon=True,
+        )
+        isolated_thread.start()
+        try:
+            token = parse_qs(urlparse(url).query)["token"][0]
+            request = Request(
+                f"http://127.0.0.1:{isolated_server.server_port}/api/devices",
+                headers={"X-AM-Token": token},
+            )
+            with urlopen(request, timeout=5) as response:
+                payload = json.loads(response.read())
+                self.assertEqual(200, response.status)
+        finally:
+            isolated_server.shutdown()
+            isolated_server.server_close()
+            isolated_thread.join(timeout=2)
+
+        self.assertEqual({"devices": []}, payload)
+        self.assertEqual(1, len(workers))
+        self.assertTrue(workers[0].startswith("am-device-io"))
+
     def test_non_ascii_auth_header_is_cleanly_rejected(self) -> None:
         for method, body in ((b"GET", b""), (b"POST", b"{}")):
             with self.subTest(method=method.decode("ascii")):

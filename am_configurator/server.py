@@ -14,7 +14,7 @@ import secrets
 import threading
 import time
 import webbrowser
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from http import HTTPStatus
@@ -1846,6 +1846,9 @@ class _State:
         credential_store: Any = None,
         procedural_coordinator: Any = None,
         ollama_client: Any = None,
+        device_discovery: (
+            Callable[[], list[tuple[transport.DeviceHandle, Any]]] | None
+        ) = None,
     ) -> None:
         if (lighting_library is None) != (lighting_coordinator is None):
             raise ValueError(
@@ -1879,6 +1882,7 @@ class _State:
         self._credential_store = credential_store
         self._procedural_coordinator = procedural_coordinator
         self._ollama_client = ollama_client
+        self._device_discovery = device_discovery
         self._procedural_library_identity: int | None = (
             id(lighting_library) if procedural_coordinator is not None else None
         )
@@ -2418,7 +2422,8 @@ class _Handler(BaseHTTPRequestHandler):
                     )
                 elif path == "/api/devices":
                     def scan_devices():
-                        found = transport.discover()
+                        discover = self.state._device_discovery or transport.discover
+                        found = discover()
                         self.state.last_device_scan = time.monotonic()
                         return found
 
@@ -3928,6 +3933,9 @@ def create_server(
     credential_store: Any = None,
     procedural_coordinator: Any = None,
     ollama_client: Any = None,
+    device_discovery: (
+        Callable[[], list[tuple[transport.DeviceHandle, Any]]] | None
+    ) = None,
 ) -> tuple[_Server, str]:
     """Create the loopback configurator server without starting its event loop.
 
@@ -3957,6 +3965,7 @@ def create_server(
         credential_store=credential_store,
         procedural_coordinator=procedural_coordinator,
         ollama_client=ollama_client,
+        device_discovery=device_discovery,
     )
     state.reconcile_lighting(force=True)
     server = _Server(("127.0.0.1", port), state)

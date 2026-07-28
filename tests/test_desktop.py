@@ -7,7 +7,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from unittest import mock
 
 from am_configurator import desktop
@@ -190,9 +190,23 @@ class DesktopSmokeTests(unittest.TestCase):
 
     def test_full_smoke_uses_only_in_memory_credentials_and_offline_ollama(self) -> None:
         captured: dict = {}
+        opened_assets: list[str] = []
+        payloads = {
+            "/": (
+                b'AM Configurator data-library-filter="sources" '
+                b'data-library-filter="removed"'
+            ),
+            "/lighting_composer.js": b"renderColorEffect",
+            "/library_state.js": b"libraryCatalogQuery",
+            "/app.js": b"async function applyLibraryProfile",
+            "/style.css": b".library-pagination",
+        }
 
         class _Response:
             status = 200
+
+            def __init__(self, payload: bytes) -> None:
+                self.payload = payload
 
             def __enter__(self):
                 return self
@@ -200,9 +214,8 @@ class DesktopSmokeTests(unittest.TestCase):
             def __exit__(self, *_args):
                 return None
 
-            @staticmethod
-            def read() -> bytes:
-                return b"AM Configurator"
+            def read(self) -> bytes:
+                return self.payload
 
         class _Server:
             @staticmethod
@@ -221,6 +234,12 @@ class DesktopSmokeTests(unittest.TestCase):
             captured.update(kwargs)
             return _Server(), "http://127.0.0.1:43111/?token=smoke"
 
+        def open_loopback(url: str, *, timeout: int):
+            self.assertEqual(5, timeout)
+            path = urlsplit(url).path
+            opened_assets.append(path)
+            return _Response(payloads[path])
+
         with (
             mock.patch.dict(sys.modules, {"webview": types.ModuleType("webview")}),
             mock.patch.object(
@@ -235,7 +254,7 @@ class DesktopSmokeTests(unittest.TestCase):
             mock.patch.object(desktop, "_run_ollama_recipe_smoke"),
             mock.patch.object(desktop, "_run_ffmpeg_media_smoke"),
             mock.patch.object(desktop, "create_server", side_effect=create_server),
-            mock.patch.object(desktop, "urlopen", return_value=_Response()),
+            mock.patch.object(desktop, "urlopen", side_effect=open_loopback),
         ):
             self.assertEqual(desktop.run_smoke_test(), 0)
 
@@ -244,6 +263,16 @@ class DesktopSmokeTests(unittest.TestCase):
         )
         self.assertIsInstance(
             captured.get("ollama_client"), desktop._OfflineOllamaInventory
+        )
+        self.assertEqual(
+            [
+                "/",
+                "/lighting_composer.js",
+                "/library_state.js",
+                "/app.js",
+                "/style.css",
+            ],
+            opened_assets,
         )
 
     def test_every_offline_ai_smoke_executes_without_external_side_effects(self) -> None:
@@ -471,8 +500,18 @@ class DesktopNativePolicyTests(unittest.TestCase):
             "ALLOW_DOWNLOADS",
             "Content-Security-Policy",
             "script-src",
+            "settings-button",
+            "settings-ai-details",
             "settings-local-panel",
             "settings-api-panel",
+            "settings-api-provider",
+            "anthropic",
+            "deepseek",
+            "gemini",
+            "moonshot",
+            "openai",
+            "xai",
+            "settings_provider_catalog_only",
             "GGUF",
         ):
             with self.subTest(required=required):
@@ -693,13 +732,15 @@ class DesktopNativePolicyTests(unittest.TestCase):
                     _Server(),
                     "http://127.0.0.1:43111/?token=private-token",
                 ),
-            ),
+            ) as create_server_mock,
             mock.patch.object(desktop, "_assert_ollama_api_only_bundle"),
             mock.patch.object(desktop.subprocess, "run", side_effect=run_child),
             mock.patch.object(desktop.platform, "system", return_value="Darwin"),
         ):
             self.assertEqual(desktop.run_native_policy_smoke(), 0)
 
+        device_discovery = create_server_mock.call_args.kwargs["device_discovery"]
+        self.assertEqual([], device_discovery())
         self.assertEqual(["seed", "verify"], [phase for phase, _url in observed])
         self.assertEqual(1, len({url for _phase, url in observed}))
         self.assertIn("shutdown", lifecycle)
