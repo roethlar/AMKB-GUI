@@ -138,7 +138,7 @@
   compile/syntax checks, and package builds.
 - The owner-approved unified Lighting implementation in
   `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` is
-  active. Slices 2-12 are complete. Catalog schema 2 names the six fixed API
+  active. Slices 2-13 are complete. Catalog schema 2 names the six fixed API
   providers; settings schema 6 preserves the complete xAI record through a
   credential-free v5 migration; provider-scoped vault operations, environment
   overrides, disclosure records, setup fingerprints, capability caches, and
@@ -233,13 +233,30 @@
   server compatibility preview for the open document. The profile helper,
   import/save endpoints, exact-byte retention, side-effect isolation, and web
   shell guards fail against pre-slice production code and pass with the
-  implementation restored. The clean full gate passes 645 Python tests, 60 web
-  tests, compile/syntax checks, and source/wheel builds. The heavy
+  implementation restored. Imported GIF, PNG, and BMP sources now cross one
+  authenticated bounded raw-binary route, are signature-sniffed and fully
+  decoded before publication, reject APNG, truncation, trailing data, decoder
+  warnings, and resource-bound violations, retain their exact original bytes,
+  and deduplicate only against a live hash- and byte-verified source. Exact
+  version-1 transforms support normalized pan, locked or independent scale,
+  black alpha composition, and three sampling modes while preserving the old
+  default center-crop result. Pathless transient renders use monotonic editor
+  epochs, reverify the owned source and metadata, publish only the existing
+  mapped-result shape, leave `.work` empty after completion or supersession,
+  and block Library removal/root switching while active. Mapping now transforms
+  every validated source frame before resampling the complete timeline under
+  the destination family's frame ceiling, so a long GIF cannot silently lose
+  its tail. The media validation, transform, asymmetric orientation, complete
+  timeline, deduplication, concurrency, source-preservation, epoch, binary
+  envelope, route, and no-publication guards were red-proven. The clean full
+  gate passes 659 Python tests, 60 web tests, compile/syntax checks, and
+  source/wheel builds. The heavy
   procedural recovery fixture uses the production 180-second operation
   deadline instead of a flaky 30-second test-only override. No real provider
   request, credential mutation, Keychain prompt, model mutation/download,
   real Library mutation/deletion, hardware write, push, or release occurred.
-  Next action is slice 13, transform-aware media rendering and media banking.
+  Next action is slice 14, the unified Studio shell and deterministic local
+  animation helpers.
   Local
   `main` remains unpublished; the push policy requires a fresh explicit owner
   go.

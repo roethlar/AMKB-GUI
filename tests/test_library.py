@@ -1729,7 +1729,7 @@ class SavedItemLibraryTests(unittest.TestCase):
             item["assets"][0]["sha256"],
             item["source"]["sha256"],
         )
-        for relative in ("manifest.json", "source", "preview", "result"):
+        for relative in ("manifest.json", "source", "preview", "result", ".work"):
             self.assertTrue((item_dir / relative).exists(), relative)
         self.assertFalse((self.root / "jobs").exists())
         self.assertFalse(any(path.name.startswith(".item-") for path in (self.root / "items").iterdir()))
@@ -1858,6 +1858,92 @@ class SavedItemLibraryTests(unittest.TestCase):
             self.library.resolve_asset(item["item_id"], str(uuid.uuid4()))
         with self.assertRaises(InvalidIdentifierError):
             self.library.resolve_asset("../escape", record["asset_id"])
+
+    def test_media_banking_deduplicates_only_verified_live_source_bytes(self) -> None:
+        payload = b"\x89PNG\r\n\x1a\nimmutable-media-source"
+        metadata = {
+            "mime_type": "image/png",
+            "width": 4,
+            "height": 2,
+            "frame_count": 1,
+            "duration_ms": 0,
+        }
+        first, first_created = self.library.bank_media_source(
+            name="first.png",
+            payload=payload,
+            metadata=metadata,
+        )
+        second, second_created = self.library.bank_media_source(
+            name="renamed.png",
+            payload=payload,
+            metadata=metadata,
+        )
+        self.assertTrue(first_created)
+        self.assertFalse(second_created)
+        self.assertEqual(first["item_id"], second["item_id"])
+        self.assertEqual("first.png", second["name"])
+        self.assertEqual(
+            1,
+            len(
+                [
+                    path
+                    for path in (self.root / "items").iterdir()
+                    if path.is_dir() and not path.name.startswith(".")
+                ]
+            ),
+        )
+
+        owned = self.library.resolve_asset(
+            first["item_id"],
+            first["source"]["asset_id"],
+        )
+        owned.path.write_bytes(b"corrupt")
+        replacement, replacement_created = self.library.bank_media_source(
+            name="replacement.png",
+            payload=payload,
+            metadata=metadata,
+        )
+        self.assertTrue(replacement_created)
+        self.assertNotEqual(first["item_id"], replacement["item_id"])
+
+    def test_concurrent_identical_media_imports_publish_one_item(self) -> None:
+        payload = b"BM" + b"concurrent-media"
+        metadata = {
+            "mime_type": "image/bmp",
+            "width": 2,
+            "height": 1,
+            "frame_count": 1,
+            "duration_ms": 0,
+        }
+        barrier = threading.Barrier(3)
+        results: list[tuple[dict, bool]] = []
+        failures: list[BaseException] = []
+
+        def bank() -> None:
+            try:
+                barrier.wait()
+                results.append(
+                    self.library.bank_media_source(
+                        name="same.bmp",
+                        payload=payload,
+                        metadata=metadata,
+                    )
+                )
+            except BaseException as exc:  # noqa: BLE001 - preserve thread failure
+                failures.append(exc)
+
+        workers = [threading.Thread(target=bank) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        barrier.wait()
+        for worker in workers:
+            worker.join(timeout=5)
+
+        self.assertEqual([], failures)
+        self.assertTrue(all(not worker.is_alive() for worker in workers))
+        self.assertEqual(2, len(results))
+        self.assertEqual(1, len({manifest["item_id"] for manifest, _ in results}))
+        self.assertEqual([False, True], sorted(created for _, created in results))
 
     def test_keyboard_profile_helper_retains_exact_json_bytes(self) -> None:
         payload = (

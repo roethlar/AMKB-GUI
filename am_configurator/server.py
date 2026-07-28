@@ -1686,6 +1686,8 @@ class _State:
         )
         self._library_catalog: Any = None
         self._library_catalog_identity: int | None = None
+        self._media_renderer: Any = None
+        self._media_renderer_catalog_identity: int | None = None
         from .generation_admission import PROCESS_OPERATION_GATE
 
         self._generation_gate = self._lighting_dependencies.get(
@@ -1843,13 +1845,29 @@ class _State:
         library, _coordinator = self.lighting_services()
         if not isinstance(library, GeneratedAssetLibrary):
             raise RuntimeError("Library catalog services are unavailable.")
-        if (
-            self._library_catalog is None
-            or self._library_catalog_identity != id(library)
-        ):
-            self._library_catalog = LibraryCatalog(library)
-            self._library_catalog_identity = id(library)
-        return self._library_catalog
+        with self._lighting_lock:
+            if (
+                self._library_catalog is None
+                or self._library_catalog_identity != id(library)
+            ):
+                self._library_catalog = LibraryCatalog(library)
+                self._library_catalog_identity = id(library)
+            return self._library_catalog
+
+    def media_renderer(self) -> Any:
+        """Return the transform renderer bound to the current mixed catalog."""
+
+        from .media_composition import MediaRenderCoordinator
+
+        catalog = self.library_catalog()
+        with self._lighting_lock:
+            if (
+                self._media_renderer is None
+                or self._media_renderer_catalog_identity != id(catalog)
+            ):
+                self._media_renderer = MediaRenderCoordinator(catalog)
+                self._media_renderer_catalog_identity = id(catalog)
+            return self._media_renderer
 
     def close(self) -> None:
         try:
@@ -1886,12 +1904,18 @@ class _State:
             procedural_active = getattr(
                 self._procedural_coordinator, "active_job_id", None
             )
+            media_active = (
+                bool(self._media_renderer.active_catalog_ids())
+                if self._media_renderer is not None
+                else False
+            )
             if (
                 self._lighting_library is not None
                 and (
                     self._lighting_root_signature == signature
                     or active is not None
                     or procedural_active is not None
+                    or media_active
                 )
             ):
                 return self._lighting_library, self._lighting_coordinator
@@ -2097,6 +2121,7 @@ class _Handler(BaseHTTPRequestHandler):
             LibraryRootError,
             ManifestError,
         )
+        from .media_composition import MediaRenderSuperseded
 
         if isinstance(exc, AICapabilityError):
             self._json(
@@ -2117,6 +2142,9 @@ class _Handler(BaseHTTPRequestHandler):
             )
             return True
         if isinstance(exc, (GenerationBusyError, GenerationNotActiveError)):
+            self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
+            return True
+        if isinstance(exc, MediaRenderSuperseded):
             self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
             return True
         if isinstance(exc, AssetNotFoundError):
@@ -2265,11 +2293,15 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if not self._authorized():
             self._json({"error": "Unauthorized local request."}, HTTPStatus.FORBIDDEN)
             return
         try:
+            if path == "/api/library/import/media":
+                self._library_import_media(parsed.query)
+                return
             body = self._body()
             if path == "/api/config/validate":
                 self._json(validate_config(body.get("config")))
@@ -2633,6 +2665,90 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._json({"job_id": manifest["job_id"]}, status)
 
+    @staticmethod
+    def _media_import_name(query: str) -> str:
+        if len(query) > 4_096:
+            raise ValueError("The media import query is too long.")
+        if any(
+            character == "%"
+            and (
+                index + 2 >= len(query)
+                or any(
+                    digit not in "0123456789abcdefABCDEF"
+                    for digit in query[index + 1 : index + 3]
+                )
+            )
+            for index, character in enumerate(query)
+        ):
+            raise ValueError("The media import query encoding is invalid.")
+        try:
+            values = parse_qs(
+                query,
+                keep_blank_values=True,
+                strict_parsing=True,
+                errors="strict",
+            )
+        except (UnicodeError, ValueError) as exc:
+            raise ValueError("The media import query is invalid.") from exc
+        if set(values) != {"name"} or len(values["name"]) != 1:
+            raise ValueError(
+                "Media import requires exactly one encoded name query field."
+            )
+        name = values["name"][0]
+        if (
+            not name
+            or len(name) > 200
+            or name in {".", ".."}
+            or "/" in name
+            or "\\" in name
+            or any(ord(character) < 32 or ord(character) == 127 for character in name)
+        ):
+            raise ValueError("The media import file name is invalid.")
+        return name
+
+    def _library_import_media(self, query: str) -> None:
+        from . import media_composition
+
+        name = self._media_import_name(query)
+        if self.headers.get_all("Transfer-Encoding"):
+            raise ValueError("Media import does not accept transfer encoding.")
+        if self.headers.get("Content-Encoding") is not None:
+            raise ValueError("Media import does not accept content encoding.")
+        lengths = self.headers.get_all("Content-Length") or []
+        if len(lengths) != 1:
+            raise ValueError("Media import requires one valid content length.")
+        raw_length = lengths[0].strip()
+        if not raw_length.isascii() or not raw_length.isdigit():
+            raise ValueError("Media import requires one valid content length.")
+        length = int(raw_length)
+        if not 0 < length <= media_composition.MAX_MEDIA_BYTES:
+            raise ValueError("The media upload exceeds the size limit.")
+        payload = self.rfile.read(length)
+        if len(payload) != length:
+            raise ValueError("The media upload ended before its declared length.")
+
+        decoded = media_composition.decode_media(payload)
+        catalog = self.state.library_catalog()
+        manifest, created = catalog.saved_items.bank_media_source(
+            name=name,
+            payload=payload,
+            metadata={
+                "mime_type": decoded.mime_type,
+                "width": decoded.width,
+                "height": decoded.height,
+                "frame_count": decoded.frame_count,
+                "duration_ms": decoded.duration_ms,
+            },
+        )
+        detail = catalog.get(f"item:{manifest['item_id']}")
+        self._json(
+            {
+                "item": detail,
+                "deduplicated": not created,
+            },
+            HTTPStatus.CREATED if created else HTTPStatus.OK,
+        )
+
     def _bank_keyboard_profile(
         self,
         *,
@@ -2793,11 +2909,15 @@ class _Handler(BaseHTTPRequestHandler):
             getattr(self.state._lighting_coordinator, "active_job_id", None),
             getattr(self.state._procedural_coordinator, "active_job_id", None),
         }
-        return {
+        catalog_ids = {
             f"job:{job_id}"
             for job_id in active_ids
             if isinstance(job_id, str) and job_id
         }
+        renderer = self.state._media_renderer
+        if renderer is not None:
+            catalog_ids.update(renderer.active_catalog_ids())
+        return catalog_ids
 
     def _library_post(self, path: str, body: dict[str, Any]) -> None:
         if urlparse(self.path).query:
@@ -2805,6 +2925,25 @@ class _Handler(BaseHTTPRequestHandler):
                 "Library mutations do not accept query fields."
             )
         parts = path.strip("/").split("/")
+        if (
+            len(parts) == 5
+            and parts[:3] == ["api", "library", "items"]
+            and parts[4] == "render"
+        ):
+            if set(body) != {"product_id", "targets", "transform", "epoch"}:
+                raise ValueError(
+                    "Media rendering requires product_id, targets, transform, and epoch."
+                )
+            self._json(
+                self.state.media_renderer().render(
+                    parts[3],
+                    product_id=body["product_id"],
+                    targets=body["targets"],
+                    transform=body["transform"],
+                    epoch=body["epoch"],
+                )
+            )
+            return
         if (
             len(parts) == 5
             and parts[:3] == ["api", "library", "items"]

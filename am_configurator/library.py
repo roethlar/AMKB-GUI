@@ -73,7 +73,7 @@ _ASSET_LAYOUT = {
     "raster_animation": ("frames", {"image/gif": ".gif"}),
 }
 _ASSET_STATUSES = {"complete", "partial", "cancelled_saved"}
-_SAVED_ITEM_DIRECTORIES = ("source", "preview", "result")
+_SAVED_ITEM_DIRECTORIES = ("source", "preview", "result", ".work")
 _SAVED_ASSET_LAYOUT = {
     "source": (
         "source",
@@ -2856,6 +2856,92 @@ class SavedItemLibrary:
                 }
             },
         )
+
+    def bank_media_source(
+        self,
+        *,
+        name: str,
+        payload: bytes,
+        metadata: Mapping[str, object],
+        tags: list[str] | tuple[str, ...] = (),
+    ) -> tuple[dict, bool]:
+        """Publish one immutable media source or return its verified duplicate."""
+
+        if not isinstance(payload, bytes) or not payload:
+            raise ManifestError("Media source bytes must be non-empty.")
+        if (
+            not isinstance(metadata, Mapping)
+            or set(metadata)
+            != {
+                "mime_type",
+                "width",
+                "height",
+                "frame_count",
+                "duration_ms",
+            }
+        ):
+            raise ManifestError("Media source metadata has an unsupported schema.")
+        item_name = _validate_saved_text(name, "name")
+        if Path(item_name).is_absolute() or PureWindowsPath(item_name).is_absolute():
+            raise ManifestError("The saved item name cannot contain a local path.")
+        mime_type = metadata["mime_type"]
+        if (
+            not isinstance(mime_type, str)
+            or mime_type not in {"image/gif", "image/png", "image/bmp"}
+        ):
+            raise ManifestError("The media source MIME type is unsupported.")
+
+        digest = hashlib.sha256(payload).hexdigest()
+        root = self.preflight()
+        with _job_lock(root):
+            items, _errors = self._scan_internal()
+            for manifest, item_dir in items:
+                source = manifest.get("source")
+                if (
+                    manifest.get("kind") != "media_source"
+                    or not isinstance(source, dict)
+                    or source.get("sha256") != digest
+                    or source.get("mime_type") != mime_type
+                    or source.get("width") != metadata["width"]
+                    or source.get("height") != metadata["height"]
+                    or source.get("frame_count") != metadata["frame_count"]
+                    or source.get("duration_ms") != metadata["duration_ms"]
+                ):
+                    continue
+                try:
+                    owned = self._owned_record(
+                        item_dir,
+                        manifest,
+                        source["asset_id"],
+                    )
+                    with owned.open_verified() as stream:
+                        if stream.read(len(payload) + 1) != payload:
+                            continue
+                except (LibraryError, OSError):
+                    continue
+                return copy.deepcopy(manifest), False
+
+            manifest = self.create_item(
+                kind="media_source",
+                origin="media_import",
+                name=item_name,
+                tags=tags,
+                source={
+                    "asset_id": "source",
+                    "width": metadata["width"],
+                    "height": metadata["height"],
+                    "frame_count": metadata["frame_count"],
+                    "duration_ms": metadata["duration_ms"],
+                },
+                assets={
+                    "source": {
+                        "kind": "source",
+                        "mime_type": mime_type,
+                        "data": payload,
+                    }
+                },
+            )
+            return manifest, True
 
     def _find_item_dir(self, item_id: str) -> Path:
         canonical_id = _canonical_uuid(item_id, "item ID")

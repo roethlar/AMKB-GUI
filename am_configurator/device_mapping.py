@@ -746,12 +746,16 @@ def firmware_led_speed(duration_ms: int) -> int:
     return min(LED_SPEEDS_MS, key=lambda speed: (abs(speed - duration), speed))
 
 
-def _timeline_indices(durations: list[int]) -> tuple[list[int], int, bool]:
+def _timeline_indices(
+    durations: list[int],
+    *,
+    frame_limit: int = MAX_FRAMES,
+) -> tuple[list[int], int, bool]:
     clean = [max(10, int(duration or 90)) for duration in durations]
     if not clean:
         return [0], 90, False
     variable = len(set(clean)) > 1
-    if not variable:
+    if not variable and len(clean) <= frame_limit:
         return list(range(len(clean))), firmware_led_speed(clean[0]), False
 
     common = clean[0]
@@ -759,15 +763,15 @@ def _timeline_indices(durations: list[int]) -> tuple[list[int], int, bool]:
         common = math.gcd(common, duration)
     speed = firmware_led_speed(common)
     total = sum(clean)
-    if math.ceil(total / speed) > MAX_FRAMES:
+    if math.ceil(total / speed) > frame_limit:
         fitting = [
             candidate
             for candidate in sorted(LED_SPEEDS_MS)
-            if math.ceil(total / candidate) <= MAX_FRAMES
+            if math.ceil(total / candidate) <= frame_limit
         ]
         speed = fitting[0] if fitting else max(LED_SPEEDS_MS)
 
-    output_count = min(MAX_FRAMES, max(1, math.ceil(total / speed)))
+    output_count = min(frame_limit, max(1, math.ceil(total / speed)))
     indices: list[int] = []
     source_index = 0
     boundary = clean[0]
@@ -789,9 +793,17 @@ def frames_to_led_tracks(
     *,
     work_check: Callable[[], None] | None = None,
     progress: Callable[[int, int], None] | None = None,
+    frame_limit: int = MAX_FRAMES,
+    source_frame_limit: int | None = None,
 ) -> dict[str, Any]:
     """Map ordered raster frames onto one or more firmware LED tracks."""
 
+    if type(frame_limit) is not int or not 1 <= frame_limit <= MAX_FRAMES:
+        raise ValueError("The LED frame limit is invalid.")
+    if source_frame_limit is None:
+        source_frame_limit = frame_limit
+    if type(source_frame_limit) is not int or source_frame_limit < frame_limit:
+        raise ValueError("The source frame limit is invalid.")
     if work_check is not None:
         work_check()
     model, requested = validate_gif_targets(product_id, targets)
@@ -807,10 +819,10 @@ def frames_to_led_tracks(
     except ModuleNotFoundError as exc:
         raise ValueError("GIF import needs Pillow. Reinstall AM Configurator.") from exc
 
-    frames = list(images)[:MAX_FRAMES]
+    frames = list(images)[:source_frame_limit]
     if not frames:
         raise ValueError("The GIF contains no frames.")
-    raw_durations = list(durations_ms)[:MAX_FRAMES]
+    raw_durations = list(durations_ms)[:source_frame_limit]
     filters = {
         "nearest": Image.Resampling.NEAREST,
         "box": Image.Resampling.BOX,
@@ -870,8 +882,135 @@ def frames_to_led_tracks(
 
     if work_check is not None:
         work_check()
-    timeline, duration, timing_resampled = _timeline_indices(durations)
+    timeline, duration, timing_resampled = _timeline_indices(
+        durations,
+        frame_limit=frame_limit,
+    )
     tracks = {}
+    for target, layout in layouts.items():
+        if work_check is not None:
+            work_check()
+        mapped = [track_frames[target][index] for index in timeline]
+        width, height = layout["size"]
+        tracks[target] = {
+            "frames": mapped,
+            "frame_count": len(mapped),
+            "width": width,
+            "height": height,
+            "pixels": int(layout["pixels"]),
+            "mapped_pixels": len(
+                {index for index in layout["map"] if index >= 0}
+            ),
+        }
+    return {
+        "tracks": tracks,
+        "source_frames": len(frames),
+        "decoded_frames": len(frames),
+        "duration_ms": duration,
+        "source_duration_ms": sum(durations),
+        "timing_resampled": timing_resampled,
+        "model": model,
+    }
+
+
+def compose_media_frames_to_led_tracks(
+    images: Sequence[Any],
+    durations_ms: Sequence[int],
+    targets: list[str] | tuple[str, ...],
+    transform: Mapping[str, object],
+    product_id: str = "CB_XX",
+    *,
+    work_check: Callable[[], None] | None = None,
+    progress: Callable[[int, int], None] | None = None,
+) -> dict[str, Any]:
+    """Transform imported media and map it within the destination frame ceiling."""
+
+    from .media_composition import (
+        MAX_MEDIA_FRAMES,
+        render_source_frame,
+        validate_source_transform,
+    )
+
+    if work_check is not None:
+        work_check()
+    checked = validate_source_transform(transform)
+    model, requested = validate_gif_targets(product_id, targets)
+    frame_limit = family_spec(model).frame_cap
+    frames = list(images)
+    if not frames:
+        raise ValueError("The imported media contains no frames.")
+    if len(frames) > MAX_MEDIA_FRAMES:
+        raise ValueError("The imported media frame limit was exceeded.")
+    raw_durations = list(durations_ms)[:MAX_MEDIA_FRAMES]
+
+    if (
+        checked.offset_x == 0.0
+        and checked.offset_y == 0.0
+        and checked.scale_x == 1.0
+        and checked.scale_y == 1.0
+        and checked.background == "#000000"
+    ):
+        return frames_to_led_tracks(
+            frames,
+            raw_durations,
+            requested,
+            checked.sampling,
+            product_id,
+            work_check=work_check,
+            progress=progress,
+            frame_limit=frame_limit,
+            source_frame_limit=MAX_MEDIA_FRAMES,
+        )
+
+    layouts = {target: _LAYOUTS[model][target] for target in requested}
+    track_frames: dict[str, list[list[str]]] = {
+        target: [] for target in requested
+    }
+    durations: list[int] = []
+    for index, frame in enumerate(frames):
+        if work_check is not None:
+            work_check()
+        source_duration = (
+            raw_durations[index] if index < len(raw_durations) else None
+        )
+        durations.append(max(10, int(source_duration or 90)))
+        raster_colors: dict[tuple[int, int], list[str]] = {}
+        for layout in layouts.values():
+            if work_check is not None:
+                work_check()
+            size = tuple(layout["size"])
+            if size not in raster_colors:
+                raster = render_source_frame(frame, size, checked)
+                pixels = (
+                    raster.get_flattened_data()
+                    if hasattr(raster, "get_flattened_data")
+                    else raster.getdata()
+                )
+                raster_colors[size] = [
+                    f"#{red:02X}{green:02X}{blue:02X}"
+                    for red, green, blue in pixels
+                ]
+        for target, layout in layouts.items():
+            if work_check is not None:
+                work_check()
+            source_colors = raster_colors[tuple(layout["size"])]
+            colors = ["#000000"] * int(layout["pixels"])
+            for source_index, output_index in enumerate(layout["map"]):
+                if output_index >= 0:
+                    colors[output_index] = source_colors[source_index]
+            for output_index, source_index in layout.get("copies", ()):
+                colors[output_index] = colors[source_index]
+            track_frames[target].append(colors)
+        if progress is not None:
+            progress(index + 1, len(frames))
+
+    if work_check is not None:
+        work_check()
+    timeline, duration, timing_resampled = _timeline_indices(
+        durations,
+        frame_limit=frame_limit,
+    )
+    tracks: dict[str, dict[str, Any]] = {}
     for target, layout in layouts.items():
         if work_check is not None:
             work_check()

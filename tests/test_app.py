@@ -22,7 +22,7 @@ from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -61,7 +61,7 @@ from am_configurator.protocol import exclusive_serial_kwargs
 from am_configurator.macros import macro_frames, parse_macro_frames
 from am_configurator.writer import car_light_data_frames, car_light_info_frames
 from am_configurator import ai_catalog, credentials, device_mapping, llm, server, store
-from am_configurator import generation
+from am_configurator import generation, media_composition
 from am_configurator.library import (
     GeneratedAssetLibrary,
     LibraryRootError,
@@ -2708,6 +2708,49 @@ class LightingStudioEndpointTests(unittest.TestCase):
         except urllib.error.HTTPError as exc:
             return exc.code, dict(exc.headers.items()), exc.read()
 
+    def _media_request(
+        self,
+        name: str,
+        payload: bytes,
+        *,
+        content_type: str = "application/octet-stream",
+        token=_DEFAULT,
+        query_suffix: str = "",
+    ):
+        headers = {"Content-Type": content_type}
+        selected = self._token if token is self._DEFAULT else token
+        if selected is not None:
+            headers["X-AM-Token"] = selected
+        path = f"/api/library/import/media?name={quote(name, safe='')}{query_suffix}"
+        request = Request(
+            self._base + path,
+            data=payload,
+            method="POST",
+            headers=headers,
+        )
+        try:
+            with urlopen(request, timeout=5) as response:
+                raw = response.read()
+                return response.status, json.loads(raw)
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            return exc.code, json.loads(raw)
+
+    def _socket_status(self, request: bytes) -> int:
+        with socket.create_connection(
+            ("127.0.0.1", self._server.server_port),
+            timeout=5,
+        ) as connection:
+            connection.sendall(request)
+            connection.shutdown(socket.SHUT_WR)
+            response = b""
+            while True:
+                chunk = connection.recv(8192)
+                if not chunk:
+                    break
+                response += chunk
+        return int(response.split(b" ", 2)[1])
+
     def _job(self, *, prompt="library ember", status="awaiting_selection") -> dict:
         manifest = self.library.create_job(
             prompt=prompt,
@@ -3090,6 +3133,183 @@ class LightingStudioEndpointTests(unittest.TestCase):
             with self.subTest(query=query):
                 status, _ = self._request("GET", f"/api/library/items?{query}")
                 self.assertEqual(400, status)
+
+    def test_raw_media_import_banks_all_formats_deduplicates_and_renders(self) -> None:
+        from PIL import Image
+
+        def still(format_name: str) -> bytes:
+            image = Image.new("RGBA", (4, 2))
+            image.putdata(
+                (
+                    (255, 0, 0, 255),
+                    (0, 255, 0, 255),
+                    (0, 0, 255, 255),
+                    (255, 255, 0, 255),
+                    (0, 255, 255, 255),
+                    (255, 0, 255, 255),
+                    (255, 255, 255, 255),
+                    (0, 0, 0, 255),
+                )
+            )
+            if format_name == "BMP":
+                image = image.convert("RGB")
+            output = io.BytesIO()
+            image.save(output, format=format_name)
+            return output.getvalue()
+
+        gif_frames = [
+            Image.new("RGB", (4, 2), (255, 0, 0)),
+            Image.new("RGB", (4, 2), (0, 0, 255)),
+        ]
+        gif_output = io.BytesIO()
+        gif_frames[0].save(
+            gif_output,
+            format="GIF",
+            save_all=True,
+            append_images=gif_frames[1:],
+            duration=[30, 70],
+            loop=0,
+            optimize=False,
+        )
+        cases = (
+            ("still.png", still("PNG"), "image/png", 1, 0),
+            ("still.bmp", still("BMP"), "image/bmp", 1, 0),
+            ("motion.gif", gif_output.getvalue(), "image/gif", 2, 100),
+        )
+        imported = {}
+        for name, payload, mime_type, frame_count, duration_ms in cases:
+            with self.subTest(name=name):
+                status, result = self._media_request(
+                    name,
+                    payload,
+                    content_type="text/plain",
+                )
+                self.assertEqual(201, status)
+                self.assertFalse(result["deduplicated"])
+                detail = result["item"]
+                imported[name] = (payload, detail)
+                self.assertEqual("media_source", detail["kind"])
+                self.assertEqual(mime_type, detail["item"]["source"]["mime_type"])
+                self.assertEqual(frame_count, detail["item"]["source"]["frame_count"])
+                self.assertEqual(duration_ms, detail["item"]["source"]["duration_ms"])
+                self.assertNotIn(str(self.root), json.dumps(result))
+
+                asset = detail["item"]["assets"][0]
+                asset_status, headers, served = self._raw_request(
+                    f"/api/library/assets/{detail['catalog_id']}/{asset['asset_id']}"
+                )
+                self.assertEqual(200, asset_status)
+                self.assertEqual(mime_type, headers["Content-Type"])
+                self.assertEqual(payload, served)
+
+        png_payload, png_detail = imported["still.png"]
+        status, duplicate = self._media_request("renamed.png", png_payload)
+        self.assertEqual(200, status)
+        self.assertTrue(duplicate["deduplicated"])
+        self.assertEqual(png_detail["catalog_id"], duplicate["item"]["catalog_id"])
+        self.assertEqual("still.png", duplicate["item"]["name"])
+
+        transform = {
+            "version": 1,
+            "offset_x": 0.0,
+            "offset_y": 0.0,
+            "scale_x": 1.0,
+            "scale_y": 1.0,
+            "aspect_locked": True,
+            "sampling": "nearest",
+            "background": "#000000",
+        }
+        status, rendered = self._request(
+            "POST",
+            f"/api/library/items/{png_detail['catalog_id']}/render",
+            {
+                "product_id": "CB04",
+                "targets": ["frames"],
+                "transform": transform,
+                "epoch": 7,
+            },
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(7, rendered["epoch"])
+        self.assertEqual(transform, rendered["transform"])
+        self.assertEqual(
+            1,
+            rendered["mapped_result"]["tracks"]["frames"]["frame_count"],
+        )
+        item_id = png_detail["item"]["item_id"]
+        item_dir = self.root / "items" / item_id
+        self.assertEqual([], list((item_dir / ".work").iterdir()))
+        stored = SavedItemLibrary(self.root, minimum_free_bytes=1).load_manifest(item_id)
+        self.assertEqual(1, len(stored["assets"]))
+        self.assertEqual(png_payload, (item_dir / stored["assets"][0]["relative_path"]).read_bytes())
+
+    def test_media_upload_envelope_and_decode_failures_publish_nothing(self) -> None:
+        from PIL import Image
+
+        image = Image.new("RGBA", (2, 1), (255, 0, 0, 255))
+        png_output = io.BytesIO()
+        image.save(png_output, format="PNG")
+        png = png_output.getvalue()
+
+        status, _ = self._media_request("unauthorized.png", png, token=None)
+        self.assertEqual(403, status)
+        for name, suffix in (
+            ("bad.png", "&unknown=x"),
+            ("bad.png", "&name=again.png"),
+            ("../escape.png", ""),
+        ):
+            with self.subTest(name=name, suffix=suffix):
+                status, _ = self._media_request(name, png, query_suffix=suffix)
+                self.assertEqual(400, status)
+
+        token = self._token.encode("ascii")
+        prefix = (
+            b"POST /api/library/import/media?name=raw.png HTTP/1.1\r\n"
+            b"Host: 127.0.0.1\r\n"
+            + b"X-AM-Token: "
+            + token
+            + b"\r\nConnection: close\r\n"
+        )
+        self.assertEqual(400, self._socket_status(prefix + b"\r\n"))
+        self.assertEqual(
+            400,
+            self._socket_status(
+                prefix
+                + b"Transfer-Encoding: chunked\r\n"
+                + b"Content-Length: 0\r\n\r\n0\r\n\r\n"
+            ),
+        )
+        self.assertEqual(
+            400,
+            self._socket_status(
+                prefix
+                + f"Content-Length: {media_composition.MAX_MEDIA_BYTES + 1}\r\n\r\n".encode(
+                    "ascii"
+                )
+            ),
+        )
+
+        second = Image.new("RGBA", (2, 1), (0, 0, 255, 255))
+        apng_output = io.BytesIO()
+        image.save(
+            apng_output,
+            format="PNG",
+            save_all=True,
+            append_images=[second],
+            duration=[40, 60],
+            loop=0,
+        )
+        for name, payload in (
+            ("animated.png", apng_output.getvalue()),
+            ("truncated.png", png[:-1]),
+            ("trailing.png", png + b"trailing"),
+        ):
+            with self.subTest(name=name):
+                status, _ = self._media_request(name, payload)
+                self.assertEqual(400, status)
+
+        saved = SavedItemLibrary(self.root, minimum_free_bytes=1).scan()
+        self.assertEqual([], saved["items"])
 
     def test_profile_import_and_mapping_save_bank_exact_data_without_side_effects(
         self,

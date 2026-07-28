@@ -255,6 +255,137 @@ class DeviceSignatureTests(unittest.TestCase):
         )
 
 
+class TransformAwareMappingTests(unittest.TestCase):
+    @staticmethod
+    def _transform(**changes):
+        value = {
+            "version": 1,
+            "offset_x": 0.0,
+            "offset_y": 0.0,
+            "scale_x": 1.0,
+            "scale_y": 1.0,
+            "aspect_locked": True,
+            "sampling": "box",
+            "background": "#000000",
+        }
+        value.update(changes)
+        return value
+
+    @staticmethod
+    def _asymmetric_frame(width: int, height: int, shift: int = 0):
+        from PIL import Image
+
+        frame = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+        colors = (
+            (255, 0, 0, 255),
+            (0, 255, 0, 255),
+            (0, 0, 255, 255),
+            (255, 255, 0, 255),
+        )
+        positions = (
+            (0, 0),
+            (width - 1, 0),
+            (0, height - 1),
+            (width - 1, height - 1),
+        )
+        for index, position in enumerate(positions):
+            frame.putpixel(position, colors[(index + shift) % len(colors)])
+        return frame
+
+    def test_default_transform_is_exactly_the_legacy_center_crop(self) -> None:
+        mapping = importlib.import_module("am_configurator.device_mapping")
+        frames = [
+            self._asymmetric_frame(61, 17),
+            self._asymmetric_frame(61, 17, 1),
+        ]
+        durations = [30, 70]
+
+        for sampling in ("nearest", "box", "lanczos"):
+            with self.subTest(sampling=sampling):
+                legacy = mapping.frames_to_led_tracks(
+                    frames,
+                    durations,
+                    ["frames"],
+                    sampling,
+                    "CB04",
+                )
+                composed = mapping.compose_media_frames_to_led_tracks(
+                    frames,
+                    durations,
+                    ["frames"],
+                    self._transform(sampling=sampling),
+                    "CB04",
+                )
+                self.assertEqual(legacy, composed)
+
+    def test_every_frame_uses_the_same_transform_without_mirroring_or_transpose(
+        self,
+    ) -> None:
+        mapping = importlib.import_module("am_configurator.device_mapping")
+        composition = importlib.import_module("am_configurator.media_composition")
+        frames = [
+            self._asymmetric_frame(40, 5),
+            self._asymmetric_frame(40, 5, 1),
+        ]
+        transform_value = self._transform(
+            offset_x=0.25,
+            scale_x=0.5,
+            scale_y=1.0,
+            aspect_locked=False,
+            sampling="nearest",
+        )
+        transform = composition.validate_source_transform(transform_value)
+        expected = []
+        for frame in frames:
+            raster = composition.render_source_frame(frame, (40, 5), transform)
+            expected.append(
+                [
+                    f"#{red:02X}{green:02X}{blue:02X}"
+                    for red, green, blue in raster.getdata()
+                ]
+            )
+
+        mapped = mapping.compose_media_frames_to_led_tracks(
+            frames,
+            [90, 90],
+            ["frames"],
+            transform_value,
+            "CB04",
+        )
+        self.assertEqual(expected, mapped["tracks"]["frames"]["frames"])
+        self.assertEqual(2, mapped["tracks"]["frames"]["frame_count"])
+
+    def test_media_mapping_obeys_the_destination_family_frame_ceiling(self) -> None:
+        from PIL import Image
+
+        mapping = importlib.import_module("am_configurator.device_mapping")
+        frame_cap = mapping.MODEL_FRAME_CAPS["CB"]
+        frames = [
+            Image.new(
+                "RGB",
+                (1, 1),
+                (255, 0, 0) if index == frame_cap else (0, 0, 0),
+            )
+            for index in range(frame_cap + 1)
+        ]
+        mapped = mapping.compose_media_frames_to_led_tracks(
+            frames,
+            [90] * len(frames),
+            ["frames"],
+            self._transform(sampling="nearest"),
+            "CB04",
+        )
+        self.assertLessEqual(
+            mapped["tracks"]["frames"]["frame_count"],
+            frame_cap,
+        )
+        self.assertEqual(frame_cap + 1, mapped["source_frames"])
+        self.assertEqual(
+            ["#FF0000"] * 200,
+            mapped["tracks"]["frames"]["frames"][-1],
+        )
+
+
 class BrowserSpecMirrorsPythonTests(unittest.TestCase):
     """The browser carries its own copy of the family spec; it must not drift.
 
