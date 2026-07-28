@@ -200,17 +200,18 @@
   `/api/library/items` and `/api/library/assets/...` reads are additive; legacy
   generation and job-Library routes remain unchanged. Storage, catalog,
   pagination, root, discriminator, duplicate/corruption, asset, API, and
-  regression guards were red-proven. A clean full gate passes 630 Python tests,
-  59 web tests, compile/syntax checks, and source/wheel builds. An initial full
-  pass also exposed the existing procedural cancel-order race when the worker
-  persisted `cancelled` between the gate signal and cancel-request manifest
-  update; the test passed in isolation and on the clean full rerun, so a
-  deterministic race guard and ordering fix is the immediate follow-up before
-  slice 10. The heavy
+  regression guards were red-proven. A deterministic worker-first guard now
+  forces the procedural cancellation race in which the worker persists
+  `cancelled` before the cancel-request manifest update. Cancellation accepts
+  that terminal state, records `cancel_requested_at`, releases admission, and
+  still refuses ready or interrupted jobs; the old behavior was red-proven.
+  The clean full gate passes 630 Python tests, 59 web tests, compile/syntax
+  checks, and source/wheel builds. The heavy
   procedural recovery fixture uses the production 180-second operation
   deadline instead of a flaky 30-second test-only override. No real provider
   request, credential mutation, Keychain prompt, model mutation/download,
-  hardware write, push, or release occurred. Local
+  hardware write, push, or release occurred. Next action is slice 10,
+  reversible Library removal. Local
   `main` remains unpublished; the push policy requires a fresh explicit owner
   go.
 

@@ -881,7 +881,18 @@ class ProceduralGenerationCoordinator:
         timestamp = _now_iso()
 
         def request(current: dict) -> None:
-            if current["pipeline"] != "procedural" or current["status"] != "in_progress":
+            if current["pipeline"] != "procedural":
+                raise GenerationNotActiveError(
+                    "the procedural job completed before cancellation could be accepted"
+                )
+            # The gate signal is intentionally first so local work stops
+            # promptly. The worker can therefore persist its terminal
+            # cancellation before this manifest update acquires the item lock.
+            if current["status"] in {"cancelled", "cancelled_saved"}:
+                if current["cancel_requested_at"] is None:
+                    current["cancel_requested_at"] = timestamp
+                return
+            if current["status"] != "in_progress":
                 raise GenerationNotActiveError(
                     "the procedural job completed before cancellation could be accepted"
                 )

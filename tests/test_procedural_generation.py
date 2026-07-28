@@ -526,7 +526,18 @@ class ProceduralGenerationTests(unittest.TestCase):
 
     def test_mid_render_cancellation_releases_admission_promptly(self) -> None:
         provider = _Provider([_dense_recipe()])
-        gate = OperationGate()
+        worker_persisted = threading.Event()
+
+        class WorkerWinsGate(OperationGate):
+            def request_cancel(self, job_id: str) -> bool:
+                accepted = super().request_cancel(job_id)
+                if accepted and not worker_persisted.wait(5):
+                    raise AssertionError(
+                        "the cancelled worker did not persist before cancel returned"
+                    )
+                return accepted
+
+        gate = WorkerWinsGate()
         coordinator = ProceduralGenerationCoordinator(
             self.library,
             _Capability(provider),
@@ -543,7 +554,22 @@ class ProceduralGenerationTests(unittest.TestCase):
                 work.check()
                 time.sleep(0.001)
 
-        with patch.object(procedural, "render_recipe", controlled_render):
+        update_manifest = self.library.update_manifest
+
+        def observe_update(job_id, change):
+            manifest = update_manifest(job_id, change)
+            if manifest["status"] in {"cancelled", "cancelled_saved"}:
+                worker_persisted.set()
+            return manifest
+
+        with (
+            patch.object(procedural, "render_recipe", controlled_render),
+            patch.object(
+                self.library,
+                "update_manifest",
+                side_effect=observe_update,
+            ),
+        ):
             started = coordinator.start_effect(
                 prompt="Cancel bounded local rendering",
                 target=TARGET,
@@ -562,6 +588,7 @@ class ProceduralGenerationTests(unittest.TestCase):
         replacement, _cancelled = gate.begin("after-render-cancel")
         gate.finish(replacement)
         self.assertEqual("cancelled", manifest["status"])
+        self.assertIsNotNone(manifest["cancel_requested_at"])
         self.assertEqual("cancelled", manifest["procedural_attempts"][0]["status"])
         self.assertEqual(["recipe"], [asset["kind"] for asset in manifest["assets"]])
 
