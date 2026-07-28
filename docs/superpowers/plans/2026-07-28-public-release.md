@@ -10,6 +10,10 @@ application banner, or substitute product identity. Plan approval authorizes
 implementation and local verification only; push, hardware write, release
 publication, and Reddit posting retain their explicit gates.
 
+Implementation status: slices 0–7 and the local pre-publication gates completed
+on 2026-07-28. Push and the final GitHub, platform, hardware, publication, and
+announcement gates remain pending.
+
 ## Objective
 
 Publish one honest, reproducible, publicly downloadable AM Configurator release
@@ -822,6 +826,42 @@ Disallowed claims:
 - zero risk of configuration loss;
 - signed, notarized, or warning-free; or
 - beta/prerelease merely because the permanent packages are unsigned.
+
+## Pre-publication implementation record
+
+Implementation slices 0–7 landed through `647fac2`. A follow-up repository
+privacy audit found one historical device serial in the earlier Neon support
+plan; `c774cac` redacts it from the current tree without changing shipped code.
+
+The local evidence is:
+
+- the cumulative gate passes 683 Python tests on Python 3.13, 81 web tests,
+  compile/syntax checks, and source/wheel builds;
+- the Python 3.11 floor separately passes all 683 Python tests, compilation,
+  and package builds;
+- the source and wheel report canonical version `0.1.34`;
+- a fresh macOS preflight build from implementation tip `647fac2` produced
+  `AM-Configurator-0.1.34-macOS-arm64.dmg`, 25,507,007 bytes, with SHA-256
+  `bbd8ec091d5adcda3494b8b8a07c587e3cc8b3a1ee43026c91a1e68252065f26`;
+- that local DMG passes bundle and mounted-image smoke, the real WKWebView
+  policy smoke, `hdiutil verify`, and deep strict ad-hoc signature verification
+  with no Developer ID authority;
+- the mounted application reports `0.1.34`, while the completed live browser
+  acceptance confirms the quiet About dialog reports `0.1.34`, every fresh
+  launch opens Keymap, and wide/narrow layouts have no page overflow or console
+  error;
+- the tracked/untracked audit finds no untracked files, `.env` files, non-test
+  credential signatures, firmware UID values, public machine-local paths, or
+  oversized tracked files; and
+- `actionlint` is not installed locally, so its optional check was unavailable.
+  GitHub remains authoritative for workflow execution.
+
+This DMG is local preflight evidence only, not a release asset. No push,
+provider request, credential or Keychain access, model mutation/download,
+hardware write, release publication, or Reddit post occurred. The next required
+action is an explicitly authorized push of `main`; the exact GitHub candidate,
+cross-platform acceptance, fresh Neon write authorization and check, release
+publication, and announcement review remain pending.
 
 ## Publication sequence
 

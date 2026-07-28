@@ -328,10 +328,7 @@
   duplicate in-content brand/version block is removed, a quiet About dialog is
   the sole normal UI version surface, and launch state now forces Keymap despite
   saved routes or startup hashes while preserving active lighting-job identity.
-  The focused server, state, and syntax checks pass. The connected-browser
-  controller currently enumerates no browser session even though Chrome,
-  extension, and native-host diagnostics pass, so the wide/narrow visual check
-  remains queued for the cumulative UI gate. The strict release-metadata helper
+  The focused server, state, and syntax checks pass. The strict release-metadata helper
   now accepts only the exact three canonical installers, streams deterministic
   SHA-256 metadata, rejects unsafe/ambiguous candidates and conflicting output,
   and keeps workflow run identity as provenance only. The Desktop workflow
@@ -368,8 +365,28 @@
   promotional overclaiming. A structured GitHub bug form collects keyboard,
   firmware, OS, version, operation, write, installer, reproduction, and
   sanitized-log context. Both release-packet guards were red-proven and the
-  issue-form YAML parses successfully. Push, hardware write, release
-  publication, and Reddit posting retain their explicit gates.
+  issue-form YAML parses successfully. The cumulative local pre-publication
+  gate passes 683 Python tests on Python 3.13, 81 web tests, compile/syntax
+  checks, and source/wheel builds. The Python 3.11 floor separately passes all
+  683 Python tests, compilation, and package builds. A fresh local
+  `0.1.34` macOS preflight candidate built from implementation tip `647fac2`
+  passes bundle and mounted-DMG smoke, the real WKWebView policy smoke,
+  `hdiutil verify`, and deep strict ad-hoc signature verification with no
+  signing authority. Its preflight artifact is
+  `dist/AM-Configurator-0.1.34-macOS-arm64.dmg` (25,507,007 bytes, SHA-256
+  `bbd8ec091d5adcda3494b8b8a07c587e3cc8b3a1ee43026c91a1e68252065f26`);
+  it is not the final GitHub candidate. The mounted bundle reports `0.1.34`,
+  and the completed live browser acceptance confirms that the quiet About
+  dialog reports the same version. The tracked/untracked privacy audit found
+  and redacted one historical device serial in `c774cac`; the current tree has
+  no untracked files, `.env` files, non-test credential signatures, firmware
+  UID values, public machine-local paths, or oversized tracked files.
+  `actionlint` is not installed, so that optional local check remains for
+  GitHub workflow validation. No provider request, credential or Keychain
+  access, model mutation/download, hardware write, push, release publication,
+  or Reddit post occurred during this preflight. Push, final GitHub candidate
+  qualification, exact-artifact hardware acceptance, release publication, and
+  Reddit posting retain their explicit gates.
 
 ## Blockers
 
