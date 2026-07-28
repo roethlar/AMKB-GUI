@@ -86,9 +86,9 @@ LED. Take axial ordering and positions from the Apache-2.0 driver's
   - Vial publishes a single udev rule, for all Vial keyboards, that matches
     `ATTRS{serial}=="*vial:f64c2b3c*"` literally. A per-board value could not
     serve as a general rule.
-  - The genuine per-board UID is the 8 bytes returned by `FE 00`, measured on
-    the owner's unit as `d47af38a35b8ed73` — a different value from the serial
-    suffix, as recorded under "Vial definition fetch" below.
+  - The firmware UID is the 8 bytes returned by `FE 00`; the measured value is
+    redacted because it came from the owner's physical unit. It differs from
+    the serial suffix, as recorded under "Vial definition fetch" below.
 
   Consequence for implementation: **a device address must not be derived from
   the USB serial**, because two different Vial boards on the same VID/PID share
@@ -137,9 +137,9 @@ an implementation must never issue them during discovery or identity checking.
 
 Observed on the owner's unit:
 
-- Vial protocol version **5**; keyboard UID `d47af38a35b8ed73`. Note this UID is
-  **not** the `vial:f64c2b3c` serial suffix — they are different values from
-  different sources, and neither is a model identity.
+- Vial protocol version **5**; keyboard UID **[redacted]**. This UID is **not**
+  the `vial:f64c2b3c` serial suffix — they are different values from different
+  sources, and neither is a model identity.
 - Compressed definition is **404 bytes**, magic `fd 37 7a 58` — that is **XZ**,
   not LZMA-alone. Plain `lzma.decompress` handles it; do not force
   `FORMAT_ALONE`.

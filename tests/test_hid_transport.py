@@ -273,7 +273,7 @@ class AddressIdentityTests(unittest.TestCase):
         # The case that cannot be reproduced with one keyboard: two Neon 80s,
         # same firmware, therefore identical serial AND identical Vial UID.
         # Only the endpoint differs.
-        same_uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        same_uid = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         first = self._identify(same_uid, path=b"DevSrvsID:1")
         second = self._identify(same_uid, path=b"DevSrvsID:2")
 
@@ -285,15 +285,15 @@ class AddressIdentityTests(unittest.TestCase):
         )
 
     def test_an_address_leaks_neither_shared_identifier(self) -> None:
-        info = self._identify(b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73")
+        info = self._identify(b"\x01\x23\x45\x67\x89\xab\xcd\xef")
 
         self.assertNotIn("f64c2b3c", info.address)
-        self.assertNotIn("d47af38a35b8ed73", info.address)
+        self.assertNotIn("0123456789abcdef", info.address)
 
     def test_the_firmware_uid_is_kept_as_model_identity(self) -> None:
-        info = self._identify(b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73")
+        info = self._identify(b"\x01\x23\x45\x67\x89\xab\xcd\xef")
 
-        self.assertEqual("d47af38a35b8ed73", info.firmware_uid)
+        self.assertEqual("0123456789abcdef", info.firmware_uid)
         self.assertEqual(5, info.protocol_version)
         self.assertEqual("NEON80", info.model)
 
@@ -309,7 +309,7 @@ class AddressIdentityTests(unittest.TestCase):
         self.assertFalse(info.writable)
 
     def test_an_approval_does_not_transfer_between_units(self) -> None:
-        same_uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        same_uid = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         approval = hid_transport.approve_write(
             self._identify(same_uid, path=b"DevSrvsID:1"), "NEON80"
         )
@@ -549,7 +549,7 @@ class OpenFailureClassificationTests(unittest.TestCase):
 class ApprovalIsLoadBearingTests(unittest.TestCase):
     """An approval that nothing requires is decoration, not a control."""
 
-    def _writable(self, path: bytes = b"DevSrvsID:1", uid: bytes = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"):
+    def _writable(self, path: bytes = b"DevSrvsID:1", uid: bytes = b"\x01\x23\x45\x67\x89\xab\xcd\xef"):
         handle = FakeHandle({"name": "AM Neon 80"})
         handle.uid = uid
         with (
@@ -607,7 +607,7 @@ class ApprovalIsLoadBearingTests(unittest.TestCase):
         approval = hid_transport.approve_write(self._writable(), "NEON80")
 
         genuine = FakeHandle({"name": "AM Neon 80"})
-        genuine.uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        genuine.uid = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         opens: list = []
 
         with patch.object(hid_transport, "_open", side_effect=lambda p: (opens.append(p), genuine)[1]):
@@ -634,7 +634,7 @@ class ApprovalIsLoadBearingTests(unittest.TestCase):
         )
 
         genuine = FakeHandle({"name": "AM Neon 80"})
-        genuine.uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        genuine.uid = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         with patch.object(hid_transport, "_open", return_value=genuine):
             with self.assertRaises(hid_transport.HidIdentityError) as raised:
                 hid_transport.open_approved(forged)
@@ -648,7 +648,7 @@ class ApprovalIsLoadBearingTests(unittest.TestCase):
         tampered = dataclasses.replace(approval, confirmation="yes")
 
         genuine = FakeHandle({"name": "AM Neon 80"})
-        genuine.uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        genuine.uid = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         with patch.object(hid_transport, "_open", return_value=genuine):
             with self.assertRaises(hid_transport.HidIdentityError):
                 hid_transport.open_approved(tampered)
@@ -657,7 +657,7 @@ class ApprovalIsLoadBearingTests(unittest.TestCase):
         approval = hid_transport.approve_write(self._writable(), "NEON80")
 
         genuine = FakeHandle({"name": "AM Neon 80"})
-        genuine.uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        genuine.uid = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         with patch.object(hid_transport, "_open", return_value=genuine):
             session = hid_transport.open_approved(approval)
             try:
@@ -674,7 +674,7 @@ class ApprovalIsLoadBearingTests(unittest.TestCase):
         approval = hid_transport.approve_write(self._writable(), "NEON80")
 
         genuine = FakeHandle({"name": "AM Neon 80"})
-        genuine.uid = b"\xd4\x7a\xf3\x8a\x35\xb8\xed\x73"
+        genuine.uid = b"\x01\x23\x45\x67\x89\xab\xcd\xef"
         opens: list = []
 
         def _tracking_open(path):
