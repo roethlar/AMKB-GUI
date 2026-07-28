@@ -628,7 +628,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .topbar { grid-template-columns: minmax(0, 1fr) auto; }
   .top-actions .button { padding: 0 10px; }
   .workspace { grid-template-columns: 160px minmax(0, 1fr); }
-  .editor-grid { grid-template-columns: 1fr; }
+  .editor-grid { grid-template-columns: minmax(0, 1fr); }
+  .editor-grid > * { min-width: 0; }
+  .keyboard-stage { min-height: 0; }
   .inspector { position: static; }
 }
 

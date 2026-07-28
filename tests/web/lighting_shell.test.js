@@ -426,6 +426,15 @@ test("manual Lighting layout, keyboard controls, narrow windows, and reduced mot
   assert.match(zoomed,/\.top-actions\s*\{[^}]*overflow-x:\s*auto/);
 });
 
+test("narrow Keymap releases the desktop keyboard minimum without page clipping", () => {
+  const start=css.indexOf("@media (max-width: 1120px)");
+  const end=css.indexOf("@media (max-width: 980px)",start);
+  const stacked=css.slice(start,end);
+  assert.match(stacked,/\.editor-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(stacked,/\.editor-grid\s*>\s*\*\s*\{[^}]*min-width:\s*0/);
+  assert.match(stacked,/\.keyboard-stage\s*\{[^}]*min-height:\s*0/);
+});
+
 test("Relic per-key lighting uses the sized Keymap geometry and segments its spacebar LEDs", () => {
   assert.match(
     js,

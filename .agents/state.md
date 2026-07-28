@@ -350,8 +350,13 @@
   default AI behavior, explains complete writes and absent Neon LED read-back,
   and gives hash/attestation plus narrow macOS, Windows, and Linux launch
   instructions without security-bypass commands. The public-doc guard was
-  red-proven and the complete packaging module passes. Push, hardware write,
-  release publication, and Reddit posting retain their explicit gates.
+  red-proven and the complete packaging module passes. Screenshot acceptance
+  found that the desktop Keymap canvas retained a `260px` minimum height after
+  its inspector stacked, forcing an internal page-width clip in narrow windows.
+  The responsive grid and keyboard canvas now release that desktop minimum; its
+  focused guard was red-proven, and live 720px inspection shows zero document or
+  main-workspace horizontal overflow. Push, hardware write, release publication,
+  and Reddit posting retain their explicit gates.
 
 ## Blockers
 
