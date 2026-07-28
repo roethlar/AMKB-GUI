@@ -4,7 +4,7 @@ Status: approved by the owner on 2026-07-28, with the unconditional requirement
 that every application launch starts on Keymap. The owner also settled two
 permanent product constraints: every installer remains unsigned, and the
 application has one canonical version everywhere. This plan sets that version
-to **0.1.34** and publishes it as the repository's normal public GitHub Release.
+to **0.1.64** and publishes it as the repository's normal public GitHub Release.
 Unsigned status is a concise install-time fact, not a beta label, release title,
 application banner, or substitute product identity. Plan approval authorizes
 implementation and local verification only; push, hardware write, release
@@ -25,7 +25,7 @@ The release must:
 
 - contain the completed Neon 80 and unified Lighting Studio work on the final
   `main` commit;
-- use canonical version `0.1.34` across source metadata, the UI, local and CI
+- use canonical version `0.1.64` across source metadata, the UI, local and CI
   builds, filenames, manifest, Git tag, release title, release notes, and
   announcement;
 - make the absence of Apple notarization and Windows Authenticode signing
@@ -86,17 +86,21 @@ the 2026-07-28 planning baseline.
 - CI run `30369190578` and Desktop installers run `30369190195` passed for that
   commit.
 - Desktop workflow run 34 produced temporary `0.1.34` macOS, Windows, and Linux
-  artifacts. They establish `0.1.34` as the next product version, but they are
-  not the final release candidate because release-preparation changes still
-  have to land. They are Actions artifacts, not durable public release assets,
-  and expire on 2026-08-11.
+  artifacts. That number came from the workflow run and is historical build
+  evidence, not a product-version floor. The artifacts are not the final
+  release candidate because release-preparation changes still have to land.
+  They are Actions artifacts, not durable public release assets, and expire on
+  2026-08-11.
 - The public GitHub Releases page exposes only `v0.1.11`, whose tag points to
   `98abb138406093dacea97df2b49be91aa11fdf10`. It is not a release of the
   current product.
 - The source tree says `0.1.0`, Desktop workflow run 34 stamped `0.1.34`, and
   local native acceptance reached `0.1.63`. These are three names for one
   product state and are unacceptable. The existing local counter and
-  workflow-run stamping must be removed before another native build.
+  workflow-run stamping must be removed before another native build. Because
+  users and acceptance work had already seen `0.1.63`, the first canonical
+  public version must be greater than it; `0.1.64` is the minimum
+  non-regressive choice.
 - The current desktop workflow also triggers on `v*` tags. A release tag
   therefore triggers a redundant second artifact set. A tag must label an
   already-qualified final candidate, not start another differently identified
@@ -141,10 +145,10 @@ the 2026-07-28 planning baseline.
 ## Release identity and version invariants
 
 `am_configurator/_version.py` is the sole canonical product-version source. Set
-it to `0.1.34`. Configure Hatch to derive Python project metadata from that file
+it to `0.1.64`. Configure Hatch to derive Python project metadata from that file
 instead of repeating a literal version in `pyproject.toml`.
 
-Every build of the same source version remains `0.1.34`:
+Every build of the same source version remains `0.1.64`:
 
 - local native builds;
 - GitHub pull-request and `main` builds;
@@ -169,18 +173,18 @@ The following are hard release invariants:
   `success`.
 - The candidate workflow `headSha`, final local `HEAD`, and remote `main` SHA
   are identical before publication.
-- Source, UI, package metadata, and all native artifacts report `0.1.34`.
-- The tag is exactly `v0.1.34`.
-- The release title is `AM Configurator 0.1.34`.
+- Source, UI, package metadata, and all native artifacts report `0.1.64`.
+- The tag is exactly `v0.1.64`.
+- The release title is `AM Configurator 0.1.64`.
 - GitHub's prerelease flag is false. This becomes the repository's normal
   latest release.
 - The required filenames are exactly:
-  - `AM-Configurator-0.1.34-macOS-arm64.dmg`
-  - `AM-Configurator-0.1.34-Windows-x64-Setup.exe`
-  - `AM-Configurator-0.1.34-Linux-x86_64.AppImage`
+  - `AM-Configurator-0.1.64-macOS-arm64.dmg`
+  - `AM-Configurator-0.1.64-Windows-x64-Setup.exe`
+  - `AM-Configurator-0.1.64-Linux-x86_64.AppImage`
   - `SHA256SUMS.txt`
   - `release-manifest.json`
-- The About dialog reports `0.1.34` on every platform.
+- The About dialog reports `0.1.64` on every platform.
 - Do not overwrite a published asset, move or recreate a release tag, rewrite
   the release commit, or silently replace a failed candidate. Fixes receive a
   deliberate canonical version bump, new artifacts, and a new release.
@@ -239,7 +243,7 @@ Commit:
 
 `docs: make release identity canonical`
 
-### 1. Establish `0.1.34` as the one product version
+### 1. Establish `0.1.64` as the one product version
 
 Files:
 
@@ -255,12 +259,12 @@ Files:
 
 Changes:
 
-- Set `am_configurator/_version.py` to `0.1.34` and make it the only canonical
+- Set `am_configurator/_version.py` to `0.1.64` and make it the only canonical
   version source.
 - Change `pyproject.toml` from a repeated literal project version to Hatch's
   dynamic version configuration pointing at `am_configurator/_version.py`.
 - Refresh `uv.lock` mechanically and prove built wheel/sdist metadata reports
-  `0.1.34`.
+  `0.1.64`.
 - Remove `base_version`, `build_version`, and `stamp_build_version` behavior
   from `build_tools/release_info.py`. `project_version` must strictly read and
   validate the canonical three-part numeric version.
@@ -281,7 +285,7 @@ Changes:
 - Replace README local-build examples that expose `--build-number`.
 - Add a packaging regression guard proving:
   - source import, Python package metadata, local build planning, CI build
-    planning, installer definitions, and filenames all use `0.1.34`;
+    planning, installer definitions, and filenames all use `0.1.64`;
   - no local counter or workflow run number can alter a version;
   - `main` pushes still build installers;
   - tags do not trigger a second installer build;
@@ -324,7 +328,7 @@ Changes:
   Macros, Lighting, Settings, Devices, or Write.
 - Open an accessible About dialog containing:
   - `AM Configurator`;
-  - `Version 0.1.34`, sourced from the same canonical server-rendered value as
+  - `Version 0.1.64`, sourced from the same canonical server-rendered value as
     the rest of the application;
   - the independent-community/non-affiliation statement;
   - MIT license identification; and
@@ -357,7 +361,7 @@ Regression guards must prove:
 - the application shell has no visible duplicate product title;
 - no version appears in the normal toolbar/sidebar state;
 - About is the only normal UI route that reveals the product version;
-- the dialog reports exactly `0.1.34`;
+- the dialog reports exactly `0.1.64`;
 - the About control is semantically interactive but lacks action-button
   classes;
 - close/focus behavior is accessible; and
@@ -692,7 +696,7 @@ After the approved `main` push:
    checksum file with the workflow-generated copies.
 7. Verify all four GitHub attestations against `roethlar/AMKB-GUI`.
 8. Confirm source metadata, all filenames, and each native artifact report
-   exactly `0.1.34`; record workflow run number separately as provenance.
+   exactly `0.1.64`; record workflow run number separately as provenance.
 9. Inspect each asset for unexpected files, credentials, local paths, internal
    runtime/model binaries, missing licenses/notices, and missing Linux udev
    data.
@@ -705,7 +709,7 @@ Use the downloaded GitHub candidate bytes.
 
 | Platform | Required evidence |
 |---|---|
-| macOS arm64 | Browser-downloaded DMG hash matches; `hdiutil verify`; mounted-app ad-hoc signature verifies; normal launch produces the expected Gatekeeper refusal; the documented System Settings **Open Anyway** path launches the app; About reports `0.1.34`; frozen smoke passes. |
+| macOS arm64 | Browser-downloaded DMG hash matches; `hdiutil verify`; mounted-app ad-hoc signature verifies; normal launch produces the expected Gatekeeper refusal; the documented System Settings **Open Anyway** path launches the app; About reports `0.1.64`; frozen smoke passes. |
 | Windows 11 x64 | Download on `netwatch-01`; SHA-256 matches; `Get-AuthenticodeSignature` reports the documented unsigned state; SmartScreen copy is accurate; per-user install, launch, About-version inspection, native-policy smoke, and uninstall pass; Defender is not disabled or bypassed. |
 | Linux x86-64 | GitHub runner AppImage smoke passes; SHA-256 and attestation match; AppImage contains license/notices and the udev rule; `--print-udev-rule` emits the shipped rule. Record that no physical Linux Neon check ran unless suitable hardware is actually available. |
 
@@ -803,7 +807,7 @@ additional board requires its own fresh authorization.
 Allowed claims:
 
 - independent, open-source community application;
-- normal public release `0.1.34`;
+- normal public release `0.1.64`;
 - exact supported operating systems and architectures;
 - Neon 80 was physically tested on the recorded firmware identity;
 - the listed device families have explicit implementation and automated
@@ -832,6 +836,9 @@ Disallowed claims:
 Implementation slices 0–7 landed through `647fac2`. A follow-up repository
 privacy audit found one historical device serial in the earlier Neon support
 plan; `c774cac` redacts it from the current tree without changing shipped code.
+The owner then rejected workflow-derived `0.1.34` as a regression below native
+builds that had already displayed `0.1.63`; the completed correction makes
+`0.1.64` the first non-regressive canonical release version everywhere.
 
 The local evidence is:
 
@@ -839,15 +846,18 @@ The local evidence is:
   compile/syntax checks, and source/wheel builds;
 - the Python 3.11 floor separately passes all 683 Python tests, compilation,
   and package builds;
-- the source and wheel report canonical version `0.1.34`;
-- a fresh macOS preflight build from implementation tip `647fac2` produced
-  `AM-Configurator-0.1.34-macOS-arm64.dmg`, 25,507,007 bytes, with SHA-256
-  `bbd8ec091d5adcda3494b8b8a07c587e3cc8b3a1ee43026c91a1e68252065f26`;
+- the canonical-version guard was red-proven by temporarily restoring
+  `0.1.34`, observing the focused test fail, restoring `0.1.64`, and passing all
+  54 focused packaging/release tests;
+- the source and wheel report canonical version `0.1.64`;
+- a fresh macOS preflight build produced
+  `AM-Configurator-0.1.64-macOS-arm64.dmg`, 25,509,941 bytes, with SHA-256
+  `6e4c4217ba4bc29aa8fde44d5b91e2bf8c33a50e55d7868fefa0867fd5c167cf`;
 - that local DMG passes bundle and mounted-image smoke, the real WKWebView
   policy smoke, `hdiutil verify`, and deep strict ad-hoc signature verification
   with no Developer ID authority;
-- the mounted application reports `0.1.34`, while the completed live browser
-  acceptance confirms the quiet About dialog reports `0.1.34`, every fresh
+- the mounted application reports `0.1.64`, while the completed live browser
+  acceptance confirms the quiet About dialog reports `0.1.64`, every fresh
   launch opens Keymap, and wide/narrow layouts have no page overflow or console
   error;
 - the tracked/untracked audit finds no untracked files, `.env` files, non-test
@@ -873,12 +883,12 @@ Publication is not authorized by plan approval.
 3. Obtain one explicit push approval, push `main`, and wait for CI plus Desktop
    installers.
 4. Complete gates C through F against the final successful `main` run.
-5. Confirm the final run still reports canonical version `0.1.34`; its run
+5. Confirm the final run still reports canonical version `0.1.64`; its run
    number must not alter source, UI, metadata, or artifact names.
 6. Prepare a final release body from
    `docs/releases/2026-07-public-release.md`, substituting only the exact
    commit, run provenance, hashes, attestation instructions, and verified
-   limitations. The product version remains `0.1.34`.
+   limitations. The product version remains `0.1.64`.
 7. Present one cold owner gate that names:
    - tag/version and exact commit;
    - all five asset names and hashes;
@@ -886,10 +896,10 @@ Publication is not authorized by plan approval.
    - unsigned/notarized state;
    - any AI providers not live-qualified;
    - the exact GitHub Release title/body classification; and
-   - the proposed action: create tag `v0.1.34` and the normal public GitHub
-     Release `AM Configurator 0.1.34`.
+   - the proposed action: create tag `v0.1.64` and the normal public GitHub
+     Release `AM Configurator 0.1.64`.
 8. On that explicit go, create the release with `gh release create` using
-   `v0.1.34`, `--target <exact SHA>`, `--latest`, the approved title/body, and
+   `v0.1.64`, `--target <exact SHA>`, `--latest`, the approved title/body, and
    exactly the five qualified assets. Do not pass `--prerelease`. Let GitHub
    create the tag at that target; do not perform a separate tag push or trigger
    another installer build.
@@ -910,7 +920,7 @@ Publication is not authorized by plan approval.
 
 - Before publication, any failed gate rejects the candidate. Fix on `main`,
   commit, obtain the next push approval, and rebuild the same canonical
-  `0.1.34` version until one exact candidate passes. Unpublished failed attempts
+  `0.1.64` version until one exact candidate passes. Unpublished failed attempts
   do not consume product versions.
 - After publication, never overwrite assets or move the tag. A code or package
   fix requires an explicit canonical version bump, new artifacts, and a new
@@ -951,11 +961,11 @@ product constraint.
 
 The release plan is complete only when:
 
-- the owner has approved the normal `0.1.34` public-release identity and this
+- the owner has approved the normal `0.1.64` public-release identity and this
   plan;
 - every implementation slice is committed and the worktree is clean;
 - the full local gate and GitHub CI pass on the final commit;
-- canonical version `0.1.34` is identical in source, UI/About, package metadata,
+- canonical version `0.1.64` is identical in source, UI/About, package metadata,
   local/CI planning, all native artifacts, filenames, manifest, tag, Release,
   notes, and announcement;
 - one successful `main` Desktop run owns the exact release SHA and provenance

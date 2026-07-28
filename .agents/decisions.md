@@ -5,7 +5,10 @@
 Status: approved by the owner on 2026-07-28 while correcting the public-release
 plan.
 
-- The current product/release version is `0.1.34`.
+- The current product/release version is `0.1.64`.
+- `0.1.64` is the first non-regressive canonical version after native builds
+  had already displayed `0.1.63`. The workflow-derived `0.1.34` identifier is
+  historical build evidence only and must not become a later public release.
 - `am_configurator/_version.py` is the canonical source. Source metadata, UI,
   local and CI builds, package metadata, native bundles/installers, filenames,
   manifests, tags, releases, and announcement copy must all report that exact

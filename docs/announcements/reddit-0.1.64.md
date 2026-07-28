@@ -2,11 +2,11 @@
 
 ## Title
 
-[Release] AM Configurator 0.1.34 — open-source Neon 80 keymaps, macros, and Lighting Studio
+[Release] AM Configurator 0.1.64 — open-source Neon 80 keymaps, macros, and Lighting Studio
 
 ## Body
 
-I have released **AM Configurator 0.1.34**, an independent open-source desktop
+I have released **AM Configurator 0.1.64**, an independent open-source desktop
 editor for Angry Miao keyboard profiles.
 
 The main pieces:
@@ -49,10 +49,10 @@ installation guide gives the narrow approval steps and hash/provenance checks;
 it does not ask anyone to disable system security.
 
 Download:
-https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.34
+https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.64
 
 Release notes:
-https://github.com/roethlar/AMKB-GUI/blob/main/docs/releases/0.1.34.md
+https://github.com/roethlar/AMKB-GUI/blob/main/docs/releases/0.1.64.md
 
 Bug reports:
 https://github.com/roethlar/AMKB-GUI/issues/new/choose

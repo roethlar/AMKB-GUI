@@ -28,7 +28,7 @@ are separate, off by default, and described below.
 | Windows x64 | Per-user `Setup.exe` | Installs silently, launches the installed app, then uninstalls |
 | Linux x86-64 | `.AppImage` | Executes the finished AppImage in extract-and-run mode |
 
-Release details: [AM Configurator 0.1.34](docs/releases/0.1.34.md) ·
+Release details: [AM Configurator 0.1.64](docs/releases/0.1.64.md) ·
 [Installation and verification](docs/installing.md)
 
 Packaged releases belong on the [GitHub Releases page](https://github.com/roethlar/AMKB-GUI/releases).

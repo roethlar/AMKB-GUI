@@ -4,9 +4,9 @@ Download AM Configurator only from the
 [GitHub Releases page](https://github.com/roethlar/AMKB-GUI/releases). A normal
 release contains these five files:
 
-- `AM-Configurator-0.1.34-macOS-arm64.dmg`
-- `AM-Configurator-0.1.34-Windows-x64-Setup.exe`
-- `AM-Configurator-0.1.34-Linux-x86_64.AppImage`
+- `AM-Configurator-0.1.64-macOS-arm64.dmg`
+- `AM-Configurator-0.1.64-Windows-x64-Setup.exe`
+- `AM-Configurator-0.1.64-Linux-x86_64.AppImage`
 - `SHA256SUMS.txt`
 - `release-manifest.json`
 
@@ -21,13 +21,13 @@ Download `SHA256SUMS.txt` beside the installer and compare the listed digest.
 On macOS or Linux:
 
 ```sh
-shasum -a 256 AM-Configurator-0.1.34-macOS-arm64.dmg
+shasum -a 256 AM-Configurator-0.1.64-macOS-arm64.dmg
 ```
 
 Use the corresponding AppImage filename on Linux. On Windows PowerShell:
 
 ```powershell
-Get-FileHash .\AM-Configurator-0.1.34-Windows-x64-Setup.exe -Algorithm SHA256
+Get-FileHash .\AM-Configurator-0.1.64-Windows-x64-Setup.exe -Algorithm SHA256
 ```
 
 The resulting 64-character value must exactly match the row for that filename
@@ -80,7 +80,7 @@ Do not use commands that remove quarantine metadata or turn off Gatekeeper.
 ## Windows 11 x64
 
 1. Verify the installer with `Get-FileHash` and GitHub attestation.
-2. Open `AM-Configurator-0.1.34-Windows-x64-Setup.exe`.
+2. Open `AM-Configurator-0.1.64-Windows-x64-Setup.exe`.
 3. If Microsoft Defender SmartScreen appears, choose **More info** and then
    **Run anyway** only after the displayed filename, hash, and repository all
    match the release you verified.
@@ -94,13 +94,13 @@ Do not turn off SmartScreen, Microsoft Defender, or antivirus protection.
 2. If the browser removed its executable bit, restore it:
 
    ```sh
-   chmod +x AM-Configurator-0.1.34-Linux-x86_64.AppImage
+   chmod +x AM-Configurator-0.1.64-Linux-x86_64.AppImage
    ```
 
 3. Launch it normally:
 
    ```sh
-   ./AM-Configurator-0.1.34-Linux-x86_64.AppImage
+   ./AM-Configurator-0.1.64-Linux-x86_64.AppImage
    ```
 
 4. For AM Neon 80 access, install the shipped udev rule by following

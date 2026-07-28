@@ -2,16 +2,15 @@
 
 ## Now
 
-- The canonical release-version correction is in flight as of `0ccfd66`. The
-  owner explicitly approved `0.1.64` after identifying that choosing `0.1.34`
-  would regress below native builds that had already displayed `0.1.63`.
-  Uncommitted mechanical edits currently set `_version.py`, packaging
-  expectations, installer/install copy, README, and the bug form to `0.1.64`,
-  and rename the release notes and Reddit draft from `0.1.34` to `0.1.64`.
-  `.agents/decisions.md`, the public-release plan, and the older release
-  evidence in this state file have not yet been reconciled. No focused test,
-  red proof, cumulative gate, or `0.1.64` native build has run. Do not push,
-  tag, publish, or reuse the invalidated `0.1.34` preflight as release evidence.
+- The canonical release-version correction is complete locally. The owner
+  approved `0.1.64` after identifying that `0.1.34` would regress below native
+  builds that had already displayed `0.1.63`. Runtime/package metadata,
+  installer names, tests, install/release copy, README, the issue form, durable
+  decisions, and the release plan now agree on `0.1.64`; the `0.1.34` preflight
+  is invalidated historical evidence only. Focused red/green proof, both Python
+  floors, the cumulative gate, live wide/narrow browser acceptance, and a fresh
+  native candidate all pass. No push, tag, release, hardware write, provider
+  request, credential or Keychain access, or Reddit post has occurred.
 - The AI master-switch and visible-version work is complete on `main`. AI
   enablement now persists as user intent before backend setup is ready; backend
   selection and setup tests cannot change that intent, while generation still
@@ -326,7 +325,7 @@
 - The approved 2026-07-28 public-release plan is at
   `docs/superpowers/plans/2026-07-28-public-release.md`. The owner settled that
   installers remain permanently platform-unsigned, the release is normal
-  rather than beta/prerelease, and `0.1.34` is the one canonical version.
+  rather than beta/prerelease, and `0.1.64` is the one canonical version.
   Build counters and workflow runs remain provenance only. The plan also
   removes duplicate in-app branding, moves version into an unobtrusive About
   dialog, opens Keymap unconditionally on every launch, adds free hashes/keyless
@@ -368,8 +367,8 @@
   visibly labels all three Relic spacebar LEDs. Metadata was stripped, its guard
   was red-proven, and full-resolution inspection found no private state. Live
   wide/narrow acceptance also confirmed unconditional Keymap reload, the quiet
-  About dialog with `0.1.34`, zero document/main overflow, and no console
-  warnings or exceptions. The `0.1.34` release notes and Reddit draft now state
+  About dialog with `0.1.64`, zero document/main overflow, and no console
+  warnings or exceptions. The `0.1.64` release notes and Reddit draft now state
   the exact hardware/OS/provider qualification boundary, installer integrity
   workflow, full-write/LED-readback limitations, and non-affiliation without
   promotional overclaiming. A structured GitHub bug form collects keyboard,
@@ -379,13 +378,13 @@
   gate passes 683 Python tests on Python 3.13, 81 web tests, compile/syntax
   checks, and source/wheel builds. The Python 3.11 floor separately passes all
   683 Python tests, compilation, and package builds. A fresh local
-  `0.1.34` macOS preflight candidate built from implementation tip `647fac2`
+  `0.1.64` macOS preflight candidate built from the version-correction working tree
   passes bundle and mounted-DMG smoke, the real WKWebView policy smoke,
   `hdiutil verify`, and deep strict ad-hoc signature verification with no
   signing authority. Its preflight artifact is
-  `dist/AM-Configurator-0.1.34-macOS-arm64.dmg` (25,507,007 bytes, SHA-256
-  `bbd8ec091d5adcda3494b8b8a07c587e3cc8b3a1ee43026c91a1e68252065f26`);
-  it is not the final GitHub candidate. The mounted bundle reports `0.1.34`,
+  `dist/AM-Configurator-0.1.64-macOS-arm64.dmg` (25,509,941 bytes, SHA-256
+  `6e4c4217ba4bc29aa8fde44d5b91e2bf8c33a50e55d7868fefa0867fd5c167cf`);
+  it is not the final GitHub candidate. The mounted bundle reports `0.1.64`,
   and the completed live browser acceptance confirms that the quiet About
   dialog reports the same version. The tracked/untracked privacy audit found
   and redacted one historical device serial in `c774cac`; the current tree has
@@ -400,11 +399,10 @@
 
 ## Next
 
-- Finish the selective `0.1.64` authority update while retaining `0.1.34` only
-  where it describes the historical workflow-run and invalidated preflight;
-  then audit version references, red-prove the canonical-version guard, run the
-  complete repository and Python 3.11 gates, build and verify a fresh `0.1.64`
-  native candidate, update release evidence, and commit the completed slice.
+- Commit the completed `0.1.64` correction, then obtain the required explicit
+  authorization before pushing `main`. After the push, wait for CI and all
+  desktop workflows, download the exact GitHub candidate artifacts, and run the
+  remaining cross-platform and separately authorized hardware acceptance gates.
 
 ## Blockers
 

@@ -27,7 +27,7 @@ the write itself and leaves the application running unprivileged.
 **AppImage:**
 
 ```sh
-./AM-Configurator-0.1.34-Linux-x86_64.AppImage --print-udev-rule | sudo tee /etc/udev/rules.d/60-am-neon-80.rules >/dev/null
+./AM-Configurator-0.1.64-Linux-x86_64.AppImage --print-udev-rule | sudo tee /etc/udev/rules.d/60-am-neon-80.rules >/dev/null
 ```
 
 **Wheel or source install:**

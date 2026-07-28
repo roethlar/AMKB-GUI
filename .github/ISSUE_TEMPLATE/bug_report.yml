@@ -48,7 +48,7 @@ body:
     attributes:
       label: AM Configurator version
       description: Open About and copy the displayed version.
-      placeholder: "0.1.34"
+      placeholder: "0.1.64"
     validations:
       required: true
 
@@ -85,7 +85,7 @@ body:
     attributes:
       label: Installer filename or source run
       description: Give the exact release filename, or say that you ran from source.
-      placeholder: "AM-Configurator-0.1.34-macOS-arm64.dmg"
+      placeholder: "AM-Configurator-0.1.64-macOS-arm64.dmg"
 
   - type: textarea
     id: steps

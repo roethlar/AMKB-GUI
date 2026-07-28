@@ -47,13 +47,13 @@ _SDIST_FORBIDDEN = (
 
 
 class ReleaseManifestTests(unittest.TestCase):
-    VERSION = "0.1.34"
+    VERSION = "0.1.64"
     COMMIT = "0123456789abcdef0123456789abcdef01234567"
     REPOSITORY = "roethlar/AMKB-GUI"
     FILENAMES = (
-        "AM-Configurator-0.1.34-macOS-arm64.dmg",
-        "AM-Configurator-0.1.34-Windows-x64-Setup.exe",
-        "AM-Configurator-0.1.34-Linux-x86_64.AppImage",
+        "AM-Configurator-0.1.64-macOS-arm64.dmg",
+        "AM-Configurator-0.1.64-Windows-x64-Setup.exe",
+        "AM-Configurator-0.1.64-Linux-x86_64.AppImage",
     )
 
     def _write_candidates(self, root: Path) -> dict[str, bytes]:
@@ -215,7 +215,7 @@ class ReleaseManifestTests(unittest.TestCase):
             candidates = Path(temporary) / "candidate-installers"
             candidates.mkdir()
             self._write_candidates(candidates)
-            for invalid in ("0.1", "01.1.34", "0.1.34.dev1", "v0.1.34"):
+            for invalid in ("0.1", "01.1.34", "0.1.64.dev1", "v0.1.64"):
                 with self.subTest(version=invalid), self.assertRaises(
                     ReleaseManifestError
                 ):
@@ -290,7 +290,7 @@ class ReleaseInfoTests(unittest.TestCase):
             package.mkdir()
             (root / "dist").mkdir()
             version_file = package / "_version.py"
-            original = '__version__ = "0.1.34"\n'
+            original = '__version__ = "0.1.64"\n'
             version_file.write_text(original, encoding="utf-8")
             expected_name = artifact_filename("macos", root=root)
             commands: list[list[str]] = []
@@ -298,7 +298,7 @@ class ReleaseInfoTests(unittest.TestCase):
             def run_command(command: list[str], cwd: Path) -> None:
                 self.assertEqual(root, cwd)
                 commands.append(command)
-                self.assertEqual("0.1.34", project_version(root))
+                self.assertEqual("0.1.64", project_version(root))
                 if command[-1].endswith("build_dmg.sh"):
                     (root / "dist" / expected_name).touch()
 
@@ -325,7 +325,7 @@ class ReleaseInfoTests(unittest.TestCase):
             package = root / "am_configurator"
             package.mkdir()
             version_file = package / "_version.py"
-            original = '__version__ = "0.1.34"\n'
+            original = '__version__ = "0.1.64"\n'
             version_file.write_text(original, encoding="utf-8")
 
             def fail(_command: list[str], _cwd: Path) -> None:
@@ -348,31 +348,31 @@ class ReleaseInfoTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 project_version(root)
-            for invalid in ("0.1", "0.1.34.dev1", "v0.1.34", "01.1.34"):
+            for invalid in ("0.1", "0.1.64.dev1", "v0.1.64", "01.1.34"):
                 with self.subTest(invalid=invalid):
                     version_file.write_text(
                         f'__version__ = "{invalid}"\n', encoding="utf-8"
                     )
                     with self.assertRaises(ValueError):
                         project_version(root)
-            version_file.write_text('__version__ = "0.1.34"\n', encoding="utf-8")
-            self.assertEqual("0.1.34", project_version(root))
+            version_file.write_text('__version__ = "0.1.64"\n', encoding="utf-8")
+            self.assertEqual("0.1.64", project_version(root))
 
     def test_release_names_use_project_version_and_normalized_architecture(self) -> None:
         self.assertEqual(__version__, project_version(ROOT))
-        self.assertEqual("0.1.34", project_version(ROOT))
+        self.assertEqual("0.1.64", project_version(ROOT))
         self.assertEqual("x86_64", normalize_arch("AMD64"))
         self.assertEqual("aarch64", normalize_arch("arm64"))
         self.assertEqual(
-            "AM-Configurator-0.1.34-macOS-arm64.dmg",
+            "AM-Configurator-0.1.64-macOS-arm64.dmg",
             artifact_filename("macos", "arm64", root=ROOT),
         )
         self.assertEqual(
-            "AM-Configurator-0.1.34-Windows-x64-Setup.exe",
+            "AM-Configurator-0.1.64-Windows-x64-Setup.exe",
             artifact_filename("windows", "AMD64", root=ROOT),
         )
         self.assertEqual(
-            "AM-Configurator-0.1.34-Linux-x86_64.AppImage",
+            "AM-Configurator-0.1.64-Linux-x86_64.AppImage",
             artifact_filename("linux", "x86_64", root=ROOT),
         )
 
@@ -390,7 +390,7 @@ class ReleaseInfoTests(unittest.TestCase):
             "am_configurator/_version.py",
             project["tool"]["hatch"]["version"]["path"],
         )
-        self.assertEqual("0.1.34", __version__)
+        self.assertEqual("0.1.64", __version__)
         installer_job = workflow.split("  candidate-metadata:\n", 1)[0]
         self.assertNotIn("github.run_number", installer_job)
         self.assertEqual(1, workflow.count("github.run_number"))
@@ -1193,21 +1193,21 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, public_docs.casefold())
 
-    def test_release_packet_is_normal_0_1_34_with_honest_claim_boundaries(
+    def test_release_packet_is_normal_0_1_64_with_honest_claim_boundaries(
         self,
     ) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        release = (ROOT / "docs" / "releases" / "0.1.34.md").read_text(
+        release = (ROOT / "docs" / "releases" / "0.1.64.md").read_text(
             encoding="utf-8"
         )
         reddit = (
-            ROOT / "docs" / "announcements" / "reddit-0.1.34.md"
+            ROOT / "docs" / "announcements" / "reddit-0.1.64.md"
         ).read_text(encoding="utf-8")
         packet = "\n".join((release, reddit))
         collapsed = " ".join(packet.split())
 
         for text in (release, reddit):
-            self.assertIn("AM Configurator 0.1.34", text)
+            self.assertIn("AM Configurator 0.1.64", text)
             self.assertNotRegex(text.casefold(), r"\b(?:beta|prerelease)\b")
             self.assertNotIn("unsigned by design", text.casefold())
             self.assertNotIn("UNSIGNED", text)
@@ -1227,10 +1227,10 @@ class ReleaseInfoTests(unittest.TestCase):
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected.casefold(), collapsed.casefold())
-        self.assertIn("docs/releases/0.1.34.md", readme)
+        self.assertIn("docs/releases/0.1.64.md", readme)
         self.assertIn("docs/installing.md", release)
         self.assertIn(
-            "https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.34",
+            "https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.64",
             reddit,
         )
         self.assertIn(
@@ -1273,7 +1273,7 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(operation=operation):
                 self.assertIn(operation, form)
         self.assertIn("AM Neon 80", form)
-        self.assertIn("0.1.34", form)
+        self.assertIn("0.1.64", form)
         self.assertIn("Remove API keys", form)
         self.assertIn("sanitized", form)
         self.assertIn("blank_issues_enabled: false", config)
