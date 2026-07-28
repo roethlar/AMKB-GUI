@@ -354,6 +354,15 @@ test("Library removal is reversible and permanent deletion is confirmed", () => 
   assert.match(js,/data-library-restore/);
   assert.match(js,/data-library-delete/);
   assert.match(js,/createLibraryRequestEpochs/);
+  const confirmStart=js.indexOf('$("#library-confirm-action").addEventListener');
+  assert.ok(confirmStart>=0);
+  const confirmEnd=js.indexOf('\n$("#library-confirm-dialog")',confirmStart);
+  const confirmHandler=js.slice(confirmStart,confirmEnd);
+  assert.match(confirmHandler,/const button=event\.currentTarget/);
+  assert.doesNotMatch(
+    confirmHandler.slice(confirmHandler.indexOf("await action()")),
+    /event\.currentTarget/,
+  );
 });
 
 test("Library cards support arrow-key navigation and narrow pagination", () => {

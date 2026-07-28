@@ -4288,12 +4288,13 @@ $("#library-page-next").addEventListener("click",()=>{
 $("#library-confirm-action").addEventListener("click",async event=>{
   const action=libraryConfirmAction;
   if(!action)return;
-  event.currentTarget.disabled=true;
+  const button=event.currentTarget;
+  button.disabled=true;
   try{
     await action();
     if($("#library-confirm-dialog").open)$("#library-confirm-dialog").close();
   }finally{
-    if(event.currentTarget.isConnected)event.currentTarget.disabled=false;
+    if(button.isConnected)button.disabled=false;
   }
 });
 $("#library-confirm-dialog").addEventListener("close",()=>{
