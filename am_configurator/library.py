@@ -1,9 +1,9 @@
-"""Durable, private storage for generated Lighting Studio assets.
+"""Durable, private storage and catalog projection for Lighting Studio assets.
 
 The library is intentionally independent of provider and device code.  It owns
-only local durability and recovery metadata; callers decide whether a returned
-``resume_video_poll`` action is scheduled.  Reconciliation never invokes paid
-or local processing work itself.
+generated-job recovery plus immutable saved items; callers decide whether a
+returned ``resume_video_poll`` action is scheduled.  Catalog reads never invoke
+reconciliation, paid work, local processing, or device operations.
 
 Manifest schema version 2 adds a pipeline discriminator and procedural attempt
 records while normalizing version 1 video manifests in memory without rewriting
@@ -12,6 +12,10 @@ them. Future stages mutate those existing containers
 and ``recovery``) instead of adding ad-hoc top-level keys.  Assets are internal
 relative paths in the manifest, but public views expose only opaque job and
 asset UUIDs.
+
+Saved-item schema version 1 uses an exact kind discriminator, publishes a whole
+private ``items/<uuid>`` directory through one rename, and exposes jobs/items
+through namespaced catalog IDs. Corrupt entries are isolated per directory.
 
 On POSIX, created job directories/files are explicitly owner-only.  On Windows,
 CPython 3.11.10+, 3.12.4+, and 3.13+ honor ``mkdir(mode=0o700)`` with a private
@@ -38,7 +42,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Callable, Mapping
 
@@ -51,6 +55,7 @@ else:
 
 
 MANIFEST_SCHEMA_VERSION = 2
+SAVED_ITEM_SCHEMA_VERSION = 1
 DEFAULT_MINIMUM_FREE_BYTES = 256 * 1024 * 1024
 _DIRECTORIES = ("concepts", "video", "frames", "preview", "result", ".work")
 _ASSET_LAYOUT = {
@@ -65,6 +70,109 @@ _ASSET_LAYOUT = {
     "raster_animation": ("frames", {"image/gif": ".gif"}),
 }
 _ASSET_STATUSES = {"complete", "partial", "cancelled_saved"}
+_SAVED_ITEM_DIRECTORIES = ("source", "preview", "result")
+_SAVED_ASSET_LAYOUT = {
+    "source": (
+        "source",
+        {"image/gif": ".gif", "image/png": ".png", "image/bmp": ".bmp"},
+    ),
+    "preview": (
+        "preview",
+        {"image/gif": ".gif", "image/png": ".png"},
+    ),
+    "result": (
+        "result",
+        {
+            "application/json": ".json",
+            "image/gif": ".gif",
+            "image/png": ".png",
+        },
+    ),
+    "profile": ("source", {"application/json": ".json"}),
+}
+_SAVED_ITEM_FIELDS = {
+    "schema_version",
+    "item_id",
+    "kind",
+    "origin",
+    "name",
+    "created_at",
+    "updated_at",
+    "status",
+    "tags",
+    "device",
+    "source",
+    "composition",
+    "profile",
+    "assets",
+}
+_SAVED_ASSET_FIELDS = {
+    "asset_id",
+    "kind",
+    "relative_path",
+    "mime_type",
+    "byte_size",
+    "sha256",
+    "created_at",
+}
+_SAVED_SOURCE_FIELDS = {
+    "asset_id",
+    "mime_type",
+    "sha256",
+    "width",
+    "height",
+    "frame_count",
+    "duration_ms",
+}
+_SAVED_SOURCE_INPUT_FIELDS = {
+    "asset_id",
+    "width",
+    "height",
+    "frame_count",
+    "duration_ms",
+}
+_SAVED_DEVICE_FIELDS = {
+    "product_id",
+    "family",
+    "product_label",
+    "keymap_signature",
+    "lighting_signature",
+}
+_SAVED_COMPOSITION_FIELDS = {
+    "schema_version",
+    "source_catalog_id",
+    "transform",
+    "effects",
+    "manual_overrides",
+    "destination",
+    "tracks",
+    "rendered_asset_id",
+    "preview_asset_id",
+}
+_SAVED_PROFILE_FIELDS = {
+    "asset_id",
+    "mime_type",
+    "sha256",
+    "sections",
+}
+_SAVED_PROFILE_INPUT_FIELDS = {"asset_id", "sections"}
+_SAVED_ITEM_KINDS = {
+    "media_source",
+    "lighting_composition",
+    "keyboard_profile",
+}
+_CATALOG_KINDS = {*_SAVED_ITEM_KINDS, "generation_job"}
+_SAVED_ITEM_ORIGINS = {
+    "media_source": {"media_import"},
+    "lighting_composition": {"manual"},
+    "keyboard_profile": {"json_import", "verified_export"},
+}
+_SAVED_ITEM_STATUSES = {"ready"}
+_MAX_SAVED_ASSETS = 8
+_MAX_SAVED_TAGS = 32
+_MAX_SAVED_TEXT = 200
+_MAX_SAVED_JSON_DEPTH = 16
+_MAX_SAVED_JSON_ITEMS = 4096
 _LOOP_MODES = {"smooth", "none", "ping_pong"}
 _SAFE_TEXT_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,200}$")
 _SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9_.-]{1,200}$")
@@ -624,14 +732,27 @@ def _windows_path_too_long(error: OSError) -> bool:
     return error.errno == errno.ENAMETOOLONG or getattr(error, "winerror", None) == 206
 
 
-def _run_windows_path_depth_probe(root: Path) -> None:
-    """Exercise the longest generated-library temporary path and remove it."""
-    # Asset-intent atomic publication is the deepest current path shape:
-    # jobs/<36-char job>/.work/.asset-intent-<36-char asset>.json.<8-char>.tmp
-    # Keep the synthetic job component exactly UUID length without making it a
-    # valid job that a concurrent Library scan could mistake for user data.
-    probe_job = root / "jobs" / f".am-depth-{uuid.uuid4().hex[:26]}"
-    probe_work = probe_job / ".work"
+def _run_windows_path_depth_probe(
+    root: Path,
+    owned_directory_name: str = "jobs",
+) -> None:
+    """Exercise the deepest owned temporary path and remove it."""
+    if owned_directory_name == "jobs":
+        # Asset-intent atomic publication is the deepest generated path shape:
+        # jobs/<job>/.work/.asset-intent-<asset>.json.<8-char>.tmp
+        probe_owner = root / "jobs" / f".am-depth-{uuid.uuid4().hex[:26]}"
+        probe_work = probe_owner / ".work"
+    elif owned_directory_name == "items":
+        # Saved items publish a complete hidden directory before one rename:
+        # items/.item-<item>-<uuid>.tmp/result/<asset>.json.<8-char>.tmp
+        probe_owner = (
+            root
+            / "items"
+            / f".item-{uuid.uuid4()}-{uuid.uuid4()}.tmp"
+        )
+        probe_work = probe_owner / "result"
+    else:
+        raise ValueError("owned_directory_name is unsupported")
     intent = probe_work / f"{_ASSET_INTENT_PREFIX}{uuid.uuid4()}.json"
     failure: BaseException | None = None
     cleanup_failure: OSError | None = None
@@ -641,10 +762,10 @@ def _run_windows_path_depth_probe(root: Path) -> None:
     except BaseException as exc:
         failure = exc
     try:
-        if probe_job.exists() or probe_job.is_symlink():
-            if _is_linklike(probe_job):
+        if probe_owner.exists() or probe_owner.is_symlink():
+            if _is_linklike(probe_owner):
                 raise OSError("Windows path-depth probe directory is unsafe")
-            shutil.rmtree(probe_job)
+            shutil.rmtree(probe_owner)
     except OSError as exc:
         cleanup_failure = exc
     if isinstance(failure, OSError) and _windows_path_too_long(failure):
@@ -656,6 +777,57 @@ def _run_windows_path_depth_probe(root: Path) -> None:
         raise failure
     if cleanup_failure is not None:
         raise cleanup_failure
+
+
+def _preflight_private_root(
+    current_root: str | os.PathLike[str] | None,
+    owned_directory_name: str,
+    *,
+    minimum_free_bytes: int,
+    disk_usage: Callable[[str | os.PathLike[str]], object],
+    missing_message: str,
+    unavailable_message: str,
+    free_space_message: str,
+) -> Path:
+    if os.name == "nt" and (
+        sys.implementation.name != "cpython"
+        or not _windows_private_mode_supported(sys.version_info)
+    ):
+        raise LibraryRootError(
+            "Private Windows library folders require CPython 3.11.10+, "
+            "3.12.4+, or 3.13+."
+        )
+    if current_root is None:
+        raise LibraryRootError(missing_message)
+    root = _canonical_root(current_root)
+    assert root is not None
+    try:
+        _make_private_directory(root, parents=True)
+        if not root.is_dir() or _is_linklike(root):
+            raise OSError("root is not a real directory")
+        owned_directory = root / owned_directory_name
+        _make_private_directory(owned_directory)
+        if _is_linklike(owned_directory) or not owned_directory.is_dir():
+            raise OSError(
+                f"{owned_directory_name} directory is not a real directory"
+            )
+        if os.name != "nt":
+            os.chmod(owned_directory, 0o700)
+        else:
+            _set_windows_private_directory_dacl(owned_directory)
+            if owned_directory_name == "jobs":
+                _run_windows_path_depth_probe(root)
+            else:
+                _run_windows_path_depth_probe(root, owned_directory_name)
+        _run_write_probe(root)
+        free = disk_usage(root).free
+    except LibraryRootError:
+        raise
+    except (OSError, PermissionError, AttributeError) as exc:
+        raise LibraryRootError(unavailable_message) from exc
+    if not isinstance(free, int) or free < minimum_free_bytes:
+        raise LibraryRootError(free_space_message)
+    return root
 
 
 def _file_integrity(path: Path) -> tuple[int, str, tuple[int, ...]]:
@@ -1240,40 +1412,19 @@ class GeneratedAssetLibrary:
 
     def preflight(self) -> Path:
         """Validate the current root before paid work; no fallback is possible."""
-        if os.name == "nt" and (
-            sys.implementation.name != "cpython"
-            or not _windows_private_mode_supported(sys.version_info)
-        ):
-            raise LibraryRootError(
-                "Private Windows library folders require CPython 3.11.10+, "
-                "3.12.4+, or 3.13+."
-            )
-        if self._current_root_value is None:
-            raise LibraryRootError("A library folder must be configured before generation.")
-        root = _canonical_root(self._current_root_value)
-        assert root is not None
-        try:
-            _make_private_directory(root, parents=True)
-            if not root.is_dir() or _is_linklike(root):
-                raise OSError("root is not a real directory")
-            jobs = root / "jobs"
-            _make_private_directory(jobs)
-            if _is_linklike(jobs):
-                raise OSError("jobs directory is a symlink")
-            if os.name != "nt":
-                os.chmod(jobs, 0o700)
-            else:
-                _set_windows_private_directory_dacl(jobs)
-                _run_windows_path_depth_probe(root)
-            _run_write_probe(root)
-            free = self._disk_usage(root).free
-        except LibraryRootError:
-            raise
-        except (OSError, PermissionError, AttributeError) as exc:
-            raise LibraryRootError("The configured library folder is not privately writable.") from exc
-        if not isinstance(free, int) or free < self._minimum_free_bytes:
-            raise LibraryRootError("The configured library folder does not have enough free space.")
-        return root
+        return _preflight_private_root(
+            self._current_root_value,
+            "jobs",
+            minimum_free_bytes=self._minimum_free_bytes,
+            disk_usage=self._disk_usage,
+            missing_message="A library folder must be configured before generation.",
+            unavailable_message=(
+                "The configured library folder is not privately writable."
+            ),
+            free_space_message=(
+                "The configured library folder does not have enough free space."
+            ),
+        )
 
     def create_job(
         self,
@@ -1963,14 +2114,1096 @@ class GeneratedAssetLibrary:
         return self.update_manifest(job_id, append_error)
 
 
+def _validate_saved_timestamp(value: object, label: str) -> str:
+    if not isinstance(value, str):
+        raise ManifestError(f"The saved item {label} is invalid.")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ManifestError(f"The saved item {label} is invalid.") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        raise ManifestError(f"The saved item {label} is invalid.")
+    return value
+
+
+def _validate_saved_text(
+    value: object,
+    label: str,
+    *,
+    maximum: int = _MAX_SAVED_TEXT,
+) -> str:
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or len(value) > maximum
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ManifestError(f"The saved item {label} is invalid.")
+    return value
+
+
+def _validate_saved_json(
+    value: object,
+    label: str,
+    *,
+    depth: int = 0,
+    count: list[int] | None = None,
+) -> None:
+    if depth > _MAX_SAVED_JSON_DEPTH:
+        raise ManifestError(f"The saved item {label} is too deeply nested.")
+    if count is None:
+        count = [0]
+    count[0] += 1
+    if count[0] > _MAX_SAVED_JSON_ITEMS:
+        raise ManifestError(f"The saved item {label} is too large.")
+    if value is None or isinstance(value, (str, bool)):
+        if isinstance(value, str):
+            if len(value) > 10_000:
+                raise ManifestError(f"The saved item {label} contains oversized text.")
+            if Path(value).is_absolute() or PureWindowsPath(value).is_absolute():
+                raise ManifestError(f"The saved item {label} contains a local path.")
+        return
+    if type(value) is int:
+        if abs(value) > 2**53:
+            raise ManifestError(f"The saved item {label} contains an invalid number.")
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value) or abs(value) > 1_000_000:
+            raise ManifestError(f"The saved item {label} contains an invalid number.")
+        return
+    if isinstance(value, list):
+        for child in value:
+            _validate_saved_json(
+                child,
+                label,
+                depth=depth + 1,
+                count=count,
+            )
+        return
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if not isinstance(key, str) or not key or len(key) > 100:
+                raise ManifestError(f"The saved item {label} contains an invalid field.")
+            _validate_saved_json(
+                child,
+                label,
+                depth=depth + 1,
+                count=count,
+            )
+        return
+    raise ManifestError(f"The saved item {label} contains an unsupported value.")
+
+
+def _validate_saved_device(value: object) -> dict:
+    if not isinstance(value, dict) or set(value) != _SAVED_DEVICE_FIELDS:
+        raise ManifestError("The saved item device schema is unsupported.")
+    result = copy.deepcopy(value)
+    _validate_saved_json(result, "device")
+    for name in ("product_id", "family", "product_label"):
+        _validate_saved_text(result[name], f"device {name}")
+    for name in ("keymap_signature", "lighting_signature"):
+        signature = result[name]
+        if signature is not None and (
+            not isinstance(signature, str)
+            or not _SAFE_TEXT_ID.fullmatch(signature)
+        ):
+            raise ManifestError(f"The saved item device {name} is invalid.")
+    return result
+
+
+def _validate_saved_asset_record(value: object) -> dict:
+    if not isinstance(value, dict) or set(value) != _SAVED_ASSET_FIELDS:
+        raise ManifestError("A saved item asset has an unsupported schema.")
+    record = copy.deepcopy(value)
+    asset_id = _canonical_uuid(record["asset_id"], "asset ID")
+    kind = record["kind"]
+    if not isinstance(kind, str) or kind not in _SAVED_ASSET_LAYOUT:
+        raise ManifestError("A saved item asset kind is unsupported.")
+    directory, mime_extensions = _SAVED_ASSET_LAYOUT[kind]
+    mime_type = record["mime_type"]
+    if not isinstance(mime_type, str) or mime_type not in mime_extensions:
+        raise ManifestError("A saved item asset MIME type is unsupported.")
+    relative_path = _validate_relative_asset_path(record["relative_path"])
+    relative = PurePosixPath(relative_path)
+    if relative.parts[0] != directory:
+        raise ManifestError("A saved item asset path does not match its kind.")
+    expected_name = asset_id + mime_extensions[mime_type]
+    if relative.parts[1] != expected_name:
+        raise ManifestError("A saved item asset filename is invalid.")
+    if type(record["byte_size"]) is not int or record["byte_size"] <= 0:
+        raise ManifestError("A saved item asset byte size is invalid.")
+    if (
+        not isinstance(record["sha256"], str)
+        or not _SHA256.fullmatch(record["sha256"])
+    ):
+        raise ManifestError("A saved item asset hash is invalid.")
+    _validate_saved_timestamp(record["created_at"], "asset timestamp")
+    return record
+
+
+def _validate_saved_manifest(
+    value: object,
+    *,
+    expected_item_id: str | None = None,
+) -> dict:
+    if not isinstance(value, dict):
+        raise ManifestError("The saved item manifest is invalid.")
+    manifest = copy.deepcopy(value)
+    if (
+        type(manifest.get("schema_version")) is not int
+        or manifest.get("schema_version") != SAVED_ITEM_SCHEMA_VERSION
+        or set(manifest) != _SAVED_ITEM_FIELDS
+    ):
+        raise ManifestError("The saved item manifest has an unsupported schema.")
+    _validate_no_sensitive_values(manifest)
+    try:
+        encoded = json.dumps(
+            manifest,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise ManifestError("The saved item manifest is invalid.") from exc
+    if len(encoded) > _MAX_MANIFEST_BYTES:
+        raise ManifestError("The saved item manifest is too large.")
+
+    item_id = _canonical_uuid(manifest["item_id"], "item ID")
+    if expected_item_id is not None and item_id != expected_item_id:
+        raise ManifestError("The saved item manifest does not own this directory.")
+    kind = manifest["kind"]
+    if not isinstance(kind, str) or kind not in _SAVED_ITEM_KINDS:
+        raise ManifestError("The saved item kind is unsupported.")
+    origin = manifest["origin"]
+    if not isinstance(origin, str) or origin not in _SAVED_ITEM_ORIGINS[kind]:
+        raise ManifestError("The saved item origin is invalid for its kind.")
+    item_name = _validate_saved_text(manifest["name"], "name")
+    if Path(item_name).is_absolute() or PureWindowsPath(item_name).is_absolute():
+        raise ManifestError("The saved item name cannot contain a local path.")
+    created_at = _validate_saved_timestamp(manifest["created_at"], "creation time")
+    updated_at = _validate_saved_timestamp(manifest["updated_at"], "update time")
+    if datetime.fromisoformat(updated_at) < datetime.fromisoformat(created_at):
+        raise ManifestError("The saved item timestamps are inconsistent.")
+    if (
+        not isinstance(manifest["status"], str)
+        or manifest["status"] not in _SAVED_ITEM_STATUSES
+    ):
+        raise ManifestError("The saved item status is unsupported.")
+
+    tags = manifest["tags"]
+    if (
+        not isinstance(tags, list)
+        or len(tags) > _MAX_SAVED_TAGS
+        or any(
+            not isinstance(tag, str)
+            or not tag.strip()
+            or len(tag) > 80
+            or any(ord(character) < 32 or ord(character) == 127 for character in tag)
+            or Path(tag).is_absolute()
+            or PureWindowsPath(tag).is_absolute()
+            for tag in tags
+        )
+        or len({tag.casefold() for tag in tags}) != len(tags)
+    ):
+        raise ManifestError("The saved item tags are invalid.")
+
+    assets = manifest["assets"]
+    if (
+        not isinstance(assets, list)
+        or not 1 <= len(assets) <= _MAX_SAVED_ASSETS
+    ):
+        raise ManifestError("The saved item assets are invalid.")
+    normalized_assets = [_validate_saved_asset_record(record) for record in assets]
+    asset_ids = [record["asset_id"] for record in normalized_assets]
+    asset_paths = [record["relative_path"] for record in normalized_assets]
+    if len(set(asset_ids)) != len(asset_ids) or len(set(asset_paths)) != len(asset_paths):
+        raise ManifestError("The saved item assets contain duplicate ownership.")
+    assets_by_id = {record["asset_id"]: record for record in normalized_assets}
+
+    source = manifest["source"]
+    composition = manifest["composition"]
+    profile = manifest["profile"]
+    device = manifest["device"]
+    if kind == "media_source":
+        if (
+            device is not None
+            or composition is not None
+            or profile is not None
+            or not isinstance(source, dict)
+            or set(source) != _SAVED_SOURCE_FIELDS
+        ):
+            raise ManifestError("The media source manifest discriminator is invalid.")
+        source_asset_id = _canonical_uuid(source["asset_id"], "source asset ID")
+        source_asset = assets_by_id.get(source_asset_id)
+        if (
+            source_asset is None
+            or source_asset["kind"] != "source"
+            or set(assets_by_id) != {source_asset_id}
+            or source["mime_type"] != source_asset["mime_type"]
+            or source["sha256"] != source_asset["sha256"]
+        ):
+            raise ManifestError("The media source asset ownership is invalid.")
+        mime_type = source["mime_type"]
+        if (
+            not isinstance(mime_type, str)
+            or mime_type not in {"image/gif", "image/png", "image/bmp"}
+        ):
+            raise ManifestError("The media source MIME type is unsupported.")
+        for field in ("width", "height"):
+            if type(source[field]) is not int or not 1 <= source[field] <= 65_535:
+                raise ManifestError("The media source dimensions are invalid.")
+        if (
+            type(source["frame_count"]) is not int
+            or not 1 <= source["frame_count"] <= 10_000
+            or type(source["duration_ms"]) is not int
+            or not 0 <= source["duration_ms"] <= 86_400_000
+        ):
+            raise ManifestError("The media source timing is invalid.")
+        if mime_type == "image/gif":
+            if source["duration_ms"] <= 0:
+                raise ManifestError("The GIF source duration is invalid.")
+        elif source["frame_count"] != 1 or source["duration_ms"] != 0:
+            raise ManifestError("A still source must contain exactly one frame.")
+    elif kind == "lighting_composition":
+        if (
+            source is not None
+            or profile is not None
+            or not isinstance(composition, dict)
+            or set(composition) != _SAVED_COMPOSITION_FIELDS
+        ):
+            raise ManifestError("The lighting composition discriminator is invalid.")
+        _validate_saved_device(device)
+        if (
+            type(composition["schema_version"]) is not int
+            or composition["schema_version"] != 1
+        ):
+            raise ManifestError("The lighting composition schema is unsupported.")
+        source_catalog_id = composition["source_catalog_id"]
+        if source_catalog_id is not None:
+            namespace, _identifier = _parse_catalog_id(source_catalog_id)
+            if namespace != "item":
+                raise ManifestError("The composition source must be a saved item.")
+        for name in (
+            "transform",
+            "effects",
+            "manual_overrides",
+            "destination",
+            "tracks",
+        ):
+            _validate_saved_json(composition[name], f"composition {name}")
+        if composition["transform"] is not None and not isinstance(
+            composition["transform"],
+            dict,
+        ):
+            raise ManifestError("The lighting composition transform is invalid.")
+        if not isinstance(composition["effects"], list) or not isinstance(
+            composition["manual_overrides"],
+            list,
+        ):
+            raise ManifestError("The lighting composition effects are invalid.")
+        if not isinstance(composition["destination"], dict) or not isinstance(
+            composition["tracks"],
+            dict,
+        ):
+            raise ManifestError("The lighting composition result is invalid.")
+        rendered_id = _canonical_uuid(
+            composition["rendered_asset_id"],
+            "rendered asset ID",
+        )
+        rendered = assets_by_id.get(rendered_id)
+        if rendered is None or rendered["kind"] != "result":
+            raise ManifestError("The lighting composition result ownership is invalid.")
+        referenced = {rendered_id}
+        preview_id = composition["preview_asset_id"]
+        if preview_id is not None:
+            preview_id = _canonical_uuid(preview_id, "preview asset ID")
+            preview = assets_by_id.get(preview_id)
+            if preview is None or preview["kind"] != "preview":
+                raise ManifestError("The lighting composition preview ownership is invalid.")
+            referenced.add(preview_id)
+        if set(assets_by_id) != referenced:
+            raise ManifestError("The lighting composition has unreferenced assets.")
+    else:
+        if (
+            source is not None
+            or composition is not None
+            or not isinstance(profile, dict)
+            or set(profile) != _SAVED_PROFILE_FIELDS
+        ):
+            raise ManifestError("The keyboard profile discriminator is invalid.")
+        _validate_saved_device(device)
+        profile_asset_id = _canonical_uuid(profile["asset_id"], "profile asset ID")
+        profile_asset = assets_by_id.get(profile_asset_id)
+        if (
+            profile_asset is None
+            or profile_asset["kind"] != "profile"
+            or profile_asset["mime_type"] != "application/json"
+            or profile["mime_type"] != profile_asset["mime_type"]
+            or profile["sha256"] != profile_asset["sha256"]
+            or set(assets_by_id) != {profile_asset_id}
+        ):
+            raise ManifestError("The keyboard profile asset ownership is invalid.")
+        sections = profile["sections"]
+        allowed_sections = {"identity", "keymap", "macros", "lighting"}
+        if (
+            not isinstance(sections, list)
+            or not sections
+            or any(
+                not isinstance(section, str) or section not in allowed_sections
+                for section in sections
+            )
+            or len(set(sections)) != len(sections)
+        ):
+            raise ManifestError("The keyboard profile sections are invalid.")
+
+    manifest["assets"] = normalized_assets
+    return manifest
+
+
+def _read_saved_manifest(path: Path, item_id: str) -> dict:
+    if _is_linklike(path) or not path.is_file():
+        raise ManifestError("This saved item manifest could not be read.")
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(path, flags)
+        with os.fdopen(fd, "rb") as file:
+            if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
+                raise ManifestError("This saved item manifest could not be read.")
+            payload = file.read(_MAX_MANIFEST_BYTES + 1)
+        if len(payload) > _MAX_MANIFEST_BYTES:
+            raise ManifestError("This saved item manifest could not be read.")
+        value = json.loads(payload.decode("utf-8"))
+        return _validate_saved_manifest(value, expected_item_id=item_id)
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise ManifestError("This saved item manifest could not be read.") from exc
+
+
+def _catalog_id(namespace: str, identifier: str) -> str:
+    if namespace not in {"job", "item"}:
+        raise InvalidIdentifierError("catalog namespace is invalid")
+    return f"{namespace}:{_canonical_uuid(identifier, f'{namespace} ID')}"
+
+
+def _parse_catalog_id(value: object) -> tuple[str, str]:
+    if not isinstance(value, str) or value.count(":") != 1:
+        raise InvalidIdentifierError(
+            "catalog ID must include an opaque server namespace"
+        )
+    namespace, identifier = value.split(":", 1)
+    if namespace not in {"job", "item"}:
+        raise InvalidIdentifierError(
+            "catalog ID must include an opaque server namespace"
+        )
+    canonical = _canonical_uuid(identifier, f"{namespace} ID")
+    if value != f"{namespace}:{canonical}":
+        raise InvalidIdentifierError("catalog ID must be canonical")
+    return namespace, canonical
+
+
+class SavedItemLibrary:
+    """Immutable saved Library items across one current and older roots."""
+
+    def __init__(
+        self,
+        current_root: str | os.PathLike[str] | None,
+        historical_roots: list[str | os.PathLike[str]]
+        | tuple[str | os.PathLike[str], ...] = (),
+        *,
+        minimum_free_bytes: int = DEFAULT_MINIMUM_FREE_BYTES,
+        disk_usage: Callable[[str | os.PathLike[str]], object] = shutil.disk_usage,
+    ) -> None:
+        if (
+            not isinstance(minimum_free_bytes, int)
+            or isinstance(minimum_free_bytes, bool)
+            or minimum_free_bytes < 0
+        ):
+            raise ValueError("minimum_free_bytes must be a non-negative integer")
+        self._current_root_value = current_root
+        self._historical_root_values = tuple(historical_roots)
+        self._minimum_free_bytes = minimum_free_bytes
+        self._disk_usage = disk_usage
+
+    def _generated_root_probe(self) -> GeneratedAssetLibrary:
+        return GeneratedAssetLibrary(
+            self._current_root_value,
+            self._historical_root_values,
+            minimum_free_bytes=self._minimum_free_bytes,
+            disk_usage=self._disk_usage,
+        )
+
+    def _resolved_roots(self) -> tuple[list[Path], list[dict]]:
+        roots, root_errors = self._generated_root_probe()._resolved_roots()
+        return roots, [
+            {
+                "item_id": None,
+                "code": error["code"],
+                "message": error["message"],
+            }
+            for error in root_errors
+        ]
+
+    def _roots(self) -> list[Path]:
+        return self._resolved_roots()[0]
+
+    def preflight(self) -> Path:
+        """Validate the configured private root and create its items directory."""
+        return _preflight_private_root(
+            self._current_root_value,
+            "items",
+            minimum_free_bytes=self._minimum_free_bytes,
+            disk_usage=self._disk_usage,
+            missing_message=(
+                "A library folder must be configured before saving Library items."
+            ),
+            unavailable_message=(
+                "The configured library folder cannot store private saved items."
+            ),
+            free_space_message=(
+                "The configured library folder does not have enough free space."
+            ),
+        )
+
+    @staticmethod
+    def _owned_child_directory(item_dir: Path, name: str) -> Path:
+        return GeneratedAssetLibrary._owned_child_directory(item_dir, name)
+
+    @staticmethod
+    def _resolve_creation_reference(
+        value: object,
+        records: Mapping[str, dict],
+        *,
+        label: str,
+    ) -> dict:
+        if not isinstance(value, Mapping):
+            raise ManifestError(f"The saved item {label} is invalid.")
+        result = copy.deepcopy(dict(value))
+        reference = result.get("asset_id")
+        if not isinstance(reference, str) or reference not in records:
+            raise ManifestError(f"The saved item {label} asset reference is invalid.")
+        record = records[reference]
+        result["asset_id"] = record["asset_id"]
+        result["mime_type"] = record["mime_type"]
+        result["sha256"] = record["sha256"]
+        return result
+
+    def create_item(
+        self,
+        *,
+        kind: str,
+        origin: str,
+        name: str,
+        assets: Mapping[str, Mapping[str, object]],
+        tags: list[str] | tuple[str, ...] = (),
+        device: Mapping[str, object] | None = None,
+        source: Mapping[str, object] | None = None,
+        composition: Mapping[str, object] | None = None,
+        profile: Mapping[str, object] | None = None,
+    ) -> dict:
+        """Atomically publish one strict manifest and all of its owned assets.
+
+        Asset mapping keys are short-lived local labels. Section ``asset_id``
+        values refer to those labels and are replaced with server-generated UUIDs
+        before the manifest crosses the publication boundary.
+        """
+        if (
+            not isinstance(assets, Mapping)
+            or not 1 <= len(assets) <= _MAX_SAVED_ASSETS
+        ):
+            raise ManifestError("Saved item assets must be a non-empty mapping.")
+        root = self.preflight()
+        items_dir = root / "items"
+        item_id: str | None = None
+        item_dir: Path | None = None
+        temporary: Path | None = None
+        for _attempt in range(_UUID_ATTEMPTS):
+            candidate = str(uuid.uuid4())
+            candidate_dir = items_dir / candidate
+            candidate_temporary = items_dir / f".item-{candidate}-{uuid.uuid4()}.tmp"
+            if candidate_dir.exists() or candidate_temporary.exists():
+                continue
+            item_id = candidate
+            item_dir = candidate_dir
+            temporary = candidate_temporary
+            break
+        if item_id is None or item_dir is None or temporary is None:
+            raise LibraryError("A unique saved item ID could not be allocated.")
+
+        published = False
+        try:
+            _make_private_directory(temporary)
+            for directory_name in _SAVED_ITEM_DIRECTORIES:
+                _make_private_directory(temporary / directory_name)
+            created_at = _now_iso()
+            records_by_label: dict[str, dict] = {}
+            known_asset_ids: set[str] = set()
+            asset_intents: list[Path] = []
+            for asset_label, raw_specification in assets.items():
+                if (
+                    not isinstance(asset_label, str)
+                    or not _SAFE_TEXT_ID.fullmatch(asset_label)
+                    or asset_label in records_by_label
+                    or not isinstance(raw_specification, Mapping)
+                ):
+                    raise ManifestError("A saved item asset label is invalid.")
+                specification = dict(raw_specification)
+                if set(specification) != {"kind", "mime_type", "data"}:
+                    raise ManifestError(
+                        "A saved item asset input has an unsupported schema."
+                )
+                asset_kind = specification["kind"]
+                if (
+                    not isinstance(asset_kind, str)
+                    or asset_kind not in _SAVED_ASSET_LAYOUT
+                ):
+                    raise ManifestError("A saved item asset kind is unsupported.")
+                directory_name, mime_extensions = _SAVED_ASSET_LAYOUT[asset_kind]
+                mime_type = specification["mime_type"]
+                if (
+                    not isinstance(mime_type, str)
+                    or mime_type not in mime_extensions
+                ):
+                    raise ManifestError(
+                        "A saved item asset MIME type is unsupported for its kind."
+                    )
+                data = specification["data"]
+                if not isinstance(data, bytes) or not data:
+                    raise ManifestError("Saved item asset bytes must be non-empty.")
+                asset_id: str | None = None
+                for _asset_attempt in range(_UUID_ATTEMPTS):
+                    candidate_asset_id = str(uuid.uuid4())
+                    if candidate_asset_id not in known_asset_ids:
+                        asset_id = candidate_asset_id
+                        break
+                if asset_id is None:
+                    raise LibraryError(
+                        "A unique saved item asset ID could not be allocated."
+                    )
+                known_asset_ids.add(asset_id)
+                filename = asset_id + mime_extensions[mime_type]
+                relative_path = f"{directory_name}/{filename}"
+                destination = temporary / directory_name / filename
+                record = {
+                    "asset_id": asset_id,
+                    "kind": asset_kind,
+                    "relative_path": relative_path,
+                    "mime_type": mime_type,
+                    "byte_size": len(data),
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "created_at": created_at,
+                }
+                intent_path = (
+                    temporary / f"{_ASSET_INTENT_PREFIX}{asset_id}.json"
+                )
+                _atomic_write_json(
+                    intent_path,
+                    {
+                        "schema_version": 1,
+                        "item_id": item_id,
+                        "record": record,
+                    },
+                )
+                asset_intents.append(intent_path)
+                _atomic_write_bytes(destination, data)
+                records_by_label[asset_label] = record
+
+            normalized_source: dict | None = None
+            normalized_composition: dict | None = None
+            normalized_profile: dict | None = None
+            if source is not None:
+                if not isinstance(source, Mapping) or set(source) != _SAVED_SOURCE_INPUT_FIELDS:
+                    raise ManifestError(
+                        "The saved media source input has an unsupported schema."
+                    )
+                normalized_source = self._resolve_creation_reference(
+                    source,
+                    records_by_label,
+                    label="source",
+                )
+            if profile is not None:
+                if not isinstance(profile, Mapping) or set(profile) != _SAVED_PROFILE_INPUT_FIELDS:
+                    raise ManifestError(
+                        "The saved keyboard profile input has an unsupported schema."
+                    )
+                normalized_profile = self._resolve_creation_reference(
+                    profile,
+                    records_by_label,
+                    label="profile",
+                )
+            if composition is not None:
+                if (
+                    not isinstance(composition, Mapping)
+                    or set(composition) != _SAVED_COMPOSITION_FIELDS
+                ):
+                    raise ManifestError(
+                        "The saved lighting composition input has an unsupported schema."
+                    )
+                normalized_composition = copy.deepcopy(dict(composition))
+                for field in ("rendered_asset_id", "preview_asset_id"):
+                    reference = normalized_composition[field]
+                    if reference is None and field == "preview_asset_id":
+                        continue
+                    if not isinstance(reference, str) or reference not in records_by_label:
+                        raise ManifestError(
+                            "The saved lighting composition asset reference is invalid."
+                        )
+                    normalized_composition[field] = records_by_label[reference][
+                        "asset_id"
+                    ]
+
+            manifest = {
+                "schema_version": SAVED_ITEM_SCHEMA_VERSION,
+                "item_id": item_id,
+                "kind": kind,
+                "origin": origin,
+                "name": name,
+                "created_at": created_at,
+                "updated_at": created_at,
+                "status": "ready",
+                "tags": list(tags) if isinstance(tags, (list, tuple)) else tags,
+                "device": copy.deepcopy(dict(device)) if isinstance(device, Mapping) else device,
+                "source": normalized_source,
+                "composition": normalized_composition,
+                "profile": normalized_profile,
+                "assets": list(records_by_label.values()),
+            }
+            normalized = _validate_saved_manifest(
+                manifest,
+                expected_item_id=item_id,
+            )
+            _atomic_write_json(temporary / "manifest.json", normalized)
+            for intent_path in asset_intents:
+                intent_path.unlink()
+            _fsync_directory(temporary)
+            if item_dir.exists() or _is_linklike(item_dir):
+                raise LibraryError("The saved item destination is already occupied.")
+            os.rename(temporary, item_dir)
+            published = True
+            _fsync_directory(items_dir)
+            return copy.deepcopy(normalized)
+        finally:
+            if not published and temporary.exists():
+                try:
+                    if _is_linklike(temporary):
+                        temporary.unlink()
+                    else:
+                        shutil.rmtree(temporary)
+                    _fsync_directory(items_dir)
+                except OSError:
+                    pass
+
+    def _find_item_dir(self, item_id: str) -> Path:
+        canonical_id = _canonical_uuid(item_id, "item ID")
+        for root in self._roots():
+            items = root / "items"
+            if _is_linklike(items):
+                continue
+            if items.exists():
+                try:
+                    canonical_root = root.resolve(strict=True)
+                    canonical_items = items.resolve(strict=True)
+                    relative_items = canonical_items.relative_to(canonical_root)
+                except (OSError, RuntimeError, ValueError):
+                    continue
+                if relative_items.parts != ("items",):
+                    continue
+            candidate = items / canonical_id
+            if not candidate.exists():
+                continue
+            if _is_linklike(candidate) or not candidate.is_dir():
+                continue
+            try:
+                canonical_items = items.resolve(strict=True)
+                canonical_candidate = candidate.resolve(strict=True)
+                relative = canonical_candidate.relative_to(canonical_items)
+                if relative.parts != (canonical_id,):
+                    continue
+                _read_saved_manifest(candidate / "manifest.json", canonical_id)
+            except (OSError, RuntimeError, ValueError, ManifestError):
+                continue
+            return candidate
+        raise ManifestError("The saved item was not found.")
+
+    def load_manifest(self, item_id: str) -> dict:
+        canonical_id = _canonical_uuid(item_id, "item ID")
+        item_dir = self._find_item_dir(canonical_id)
+        with _job_lock(item_dir):
+            return _read_saved_manifest(item_dir / "manifest.json", canonical_id)
+
+    def _owned_record(
+        self,
+        item_dir: Path,
+        manifest: dict,
+        asset_id: str,
+    ) -> OwnedAsset:
+        matching = [
+            record
+            for record in manifest["assets"]
+            if record["asset_id"] == asset_id
+        ]
+        if len(matching) != 1:
+            raise AssetNotFoundError("The asset is not owned by this saved item.")
+        record = matching[0]
+        relative = _validate_relative_asset_path(record["relative_path"])
+        directory_name = PurePosixPath(relative).parts[0]
+        asset_directory = self._owned_child_directory(item_dir, directory_name)
+        path = asset_directory / PurePosixPath(relative).parts[1]
+        try:
+            canonical_item = item_dir.resolve(strict=True)
+            canonical_path = path.resolve(strict=True)
+            canonical_path.relative_to(canonical_item)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ManifestError("The owned asset path is unsafe or missing.") from exc
+        return OwnedAsset(path=path, record=copy.deepcopy(record))
+
+    def resolve_asset(
+        self,
+        item_id: str,
+        asset_id: str,
+        *,
+        verify_content: bool = True,
+    ) -> OwnedAsset:
+        canonical_item_id = _canonical_uuid(item_id, "item ID")
+        canonical_asset_id = _canonical_uuid(asset_id, "asset ID")
+        item_dir = self._find_item_dir(canonical_item_id)
+        with _job_lock(item_dir):
+            manifest = _read_saved_manifest(
+                item_dir / "manifest.json",
+                canonical_item_id,
+            )
+            owned = self._owned_record(
+                item_dir,
+                manifest,
+                canonical_asset_id,
+            )
+            with owned.open_verified(verify_content=verify_content):
+                pass
+            return owned
+
+    @staticmethod
+    def _public_manifest(manifest: dict) -> dict:
+        return GeneratedAssetLibrary._public_manifest(manifest)
+
+    def get_item(self, item_id: str) -> dict:
+        return self._public_manifest(self.load_manifest(item_id))
+
+    def _scan_internal(self) -> tuple[list[tuple[dict, Path]], list[dict]]:
+        items: list[tuple[dict, Path]] = []
+        roots, errors = self._resolved_roots()
+        seen: set[str] = set()
+        for root in roots:
+            items_dir = root / "items"
+            if not items_dir.exists():
+                continue
+            if _is_linklike(items_dir) or not items_dir.is_dir():
+                errors.append(
+                    {
+                        "item_id": None,
+                        "code": "root_unavailable",
+                        "message": "A recorded library root could not be read.",
+                    }
+                )
+                continue
+            try:
+                entries = sorted(items_dir.iterdir(), key=lambda path: path.name)
+            except OSError:
+                errors.append(
+                    {
+                        "item_id": None,
+                        "code": "root_unavailable",
+                        "message": "A recorded library root could not be read.",
+                    }
+                )
+                continue
+            for entry in entries:
+                try:
+                    item_id = _canonical_uuid(entry.name, "item ID")
+                except InvalidIdentifierError:
+                    continue
+                try:
+                    if _is_linklike(entry) or not entry.is_dir():
+                        raise ManifestError(
+                            "This saved item manifest could not be read."
+                        )
+                    manifest = _read_saved_manifest(
+                        entry / "manifest.json",
+                        item_id,
+                    )
+                except ManifestError:
+                    errors.append(
+                        {
+                            "item_id": item_id,
+                            "code": "corrupt_manifest",
+                            "message": "This saved item manifest could not be read.",
+                        }
+                    )
+                    continue
+                if item_id in seen:
+                    errors.append(
+                        {
+                            "item_id": item_id,
+                            "code": "duplicate_item",
+                            "message": "A duplicate saved item ID was ignored.",
+                        }
+                    )
+                    continue
+                seen.add(item_id)
+                items.append((manifest, entry))
+        items.sort(
+            key=lambda item: (
+                item[0]["updated_at"],
+                item[0]["created_at"],
+                item[0]["item_id"],
+            ),
+            reverse=True,
+        )
+        return items, errors
+
+    def scan(self) -> dict:
+        """Return pathless saved items while isolating corrupt manifests."""
+        items, errors = self._scan_internal()
+        return {
+            "items": [
+                self._public_manifest(manifest)
+                for manifest, _directory in items
+            ],
+            "errors": errors,
+        }
+
+
+class LibraryCatalog:
+    """Read-only mixed projection over generated jobs and saved items."""
+
+    def __init__(
+        self,
+        jobs: GeneratedAssetLibrary,
+        saved_items: SavedItemLibrary | None = None,
+    ) -> None:
+        if not isinstance(jobs, GeneratedAssetLibrary):
+            raise TypeError("jobs must be a GeneratedAssetLibrary")
+        self.jobs = jobs
+        self.saved_items = saved_items or SavedItemLibrary(
+            jobs._current_root_value,
+            jobs._historical_root_values,
+            minimum_free_bytes=jobs._minimum_free_bytes,
+            disk_usage=jobs._disk_usage,
+        )
+
+    @staticmethod
+    def _job_summary(manifest: dict) -> dict:
+        target = copy.deepcopy(manifest["target"])
+        prompt = manifest["prompt"]
+        name = prompt.strip() or "Untitled generation"
+        return {
+            "catalog_id": _catalog_id("job", manifest["job_id"]),
+            "namespace": "job",
+            "kind": "generation_job",
+            "origin": "ai_generation",
+            "name": name,
+            "created_at": manifest["created_at"],
+            "updated_at": manifest["updated_at"],
+            "status": manifest["status"],
+            "tags": [],
+            "device": {
+                "product_id": target.get("product_id"),
+                "family": target.get("family"),
+                "product_label": target.get("product_label"),
+            },
+            "target": target,
+            "prompt": prompt,
+            "frame_count": None,
+            "asset_count": len(manifest["assets"]),
+            "compatibility": None,
+            "removed": False,
+        }
+
+    @staticmethod
+    def _saved_summary(manifest: dict) -> dict:
+        source = manifest["source"]
+        return {
+            "catalog_id": _catalog_id("item", manifest["item_id"]),
+            "namespace": "item",
+            "kind": manifest["kind"],
+            "origin": manifest["origin"],
+            "name": manifest["name"],
+            "created_at": manifest["created_at"],
+            "updated_at": manifest["updated_at"],
+            "status": manifest["status"],
+            "tags": copy.deepcopy(manifest["tags"]),
+            "device": copy.deepcopy(manifest["device"]),
+            "target": None,
+            "prompt": None,
+            "frame_count": source["frame_count"] if source is not None else None,
+            "asset_count": len(manifest["assets"]),
+            "compatibility": None,
+            "removed": False,
+        }
+
+    @staticmethod
+    def _catalog_error(namespace: str, error: Mapping[str, object]) -> dict:
+        identifier = error.get(f"{namespace}_id")
+        catalog_id = (
+            _catalog_id(namespace, identifier)
+            if isinstance(identifier, str)
+            else None
+        )
+        return {
+            "catalog_id": catalog_id,
+            "namespace": namespace,
+            "code": error["code"],
+            "message": error["message"],
+        }
+
+    def scan(self) -> dict:
+        job_scan = self.jobs.scan()
+        item_scan = self.saved_items.scan()
+        items = [
+            self._job_summary(manifest)
+            for manifest in job_scan["jobs"]
+        ]
+        items.extend(
+            self._saved_summary(manifest)
+            for manifest in item_scan["items"]
+        )
+        items.sort(
+            key=lambda item: (
+                item["updated_at"],
+                item["created_at"],
+                item["catalog_id"],
+            ),
+            reverse=True,
+        )
+        errors = [
+            self._catalog_error("job", error)
+            for error in job_scan["errors"]
+        ]
+        errors.extend(
+            self._catalog_error("item", error)
+            for error in item_scan["errors"]
+        )
+        return {"items": items, "errors": errors}
+
+    @staticmethod
+    def _search_blob(item: Mapping[str, object]) -> str:
+        searchable = {
+            "name": item["name"],
+            "created_at": item["created_at"],
+            "updated_at": item["updated_at"],
+            "origin": item["origin"],
+            "tags": item["tags"],
+            "device": item["device"],
+            "target": item["target"],
+            "prompt": item["prompt"],
+        }
+        return json.dumps(
+            searchable,
+            ensure_ascii=False,
+            sort_keys=True,
+        ).casefold()
+
+    def page(
+        self,
+        *,
+        page: int,
+        limit: int,
+        statuses: set[str] | frozenset[str] = frozenset(),
+        kind: str = "",
+        compatibility: str = "",
+        query: str = "",
+    ) -> dict:
+        if type(page) is not int or page < 1:
+            raise ValueError("page must be a positive integer.")
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("limit is outside its supported range.")
+        if not isinstance(kind, str) or (kind and kind not in _CATALOG_KINDS):
+            raise ValueError("kind filter is invalid.")
+        if not isinstance(compatibility, str) or compatibility not in {
+            "",
+            "unknown",
+            "exact",
+            "convertible",
+            "partial",
+            "incompatible",
+        }:
+            raise ValueError("compatibility filter is invalid.")
+        if (
+            not isinstance(statuses, (set, frozenset))
+            or any(
+                not isinstance(status, str)
+                or not status
+                or len(status) > 80
+                or not _SAFE_TEXT_ID.fullmatch(status)
+                for status in statuses
+            )
+        ):
+            raise ValueError("status filter is invalid.")
+        if not isinstance(query, str) or len(query) > 200:
+            raise ValueError("query filter is invalid.")
+        search = query.casefold().strip()
+        scanned = self.scan()
+        matches = []
+        for item in scanned["items"]:
+            if statuses and item["status"] not in statuses:
+                continue
+            if kind and item["kind"] != kind:
+                continue
+            item_compatibility = item["compatibility"] or "unknown"
+            if compatibility and item_compatibility != compatibility:
+                continue
+            if search and search not in self._search_blob(item):
+                continue
+            matches.append(item)
+        total = len(matches)
+        start = (page - 1) * limit
+        selected = matches[start : start + limit]
+        return {
+            "items": selected,
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "has_more": start + len(selected) < total,
+            "errors": scanned["errors"],
+        }
+
+    def get(self, catalog_id: str) -> dict:
+        namespace, identifier = _parse_catalog_id(catalog_id)
+        if namespace == "job":
+            manifest = self.jobs.get_job(identifier)
+            return {**self._job_summary(manifest), "job": manifest}
+        manifest = self.saved_items.get_item(identifier)
+        return {**self._saved_summary(manifest), "item": manifest}
+
+    def resolve_asset(
+        self,
+        catalog_id: str,
+        asset_id: str,
+        *,
+        verify_content: bool = True,
+    ) -> OwnedAsset:
+        namespace, identifier = _parse_catalog_id(catalog_id)
+        if namespace == "job":
+            return self.jobs.resolve_asset(
+                identifier,
+                asset_id,
+                verify_content=verify_content,
+            )
+        return self.saved_items.resolve_asset(
+            identifier,
+            asset_id,
+            verify_content=verify_content,
+        )
+
+
 __all__ = [
     "AssetNotFoundError",
     "DEFAULT_MINIMUM_FREE_BYTES",
     "GeneratedAssetLibrary",
     "InvalidIdentifierError",
+    "LibraryCatalog",
     "LibraryError",
     "LibraryRootError",
     "MANIFEST_SCHEMA_VERSION",
     "ManifestError",
     "OwnedAsset",
+    "SAVED_ITEM_SCHEMA_VERSION",
+    "SavedItemLibrary",
 ]

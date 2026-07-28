@@ -51,6 +51,7 @@ _CYBERBOARD_MACRO_READBACK_BLOCKS = 15
 _MAX_ASSET_RANGE_BYTES = 8 * 1024 * 1024
 _LIGHTING_ASSET_MIMES = frozenset(
     {
+        "image/bmp",
         "image/png",
         "image/jpeg",
         "image/gif",
@@ -967,6 +968,8 @@ class _State:
         self._procedural_library_identity: int | None = (
             id(lighting_library) if procedural_coordinator is not None else None
         )
+        self._library_catalog: Any = None
+        self._library_catalog_identity: int | None = None
         from .generation_admission import PROCESS_OPERATION_GATE
 
         self._generation_gate = self._lighting_dependencies.get(
@@ -1098,6 +1101,21 @@ class _State:
         )
         self._procedural_library_identity = id(library)
         return library, self._procedural_coordinator
+
+    def library_catalog(self) -> Any:
+        """Return the mixed catalog for the current generated-asset root set."""
+        from .library import GeneratedAssetLibrary, LibraryCatalog
+
+        library, _coordinator = self.lighting_services()
+        if not isinstance(library, GeneratedAssetLibrary):
+            raise RuntimeError("Library catalog services are unavailable.")
+        if (
+            self._library_catalog is None
+            or self._library_catalog_identity != id(library)
+        ):
+            self._library_catalog = LibraryCatalog(library)
+            self._library_catalog_identity = id(library)
+        return self._library_catalog
 
     def close(self) -> None:
         try:
@@ -1373,7 +1391,10 @@ class _Handler(BaseHTTPRequestHandler):
             self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return True
         if isinstance(exc, ManifestError):
-            self._json({"error": "Generated job or asset not found."}, HTTPStatus.NOT_FOUND)
+            self._json(
+                {"error": "Library item, job, or asset not found."},
+                HTTPStatus.NOT_FOUND,
+            )
             return True
         if isinstance(exc, (GenerationValidationError, LibraryRootError, ValueError)):
             self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -1466,6 +1487,8 @@ class _Handler(BaseHTTPRequestHandler):
                         )
                     capability = self.state.ai_services()
                     self._json(capability.discover_local_models())
+                elif path.startswith("/api/library/"):
+                    self._library_get(path, parsed.query)
                 elif path.startswith("/api/lighting/"):
                     self._lighting_get(path, parsed.query)
                 elif path == "/api/led/generate/status":
@@ -1474,7 +1497,9 @@ class _Handler(BaseHTTPRequestHandler):
                     self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
             except Exception as exc:  # noqa: BLE001 - API boundary
                 handled = (
-                    path.startswith("/api/lighting/") or self._is_ai_path(path)
+                    path.startswith("/api/library/")
+                    or path.startswith("/api/lighting/")
+                    or self._is_ai_path(path)
                 ) and self._lighting_error(exc)
                 if not handled:
                     self._internal_error(exc)
@@ -1818,6 +1843,87 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._json({"job_id": manifest["job_id"]}, status)
 
+    def _library_get(self, path: str, query: str) -> None:
+        catalog = self.state.library_catalog()
+        if path == "/api/library/items":
+            self._library_catalog_page(catalog, query)
+            return
+        parts = path.strip("/").split("/")
+        if len(parts) == 4 and parts[:3] == ["api", "library", "items"]:
+            if query:
+                raise ValueError(
+                    "The Library detail route does not accept query fields."
+                )
+            self._json(catalog.get(parts[3]))
+            return
+        if len(parts) == 5 and parts[:3] == ["api", "library", "assets"]:
+            if query:
+                raise ValueError("Library asset routes do not accept query fields.")
+            self._library_asset(catalog, parts[3], parts[4])
+            return
+        self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+
+    def _library_catalog_page(self, catalog: Any, query: str) -> None:
+        values = parse_qs(query, keep_blank_values=True)
+        if set(values) - {
+            "page",
+            "limit",
+            "status",
+            "kind",
+            "compatibility",
+            "query",
+        }:
+            raise ValueError("The Library query has unsupported fields.")
+        if any(len(items) != 1 for items in values.values()):
+            raise ValueError("The Library query cannot repeat fields.")
+
+        def positive_integer(name: str, default: int, maximum: int) -> int:
+            raw = values.get(name, [str(default)])[0]
+            if not raw.isdigit():
+                raise ValueError(f"{name} must be a positive integer.")
+            number = int(raw)
+            if not 1 <= number <= maximum:
+                raise ValueError(f"{name} is outside its supported range.")
+            return number
+
+        page = positive_integer("page", 1, 1_000_000)
+        limit = positive_integer("limit", 24, 100)
+        statuses = {
+            value
+            for value in values.get("status", [""])[0].split(",")
+            if value
+        }
+        if any(
+            len(status) > 80 or not status.replace("_", "").isalnum()
+            for status in statuses
+        ):
+            raise ValueError("status filter is invalid.")
+        kind = values.get("kind", [""])[0]
+        if len(kind) > 80 or (kind and not kind.replace("_", "").isalnum()):
+            raise ValueError("kind filter is invalid.")
+        compatibility = values.get("compatibility", [""])[0]
+        if (
+            len(compatibility) > 80
+            or (
+                compatibility
+                and not compatibility.replace("_", "").isalnum()
+            )
+        ):
+            raise ValueError("compatibility filter is invalid.")
+        search = values.get("query", [""])[0]
+        if len(search) > 200:
+            raise ValueError("query filter is too long.")
+        self._json(
+            catalog.page(
+                page=page,
+                limit=limit,
+                statuses=statuses,
+                kind=kind,
+                compatibility=compatibility,
+                query=search,
+            )
+        )
+
     def _lighting_get(self, path: str, query: str) -> None:
         library, _coordinator = self.state.lighting_services()
         if path == "/api/lighting/library":
@@ -1929,16 +2035,32 @@ class _Handler(BaseHTTPRequestHandler):
         # open_verified re-checks the descriptor this route actually serves
         # from, so hashing again at resolve time protects nothing extra.
         owned = library.resolve_asset(job_id, asset_id, verify_content=False)
+        self._serve_library_asset(owned)
+
+    def _library_asset(
+        self,
+        catalog: Any,
+        catalog_id: str,
+        asset_id: str,
+    ) -> None:
+        owned = catalog.resolve_asset(
+            catalog_id,
+            asset_id,
+            verify_content=False,
+        )
+        self._serve_library_asset(owned)
+
+    def _serve_library_asset(self, owned: Any) -> None:
         mime_type = owned.record["mime_type"]
         if mime_type not in _LIGHTING_ASSET_MIMES:
-            raise ValueError("This generated asset type cannot be served.")
+            raise ValueError("This Library asset type cannot be served.")
         total = owned.record["byte_size"]
         range_header = self.headers.get("Range")
         if range_header is None:
             with owned.open_verified() as stream:
                 payload = stream.read(total + 1)
             if len(payload) != total:
-                raise ValueError("The generated asset changed while it was read.")
+                raise ValueError("The Library asset changed while it was read.")
             extra = {"Accept-Ranges": "bytes"} if mime_type == "video/mp4" else None
             self._headers(HTTPStatus.OK, mime_type, len(payload), extra)
             self.wfile.write(payload)

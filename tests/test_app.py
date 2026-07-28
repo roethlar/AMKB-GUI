@@ -63,6 +63,7 @@ from am_configurator import generation
 from am_configurator.library import (
     GeneratedAssetLibrary,
     LibraryRootError,
+    SavedItemLibrary,
 )
 
 
@@ -2595,6 +2596,15 @@ class LightingStudioEndpointTests(unittest.TestCase):
         paths = (
             ("POST", "/api/lighting/concepts", {"prompt": "p", "product_id": "CB04", "targets": ["frames"]}),
             ("GET", "/api/lighting/library", None),
+            ("GET", "/api/library/items", None),
+            ("GET", "/api/library/items/item:00000000-0000-4000-8000-000000000000", None),
+            (
+                "GET",
+                "/api/library/assets/"
+                "item:00000000-0000-4000-8000-000000000000/"
+                "00000000-0000-4000-8000-000000000000",
+                None,
+            ),
             ("GET", "/api/lighting/jobs/00000000-0000-4000-8000-000000000000", None),
             ("POST", "/api/lighting/jobs/00000000-0000-4000-8000-000000000000/cancel", {}),
             ("GET", "/api/lighting/assets/00000000-0000-4000-8000-000000000000/00000000-0000-4000-8000-000000000000", None),
@@ -2839,6 +2849,90 @@ class LightingStudioEndpointTests(unittest.TestCase):
         for query in ("unknown=x", "limit=101", "status=ready&status=failed"):
             with self.subTest(query=query):
                 status, _ = self._request("GET", f"/api/lighting/library?{query}")
+                self.assertEqual(400, status)
+
+    def test_mixed_library_catalog_lists_details_and_serves_saved_assets(self) -> None:
+        saved_library = SavedItemLibrary(self.root, minimum_free_bytes=1)
+        saved = saved_library.create_item(
+            kind="media_source",
+            origin="media_import",
+            name="Imported ocean.png",
+            tags=("blue", "favorite"),
+            source={
+                "asset_id": "original",
+                "width": 3,
+                "height": 2,
+                "frame_count": 1,
+                "duration_ms": 0,
+            },
+            assets={
+                "original": {
+                    "kind": "source",
+                    "mime_type": "image/png",
+                    "data": b"saved-ocean",
+                }
+            },
+        )
+        job = self._job(prompt="violet generated", status="ready")
+
+        status, page = self._request(
+            "GET",
+            "/api/library/items?kind=media_source&status=ready"
+            "&compatibility=unknown&query=favorite",
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(1, page["total"])
+        self.assertEqual(
+            f"item:{saved['item_id']}",
+            page["items"][0]["catalog_id"],
+        )
+        self.assertNotIn(str(self.root), json.dumps(page))
+
+        status, detail = self._request(
+            "GET",
+            f"/api/library/items/item:{saved['item_id']}",
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(saved["item_id"], detail["item"]["item_id"])
+        self.assertNotIn("relative_path", json.dumps(detail))
+
+        asset = saved["assets"][0]
+        status, headers, payload = self._raw_request(
+            f"/api/library/assets/item:{saved['item_id']}/{asset['asset_id']}"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("image/png", headers["Content-Type"])
+        self.assertEqual(b"saved-ocean", payload)
+
+        status, jobs = self._request(
+            "GET",
+            "/api/library/items?kind=generation_job&query=violet",
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(
+            [f"job:{job['job_id']}"],
+            [item["catalog_id"] for item in jobs["items"]],
+        )
+        status, job_detail = self._request(
+            "GET",
+            f"/api/library/items/job:{job['job_id']}",
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(job["job_id"], job_detail["job"]["job_id"])
+        status, _ = self._request(
+            "GET",
+            f"/api/library/items/{saved['item_id']}",
+        )
+        self.assertEqual(400, status)
+        for query in (
+            "unknown=x",
+            "limit=101",
+            "status=ready&status=failed",
+            "kind=not-a-kind",
+            "compatibility=imaginary",
+        ):
+            with self.subTest(query=query):
+                status, _ = self._request("GET", f"/api/library/items?{query}")
                 self.assertEqual(400, status)
 
     def test_asset_streaming_enforces_ownership_mime_and_bounded_single_ranges(self) -> None:

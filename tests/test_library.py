@@ -23,8 +23,10 @@ from am_configurator.library import (
     AssetNotFoundError,
     GeneratedAssetLibrary,
     InvalidIdentifierError,
+    LibraryCatalog,
     LibraryRootError,
     ManifestError,
+    SavedItemLibrary,
 )
 from am_configurator.server import create_server
 
@@ -1648,6 +1650,479 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         self.assertNotIn(str(self.root), rendered)
         self.assertNotIn("/Users/example", rendered)
         self.assertNotIn("C:", rendered)
+
+
+class SavedItemLibraryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.base = Path(self._tmp.name)
+        self.root = self.base / "library"
+        self.library = SavedItemLibrary(self.root, minimum_free_bytes=1)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _create_media(
+        self,
+        *,
+        name: str = "Aurora still.png",
+        tags: tuple[str, ...] = ("favorite",),
+    ) -> dict:
+        return self.library.create_item(
+            kind="media_source",
+            origin="media_import",
+            name=name,
+            tags=tags,
+            source={
+                "asset_id": "original",
+                "width": 8,
+                "height": 4,
+                "frame_count": 1,
+                "duration_ms": 0,
+            },
+            assets={
+                "original": {
+                    "kind": "source",
+                    "mime_type": "image/png",
+                    "data": b"\x89PNG\r\n\x1a\nsaved-source",
+                }
+            },
+        )
+
+    def test_saved_root_requires_configuration_and_never_uses_history_as_fallback(
+        self,
+    ) -> None:
+        historical = self.base / "historical-only"
+        missing = SavedItemLibrary(
+            None,
+            historical_roots=[historical],
+            minimum_free_bytes=1,
+        )
+        with self.assertRaisesRegex(LibraryRootError, "configured"):
+            missing.preflight()
+        self.assertFalse(historical.exists())
+        with self.assertRaisesRegex(LibraryRootError, "absolute"):
+            SavedItemLibrary(
+                Path("relative-library"),
+                minimum_free_bytes=1,
+            ).preflight()
+
+    def test_private_item_publication_is_atomic_and_manifest_owned(self) -> None:
+        item = self._create_media()
+        item_id = item["item_id"]
+        item_dir = self.root.resolve() / "items" / item_id
+        self.assertEqual(item_id, str(uuid.UUID(item_id)))
+        self.assertEqual(1, item["schema_version"])
+        self.assertEqual("ready", item["status"])
+        self.assertEqual("media_source", item["kind"])
+        self.assertIsNone(item["device"])
+        self.assertIsNone(item["composition"])
+        self.assertIsNone(item["profile"])
+        self.assertEqual("image/png", item["source"]["mime_type"])
+        self.assertEqual(
+            item["assets"][0]["asset_id"],
+            item["source"]["asset_id"],
+        )
+        self.assertEqual(
+            item["assets"][0]["sha256"],
+            item["source"]["sha256"],
+        )
+        for relative in ("manifest.json", "source", "preview", "result"):
+            self.assertTrue((item_dir / relative).exists(), relative)
+        self.assertFalse((self.root / "jobs").exists())
+        self.assertFalse(any(path.name.startswith(".item-") for path in (self.root / "items").iterdir()))
+        self.assertEqual(
+            [],
+            list(item_dir.glob(f"{library_module._ASSET_INTENT_PREFIX}*")),
+        )
+
+        if os.name != "nt":
+            for directory in (self.root, self.root / "items", item_dir):
+                self.assertEqual(0o700, stat.S_IMODE(directory.stat().st_mode))
+            self.assertEqual(
+                0o600,
+                stat.S_IMODE((item_dir / "manifest.json").stat().st_mode),
+            )
+
+        failed = SavedItemLibrary(self.base / "failed", minimum_free_bytes=1)
+        atomic_json = library_module._atomic_write_json
+
+        def fail_manifest(path: Path, value: object) -> None:
+            if path.name == "manifest.json":
+                raise OSError("publication failed")
+            atomic_json(path, value)
+
+        with patch(
+            "am_configurator.library._atomic_write_json",
+            side_effect=fail_manifest,
+        ):
+            with self.assertRaises(OSError):
+                failed.create_item(
+                    kind="media_source",
+                    origin="media_import",
+                    name="failed.png",
+                    source={
+                        "asset_id": "original",
+                        "width": 1,
+                        "height": 1,
+                        "frame_count": 1,
+                        "duration_ms": 0,
+                    },
+                    assets={
+                        "original": {
+                            "kind": "source",
+                            "mime_type": "image/png",
+                            "data": b"png",
+                        }
+                    },
+                )
+        self.assertEqual([], list((self.base / "failed" / "items").iterdir()))
+
+    def test_saved_manifest_is_exact_discriminated_and_corruption_is_isolated(self) -> None:
+        valid = self._create_media()
+        manifest_path = (
+            self.root.resolve()
+            / "items"
+            / valid["item_id"]
+            / "manifest.json"
+        )
+        unknown = copy.deepcopy(valid)
+        unknown["unexpected"] = True
+        manifest_path.write_text(json.dumps(unknown) + "\n", encoding="utf-8")
+        with self.assertRaises(ManifestError):
+            self.library.load_manifest(valid["item_id"])
+
+        manifest_path.write_text(json.dumps(valid) + "\n", encoding="utf-8")
+        corrupt_id = str(uuid.uuid4())
+        corrupt_dir = self.root / "items" / corrupt_id
+        corrupt_dir.mkdir(mode=0o700)
+        corrupt = copy.deepcopy(valid)
+        corrupt["item_id"] = corrupt_id
+        corrupt["origin"] = "manual"
+        (corrupt_dir / "manifest.json").write_text(
+            json.dumps(corrupt) + "\n",
+            encoding="utf-8",
+        )
+        malformed_id = str(uuid.uuid4())
+        malformed_dir = self.root / "items" / malformed_id
+        malformed_dir.mkdir(mode=0o700)
+        malformed = copy.deepcopy(valid)
+        malformed["item_id"] = malformed_id
+        malformed["kind"] = []
+        (malformed_dir / "manifest.json").write_text(
+            json.dumps(malformed) + "\n",
+            encoding="utf-8",
+        )
+        scanned = self.library.scan()
+        self.assertEqual([valid["item_id"]], [item["item_id"] for item in scanned["items"]])
+        errors = {error["item_id"]: error["code"] for error in scanned["errors"]}
+        self.assertEqual(
+            {
+                corrupt_id: "corrupt_manifest",
+                malformed_id: "corrupt_manifest",
+            },
+            errors,
+        )
+        self.assertNotIn(str(self.root), json.dumps(scanned))
+
+        with self.assertRaisesRegex(ManifestError, "origin"):
+            self.library.create_item(
+                kind="media_source",
+                origin="manual",
+                name="wrong.png",
+                source={
+                    "asset_id": "original",
+                    "width": 1,
+                    "height": 1,
+                    "frame_count": 1,
+                    "duration_ms": 0,
+                },
+                assets={
+                    "original": {
+                        "kind": "source",
+                        "mime_type": "image/png",
+                        "data": b"png",
+                    }
+                },
+            )
+
+    def test_saved_assets_are_resolved_by_manifest_ownership_and_hash(self) -> None:
+        item = self._create_media()
+        record = item["assets"][0]
+        owned = self.library.resolve_asset(item["item_id"], record["asset_id"])
+        with owned.open_verified() as stream:
+            self.assertEqual(b"\x89PNG\r\n\x1a\nsaved-source", stream.read())
+        with self.assertRaises(AssetNotFoundError):
+            self.library.resolve_asset(item["item_id"], str(uuid.uuid4()))
+        with self.assertRaises(InvalidIdentifierError):
+            self.library.resolve_asset("../escape", record["asset_id"])
+
+    def test_all_saved_item_discriminators_resolve_server_owned_asset_labels(self) -> None:
+        device = {
+            "product_id": "NEON80",
+            "family": "NEON",
+            "product_label": "AM Neon 80",
+            "keymap_signature": "keymap-v1",
+            "lighting_signature": "lighting-v1",
+        }
+        profile = self.library.create_item(
+            kind="keyboard_profile",
+            origin="json_import",
+            name="Neon profile",
+            device=device,
+            profile={
+                "asset_id": "configuration",
+                "sections": ["identity", "keymap", "macros", "lighting"],
+            },
+            assets={
+                "configuration": {
+                    "kind": "profile",
+                    "mime_type": "application/json",
+                    "data": b'{"product_info":{"product_id":"NEON80"}}',
+                }
+            },
+        )
+        self.assertEqual(
+            profile["profile"]["asset_id"],
+            profile["assets"][0]["asset_id"],
+        )
+        self.assertEqual(
+            "application/json",
+            profile["profile"]["mime_type"],
+        )
+
+        composition = self.library.create_item(
+            kind="lighting_composition",
+            origin="manual",
+            name="Neon paint",
+            device=device,
+            composition={
+                "schema_version": 1,
+                "source_catalog_id": None,
+                "transform": None,
+                "effects": [],
+                "manual_overrides": [],
+                "destination": {"target": "frames", "width": 20, "height": 5},
+                "tracks": {"frames": 4},
+                "rendered_asset_id": "result",
+                "preview_asset_id": "preview",
+            },
+            assets={
+                "result": {
+                    "kind": "result",
+                    "mime_type": "application/json",
+                    "data": b'{"tracks":{}}',
+                },
+                "preview": {
+                    "kind": "preview",
+                    "mime_type": "image/png",
+                    "data": b"preview",
+                },
+            },
+        )
+        by_kind = {asset["kind"]: asset for asset in composition["assets"]}
+        self.assertEqual(
+            by_kind["result"]["asset_id"],
+            composition["composition"]["rendered_asset_id"],
+        )
+        self.assertEqual(
+            by_kind["preview"]["asset_id"],
+            composition["composition"]["preview_asset_id"],
+        )
+
+        with self.assertRaisesRegex(ManifestError, "unreferenced"):
+            self.library.create_item(
+                kind="lighting_composition",
+                origin="manual",
+                name="Invalid composition",
+                device=device,
+                composition={
+                    "schema_version": 1,
+                    "source_catalog_id": None,
+                    "transform": None,
+                    "effects": [],
+                    "manual_overrides": [],
+                    "destination": {"target": "frames"},
+                    "tracks": {"frames": 1},
+                    "rendered_asset_id": "result",
+                    "preview_asset_id": None,
+                },
+                assets={
+                    "result": {
+                        "kind": "result",
+                        "mime_type": "application/json",
+                        "data": b"{}",
+                    },
+                    "unused": {
+                        "kind": "preview",
+                        "mime_type": "image/png",
+                        "data": b"unused",
+                    },
+                },
+            )
+
+    def test_historical_items_are_scanned_and_duplicate_ids_are_isolated(self) -> None:
+        historical_root = self.base / "historical"
+        historical_library = SavedItemLibrary(
+            historical_root,
+            minimum_free_bytes=1,
+        )
+        historical = historical_library.create_item(
+            kind="media_source",
+            origin="media_import",
+            name="Historical.gif",
+            source={
+                "asset_id": "original",
+                "width": 2,
+                "height": 1,
+                "frame_count": 2,
+                "duration_ms": 200,
+            },
+            assets={
+                "original": {
+                    "kind": "source",
+                    "mime_type": "image/gif",
+                    "data": b"GIF89a-historical",
+                }
+            },
+        )
+        mixed = SavedItemLibrary(
+            self.root,
+            historical_roots=[historical_root],
+            minimum_free_bytes=1,
+        )
+        mixed.preflight()
+        first_scan = mixed.scan()
+        self.assertEqual(
+            [historical["item_id"]],
+            [item["item_id"] for item in first_scan["items"]],
+        )
+
+        shutil.copytree(
+            historical_root / "items" / historical["item_id"],
+            self.root / "items" / historical["item_id"],
+        )
+        duplicate_scan = mixed.scan()
+        self.assertEqual(1, len(duplicate_scan["items"]))
+        self.assertEqual("duplicate_item", duplicate_scan["errors"][0]["code"])
+        self.assertNotIn(str(self.root), json.dumps(duplicate_scan))
+
+    def test_saved_item_windows_depth_probe_uses_and_cleans_items_layout(self) -> None:
+        root = self.base / "depth-probe"
+        (root / "items").mkdir(parents=True)
+        library_module._run_windows_path_depth_probe(root, "items")
+        self.assertEqual([], list((root / "items").iterdir()))
+
+
+class LibraryCatalogTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name) / "library"
+        self.jobs = GeneratedAssetLibrary(self.root, minimum_free_bytes=1)
+        self.saved = SavedItemLibrary(self.root, minimum_free_bytes=1)
+        self.catalog = LibraryCatalog(self.jobs, self.saved)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_mixed_catalog_namespaces_jobs_and_items_without_reconciling(self) -> None:
+        job = self.jobs.create_job(
+            prompt="Violet legacy pulse",
+            target={
+                "family": "CB",
+                "product_id": "CB_TEST",
+                "product_label": "Test board",
+                "raster": {"width": 20, "height": 5},
+                "targets": ["frames"],
+            },
+            models={
+                "interpreter": "test",
+                "concept": "test",
+                "video": "test",
+            },
+            loop_mode="smooth",
+        )
+        job = self.jobs.update_manifest(
+            job["job_id"],
+            {"status": "ready", "phase": "ready"},
+        )
+        saved = self.saved.create_item(
+            kind="media_source",
+            origin="media_import",
+            name="Ocean still.png",
+            tags=("blue", "favorite"),
+            source={
+                "asset_id": "original",
+                "width": 2,
+                "height": 2,
+                "frame_count": 1,
+                "duration_ms": 0,
+            },
+            assets={
+                "original": {
+                    "kind": "source",
+                    "mime_type": "image/png",
+                    "data": b"ocean",
+                }
+            },
+        )
+        job_manifest_path = self.root / "jobs" / job["job_id"] / "manifest.json"
+        before = job_manifest_path.read_bytes()
+
+        scanned = self.catalog.scan()
+        self.assertEqual(2, len(scanned["items"]))
+        by_id = {item["catalog_id"]: item for item in scanned["items"]}
+        job_id = f"job:{job['job_id']}"
+        item_id = f"item:{saved['item_id']}"
+        self.assertEqual("generation_job", by_id[job_id]["kind"])
+        self.assertEqual("Violet legacy pulse", by_id[job_id]["name"])
+        self.assertEqual("media_source", by_id[item_id]["kind"])
+        self.assertEqual("Ocean still.png", by_id[item_id]["name"])
+        self.assertNotIn(str(self.root), json.dumps(scanned))
+        self.assertEqual(before, job_manifest_path.read_bytes())
+
+        first_page = self.catalog.page(page=1, limit=1)
+        second_page = self.catalog.page(page=2, limit=1)
+        self.assertEqual(2, first_page["total"])
+        self.assertTrue(first_page["has_more"])
+        self.assertFalse(second_page["has_more"])
+        self.assertNotEqual(
+            first_page["items"][0]["catalog_id"],
+            second_page["items"][0]["catalog_id"],
+        )
+
+        job_detail = self.catalog.get(job_id)
+        item_detail = self.catalog.get(item_id)
+        self.assertEqual(job["job_id"], job_detail["job"]["job_id"])
+        self.assertEqual(saved["item_id"], item_detail["item"]["item_id"])
+        with self.assertRaises(InvalidIdentifierError):
+            self.catalog.get(saved["item_id"])
+
+        page = self.catalog.page(
+            page=1,
+            limit=10,
+            statuses={"ready"},
+            kind="media_source",
+            compatibility="unknown",
+            query="favorite",
+        )
+        self.assertEqual(1, page["total"])
+        self.assertEqual(item_id, page["items"][0]["catalog_id"])
+        legacy_page = self.catalog.page(
+            page=1,
+            limit=10,
+            statuses={"ready"},
+            kind="generation_job",
+            query="violet",
+        )
+        self.assertEqual([job_id], [item["catalog_id"] for item in legacy_page["items"]])
+
+        resolved = self.catalog.resolve_asset(
+            item_id,
+            saved["assets"][0]["asset_id"],
+        )
+        with resolved.open_verified() as stream:
+            self.assertEqual(b"ocean", stream.read())
 
 
 if __name__ == "__main__":

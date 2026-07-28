@@ -138,7 +138,7 @@
   compile/syntax checks, and package builds.
 - The owner-approved unified Lighting implementation in
   `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` is
-  active. Slices 2-8 are complete. Catalog schema 2 names the six fixed API
+  active. Slices 2-9 are complete. Catalog schema 2 names the six fixed API
   providers; settings schema 6 preserves the complete xAI record through a
   credential-free v5 migration; provider-scoped vault operations, environment
   overrides, disclosure records, setup fingerprints, capability caches, and
@@ -189,13 +189,28 @@
   rejects media/compositor fields, and renders recipes directly at the
   destination raster and frame ceiling before mapping. The detached generation
   dialog and `lighting/create` route are gone. Exact-target, Settings, and
-  hidden-tool/job-strip guards were red-proven. The full gate passes 621 Python
-  tests, 59 web tests, compile/syntax checks, and source/wheel builds. The heavy
+  hidden-tool/job-strip guards were red-proven. Saved-item schema 1 now
+  discriminates media sources, lighting compositions, and keyboard profiles;
+  publishes their private item directories, asset intents, hashes, and
+  manifest atomically; scans current and historical roots with corruption and
+  duplicate isolation; and resolves assets only through manifest ownership.
+  `LibraryCatalog` projects saved items plus unchanged generation jobs through
+  namespaced catalog IDs, pathless detail, pagination, status/kind/
+  compatibility filters, and bounded search. Authenticated
+  `/api/library/items` and `/api/library/assets/...` reads are additive; legacy
+  generation and job-Library routes remain unchanged. Storage, catalog,
+  pagination, root, discriminator, duplicate/corruption, asset, API, and
+  regression guards were red-proven. A clean full gate passes 630 Python tests,
+  59 web tests, compile/syntax checks, and source/wheel builds. An initial full
+  pass also exposed the existing procedural cancel-order race when the worker
+  persisted `cancelled` between the gate signal and cancel-request manifest
+  update; the test passed in isolation and on the clean full rerun, so a
+  deterministic race guard and ordering fix is the immediate follow-up before
+  slice 10. The heavy
   procedural recovery fixture uses the production 180-second operation
   deadline instead of a flaky 30-second test-only override. No real provider
   request, credential mutation, Keychain prompt, model mutation/download,
-  hardware write, push, or release occurred. Next action is slice 9, generic
-  saved-item storage and the mixed Library catalog. Local
+  hardware write, push, or release occurred. Local
   `main` remains unpublished; the push policy requires a fresh explicit owner
   go.
 
