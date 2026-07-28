@@ -62,6 +62,7 @@ from am_configurator.macros import macro_frames, parse_macro_frames
 from am_configurator.writer import car_light_data_frames, car_light_info_frames
 from am_configurator import ai_catalog, credentials, device_mapping, llm, server, store
 from am_configurator import generation, media_composition
+from build_tools.release_info import project_version
 from am_configurator.library import (
     GeneratedAssetLibrary,
     LibraryRootError,
@@ -424,7 +425,13 @@ class DesktopServerTests(unittest.TestCase):
             (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         )
 
-        self.assertEqual(metadata["project"]["version"], __version__)
+        self.assertNotIn("version", metadata["project"])
+        self.assertEqual(["version"], metadata["project"]["dynamic"])
+        self.assertEqual(
+            "am_configurator/_version.py",
+            metadata["tool"]["hatch"]["version"]["path"],
+        )
+        self.assertEqual(project_version(ROOT), __version__)
         self.assertEqual(
             "am_configurator.desktop:main",
             metadata["project"]["gui-scripts"]["am-configurator"],
