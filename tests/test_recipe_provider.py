@@ -9,6 +9,7 @@ from am_configurator.ollama_client import OllamaModel
 from am_configurator.recipe_inference import build_ollama_recipe_payload
 from am_configurator.recipe_provider import (
     AnthropicRecipeProvider,
+    DeepSeekRecipeProvider,
     GeminiRecipeProvider,
     KimiRecipeProvider,
     OllamaRecipeProvider,
@@ -168,6 +169,34 @@ def _kimi_response(
                     "content": json.dumps(recipe),
                     "reasoning_content": "provider-private-reasoning",
                 },
+            }
+        ],
+    }
+    if usage is not None:
+        response["usage"] = usage
+    return response
+
+
+def _deepseek_response(
+    recipe: dict,
+    *,
+    finish_reason: str = "stop",
+    usage: dict | None = None,
+) -> dict:
+    response = {
+        "id": "deepseek_test",
+        "object": "chat.completion",
+        "model": "deepseek-v4-pro",
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": finish_reason,
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps(recipe),
+                    "reasoning_content": None,
+                },
+                "logprobs": None,
             }
         ],
     }
@@ -1008,6 +1037,221 @@ class KimiRecipeProviderTests(unittest.TestCase):
                     "prompt_tokens": 100,
                     "completion_tokens": 20,
                     "cached_tokens": 0,
+                },
+            ),
+        )
+        with self.assertRaises(llm.ProviderError) as late:
+            post_call.generate(
+                _request(),
+                time.monotonic() + 10,
+                lambda: next(checks),
+            )
+        self.assertEqual("unavailable", late.exception.code)
+        self.assertTrue(late.exception.usage.reported)
+
+
+class DeepSeekRecipeProviderTests(unittest.TestCase):
+    def test_current_catalog_and_one_chat_call_use_json_object_contract(
+        self,
+    ) -> None:
+        catalog = ai_catalog.catalog_view()["providers"]["deepseek"]
+        self.assertEqual("deepseek-v4-pro", catalog["default_model"])
+        self.assertEqual(
+            ["deepseek-v4-pro", "deepseek-v4-flash"],
+            [model["id"] for model in catalog["models"]],
+        )
+        self.assertEqual(
+            ["disabled", "disabled"],
+            [model["thinking"] for model in catalog["models"]],
+        )
+        self.assertEqual(
+            155_904_000,
+            ai_catalog.recipe_max_cost_usd_ticks(
+                "deepseek",
+                "deepseek-v4-pro",
+            ),
+        )
+
+        calls: list[tuple] = []
+        usage = {
+            "prompt_tokens": 1000,
+            "completion_tokens": 250,
+            "total_tokens": 1250,
+            "prompt_cache_hit_tokens": 300,
+            "prompt_cache_miss_tokens": 700,
+            "completion_tokens_details": {"reasoning_tokens": 0},
+        }
+
+        def transport(spec, payload, api_key, deadline):
+            calls.append((spec, payload, api_key, deadline))
+            return _deepseek_response(_recipe(), usage=usage)
+
+        provider = DeepSeekRecipeProvider(
+            "deepseek-private",
+            transport=transport,
+        )
+        result = provider.generate(_request(), time.monotonic() + 10, lambda: False)
+
+        self.assertEqual(1, len(calls))
+        spec, payload, api_key, _deadline = calls[0]
+        self.assertIs(llm.DEEPSEEK_CHAT_COMPLETIONS_TRANSPORT, spec)
+        self.assertEqual("deepseek-private", api_key)
+        self.assertEqual("deepseek-v4-pro", payload["model"])
+        self.assertIs(payload["stream"], False)
+        self.assertEqual(1536, payload["max_tokens"])
+        self.assertEqual({"type": "json_object"}, payload["response_format"])
+        self.assertEqual({"type": "disabled"}, payload["thinking"])
+        self.assertNotIn("reasoning_effort", payload)
+        self.assertIn("json", payload["messages"][0]["content"].lower())
+        self.assertIn('"schema_version":1', payload["messages"][0]["content"])
+        self.assertEqual(
+            {"role": "user", "content": _request().prompt},
+            payload["messages"][1],
+        )
+        self.assertEqual(_recipe(), result.recipe)
+        self.assertEqual("api", result.backend)
+        self.assertEqual("deepseek", result.provider)
+        self.assertEqual("deepseek-v4-pro", result.model_id)
+        self.assertEqual({"cost_in_usd_ticks": 5_230_875}, result.usage)
+
+    def test_missing_usage_succeeds_and_malformed_usage_fails_once(self) -> None:
+        calls = 0
+        responses = iter(
+            (
+                _deepseek_response(_recipe()),
+                _deepseek_response(
+                    _recipe(),
+                    usage={
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "prompt_cache_hit_tokens": 4,
+                        "prompt_cache_miss_tokens": 5,
+                    },
+                ),
+            )
+        )
+
+        def transport(*_args):
+            nonlocal calls
+            calls += 1
+            return next(responses)
+
+        provider = DeepSeekRecipeProvider(
+            "deepseek-private",
+            transport=transport,
+        )
+        result = provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertIsNone(result.usage)
+
+        with self.assertRaises(llm.ProviderError) as captured:
+            provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertEqual("bad_response", captured.exception.code)
+        self.assertEqual(2, calls)
+        self.assertNotIn("deepseek-private", str(captured.exception))
+
+    def test_finish_states_are_typed_and_never_retry_or_leak_body_text(
+        self,
+    ) -> None:
+        usage = {
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "prompt_cache_hit_tokens": 0,
+            "prompt_cache_miss_tokens": 100,
+        }
+        for finish_reason, code in (
+            ("length", "bad_response"),
+            ("content_filter", "moderation"),
+            ("insufficient_system_resource", "unavailable"),
+        ):
+            response = _deepseek_response(
+                _recipe(),
+                finish_reason=finish_reason,
+                usage=usage,
+            )
+            response["provider_error"] = "provider-body-secret"
+            calls = 0
+
+            def transport(*_args):
+                nonlocal calls
+                calls += 1
+                return response
+
+            provider = DeepSeekRecipeProvider(
+                "deepseek-private",
+                transport=transport,
+            )
+            with self.subTest(finish_reason=finish_reason):
+                with self.assertRaises(llm.ProviderError) as captured:
+                    provider.generate(
+                        _request(),
+                        time.monotonic() + 10,
+                        lambda: False,
+                    )
+                self.assertEqual(code, captured.exception.code)
+                self.assertEqual(1, calls)
+                self.assertTrue(captured.exception.usage.reported)
+                self.assertNotIn("provider-body-secret", str(captured.exception))
+
+    def test_cancellation_ambiguity_and_invalid_recipe_never_retry(self) -> None:
+        calls = 0
+
+        def invalid_transport(*_args):
+            nonlocal calls
+            calls += 1
+            return _deepseek_response(
+                {"provider-body-secret": "never expose this"},
+                usage={
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "prompt_cache_hit_tokens": 0,
+                    "prompt_cache_miss_tokens": 100,
+                },
+            )
+
+        provider = DeepSeekRecipeProvider(
+            "deepseek-private",
+            transport=invalid_transport,
+        )
+        with self.assertRaises(llm.ProviderError) as cancelled:
+            provider.generate(_request(), time.monotonic() + 10, lambda: True)
+        self.assertEqual("unavailable", cancelled.exception.code)
+        self.assertEqual(0, calls)
+
+        with self.assertRaises(llm.ProviderError) as invalid:
+            provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertEqual("bad_response", invalid.exception.code)
+        self.assertEqual(1, calls)
+        self.assertNotIn("provider-body-secret", str(invalid.exception))
+
+        ambiguous_response = _deepseek_response(
+            _recipe(),
+            usage={
+                "prompt_tokens": 100,
+                "completion_tokens": 20,
+                "prompt_cache_hit_tokens": 0,
+                "prompt_cache_miss_tokens": 100,
+            },
+        )
+        ambiguous_response["choices"].append(
+            dict(ambiguous_response["choices"][0])
+        )
+        with self.assertRaises(llm.ProviderError) as ambiguous:
+            DeepSeekRecipeProvider(
+                "deepseek-private",
+                transport=lambda *_args: ambiguous_response,
+            ).generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertEqual("bad_response", ambiguous.exception.code)
+
+        checks = iter((False, True))
+        post_call = DeepSeekRecipeProvider(
+            "deepseek-private",
+            transport=lambda *_args: _deepseek_response(
+                _recipe(),
+                usage={
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "prompt_cache_hit_tokens": 0,
+                    "prompt_cache_miss_tokens": 100,
                 },
             ),
         )

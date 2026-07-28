@@ -16,6 +16,7 @@ ANTHROPIC_PRICING_AS_OF = "2026-07-27"
 OPENAI_PRICING_AS_OF = "2026-07-27"
 GEMINI_PRICING_AS_OF = "2026-07-27"
 MOONSHOT_PRICING_AS_OF = "2026-07-27"
+DEEPSEEK_PRICING_AS_OF = "2026-07-27"
 USD_TICKS_PER_DOLLAR = 10_000_000_000
 RECIPE_API_MAX_INPUT_TOKENS = 32_768
 RECIPE_API_MAX_OUTPUT_TOKENS = 1536
@@ -179,6 +180,39 @@ _KIMI_MODELS = [
     },
 ]
 
+# Verified 2026-07-27 against DeepSeek's first-party model/pricing, JSON
+# output, thinking-mode, and Chat Completions pages:
+# https://api-docs.deepseek.com/quick_start/pricing
+# https://api-docs.deepseek.com/guides/json_mode
+# https://api-docs.deepseek.com/guides/thinking_mode
+# https://api-docs.deepseek.com/api/create-chat-completion
+_DEEPSEEK_MODELS = [
+    {
+        "id": "deepseek-v4-pro",
+        "label": "DeepSeek V4 Pro",
+        "pricing": {
+            "input_per_million_tokens_usd_ticks": 4_350_000_000,
+            "cached_input_per_million_tokens_usd_ticks": 36_250_000,
+            "output_per_million_tokens_usd_ticks": 8_700_000_000,
+        },
+        "pricing_as_of": DEEPSEEK_PRICING_AS_OF,
+        "max_output_tokens": RECIPE_API_MAX_OUTPUT_TOKENS,
+        "thinking": "disabled",
+    },
+    {
+        "id": "deepseek-v4-flash",
+        "label": "DeepSeek V4 Flash",
+        "pricing": {
+            "input_per_million_tokens_usd_ticks": 1_400_000_000,
+            "cached_input_per_million_tokens_usd_ticks": 28_000_000,
+            "output_per_million_tokens_usd_ticks": 2_800_000_000,
+        },
+        "pricing_as_of": DEEPSEEK_PRICING_AS_OF,
+        "max_output_tokens": RECIPE_API_MAX_OUTPUT_TOKENS,
+        "thinking": "disabled",
+    },
+]
+
 
 def _provider(
     label: str,
@@ -226,7 +260,12 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
         default_model="kimi-k3",
         models=_KIMI_MODELS,
     ),
-    "deepseek": _provider("DeepSeek", "json_object"),
+    "deepseek": _provider(
+        "DeepSeek",
+        "json_object",
+        default_model="deepseek-v4-pro",
+        models=_DEEPSEEK_MODELS,
+    ),
 }
 
 # Temporary compatibility aliases for the existing xAI adapter. Provider

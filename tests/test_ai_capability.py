@@ -496,6 +496,51 @@ class CapabilityTests(unittest.TestCase):
 
         self.assertIsInstance(provider, KimiRecipeProvider)
 
+    def test_deepseek_setup_and_generation_share_one_registry_identity(self) -> None:
+        self.settings["ai"].update({"enabled": True, "backend": "api"})
+        self.settings["ai"]["api"]["selected_provider"] = "deepseek"
+        api = self._selected_api()
+        api.update(
+            {
+                "model_id": "deepseek-v4-pro",
+                "disclosure_version": ai_catalog.provider_disclosure_version(
+                    "deepseek"
+                ),
+                "disclosure_at": "2026-07-27T12:00:00+00:00",
+            }
+        )
+        self.credential = "deepseek-private"
+        provider = _Provider()
+        service = self._service(provider=provider)
+
+        self.assertEqual("setup_required", service.status()["reason"])
+        status = service.test_backend(
+            "api",
+            deadline=time.monotonic() + 10,
+            cancelled=lambda: False,
+        )
+
+        self.assertTrue(status["ready"])
+        self.assertEqual("deepseek", status["api"]["provider"])
+        self.assertEqual("deepseek-v4-pro", status["api"]["model_id"])
+        self.assertEqual(1, provider.calls)
+        self.assertIs(provider, service.provider_for_generation())
+        self.assertEqual(
+            ("fingerprint", "api", "deepseek", api["setup_fingerprint"]),
+            self.writes[-1],
+        )
+
+    def test_default_registry_constructs_the_deepseek_adapter(self) -> None:
+        from am_configurator.recipe_provider import DeepSeekRecipeProvider
+
+        provider = AICapabilityService._default_api_provider(
+            "deepseek",
+            "deepseek-private",
+            "deepseek-v4-pro",
+        )
+
+        self.assertIsInstance(provider, DeepSeekRecipeProvider)
+
     def test_capability_polling_has_no_managed_model_or_runtime_path(self) -> None:
         source = inspect.getsource(ai_capability)
         for forbidden in (

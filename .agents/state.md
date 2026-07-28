@@ -138,7 +138,7 @@
   compile/syntax checks, and package builds.
 - The owner-approved unified Lighting implementation in
   `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` is
-  active. Slices 2-6 are complete. Catalog schema 2 names the six fixed API
+  active. Slices 2-7 are complete. Catalog schema 2 names the six fixed API
   providers; settings schema 6 preserves the complete xAI record through a
   credential-free v5 migration; provider-scoped vault operations, environment
   overrides, disclosure records, setup fingerprints, capability caches, and
@@ -173,12 +173,20 @@
   local recipe validation, cache-aware dated usage-cost estimation, and shared
   setup/generation registry wiring. Its request, transport, cached usage,
   completion, ambiguity, cancellation, one-paid-request, and no-retry guards
-  were red-proven. The full gate passes 613 Python tests, 57 web tests,
-  compile/syntax checks, and source/wheel builds. The heavy
+  were red-proven. DeepSeek now has curated V4 Pro and V4 Flash choices, one
+  pinned Chat Completions request with JSON-object mode and the shared compact
+  schema-shaped example, explicit disabled thinking, exact-one-choice handling,
+  complete local recipe validation, typed content-filter/resource/stop
+  outcomes, cache-hit/miss dated usage-cost estimation, and shared
+  setup/generation registry wiring. Its provider isolation, request, transport,
+  cache-split usage, finish states, ambiguity, cancellation, one-paid-request,
+  and no-retry guards were red-proven. The full gate passes 619 Python tests, 57
+  web tests, compile/syntax checks, and source/wheel builds. The heavy
   procedural recovery fixture uses the production 180-second operation
   deadline instead of a flaky 30-second test-only override. No real provider
   request, credential mutation, Keychain prompt, model mutation, or hardware
-  write occurred. Next action is slice 7, the DeepSeek recipe adapter. Local
+  write occurred. Next action is slice 8, provider Settings and exact-target AI
+  Studio integration. Local
   `main` remains unpublished; the push policy requires a fresh explicit owner
   go.
 

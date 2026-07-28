@@ -43,6 +43,10 @@ MOONSHOT_API_HOST = "api.moonshot.ai"
 MOONSHOT_CHAT_COMPLETIONS_URL = (
     "https://api.moonshot.ai/v1/chat/completions"
 )
+DEEPSEEK_API_HOST = "api.deepseek.com"
+DEEPSEEK_CHAT_COMPLETIONS_URL = (
+    "https://api.deepseek.com/chat/completions"
+)
 
 # Stable ProviderError codes (design §Typed errors), each mapped to a local
 # HTTP status by the server. Listed here as the contract of record.
@@ -103,6 +107,15 @@ MOONSHOT_CHAT_COMPLETIONS_TRANSPORT = ProviderTransportSpec(
     host=MOONSHOT_API_HOST,
     auth_header="Authorization",
     auth_prefix="Bearer ",
+)
+
+DEEPSEEK_CHAT_COMPLETIONS_TRANSPORT = ProviderTransportSpec(
+    provider="deepseek",
+    url=DEEPSEEK_CHAT_COMPLETIONS_URL,
+    host=DEEPSEEK_API_HOST,
+    auth_header="Authorization",
+    auth_prefix="Bearer ",
+    path_prefix="/chat/",
 )
 
 
