@@ -65,8 +65,13 @@ class NeonTransport:
 
     def _session(self, address: str):
         info = hid_transport.find(address)
-        return hid_transport.open_approved(
-            hid_transport.approve_write(info, info.model or "")
+        vial_protocol = int(info.protocol_version)
+        vial_keymap.macro_keycode_base(vial_protocol)
+        return (
+            hid_transport.open_approved(
+                hid_transport.approve_write(info, info.model or "")
+            ),
+            vial_protocol,
         )
 
     def read_keymap(self, address: str, *, layers: int) -> list[list[str]]:
@@ -77,10 +82,12 @@ class NeonTransport:
         buffer.
         """
 
-        session = self._session(address)
+        session, vial_protocol = self._session(address)
         try:
             return vial_keymap.read_keymap(
-                session, keys_per_layer=NEON_KEYS_PER_LAYER
+                session,
+                keys_per_layer=NEON_KEYS_PER_LAYER,
+                vial_protocol=vial_protocol,
             )
         finally:
             session.close()
@@ -91,7 +98,7 @@ class NeonTransport:
     def read_macro_state(self, address: str) -> transport.MacroReadResult:
         """Read the macro table and retain the limits reported with it."""
 
-        session = self._session(address)
+        session, _ = self._session(address)
         try:
             capacity = vial_macros.read_capacity(session)
             slots = vial_macros.read_macros(session, capacity=capacity)
@@ -110,7 +117,7 @@ class NeonTransport:
             session.close()
 
     def write_macros(self, address: str, entries: list[dict[str, Any]]) -> Any:
-        session = self._session(address)
+        session, _ = self._session(address)
         try:
             return vial_macros.write_macros(session, entries)
         finally:
@@ -171,7 +178,7 @@ class NeonTransport:
         layer_data = (config.get("key_layer") or {}).get("layer_data") or []
         return [entry.get("layer", []) for entry in layer_data]
 
-    def preflight(self, session, config: dict[str, Any]):
+    def preflight(self, session, config: dict[str, Any], *, vial_protocol: int):
         """Validate everything that can be validated before any byte is sent.
 
         The three writes are not one transaction and cannot be made one, so this
@@ -184,7 +191,11 @@ class NeonTransport:
         layers = self._keymap_layers(config)
         # Encode now and reuse the bytes, so the keymap that was validated is
         # exactly the keymap transmitted.
-        keymap = vial_keymap.encode_layers(layers) if layers else b""
+        keymap = (
+            vial_keymap.encode_layers(layers, vial_protocol=vial_protocol)
+            if layers
+            else b""
+        )
 
         macros = config.get("macro_key") or []
         capacity = vial_macros.read_capacity(session)
@@ -209,16 +220,24 @@ class NeonTransport:
         unapplied while the write reported success.
         """
 
-        session = self._session(address)
+        session, vial_protocol = self._session(address)
         try:
-            plans, keymap, macros, capacity = self.preflight(session, config)
+            plans, keymap, macros, capacity = self.preflight(
+                session,
+                config,
+                vial_protocol=vial_protocol,
+            )
 
             sent = 0
             for plan in plans:
                 sent += neon_lighting.push(session, plan)
 
             if keymap:
-                vial_keymap.write_keymap(session, self._keymap_layers(config))
+                vial_keymap.write_keymap(
+                    session,
+                    self._keymap_layers(config),
+                    vial_protocol=vial_protocol,
+                )
             if macros:
                 vial_macros.write_macros(session, macros, capacity=capacity)
         finally:

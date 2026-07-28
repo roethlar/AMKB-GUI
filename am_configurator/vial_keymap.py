@@ -65,10 +65,15 @@ KC_NO = 0x0000
 CODE_NO = "#00000000"
 
 # Application macro tokens. #009515NN references macro slot NN, and the device
-# has sixteen slots. QMK's Vial macro keycodes start at QK_MACRO.
+# has sixteen slots. Vial's QMK keycode map changed at protocol 6: the Neon
+# reports protocol 5 and therefore uses the legacy 0x5F12 base, while protocol
+# 6 uses QK_MACRO at 0x7700. Treating those as one timeless value writes a
+# perfectly readable but inert trigger key.
 MACRO_TOKEN_PAGE = 0x95
 MACRO_TOKEN_PREFIX = 0x15
-QK_MACRO_BASE = 0x7700
+QK_MACRO_BASE_V5 = 0x5F12
+QK_MACRO_BASE_V6 = 0x7700
+DEFAULT_VIAL_PROTOCOL = 6
 MACRO_SLOTS = 16
 
 
@@ -83,6 +88,10 @@ class UnsupportedKeycode(ValueError):
         super().__init__(f"{code} cannot be written to this keyboard: {reason}")
         self.code = code
         self.reason = reason
+
+
+class UnsupportedVialProtocol(ValueError):
+    """A Vial keycode-map version this build cannot translate safely."""
 
 
 @dataclass(frozen=True)
@@ -102,6 +111,27 @@ def parse_code(code: str) -> CodeParts:
 
 def format_code(parts: CodeParts) -> str:
     return f"#{parts.modifier:02X}{parts.page:02X}{parts.usage:04X}"
+
+
+def macro_keycode_base(vial_protocol: int) -> int:
+    """Return the macro-key range for one Vial keycode protocol.
+
+    Vial GUI uses the legacy keycode table for protocols 1–5 and the current
+    table for protocol 6. Unknown future versions fail closed: guessing would
+    recreate the false-verification defect this distinction fixes.
+    """
+
+    if not isinstance(vial_protocol, int) or isinstance(vial_protocol, bool):
+        raise UnsupportedVialProtocol(
+            f"Vial protocol {vial_protocol!r} is not a supported keycode map."
+        )
+    if 1 <= vial_protocol <= 5:
+        return QK_MACRO_BASE_V5
+    if vial_protocol == 6:
+        return QK_MACRO_BASE_V6
+    raise UnsupportedVialProtocol(
+        f"Vial protocol {vial_protocol} uses an unknown keycode map. Nothing was sent."
+    )
 
 
 def _qmk_mods(modifier: int, code: str) -> int:
@@ -134,10 +164,11 @@ def _qmk_mods(modifier: int, code: str) -> int:
     return mods
 
 
-def to_qmk(code: str) -> int:
+def to_qmk(code: str, *, vial_protocol: int = DEFAULT_VIAL_PROTOCOL) -> int:
     """Translate one application keycode to a 16-bit QMK keycode."""
 
     parts = parse_code(code)
+    macro_base = macro_keycode_base(vial_protocol)
 
     if code.upper() == CODE_NO:
         return KC_NO
@@ -152,14 +183,14 @@ def to_qmk(code: str) -> int:
             )
         if parts.modifier:
             raise UnsupportedKeycode(code, "a macro reference takes no modifier")
-        return QK_MACRO_BASE + slot
+        return macro_base + slot
 
     if parts.page == QMK_PASSTHROUGH_PAGE:
         if parts.modifier:
             raise UnsupportedKeycode(
                 code, "a raw QMK keycode carries its own modifiers already"
             )
-        natural = from_qmk(parts.usage)
+        natural = from_qmk(parts.usage, vial_protocol=vial_protocol)
         if not natural.startswith(f"#{0:02X}{QMK_PASSTHROUGH_PAGE:02X}"):
             raise UnsupportedKeycode(
                 code,
@@ -191,7 +222,7 @@ def to_qmk(code: str) -> int:
     return (mods << 8) | parts.usage
 
 
-def from_qmk(value: int) -> str:
+def from_qmk(value: int, *, vial_protocol: int = DEFAULT_VIAL_PROTOCOL) -> str:
     """Translate a 16-bit QMK keycode back to an application keycode.
 
     Total: every 16-bit value has a representation, because a keyboard's own
@@ -203,12 +234,13 @@ def from_qmk(value: int) -> str:
 
     if not 0 <= value <= 0xFFFF:
         raise ValueError(f"{value!r} is not a 16-bit keycode.")
+    macro_base = macro_keycode_base(vial_protocol)
 
     if value == KC_NO:
         return CODE_NO
 
-    if QK_MACRO_BASE <= value < QK_MACRO_BASE + MACRO_SLOTS:
-        slot = value - QK_MACRO_BASE
+    if macro_base <= value < macro_base + MACRO_SLOTS:
+        slot = value - macro_base
         return f"#00{MACRO_TOKEN_PAGE:02X}{MACRO_TOKEN_PREFIX:02X}{slot:02X}"
 
     usage = value & 0xFF
@@ -243,17 +275,21 @@ def from_qmk(value: int) -> str:
     return format_code(CodeParts(modifier=modifier, page=HID_KEYBOARD_PAGE, usage=usage))
 
 
-def is_representable(code: str) -> bool:
+def is_representable(
+    code: str, *, vial_protocol: int = DEFAULT_VIAL_PROTOCOL
+) -> bool:
     """Whether a code survives translation. Never raises."""
 
     try:
-        to_qmk(code)
+        to_qmk(code, vial_protocol=vial_protocol)
     except (UnsupportedKeycode, ValueError):
         return False
     return True
 
 
-def unsupported_codes(layers: list[list[str]]) -> list[tuple[int, int, str, str]]:
+def unsupported_codes(
+    layers: list[list[str]], *, vial_protocol: int = DEFAULT_VIAL_PROTOCOL
+) -> list[tuple[int, int, str, str]]:
     """Every code in a keymap that cannot be written, with where it sits.
 
     Returns `(layer, index, code, reason)`. A stored profile is allowed to hold
@@ -265,7 +301,7 @@ def unsupported_codes(layers: list[list[str]]) -> list[tuple[int, int, str, str]
     for layer_index, layer in enumerate(layers):
         for key_index, code in enumerate(layer):
             try:
-                to_qmk(code)
+                to_qmk(code, vial_protocol=vial_protocol)
             except UnsupportedKeycode as error:
                 problems.append((layer_index, key_index, error.code, error.reason))
             except ValueError:
@@ -273,7 +309,9 @@ def unsupported_codes(layers: list[list[str]]) -> list[tuple[int, int, str, str]
     return problems
 
 
-def encode_layers(layers: list[list[str]]) -> bytes:
+def encode_layers(
+    layers: list[list[str]], *, vial_protocol: int = DEFAULT_VIAL_PROTOCOL
+) -> bytes:
     """Encode a full keymap into QMK's big-endian 16-bit buffer.
 
     Refuses the whole keymap if any code is unsupported: a partially translated
@@ -281,7 +319,7 @@ def encode_layers(layers: list[list[str]]) -> bytes:
     caller gets every offending key at once rather than one per attempt.
     """
 
-    problems = unsupported_codes(layers)
+    problems = unsupported_codes(layers, vial_protocol=vial_protocol)
     if problems:
         listing = ", ".join(
             f"layer {layer} key {index} ({code})" for layer, index, code, _ in problems[:5]
@@ -296,11 +334,17 @@ def encode_layers(layers: list[list[str]]) -> bytes:
     buffer = bytearray()
     for layer in layers:
         for code in layer:
-            buffer += to_qmk(code).to_bytes(2, "big")
+            buffer += to_qmk(code, vial_protocol=vial_protocol).to_bytes(2, "big")
     return bytes(buffer)
 
 
-def decode_layers(buffer: bytes, *, layers: int, keys_per_layer: int) -> list[list[str]]:
+def decode_layers(
+    buffer: bytes,
+    *,
+    layers: int,
+    keys_per_layer: int,
+    vial_protocol: int = DEFAULT_VIAL_PROTOCOL,
+) -> list[list[str]]:
     """Decode QMK's keymap buffer back into application keycodes."""
 
     expected = layers * keys_per_layer * 2
@@ -310,7 +354,10 @@ def decode_layers(buffer: bytes, *, layers: int, keys_per_layer: int) -> list[li
         )
 
     codes = [
-        from_qmk(int.from_bytes(buffer[offset : offset + 2], "big"))
+        from_qmk(
+            int.from_bytes(buffer[offset : offset + 2], "big"),
+            vial_protocol=vial_protocol,
+        )
         for offset in range(0, expected, 2)
     ]
     return [
@@ -403,13 +450,24 @@ def read_keymap_buffer(session, *, size: int) -> bytes:
     return bytes(buffer)
 
 
-def read_keymap(session, *, layers: int | None = None, keys_per_layer: int) -> list[list[str]]:
+def read_keymap(
+    session,
+    *,
+    layers: int | None = None,
+    keys_per_layer: int,
+    vial_protocol: int = DEFAULT_VIAL_PROTOCOL,
+) -> list[list[str]]:
     """Read and translate the whole keymap."""
 
     if layers is None:
         layers = read_layer_count(session)
     buffer = read_keymap_buffer(session, size=layers * keys_per_layer * 2)
-    return decode_layers(buffer, layers=layers, keys_per_layer=keys_per_layer)
+    return decode_layers(
+        buffer,
+        layers=layers,
+        keys_per_layer=keys_per_layer,
+        vial_protocol=vial_protocol,
+    )
 
 
 def _unlock_keys(reply: bytes) -> tuple[tuple[int, int], ...]:
@@ -496,7 +554,13 @@ def ensure_unlocked(
     )
 
 
-def write_keymap(session, layers: list[list[str]], *, require_unlocked: bool = True) -> int:
+def write_keymap(
+    session,
+    layers: list[list[str]],
+    *,
+    require_unlocked: bool = True,
+    vial_protocol: int = DEFAULT_VIAL_PROTOCOL,
+) -> int:
     """Translate and write a whole keymap. Returns the bytes written.
 
     The translation runs first and refuses everything if any code is
@@ -504,7 +568,7 @@ def write_keymap(session, layers: list[list[str]], *, require_unlocked: bool = T
     reaches the device rather than partway through the buffer.
     """
 
-    payload = encode_layers(layers)
+    payload = encode_layers(layers, vial_protocol=vial_protocol)
 
     if require_unlocked:
         status = unlock_status(session)

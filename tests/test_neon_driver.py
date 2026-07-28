@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from am_configurator import (
@@ -185,7 +186,11 @@ class PreflightTests(unittest.TestCase):
 
     def _write(self, config, session):
         with (
-            patch.object(neon_driver.hid_transport, "find"),
+            patch.object(
+                neon_driver.hid_transport,
+                "find",
+                return_value=SimpleNamespace(model="NEON80", protocol_version=5),
+            ),
             patch.object(neon_driver.hid_transport, "approve_write"),
             patch.object(neon_driver.hid_transport, "open_approved", return_value=session),
             patch.object(vial_keymap.time, "sleep"),
@@ -268,6 +273,17 @@ class PreflightTests(unittest.TestCase):
         )
         rebuilt = b"".join(p[4 : 4 + p[3]] for p in session.keymap_writes)
         self.assertEqual(expected, rebuilt)
+
+    def test_protocol_five_macro_triggers_use_the_firmware_keycodes(self) -> None:
+        session = Session()
+        config = _neon_config()
+        config["key_layer"]["layer_data"][1]["layer"][14] = "#00951501"
+
+        self._write(config, session)
+
+        rebuilt = b"".join(p[4 : 4 + p[3]] for p in session.keymap_writes)
+        offset = (90 + 14) * 2
+        self.assertEqual(bytes.fromhex("5F13"), rebuilt[offset : offset + 2])
 
     def test_a_locked_keyboard_stops_the_write_before_any_lighting(self) -> None:
         session = Session(unlocked=False)
@@ -359,13 +375,18 @@ class LayerCountTests(unittest.TestCase):
         session = Session()
         captured: dict = {}
 
-        def _read(sess, *, keys_per_layer):
+        def _read(sess, *, keys_per_layer, vial_protocol):
             captured["keys_per_layer"] = keys_per_layer
+            captured["vial_protocol"] = vial_protocol
             return [[]]
 
         with (
             patch.object(neon_driver, "_", create=True),
-            patch.object(neon_driver.hid_transport, "find"),
+            patch.object(
+                neon_driver.hid_transport,
+                "find",
+                return_value=SimpleNamespace(model="NEON80", protocol_version=5),
+            ),
             patch.object(neon_driver.hid_transport, "approve_write"),
             patch.object(neon_driver.hid_transport, "open_approved", return_value=session),
             patch.object(neon_driver.vial_keymap, "read_keymap", _read),
@@ -373,6 +394,7 @@ class LayerCountTests(unittest.TestCase):
             driver.read_keymap("hid:00", layers=7)
 
         self.assertEqual(neon_driver.NEON_KEYS_PER_LAYER, captured["keys_per_layer"])
+        self.assertEqual(5, captured["vial_protocol"])
 
     def test_reading_macros_keeps_the_device_reported_capacity(self) -> None:
         driver = neon_driver.NeonTransport()
@@ -396,7 +418,11 @@ class LayerCountTests(unittest.TestCase):
         ]
 
         with (
-            patch.object(neon_driver.hid_transport, "find"),
+            patch.object(
+                neon_driver.hid_transport,
+                "find",
+                return_value=SimpleNamespace(model="NEON80", protocol_version=5),
+            ),
             patch.object(neon_driver.hid_transport, "approve_write"),
             patch.object(
                 neon_driver.hid_transport,
