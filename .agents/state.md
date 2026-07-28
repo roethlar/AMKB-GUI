@@ -355,8 +355,15 @@
   its inspector stacked, forcing an internal page-width clip in narrow windows.
   The responsive grid and keyboard canvas now release that desktop minimum; its
   focused guard was red-proven, and live 720px inspection shows zero document or
-  main-workspace horizontal overflow. Push, hardware write, release publication,
-  and Reddit posting retain their explicit gates.
+  main-workspace horizontal overflow. The README's Keymap, macro, and Lighting
+  images are now fresh 1600×1000 captures from isolated public fixtures; the
+  macro image uses a generated `Hello, world!` example and the Lighting image
+  visibly labels all three Relic spacebar LEDs. Metadata was stripped, its guard
+  was red-proven, and full-resolution inspection found no private state. Live
+  wide/narrow acceptance also confirmed unconditional Keymap reload, the quiet
+  About dialog with `0.1.34`, zero document/main overflow, and no console
+  warnings or exceptions. Push, hardware write, release publication, and Reddit
+  posting retain their explicit gates.
 
 ## Blockers
 

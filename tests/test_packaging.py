@@ -680,6 +680,23 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn('<img src="/icon.png" alt="">', html)
         self.assertNotIn('class="brand-mark"', html)
 
+    def test_public_screenshots_are_release_sized_and_metadata_free(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        expected = {
+            "keymap.png": (1600, 1000),
+            "macros.png": (1600, 1000),
+            "led-studio.png": (1600, 1000),
+        }
+        for filename, dimensions in expected.items():
+            with self.subTest(filename=filename):
+                path = ROOT / "docs" / "images" / filename
+                with Image.open(path) as screenshot:
+                    self.assertEqual("PNG", screenshot.format)
+                    self.assertEqual("RGB", screenshot.mode)
+                    self.assertEqual(dimensions, screenshot.size)
+                    self.assertEqual({}, screenshot.info)
+                self.assertEqual(1, readme.count(f"docs/images/{filename}"))
+
     def test_native_bundle_ships_project_license_and_attribution(self) -> None:
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
 

@@ -67,7 +67,7 @@ Multi-LED keys remain individually labelled and editable. The same Studio maps
 the CyberBoard's 40×5 display, AFA body lights, Relic 80 per-key and edge
 tracks, and the Neon 80 axial and top-display targets.
 
-![Relic 80 LED Studio with animation frames and timing controls](docs/images/led-studio.png)
+![Relic 80 Lighting Studio with individually labelled spacebar LEDs, animation frames, and timing controls](docs/images/led-studio.png)
 
 Import GIF, PNG, and BMP media, then pan, zoom, or stretch it inside the
 destination overlay before applying it. GIF timing is resampled across the
