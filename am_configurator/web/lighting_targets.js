@@ -32,6 +32,30 @@
     ]),
   });
 
+  // Firmware-defined Neon controls from custom_keycodes_t. Keep this list
+  // device-specific: these raw QMK values are not portable AM usage-page
+  // assignments, and exposing arbitrary passthrough values would defeat the
+  // assignment gate.
+  const NEON_LIGHTING_CONTROLS = targets([
+    {label: "Next effect", code: "#00FF5DB2", category: "Under-key lighting"},
+    {label: "Previous effect", code: "#00FF5DB3", category: "Under-key lighting"},
+    {label: "Speed +", code: "#00FF5DB4", category: "Under-key lighting"},
+    {label: "Speed −", code: "#00FF5DB5", category: "Under-key lighting"},
+    {label: "Brightness +", code: "#00FF5DB6", category: "Under-key lighting"},
+    {label: "Brightness −", code: "#00FF5DB7", category: "Under-key lighting"},
+    {label: "Next effect", code: "#00FF5DB8", category: "Top display lighting"},
+    {label: "Previous effect", code: "#00FF5DB9", category: "Top display lighting"},
+    {label: "Speed +", code: "#00FF5DBA", category: "Top display lighting"},
+    {label: "Speed −", code: "#00FF5DBB", category: "Top display lighting"},
+    {label: "Brightness +", code: "#00FF5DBC", category: "Top display lighting"},
+    {label: "Brightness −", code: "#00FF5DBD", category: "Top display lighting"},
+    {label: "Power", code: "#00FF5DBE", category: "Top display lighting"},
+    {label: "Power", code: "#00FF5DBF", category: "Under-key lighting"},
+  ]);
+  const NEON_LIGHTING_CONTROL_CODES = new Set(
+    NEON_LIGHTING_CONTROLS.map(option => option.code),
+  );
+
   // --- Per-family device specification ------------------------------------
   //
   // The browser's copy of `FamilySpec` in am_configurator/device_mapping.py,
@@ -230,6 +254,13 @@
       const right = (modifier & 0xF0) >> 4;
       return !(left && right);
     }
+    if (
+      modifier === 0
+      && page === 0xFF
+      && NEON_LIGHTING_CONTROL_CODES.has(normalized)
+    ) {
+      return true;
+    }
     return (
       modifier === 0
       && page === 0x95
@@ -372,6 +403,7 @@
   return Object.freeze({
     DEVICE_TARGETS,
     FAMILY_SPECS,
+    NEON_LIGHTING_CONTROLS,
     SHARED_TRACK_COLORS,
     SPEC_SOURCE,
     UNKNOWN_FAMILY_SPEC,

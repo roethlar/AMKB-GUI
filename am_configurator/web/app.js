@@ -10,7 +10,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
-const {DEVICE_TARGETS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
+const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const {defaultSourceTransform, interpolateMoveZoom, normalizedPointer, panSourceTransform, presetSourceTransform, renderColorEffect, scaleSourceTransform, validateEffectSpec, validateSourceTransform} = LightingComposer;
 const {
   compatibleProfileSections,
@@ -583,6 +583,9 @@ const VENDOR = {
   0x0106:"Bluetooth 1",0x0107:"Bluetooth 2",0x0108:"Bluetooth 3",0x0130:"2.4G",0x0910:"Battery",0x0922:"Win / Mac",0x0a01:"Power",0x0a02:"Reset",
 };
 const VENDOR_GROUPS = ["Layers & Fn","Display lighting","PCB lighting","Nameplate lighting","Wireless & system"];
+const NEON_QMK_NAMES = Object.fromEntries(
+  NEON_LIGHTING_CONTROLS.map(option => [option.code, option.label]),
+);
 
 function makeCode(page, usage, modifier = 0) {
   return `#${modifier.toString(16).padStart(2,"0")}${page.toString(16).padStart(2,"0")}${usage.toString(16).padStart(4,"0")}`.toUpperCase();
@@ -598,7 +601,15 @@ function decodeCode(code) {
   if (!parts) return String(code || "Invalid");
   if (!parts.page && !parts.usage) return "None";
   if (parts.page === 0x95 && parts.usage >= 0x1500 && parts.usage <= 0x151f) return `Macro ${parts.usage - 0x1500 + 1}`;
-  let label = parts.page === 0x07 ? HID_NAMES[parts.usage] : parts.page === 0x0c ? CONSUMER[parts.usage] : parts.page === 0x92 ? VENDOR[parts.usage] : null;
+  let label = parts.page === 0x07
+    ? HID_NAMES[parts.usage]
+    : parts.page === 0x0c
+      ? CONSUMER[parts.usage]
+      : parts.page === 0x92
+        ? VENDOR[parts.usage]
+        : parts.page === 0xFF
+          ? NEON_QMK_NAMES[String(code).toUpperCase()]
+          : null;
   label ||= `${parts.page.toString(16).toUpperCase()}:${parts.usage.toString(16).toUpperCase()}`;
   if (parts.modifier === 0x11) return `↓ ${label}`;
   if (parts.modifier === 0x10) return `↑ ${label}`;
@@ -648,12 +659,18 @@ function renderAssignmentPalette(current) {
   const extras=filterAssignmentOptions(product,[{label:"None",code:"#00000000",category:"Navigation & media"},...extraUsages.map(usage=>standardOption(usage,"Navigation & media")),...KEY_OPTIONS.filter(option=>option.category==="Media")],macroTracks);
   const vendorOptions=filterAssignmentOptions(product,Object.entries(VENDOR).map(([usage,label])=>({label,code:makeCode(0x92,Number(usage)),category:vendorGroup(Number(usage))})),macroTracks);
   const vendorGroups=VENDOR_GROUPS.map(group=>({group,options:vendorOptions.filter(option=>option.category===group)})).filter(entry=>entry.options.length);
+  const neonLightingOptions=filterAssignmentOptions(product,NEON_LIGHTING_CONTROLS,macroTracks);
+  const neonLightingGroups=[...new Set(neonLightingOptions.map(option=>option.category))].map(group=>({
+    group,
+    options:neonLightingOptions.filter(option=>option.category===group),
+  }));
   return `<section class="assignment-panel">
     <div class="assignment-heading"><div><strong>Available assignments</strong><small>${state.selected===null?'Select a key on the board first.':`Assigning matrix key ${state.selected}`}</small></div><input id="key-search" class="search-field" type="search" placeholder="Filter keys and controls…"></div>
     <div class="assignment-scroll"><div class="qwerty-board assignment-section"><p class="control-label">Standard QWERTY keyboard</p>${QWERTY_ROWS.map(row=>`<div class="qwerty-row">${row.map(item=>item?assignmentButton(standardOption(item[0]),current,item[1]):`<span class="qwerty-spacer"></span>`).join("")}</div>`).join("")}</div></div>
     <div class="assignment-groups">
       <div class="assignment-section"><p class="control-label">Navigation & media</p><div class="assignment-grid">${extras.map(option=>assignmentButton(option,current)).join("")}</div></div>
       <div class="assignment-section"><p class="control-label">Macros</p>${macrosForPalette.length?`<div class="assignment-grid">${macrosForPalette.map(option=>assignmentButton(option,current)).join("")}</div>`:`<small class="palette-empty">Create a macro on the Macros screen to assign it here.</small>`}</div>
+      ${neonLightingGroups.map(({group,options})=>`<div class="assignment-section"><p class="control-label">AM Neon 80 · ${esc(group)}</p><div class="assignment-grid">${options.map(option=>assignmentButton(option,current)).join("")}</div></div>`).join("")}
       ${vendorGroups.map(({group,options})=>`<div class="assignment-section"><p class="control-label">Angry Miao · ${group}</p><div class="assignment-grid">${options.map(option=>assignmentButton(option,current)).join("")}</div></div>`).join("")}
     </div>
   </section>`;

@@ -6,6 +6,7 @@ const assert = require("node:assert/strict");
 const {
   DEVICE_TARGETS,
   FAMILY_SPECS,
+  NEON_LIGHTING_CONTROLS,
   UNKNOWN_FAMILY_SPEC,
   familySpec,
   filterAssignmentOptions,
@@ -226,13 +227,14 @@ test("the Neon palette exposes only assignments its QMK wire format accepts", ()
     {label: "A", code: "#00070004"},
     {label: "Volume up", code: "#000C00E9"},
     {label: "Next LED", code: "#00920100"},
+    {label: "Under-key power", code: "#00FF5DBF"},
     {label: "Macro 16", code: "#0095150F"},
     {label: "Macro 17", code: "#00951510"},
   ];
 
   assert.deepEqual(
     filterAssignmentOptions("NEON80", options).map(option => option.label),
-    ["None", "A", "Macro 16"],
+    ["None", "A", "Under-key power", "Macro 16"],
   );
   assert.deepEqual(filterAssignmentOptions("AM21", options), options);
   assert.equal(neonPaletteAssignment("#01070004"), true);
@@ -240,7 +242,26 @@ test("the Neon palette exposes only assignments its QMK wire format accepts", ()
   assert.equal(neonPaletteAssignment("#00FF5101"), false);
   assert.deepEqual(
     filterAssignmentOptions("NEON80", options, 9).map(option => option.label),
-    ["None", "A"],
+    ["None", "A", "Under-key power"],
+  );
+});
+
+test("the Neon palette owns every firmware lighting control by name", () => {
+  assert.equal(NEON_LIGHTING_CONTROLS.length, 14);
+  assert.deepEqual(
+    NEON_LIGHTING_CONTROLS.map(option => option.code),
+    Array.from(
+      {length: 14},
+      (_, index) => `#00FF5D${(0xB2 + index).toString(16).toUpperCase()}`,
+    ),
+  );
+  assert.deepEqual(
+    [...new Set(NEON_LIGHTING_CONTROLS.map(option => option.category))],
+    ["Under-key lighting", "Top display lighting"],
+  );
+  assert.equal(
+    filterAssignmentOptions("NEON80", NEON_LIGHTING_CONTROLS).length,
+    14,
   );
 });
 
