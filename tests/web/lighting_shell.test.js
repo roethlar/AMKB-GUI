@@ -16,11 +16,36 @@ test("pure lighting state loads before the application adapter", () => {
   const stateScript=html.indexOf('<script src="/lighting_state.js"></script>');
   const reviewScript=html.indexOf('<script src="/lighting_review.js"></script>');
   const targetsScript=html.indexOf('<script src="/lighting_targets.js"></script>');
+  const composerScript=html.indexOf('<script src="/lighting_composer.js"></script>');
   const appScript=html.indexOf('<script src="/app.js"></script>');
-  assert.ok(stateScript>=0&&stateScript<reviewScript&&reviewScript<targetsScript&&targetsScript<appScript);
+  assert.ok(stateScript>=0&&stateScript<reviewScript&&reviewScript<targetsScript&&targetsScript<composerScript&&composerScript<appScript);
   assert.match(server,/"\/lighting_state\.js":\s*"lighting_state\.js"/);
   assert.match(server,/"\/lighting_review\.js":\s*"lighting_review\.js"/);
   assert.match(server,/"\/lighting_targets\.js":\s*"lighting_targets\.js"/);
+  assert.match(server,/"\/lighting_composer\.js":\s*"lighting_composer\.js"/);
+});
+
+test("Studio is one Paint, Source, and Animate shell with local draft acceptance", () => {
+  for(const id of [
+    "studio-paint-tab","studio-source-tab","studio-animate-tab",
+    "studio-paint-panel","studio-source-panel","studio-animate-panel",
+    "animate-effect","animate-frame-count","animate-preview",
+    "animate-accept","animate-cancel",
+  ])assert.match(js,new RegExp(`id="${id}"`));
+  assert.match(js,/role="tablist" aria-label="Studio tools"/);
+  assert.match(js,/data-studio-tool="paint"/);
+  assert.match(js,/data-studio-tool="source"/);
+  assert.match(js,/data-studio-tool="animate"/);
+  assert.match(js,/function previewLocalAnimation\(\)/);
+  assert.match(js,/function applyLocalAnimationDraft\(\)/);
+  const applyStart=js.indexOf("function applyLocalAnimationDraft");
+  const applyEnd=js.indexOf("function ",applyStart+10);
+  const apply=js.slice(applyStart,applyEnd);
+  assert.equal((apply.match(/mutate\(/g)||[]).length,1);
+  assert.match(js,/renderColorEffect\(/);
+  assert.match(css,/\.studio-tool-tabs/);
+  assert.match(css,/\.media-compositor-stage/);
+  assert.match(css,/\.animation-draft-controls/);
 });
 
 test("lighting color style interpolation uses only canonical RGB", () => {
@@ -46,7 +71,8 @@ test("disabled first paint exposes no generation control outside Settings", () =
   const beforeSettings=html.slice(0,html.indexOf('id="settings-screen"'));
   assert.doesNotMatch(beforeSettings,/GGUF|xAI|API key|Optional AI|Generate lighting|Test &amp; enable/);
   assert.doesNotMatch(js,/data-library-create/);
-  assert.match(js,/const generationTool=aiReady\(\)\?/);
+  assert.match(js,/const generationTab=aiReady\(\)\?/);
+  assert.match(js,/const generationPanel=aiReady\(\)\?/);
   assert.match(js,/id="lighting-generate-tool"/);
   assert.match(js,/function renderGenerationStudio\(\)/);
   assert.match(js,/return Boolean\(aiStudioAvailable\(state\.aiStatus\)\)/);

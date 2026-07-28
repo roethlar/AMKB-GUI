@@ -11,6 +11,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
+const {defaultSourceTransform, interpolateMoveZoom, normalizedPointer, panSourceTransform, presetSourceTransform, renderColorEffect, scaleSourceTransform, validateEffectSpec, validateSourceTransform} = LightingComposer;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
 
@@ -50,6 +51,22 @@ const state = {
   ledColor: "#8358ff",
   gifResample: "box",
   relicGifEdges: true,
+  studioTool: "paint",
+  sourceTransform: defaultSourceTransform("box"),
+  sourcePreviewMode: "result",
+  mediaComposition: null,
+  localAnimationEffect: "pulse",
+  localAnimationFrameCount: 8,
+  localAnimationDuration: 90,
+  localAnimationMinimum: 0.2,
+  localAnimationTurns: 1,
+  localAnimationSweepWidth: 0.35,
+  localAnimationDirection: "left_to_right",
+  localAnimationShimmerDepth: 0.6,
+  localAnimationSeed: 824,
+  localAnimationCoordinates: [],
+  localAnimationDraft: null,
+  localAnimationPreviewFrame: 0,
   playing: false,
   playTimer: null,
   undo: [],
@@ -1240,6 +1257,7 @@ function renderLightingShell() {
   const targets = (state.config && activeLedModel()?.targets) || [];
   if (targets.length && !targets.some(target => target.key === state.ledTarget)) state.ledTarget = targets[0].key;
   renderTargetControls(targetHost,targets,state.ledTarget,destinationLocked,target=>{
+    cancelLocalAnimationDraft({render:false});
     state.ledTarget = target;
     state.ledFrame = 0;
     state.ledPixel = 0;
@@ -1641,6 +1659,361 @@ function replaceEdgeAnimation(mode) {
   toast(label,`${count} edge frames generated to match the key animation.`,"success");
 }
 
+function availableStudioTools() {
+  return ["paint","source","animate",...(aiReady()?["generate"]:[])];
+}
+
+function setStudioTool(tool,{focus=true}={}) {
+  if(!availableStudioTools().includes(tool))return;
+  state.studioTool=tool;
+  stopPlayback(false);
+  renderLightingEdit();
+  if(focus)requestAnimationFrame(()=>$(`[data-studio-tool="${tool}"]`)?.focus({preventScroll:true}));
+}
+
+function mediaSourceSize() {
+  const source=state.mediaComposition?.source||state.mediaComposition?.item?.media;
+  const width=Number(source?.width);
+  const height=Number(source?.height);
+  return Number.isSafeInteger(width)&&width>0&&Number.isSafeInteger(height)&&height>0
+    ?{width,height}
+    :null;
+}
+
+function mediaDestinationSize() {
+  const destination=state.mediaComposition?.destination;
+  const width=Number(destination?.width);
+  const height=Number(destination?.height);
+  return Number.isSafeInteger(width)&&width>0&&Number.isSafeInteger(height)&&height>0
+    ?{width,height}
+    :null;
+}
+
+function stillMediaCompositionActive() {
+  const source=state.mediaComposition?.source||state.mediaComposition?.item?.media;
+  return Boolean(source&&Number(source.frame_count)===1);
+}
+
+function updateSourceTransformView() {
+  const stage=$("#media-compositor-stage");
+  if(!stage)return;
+  const transform=state.sourceTransform;
+  stage.style.setProperty("--source-offset-x",String(transform.offset_x));
+  stage.style.setProperty("--source-offset-y",String(transform.offset_y));
+  stage.style.setProperty("--source-scale-x",String(transform.scale_x));
+  stage.style.setProperty("--source-scale-y",String(transform.scale_y));
+  const zoom=$("#source-zoom");
+  if(zoom)zoom.value=String(Math.round(transform.scale_x*100));
+  const value=$("#source-zoom-value");
+  if(value)value.textContent=`${Math.round(transform.scale_x*100)}%`;
+}
+
+function applySourceTransformPreset(mode) {
+  const source=mediaSourceSize();
+  const destination=mediaDestinationSize();
+  if(!source||!destination)return;
+  try{
+    state.sourceTransform=presetSourceTransform(mode,source,destination,state.sourceTransform);
+    updateSourceTransformView();
+  }catch(error){
+    toast("Could not change source framing",error.message,"error");
+  }
+}
+
+function localAnimationCoordinatesForGeometry(length,pixelMap,physicalLayout,columns) {
+  const coordinates=Array.from({length},()=>({x:0.5,y:0.5}));
+  if(physicalLayout?.length){
+    for(const item of physicalLayout){
+      const index=Number(item.index);
+      if(!Number.isSafeInteger(index)||index<0||index>=length)continue;
+      const width=Number(item.w)||0;
+      const height=Number(item.h)||10.7;
+      coordinates[index]={
+        x:Math.max(0,Math.min(1,(Number(item.x)+width/2)/100)),
+        y:Math.max(0,Math.min(1,(Number(item.y)+height/2)/100)),
+      };
+    }
+    return coordinates;
+  }
+  const rows=Math.max(1,Math.ceil(pixelMap.length/Math.max(1,columns)));
+  pixelMap.forEach((index,position)=>{
+    if(!Number.isSafeInteger(index)||index<0||index>=length)return;
+    coordinates[index]={
+      x:((position%columns)+0.5)/columns,
+      y:(Math.floor(position/columns)+0.5)/rows,
+    };
+  });
+  return coordinates;
+}
+
+function localAnimationFrameCount() {
+  if(state.ledTarget==="spotlight_frames"&&activeLedModel()===LED_MODELS["80"]){
+    return Math.max(2,getPage(state.ledSlot)?.keyframes?.frame_data?.length||2);
+  }
+  return state.localAnimationFrameCount;
+}
+
+function currentLocalAnimationSpec() {
+  const type=state.localAnimationEffect;
+  let parameters;
+  if(type==="pulse")parameters={minimum_brightness:state.localAnimationMinimum};
+  else if(type==="hue_cycle")parameters={turns:state.localAnimationTurns};
+  else if(type==="sweep")parameters={
+    direction:state.localAnimationDirection,
+    width:state.localAnimationSweepWidth,
+    minimum_brightness:state.localAnimationMinimum,
+  };
+  else if(type==="shimmer")parameters={
+    depth:state.localAnimationShimmerDepth,
+    seed:state.localAnimationSeed,
+  };
+  else{
+    const start=validateSourceTransform(state.sourceTransform);
+    const nextScale=Math.min(32,start.scale_x*1.18);
+    parameters={
+      start_transform:start,
+      end_transform:validateSourceTransform({
+        ...start,
+        offset_x:Math.min(8,start.offset_x+0.08),
+        offset_y:Math.min(8,start.offset_y+0.05),
+        scale_x:nextScale,
+        scale_y:start.aspect_locked?nextScale:Math.min(32,start.scale_y*1.18),
+      }),
+    };
+  }
+  return validateEffectSpec({
+    version:1,
+    type,
+    frame_count:localAnimationFrameCount(),
+    duration_ms:state.localAnimationDuration,
+    parameters,
+  },{
+    frameLimit:Math.min(256,activeFamilySpec().frameCap||256),
+    stillSource:stillMediaCompositionActive(),
+  });
+}
+
+function localAnimationDraftMatches() {
+  const draft=state.localAnimationDraft;
+  return Boolean(
+    draft
+    &&draft.slot===state.ledSlot
+    &&draft.target===state.ledTarget
+  );
+}
+
+function previewLocalAnimation() {
+  const source=currentFrame();
+  if(!source)return toast("Nothing to animate","Create or select a frame first.","error");
+  if(state.ledTarget==="spotlight_frames"&&activeLedModel()===LED_MODELS["80"]&&(getPage(state.ledSlot)?.keyframes?.frame_data?.length||0)<2){
+    return toast("Add a key frame first","Edge animation stays synchronized to the key animation, which currently has only one frame.","error");
+  }
+  try{
+    const effect=currentLocalAnimationSpec();
+    const sourceColors=clone(source.frame_RGB);
+    const draft={
+      slot:state.ledSlot,
+      target:state.ledTarget,
+      sourceFingerprint:JSON.stringify(sourceColors),
+      effect,
+      frames:[],
+      transforms:[],
+    };
+    if(effect.type==="move_zoom"){
+      draft.transforms=interpolateMoveZoom(effect);
+    }else{
+      draft.frames=renderColorEffect(
+        [sourceColors],
+        effect,
+        state.localAnimationCoordinates,
+      );
+    }
+    state.localAnimationDraft=draft;
+    state.localAnimationPreviewFrame=0;
+    renderLightingEdit();
+    requestAnimationFrame(()=>$("#animate-accept")?.focus({preventScroll:true}));
+  }catch(error){
+    state.localAnimationDraft=null;
+    toast("Could not preview animation",error.message,"error");
+  }
+}
+
+function cancelLocalAnimationDraft({render=true}={}) {
+  state.localAnimationDraft=null;
+  state.localAnimationPreviewFrame=0;
+  if(render)renderLightingEdit();
+}
+
+function applyLocalAnimationDraft() {
+  const draft=state.localAnimationDraft;
+  const source=currentFrame();
+  if(!localAnimationDraftMatches()||!source){
+    cancelLocalAnimationDraft();
+    return toast("Animation draft expired","Preview the effect again for this destination.","error");
+  }
+  if(JSON.stringify(source.frame_RGB)!==draft.sourceFingerprint){
+    cancelLocalAnimationDraft();
+    return toast("Animation draft changed","The source frame changed. Preview the effect again.","error");
+  }
+  if(!draft.frames.length){
+    return toast("Source composition required","Move & zoom is applied with an imported still in Source.","error");
+  }
+  const frames=clone(draft.frames);
+  const duration=draft.effect.duration_ms;
+  mutate(()=>{
+    const page=getPage(state.ledSlot);
+    const track=ensureTrack();
+    track.valid=1;
+    track.frame_num=frames.length;
+    track.frame_data=frames.map((colors,index)=>({frame_index:index,frame_RGB:colors}));
+    page.speed_ms=duration;
+    if(state.ledTarget==="keyframes"&&activeLedModel()===LED_MODELS["80"]&&page.spotlight_frames?.frame_data?.length){
+      const edgeFrames=resampleEdgeAnimation(page.spotlight_frames.frame_data,frames.length);
+      page.spotlight_frames={...page.spotlight_frames,valid:1,frame_num:edgeFrames.length,frame_data:edgeFrames};
+    }
+    state.ledFrame=0;
+    state.localAnimationDraft=null;
+    state.localAnimationPreviewFrame=0;
+  });
+  toast("Animation applied",`${frames.length} deterministic frames replaced the selected track.`,"success");
+}
+
+function animationParameterMarkup() {
+  const type=state.localAnimationEffect;
+  if(type==="pulse")return `<div class="control-group"><label class="control-label" for="animate-minimum">Minimum brightness</label><div class="range-row"><input id="animate-minimum" type="range" min="0" max="100" value="${Math.round(state.localAnimationMinimum*100)}"><span class="range-value">${Math.round(state.localAnimationMinimum*100)}%</span></div></div>`;
+  if(type==="hue_cycle")return `<div class="control-group"><label class="control-label" for="animate-turns">Color rotations</label><div class="range-row"><input id="animate-turns" type="range" min="0.125" max="4" step="0.125" value="${state.localAnimationTurns}"><span class="range-value">${state.localAnimationTurns}×</span></div></div>`;
+  if(type==="sweep")return `<div class="control-group"><label class="control-label" for="animate-direction">Direction</label><select id="animate-direction" class="select-field"><option value="left_to_right" ${state.localAnimationDirection==="left_to_right"?"selected":""}>Left to right</option><option value="right_to_left" ${state.localAnimationDirection==="right_to_left"?"selected":""}>Right to left</option><option value="top_to_bottom" ${state.localAnimationDirection==="top_to_bottom"?"selected":""}>Top to bottom</option><option value="bottom_to_top" ${state.localAnimationDirection==="bottom_to_top"?"selected":""}>Bottom to top</option><option value="diagonal" ${state.localAnimationDirection==="diagonal"?"selected":""}>Diagonal</option></select><label class="control-label secondary-label" for="animate-width">Band width</label><div class="range-row"><input id="animate-width" type="range" min="0.05" max="2" step="0.05" value="${state.localAnimationSweepWidth}"><span class="range-value">${state.localAnimationSweepWidth.toFixed(2)}</span></div></div>`;
+  if(type==="shimmer")return `<div class="control-group"><label class="control-label" for="animate-depth">Shimmer depth</label><div class="range-row"><input id="animate-depth" type="range" min="0" max="100" value="${Math.round(state.localAnimationShimmerDepth*100)}"><span class="range-value">${Math.round(state.localAnimationShimmerDepth*100)}%</span></div><label class="control-label secondary-label" for="animate-seed">Pattern seed</label><input id="animate-seed" class="text-field" type="number" min="0" max="4294967295" step="1" value="${state.localAnimationSeed}"></div>`;
+  return `<div class="control-group"><span class="control-label">Move &amp; zoom</span><p class="control-help">Uses the current Source framing as the start and creates a gentle pan-and-zoom endpoint. Available only for an imported PNG or BMP.</p></div>`;
+}
+
+function animationDraftMarkup() {
+  const draft=localAnimationDraftMatches()?state.localAnimationDraft:null;
+  const count=draft?.frames.length||draft?.transforms.length||0;
+  if(!draft)return `<div class="animation-draft-empty">Preview builds a local draft. The document is not changed until you accept it.</div>`;
+  return `<div class="animation-draft-controls" aria-live="polite"><strong>Draft ready · ${count} frames</strong><input id="animate-draft-frame" type="range" min="0" max="${Math.max(0,count-1)}" value="${Math.min(state.localAnimationPreviewFrame,Math.max(0,count-1))}" aria-label="Preview draft frame"><small>Frame ${Math.min(state.localAnimationPreviewFrame+1,Math.max(1,count))} of ${count}</small></div>`;
+}
+
+function showLocalAnimationDraftFrame(index) {
+  const draft=localAnimationDraftMatches()?state.localAnimationDraft:null;
+  const count=draft?.frames.length||draft?.transforms.length||0;
+  if(!count)return;
+  state.localAnimationPreviewFrame=Math.max(0,Math.min(count-1,Number(index)));
+  const colors=draft.frames[state.localAnimationPreviewFrame];
+  if(colors){
+    $$(".pixel").forEach(pixel=>{
+      const color=safeRgbColor(colors[Number(pixel.dataset.pixel)]);
+      pixel.style.background=color;
+      pixel.style.setProperty("--pixel-color",color);
+    });
+  }
+  const label=$(".animation-draft-controls small");
+  if(label)label.textContent=`Frame ${state.localAnimationPreviewFrame+1} of ${count}`;
+}
+
+function wireStudioInspector() {
+  const tabs=$$("[data-studio-tool]");
+  tabs.forEach((tab,index)=>{
+    tab.addEventListener("click",()=>setStudioTool(tab.dataset.studioTool));
+    tab.addEventListener("keydown",event=>{
+      if(!["ArrowLeft","ArrowRight","Home","End"].includes(event.key))return;
+      event.preventDefault();
+      const next=event.key==="Home"?0:event.key==="End"?tabs.length-1:(index+(event.key==="ArrowRight"?1:-1)+tabs.length)%tabs.length;
+      setStudioTool(tabs[next].dataset.studioTool);
+    });
+  });
+  $("#animate-effect")?.addEventListener("change",event=>{state.localAnimationEffect=event.target.value;cancelLocalAnimationDraft();});
+  $("#animate-frame-count")?.addEventListener("change",event=>{state.localAnimationFrameCount=Number(event.target.value);cancelLocalAnimationDraft();});
+  $("#animate-duration")?.addEventListener("change",event=>{state.localAnimationDuration=Number(event.target.value);cancelLocalAnimationDraft();});
+  $("#animate-minimum")?.addEventListener("change",event=>{state.localAnimationMinimum=Number(event.target.value)/100;cancelLocalAnimationDraft();});
+  $("#animate-turns")?.addEventListener("change",event=>{state.localAnimationTurns=Number(event.target.value);cancelLocalAnimationDraft();});
+  $("#animate-direction")?.addEventListener("change",event=>{state.localAnimationDirection=event.target.value;cancelLocalAnimationDraft();});
+  $("#animate-width")?.addEventListener("change",event=>{state.localAnimationSweepWidth=Number(event.target.value);cancelLocalAnimationDraft();});
+  $("#animate-depth")?.addEventListener("change",event=>{state.localAnimationShimmerDepth=Number(event.target.value)/100;cancelLocalAnimationDraft();});
+  $("#animate-seed")?.addEventListener("change",event=>{state.localAnimationSeed=Number(event.target.value);cancelLocalAnimationDraft();});
+  $("#animate-preview")?.addEventListener("click",previewLocalAnimation);
+  $("#animate-accept")?.addEventListener("click",applyLocalAnimationDraft);
+  $("#animate-cancel")?.addEventListener("click",()=>cancelLocalAnimationDraft());
+  $("#animate-draft-frame")?.addEventListener("input",event=>showLocalAnimationDraftFrame(event.target.value));
+
+  $$("[data-source-preview]").forEach(button=>button.addEventListener("click",()=>{
+    if(button.disabled)return;
+    state.sourcePreviewMode=button.dataset.sourcePreview;
+    renderLightingEdit();
+  }));
+  $$("[data-source-preset]").forEach(button=>button.addEventListener("click",()=>applySourceTransformPreset(button.dataset.sourcePreset)));
+  $("#source-stretch")?.addEventListener("change",event=>{
+    const locked=!event.target.checked;
+    try{
+      state.sourceTransform=validateSourceTransform({
+        ...state.sourceTransform,
+        aspect_locked:locked,
+        scale_y:locked?state.sourceTransform.scale_x:state.sourceTransform.scale_y,
+      });
+      updateSourceTransformView();
+    }catch(error){toast("Could not change stretch mode",error.message,"error");}
+  });
+  $("#source-zoom")?.addEventListener("input",event=>{
+    const target=Number(event.target.value)/100;
+    const factor=target/state.sourceTransform.scale_x;
+    try{
+      state.sourceTransform=validateSourceTransform({
+        ...state.sourceTransform,
+        scale_x:target,
+        scale_y:state.sourceTransform.aspect_locked
+          ?target
+          :Math.max(0.01,Math.min(32,state.sourceTransform.scale_y*factor)),
+      });
+      updateSourceTransformView();
+    }catch(error){toast("Could not zoom source",error.message,"error");}
+  });
+  const stage=$("#media-compositor-stage");
+  if(stage&&mediaSourceSize()&&mediaDestinationSize()){
+    let pointer=null;
+    stage.addEventListener("pointerdown",event=>{
+      if(state.studioTool!=="source")return;
+      pointer=normalizedPointer(event,stage.getBoundingClientRect());
+      stage.setPointerCapture?.(event.pointerId);
+    });
+    stage.addEventListener("pointermove",event=>{
+      if(!pointer||state.studioTool!=="source")return;
+      const next=normalizedPointer(event,stage.getBoundingClientRect());
+      state.sourceTransform=panSourceTransform(state.sourceTransform,next.x-pointer.x,next.y-pointer.y);
+      pointer=next;
+      updateSourceTransformView();
+    });
+    const release=()=>{pointer=null;};
+    stage.addEventListener("pointerup",release);
+    stage.addEventListener("pointercancel",release);
+    stage.addEventListener("wheel",event=>{
+      if(state.studioTool!=="source")return;
+      event.preventDefault();
+      state.sourceTransform=scaleSourceTransform(state.sourceTransform,event.deltaY<0?1.08:1/1.08,"both");
+      updateSourceTransformView();
+    },{passive:false});
+    stage.addEventListener("keydown",event=>{
+      if(state.studioTool!=="source")return;
+      const step=event.shiftKey?0.1:0.025;
+      const pan={
+        ArrowLeft:[-step,0],
+        ArrowRight:[step,0],
+        ArrowUp:[0,-step],
+        ArrowDown:[0,step],
+      }[event.key];
+      if(pan){
+        event.preventDefault();
+        state.sourceTransform=panSourceTransform(state.sourceTransform,pan[0],pan[1]);
+        updateSourceTransformView();
+      }else if(["+","=","-","_"].includes(event.key)){
+        event.preventDefault();
+        state.sourceTransform=scaleSourceTransform(state.sourceTransform,["-","_"].includes(event.key)?1/1.08:1.08,"both");
+        updateSourceTransformView();
+      }
+    });
+  }
+  updateSourceTransformView();
+}
+
 function renderLightingEdit() {
   if (!pageData().length) {
     $("#lighting-edit-content").innerHTML=`<div class="empty-state lighting-edit-empty"><p class="eyebrow">Key-only export</p><h1>No LED pages loaded.</h1><p>Merge the matching lighting JSON to preserve your existing effects, or create three blank custom slots.</p><div class="header-controls"><button id="merge-led" class="button ghost large">Merge lighting JSON</button><button id="create-led" class="button primary large">Create blank slots</button></div></div>`;
@@ -1656,6 +2029,7 @@ function renderLightingEdit() {
   }
   const targets=model.targets;
   if (!targets.some(target=>target.key===state.ledTarget)) state.ledTarget=targets[0].key;
+  if(!availableStudioTools().includes(state.studioTool))state.studioTool="paint";
   const {track,length}=trackInfo();
   const frames=track?.frame_data||[];
   state.ledFrame=Math.min(state.ledFrame,Math.max(0,frames.length-1));
@@ -1684,16 +2058,30 @@ function renderLightingEdit() {
   const mappedCount=new Set(pixelMap.filter(index=>index>=0)).size;
   const focusablePixelCount=physicalLayout?.length||pixelMap.filter(index=>index>=0).length;
   state.ledPixel=Math.min(state.ledPixel,Math.max(0,focusablePixelCount-1));
+  state.localAnimationCoordinates=localAnimationCoordinatesForGeometry(
+    length,
+    pixelMap,
+    physicalLayout,
+    columns,
+  );
+  const activeDraft=localAnimationDraftMatches()?state.localAnimationDraft:null;
+  const draftColors=activeDraft?.frames[
+    Math.min(
+      state.localAnimationPreviewFrame,
+      Math.max(0,activeDraft.frames.length-1),
+    )
+  ];
+  const displayFrame=draftColors?{frame_index:state.localAnimationPreviewFrame,frame_RGB:draftColors}:frame;
   const keyLabels=layers()[0]?.layer||[];
   let pixelOrder=0;
   const rasterCells=pixelMap.map(index=>{
     if(index<0)return `<span class="pixel-spacer"></span>`;
     const position=pixelOrder++;
-    const color=safeRgbColor(frame?.frame_RGB[index]);
+    const color=safeRgbColor(displayFrame?.frame_RGB[index]);
     return `<button class="pixel" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${index}" style="background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="LED ${index}, ${esc(color)}" title="LED ${index} · ${esc(color)}"></button>`;
   }).join("");
-  const pixelCanvas=!frame?`<div class="event-empty"><button id="first-frame" class="button primary">Create first frame</button></div>`:physicalLayout?`<div class="pixel-grid physical afa-led-board" role="grid" aria-label="LED paint grid">${physicalLayout.map((item,position)=>{
-    const color=safeRgbColor(frame.frame_RGB[item.index]);
+  const pixelCanvas=!displayFrame?`<div class="event-empty"><button id="first-frame" class="button primary">Create first frame</button></div>`:physicalLayout?`<div class="pixel-grid physical afa-led-board" role="grid" aria-label="LED paint grid">${physicalLayout.map((item,position)=>{
+    const color=safeRgbColor(displayFrame.frame_RGB[item.index]);
     const body=item.keyIndex===null;
     const keyLabel=body?item.label:decodeCode(keyLabels[item.keyIndex]||"#00000000");
     const label=item.showLabel===false?"":keyLabel;
@@ -1716,24 +2104,42 @@ function renderLightingEdit() {
   const relicGifOption=relicKeyTarget?`<label class="check-row"><input id="relic-gif-edges" type="checkbox" ${state.relicGifEdges?'checked':''}><span>Also derive edge lights from this GIF</span></label>`:"";
   const edgeTools=edgeAutomation?`<div class="control-group"><label class="control-label">Whole edge animation</label><div class="button-row"><button id="edge-static" class="button ghost">Static color</button><button id="edge-pulse" class="button ghost">Pulse color</button></div><button id="edge-hold" class="button ghost wide-button">Hold painted frame</button><small class="control-help">Generates ${keyFrameCount} edge frames automatically to match the key animation. “Hold” preserves the seven colors painted in the current frame.</small></div>`:"";
   const targetLabel=targets.find(t=>t.key===state.ledTarget)?.label||state.ledTarget;
-  const generationTool=aiReady()?`<section id="lighting-generate-tool" class="card lighting-generate-tool" aria-labelledby="lighting-generate-title" tabindex="-1">
-      <div class="card-header"><div><strong id="lighting-generate-title">Generate lighting</strong><small>Procedural recipe · exact ${esc(targetLabel)} destination</small></div></div>
-      <div id="lighting-generate-content" class="card-body" aria-live="polite"></div>
-    </section>`:"";
-  const editorBody=`<div class="card-body">
-        <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Animation source</h3><input id="gif-input" type="file" accept="image/gif,.gif" hidden><div class="gif-import-row"><button id="import-gif" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="GIF resize method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
+  const sourceReady=Boolean(mediaSourceSize()&&mediaDestinationSize());
+  const sourceDisabled=sourceReady?"":"disabled";
+  const familyFrameCap=Math.min(256,activeFamilySpec().frameCap||256);
+  const fixedEdgeFrameCount=edgeAutomation&&keyFrameCount>=2;
+  const edgeAnimationUnavailable=edgeAutomation&&keyFrameCount<2;
+  const animationFrameCount=fixedEdgeFrameCount?keyFrameCount:state.localAnimationFrameCount;
+  const moveZoomReady=stillMediaCompositionActive();
+  const animationDraft=localAnimationDraftMatches()?state.localAnimationDraft:null;
+  const paintBody=`<div id="studio-paint-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-paint-tab" ${state.studioTool==="paint"?"":"hidden"}>
         ${edgeTools}
         <div class="control-group"><label class="control-label" for="led-color">Paint color</label><input id="led-color" class="color-picker" type="color" value="${state.ledColor}"><input id="led-color-text" class="text-field" aria-label="Paint color hex value" value="${state.ledColor}"></div>
         <div class="control-group"><label class="control-label">Brush</label><div class="button-row"><button id="fill-led" class="button ghost">Fill all</button><button id="clear-led" class="button ghost">Clear</button></div></div>
         <div class="control-group"><label class="control-label" for="brightness">Brightness</label><div class="range-row"><input id="brightness" type="range" min="0" max="100" value="${Number(page?.lightness??100)}" aria-describedby="brightness-value"><span id="brightness-value" class="range-value">${Number(page?.lightness??100)}%</span></div></div>
         <div class="control-group"><label class="control-label" for="speed">Frame duration</label><select id="speed" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===encodedSpeed?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select><small class="control-help">These are the timing steps exposed by Angry Miao firmware.</small></div>
       </div>`;
+  const sourceBody=`<div id="studio-source-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-source-tab" ${state.studioTool==="source"?"":"hidden"}>
+        <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Imported media</h3><input id="gif-input" type="file" accept="image/gif,.gif" hidden><div class="gif-import-row"><button id="import-gif" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="GIF resize method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
+        <div class="control-group source-transform-controls" aria-disabled="${String(!sourceReady)}"><span class="control-label">Framing</span><div class="source-preset-grid"><button class="button ghost" data-source-preset="fit" ${sourceDisabled}>Fit</button><button class="button ghost" data-source-preset="fill" ${sourceDisabled}>Fill</button><button class="button ghost" data-source-preset="center" ${sourceDisabled}>Center</button><button class="button ghost" data-source-preset="reset" ${sourceDisabled}>Reset</button></div><label class="control-label secondary-label" for="source-zoom">Zoom</label><div class="range-row"><input id="source-zoom" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_x*100)}" ${sourceDisabled}><span id="source-zoom-value" class="range-value">${Math.round(state.sourceTransform.scale_x*100)}%</span></div><label class="check-row"><input id="source-stretch" type="checkbox" ${state.sourceTransform.aspect_locked?"":"checked"} ${sourceDisabled}><span>Stretch width and height independently</span></label><small class="control-help">${sourceReady?"Drag on the canvas to pan; use the wheel or slider to zoom.":"Import media to open framing controls. The current GIF path remains unchanged until the source is banked."}</small></div>
+        <div class="control-group"><span class="control-label">Canvas preview</span><div class="segmented source-preview-toggle" role="group" aria-label="Canvas preview"><button type="button" data-source-preview="result" aria-pressed="${String(state.sourcePreviewMode==="result")}" class="${state.sourcePreviewMode==="result"?"active":""}">LED result</button><button type="button" data-source-preview="source" aria-pressed="${String(state.sourcePreviewMode==="source")}" class="${state.sourcePreviewMode==="source"?"active":""}" ${sourceDisabled}>Source overlay</button></div></div>
+      </div>`;
+  const animateBody=`<div id="studio-animate-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-animate-tab" ${state.studioTool==="animate"?"":"hidden"}>
+        <div class="control-group"><label class="control-label" for="animate-effect">Animate this</label><select id="animate-effect" class="select-field"><option value="pulse" ${state.localAnimationEffect==="pulse"?"selected":""}>Pulse</option><option value="hue_cycle" ${state.localAnimationEffect==="hue_cycle"?"selected":""}>Hue cycle</option><option value="sweep" ${state.localAnimationEffect==="sweep"?"selected":""}>Sweep</option><option value="shimmer" ${state.localAnimationEffect==="shimmer"?"selected":""}>Shimmer</option><option value="move_zoom" ${state.localAnimationEffect==="move_zoom"?"selected":""} ${moveZoomReady?"":"disabled"}>Move &amp; zoom${moveZoomReady?"":" · still only"}</option></select><small class="control-help">Builds a deterministic local draft from the selected frame. No AI or network request is used.</small></div>
+        <div class="control-group"><label class="control-label" for="animate-frame-count">Frames</label><input id="animate-frame-count" class="text-field" type="number" min="2" max="${familyFrameCap}" step="1" value="${animationFrameCount}" ${fixedEdgeFrameCount?"disabled":""}><small class="control-help">${fixedEdgeFrameCount?`Locked to the key animation’s ${keyFrameCount} frames.`:`Destination limit: ${familyFrameCap} frames.`}</small><label class="control-label secondary-label" for="animate-duration">Frame duration</label><select id="animate-duration" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===firmwareLedSpeed(state.localAnimationDuration)?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select></div>
+        ${animationParameterMarkup()}
+        ${animationDraftMarkup()}
+        <div class="animation-draft-actions"><button id="animate-preview" class="button ghost" ${frame&&!edgeAnimationUnavailable?"":"disabled"}>Preview draft</button><button id="animate-accept" class="button primary" ${animationDraft?.frames.length?"":"disabled"}>Accept</button><button id="animate-cancel" class="button ghost" ${animationDraft?"":"disabled"}>Cancel</button></div>
+      </div>`;
+  const generationTab=aiReady()?`<button id="studio-generate-tab" role="tab" aria-controls="studio-generate-panel" aria-selected="${String(state.studioTool==="generate")}" tabindex="${state.studioTool==="generate"?0:-1}" data-studio-tool="generate">Generate</button>`:"";
+  const generationPanel=aiReady()?`<section id="studio-generate-panel" class="studio-tool-panel lighting-generate-tool" role="tabpanel" aria-labelledby="studio-generate-tab" ${state.studioTool==="generate"?"":"hidden"}><div id="lighting-generate-tool" tabindex="-1"><div class="studio-panel-heading"><strong id="lighting-generate-title">Generate lighting</strong><small>Procedural recipe · exact ${esc(targetLabel)} destination</small></div><div id="lighting-generate-content" aria-live="polite"></div></div></section>`:"";
   $("#lighting-edit-content").innerHTML=`<div class="lighting-edit-shell"><div class="led-layout">
       <aside class="card frame-list" aria-label="Animation frames"><div class="card-header"><strong>Frames</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?'Editing':'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div></aside>
-      <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header"><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}</small></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''}" role="region" aria-label="Paint the selected animation frame">${pixelCanvas}</div></section>
-      <aside class="card led-controls" aria-label="Lighting controls"><div class="card-header"><strong>Frame controls</strong><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div>${editorBody}</aside>
-    </div>${generationTool}</div>`;
+      <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header led-canvas-heading"><div><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}${activeDraft?' · Draft preview':''}</small></div><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${activeDraft?'draft-preview':''}" role="region" aria-label="${activeDraft?'Preview the local animation draft':'Paint the selected animation frame'}"><div id="media-compositor-stage" class="media-compositor-stage" tabindex="${sourceReady&&state.studioTool==="source"?'0':'-1'}" style="--source-offset-x:${state.sourceTransform.offset_x};--source-offset-y:${state.sourceTransform.offset_y};--source-scale-x:${state.sourceTransform.scale_x};--source-scale-y:${state.sourceTransform.scale_y}">${pixelCanvas}<div class="destination-overlay" aria-hidden="true"></div></div></div></section>
+      <aside class="card led-controls studio-inspector" aria-label="Lighting controls"><div class="studio-tool-tabs ${aiReady()?'with-generate':''}" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Source</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Animate</button>${generationTab}</div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}${generationPanel}</div></aside>
+    </div></div>`;
   wireLedEditor(columns);
+  wireStudioInspector();
   renderGenerationStudio();
 }
 
@@ -1742,6 +2148,7 @@ function focusSelectedFrame() {
 }
 
 function selectLightingFrame(index) {
+  cancelLocalAnimationDraft({render:false});
   state.ledFrame=Number(index);
   renderLightingEdit();
   focusSelectedFrame();
@@ -1753,7 +2160,10 @@ function wireLedEditor(gridColumns) {
   $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>selectLightingFrame(button.dataset.frame)));
   $("#first-frame")?.addEventListener("click",()=>mutate(ensureTrack));
   $("#import-gif").addEventListener("click",()=>$("#gif-input").click());
-  $("#gif-resample").addEventListener("change",event=>{state.gifResample=event.target.value;});
+  $("#gif-resample").addEventListener("change",event=>{
+    state.gifResample=event.target.value;
+    state.sourceTransform=validateSourceTransform({...state.sourceTransform,sampling:state.gifResample});
+  });
   $("#relic-gif-edges")?.addEventListener("change",event=>{state.relicGifEdges=event.target.checked;renderLightingEdit();});
   $("#gif-input").addEventListener("change",event=>importGif(event.currentTarget));
   $("#edge-static")?.addEventListener("click",()=>replaceEdgeAnimation("static"));
@@ -1767,7 +2177,9 @@ function wireLedEditor(gridColumns) {
     const track=trackInfo().track;track.frame_data.splice(state.ledFrame,1);track.frame_data.forEach((f,i)=>f.frame_index=i);track.frame_num=track.frame_data.length;state.ledFrame=Math.max(0,state.ledFrame-1);
     if(state.ledTarget==="keyframes"&&activeLedModel()===LED_MODELS["80"]){const page=getPage(state.ledSlot);if(page.spotlight_frames?.frame_data?.length){const data=resampleEdgeAnimation(page.spotlight_frames.frame_data,track.frame_data.length);page.spotlight_frames={...page.spotlight_frames,frame_num:data.length,frame_data:data};}}
   }));
+  const paintEnabled=state.studioTool==="paint"&&!localAnimationDraftMatches();
   const paint = pixel => {
+    if(!paintEnabled)return;
     const frame=currentFrame();if(!frame)return;const i=Number(pixel.dataset.pixel);frame.frame_RGB[i]=state.ledColor;pixel.style.background=state.ledColor;pixel.style.setProperty('--pixel-color',state.ledColor);pixel.title=`LED ${i} · ${state.ledColor}`;pixel.setAttribute('aria-label',`LED ${i}, ${state.ledColor}`);
   };
   const strokeController=createPaintStrokeController({releaseTarget:window,checkpoint:pushUndo,paint});
@@ -1780,20 +2192,22 @@ function wireLedEditor(gridColumns) {
     pixels[next]?.focus();
   };
   pixels.forEach((pixel,index)=>{
+    if(!paintEnabled)pixel.setAttribute("aria-disabled","true");
     pixel.addEventListener('focus',()=>{state.ledPixel=index;pixels.forEach((item,itemIndex)=>{item.tabIndex=itemIndex===index?0:-1;});});
     pixel.addEventListener('keydown',event=>{
       if(["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Home","End"].includes(event.key)){
         event.preventDefault();
         focusPixel(nextGridIndex(index,event.key,pixels.length,gridColumns));
       }else if(event.key===' '||event.key==='Enter'){
+        if(!paintEnabled)return;
         event.preventDefault();
         pushUndo();
         paint(pixel);
         markDirty();
       }
     });
-    pixel.addEventListener('pointerdown',event=>{event.preventDefault();focusPixel(index);strokeController.pointerDown(pixel);markDirty();});
-    pixel.addEventListener('pointerenter',event=>{strokeController.pointerEnter(pixel,event.buttons);});
+    pixel.addEventListener('pointerdown',event=>{if(!paintEnabled)return;event.preventDefault();focusPixel(index);strokeController.pointerDown(pixel);markDirty();});
+    pixel.addEventListener('pointerenter',event=>{if(paintEnabled)strokeController.pointerEnter(pixel,event.buttons);});
   });
   $("#led-color").addEventListener("input",event=>{state.ledColor=event.target.value.toUpperCase();$("#led-color-text").value=state.ledColor;});
   $("#led-color-text").addEventListener("change",event=>{if(/^#[0-9a-f]{6}$/i.test(event.target.value)){state.ledColor=event.target.value.toUpperCase();renderLightingEdit();}else toast("Invalid color","Use a six-digit hex color such as #8358FF.","error");});
@@ -2400,6 +2814,8 @@ function renderGenerationStudio() {
 function revealGenerationStudio() {
   if(!aiReady()||!state.config||!pageData().length)return;
   if(state.lighting.route!==ROUTES.EDIT)navigateTo(ROUTES.EDIT);
+  state.studioTool="generate";
+  renderLightingEdit();
   requestAnimationFrame(()=>{
     const tool=$("#lighting-generate-tool");
     tool?.scrollIntoView({behavior:"smooth",block:"start"});
@@ -2914,6 +3330,7 @@ $$('[data-lighting-route]').forEach(tab => {
   });
 });
 $$('[data-lighting-slot]').forEach(button=>button.addEventListener('click',()=>{
+  cancelLocalAnimationDraft({render:false});
   state.ledSlot=Number(button.dataset.lightingSlot);
   state.ledFrame=0;
   state.ledPixel=0;
