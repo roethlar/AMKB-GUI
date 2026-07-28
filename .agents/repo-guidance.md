@@ -36,9 +36,11 @@ fails in CI.
 
 For native distribution changes, build on the current operating system with
 `python build.py --skip-sync` (or `python build.py` when dependencies need
-synchronization) so the local build number is reserved and stamped. Then run
-the frozen executable with `--smoke-test`. Do not invoke PyInstaller directly;
-GitHub Actions owns equivalent native builds for the other operating systems.
+synchronization), then run the frozen executable with `--smoke-test`. Native
+builds use the canonical version from `am_configurator/_version.py` unchanged;
+local counters and workflow run numbers are provenance only. Do not invoke
+PyInstaller directly; GitHub Actions owns equivalent native builds for the
+other operating systems.
 
 ## Device Safety
 

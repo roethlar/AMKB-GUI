@@ -176,7 +176,7 @@ The following are hard release invariants:
   - `AM-Configurator-0.1.34-Linux-x86_64.AppImage`
   - `SHA256SUMS.txt`
   - `release-manifest.json`
-- The UI version badge reports `0.1.34` on every platform.
+- The About dialog reports `0.1.34` on every platform.
 - Do not overwrite a published asset, move or recreate a release tag, rewrite
   the release commit, or silently replace a failed candidate. Fixes receive a
   deliberate canonical version bump, new artifacts, and a new release.
@@ -663,7 +663,7 @@ On macOS arm64:
 5. Run `codesign --verify --deep --strict` against the mounted app.
 6. Inspect signature details and require ad-hoc identity with no Developer ID
    authority or notarization claim.
-7. Confirm the version badge matches that local build's stamped version.
+7. Confirm the About dialog reports the canonical version.
 
 This local build is preflight evidence only. It is not substituted for the
 eventual GitHub candidate.

@@ -31,11 +31,11 @@ _Last verified: 2026-07-24_
 
 ## michael-mac additions
 
-_Last verified: 2026-07-26_
+_Last verified: 2026-07-28_
 
-- Local build numbers advanced to `0.1.52` during this session. `build.py`
-  reserves the next number from the counter and existing `dist/` artifacts, so
-  numbers jump when older DMGs are present.
+- `build.py` no longer reserves or stamps local build numbers. Native artifacts
+  use the canonical application version unchanged; existing older DMGs in
+  `dist/` do not affect it.
 - `packaging/macos/build_dmg.sh` cannot be re-run against an already finalized
   bundle in `dist/`; FFmpeg finalization refuses the second pass. Use
   `python build.py --skip-sync` for an end-to-end DMG check.
