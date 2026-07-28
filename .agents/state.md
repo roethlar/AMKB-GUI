@@ -362,8 +362,14 @@
   was red-proven, and full-resolution inspection found no private state. Live
   wide/narrow acceptance also confirmed unconditional Keymap reload, the quiet
   About dialog with `0.1.34`, zero document/main overflow, and no console
-  warnings or exceptions. Push, hardware write, release publication, and Reddit
-  posting retain their explicit gates.
+  warnings or exceptions. The `0.1.34` release notes and Reddit draft now state
+  the exact hardware/OS/provider qualification boundary, installer integrity
+  workflow, full-write/LED-readback limitations, and non-affiliation without
+  promotional overclaiming. A structured GitHub bug form collects keyboard,
+  firmware, OS, version, operation, write, installer, reproduction, and
+  sanitized-log context. Both release-packet guards were red-proven and the
+  issue-form YAML parses successfully. Push, hardware write, release
+  publication, and Reddit posting retain their explicit gates.
 
 ## Blockers
 

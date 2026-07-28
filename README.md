@@ -28,6 +28,9 @@ are separate, off by default, and described below.
 | Windows x64 | Per-user `Setup.exe` | Installs silently, launches the installed app, then uninstalls |
 | Linux x86-64 | `.AppImage` | Executes the finished AppImage in extract-and-run mode |
 
+Release details: [AM Configurator 0.1.34](docs/releases/0.1.34.md) ·
+[Installation and verification](docs/installing.md)
+
 Packaged releases belong on the [GitHub Releases page](https://github.com/roethlar/AMKB-GUI/releases).
 That page is the only public installer source; workflow artifacts are temporary
 release candidates for maintainers. Each release also provides SHA-256

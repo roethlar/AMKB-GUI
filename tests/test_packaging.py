@@ -1193,5 +1193,90 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, public_docs.casefold())
 
+    def test_release_packet_is_normal_0_1_34_with_honest_claim_boundaries(
+        self,
+    ) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        release = (ROOT / "docs" / "releases" / "0.1.34.md").read_text(
+            encoding="utf-8"
+        )
+        reddit = (
+            ROOT / "docs" / "announcements" / "reddit-0.1.34.md"
+        ).read_text(encoding="utf-8")
+        packet = "\n".join((release, reddit))
+        collapsed = " ".join(packet.split())
+
+        for text in (release, reddit):
+            self.assertIn("AM Configurator 0.1.34", text)
+            self.assertNotRegex(text.casefold(), r"\b(?:beta|prerelease)\b")
+            self.assertNotIn("unsigned by design", text.casefold())
+            self.assertNotIn("UNSIGNED", text)
+        for expected in (
+            "live-tested on one AM Neon 80",
+            "does not expose LED read-back",
+            "Windows and Linux installers receive automated native smoke tests",
+            "not manually qualified on Windows or Linux",
+            "Remote API adapters are experimental",
+            "not live-qualified with paid credentials",
+            "AM Master",
+            "Esc+F2",
+            "SHA256SUMS.txt",
+            "gh attestation verify",
+            "independent community project",
+            "not affiliated with or endorsed by Angry Miao",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected.casefold(), collapsed.casefold())
+        self.assertIn("docs/releases/0.1.34.md", readme)
+        self.assertIn("docs/installing.md", release)
+        self.assertIn(
+            "https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.34",
+            reddit,
+        )
+        self.assertIn(
+            "https://github.com/roethlar/AMKB-GUI/issues/new/choose",
+            reddit,
+        )
+
+    def test_bug_report_form_collects_release_and_hardware_context(self) -> None:
+        form = (
+            ROOT / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml"
+        ).read_text(encoding="utf-8")
+        config = (
+            ROOT / ".github" / "ISSUE_TEMPLATE" / "config.yml"
+        ).read_text(encoding="utf-8")
+
+        for field in (
+            "id: keyboard",
+            "id: firmware",
+            "id: os",
+            "id: version",
+            "id: operation",
+            "id: write",
+            "id: installer",
+            "id: steps",
+            "id: expected",
+            "id: actual",
+            "id: logs",
+        ):
+            with self.subTest(field=field):
+                self.assertIn(field, form)
+        for operation in (
+            "Device detection / read / write",
+            "Keymap",
+            "Macros",
+            "Lighting paint / media import / local animation",
+            "Library / profile import",
+            "Optional AI / Ollama",
+            "Optional AI / remote API",
+        ):
+            with self.subTest(operation=operation):
+                self.assertIn(operation, form)
+        self.assertIn("AM Neon 80", form)
+        self.assertIn("0.1.34", form)
+        self.assertIn("Remove API keys", form)
+        self.assertIn("sanitized", form)
+        self.assertIn("blank_issues_enabled: false", config)
+
 if __name__ == "__main__":
     unittest.main()
