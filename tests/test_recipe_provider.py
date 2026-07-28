@@ -10,6 +10,7 @@ from am_configurator.recipe_inference import build_ollama_recipe_payload
 from am_configurator.recipe_provider import (
     AnthropicRecipeProvider,
     GeminiRecipeProvider,
+    KimiRecipeProvider,
     OllamaRecipeProvider,
     OpenAIRecipeProvider,
     RecipeRequest,
@@ -141,6 +142,33 @@ def _gemini_response(
                 "type": "model_output",
                 "content": [{"type": "text", "text": json.dumps(recipe)}],
             },
+        ],
+    }
+    if usage is not None:
+        response["usage"] = usage
+    return response
+
+
+def _kimi_response(
+    recipe: dict,
+    *,
+    finish_reason: str = "stop",
+    usage: dict | None = None,
+) -> dict:
+    response = {
+        "id": "chatcmpl_test",
+        "object": "chat.completion",
+        "model": "kimi-k3",
+        "choices": [
+            {
+                "index": 0,
+                "finish_reason": finish_reason,
+                "message": {
+                    "role": "assistant",
+                    "content": json.dumps(recipe),
+                    "reasoning_content": "provider-private-reasoning",
+                },
+            }
         ],
     }
     if usage is not None:
@@ -808,6 +836,178 @@ class GeminiRecipeProviderTests(unittest.TestCase):
                     "total_input_tokens": 100,
                     "total_output_tokens": 20,
                     "total_thought_tokens": 5,
+                },
+            ),
+        )
+        with self.assertRaises(llm.ProviderError) as late:
+            post_call.generate(
+                _request(),
+                time.monotonic() + 10,
+                lambda: next(checks),
+            )
+        self.assertEqual("unavailable", late.exception.code)
+        self.assertTrue(late.exception.usage.reported)
+
+
+class KimiRecipeProviderTests(unittest.TestCase):
+    def test_current_catalog_and_one_chat_call_use_json_object_contract(
+        self,
+    ) -> None:
+        catalog = ai_catalog.catalog_view()["providers"]["moonshot"]
+        self.assertEqual("kimi-k3", catalog["default_model"])
+        self.assertEqual(["kimi-k3"], [model["id"] for model in catalog["models"]])
+        self.assertEqual("max", catalog["models"][0]["reasoning_effort"])
+        self.assertEqual(
+            1_213_440_000,
+            ai_catalog.recipe_max_cost_usd_ticks("moonshot", "kimi-k3"),
+        )
+
+        calls: list[tuple] = []
+        usage = {
+            "prompt_tokens": 1000,
+            "completion_tokens": 250,
+            "total_tokens": 1250,
+            "cached_tokens": 400,
+        }
+
+        def transport(spec, payload, api_key, deadline):
+            calls.append((spec, payload, api_key, deadline))
+            return _kimi_response(_recipe(), usage=usage)
+
+        provider = KimiRecipeProvider("moonshot-private", transport=transport)
+        result = provider.generate(_request(), time.monotonic() + 10, lambda: False)
+
+        self.assertEqual(1, len(calls))
+        spec, payload, api_key, _deadline = calls[0]
+        self.assertIs(llm.MOONSHOT_CHAT_COMPLETIONS_TRANSPORT, spec)
+        self.assertEqual("moonshot-private", api_key)
+        self.assertEqual("kimi-k3", payload["model"])
+        self.assertIs(payload["stream"], False)
+        self.assertEqual(1536, payload["max_completion_tokens"])
+        self.assertNotIn("max_tokens", payload)
+        self.assertEqual("max", payload["reasoning_effort"])
+        self.assertEqual({"type": "json_object"}, payload["response_format"])
+        self.assertEqual("system", payload["messages"][0]["role"])
+        self.assertIn('"schema_version":1', payload["messages"][0]["content"])
+        self.assertIn('"secondary_color_index":1', payload["messages"][0]["content"])
+        self.assertEqual(
+            {"role": "user", "content": _request().prompt},
+            payload["messages"][1],
+        )
+        self.assertEqual(_recipe(), result.recipe)
+        self.assertEqual("api", result.backend)
+        self.assertEqual("moonshot", result.provider)
+        self.assertEqual("kimi-k3", result.model_id)
+        self.assertEqual({"cost_in_usd_ticks": 56_700_000}, result.usage)
+
+    def test_missing_usage_succeeds_and_malformed_usage_fails_once(self) -> None:
+        calls = 0
+        responses = iter(
+            (
+                _kimi_response(_recipe()),
+                _kimi_response(
+                    _recipe(),
+                    usage={
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "cached_tokens": 11,
+                    },
+                ),
+            )
+        )
+
+        def transport(*_args):
+            nonlocal calls
+            calls += 1
+            return next(responses)
+
+        provider = KimiRecipeProvider("moonshot-private", transport=transport)
+        result = provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertIsNone(result.usage)
+
+        with self.assertRaises(llm.ProviderError) as captured:
+            provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertEqual("bad_response", captured.exception.code)
+        self.assertEqual(2, calls)
+        self.assertNotIn("moonshot-private", str(captured.exception))
+
+    def test_nonstop_or_ambiguous_output_fails_once_without_body_text(self) -> None:
+        usage = {
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "cached_tokens": 0,
+        }
+        length = _kimi_response(
+            _recipe(),
+            finish_reason="length",
+            usage=usage,
+        )
+        length["provider_error"] = "provider-body-secret"
+        ambiguous = _kimi_response(_recipe(), usage=usage)
+        ambiguous["choices"].append(dict(ambiguous["choices"][0]))
+        for response in (length, ambiguous):
+            calls = 0
+
+            def transport(*_args):
+                nonlocal calls
+                calls += 1
+                return response
+
+            provider = KimiRecipeProvider(
+                "moonshot-private",
+                transport=transport,
+            )
+            with self.subTest(choices=len(response["choices"])):
+                with self.assertRaises(llm.ProviderError) as captured:
+                    provider.generate(
+                        _request(),
+                        time.monotonic() + 10,
+                        lambda: False,
+                    )
+                self.assertEqual("bad_response", captured.exception.code)
+                self.assertEqual(1, calls)
+                self.assertTrue(captured.exception.usage.reported)
+                self.assertNotIn("provider-body-secret", str(captured.exception))
+
+    def test_cancellation_and_invalid_recipe_never_make_a_paid_retry(self) -> None:
+        calls = 0
+
+        def invalid_transport(*_args):
+            nonlocal calls
+            calls += 1
+            return _kimi_response(
+                {"provider-body-secret": "never expose this"},
+                usage={
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "cached_tokens": 0,
+                },
+            )
+
+        provider = KimiRecipeProvider(
+            "moonshot-private",
+            transport=invalid_transport,
+        )
+        with self.assertRaises(llm.ProviderError) as cancelled:
+            provider.generate(_request(), time.monotonic() + 10, lambda: True)
+        self.assertEqual("unavailable", cancelled.exception.code)
+        self.assertEqual(0, calls)
+
+        with self.assertRaises(llm.ProviderError) as invalid:
+            provider.generate(_request(), time.monotonic() + 10, lambda: False)
+        self.assertEqual("bad_response", invalid.exception.code)
+        self.assertEqual(1, calls)
+        self.assertNotIn("provider-body-secret", str(invalid.exception))
+
+        checks = iter((False, True))
+        post_call = KimiRecipeProvider(
+            "moonshot-private",
+            transport=lambda *_args: _kimi_response(
+                _recipe(),
+                usage={
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "cached_tokens": 0,
                 },
             ),
         )

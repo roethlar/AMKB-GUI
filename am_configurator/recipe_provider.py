@@ -476,6 +476,108 @@ def _gemini_output_text(response: dict[str, Any]) -> str:
     return "".join(texts)
 
 
+_JSON_OBJECT_RECIPE_EXAMPLE = (
+    '{"schema_version":1,"name":"Example","density":"balanced",'
+    '"background":"#000000","palette":["#FF0000","#0000FF"],'
+    '"layers":[{"kind":"sweep","color_index":0,'
+    '"secondary_color_index":1,"speed":1,"phase":0.0,'
+    '"direction_degrees":0.0,"center_x":0.5,"center_y":0.5,'
+    '"scale":1.0,"width":0.4,"trail":0.5,"count":2,'
+    '"intensity":1.0,"seed":7}]}'
+)
+
+
+def _json_object_recipe_system_prompt(system_prompt: str) -> str:
+    return (
+        f"{system_prompt}\n"
+        "Return exactly one JSON object and no surrounding text. "
+        "Use this compact shape example:\n"
+        f"{_JSON_OBJECT_RECIPE_EXAMPLE}"
+    )
+
+
+def _kimi_usage(
+    response: dict[str, Any],
+    model_id: str,
+) -> llm.ProviderUsage:
+    if "usage" not in response:
+        return llm.MISSING_PROVIDER_USAGE
+    usage = response["usage"]
+    if not isinstance(usage, dict):
+        raise llm.ProviderError("bad_response", "provider usage was not an object")
+    values: dict[str, int] = {}
+    for field in ("prompt_tokens", "completion_tokens", "cached_tokens"):
+        value = usage.get(field, 0)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise llm.ProviderError(
+                "bad_response",
+                "provider token usage was invalid",
+            )
+        values[field] = value
+    if "prompt_tokens" not in usage or "completion_tokens" not in usage:
+        raise llm.ProviderError(
+            "bad_response",
+            "provider token usage was incomplete",
+        )
+    if values["cached_tokens"] > values["prompt_tokens"]:
+        raise llm.ProviderError(
+            "bad_response",
+            "provider token usage was invalid",
+        )
+    try:
+        cost = ai_catalog.recipe_usage_cost_usd_ticks(
+            "moonshot",
+            model_id,
+            input_tokens=values["prompt_tokens"],
+            output_tokens=values["completion_tokens"],
+            cached_input_tokens=values["cached_tokens"],
+        )
+    except ValueError:
+        raise llm.ProviderError(
+            "bad_response",
+            "provider token usage was invalid",
+        ) from None
+    return llm.ProviderUsage(cost_in_usd_ticks=cost, reported=True)
+
+
+def _kimi_output_text(response: dict[str, Any]) -> str:
+    if response.get("object") != "chat.completion":
+        raise llm.ProviderError(
+            "bad_response",
+            "Recipe response was not a chat completion.",
+        )
+    choices = response.get("choices")
+    if not isinstance(choices, list) or len(choices) != 1:
+        raise llm.ProviderError(
+            "bad_response",
+            "Recipe response contained an ambiguous result.",
+        )
+    choice = choices[0]
+    if not isinstance(choice, dict) or choice.get("index") != 0:
+        raise llm.ProviderError(
+            "bad_response",
+            "Recipe response contained an invalid choice.",
+        )
+    if choice.get("finish_reason") != "stop":
+        raise llm.ProviderError(
+            "bad_response",
+            "Recipe response ended before completion.",
+        )
+    message = choice.get("message")
+    if not isinstance(message, dict) or message.get("role") != "assistant":
+        raise llm.ProviderError(
+            "bad_response",
+            "Recipe response omitted the assistant message.",
+        )
+    content = message.get("content")
+    if not isinstance(content, str) or not content:
+        raise llm.ProviderError(
+            "bad_response",
+            "Recipe response contained no complete text.",
+        )
+    return content
+
+
 class XaiRecipeProvider:
     """Exactly one bounded xAI Responses request for one strict recipe."""
 
@@ -868,6 +970,104 @@ class GeminiRecipeProvider:
         )
 
 
+class KimiRecipeProvider:
+    """Exactly one Moonshot Chat Completions request for one recipe."""
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        model_id: str = "kimi-k3",
+        transport=None,
+    ) -> None:
+        if not isinstance(api_key, str) or not api_key:
+            raise llm.ProviderError("config", "API credential is missing.")
+        try:
+            normalized = ai_catalog.validate_provider_model("moonshot", model_id)
+            metadata = ai_catalog.provider_model_metadata("moonshot", normalized)
+        except ValueError:
+            raise llm.ProviderError(
+                "config",
+                "API recipe model is unavailable.",
+            ) from None
+        assert isinstance(normalized, str)
+        self._model_id = normalized
+        self._max_output_tokens = int(metadata["max_output_tokens"])
+        self._reasoning_effort = str(metadata["reasoning_effort"])
+        self._api_key = api_key
+        self._transport = (
+            llm._provider_json_request if transport is None else transport
+        )
+
+    def generate(
+        self,
+        request: RecipeRequest,
+        deadline: float,
+        cancelled: Callable[[], bool],
+    ) -> RecipeResult:
+        prompt, system_prompt, _schema = _request_parts(request)
+        _check_start(deadline, cancelled)
+        payload = {
+            "model": self._model_id,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": _json_object_recipe_system_prompt(system_prompt),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "max_completion_tokens": self._max_output_tokens,
+            "stream": False,
+            "response_format": {"type": "json_object"},
+            "reasoning_effort": self._reasoning_effort,
+        }
+        response = llm._call_provider(
+            self._transport,
+            llm.MOONSHOT_CHAT_COMPLETIONS_TRANSPORT,
+            payload,
+            self._api_key,
+            deadline,
+        )
+        usage = _kimi_usage(response, self._model_id)
+        failure: llm.ProviderError | None = None
+        try:
+            recipe = _validated_recipe_text(_kimi_output_text(response))
+        except llm.ProviderError as error:
+            failure = llm.ProviderError(
+                error.code,
+                str(error),
+                retry_after=error.retry_after,
+                usage=usage,
+            )
+            recipe = None
+        if failure is not None:
+            raise failure
+        if recipe is None:
+            raise llm.ProviderError(
+                "bad_response",
+                "Recipe output failed validation.",
+                usage=usage,
+            )
+        if cancelled():
+            raise llm.ProviderError(
+                "unavailable",
+                "Recipe generation was cancelled.",
+                usage=usage,
+            )
+        usage_value = (
+            {"cost_in_usd_ticks": usage.cost_in_usd_ticks}
+            if usage.reported and usage.cost_in_usd_ticks is not None
+            else None
+        )
+        return RecipeResult(
+            recipe=recipe,
+            backend="api",
+            provider="moonshot",
+            model_id=self._model_id,
+            usage=usage_value,
+        )
+
+
 def _ollama_output_text(response: dict[str, Any]) -> str:
     message = response.get("message")
     if not isinstance(message, dict) or not isinstance(message.get("content"), str):
@@ -959,6 +1159,7 @@ class OllamaRecipeProvider:
 __all__ = [
     "AnthropicRecipeProvider",
     "GeminiRecipeProvider",
+    "KimiRecipeProvider",
     "LOCAL_MAX_RETRIES",
     "LOCAL_OUTPUT_TOKENS",
     "MAX_RECIPE_PROMPT_CHARS",

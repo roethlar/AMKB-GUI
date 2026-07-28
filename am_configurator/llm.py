@@ -39,6 +39,10 @@ GEMINI_API_HOST = "generativelanguage.googleapis.com"
 GEMINI_INTERACTIONS_URL = (
     "https://generativelanguage.googleapis.com/v1beta/interactions"
 )
+MOONSHOT_API_HOST = "api.moonshot.ai"
+MOONSHOT_CHAT_COMPLETIONS_URL = (
+    "https://api.moonshot.ai/v1/chat/completions"
+)
 
 # Stable ProviderError codes (design §Typed errors), each mapped to a local
 # HTTP status by the server. Listed here as the contract of record.
@@ -91,6 +95,14 @@ GEMINI_INTERACTIONS_TRANSPORT = ProviderTransportSpec(
     auth_header="x-goog-api-key",
     auth_prefix="",
     path_prefix="/v1beta/",
+)
+
+MOONSHOT_CHAT_COMPLETIONS_TRANSPORT = ProviderTransportSpec(
+    provider="moonshot",
+    url=MOONSHOT_CHAT_COMPLETIONS_URL,
+    host=MOONSHOT_API_HOST,
+    auth_header="Authorization",
+    auth_prefix="Bearer ",
 )
 
 

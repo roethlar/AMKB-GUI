@@ -15,6 +15,7 @@ PRICING_AS_OF = "2026-07-20"
 ANTHROPIC_PRICING_AS_OF = "2026-07-27"
 OPENAI_PRICING_AS_OF = "2026-07-27"
 GEMINI_PRICING_AS_OF = "2026-07-27"
+MOONSHOT_PRICING_AS_OF = "2026-07-27"
 USD_TICKS_PER_DOLLAR = 10_000_000_000
 RECIPE_API_MAX_INPUT_TOKENS = 32_768
 RECIPE_API_MAX_OUTPUT_TOKENS = 1536
@@ -156,6 +157,28 @@ _GEMINI_MODELS = [
     },
 ]
 
+# Verified 2026-07-27 against Moonshot's first-party Kimi K3, Chat
+# Completions, JSON mode, parameter, and standard pricing pages:
+# https://platform.kimi.ai/docs/guide/kimi-k3-quickstart.md
+# https://platform.kimi.ai/docs/api/chat.md
+# https://platform.kimi.ai/docs/guide/use-json-mode-feature-of-kimi-api
+# https://platform.kimi.ai/docs/api/models-overview
+# https://platform.kimi.ai/docs/pricing/chat-k3
+_KIMI_MODELS = [
+    {
+        "id": "kimi-k3",
+        "label": "Kimi K3",
+        "pricing": {
+            "input_per_million_tokens_usd_ticks": 30_000_000_000,
+            "cached_input_per_million_tokens_usd_ticks": 3_000_000_000,
+            "output_per_million_tokens_usd_ticks": 150_000_000_000,
+        },
+        "pricing_as_of": MOONSHOT_PRICING_AS_OF,
+        "max_output_tokens": RECIPE_API_MAX_OUTPUT_TOKENS,
+        "reasoning_effort": "max",
+    },
+]
+
 
 def _provider(
     label: str,
@@ -197,7 +220,12 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
         default_model="gemini-3.6-flash",
         models=_GEMINI_MODELS,
     ),
-    "moonshot": _provider("Kimi / Moonshot", "json_object"),
+    "moonshot": _provider(
+        "Kimi / Moonshot",
+        "json_object",
+        default_model="kimi-k3",
+        models=_KIMI_MODELS,
+    ),
     "deepseek": _provider("DeepSeek", "json_object"),
 }
 
@@ -319,6 +347,7 @@ def recipe_usage_cost_usd_ticks(
     *,
     input_tokens: object,
     output_tokens: object,
+    cached_input_tokens: object = 0,
 ) -> int | None:
     """Price exact reported token counts with the catalog's dated estimate."""
 
@@ -329,14 +358,24 @@ def recipe_usage_cost_usd_ticks(
         or isinstance(output_tokens, bool)
         or not isinstance(output_tokens, int)
         or output_tokens < 0
+        or isinstance(cached_input_tokens, bool)
+        or not isinstance(cached_input_tokens, int)
+        or cached_input_tokens < 0
+        or cached_input_tokens > input_tokens
     ):
         raise ValueError("provider token usage must be non-negative integers")
     choice = provider_model_metadata(provider, model_id)
     pricing = choice.get("pricing")
     if not isinstance(pricing, dict):
         return None
+    regular_input_rate = pricing["input_per_million_tokens_usd_ticks"]
+    cached_input_rate = pricing.get(
+        "cached_input_per_million_tokens_usd_ticks",
+        regular_input_rate,
+    )
     input_ticks = (
-        input_tokens * pricing["input_per_million_tokens_usd_ticks"]
+        (input_tokens - cached_input_tokens) * regular_input_rate
+        + cached_input_tokens * cached_input_rate
         + 999_999
     ) // 1_000_000
     output_ticks = (

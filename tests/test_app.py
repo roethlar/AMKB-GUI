@@ -1175,6 +1175,31 @@ class GrokTransportTests(unittest.TestCase):
         self.assertEqual("", request.selector.partition("?")[2])
         self.assertGreater(timeout, 0)
 
+        opener = _RecordingOpener(response=_FakeResponse(b'{"ok":true}'))
+        spec = llm.MOONSHOT_CHAT_COMPLETIONS_TRANSPORT
+        result = llm._provider_json_request(
+            spec,
+            {"messages": []},
+            "provider-secret",
+            self._future_deadline(),
+            opener=opener,
+        )
+
+        self.assertEqual({"ok": True}, result)
+        self.assertEqual(1, len(opener.calls))
+        request, timeout = opener.calls[0]
+        self.assertEqual(
+            "https://api.moonshot.ai/v1/chat/completions",
+            request.full_url,
+        )
+        self.assertEqual(
+            "Bearer provider-secret",
+            _request_header(request, "Authorization"),
+        )
+        self.assertEqual("api.moonshot.ai", spec.host)
+        self.assertNotIn("provider-secret", request.full_url)
+        self.assertGreater(timeout, 0)
+
         invalid = llm.ProviderTransportSpec(
             provider="anthropic",
             url="https://attacker.invalid/v1/messages",
