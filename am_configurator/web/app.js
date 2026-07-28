@@ -2366,6 +2366,20 @@ async function loadMediaCompositionSourceAsset() {
   }
 }
 
+function mediaCompositionStatusText(draft) {
+  return draft?.status==="rendering"
+    ?"Rendering the server-authoritative LED preview…"
+    :draft?.status==="ready"
+      ?"Preview ready. Apply changes only this open document."
+      :draft?.status==="failed"
+        ?draft.error
+        :draft?.status==="applied"
+          ?"Applied to this slot. The banked source remains available for reframing."
+          :draft
+            ?"Adjust framing, then render a preview."
+            :"Choose media to bank it in Library before composition opens.";
+}
+
 function updateSourceTransformView() {
   const stage=$("#media-compositor-stage");
   if(!stage)return;
@@ -2376,8 +2390,30 @@ function updateSourceTransformView() {
   stage.style.setProperty("--source-scale-y",String(transform.scale_y));
   const zoom=$("#source-zoom");
   if(zoom)zoom.value=String(Math.round(transform.scale_x*100));
+  const zoomLabel=$("#source-zoom-label");
+  if(zoomLabel)zoomLabel.textContent=transform.aspect_locked?"Zoom":"Width";
   const value=$("#source-zoom-value");
   if(value)value.textContent=`${Math.round(transform.scale_x*100)}%`;
+  const heightControl=$("#source-height-control");
+  if(heightControl)heightControl.hidden=transform.aspect_locked;
+  const height=$("#source-height");
+  if(height)height.value=String(Math.round(transform.scale_y*100));
+  const heightValue=$("#source-height-value");
+  if(heightValue)heightValue.textContent=`${Math.round(transform.scale_y*100)}%`;
+  const stretch=$("#source-stretch");
+  if(stretch)stretch.checked=!transform.aspect_locked;
+  const draft=state.mediaComposition?.status==="cancelled"?null:state.mediaComposition;
+  const status=$(".media-composition-status");
+  if(status){
+    status.textContent=mediaCompositionStatusText(draft);
+    status.classList.toggle("failed",draft?.status==="failed");
+  }
+  const preview=$("#media-compose-preview");
+  if(preview)preview.disabled=!draft||draft.status==="rendering";
+  const apply=$("#media-compose-apply");
+  if(apply)apply.disabled=!mediaDraftCanApply(draft);
+  const cancel=$("#media-compose-cancel");
+  if(cancel)cancel.disabled=!draft;
 }
 
 function applySourceTransformPreset(mode) {
@@ -2856,6 +2892,17 @@ function wireStudioInspector() {
       updateSourceTransformView();
     }catch(error){toast("Could not zoom source",error.message,"error");}
   });
+  $("#source-height")?.addEventListener("input",event=>{
+    const target=Number(event.target.value)/100;
+    try{
+      updateMediaCompositionTransform({
+        ...state.sourceTransform,
+        aspect_locked:false,
+        scale_y:target,
+      });
+      updateSourceTransformView();
+    }catch(error){toast("Could not stretch source",error.message,"error");}
+  });
   const stage=$("#media-compositor-stage");
   if(stage&&mediaSourceSize()&&mediaDestinationSize()){
     let pointer=null;
@@ -3022,17 +3069,7 @@ function renderLightingEdit() {
   const sourceDisabled=sourceReady?"":"disabled";
   const mediaDraft=state.mediaComposition?.status==="cancelled"?null:state.mediaComposition;
   const mediaSourceUrl=mediaCompositionSourceUrl();
-  const mediaStatus=mediaDraft?.status==="rendering"
-    ?"Rendering the server-authoritative LED preview…"
-    :mediaDraft?.status==="ready"
-      ?"Preview ready. Apply changes only this open document."
-      :mediaDraft?.status==="failed"
-        ?mediaDraft.error
-        :mediaDraft?.status==="applied"
-          ?"Applied to this slot. The banked source remains available for reframing."
-          :mediaDraft
-            ?"Adjust framing, then render a preview."
-            :"Choose media to bank it in Library before composition opens.";
+  const mediaStatus=mediaCompositionStatusText(mediaDraft);
   const familyFrameCap=Math.min(256,activeFamilySpec().frameCap||256);
   const fixedEdgeFrameCount=edgeAutomation&&keyFrameCount>=2;
   const edgeAnimationUnavailable=edgeAutomation&&keyFrameCount<2;
@@ -3048,7 +3085,7 @@ function renderLightingEdit() {
       </div>`;
   const sourceBody=`<div id="studio-source-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-source-tab" ${state.studioTool==="source"?"":"hidden"}>
         <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Imported media</h3><input id="media-input" type="file" accept="image/gif,image/png,image/bmp,.gif,.png,.bmp" hidden><div class="gif-import-row"><button id="import-media" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="Media sampling method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
-        <div class="control-group source-transform-controls" aria-disabled="${String(!sourceReady)}"><span class="control-label">Framing</span><div class="source-preset-grid"><button class="button ghost" data-source-preset="fit" ${sourceDisabled}>Fit</button><button class="button ghost" data-source-preset="fill" ${sourceDisabled}>Fill</button><button class="button ghost" data-source-preset="center" ${sourceDisabled}>Center</button><button class="button ghost" data-source-preset="reset" ${sourceDisabled}>Reset</button></div><label class="control-label secondary-label" for="source-zoom">Zoom</label><div class="range-row"><input id="source-zoom" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_x*100)}" ${sourceDisabled}><span id="source-zoom-value" class="range-value">${Math.round(state.sourceTransform.scale_x*100)}%</span></div><label class="check-row"><input id="source-stretch" type="checkbox" ${state.sourceTransform.aspect_locked?"":"checked"} ${sourceDisabled}><span>Stretch width and height independently</span></label><small class="control-help">${sourceReady?"Drag on the canvas to pan; use the wheel or slider to zoom.":"Import media to bank the source and open framing controls."}</small></div>
+        <div class="control-group source-transform-controls" aria-disabled="${String(!sourceReady)}"><span class="control-label">Framing</span><div class="source-preset-grid"><button class="button ghost" data-source-preset="fit" ${sourceDisabled}>Fit</button><button class="button ghost" data-source-preset="fill" ${sourceDisabled}>Fill</button><button class="button ghost" data-source-preset="center" ${sourceDisabled}>Center</button><button class="button ghost" data-source-preset="reset" ${sourceDisabled}>Reset</button></div><label id="source-zoom-label" class="control-label secondary-label" for="source-zoom">${state.sourceTransform.aspect_locked?"Zoom":"Width"}</label><div class="range-row"><input id="source-zoom" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_x*100)}" ${sourceDisabled}><span id="source-zoom-value" class="range-value">${Math.round(state.sourceTransform.scale_x*100)}%</span></div><div id="source-height-control" ${state.sourceTransform.aspect_locked?"hidden":""}><label class="control-label secondary-label" for="source-height">Height</label><div class="range-row"><input id="source-height" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_y*100)}" ${sourceDisabled}><span id="source-height-value" class="range-value">${Math.round(state.sourceTransform.scale_y*100)}%</span></div></div><label class="check-row"><input id="source-stretch" type="checkbox" ${state.sourceTransform.aspect_locked?"":"checked"} ${sourceDisabled}><span>Stretch width and height independently</span></label><small class="control-help">${sourceReady?"Drag on the canvas to pan; use the wheel or sliders to resize.":"Import media to bank the source and open framing controls."}</small></div>
         <div class="control-group"><span class="control-label">Canvas preview</span><div class="segmented source-preview-toggle" role="group" aria-label="Canvas preview"><button type="button" data-source-preview="result" aria-pressed="${String(state.sourcePreviewMode==="result")}" class="${state.sourcePreviewMode==="result"?"active":""}">LED result</button><button type="button" data-source-preview="source" aria-pressed="${String(state.sourcePreviewMode==="source")}" class="${state.sourcePreviewMode==="source"?"active":""}" ${sourceDisabled}>Source overlay</button></div></div>
         <div class="media-composition-status ${mediaDraft?.status==="failed"?"failed":""}" aria-live="polite">${esc(mediaStatus)}</div>
         <div class="media-composition-actions"><button id="media-compose-preview" class="button ghost" ${sourceReady&&mediaDraft?.status!=="rendering"?"":"disabled"}>Render preview</button><button id="media-compose-apply" class="button primary" ${mediaDraftCanApply(mediaDraft)?"":"disabled"}>Apply</button><button id="media-compose-cancel" class="button ghost" ${mediaDraft?"":"disabled"}>Cancel</button></div>
