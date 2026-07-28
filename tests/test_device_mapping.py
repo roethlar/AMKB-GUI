@@ -115,6 +115,146 @@ class FamilySpecTests(unittest.TestCase):
         self.assertEqual("80", mapping.spec_for_product("AM21").model)
 
 
+class DeviceSignatureTests(unittest.TestCase):
+    def test_fixed_and_dynamic_keymap_signatures_are_canonical(self) -> None:
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        relic = mapping.device_descriptor("AM21")
+        relic_alias = mapping.device_descriptor("80")
+        self.assertEqual(
+            relic["keymap"]["signature"],
+            relic_alias["keymap"]["signature"],
+        )
+        self.assertRegex(
+            relic["keymap"]["signature"],
+            r"^keymap:v1:[0-9a-f]{64}$",
+        )
+
+        unknown_neon = mapping.device_descriptor("NEON80")
+        self.assertFalse(unknown_neon["keymap"]["layout_known"])
+        self.assertIsNone(unknown_neon["keymap"]["signature"])
+
+        layout = [
+            {
+                "index": 0,
+                "matrix_row": 0,
+                "matrix_col": 0,
+                "x": 0.0,
+                "y": 0.0,
+                "width": 6.0,
+                "height": 12.0,
+                "rotation": 0.0,
+            },
+            {
+                "index": 1,
+                "matrix_row": 0,
+                "matrix_col": 1,
+                "x": 6.0,
+                "y": 0.0,
+                "width": 9.0,
+                "height": 12.0,
+                "rotation": 0.0,
+            },
+        ]
+        first = mapping.device_descriptor("NEON80", key_layout=layout)
+        reordered = mapping.device_descriptor(
+            "NEON80",
+            key_layout=list(reversed(layout)),
+        )
+        changed = mapping.device_descriptor(
+            "NEON80",
+            key_layout=[{**layout[0], "width": 7.0}, layout[1]],
+        )
+        self.assertTrue(first["keymap"]["layout_known"])
+        self.assertEqual(
+            first["keymap"]["signature"],
+            reordered["keymap"]["signature"],
+        )
+        self.assertNotEqual(
+            first["keymap"]["signature"],
+            changed["keymap"]["signature"],
+        )
+
+    def test_lighting_signatures_include_routing_roles_and_derivations(self) -> None:
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        neon = mapping.device_descriptor("NEON80")
+        self.assertEqual({"axial", "head"}, set(neon["lighting"]))
+        self.assertEqual("per_key", neon["lighting"]["axial"]["semantic_target"])
+        self.assertEqual("display", neon["lighting"]["head"]["semantic_target"])
+        self.assertEqual(
+            "side_screen_lights",
+            neon["lighting"]["head"]["derivations"][0]["semantic_target"],
+        )
+        for target in neon["lighting"].values():
+            self.assertRegex(
+                target["signature"],
+                r"^lighting:v1:[0-9a-f]{64}$",
+            )
+
+        cyberboard = mapping.device_descriptor("CB04")
+        afa = mapping.device_descriptor("ALICE")
+        self.assertNotEqual(
+            cyberboard["lighting"]["keyframes"]["signature"],
+            afa["lighting"]["keyframes"]["signature"],
+        )
+        published = {
+            target["name"]: target
+            for target in mapping.target_capabilities()["NEON"]["targets"]
+        }
+        self.assertEqual(
+            neon["lighting"]["head"]["signature"],
+            published["head"]["signature"],
+        )
+
+    def test_target_limits_and_lighting_conversion_are_explicit(self) -> None:
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        neon = mapping.device_descriptor(
+            "NEON80",
+            layer_count=4,
+            macro_count=9,
+            macro_buffer_bytes=321,
+        )
+        self.assertEqual(
+            {
+                "frames": 256,
+                "layers": 4,
+                "keys_per_layer": 90,
+                "macros": 9,
+                "macro_events": 6677,
+                "macro_buffer_bytes": 321,
+                "assignment_encoding": "qmk-vial16-v1",
+            },
+            neon["limits"],
+        )
+
+        signature = neon["lighting"]["axial"]["signature"]
+        self.assertEqual(
+            "convertible",
+            mapping.lighting_section_compatibility(
+                "media_source",
+                destination_signature=signature,
+            )["status"],
+        )
+        self.assertEqual(
+            "exact",
+            mapping.lighting_section_compatibility(
+                "lighting_composition",
+                source_signature=signature,
+                destination_signature=signature,
+            )["status"],
+        )
+        self.assertEqual(
+            "blocked",
+            mapping.lighting_section_compatibility(
+                "lighting_composition",
+                source_signature="lighting:v1:" + "0" * 64,
+                destination_signature=signature,
+            )["status"],
+        )
+
+
 class BrowserSpecMirrorsPythonTests(unittest.TestCase):
     """The browser carries its own copy of the family spec; it must not drift.
 

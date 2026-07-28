@@ -487,6 +487,8 @@ def project_key_layout(
                 projected.append(
                     {
                         "index": index,
+                        "matrix_row": matrix_row,
+                        "matrix_col": matrix_col,
                         "x_units": cursor_x,
                         "y_units": cursor_y,
                         "width_units": width,
@@ -511,6 +513,8 @@ def project_key_layout(
     return tuple(
         {
             "index": int(key["index"]),
+            "matrix_row": int(key["matrix_row"]),
+            "matrix_col": int(key["matrix_col"]),
             "x": round(float(key["x_units"]) / extent_x * 95.0, 4),
             "y": round(float(key["y_units"]) / extent_y * 86.0, 4),
             "width": round(float(key["width_units"]) / extent_x * 95.0, 4),

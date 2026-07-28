@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -327,7 +329,37 @@ _UNKNOWN_FAMILY_SPEC = FamilySpec(
     macro_events=_SERIAL_MACRO_EVENTS,
 )
 
-
+_KEYMAP_ENCODINGS = {
+    "CB": "am-usage32-v1",
+    "80": "am-usage32-v1",
+    "ALICE": "am-usage32-v1",
+    "NEON": "qmk-vial16-v1",
+}
+_KEYMAP_MATRICES = {
+    "CB": (25, 8),
+    "80": (25, 8),
+    "ALICE": (25, 8),
+    "NEON": (6, 15),
+}
+_KEYMAP_LAYOUT_IDS = {
+    "CB": "cyberboard-fixed-v1",
+    "80": "relic-80-fixed-v1",
+    "ALICE": "afa-fixed-v1",
+}
+_LAYER_LIMITS = {"CB": 7, "80": 7, "ALICE": 7, "NEON": 4}
+_PRODUCT_LABELS = {
+    "CB": "CyberBoard",
+    "80": "Relic 80",
+    "ALICE": "AM AFA",
+    "NEON": "AM Neon 80",
+}
+_TARGET_SEMANTICS = {
+    "frames": "display",
+    "keyframes": "per_key",
+    "spotlight_frames": "edge",
+    "axial": "per_key",
+    "head": "display",
+}
 def family_spec(model: str) -> FamilySpec:
     """Return the specification for an LED family.
 
@@ -353,6 +385,339 @@ def spec_for_product(product_id: object) -> FamilySpec:
     except ValueError:
         return _UNKNOWN_FAMILY_SPEC
     return _FAMILY_SPECS.get(model, _UNKNOWN_FAMILY_SPEC)
+
+
+def _signature(namespace: str, value: Mapping[str, Any]) -> str:
+    encoded = json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("ascii")
+    return f"{namespace}:v1:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _canonical_product_id(product_id: str, model: str) -> str:
+    if model == "NEON":
+        return "NEON80"
+    return config_product_id(product_id)
+
+
+def _finite_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    result = float(value)
+    if not math.isfinite(result):
+        return None
+    rounded = round(result, 4)
+    return 0.0 if rounded == 0 else rounded
+
+
+def _canonical_dynamic_key_layout(
+    key_layout: object,
+    *,
+    rows: int,
+    columns: int,
+) -> list[dict[str, int | float]] | None:
+    if (
+        isinstance(key_layout, (str, bytes, bytearray))
+        or not isinstance(key_layout, Sequence)
+        or not key_layout
+    ):
+        return None
+    canonical: list[dict[str, int | float]] = []
+    seen_indexes: set[int] = set()
+    seen_positions: set[tuple[int, int]] = set()
+    required = {
+        "index",
+        "matrix_row",
+        "matrix_col",
+        "x",
+        "y",
+        "width",
+        "height",
+        "rotation",
+    }
+    for item in key_layout:
+        if not isinstance(item, Mapping) or not required.issubset(item):
+            return None
+        index = item["index"]
+        matrix_row = item["matrix_row"]
+        matrix_col = item["matrix_col"]
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or isinstance(matrix_row, bool)
+            or not isinstance(matrix_row, int)
+            or isinstance(matrix_col, bool)
+            or not isinstance(matrix_col, int)
+            or not 0 <= matrix_row < rows
+            or not 0 <= matrix_col < columns
+            or index != matrix_row * columns + matrix_col
+            or index in seen_indexes
+            or (matrix_row, matrix_col) in seen_positions
+        ):
+            return None
+        x = _finite_number(item["x"])
+        y = _finite_number(item["y"])
+        width = _finite_number(item["width"])
+        height = _finite_number(item["height"])
+        rotation = _finite_number(item["rotation"])
+        if (
+            x is None
+            or y is None
+            or width is None
+            or height is None
+            or rotation is None
+            or x < 0
+            or y < 0
+            or width <= 0
+            or height <= 0
+            or x + width > 100.0001
+            or y + height > 100.0001
+        ):
+            return None
+        seen_indexes.add(index)
+        seen_positions.add((matrix_row, matrix_col))
+        canonical.append(
+            {
+                "index": index,
+                "matrix_row": matrix_row,
+                "matrix_col": matrix_col,
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height,
+                "rotation": rotation,
+            }
+        )
+    canonical.sort(key=lambda item: (item["matrix_row"], item["matrix_col"]))
+    return canonical
+
+
+def _keymap_descriptor(
+    model: str,
+    key_layout: object,
+) -> dict[str, Any]:
+    rows, columns = _KEYMAP_MATRICES[model]
+    encoding = _KEYMAP_ENCODINGS[model]
+    if model == "NEON":
+        physical_layout = _canonical_dynamic_key_layout(
+            key_layout,
+            rows=rows,
+            columns=columns,
+        )
+        if physical_layout is None:
+            return {
+                "signature": None,
+                "layout_known": False,
+                "encoding": encoding,
+                "matrix_rows": rows,
+                "matrix_columns": columns,
+            }
+        layout_identity: dict[str, Any] = {
+            "kind": "device_definition",
+            "keys": physical_layout,
+        }
+    else:
+        layout_identity = {
+            "kind": "fixed_family",
+            "layout_id": _KEYMAP_LAYOUT_IDS[model],
+            "matrix_positions": [
+                {
+                    "index": index,
+                    "matrix_row": index // columns,
+                    "matrix_col": index % columns,
+                }
+                for index in range(rows * columns)
+            ],
+        }
+    signature = _signature(
+        "keymap",
+        {
+            "schema_version": 1,
+            "family": model,
+            "matrix": {"rows": rows, "columns": columns},
+            "keys_per_layer": _FAMILY_SPECS[model].keys_per_layer,
+            "assignment_encoding": encoding,
+            "physical_layout": layout_identity,
+        },
+    )
+    return {
+        "signature": signature,
+        "layout_known": True,
+        "encoding": encoding,
+        "matrix_rows": rows,
+        "matrix_columns": columns,
+    }
+
+
+def _lighting_target_descriptor(model: str, target: str) -> dict[str, Any]:
+    layout = _LAYOUTS[model][target]
+    width, height = layout["size"]
+    copies = [
+        {"output_index": int(output), "source_index": int(source)}
+        for output, source in layout.get("copies", ())
+    ]
+    derivations: list[dict[str, Any]] = []
+    if (model, target) == ("NEON", "head"):
+        from . import neon_lighting
+
+        # Derive the exact source-index order through the production reducer so
+        # the signature changes with that reducer. Repeating its dimensions or
+        # skip table here would create a second authority.
+        source_indexes = list(range(neon_lighting.HEAD_LED_COUNT))
+        derived_indexes = neon_lighting.derive_side_frame(source_indexes)
+        derivations.append(
+            {
+                "semantic_target": "side_screen_lights",
+                "method": "derive_side_frame",
+                "width": neon_lighting.SIDE_COLUMNS,
+                "height": neon_lighting.SIDE_ROWS,
+                "output_leds": neon_lighting.SIDE_LED_COUNT,
+                "source_indexes": derived_indexes,
+                "track_role": "dependent",
+            }
+        )
+    public = {
+        "semantic_target": _TARGET_SEMANTICS[target],
+        "track_role": "authored",
+        "width": int(width),
+        "height": int(height),
+        "output_leds": int(layout["pixels"]),
+        "copies": copies,
+        "derivations": derivations,
+    }
+    signature = _signature(
+        "lighting",
+        {
+            "schema_version": 1,
+            "target": target,
+            **public,
+            "output_order": [int(index) for index in layout["map"]],
+        },
+    )
+    return {"signature": signature, **public}
+
+
+def device_descriptor(
+    product_id: str,
+    *,
+    key_layout: object = None,
+    product_label: object = None,
+    layer_count: int | None = None,
+    macro_count: int | None = None,
+    macro_buffer_bytes: int | None = None,
+) -> dict[str, Any]:
+    """Return canonical signatures and limits for one supported destination.
+
+    The fixed serial families have a built-in layout identity. A Vial layout is
+    deliberately different: its signature exists only when the validated
+    device-definition projection is present, so an imported Neon JSON can never
+    acquire a guessed keymap identity from its product name.
+    """
+
+    model = led_model(product_id)
+    spec = _FAMILY_SPECS[model]
+    layers = _LAYER_LIMITS[model] if layer_count is None else layer_count
+    macros = spec.macro_tracks if macro_count is None else macro_count
+    macro_bytes = (
+        spec.macro_buffer_bytes
+        if macro_buffer_bytes is None
+        else macro_buffer_bytes
+    )
+    for value, label, minimum in (
+        (layers, "layer count", 1),
+        (macros, "macro count", 0),
+        (macro_bytes, "macro buffer size", 0),
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < minimum
+            or value > 1_000_000
+        ):
+            raise ValueError(f"The device {label} is invalid.")
+    label = str(product_label or _PRODUCT_LABELS[model]).strip()
+    if not label or len(label) > 200 or any(ord(character) < 32 for character in label):
+        raise ValueError("The device product label is invalid.")
+    return {
+        "schema_version": 1,
+        "product_id": _canonical_product_id(product_id, model),
+        "family": model,
+        "product_label": label,
+        "keymap": _keymap_descriptor(model, key_layout),
+        "lighting": {
+            target: _lighting_target_descriptor(model, target)
+            for target in _LAYOUTS[model]
+        },
+        "limits": {
+            "frames": spec.frame_cap,
+            "layers": layers,
+            "keys_per_layer": spec.keys_per_layer,
+            "macros": macros,
+            "macro_events": spec.macro_events,
+            "macro_buffer_bytes": macro_bytes,
+            "assignment_encoding": _KEYMAP_ENCODINGS[model],
+        },
+    }
+
+
+def lighting_section_compatibility(
+    content_kind: str,
+    *,
+    destination_signature: str | None,
+    source_signature: str | None = None,
+    has_recipe: bool = False,
+    has_media_source: bool = False,
+) -> dict[str, str]:
+    """Classify one lighting section without trusting a product-name match."""
+
+    def result(status: str, reason_code: str, detail: str) -> dict[str, str]:
+        return {
+            "status": status,
+            "reason_code": reason_code,
+            "detail": detail,
+        }
+
+    if not destination_signature:
+        return result(
+            "blocked",
+            "target_unavailable",
+            "The destination does not expose this lighting target.",
+        )
+    if content_kind == "media_source":
+        return result(
+            "convertible",
+            "media_rerender",
+            "The original media can be rendered for this destination.",
+        )
+    if content_kind == "generation_job" and has_recipe:
+        return result(
+            "convertible",
+            "recipe_rerender",
+            "The validated recipe can be rendered directly for this destination.",
+        )
+    if content_kind == "lighting_composition" and has_media_source:
+        return result(
+            "convertible",
+            "media_rerender",
+            "The original media composition can be rendered for this destination.",
+        )
+    if source_signature and source_signature == destination_signature:
+        return result(
+            "exact",
+            "lighting_signature_match",
+            "The rendered lighting target matches exactly.",
+        )
+    if content_kind not in {"generation_job", "lighting_composition"}:
+        raise ValueError("The lighting content kind is unsupported.")
+    return result(
+        "blocked",
+        "lighting_signature_mismatch",
+        "Rendered frames require an exact lighting target match.",
+    )
 
 
 def validate_gif_targets(
@@ -638,10 +1003,12 @@ def target_capabilities() -> dict[str, Any]:
 
     targets: dict[str, Any] = {}
     for model, layouts in _LAYOUTS.items():
+        descriptor = device_descriptor(model)
         sizes = {tuple(layout["size"]) for layout in layouts.values()}
         entries = []
         for name, layout in layouts.items():
             width, height = layout["size"]
+            signature = descriptor["lighting"][name]
             extra = [
                 other
                 for other, other_layout in layouts.items()
@@ -655,6 +1022,11 @@ def target_capabilities() -> dict[str, Any]:
                     "height": height,
                     "pixels": int(layout["pixels"]),
                     "extra_targets": extra,
+                    "signature": signature["signature"],
+                    "semantic_target": signature["semantic_target"],
+                    "track_role": signature["track_role"],
+                    "copies": signature["copies"],
+                    "derivations": signature["derivations"],
                     # The source-pixel -> payload-index map, so the editor can
                     # lay out any family's track without carrying its own copy
                     # of these tables. Python stays the single authority; a
@@ -666,5 +1038,7 @@ def target_capabilities() -> dict[str, Any]:
         targets[model] = {
             "single_target": len(sizes) > 1,
             "targets": entries,
+            "keymap": descriptor["keymap"],
+            "limits": descriptor["limits"],
         }
     return targets

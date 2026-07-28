@@ -13,6 +13,7 @@ import secrets
 import threading
 import time
 import webbrowser
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from http import HTTPStatus
@@ -273,8 +274,22 @@ def _key_code(value: Any) -> bool:
         return False
 
 
-def extract_importable_macros(config: Any) -> list[dict[str, Any]]:
+def extract_importable_macros(
+    config: Any,
+    *,
+    max_tracks: int = 32,
+    max_events: int = 200,
+) -> list[dict[str, Any]]:
     """Copy only modern macro definitions from another AM configuration."""
+    if (
+        isinstance(max_tracks, bool)
+        or not isinstance(max_tracks, int)
+        or max_tracks <= 0
+        or isinstance(max_events, bool)
+        or not isinstance(max_events, int)
+        or max_events <= 0
+    ):
+        raise ValueError("The destination macro limits are invalid.")
     if not isinstance(config, dict):
         raise ValueError("The selected JSON is not a configuration object.")
     source = config.get("macro_key")
@@ -285,6 +300,12 @@ def extract_importable_macros(config: Any) -> list[dict[str, Any]]:
                 "*-KEY.json export containing lowercase macro_key definitions."
             )
         raise ValueError("The selected JSON contains no importable macros.")
+
+    if len(source) > max_tracks:
+        raise ValueError(
+            f"The imported profile has {len(source)} macros; the destination "
+            f"stores {max_tracks}."
+        )
 
     result: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -297,8 +318,14 @@ def extract_importable_macros(config: Any) -> list[dict[str, Any]]:
             raise ValueError(f"Macro {position} has an invalid token keycode.")
         raw_token = bytes.fromhex(token[1:])
         usage = int.from_bytes(raw_token[2:4], "big")
-        if raw_token[:2] != b"\x00\x95" or not 0x1500 <= usage <= 0x151F:
-            raise ValueError(f"Macro {position} does not use an M1–M32 token.")
+        if (
+            raw_token[:2] != b"\x00\x95"
+            or not 0x1500 <= usage < 0x1500 + max_tracks
+        ):
+            raise ValueError(
+                f"Macro {position} names a slot outside the destination's "
+                f"{max_tracks}-macro capacity."
+            )
         if token in seen:
             raise ValueError(f"The source defines {token} more than once.")
         seen.add(token)
@@ -307,8 +334,10 @@ def extract_importable_macros(config: Any) -> list[dict[str, Any]]:
         delays = list(macro.get("intvel_ms") or [])
         if not events:
             raise ValueError(f"Macro {position} has no key events.")
-        if len(events) > 200 or total_events + len(events) > 200:
-            raise ValueError("The imported macros exceed the 200-event device limit.")
+        if len(events) > max_events or total_events + len(events) > max_events:
+            raise ValueError(
+                f"The imported macros exceed the {max_events}-event device limit."
+            )
         if any(not _key_code(code) for code in events):
             raise ValueError(f"Macro {position} contains an invalid event keycode.")
         # Angry Miao's recorder normally stores N-1 pauses for N events; the
@@ -340,38 +369,533 @@ def _product_family(value: Any) -> str:
     return product
 
 
-def config_transfer_options(config: Any, target_product_id: Any) -> dict[str, Any]:
-    """Describe which parts of a profile can safely move to another board."""
-    if not isinstance(config, dict):
+def _compatibility_section(
+    status: str,
+    reason_code: str,
+    detail: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "reason_code": reason_code,
+        "detail": detail,
+        "selected": status != "blocked",
+        **extra,
+    }
+
+
+def _profile_layers(config: dict[str, Any]) -> list[list[str]] | None:
+    key_layer = config.get("key_layer")
+    if not isinstance(key_layer, dict):
+        return []
+    layer_data = key_layer.get("layer_data")
+    if not isinstance(layer_data, list):
+        return []
+    layers: list[list[str]] = []
+    for entry in layer_data:
+        if not isinstance(entry, dict) or not isinstance(entry.get("layer"), list):
+            return None
+        layers.append(list(entry["layer"]))
+    return layers
+
+
+def _keymap_compatibility(
+    source: dict[str, Any],
+    source_descriptor: dict[str, Any],
+    target_descriptor: dict[str, Any],
+) -> dict[str, Any]:
+    layers = _profile_layers(source)
+    if layers is None:
+        return _compatibility_section(
+            "blocked",
+            "keymap_invalid",
+            "The saved keymap section is malformed.",
+        )
+    if not layers:
+        return _compatibility_section(
+            "blocked",
+            "section_absent",
+            "The saved profile has no keymap layers.",
+        )
+    source_keymap = source_descriptor["keymap"]
+    target_keymap = target_descriptor["keymap"]
+    if not source_keymap["layout_known"]:
+        return _compatibility_section(
+            "blocked",
+            "source_layout_unknown",
+            "The saved profile has no verified physical-layout evidence.",
+        )
+    if not target_keymap["layout_known"]:
+        return _compatibility_section(
+            "blocked",
+            "target_layout_unknown",
+            "The destination has no verified physical-layout evidence.",
+        )
+    if source_keymap["signature"] != target_keymap["signature"]:
+        return _compatibility_section(
+            "blocked",
+            "keymap_signature_mismatch",
+            "The physical key layout or assignment encoding does not match.",
+        )
+    limits = target_descriptor["limits"]
+    if len(layers) > limits["layers"]:
+        return _compatibility_section(
+            "blocked",
+            "layer_capacity_exceeded",
+            f"The profile has {len(layers)} layers; the destination stores "
+            f"{limits['layers']}.",
+            source_layers=len(layers),
+            target_layers=limits["layers"],
+        )
+    for index, layer in enumerate(layers, 1):
+        if len(layer) != limits["keys_per_layer"]:
+            return _compatibility_section(
+                "blocked",
+                "keymap_invalid",
+                f"Layer {index} does not contain exactly "
+                f"{limits['keys_per_layer']} assignments.",
+            )
+        if any(not _key_code(code) for code in layer):
+            return _compatibility_section(
+                "blocked",
+                "keymap_invalid",
+                f"Layer {index} contains a malformed assignment.",
+            )
+    if limits["assignment_encoding"] == "qmk-vial16-v1":
+        from . import vial_keymap
+
+        unsupported = vial_keymap.unsupported_codes(layers)
+        if unsupported:
+            layer_index, key_index, code, reason = unsupported[0]
+            return _compatibility_section(
+                "blocked",
+                "unsupported_assignment",
+                f"{code} at layer {layer_index + 1}, matrix index {key_index} "
+                f"cannot be written to this destination because {reason}.",
+                unsupported_count=len(unsupported),
+            )
+    return _compatibility_section(
+        "exact",
+        "keymap_signature_match",
+        "The physical layout and assignment encoding match exactly.",
+        source_layers=len(layers),
+        target_layers=limits["layers"],
+    )
+
+
+def _macro_compatibility(
+    source: dict[str, Any],
+    target_descriptor: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    raw = source.get("macro_key")
+    if not isinstance(raw, list) or not raw:
+        return (
+            _compatibility_section(
+                "blocked",
+                "section_absent",
+                "The saved profile has no portable macro definitions.",
+                macro_count=0,
+                event_count=0,
+            ),
+            [],
+        )
+    limits = target_descriptor["limits"]
+    event_count = sum(
+        len(macro.get("layer_key") or [])
+        for macro in raw
+        if isinstance(macro, dict)
+    )
+    if len(raw) > limits["macros"] or event_count > limits["macro_events"]:
+        return (
+            _compatibility_section(
+                "blocked",
+                "macro_capacity_exceeded",
+                f"The profile has {len(raw)} macros and {event_count} events; "
+                f"the destination allows {limits['macros']} macros and "
+                f"{limits['macro_events']} events.",
+                macro_count=len(raw),
+                event_count=event_count,
+            ),
+            [],
+        )
+    try:
+        normalized = extract_importable_macros(
+            source,
+            max_tracks=limits["macros"],
+            max_events=limits["macro_events"],
+        )
+    except ValueError as error:
+        return (
+            _compatibility_section(
+                "blocked",
+                "macro_invalid",
+                str(error),
+                macro_count=len(raw),
+                event_count=event_count,
+            ),
+            [],
+        )
+    if limits["assignment_encoding"] == "qmk-vial16-v1":
+        from . import vial_macros
+
+        try:
+            vial_macros.encode_macros(
+                normalized,
+                capacity=vial_macros.MacroCapacity(
+                    count=limits["macros"],
+                    buffer_bytes=limits["macro_buffer_bytes"],
+                ),
+            )
+        except vial_macros.MacroCapacityError as error:
+            return (
+                _compatibility_section(
+                    "blocked",
+                    "macro_capacity_exceeded",
+                    str(error),
+                    macro_count=len(normalized),
+                    event_count=event_count,
+                ),
+                [],
+            )
+        except (vial_macros.MacroEncodingError, ValueError) as error:
+            return (
+                _compatibility_section(
+                    "blocked",
+                    "macro_encoding_unsupported",
+                    str(error),
+                    macro_count=len(normalized),
+                    event_count=event_count,
+                ),
+                [],
+            )
+    return (
+        _compatibility_section(
+            "portable",
+            "macros_validate",
+            "Every macro fits the destination without truncation or renumbering.",
+            macro_count=len(normalized),
+            event_count=event_count,
+        ),
+        normalized,
+    )
+
+
+def _active_lighting_targets(config: dict[str, Any]) -> list[str]:
+    known = {
+        "frames",
+        "keyframes",
+        "spotlight_frames",
+        "axial",
+        "head",
+    }
+    active: set[str] = set()
+    pages = config.get("page_data")
+    if not isinstance(pages, list):
+        return []
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        for target in known:
+            track = page.get(target)
+            if not isinstance(track, dict):
+                continue
+            data = track.get("frame_data")
+            if (
+                isinstance(data, list)
+                and data
+                or isinstance(track.get("frame_num"), int)
+                and track.get("frame_num", 0) > 0
+            ):
+                active.add(target)
+    return sorted(active)
+
+
+def _lighting_compatibility(
+    source: dict[str, Any],
+    source_descriptor: dict[str, Any],
+    target_descriptor: dict[str, Any],
+) -> dict[str, Any]:
+    targets = _active_lighting_targets(source)
+    if not targets:
+        return _compatibility_section(
+            "blocked",
+            "section_absent",
+            "The saved profile has no populated lighting tracks.",
+            targets=[],
+        )
+    for target in targets:
+        source_target = source_descriptor["lighting"].get(target)
+        destination_target = target_descriptor["lighting"].get(target)
+        if source_target is None or destination_target is None:
+            return _compatibility_section(
+                "blocked",
+                "lighting_target_unavailable",
+                f"The {target} lighting track is not available on both devices.",
+                targets=targets,
+            )
+        classification = device_mapping.lighting_section_compatibility(
+            "lighting_composition",
+            source_signature=source_target["signature"],
+            destination_signature=destination_target["signature"],
+        )
+        if classification["status"] != "exact":
+            return _compatibility_section(
+                "blocked",
+                classification["reason_code"],
+                classification["detail"],
+                targets=targets,
+            )
+    frame_limit = target_descriptor["limits"]["frames"]
+    for page in source.get("page_data") or []:
+        if not isinstance(page, dict):
+            continue
+        for target in targets:
+            track = page.get(target)
+            if not isinstance(track, dict):
+                continue
+            data = track.get("frame_data") or []
+            if isinstance(data, list) and len(data) > frame_limit:
+                return _compatibility_section(
+                    "blocked",
+                    "frame_capacity_exceeded",
+                    f"The {target} track has {len(data)} frames; the destination "
+                    f"allows {frame_limit}.",
+                    targets=targets,
+                )
+    return _compatibility_section(
+        "exact",
+        "lighting_signature_match",
+        "Every populated lighting track matches exactly.",
+        targets=targets,
+    )
+
+
+def config_section_compatibility(
+    source_config: Any,
+    destination_config: Any | None = None,
+    *,
+    target_product_id: Any = None,
+    source_key_layout: object = None,
+    target_key_layout: object = None,
+    target_layer_count: int | None = None,
+    target_macro_count: int | None = None,
+    target_macro_buffer_bytes: int | None = None,
+) -> dict[str, Any]:
+    """Build a server-authoritative, section-by-section profile import plan."""
+
+    if not isinstance(source_config, dict):
         raise ValueError("The selected JSON is not a configuration object.")
     source_product_id = str(
-        ((config.get("product_info") or {}).get("product_id") or "")
+        ((source_config.get("product_info") or {}).get("product_id") or "")
     )
     if not source_product_id:
         raise ValueError("The selected JSON has no product_info.product_id.")
-    target = str(target_product_id or "")
-    if not target:
+    if destination_config is not None:
+        if not isinstance(destination_config, dict):
+            raise ValueError("The destination document is not a configuration object.")
+        target_product = str(
+            ((destination_config.get("product_info") or {}).get("product_id") or "")
+        )
+    else:
+        target_product = str(target_product_id or "")
+    if not target_product:
         raise ValueError("The target keyboard has no product ID.")
 
     try:
-        imported_macros = extract_importable_macros(config)
-        macro_error = None
-    except ValueError as exc:
-        imported_macros = []
-        macro_error = str(exc)
+        source_descriptor = device_mapping.device_descriptor(
+            source_product_id,
+            key_layout=source_key_layout,
+        )
+    except ValueError:
+        source_descriptor = {
+            "schema_version": 1,
+            "product_id": source_product_id,
+            "family": None,
+            "product_label": source_product_id,
+            "keymap": {
+                "signature": None,
+                "layout_known": False,
+                "encoding": None,
+                "matrix_rows": None,
+                "matrix_columns": None,
+            },
+            "lighting": {},
+            "limits": {},
+        }
+    target_descriptor = device_mapping.device_descriptor(
+        target_product,
+        key_layout=target_key_layout,
+        layer_count=target_layer_count,
+        macro_count=target_macro_count,
+        macro_buffer_bytes=target_macro_buffer_bytes,
+    )
+    keymap = _keymap_compatibility(
+        source_config,
+        source_descriptor,
+        target_descriptor,
+    )
+    macros, _normalized_macros = _macro_compatibility(
+        source_config,
+        target_descriptor,
+    )
+    lighting = _lighting_compatibility(
+        source_config,
+        source_descriptor,
+        target_descriptor,
+    )
+    sections = {
+        "keymap": keymap,
+        "macros": macros,
+        "lighting": lighting,
+    }
+    allowed = [
+        name for name, section in sections.items() if section["status"] != "blocked"
+    ]
+    if not allowed:
+        summary = "blocked"
+    elif len(allowed) != len(sections):
+        summary = "partial"
+    elif any(section["status"] == "convertible" for section in sections.values()):
+        summary = "convertible"
+    elif any(section["status"] == "portable" for section in sections.values()):
+        summary = "portable"
+    else:
+        summary = "exact"
+    return {
+        "summary": summary,
+        "source": source_descriptor,
+        "target": target_descriptor,
+        "sections": sections,
+        "compatible_sections": allowed,
+    }
 
+
+def config_transfer_options(config: Any, target_product_id: Any) -> dict[str, Any]:
+    """Describe which parts of a profile can safely move to another board."""
+    result = config_section_compatibility(
+        config,
+        target_product_id=target_product_id,
+    )
+    source_product_id = str(
+        ((config.get("product_info") or {}).get("product_id") or "")
+    )
+    target = str(target_product_id or "")
+    macro_section = result["sections"]["macros"]
     compatible = _product_family(source_product_id) == _product_family(target)
     key_layers = ((config.get("key_layer") or {}).get("layer_data") or [])
     led_pages = config.get("page_data") or []
     return {
+        **result,
         "compatible": compatible,
         "source_product_id": source_product_id,
         "target_product_id": target,
-        "can_import_macros": bool(imported_macros),
-        "macro_count": len(imported_macros),
-        "macro_error": macro_error,
-        "can_merge_keymap": compatible and bool(key_layers),
+        "can_import_macros": macro_section["status"] == "portable",
+        "macro_count": int(macro_section.get("macro_count") or 0),
+        "macro_error": (
+            None if macro_section["status"] == "portable" else macro_section["detail"]
+        ),
+        "can_merge_keymap": result["sections"]["keymap"]["status"] == "exact",
+        # Retain the old page-level seam until the catalog UI consumes the
+        # section matrix. The new `sections.lighting` result is authoritative.
         "can_merge_leds": compatible and bool(led_pages),
+    }
+
+
+def project_config_sections(
+    source_config: Any,
+    destination_config: Any,
+    sections: Sequence[str],
+    *,
+    source_key_layout: object = None,
+    target_key_layout: object = None,
+    target_layer_count: int | None = None,
+    target_macro_count: int | None = None,
+    target_macro_buffer_bytes: int | None = None,
+) -> dict[str, Any]:
+    """Project selected compatible sections into one complete candidate config."""
+
+    if not isinstance(source_config, dict) or not isinstance(destination_config, dict):
+        raise ValueError("Both source and destination must be configuration objects.")
+    if isinstance(sections, (str, bytes, bytearray)) or not isinstance(
+        sections, Sequence
+    ):
+        raise ValueError("Sections must be a list of section names.")
+    selected = list(dict.fromkeys(str(section) for section in sections))
+    allowed_names = {"keymap", "macros", "lighting"}
+    if not selected or any(section not in allowed_names for section in selected):
+        raise ValueError("Select one or more supported profile sections.")
+    plan = config_section_compatibility(
+        source_config,
+        destination_config,
+        source_key_layout=source_key_layout,
+        target_key_layout=target_key_layout,
+        target_layer_count=target_layer_count,
+        target_macro_count=target_macro_count,
+        target_macro_buffer_bytes=target_macro_buffer_bytes,
+    )
+    for section in selected:
+        verdict = plan["sections"][section]
+        required = "portable" if section == "macros" else "exact"
+        if verdict["status"] != required:
+            raise ValueError(
+                f"The {section} section cannot be applied: {verdict['detail']}"
+            )
+
+    candidate = copy.deepcopy(destination_config)
+    destination_identity = copy.deepcopy(destination_config.get("product_info"))
+    if not isinstance(destination_identity, dict):
+        raise ValueError("The destination identity is missing.")
+    changes: list[dict[str, Any]] = []
+    if "keymap" in selected:
+        source_key_layer = source_config["key_layer"]
+        source_layer_data = copy.deepcopy(source_key_layer["layer_data"])
+        destination_key_layer = copy.deepcopy(destination_config.get("key_layer") or {})
+        destination_layer_data = copy.deepcopy(
+            destination_key_layer.get("layer_data") or []
+        )
+        merged_layers = source_layer_data + destination_layer_data[len(source_layer_data) :]
+        destination_key_layer["valid"] = 1
+        destination_key_layer["layer_data"] = merged_layers
+        destination_key_layer["layer_num"] = len(merged_layers)
+        candidate["key_layer"] = destination_key_layer
+        changes.append(
+            {
+                "section": "keymap",
+                "layers_imported": len(source_layer_data),
+                "layers_preserved": max(
+                    0, len(destination_layer_data) - len(source_layer_data)
+                ),
+            }
+        )
+    if "macros" in selected:
+        _verdict, normalized = _macro_compatibility(
+            source_config,
+            plan["target"],
+        )
+        candidate["macro_key"] = copy.deepcopy(normalized)
+        changes.append({"section": "macros", "macros_imported": len(normalized)})
+    if "lighting" in selected:
+        candidate["page_data"] = copy.deepcopy(source_config.get("page_data") or [])
+        candidate["page_num"] = int(
+            source_config.get("page_num", len(candidate["page_data"]))
+        )
+        changes.append(
+            {"section": "lighting", "pages_imported": len(candidate["page_data"])}
+        )
+    candidate["product_info"] = destination_identity
+    validation = validate_config(candidate)
+    if not validation["ok"]:
+        detail = "; ".join(validation["errors"][:3])
+        raise ValueError(
+            f"The selected sections do not form a valid destination profile: {detail}"
+        )
+    return {
+        "config": candidate,
+        "applied_sections": selected,
+        "changes": changes,
+        "validation": validation,
+        "identity_preserved": True,
+        "compatibility": plan,
     }
 
 
@@ -567,6 +1091,56 @@ def validate_config(config: Any) -> dict[str, Any]:
 
 def _device_matches_config(device_id: str, config_id: str) -> bool:
     return _product_family(device_id) == _product_family(config_id)
+
+
+def _decorate_device_descriptor(
+    payload: dict[str, Any],
+    *,
+    layer_count: int | None = None,
+    macro_count: int | None = None,
+    macro_buffer_bytes: int | None = None,
+) -> dict[str, Any]:
+    """Attach server-derived signatures without inventing absent layout evidence."""
+
+    result = copy.deepcopy(payload)
+    product_id = result.get("product_id")
+    if not isinstance(product_id, str) or not product_id:
+        return result
+    product_label = (
+        result.get("definition_name")
+        or result.get("product_string")
+        or None
+    )
+    try:
+        result["descriptor"] = device_mapping.device_descriptor(
+            product_id,
+            key_layout=result.get("key_layout"),
+            product_label=product_label,
+            layer_count=layer_count,
+            macro_count=macro_count,
+            macro_buffer_bytes=macro_buffer_bytes,
+        )
+    except ValueError:
+        # Unsupported or malformed discovery results stay visible, but they do
+        # not gain a compatibility identity.
+        result.pop("descriptor", None)
+    return result
+
+
+def _device_payload(
+    handle: transport.DeviceHandle,
+    info: Any,
+    *,
+    layer_count: int | None = None,
+    macro_count: int | None = None,
+    macro_buffer_bytes: int | None = None,
+) -> dict[str, Any]:
+    return _decorate_device_descriptor(
+        transport.device_json(handle, info),
+        layer_count=layer_count,
+        macro_count=macro_count,
+        macro_buffer_bytes=macro_buffer_bytes,
+    )
 
 
 def _stored_device_config(device_id: str) -> tuple[dict[str, Any] | None, str | None]:
@@ -1465,7 +2039,7 @@ class _Handler(BaseHTTPRequestHandler):
                     found = self.state.device_io(scan_devices)
                     self._json({
                         "devices": [
-                            transport.device_json(handle, info)
+                            _device_payload(handle, info)
                             for handle, info in found
                         ]
                     })
@@ -2323,6 +2897,20 @@ class _Handler(BaseHTTPRequestHandler):
                     "macro_buffer_bytes": macro_state.device_macro_buffer_bytes,
                 }
             )
+        device_payload = _decorate_device_descriptor(
+            device_payload,
+            layer_count=len(key_layers),
+            macro_count=(
+                macro_state.device_macro_count
+                if macro_state.device_reported
+                else None
+            ),
+            macro_buffer_bytes=(
+                macro_state.device_macro_buffer_bytes
+                if macro_state.device_reported
+                else None
+            ),
+        )
         self._json({
             # Not `asdict`: a raw-HID device carries its OS path as bytes, which
             # no JSON encoder accepts, and its canonical product id is a derived
@@ -2450,7 +3038,7 @@ class _Handler(BaseHTTPRequestHandler):
         document_revision = self.state.synchronize_document(clean)
         return {
             "ok": True,
-            "device": transport.device_json(handle, after),
+            "device": _device_payload(handle, after),
             "write_units": receipt.units,
             "write_unit_label": receipt.unit_label,
             "macros": len(expected_macros),

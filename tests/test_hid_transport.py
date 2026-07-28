@@ -124,6 +124,13 @@ class IdentityGateTests(unittest.TestCase):
         self.assertIsNone(info.identity_error)
         self.assertEqual("AM Neon 80", info.definition_name)
         self.assertEqual([0, 1, 15], [key["index"] for key in info.key_layout])
+        self.assertEqual(
+            [(0, 0), (0, 1), (1, 0)],
+            [
+                (key["matrix_row"], key["matrix_col"])
+                for key in info.key_layout
+            ],
+        )
         self.assertGreater(info.key_layout[1]["width"], info.key_layout[0]["width"])
         self.assertGreater(info.key_layout[2]["y"], info.key_layout[0]["y"])
         self.assertTrue(

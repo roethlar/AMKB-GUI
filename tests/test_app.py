@@ -44,12 +44,14 @@ from am_configurator.server import (
     _stored_device_config,
     _verify_keymap_readback,
     blank_config,
+    config_section_compatibility,
     config_transfer_options,
     create_server,
     extract_importable_macros,
     gif_to_led_frames,
     gif_to_led_tracks,
     merge_configs,
+    project_config_sections,
     text_to_macro_events,
     validate_config,
 )
@@ -735,11 +737,140 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(1, cross_board["macro_count"])
         self.assertFalse(cross_board["can_merge_keymap"])
         self.assertFalse(cross_board["can_merge_leds"])
+        self.assertEqual("blocked", cross_board["sections"]["keymap"]["status"])
+        self.assertEqual("portable", cross_board["sections"]["macros"]["status"])
 
         same_board = config_transfer_options(source, "AM21")
         self.assertTrue(same_board["compatible"])
         self.assertTrue(same_board["can_merge_keymap"])
         self.assertTrue(same_board["can_merge_leds"])
+        self.assertEqual("exact", same_board["sections"]["keymap"]["status"])
+
+    def test_neon_keymap_compatibility_requires_layout_and_supported_codes(self) -> None:
+        layers = [["#00070004"] * 90 for _ in range(4)]
+        source = blank_config("NEON80", layers, [])
+        destination = blank_config("NEON80", layers, [])
+
+        unknown = config_section_compatibility(source, destination)
+        self.assertEqual("blocked", unknown["sections"]["keymap"]["status"])
+        self.assertEqual(
+            "source_layout_unknown",
+            unknown["sections"]["keymap"]["reason_code"],
+        )
+
+        layout = [
+            {
+                "index": 0,
+                "matrix_row": 0,
+                "matrix_col": 0,
+                "x": 0.0,
+                "y": 0.0,
+                "width": 6.0,
+                "height": 12.0,
+                "rotation": 0.0,
+            }
+        ]
+        exact = config_section_compatibility(
+            source,
+            destination,
+            source_key_layout=layout,
+            target_key_layout=layout,
+        )
+        self.assertEqual("exact", exact["sections"]["keymap"]["status"])
+
+        source["key_layer"]["layer_data"][0]["layer"][0] = "#000C00E9"
+        unsupported = config_section_compatibility(
+            source,
+            destination,
+            source_key_layout=layout,
+            target_key_layout=layout,
+        )
+        self.assertEqual("blocked", unsupported["sections"]["keymap"]["status"])
+        self.assertEqual(
+            "unsupported_assignment",
+            unsupported["sections"]["keymap"]["reason_code"],
+        )
+
+    def test_profile_compatibility_rejects_layer_and_macro_capacity_overflow(self) -> None:
+        destination = _base_config("80")
+        too_many_layers = _base_config("80")
+        too_many_layers["key_layer"] = {
+            "valid": 1,
+            "layer_num": 8,
+            "layer_data": [_layer() for _ in range(8)],
+        }
+        layers = config_section_compatibility(too_many_layers, destination)
+        self.assertEqual(
+            "layer_capacity_exceeded",
+            layers["sections"]["keymap"]["reason_code"],
+        )
+
+        macro_source = _base_config("80")
+        macro_source["macro_key"] = [
+            {
+                "original_key": f"#009515{index:02X}",
+                "layer_key": ["#00070004"],
+                "intvel_ms": [0],
+            }
+            for index in range(17)
+        ]
+        neon = blank_config(
+            "NEON80",
+            [["#00070004"] * 90 for _ in range(4)],
+            [],
+        )
+        macros = config_section_compatibility(macro_source, neon)
+        self.assertEqual("blocked", macros["sections"]["macros"]["status"])
+        self.assertEqual(
+            "macro_capacity_exceeded",
+            macros["sections"]["macros"]["reason_code"],
+        )
+
+    def test_section_projection_preserves_destination_identity_and_unselected_data(self) -> None:
+        source = _base_config("80")
+        source["product_info"]["source_only"] = "must not cross"
+        source["key_layer"]["layer_data"][0]["layer"][0] = "#00070004"
+        source["key_layer"]["layer_data"][1]["layer"][0] = "#00070005"
+        source["macro_key"] = [
+            {
+                "original_key": "#00951500",
+                "layer_key": ["#11070004", "#10070004"],
+                "intvel_ms": [25, 0],
+            }
+        ]
+
+        destination = _base_config("AM21")
+        destination["product_info"]["destination_identity"] = "keep"
+        destination["key_layer"]["layer_num"] = 3
+        destination["key_layer"]["layer_data"].append(_layer("#00070006"))
+        destination["page_data"] = [_page(5)]
+        destination["page_num"] = 1
+        original_identity = copy.deepcopy(destination["product_info"])
+        original_lighting = copy.deepcopy(destination["page_data"])
+
+        result = project_config_sections(
+            source,
+            destination,
+            ["keymap", "macros"],
+        )
+        candidate = result["config"]
+        self.assertEqual(original_identity, candidate["product_info"])
+        self.assertNotIn("source_only", candidate["product_info"])
+        self.assertEqual(original_lighting, candidate["page_data"])
+        self.assertEqual(
+            "#00070004",
+            candidate["key_layer"]["layer_data"][0]["layer"][0],
+        )
+        self.assertEqual(
+            "#00070005",
+            candidate["key_layer"]["layer_data"][1]["layer"][0],
+        )
+        self.assertEqual(
+            "#00070006",
+            candidate["key_layer"]["layer_data"][2]["layer"][0],
+        )
+        self.assertEqual(source["macro_key"], candidate["macro_key"])
+        self.assertTrue(result["validation"]["ok"])
 
     def test_blank_config_from_device_is_writable(self) -> None:
         config = blank_config("AM21", [["#00000000"] * 200] * 7, [])
@@ -1826,6 +1957,12 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual(9, response["device"]["macro_count"])
         self.assertEqual(321, response["device"]["macro_buffer_bytes"])
+        descriptor = response["device"]["descriptor"]
+        self.assertIsNone(descriptor["keymap"]["signature"])
+        self.assertEqual(4, descriptor["limits"]["layers"])
+        self.assertEqual(9, descriptor["limits"]["macros"])
+        self.assertEqual(321, descriptor["limits"]["macro_buffer_bytes"])
+        self.assertEqual({"axial", "head"}, set(descriptor["lighting"]))
 
     def test_device_io_stays_on_one_worker_across_http_requests(self) -> None:
         device_layers = [["#00000000"] * 90 for _ in range(4)]

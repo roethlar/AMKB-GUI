@@ -138,7 +138,7 @@
   compile/syntax checks, and package builds.
 - The owner-approved unified Lighting implementation in
   `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` is
-  active. Slices 2-10 are complete. Catalog schema 2 names the six fixed API
+  active. Slices 2-11 are complete. Catalog schema 2 names the six fixed API
   providers; settings schema 6 preserves the complete xAI record through a
   credential-free v5 migration; provider-scoped vault operations, environment
   overrides, disclosure records, setup fingerprints, capability caches, and
@@ -215,14 +215,23 @@
   in their original root, manifest bytes survive remove/restore unchanged, and
   device-history/sibling sentinels are untouched. All removal, restore,
   permanent-delete, active-state, cross-root, link, pathless API, and exact
-  deletion guards were red-proven. The clean full gate passes 636 Python tests,
-  59 web tests, compile/syntax
-  checks, and source/wheel builds. The heavy
+  deletion guards were red-proven. Canonical device descriptors now expose
+  fixed and dynamic keymap signatures, per-target lighting signatures and
+  routing roles, and destination limits. Section compatibility independently
+  classifies keymaps, macros, and lighting with stable reasons; selected
+  exact/portable sections project into one fully revalidated candidate while
+  preserving destination identity and unselected content. Unknown Neon layout
+  evidence, layer/macro capacity overflow, unsupported Vial assignments,
+  lighting mismatches, and invalid candidate documents fail closed. The six
+  focused signature/compatibility/projection guards fail against pre-slice
+  production code and pass with the implementation restored. The clean full
+  gate passes 642 Python tests, 59 web tests, compile/syntax checks, and
+  source/wheel builds. The heavy
   procedural recovery fixture uses the production 180-second operation
   deadline instead of a flaky 30-second test-only override. No real provider
   request, credential mutation, Keychain prompt, model mutation/download,
   real Library mutation/deletion, hardware write, push, or release occurred.
-  Next action is slice 11, device signatures and section compatibility. Local
+  Next action is slice 12, profile banking. Local
   `main` remains unpublished; the push policy requires a fresh explicit owner
   go.
 
