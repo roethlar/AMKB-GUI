@@ -5,11 +5,16 @@ const path = require("node:path");
 const test = require("node:test");
 
 const {
+  compatibleProfileSections,
+  createLibraryRequestEpochs,
   createLightingProvenance,
   createMediaDraft,
+  libraryCatalogQuery,
   lightingProvenanceForPage,
   mediaDraftCanApply,
+  nextCatalogIndex,
   nextMediaRenderEpoch,
+  normalizeProfileSections,
   reduceMediaDraft,
 } = require(path.join(
   __dirname,
@@ -207,4 +212,74 @@ test("saved-lighting provenance survives exact pages and expires after edits", (
     }),
     null,
   );
+});
+
+test("mixed Library filters project exact paginated catalog queries", () => {
+  assert.equal(
+    libraryCatalogQuery({filter: "all", page: 2, limit: 12, query: " violet "}),
+    "page=2&limit=12&removed=false&query=violet",
+  );
+  assert.equal(
+    libraryCatalogQuery({filter: "lighting", page: 1, limit: 12}),
+    "page=1&limit=12&removed=false&kind=lighting",
+  );
+  assert.equal(
+    libraryCatalogQuery({filter: "sources", page: 1, limit: 12}),
+    "page=1&limit=12&removed=false&kind=media_source",
+  );
+  assert.equal(
+    libraryCatalogQuery({filter: "keymaps", page: 1, limit: 12}),
+    "page=1&limit=12&removed=false&kind=keyboard_profile",
+  );
+  assert.equal(
+    libraryCatalogQuery({filter: "removed", page: 1, limit: 12}),
+    "page=1&limit=12&removed=true",
+  );
+  assert.throws(
+    () => libraryCatalogQuery({filter: "partial", page: 1, limit: 12}),
+    /filter/i,
+  );
+});
+
+test("profile selection keeps only server-approved section statuses", () => {
+  const plan = {
+    sections: {
+      keymap: {status: "exact"},
+      macros: {status: "portable"},
+      lighting: {status: "blocked"},
+    },
+  };
+  assert.deepEqual(compatibleProfileSections(plan), ["keymap", "macros"]);
+  assert.deepEqual(
+    normalizeProfileSections(plan, ["lighting", "macros", "macros", "keymap"]),
+    ["keymap", "macros"],
+  );
+  assert.throws(
+    () => normalizeProfileSections(plan, ["lighting"]),
+    /compatible profile section/i,
+  );
+});
+
+test("Library request leases reject stale filters and superseded mutations", () => {
+  const requests = createLibraryRequestEpochs();
+  const first = requests.begin("mutation", 7);
+  assert.equal(first.current(7), true);
+  assert.equal(first.current(8), false);
+  const second = requests.begin("mutation", 8);
+  assert.equal(first.current(7), false);
+  assert.equal(second.current(8), true);
+  first.release();
+  assert.equal(second.current(8), true);
+  second.release();
+  assert.equal(second.current(8), false);
+});
+
+test("Library grid navigation follows rows and boundary keys", () => {
+  assert.equal(nextCatalogIndex({index: 4, count: 8, columns: 3, key: "ArrowLeft"}), 3);
+  assert.equal(nextCatalogIndex({index: 4, count: 8, columns: 3, key: "ArrowRight"}), 5);
+  assert.equal(nextCatalogIndex({index: 4, count: 8, columns: 3, key: "ArrowUp"}), 1);
+  assert.equal(nextCatalogIndex({index: 4, count: 8, columns: 3, key: "ArrowDown"}), 7);
+  assert.equal(nextCatalogIndex({index: 4, count: 8, columns: 3, key: "Home"}), 0);
+  assert.equal(nextCatalogIndex({index: 4, count: 8, columns: 3, key: "End"}), 7);
+  assert.equal(nextCatalogIndex({index: 0, count: 8, columns: 3, key: "ArrowLeft"}), 0);
 });

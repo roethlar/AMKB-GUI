@@ -2145,6 +2145,42 @@ class LibraryCatalogTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
+    def test_lighting_filter_groups_compositions_and_historical_jobs(self) -> None:
+        items = [
+            {
+                "catalog_id": "job:11111111-1111-4111-8111-111111111111",
+                "removed": False,
+                "status": "ready",
+                "kind": "generation_job",
+                "compatibility": None,
+            },
+            {
+                "catalog_id": "item:22222222-2222-4222-8222-222222222222",
+                "removed": False,
+                "status": "ready",
+                "kind": "lighting_composition",
+                "compatibility": "exact",
+            },
+            {
+                "catalog_id": "item:33333333-3333-4333-8333-333333333333",
+                "removed": False,
+                "status": "ready",
+                "kind": "media_source",
+                "compatibility": "convertible",
+            },
+        ]
+        with patch.object(
+            self.catalog,
+            "scan",
+            return_value={"items": items, "errors": []},
+        ):
+            page = self.catalog.page(page=1, limit=10, kind="lighting")
+
+        self.assertEqual(
+            [items[0]["catalog_id"], items[1]["catalog_id"]],
+            [item["catalog_id"] for item in page["items"]],
+        )
+
     def test_mixed_catalog_namespaces_jobs_and_items_without_reconciling(self) -> None:
         job = self.jobs.create_job(
             prompt="Violet legacy pulse",

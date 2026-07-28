@@ -31,6 +31,14 @@
     "width",
     "height",
   ]);
+  const LIBRARY_FILTERS = Object.freeze({
+    all: Object.freeze({removed: false}),
+    sources: Object.freeze({removed: false, kind: "media_source"}),
+    lighting: Object.freeze({removed: false, kind: "lighting"}),
+    keymaps: Object.freeze({removed: false, kind: "keyboard_profile"}),
+    removed: Object.freeze({removed: true}),
+  });
+  const PROFILE_SECTIONS = Object.freeze(["keymap", "macros", "lighting"]);
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -41,6 +49,113 @@
     Object.freeze(value);
     for (const child of Object.values(value)) deepFreeze(child);
     return value;
+  }
+
+  function libraryCatalogQuery({
+    filter = "all",
+    page = 1,
+    limit = 12,
+    query = "",
+  } = {}) {
+    const projection = LIBRARY_FILTERS[filter];
+    if (!projection) throw new RangeError("The Library filter is invalid.");
+    positiveInteger(page, "The Library page");
+    positiveInteger(limit, "The Library page size");
+    if (limit > 100) throw new RangeError("The Library page size is invalid.");
+    if (typeof query !== "string" || query.length > 200) {
+      throw new TypeError("The Library search is invalid.");
+    }
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+      removed: String(projection.removed),
+    });
+    if (projection.kind) params.set("kind", projection.kind);
+    const search = query.trim();
+    if (search) params.set("query", search);
+    return params.toString();
+  }
+
+  function compatibleProfileSections(plan) {
+    const sections = plan?.sections;
+    if (!sections || typeof sections !== "object" || Array.isArray(sections)) {
+      return [];
+    }
+    return PROFILE_SECTIONS.filter(section => {
+      const status = sections[section]?.status;
+      return section === "macros" ? status === "portable" : status === "exact";
+    });
+  }
+
+  function normalizeProfileSections(plan, selected) {
+    if (!Array.isArray(selected)) {
+      throw new TypeError("Select one or more compatible profile sections.");
+    }
+    const allowed = new Set(compatibleProfileSections(plan));
+    const requested = new Set(selected);
+    const normalized = PROFILE_SECTIONS.filter(
+      section => requested.has(section) && allowed.has(section),
+    );
+    if (!normalized.length) {
+      throw new RangeError("Select one or more compatible profile sections.");
+    }
+    return normalized;
+  }
+
+  function nextCatalogIndex({index, count, columns = 1, key}) {
+    if (
+      !Number.isSafeInteger(index)
+      || !Number.isSafeInteger(count)
+      || !Number.isSafeInteger(columns)
+      || count <= 0
+      || index < 0
+      || index >= count
+      || columns <= 0
+    ) {
+      throw new RangeError("The Library grid position is invalid.");
+    }
+    let next = index;
+    if (key === "Home") next = 0;
+    else if (key === "End") next = count - 1;
+    else if (key === "ArrowLeft") next = index - 1;
+    else if (key === "ArrowRight") next = index + 1;
+    else if (key === "ArrowUp") next = index - columns;
+    else if (key === "ArrowDown") next = index + columns;
+    return Math.max(0, Math.min(count - 1, next));
+  }
+
+  function createLibraryRequestEpochs() {
+    let sequence = 0;
+    const active = new Map();
+    return Object.freeze({
+      begin(key, catalogEpoch) {
+        if (
+          typeof key !== "string"
+          || !key
+          || !Number.isSafeInteger(catalogEpoch)
+          || catalogEpoch < 0
+        ) {
+          throw new TypeError("The Library request identity is invalid.");
+        }
+        const requestEpoch = ++sequence;
+        active.set(key, requestEpoch);
+        let released = false;
+        return Object.freeze({
+          current(currentCatalogEpoch) {
+            return Boolean(
+              !released
+              && currentCatalogEpoch === catalogEpoch
+              && active.get(key) === requestEpoch,
+            );
+          },
+          release() {
+            if (released) return;
+            released = true;
+            if (active.get(key) === requestEpoch) active.delete(key);
+          },
+        });
+      },
+    });
   }
 
   function exactObject(value, fields, label) {
@@ -349,11 +464,16 @@
   }
 
   return Object.freeze({
+    compatibleProfileSections,
+    createLibraryRequestEpochs,
     createLightingProvenance,
     createMediaDraft,
+    libraryCatalogQuery,
     lightingProvenanceForPage,
     mediaDraftCanApply,
+    nextCatalogIndex,
     nextMediaRenderEpoch,
+    normalizeProfileSections,
     reduceMediaDraft,
   });
 });

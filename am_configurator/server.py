@@ -1145,6 +1145,7 @@ def project_config_sections(
     sections: Sequence[str],
     *,
     source_key_layout: object = None,
+    source_keymap_signature: str | None = None,
     target_key_layout: object = None,
     target_layer_count: int | None = None,
     target_macro_count: int | None = None,
@@ -1166,6 +1167,7 @@ def project_config_sections(
         source_config,
         destination_config,
         source_key_layout=source_key_layout,
+        source_keymap_signature=source_keymap_signature,
         target_key_layout=target_key_layout,
         target_layer_count=target_layer_count,
         target_macro_count=target_macro_count,
@@ -3230,6 +3232,48 @@ class _Handler(BaseHTTPRequestHandler):
             }
         )
 
+    def _library_profile_apply(
+        self,
+        catalog_id: str,
+        body: dict[str, Any],
+    ) -> None:
+        if set(body) not in (
+            {"document_revision", "sections"},
+            {"document_revision", "sections", "target_key_layout"},
+        ):
+            raise ValueError(
+                "Profile Apply requires the current document revision and selected sections."
+            )
+        revision = body["document_revision"]
+        if not isinstance(revision, str) or not 24 <= len(revision) <= 200:
+            raise ValueError("document_revision must be an opaque revision string.")
+        try:
+            destination = self.state.document_snapshot(revision)
+        except DocumentRevisionError as exc:
+            self._json(
+                {"code": exc.code, "error": str(exc)},
+                HTTPStatus.CONFLICT,
+            )
+            return
+        catalog = self.state.library_catalog()
+        detail, source = self._catalog_profile_config(catalog, catalog_id)
+        source_device = detail["item"]["device"]
+        projected = project_config_sections(
+            source,
+            destination,
+            body["sections"],
+            source_keymap_signature=source_device.get("keymap_signature"),
+            target_key_layout=body.get("target_key_layout"),
+        )
+        self._json(
+            {
+                **projected,
+                "catalog_id": detail["catalog_id"],
+                "name": detail["name"],
+                "source_sections": detail["item"]["profile"]["sections"],
+            }
+        )
+
     def _active_library_catalog_ids(self) -> set[str]:
         active_ids = {
             getattr(self.state._generation_gate, "active_job_id", None),
@@ -3281,6 +3325,13 @@ class _Handler(BaseHTTPRequestHandler):
             and parts[4] == "compatibility"
         ):
             self._library_profile_compatibility(parts[3], body)
+            return
+        if (
+            len(parts) == 5
+            and parts[:3] == ["api", "library", "items"]
+            and parts[4] == "apply"
+        ):
+            self._library_profile_apply(parts[3], body)
             return
         if body:
             raise ValueError(

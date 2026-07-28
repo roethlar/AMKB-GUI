@@ -165,6 +165,9 @@ _SAVED_ITEM_KINDS = {
     "keyboard_profile",
 }
 _CATALOG_KINDS = {*_SAVED_ITEM_KINDS, "generation_job"}
+_CATALOG_KIND_GROUPS = {
+    "lighting": frozenset({"generation_job", "lighting_composition"}),
+}
 _SAVED_ITEM_ORIGINS = {
     "media_source": {"media_import"},
     "lighting_composition": {"manual"},
@@ -3479,7 +3482,11 @@ class LibraryCatalog:
             raise ValueError("page must be a positive integer.")
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("limit is outside its supported range.")
-        if not isinstance(kind, str) or (kind and kind not in _CATALOG_KINDS):
+        if not isinstance(kind, str) or (
+            kind
+            and kind not in _CATALOG_KINDS
+            and kind not in _CATALOG_KIND_GROUPS
+        ):
             raise ValueError("kind filter is invalid.")
         if not isinstance(compatibility, str) or compatibility not in {
             "",
@@ -3513,7 +3520,10 @@ class LibraryCatalog:
                 continue
             if statuses and item["status"] not in statuses:
                 continue
-            if kind and item["kind"] != kind:
+            if kind and item["kind"] not in _CATALOG_KIND_GROUPS.get(
+                kind,
+                frozenset({kind}),
+            ):
                 continue
             item_compatibility = item["compatibility"] or "unknown"
             if compatibility and item_compatibility != compatibility:

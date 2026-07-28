@@ -872,6 +872,45 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(source["macro_key"], candidate["macro_key"])
         self.assertTrue(result["validation"]["ok"])
 
+    def test_section_projection_accepts_a_saved_dynamic_keymap_signature(self) -> None:
+        layers = [["#00070004"] * 90 for _ in range(4)]
+        source = blank_config("NEON80", layers, [])
+        destination = blank_config("NEON80", layers, [])
+        source["key_layer"]["layer_data"][0]["layer"][0] = "#00070005"
+        layout = [
+            {
+                "index": 0,
+                "matrix_row": 0,
+                "matrix_col": 0,
+                "x": 0.0,
+                "y": 0.0,
+                "width": 6.0,
+                "height": 12.0,
+                "rotation": 0.0,
+            }
+        ]
+        saved_signature = device_mapping.device_descriptor(
+            "NEON80",
+            key_layout=layout,
+        )["keymap"]["signature"]
+
+        result = project_config_sections(
+            source,
+            destination,
+            ["keymap"],
+            source_keymap_signature=saved_signature,
+            target_key_layout=layout,
+        )
+
+        self.assertEqual(
+            "#00070005",
+            result["config"]["key_layer"]["layer_data"][0]["layer"][0],
+        )
+        self.assertEqual(
+            "exact",
+            result["compatibility"]["sections"]["keymap"]["status"],
+        )
+
     def test_blank_config_from_device_is_writable(self) -> None:
         config = blank_config("AM21", [["#00000000"] * 200] * 7, [])
         self.assertEqual("80", config["product_info"]["product_id"])
@@ -3629,6 +3668,102 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual("blocked", partial["sections"]["lighting"]["status"])
         self.assertEqual("partial", partial["summary"])
         self.assertEqual(incompatible, self._server.state.config)
+
+    def test_profile_apply_projects_selected_sections_without_mutating_server_document(
+        self,
+    ) -> None:
+        source = _base_config("80")
+        source["key_layer"]["layer_data"][0]["layer"][0] = "#00070005"
+        source["macro_key"] = [
+            {
+                "original_key": "#00951500",
+                "layer_key": ["#11070004", "#10070004"],
+                "intvel_ms": [25, 0],
+            }
+        ]
+        source["page_data"] = [_page(index) for index in range(8)]
+        source["page_num"] = len(source["page_data"])
+        source_bytes = json.dumps(source, separators=(",", ":")).encode("utf-8")
+        status, imported = self._request(
+            "POST",
+            "/api/library/import/profile",
+            {
+                "name": "Selective profile.json",
+                "data": base64.b64encode(source_bytes).decode("ascii"),
+            },
+        )
+        self.assertEqual(201, status)
+
+        destination = _base_config("AM21")
+        destination["product_info"]["destination_identity"] = "keep"
+        destination["page_data"] = [_page(5)]
+        destination["page_num"] = 1
+        original_destination = copy.deepcopy(destination)
+        status, synchronized = self._request(
+            "POST",
+            "/api/document/sync",
+            {"config": destination},
+        )
+        self.assertEqual(200, status)
+        revision = synchronized["revision"]
+
+        status, applied = self._request(
+            "POST",
+            f"/api/library/items/{imported['catalog_id']}/apply",
+            {
+                "document_revision": revision,
+                "sections": ["keymap", "macros"],
+            },
+        )
+
+        self.assertEqual(200, status)
+        self.assertEqual(["keymap", "macros"], applied["applied_sections"])
+        self.assertTrue(applied["identity_preserved"])
+        self.assertEqual(
+            original_destination["product_info"],
+            applied["config"]["product_info"],
+        )
+        self.assertEqual(
+            original_destination["page_data"],
+            applied["config"]["page_data"],
+        )
+        self.assertEqual(
+            "#00070005",
+            applied["config"]["key_layer"]["layer_data"][0]["layer"][0],
+        )
+        self.assertEqual(source["macro_key"], applied["config"]["macro_key"])
+        self.assertEqual(original_destination, self._server.state.config)
+        self.assertEqual(revision, self._server.state.document_revision)
+
+        status, _ = self._request(
+            "POST",
+            f"/api/library/items/{imported['catalog_id']}/apply",
+            {
+                "document_revision": revision,
+                "sections": ["keymap"],
+                "unexpected": True,
+            },
+        )
+        self.assertEqual(400, status)
+
+        newer = copy.deepcopy(destination)
+        newer["key_layer"]["layer_data"][0]["layer"][1] = "#00070006"
+        status, _ = self._request(
+            "POST",
+            "/api/document/sync",
+            {"config": newer},
+        )
+        self.assertEqual(200, status)
+        status, stale = self._request(
+            "POST",
+            f"/api/library/items/{imported['catalog_id']}/apply",
+            {
+                "document_revision": revision,
+                "sections": ["keymap"],
+            },
+        )
+        self.assertEqual(409, status)
+        self.assertEqual("document_stale", stale["code"])
 
     def test_library_remove_restore_and_delete_routes_are_exact_and_active_safe(
         self,

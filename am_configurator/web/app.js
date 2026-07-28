@@ -13,11 +13,16 @@ const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const {defaultSourceTransform, interpolateMoveZoom, normalizedPointer, panSourceTransform, presetSourceTransform, renderColorEffect, scaleSourceTransform, validateEffectSpec, validateSourceTransform} = LightingComposer;
 const {
+  compatibleProfileSections,
+  createLibraryRequestEpochs,
   createLightingProvenance,
   createMediaDraft,
+  libraryCatalogQuery,
   lightingProvenanceForPage,
   mediaDraftCanApply,
+  nextCatalogIndex,
   nextMediaRenderEpoch,
+  normalizeProfileSections,
   reduceMediaDraft,
 } = LibraryState;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
@@ -122,9 +127,19 @@ const state = {
     assetUrls: new Map(),
     assetLoads: createEpochLoadRegistry(),
     assetErrors: new Map(),
+    requests: createLibraryRequestEpochs(),
     filter: "all",
     query: "",
+    page: 1,
+    limit: 12,
+    total: 0,
+    hasMore: false,
     selectedCatalogId: null,
+    lastFocusedCatalogId: null,
+    profileSelections: new Map(),
+    compatibilityRevisionPromise: null,
+    mutatingCatalogId: null,
+    undoRemoval: null,
     loaded: false,
     loading: false,
     importing: false,
@@ -135,6 +150,7 @@ const state = {
   },
 };
 let incompatibleResolver = null;
+let libraryConfirmAction = null;
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -894,12 +910,12 @@ function libraryCatalogPath(catalogId) {
 }
 
 function libraryFilterQuery() {
-  const params=new URLSearchParams({page:"1",limit:"24"});
-  if(state.library.filter==="generated")params.set("kind","generation_job");
-  else if(state.library.filter==="profiles")params.set("kind","keyboard_profile");
-  else if(state.library.filter==="partial")params.set("status","partial");
-  if(state.library.query.trim())params.set("query",state.library.query.trim());
-  return params.toString();
+  return libraryCatalogQuery({
+    filter:state.library.filter,
+    page:state.library.page,
+    limit:state.library.limit,
+    query:state.library.query,
+  });
 }
 
 function libraryDate(value) {
@@ -963,6 +979,22 @@ function profileTargetLayout() {
     : null;
 }
 
+async function libraryCompatibilityRevision() {
+  if(!state.config)return null;
+  if(state.library.compatibilityRevisionPromise){
+    return state.library.compatibilityRevisionPromise;
+  }
+  const request=synchronizeOpenDocument();
+  state.library.compatibilityRevisionPromise=request;
+  try{
+    return await request;
+  }finally{
+    if(state.library.compatibilityRevisionPromise===request){
+      state.library.compatibilityRevisionPromise=null;
+    }
+  }
+}
+
 async function ensureLibraryProfileCompatibility(catalogId,{force=false}={}) {
   const detail=state.library.details.get(catalogId);
   if(detail?.kind!=="keyboard_profile"||state.library.compatibilityLoads.has(catalogId))return;
@@ -977,7 +1009,7 @@ async function ensureLibraryProfileCompatibility(catalogId,{force=false}={}) {
   state.library.compatibilities.delete(catalogId);
   renderLibrary();
   try{
-    const revision=await synchronizeOpenDocument();
+    const revision=await libraryCompatibilityRevision();
     if(!revision)throw new Error(state.documentSyncError||"The open document could not be synchronized.");
     const targetKeyLayout=profileTargetLayout();
     const result=await api(`/api/library/items/${libraryCatalogPath(catalogId)}/compatibility`,{
@@ -987,10 +1019,20 @@ async function ensureLibraryProfileCompatibility(catalogId,{force=false}={}) {
         ...(targetKeyLayout?{target_key_layout:targetKeyLayout}:{}),
       }),
     });
-    if(epoch!==state.library.epoch||state.library.selectedCatalogId!==catalogId)return;
+    if(epoch!==state.library.epoch)return;
     state.library.compatibilities.set(catalogId,{revision,result,error:""});
+    const allowed=compatibleProfileSections(result);
+    if(state.library.profileSelections.has(catalogId)){
+      const current=state.library.profileSelections.get(catalogId);
+      state.library.profileSelections.set(
+        catalogId,
+        current.filter(section=>allowed.includes(section)),
+      );
+    }else{
+      state.library.profileSelections.set(catalogId,allowed);
+    }
   }catch(error){
-    if(epoch===state.library.epoch&&state.library.selectedCatalogId===catalogId){
+    if(epoch===state.library.epoch){
       state.library.compatibilities.set(catalogId,{revision:state.documentRevision,result:null,error:error.message});
     }
   }finally{
@@ -1013,37 +1055,66 @@ async function ensureLibraryItemDetail(catalogId) {
       for(const asset of libraryManifest(detail)?.assets||[]){
         if(["concept","selected_still","preview_poster","preview_animation","source_video","preview","source"].includes(asset.kind))void loadLibraryAsset(catalogId,asset.asset_id);
       }
-      if(detail.kind==="keyboard_profile")void ensureLibraryProfileCompatibility(catalogId);
     }
-    if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
+    if(detail.kind==="keyboard_profile")void ensureLibraryProfileCompatibility(catalogId);
+    if(state.lighting.route===ROUTES.LIBRARY){
+      renderLibrary();
+      if(state.library.selectedCatalogId===catalogId){
+        requestAnimationFrame(()=>$("#library-detail-title")?.focus());
+      }
+    }
   }catch(error){
     if(epoch===state.library.epoch){state.library.error=error.message;if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();}
   }finally{state.library.detailLoads.delete(catalogId);}
 }
 
 async function loadLibrary({force=false}={}) {
-  if(state.library.loading||(!force&&state.library.loaded))return;
+  if(!force&&(state.library.loading||state.library.loaded))return;
   state.library.loading=true;
   state.library.error="";
   const epoch=++state.library.epoch;
   if(force){
     clearLibraryAssetUrls();
+    state.library.items=[];
     state.library.details.clear();
+    state.library.detailLoads.clear();
     state.library.compatibilities.clear();
+    state.library.compatibilityLoads.clear();
+    state.library.profileSelections.clear();
     state.library.selectedCatalogId=null;
   }
   renderLibrary();
+  let reloadLastPage=false;
   try{
     const result=await api(`/api/library/items?${libraryFilterQuery()}`);
     if(epoch!==state.library.epoch)return;
     state.library.items=result.items||[];
     state.library.warnings=result.errors||[];
+    state.library.page=Number(result.page||state.library.page);
+    state.library.total=Number(result.total||0);
+    state.library.hasMore=Boolean(result.has_more);
     state.library.loaded=true;
+    if(!state.library.items.length&&state.library.total&&state.library.page>1){
+      state.library.page=Math.max(1,Math.ceil(state.library.total/state.library.limit));
+      state.library.loaded=false;
+      reloadLastPage=true;
+      return;
+    }
     for(const item of state.library.items)void ensureLibraryItemDetail(item.catalog_id);
   }catch(error){
-    if(epoch===state.library.epoch){state.library.items=[];state.library.error=error.message;state.library.loaded=true;}
+    if(epoch===state.library.epoch){
+      state.library.items=[];
+      state.library.total=0;
+      state.library.hasMore=false;
+      state.library.error=error.message;
+      state.library.loaded=true;
+    }
   }finally{
-    if(epoch===state.library.epoch){state.library.loading=false;renderLibrary();}
+    if(epoch===state.library.epoch){
+      state.library.loading=false;
+      renderLibrary();
+      if(reloadLastPage)void loadLibrary({force:true});
+    }
   }
 }
 
@@ -1063,14 +1134,72 @@ function libraryKindLabel(kind) {
   }[kind]||libraryStatusLabel(kind);
 }
 
+function latestLibraryGeneratedAttempt(detail) {
+  const attempts=detail?.job?.procedural_attempts||[];
+  return attempts.length?attempts[attempts.length-1]:null;
+}
+
+function libraryDetailCompatibility(catalogId,detail) {
+  if(!state.config)return {status:"unknown",label:"Open a keyboard"};
+  if(detail?.kind==="media_source"){
+    return {status:"convertible",label:"Fits this keyboard"};
+  }
+  if(detail?.kind==="keyboard_profile"){
+    const compatibility=state.library.compatibilities.get(catalogId);
+    if(compatibility?.result){
+      const status=compatibility.result.summary||"unknown";
+      return {
+        status,
+        label:status==="blocked"?"Incompatible":libraryStatusLabel(status),
+      };
+    }
+    if(compatibility?.error)return {status:"blocked",label:"Check failed"};
+    return {status:"unknown",label:"Checking…"};
+  }
+  if(detail?.kind==="lighting_composition"){
+    const composition=detail.item?.composition;
+    const family=detail.item?.device?.family;
+    if(!composition||family!==productFamily(productId())){
+      return {status:"blocked",label:"Incompatible"};
+    }
+    const target=composition.destination?.target;
+    if(!activeLedModel()?.targets.some(candidate=>candidate.key===target)){
+      return {status:"blocked",label:"Incompatible"};
+    }
+    const exact=Object.entries(composition.tracks||{}).every(
+      ([track,metadata])=>servedGeometry(productFamily(productId()),track)?.signature===metadata.signature,
+    );
+    return exact
+      ?{status:"exact",label:"Exact match"}
+      :{status:"blocked",label:"Incompatible"};
+  }
+  if(detail?.kind==="generation_job"){
+    const attempt=latestLibraryGeneratedAttempt(detail);
+    const target=detail.job?.target;
+    const targetKey=target?.targets?.[0];
+    const exact=Boolean(
+      attempt?.mapped_result_asset_id
+      &&productFamily(target?.family||target?.product_id)===productFamily(productId())
+      &&activeLedModel()?.targets.some(candidate=>candidate.key===targetKey),
+    );
+    return exact
+      ?{status:"exact",label:"Exact match"}
+      :{status:"blocked",label:"Browse only"};
+  }
+  return {status:"unknown",label:"Saved"};
+}
+
 function libraryCardMarkup(item) {
   const detail=state.library.details.get(item.catalog_id);
   const cover=libraryCoverAsset(detail);
   const url=cover&&state.library.assetUrls.get(`${item.catalog_id}:${cover.asset_id}`);
   const icon=item.kind==="keyboard_profile"?"⌨":"✦";
-  return `<button type="button" class="library-card" data-library-item="${esc(item.catalog_id)}">
+  const compatibility=libraryDetailCompatibility(item.catalog_id,detail);
+  const deviceLabel=item.device?.product_label||item.device?.product_id||item.target?.product_id||"Any keyboard";
+  const frameLabel=Number.isSafeInteger(item.frame_count)?`${item.frame_count} frame${item.frame_count===1?"":"s"}`:`${item.asset_count} asset${item.asset_count===1?"":"s"}`;
+  return `<button type="button" class="library-card" data-library-item="${esc(item.catalog_id)}" aria-label="Open ${esc(item.name)}">
     <span class="library-card-poster">${url?`<img src="${esc(url)}" alt="">`:`<span class="library-card-placeholder" aria-hidden="true">${icon}</span>`}</span>
-    <span class="library-card-copy"><strong>${esc(item.name)}</strong><span>${esc(libraryKindLabel(item.kind))} · ${libraryStatusLabel(item.status)} · ${libraryDate(item.updated_at)}</span><small>${item.asset_count} saved asset${item.asset_count===1?"":"s"}</small></span>
+    <span class="library-card-copy"><strong>${esc(item.name)}</strong><span>${esc(libraryKindLabel(item.kind))} · ${esc(libraryStatusLabel(item.origin))} · ${libraryDate(item.updated_at)}</span><small>${esc(deviceLabel)} · ${frameLabel}</small><span class="library-card-badges"><span class="pill ${item.status==="partial"?"muted":""}">${esc(libraryStatusLabel(item.status))}</span><span class="pill ${compatibility.status==="blocked"||compatibility.status==="unknown"?"muted":""}">${esc(compatibility.label)}</span></span></span>
   </button>`;
 }
 
@@ -1090,45 +1219,376 @@ function libraryProfileCompatibilityMarkup(catalogId,detail) {
   if(state.library.compatibilityLoads.has(catalogId)||!compatibility)return '<section class="profile-compatibility-sheet"><h3>Compatibility</h3><div class="loader"></div><p>Comparing this profile with the open document…</p></section>';
   if(compatibility.error)return `<section class="profile-compatibility-sheet"><h3>Compatibility</h3><p class="library-warning">${esc(compatibility.error)}</p><button type="button" class="button ghost" data-library-compatibility-retry>Try again</button></section>`;
   const plan=compatibility.result;
+  const allowed=compatibleProfileSections(plan);
+  const selected=new Set(state.library.profileSelections.get(catalogId)||allowed);
   const rows=["keymap","macros","lighting"].map(section=>{
     const verdict=plan.sections?.[section]||{status:"blocked",detail:"This section is unavailable."};
     const status=profileCompatibilityStatuses.includes(verdict.status)?verdict.status:"blocked";
-    const available=status!=="blocked";
-    return `<li class="${available?"compatible":"blocked"}"><span class="profile-compatibility-mark" aria-hidden="true">${available?"✓":"—"}</span><span><strong>${esc(libraryStatusLabel(section))}</strong><small>${esc(verdict.detail)}</small></span><span class="pill ${available?"":"muted"}">${esc(libraryStatusLabel(status))}</span></li>`;
+    const available=allowed.includes(section);
+    return `<li class="${available?"compatible":"blocked"}"><input type="checkbox" data-library-profile-section="${esc(section)}" aria-label="Import ${esc(section)}" ${available&&selected.has(section)?"checked":""} ${available&&!detail.removed?"":"disabled"}><span><strong>${esc(libraryStatusLabel(section))}</strong><small>${esc(verdict.detail)}</small></span><span class="pill ${available?"":"muted"}">${esc(libraryStatusLabel(status))}</span></li>`;
   }).join("");
-  return `<section class="profile-compatibility-sheet"><div><h3>Compatibility</h3><span class="pill">${esc(libraryStatusLabel(plan.summary))}</span></div><p>Preview only. Nothing is imported or written to the keyboard.</p><ul>${rows}</ul></section>`;
+  const canApply=!detail.removed&&selected.size>0&&!state.library.mutatingCatalogId;
+  return `<section class="profile-compatibility-sheet"><div><h3>Compatibility</h3><span class="pill">${esc(libraryStatusLabel(plan.summary))}</span></div><p>Choose the safe sections to import. Apply changes only the open document through one undo checkpoint; it never writes the keyboard.</p><ul>${rows}</ul>${detail.removed?"":`<div class="profile-compatibility-actions"><button type="button" class="button primary" data-library-apply-profile ${canApply?"":"disabled"}>Apply selected sections</button></div>`}</section>`;
 }
 
 function libraryDetailMarkup(catalogId) {
-  const summary=state.library.items.find(item=>item.catalog_id===catalogId);
   const detail=state.library.details.get(catalogId);
   if(!detail)return '<div class="library-empty"><div class="loader"></div><strong>Loading saved media…</strong></div>';
   const manifest=libraryManifest(detail);
   const media=(manifest?.assets||[]).filter(asset=>["concept","selected_still","preview","preview_poster","preview_animation","raster_animation","source_video","source"].includes(asset.kind));
   const profile=detail.kind==="keyboard_profile"?detail.item?.profile:null;
   const sectionList=(profile?.sections||[]).map(section=>`<span class="pill muted">${esc(libraryStatusLabel(section))}</span>`).join("");
-  const actions=detail.kind==="media_source"
-    ?`<button type="button" class="button primary" data-library-open-source ${state.config?"":"disabled"}>Open in Studio</button>`
-    :detail.kind==="lighting_composition"
-      ?`<button type="button" class="button primary" data-library-apply-lighting ${state.config?"":"disabled"}>Apply to slot ${state.ledSlot-4}</button>`
-      :"";
+  const compatibility=libraryDetailCompatibility(catalogId,detail);
+  const busy=state.library.mutatingCatalogId===catalogId;
+  let primaryAction="";
+  if(!detail.removed&&detail.kind==="media_source"){
+    primaryAction=`<button type="button" class="button primary" data-library-open-source ${state.config?"":"disabled"}>Open in Studio</button>`;
+  }else if(!detail.removed&&detail.kind==="lighting_composition"){
+    primaryAction=`<button type="button" class="button primary" data-library-apply-lighting ${compatibility.status==="exact"&&!busy?"":"disabled"}>Apply to Custom ${state.ledSlot-4}</button>`;
+  }else if(!detail.removed&&detail.kind==="generation_job"){
+    primaryAction=`<button type="button" class="button primary" data-library-apply-generated ${compatibility.status==="exact"&&!busy?"":"disabled"}>Apply saved result to Custom ${state.ledSlot-4}</button>`;
+  }
+  const ownershipActions=detail.removed
+    ?`<button type="button" class="button ghost" data-library-restore ${busy?"disabled":""}>Restore</button><button type="button" class="button danger" data-library-delete ${busy?"disabled":""}>Delete forever…</button>`
+    :`<button type="button" class="button ghost" data-library-remove ${busy?"disabled":""}>Remove from Library</button>`;
+  const actions=`${primaryAction}${ownershipActions}`;
+  const deviceLabel=detail.device?.product_label||detail.device?.product_id||detail.target?.product_id||"Any supported keyboard";
   return `<section class="library-detail" aria-labelledby="library-detail-title">
     <button type="button" class="library-back" data-library-back>← Library</button>
-    <header><div><p class="eyebrow">${esc(libraryKindLabel(detail.kind))}</p><h2 id="library-detail-title">${esc(detail.name)}</h2><p>${libraryDate(detail.created_at)} · ${detail.asset_count} saved asset${detail.asset_count===1?"":"s"}</p></div><span class="pill ${detail.status==="partial"?"muted":""}">${esc(libraryStatusLabel(detail.status))}</span></header>
+    <header><div><p class="eyebrow">${esc(libraryKindLabel(detail.kind))}</p><h2 id="library-detail-title" tabindex="-1">${esc(detail.name)}</h2><p>${libraryDate(detail.created_at)} · ${esc(libraryStatusLabel(detail.origin))} · ${esc(deviceLabel)} · ${detail.asset_count} saved asset${detail.asset_count===1?"":"s"}</p></div><div class="library-card-badges"><span class="pill ${detail.status==="partial"?"muted":""}">${esc(libraryStatusLabel(detail.status))}</span><span class="pill ${compatibility.status==="blocked"||compatibility.status==="unknown"?"muted":""}">${esc(compatibility.label)}</span>${detail.removed?'<span class="pill muted">Removed</span>':""}</div></header>
     ${profile?`<div class="profile-section-list" aria-label="Saved profile sections">${sectionList}</div>${libraryProfileCompatibilityMarkup(catalogId,detail)}`:""}
     ${media.length?`<div class="library-media-grid">${media.map((asset,index)=>libraryMediaMarkup(catalogId,asset,index)).join("")}</div>`:profile?"":'<p class="library-no-media">This item has no viewable media yet.</p>'}
-    ${actions?`<div class="library-detail-actions">${actions}</div>`:""}
+    <div class="library-detail-actions">${actions}</div>
     ${manifest?.costs?.actual_incomplete?'<p class="library-warning">Provider cost reporting is incomplete for this item.</p>':""}
   </section>`;
 }
 
+function closeLibraryDetail() {
+  const catalogId=state.library.selectedCatalogId;
+  state.library.selectedCatalogId=null;
+  renderLibrary();
+  requestAnimationFrame(()=>{
+    const target=$$("[data-library-item]",$("#library-content")).find(
+      card=>card.dataset.libraryItem===catalogId,
+    );
+    target?.focus();
+  });
+}
+
+function wireLibraryGridNavigation() {
+  const grid=$(".library-grid",$("#library-content"));
+  if(!grid)return;
+  const cards=$$("[data-library-item]",grid);
+  for(const card of cards){
+    card.addEventListener("keydown",event=>{
+      if(!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Home","End"].includes(event.key))return;
+      const index=cards.indexOf(event.currentTarget);
+      const columns=Math.max(
+        1,
+        getComputedStyle(grid).gridTemplateColumns.split(/\s+/).filter(Boolean).length,
+      );
+      const next=nextCatalogIndex({index,count:cards.length,columns,key:event.key});
+      if(next===index)return;
+      event.preventDefault();
+      cards[next].focus();
+    });
+  }
+}
+
+function updateLibraryProfileSelection(catalogId,section,checked) {
+  const plan=state.library.compatibilities.get(catalogId)?.result;
+  const allowed=compatibleProfileSections(plan);
+  if(!allowed.includes(section))return;
+  const selected=new Set(state.library.profileSelections.get(catalogId)||allowed);
+  if(checked)selected.add(section);
+  else selected.delete(section);
+  state.library.profileSelections.set(
+    catalogId,
+    allowed.filter(candidate=>selected.has(candidate)),
+  );
+  renderLibrary();
+}
+
+function showLibraryConfirmation({title,message,label,danger=false,action}) {
+  const dialog=$("#library-confirm-dialog");
+  const button=$("#library-confirm-action");
+  libraryConfirmAction=action;
+  $("#library-confirm-title").textContent=title;
+  $("#library-confirm-message").textContent=message;
+  button.textContent=label;
+  button.className=`button ${danger?"danger":"primary"}`;
+  button.disabled=false;
+  dialog.showModal();
+}
+
+function requestLibraryProfileApply(catalogId) {
+  const detail=state.library.details.get(catalogId);
+  const plan=state.library.compatibilities.get(catalogId)?.result;
+  let sections;
+  try{
+    sections=normalizeProfileSections(
+      plan,
+      state.library.profileSelections.get(catalogId)||[],
+    );
+  }catch(error){
+    return toast("Choose profile sections",error.message,"error");
+  }
+  showLibraryConfirmation({
+    title:"Apply profile sections?",
+    message:`${detail?.name||"This profile"} will replace only ${sections.map(libraryStatusLabel).join(", ")} in the open document. Destination identity and every unselected section stay unchanged. This creates one undo checkpoint and does not write the keyboard.`,
+    label:"Apply sections",
+    action:()=>applyLibraryProfile(catalogId),
+  });
+}
+
+async function applyLibraryProfile(catalogId) {
+  if(state.library.mutatingCatalogId||!state.config)return;
+  const compatibility=state.library.compatibilities.get(catalogId)?.result;
+  const sections=normalizeProfileSections(
+    compatibility,
+    state.library.profileSelections.get(catalogId)||[],
+  );
+  const catalogEpoch=state.library.epoch;
+  const lease=state.library.requests.begin("mutation",catalogEpoch);
+  const config=state.config;
+  const configFingerprint=JSON.stringify(config);
+  state.library.mutatingCatalogId=catalogId;
+  renderLibrary();
+  try{
+    const revision=await synchronizeOpenDocument();
+    if(
+      !revision
+      ||!lease.current(state.library.epoch)
+      ||state.config!==config
+      ||JSON.stringify(config)!==configFingerprint
+    ){
+      if(lease.current(state.library.epoch)){
+        throw new Error("The open document changed before Apply. Review the profile again.");
+      }
+      return;
+    }
+    const targetKeyLayout=profileTargetLayout();
+    const result=await api(`/api/library/items/${libraryCatalogPath(catalogId)}/apply`,{
+      method:"POST",
+      body:JSON.stringify({
+        document_revision:revision,
+        sections,
+        ...(targetKeyLayout?{target_key_layout:targetKeyLayout}:{}),
+      }),
+    });
+    if(
+      !lease.current(state.library.epoch)
+      ||state.config!==config
+      ||JSON.stringify(config)!==configFingerprint
+    )return;
+    lease.release();
+    state.library.mutatingCatalogId=null;
+    mutate(()=>{
+      state.config=clone(result.config);
+      state.documentRevision=null;
+      state.documentSyncEpoch++;
+      state.appliedLightingProvenance=null;
+      state.layer=Math.min(state.layer,Math.max(0,layers().length-1));
+      state.macro=Math.min(state.macro,Math.max(0,macros().length-1));
+      state.ledFrame=0;
+    });
+    state.library.compatibilities.clear();
+    state.library.profileSelections.clear();
+    await synchronizeOpenDocument();
+    toast(
+      "Profile sections applied",
+      `${result.applied_sections.map(libraryStatusLabel).join(", ")} changed through one undo checkpoint. Nothing was written to the keyboard.`,
+      "success",
+    );
+  }catch(error){
+    if(lease.current(state.library.epoch)){
+      toast("Could not apply profile",error.message,"error");
+    }
+  }finally{
+    lease.release();
+    if(state.library.mutatingCatalogId===catalogId){
+      state.library.mutatingCatalogId=null;
+      renderLibrary();
+    }
+  }
+}
+
+async function applyLibraryGenerated(catalogId) {
+  if(state.library.mutatingCatalogId||!state.config)return;
+  const detail=state.library.details.get(catalogId);
+  const attempt=latestLibraryGeneratedAttempt(detail);
+  const target=detail?.job?.target;
+  const targetKey=target?.targets?.[0];
+  if(
+    detail?.kind!=="generation_job"
+    ||!attempt?.mapped_result_asset_id
+    ||libraryDetailCompatibility(catalogId,detail).status!=="exact"
+  ){
+    return toast("Could not apply generated lighting","This saved result does not exactly match the open keyboard.","error");
+  }
+  const catalogEpoch=state.library.epoch;
+  const lease=state.library.requests.begin("mutation",catalogEpoch);
+  const config=state.config;
+  const configFingerprint=JSON.stringify(config);
+  state.library.mutatingCatalogId=catalogId;
+  renderLibrary();
+  try{
+    const response=await fetch(
+      `/api/library/assets/${libraryCatalogPath(catalogId)}/${encodeURIComponent(attempt.mapped_result_asset_id)}`,
+      {headers:{"X-AM-Token":token}},
+    );
+    if(!response.ok){
+      const data=await response.json().catch(()=>({}));
+      throw new Error(data.error||`Could not load generated lighting (${response.status})`);
+    }
+    const result=await response.json();
+    if(
+      !lease.current(state.library.epoch)
+      ||state.config!==config
+      ||JSON.stringify(config)!==configFingerprint
+    )return;
+    if(!result?.tracks)throw new Error("The saved generated result is invalid.");
+    const pairsRelic=(target.targets||[]).includes("spotlight_frames");
+    lease.release();
+    state.library.mutatingCatalogId=null;
+    mutate(()=>{
+      state.ledTarget=targetKey;
+      applyLedResultToPage(getPage(state.ledSlot),result,targetKey,pairsRelic);
+      state.ledFrame=0;
+      state.documentRevision=null;
+      state.documentSyncEpoch++;
+      state.appliedLightingProvenance=null;
+    },false);
+    state.studioTool="paint";
+    navigateTo(ROUTES.EDIT);
+    toast(
+      "Generated lighting applied",
+      `The saved result changed Custom ${state.ledSlot-4} through one undo checkpoint. Nothing was written to the keyboard.`,
+      "success",
+    );
+  }catch(error){
+    if(lease.current(state.library.epoch)){
+      toast("Could not apply generated lighting",error.message,"error");
+    }
+  }finally{
+    lease.release();
+    if(state.library.mutatingCatalogId===catalogId){
+      state.library.mutatingCatalogId=null;
+      renderLibrary();
+    }
+  }
+}
+
+async function runLibraryOwnershipMutation(catalogId,{method="POST",suffix="",success}) {
+  if(state.library.mutatingCatalogId)return null;
+  const catalogEpoch=state.library.epoch;
+  const lease=state.library.requests.begin("mutation",catalogEpoch);
+  state.library.mutatingCatalogId=catalogId;
+  renderLibrary();
+  try{
+    const result=await api(
+      `/api/library/items/${libraryCatalogPath(catalogId)}${suffix}`,
+      {method,body:method==="DELETE"?undefined:JSON.stringify({})},
+    );
+    if(!lease.current(state.library.epoch)){
+      state.library.loaded=false;
+      void loadLibrary({force:true});
+      return null;
+    }
+    success(result);
+    lease.release();
+    state.library.mutatingCatalogId=null;
+    state.library.selectedCatalogId=null;
+    state.library.loaded=false;
+    await loadLibrary({force:true});
+    return result;
+  }catch(error){
+    if(lease.current(state.library.epoch)){
+      toast("Library action failed",error.message,"error");
+    }
+    return null;
+  }finally{
+    lease.release();
+    if(state.library.mutatingCatalogId===catalogId){
+      state.library.mutatingCatalogId=null;
+      renderLibrary();
+    }
+  }
+}
+
+async function removeLibraryItem(catalogId) {
+  const detail=state.library.details.get(catalogId);
+  await runLibraryOwnershipMutation(catalogId,{
+    suffix:"/remove",
+    success:result=>{
+      state.library.undoRemoval={
+        catalogId,
+        name:result.name||detail?.name||"Library item",
+      };
+      toast("Removed from Library","Use Undo to restore it, or manage it from Removed.","success");
+    },
+  });
+}
+
+async function undoLibraryRemoval() {
+  const removal=state.library.undoRemoval;
+  if(!removal)return;
+  await runLibraryOwnershipMutation(removal.catalogId,{
+    suffix:"/restore",
+    success:()=>{
+      state.library.undoRemoval=null;
+      toast("Library item restored",`${removal.name} is back in the Library.`,"success");
+    },
+  });
+}
+
+async function restoreLibraryItem(catalogId) {
+  const detail=state.library.details.get(catalogId);
+  await runLibraryOwnershipMutation(catalogId,{
+    suffix:"/restore",
+    success:()=>{
+      if(state.library.undoRemoval?.catalogId===catalogId)state.library.undoRemoval=null;
+      toast("Library item restored",`${detail?.name||"The item"} is back in the Library.`,"success");
+    },
+  });
+}
+
+async function deleteLibraryItemForever(catalogId) {
+  const detail=state.library.details.get(catalogId);
+  await runLibraryOwnershipMutation(catalogId,{
+    method:"DELETE",
+    success:()=>{
+      if(state.library.undoRemoval?.catalogId===catalogId)state.library.undoRemoval=null;
+      toast("Library item deleted",`${detail?.name||"The removed item"} was permanently deleted.`,"success");
+    },
+  });
+}
+
+function requestLibraryDelete(catalogId) {
+  const detail=state.library.details.get(catalogId);
+  showLibraryConfirmation({
+    title:"Delete this item forever?",
+    message:`${detail?.name||"This removed item"} and its Library-owned assets will be permanently deleted. Exported files, open documents, and keyboard history are not touched.`,
+    label:"Delete forever",
+    danger:true,
+    action:()=>deleteLibraryItemForever(catalogId),
+  });
+}
+
 function wireLibraryContent() {
   $$("[data-library-item]",$("#library-content")).forEach(card=>card.addEventListener("click",()=>openLibraryItem(card.dataset.libraryItem)));
+  wireLibraryGridNavigation();
   $$("[data-library-asset-retry]",$("#library-content")).forEach(button=>button.addEventListener("click",()=>loadLibraryAsset(button.dataset.libraryAssetItem,button.dataset.libraryAssetRetry,{retry:true})));
-  $("[data-library-back]",$("#library-content"))?.addEventListener("click",()=>{state.library.selectedCatalogId=null;renderLibrary();});
+  $$("[data-library-profile-section]",$("#library-content")).forEach(input=>input.addEventListener("change",event=>updateLibraryProfileSelection(state.library.selectedCatalogId,event.currentTarget.dataset.libraryProfileSection,event.currentTarget.checked)));
+  $("[data-library-back]",$("#library-content"))?.addEventListener("click",closeLibraryDetail);
   $("[data-library-compatibility-retry]",$("#library-content"))?.addEventListener("click",()=>ensureLibraryProfileCompatibility(state.library.selectedCatalogId,{force:true}));
   $("[data-library-open-source]",$("#library-content"))?.addEventListener("click",()=>openLibrarySource(state.library.selectedCatalogId));
   $("[data-library-apply-lighting]",$("#library-content"))?.addEventListener("click",()=>applyLibraryLighting(state.library.selectedCatalogId));
+  $("[data-library-apply-generated]",$("#library-content"))?.addEventListener("click",()=>applyLibraryGenerated(state.library.selectedCatalogId));
+  $("[data-library-apply-profile]",$("#library-content"))?.addEventListener("click",()=>requestLibraryProfileApply(state.library.selectedCatalogId));
+  $("[data-library-remove]",$("#library-content"))?.addEventListener("click",()=>removeLibraryItem(state.library.selectedCatalogId));
+  $("[data-library-restore]",$("#library-content"))?.addEventListener("click",()=>restoreLibraryItem(state.library.selectedCatalogId));
+  $("[data-library-delete]",$("#library-content"))?.addEventListener("click",()=>requestLibraryDelete(state.library.selectedCatalogId));
   $("[data-library-retry]",$("#library-content"))?.addEventListener("click",()=>loadLibrary({force:true}));
   $("[data-library-settings]",$("#library-content"))?.addEventListener("click",openSettings);
 }
@@ -1227,11 +1687,13 @@ async function applyLibraryLighting(catalogId) {
 }
 
 function openLibraryItem(catalogId) {
+  state.library.lastFocusedCatalogId=catalogId;
   state.library.selectedCatalogId=catalogId;
   state.library.compatibilities.delete(catalogId);
   renderLibrary();
   if(state.library.details.has(catalogId))void ensureLibraryProfileCompatibility(catalogId,{force:true});
   else void ensureLibraryItemDetail(catalogId);
+  requestAnimationFrame(()=>$("#library-detail-title")?.focus());
 }
 
 function renderLibrary() {
@@ -1242,8 +1704,27 @@ function renderLibrary() {
   else if(state.library.items.length)content.innerHTML=`<div class="library-grid">${state.library.items.map(libraryCardMarkup).join("")}</div>`;
   else content.innerHTML=libraryEmptyMarkup();
   const status=$("#library-status");
-  status.textContent=state.library.loading?"Refreshing Library…":state.library.warnings.length?"Some previously recorded Library items could not be read.":state.library.items.length?`${state.library.items.length} saved item${state.library.items.length===1?"":"s"}`:"";
+  status.textContent=state.library.loading
+    ?"Refreshing Library…"
+    :state.library.warnings.length
+      ?"Some previously recorded Library items could not be read."
+      :state.library.total
+        ?`Showing ${state.library.items.length} of ${state.library.total} saved item${state.library.total===1?"":"s"}`
+        :"";
   status.classList.toggle("warning",Boolean(state.library.warnings.length));
+  const pages=Math.max(1,Math.ceil(state.library.total/state.library.limit));
+  $("#library-page-label").textContent=`Page ${state.library.page} of ${pages}`;
+  $("#library-page-previous").disabled=state.library.loading||state.library.page<=1;
+  $("#library-page-next").disabled=state.library.loading||!state.library.hasMore;
+  const notice=$("#library-notice");
+  if(state.library.undoRemoval){
+    notice.hidden=false;
+    notice.innerHTML=`<span><strong>${esc(state.library.undoRemoval.name)}</strong> was removed.</span><button type="button" class="button ghost" data-library-undo-remove>Undo</button>`;
+    $("[data-library-undo-remove]",notice).addEventListener("click",undoLibraryRemoval);
+  }else{
+    notice.hidden=true;
+    notice.replaceChildren();
+  }
   $("#library-reveal").disabled=!state.settings?.library?.current_root;
   $("#library-add-files").disabled=state.library.importing;
   $$("[data-library-filter]").forEach(button=>{const active=button.dataset.libraryFilter===state.library.filter;button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active));});
@@ -3742,13 +4223,44 @@ $("#library-reveal").addEventListener("click",async()=>{
 $$("[data-library-filter]").forEach(button=>button.addEventListener("click",()=>{
   if(state.library.filter===button.dataset.libraryFilter)return;
   state.library.filter=button.dataset.libraryFilter;
+  state.library.page=1;
   state.library.loaded=false;
   void loadLibrary({force:true});
 }));
 $("#library-search").addEventListener("input",event=>{
   state.library.query=event.target.value;
   if(state.library.searchTimer)clearTimeout(state.library.searchTimer);
-  state.library.searchTimer=setTimeout(()=>{state.library.loaded=false;void loadLibrary({force:true});},280);
+  state.library.searchTimer=setTimeout(()=>{
+    state.library.page=1;
+    state.library.loaded=false;
+    void loadLibrary({force:true});
+  },280);
+});
+$("#library-page-previous").addEventListener("click",()=>{
+  if(state.library.loading||state.library.page<=1)return;
+  state.library.page--;
+  state.library.loaded=false;
+  void loadLibrary({force:true});
+});
+$("#library-page-next").addEventListener("click",()=>{
+  if(state.library.loading||!state.library.hasMore)return;
+  state.library.page++;
+  state.library.loaded=false;
+  void loadLibrary({force:true});
+});
+$("#library-confirm-action").addEventListener("click",async event=>{
+  const action=libraryConfirmAction;
+  if(!action)return;
+  event.currentTarget.disabled=true;
+  try{
+    await action();
+    if($("#library-confirm-dialog").open)$("#library-confirm-dialog").close();
+  }finally{
+    if(event.currentTarget.isConnected)event.currentTarget.disabled=false;
+  }
+});
+$("#library-confirm-dialog").addEventListener("close",()=>{
+  libraryConfirmAction=null;
 });
 $$('.nav-item').forEach(item=>item.addEventListener('click',()=>navigateTo(item.dataset.route, {focusHeading: true})));
 $$('[data-lighting-route]').forEach(tab => {

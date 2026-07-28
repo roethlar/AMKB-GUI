@@ -116,9 +116,10 @@
                 <div id="lighting-library-toolbar" class="library-toolbar">
                   <div class="library-filters" role="group" aria-label="Library filter">
                     <button type="button" class="active" data-library-filter="all" aria-pressed="true">All</button>
-                    <button type="button" data-library-filter="generated" aria-pressed="false">Generated</button>
-                    <button type="button" data-library-filter="profiles" aria-pressed="false">Profiles</button>
-                    <button type="button" data-library-filter="partial" aria-pressed="false">Partial</button>
+                    <button type="button" data-library-filter="sources" aria-pressed="false">Sources</button>
+                    <button type="button" data-library-filter="lighting" aria-pressed="false">Lighting</button>
+                    <button type="button" data-library-filter="keymaps" aria-pressed="false">Keymaps</button>
+                    <button type="button" data-library-filter="removed" aria-pressed="false">Removed</button>
                   </div>
                   <label class="library-search"><span class="sr-only">Search Library</span><input id="library-search" class="text-field" type="search" placeholder="Search Library"></label>
                   <input id="library-profile-input" type="file" accept="application/json,.json" multiple hidden>
@@ -126,7 +127,15 @@
                   <button id="library-refresh" type="button" class="button ghost">Refresh</button>
                   <button id="library-reveal" type="button" class="button ghost">Reveal folder</button>
                 </div>
-                <p id="library-status" class="library-status" aria-live="polite"></p>
+                <div class="library-summary">
+                  <p id="library-status" class="library-status" aria-live="polite"></p>
+                  <nav class="library-pagination" aria-label="Library pages">
+                    <button id="library-page-previous" type="button" class="button ghost" aria-label="Previous Library page">←</button>
+                    <span id="library-page-label">Page 1</span>
+                    <button id="library-page-next" type="button" class="button ghost" aria-label="Next Library page">→</button>
+                  </nav>
+                </div>
+                <div id="library-notice" class="library-notice" role="status" aria-live="polite" hidden></div>
                 <div id="library-content" class="library-content"></div>
               </div>
             </section>
@@ -236,6 +245,20 @@
         <button value="cancel" class="button ghost">Cancel</button>
         <button id="open-incompatible" type="button" class="button ghost">Open as detached file</button>
         <button id="import-incompatible-macros" type="button" class="button primary">Import macros only</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="library-confirm-dialog" class="dialog library-confirm-dialog">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Library action</p><h2 id="library-confirm-title">Confirm Library action</h2></div>
+        <button class="dialog-close" value="cancel" aria-label="Cancel Library action">×</button>
+      </div>
+      <p id="library-confirm-message" class="dialog-note"></p>
+      <div class="device-actions">
+        <button value="cancel" class="button ghost">Cancel</button>
+        <button id="library-confirm-action" type="button" class="button primary">Continue</button>
       </div>
     </form>
   </dialog>

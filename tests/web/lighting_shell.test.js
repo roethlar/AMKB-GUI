@@ -284,15 +284,16 @@ test("generation is inline with no detached dialog or Create route", () => {
   assert.match(js,/scrollIntoView/);
 });
 
-test("Library remains document-independent and browses procedural plus historical media", () => {
-  for(const id of ["lighting-library-toolbar","library-profile-input","library-add-files","library-search","library-refresh","library-reveal","library-status","library-content"]){
+test("Library remains document-independent and browses every saved kind", () => {
+  for(const id of ["lighting-library-toolbar","library-profile-input","library-add-files","library-search","library-refresh","library-reveal","library-status","library-notice","library-page-previous","library-page-label","library-page-next","library-content"]){
     assert.match(html,new RegExp(`id="${id}"`));
   }
-  assert.match(html,/data-library-filter="generated"/);
-  assert.match(html,/data-library-filter="profiles"/);
-  assert.match(html,/data-library-filter="partial"/);
-  assert.match(js,/kind","generation_job"/);
-  assert.match(js,/kind","keyboard_profile"/);
+  for(const filter of ["all","sources","lighting","keymaps","removed"]){
+    assert.match(html,new RegExp(`data-library-filter="${filter}"`));
+  }
+  assert.doesNotMatch(html,/data-library-filter="generated"/);
+  assert.doesNotMatch(html,/data-library-filter="partial"/);
+  assert.match(js,/libraryCatalogQuery/);
   assert.match(js,/"preview_animation","raster_animation","source_video"/);
   assert.match(js,/api\(`\/api\/library\/items\?/);
   assert.match(js,/fetch\(`\/api\/library\/assets\//);
@@ -302,7 +303,7 @@ test("Library remains document-independent and browses procedural plus historica
   assert.doesNotMatch(js,/data-library-animate-job=/);
 });
 
-test("profile banking is explicit, exact-source, and previews section compatibility", () => {
+test("profile banking is explicit, exact-source, and applies selected compatible sections", () => {
   assert.match(html,/id="library-profile-input"[^>]*accept="application\/json,.json"[^>]*multiple/);
   assert.match(html,/id="library-add-files"[^>]*>Add files…</);
   assert.match(js,/async function importLibraryProfiles\(/);
@@ -312,11 +313,42 @@ test("profile banking is explicit, exact-source, and previews section compatibil
   assert.match(js,/\/api\/library\/save\/profile/);
   assert.match(js,/id="save-mapping-library"/);
   assert.match(js,/\/compatibility`/);
+  assert.match(js,/\/apply`/);
+  assert.match(js,/async function applyLibraryProfile\(/);
+  assert.match(js,/data-library-profile-section/);
+  assert.match(js,/mutate\(\(\)=>\{\s*state\.config=clone\(result\.config\)/);
   for(const status of ["exact","convertible","portable","blocked"]){
     assert.match(js,new RegExp(`"${status}"`));
   }
   const openFlow=js.slice(js.indexOf("async function readFiles"),js.indexOf("function saveConfig"));
   assert.doesNotMatch(openFlow,/library\/import\/profile/);
+});
+
+test("Library removal is reversible and permanent deletion is confirmed", () => {
+  for(const id of ["library-confirm-dialog","library-confirm-title","library-confirm-message","library-confirm-action"]){
+    assert.match(html,new RegExp(`id="${id}"`));
+  }
+  assert.match(js,/async function removeLibraryItem\(/);
+  assert.match(js,/async function undoLibraryRemoval\(/);
+  assert.match(js,/async function restoreLibraryItem\(/);
+  assert.match(js,/async function deleteLibraryItemForever\(/);
+  assert.match(js,/suffix:"\/remove"/);
+  assert.match(js,/suffix:"\/restore"/);
+  assert.match(js,/method:"DELETE"/);
+  assert.match(js,/data-library-remove/);
+  assert.match(js,/data-library-undo-remove/);
+  assert.match(js,/data-library-restore/);
+  assert.match(js,/data-library-delete/);
+  assert.match(js,/createLibraryRequestEpochs/);
+});
+
+test("Library cards support arrow-key navigation and narrow pagination", () => {
+  assert.match(js,/nextCatalogIndex/);
+  assert.match(js,/gridTemplateColumns/);
+  assert.match(js,/ArrowDown/);
+  assert.match(css,/\.library-pagination/);
+  assert.match(css,/@media \(max-width:\s*720px\)/);
+  assert.match(css,/\.library-filters[^}]*overflow-x:\s*auto/);
 });
 
 test("Library media failures retry once and become actionable", () => {
