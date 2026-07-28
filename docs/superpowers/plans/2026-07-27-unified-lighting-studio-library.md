@@ -1,15 +1,16 @@
 # Unified Lighting Studio and Asset Library
 
-**Status:** Implemented through slice 17 on 2026-07-28. The clean repository
-gate passes 666 Python tests and 78 web tests plus compile/syntax checks and
-source/wheel builds. Native build 62 passes bundled and mounted-DMG frozen
+**Status:** Completed and accepted on 2026-07-28. The clean repository gate
+passes 666 Python tests and 78 web tests plus compile/syntax checks and
+source/wheel builds. Native build 63 passes bundled and mounted-DMG frozen
 smoke, the real WKWebView policy smoke, deep code-signature verification, and
 DMG verification; its checksum-verified artifact is
-`dist/AM-Configurator-0.1.62-macOS-arm64.dmg`. The sole acceptance remainder is
-the browser-control-limited interactive visual pass recorded in
-`.agents/state.md`. No real provider request, credential access or mutation,
-model mutation/download, Library deletion, hardware write, push, or release
-publication occurred.
+`dist/AM-Configurator-0.1.63-macOS-arm64.dmg`. The browser-controlled
+interactive pass covers the complete Studio, generation, mixed-Library,
+profile-compatibility, responsive, keyboard, and reduced-motion flows with no
+console errors or page-level horizontal overflow. No real provider request,
+credential access or mutation, model mutation/download, real Library
+mutation/deletion, hardware write, push, or release publication occurred.
 
 ## Goal
 

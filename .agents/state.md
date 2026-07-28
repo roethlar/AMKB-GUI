@@ -138,7 +138,7 @@
   compile/syntax checks, and package builds.
 - The owner-approved unified Lighting implementation in
   `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` is
-  complete through slice 17. Catalog schema 2 names the six fixed API
+  complete and accepted through slice 17. Catalog schema 2 names the six fixed API
   providers; settings schema 6 preserves the complete xAI record through a
   credential-free v5 migration; provider-scoped vault operations, environment
   overrides, disclosure records, setup fingerprints, capability caches, and
@@ -288,17 +288,25 @@
   initializes macOS hidapi; this closes the prior post-success `hid_exit`
   SIGTRAP without bypassing WKWebView. The focused guards were red-proven.
   Browser inspection found and red-proved a 760px header overflow; the header
-  now enters its internally scrollable two-row layout at 820px. Studio and all
-  five Library filters have no page-level overflow at 1440x920 or 760x900, AI
-  off shows only the master switch, and AI on-but-unready shows setup in
-  Settings but no Lighting AI control. The remaining visual evidence is listed
-  under Blockers.
+  now enters its internally scrollable two-row layout at 820px. Follow-up
+  browser acceptance also red-proved and fixed independent media-height
+  controls, stale async Library-confirmation targets, and the Relic per-key
+  canvas. Relic Lighting now uses the exact normalized Keymap geometry: all 87
+  physical keys align, and the spacebar is one correctly sized key with three
+  independently editable, persistently labelled LED segments (78, 79, and
+  80). The interactive pass covered manual paint and keyboard navigation; all
+  five local effects; media reopen, pan, locked zoom, stretch, preview, Apply,
+  and undo; deterministic fake-provider generation through saved review,
+  Apply, undo, and Library banking; partial and fully blocked profile sheets;
+  remove, Undo, restore, and delete forever; wide, narrow, 150%-equivalent, and
+  reduced-motion layouts. No browser console error or page-level horizontal
+  overflow remained.
   The clean full gate passes 666 Python tests, 78 web tests, compile/syntax
-  checks, and source/wheel builds. Native build 62 passes bundled and mounted
+  checks, and source/wheel builds. Native build 63 passes bundled and mounted
   DMG frozen smoke, the real WKWebView policy smoke, deep code-signature
   verification, and DMG verification. The artifact is
-  `dist/AM-Configurator-0.1.62-macOS-arm64.dmg` (SHA-256
-  `6c71ac75f90222bb334bc5b8807c458c32227b3cb70ba3c99566653087aef751`).
+  `dist/AM-Configurator-0.1.63-macOS-arm64.dmg` (SHA-256
+  `f240d3c511e91e51080965a64293b5cd5173d635ffbcf88662da97622384fd8b`).
   No real provider request, credential access or mutation, Keychain prompt,
   model mutation/download, real Library mutation/deletion, hardware write,
   push, or release occurred. Local `main` remains unpublished; the push policy
@@ -306,12 +314,6 @@
 
 ## Blockers
 
-- Browser control disconnected before the fake-ready Lighting state and the
-  remaining interactive import/effect/profile/remove flows could be visually
-  re-run, then reported no available browser. Their focused automated guards
-  and native policy checks pass, but that manual visual evidence remains
-  uncollected; full visual acceptance must not be claimed until it is repeated
-  with browser control available.
 - N10 has no remaining blocker. Broader device-family checks require their
   corresponding keyboards; they do not block the completed Neon scope.
 - Code signing and notarization are blocked on paid developer accounts, an
