@@ -17,7 +17,6 @@ wheels = [
 
 [[package]]
 name = "am-configurator"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "hidapi" },
@@ -45,7 +44,7 @@ requires-dist = [
     { name = "pywebview", marker = "extra == 'desktop'", specifier = ">=6.2.1" },
     { name = "pywebview", extras = ["qt"], marker = "sys_platform == 'linux' and extra == 'desktop'", specifier = ">=6.2.1" },
 ]
-provides-extras = ["desktop", "build"]
+provides-extras = ["build", "desktop"]
 
 [[package]]
 name = "backports-tarfile"

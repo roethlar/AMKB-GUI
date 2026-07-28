@@ -14,14 +14,12 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from build import build_installer, reserve_local_build_number
+from build import build_installer
 from am_configurator import __version__, desktop
 from build_tools.release_info import (
     artifact_filename,
-    build_version,
     normalize_arch,
     project_version,
-    stamp_build_version,
 )
 
 
@@ -42,52 +40,28 @@ _SDIST_FORBIDDEN = (
 
 
 class ReleaseInfoTests(unittest.TestCase):
-    def test_local_build_number_advances_past_artifacts_and_counter(self) -> None:
-        with TemporaryDirectory() as temporary:
-            root = Path(temporary).resolve()
-            (root / "dist").mkdir()
-            (root / "pyproject.toml").write_text(
-                '[project]\nversion = "0.1.0"\n', encoding="utf-8"
-            )
-            (root / "dist" / "AM-Configurator-0.1.8-macOS-arm64.dmg").touch()
-            (root / ".am-configurator-build-number").write_text(
-                "10\n", encoding="utf-8"
-            )
-
-            self.assertEqual(11, reserve_local_build_number(root))
-            self.assertEqual(
-                "11\n",
-                (root / ".am-configurator-build-number").read_text(encoding="utf-8"),
-            )
-
-    def test_build_script_dispatches_and_restores_the_tracked_version(self) -> None:
+    def test_build_script_dispatches_without_mutating_canonical_version(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             package = root / "am_configurator"
             package.mkdir()
             (root / "dist").mkdir()
-            (root / "pyproject.toml").write_text(
-                '[project]\nversion = "0.1.0"\n', encoding="utf-8"
-            )
             version_file = package / "_version.py"
-            original = '__version__ = "0.1.0"\n'
+            original = '__version__ = "0.1.34"\n'
             version_file.write_text(original, encoding="utf-8")
-            expected_name = artifact_filename("macos", root=root).replace(
-                "-0.1.0-", "-0.1.12-"
-            )
+            expected_name = artifact_filename("macos", root=root)
             commands: list[list[str]] = []
 
             def run_command(command: list[str], cwd: Path) -> None:
                 self.assertEqual(root, cwd)
                 commands.append(command)
-                self.assertEqual("0.1.12", project_version(root))
+                self.assertEqual("0.1.34", project_version(root))
                 if command[-1].endswith("build_dmg.sh"):
-                    (root / "dist" / artifact_filename("macos", root=root)).touch()
+                    (root / "dist" / expected_name).touch()
 
             artifact = build_installer(
                 root=root,
                 platform_name="darwin",
-                build_number=12,
                 run_command=run_command,
             )
 
@@ -102,16 +76,13 @@ class ReleaseInfoTests(unittest.TestCase):
             self.assertIn("pyinstaller", commands[2])
             self.assertTrue(commands[3][-1].endswith("build_dmg.sh"))
 
-    def test_build_script_restores_the_version_after_a_failed_build(self) -> None:
+    def test_failed_build_does_not_mutate_canonical_version(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             package = root / "am_configurator"
             package.mkdir()
-            (root / "pyproject.toml").write_text(
-                '[project]\nversion = "0.1.0"\n', encoding="utf-8"
-            )
             version_file = package / "_version.py"
-            original = '__version__ = "0.1.0"\n'
+            original = '__version__ = "0.1.34"\n'
             version_file.write_text(original, encoding="utf-8")
 
             def fail(_command: list[str], _cwd: Path) -> None:
@@ -121,47 +92,69 @@ class ReleaseInfoTests(unittest.TestCase):
                 build_installer(
                     root=root,
                     platform_name="linux",
-                    build_number=13,
                     run_command=fail,
                 )
             self.assertEqual(original, version_file.read_text(encoding="utf-8"))
 
-    def test_ci_build_number_is_stamped_into_runtime_version(self) -> None:
+    def test_project_version_requires_one_three_part_canonical_source(self) -> None:
         with TemporaryDirectory() as temporary:
             root = Path(temporary)
             package = root / "am_configurator"
             package.mkdir()
-            (root / "pyproject.toml").write_text(
-                '[project]\nversion = "0.1.0"\n', encoding="utf-8"
-            )
-            (package / "_version.py").write_text(
-                '__version__ = "0.1.0"\n', encoding="utf-8"
-            )
+            version_file = package / "_version.py"
 
-            self.assertEqual("0.1.42", build_version(42, root=root))
-            self.assertEqual("0.1.42", stamp_build_version(42, root=root))
-            self.assertEqual("0.1.42", project_version(root))
-            self.assertEqual(
-                '__version__ = "0.1.42"\n',
-                (package / "_version.py").read_text(encoding="utf-8"),
-            )
+            with self.assertRaises(ValueError):
+                project_version(root)
+            for invalid in ("0.1", "0.1.34.dev1", "v0.1.34", "01.1.34"):
+                with self.subTest(invalid=invalid):
+                    version_file.write_text(
+                        f'__version__ = "{invalid}"\n', encoding="utf-8"
+                    )
+                    with self.assertRaises(ValueError):
+                        project_version(root)
+            version_file.write_text('__version__ = "0.1.34"\n', encoding="utf-8")
+            self.assertEqual("0.1.34", project_version(root))
 
     def test_release_names_use_project_version_and_normalized_architecture(self) -> None:
         self.assertEqual(__version__, project_version(ROOT))
+        self.assertEqual("0.1.34", project_version(ROOT))
         self.assertEqual("x86_64", normalize_arch("AMD64"))
         self.assertEqual("aarch64", normalize_arch("arm64"))
         self.assertEqual(
-            "AM-Configurator-0.1.0-macOS-arm64.dmg",
+            "AM-Configurator-0.1.34-macOS-arm64.dmg",
             artifact_filename("macos", "arm64", root=ROOT),
         )
         self.assertEqual(
-            "AM-Configurator-0.1.0-Windows-x64-Setup.exe",
+            "AM-Configurator-0.1.34-Windows-x64-Setup.exe",
             artifact_filename("windows", "AMD64", root=ROOT),
         )
         self.assertEqual(
-            "AM-Configurator-0.1.0-Linux-x86_64.AppImage",
+            "AM-Configurator-0.1.34-Linux-x86_64.AppImage",
             artifact_filename("linux", "x86_64", root=ROOT),
         )
+
+    def test_one_canonical_version_drives_every_build(self) -> None:
+        project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+        build_script = (ROOT / "build.py").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertNotIn("version", project["project"])
+        self.assertEqual(["version"], project["project"]["dynamic"])
+        self.assertEqual(
+            "am_configurator/_version.py",
+            project["tool"]["hatch"]["version"]["path"],
+        )
+        self.assertEqual("0.1.34", __version__)
+        self.assertNotIn("github.run_number", workflow)
+        self.assertNotIn("stamp --build-number", workflow)
+        self.assertIn("version --github-output", workflow)
+        self.assertNotIn("reserve_local_build_number", build_script)
+        self.assertNotIn("--build-number", build_script)
+        self.assertNotIn("--build-number", readme)
+        self.assertFalse((ROOT / ".am-configurator-build-number").exists())
 
     def test_desktop_workflow_publishes_native_installers(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
@@ -171,10 +164,7 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("*.dmg", workflow)
         self.assertIn("*-Setup.exe", workflow)
         self.assertIn("*.AppImage", workflow)
-        self.assertIn(
-            "stamp --build-number ${{ github.run_number }} --github-output",
-            workflow,
-        )
+        self.assertIn("version --github-output", workflow)
         self.assertIn(
             "AM-Configurator-${{ steps.build_version.outputs.version }}-"
             "${{ matrix.artifact }}",
@@ -191,8 +181,18 @@ class ReleaseInfoTests(unittest.TestCase):
             "packaging/windows/AMConfigurator.iss",
             "packaging/windows/build_installer.ps1",
         ):
-            with self.subTest(path=path):
-                self.assertTrue((ROOT / path).is_file())
+                with self.subTest(path=path):
+                    self.assertTrue((ROOT / path).is_file())
+
+    def test_release_tags_do_not_rebuild_a_different_version(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+        trigger = workflow.split("permissions:", 1)[0]
+
+        self.assertIn("branches:", trigger)
+        self.assertIn("- main", trigger)
+        self.assertNotIn("tags:", trigger)
 
     def test_desktop_workflow_runs_frozen_native_policy_on_every_platform(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(

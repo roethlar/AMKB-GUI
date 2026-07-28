@@ -136,15 +136,13 @@ for the current operating system with:
 python build.py
 ```
 
-The script automatically advances a local build number, temporarily stamps it
-into the application, restores the tracked base version afterward, and writes
-the finished artifact to `dist/`. Existing artifacts are considered when the
-next number is selected—for example, the build after `0.1.11` is `0.1.12`.
+The script builds the canonical application version and writes the finished
+artifact to `dist/`. Local and GitHub builds use the same product version;
+workflow run numbers and commit IDs remain diagnostic metadata.
 
-Use a specific build number or skip dependency synchronization when needed:
+Skip dependency synchronization when the environment is already prepared:
 
 ```sh
-python build.py --build-number 42
 python build.py --skip-sync
 ```
 

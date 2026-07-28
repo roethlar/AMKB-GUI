@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "am-configurator"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Standalone Angry Miao keyboard configurator"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,6 +25,9 @@ build = ["pyinstaller>=6.21.0"]
 
 [project.gui-scripts]
 am-configurator = "am_configurator.desktop:main"
+
+[tool.hatch.version]
+path = "am_configurator/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["am_configurator"]

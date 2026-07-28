@@ -7,8 +7,6 @@ on:
   push:
     branches:
       - main
-    tags:
-      - "v*"
 
 permissions:
   contents: read
@@ -121,9 +119,9 @@ jobs:
             --ar $ar `
             --ranlib $ranlib `
             --strip $strip
-      - name: Stamp unique build version
+      - name: Read canonical application version
         id: build_version
-        run: uv run --frozen python build_tools/release_info.py stamp --build-number ${{ github.run_number }} --github-output
+        run: uv run --frozen python build_tools/release_info.py version --github-output
       - name: Build native application
         run: uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
       - name: Verify native webview policy (macos)
@@ -152,4 +150,4 @@ jobs:
           name: AM-Configurator-${{ steps.build_version.outputs.version }}-${{ matrix.artifact }}
           path: ${{ matrix.installer }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
