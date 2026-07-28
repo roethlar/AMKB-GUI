@@ -9,8 +9,9 @@
   decisions, and the release plan now agree on `0.1.64`; the `0.1.34` preflight
   is invalidated historical evidence only. Focused red/green proof, both Python
   floors, the cumulative gate, live wide/narrow browser acceptance, and a fresh
-  native candidate all pass. No push, tag, release, hardware write, provider
-  request, credential or Keychain access, or Reddit post has occurred.
+  native candidate all pass. `main` was later pushed through `97ed7a2`; no tag,
+  release, hardware write, provider request, credential or Keychain access, or
+  Reddit post has occurred.
 - The AI master-switch and visible-version work is complete on `main`. AI
   enablement now persists as user intent before backend setup is ready; backend
   selection and setup tests cannot change that intent, while generation still
@@ -375,34 +376,51 @@
   firmware, OS, version, operation, write, installer, reproduction, and
   sanitized-log context. Both release-packet guards were red-proven and the
   issue-form YAML parses successfully. The cumulative local pre-publication
-  gate passes 683 Python tests on Python 3.13, 81 web tests, compile/syntax
-  checks, and source/wheel builds. The Python 3.11 floor separately passes all
-  683 Python tests, compilation, and package builds. A fresh local
-  `0.1.64` macOS preflight candidate built from the version-correction working tree
-  passes bundle and mounted-DMG smoke, the real WKWebView policy smoke,
-  `hdiutil verify`, and deep strict ad-hoc signature verification with no
-  signing authority. Its preflight artifact is
-  `dist/AM-Configurator-0.1.64-macOS-arm64.dmg` (25,509,941 bytes, SHA-256
-  `6e4c4217ba4bc29aa8fde44d5b91e2bf8c33a50e55d7868fefa0867fd5c167cf`);
-  it is not the final GitHub candidate. The mounted bundle reports `0.1.64`,
-  and the completed live browser acceptance confirms that the quiet About
-  dialog reports the same version. The tracked/untracked privacy audit found
-  and redacted one historical device serial in `c774cac`; the current tree has
-  no untracked files, `.env` files, non-test credential signatures, firmware
-  UID values, public machine-local paths, or oversized tracked files.
+  gate now passes 684 Python tests on Python 3.13, 81 web tests,
+  compile/syntax checks, and source/wheel builds. The Python 3.11 floor
+  separately passes all 684 Python tests, compilation, and package builds.
+  The first post-push GitHub candidate from Desktop run `30388161235` at
+  `97ed7a2` reproduced its manifest/checksums exactly, verified all
+  attestations, and passed macOS native checks, but it is rejected: live
+  inspection exposed macOS's automatic one-tab strip beneath the normal
+  native title bar. No tag or Release was created. Commit `3496bbe` disables
+  automatic macOS window tabbing before pywebview creates a window. Its
+  regression was red-proven, and exact-path inspection of the rebuilt bundle
+  confirms one native window, no accessibility tab-bar role, unconditional
+  `#/keymap` startup, and About-only version `0.1.64`. The fresh local artifact
+  is `dist/AM-Configurator-0.1.64-macOS-arm64.dmg` (25,509,984 bytes,
+  SHA-256
+  `c419a7b60a5e76bc1a1c1b68744e45b4a618526b7e6a1254ccc636353c9eed10`);
+  bundle and mounted-DMG smoke, the real WKWebView policy smoke,
+  `hdiutil verify`, and deep strict ad-hoc signature verification pass with
+  `Signature=adhoc`, no team identity, and bundle version `0.1.64`. No keyboard
+  SET occurred during the rejected candidate's hardware preflight. Its
+  GET-only snapshot is
+  `~/Downloads/AM-NEON80-release-0.1.64-prewrite-2026-07-28.json` (SHA-256
+  `fc1d7a76d8d4dda84077dcc30c4811a22eb4e84f640e7bd7b50f45e7e1d11076`);
+  the known LED-bearing restore document remains
+  `~/Downloads/AM-NEON80-config.json` (SHA-256
+  `745b107a4ae0a6cfd239ff95a9162382cab89cfde426f815b137dc70f55ebb90`).
+  The tracked/untracked privacy audit previously redacted one historical
+  device serial in `c774cac`; `95f222c` additionally removes the physical
+  firmware UID from historical docs and replaces its test fixture with a
+  synthetic value. The current tree has no untracked files, `.env` files,
+  non-test credential signatures, physical firmware UID values, public
+  machine-local paths, or oversized tracked files.
   `actionlint` is not installed, so that optional local check remains for
   GitHub workflow validation. No provider request, credential or Keychain
-  access, model mutation/download, hardware write, push, release publication,
-  or Reddit post occurred during this preflight. Push, final GitHub candidate
-  qualification, exact-artifact hardware acceptance, release publication, and
-  Reddit posting retain their explicit gates.
+  access, model mutation/download, hardware write, release publication, or
+  Reddit post occurred during the correction preflight. Replacement push,
+  final GitHub candidate qualification, exact-artifact hardware acceptance,
+  release publication, and Reddit posting retain their explicit gates.
 
 ## Next
 
-- Obtain the required explicit authorization before pushing `main` at
-  `39b5507`. After the push, wait for CI and all desktop workflows, download the
-  exact GitHub candidate artifacts, and run the remaining cross-platform and
-  separately authorized hardware acceptance gates.
+- Obtain the required explicit authorization before pushing the current local
+  `main`, including `3496bbe`, `95f222c`, and this release bookkeeping. After
+  the push, wait for CI and all desktop workflows, download the exact replacement
+  GitHub candidate artifacts, and rerun the cross-platform and separately
+  authorized hardware acceptance gates.
 
 ## Blockers
 

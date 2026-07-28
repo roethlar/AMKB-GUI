@@ -11,8 +11,11 @@ implementation and local verification only; push, hardware write, release
 publication, and Reddit posting retain their explicit gates.
 
 Implementation status: slices 0–7 and the local pre-publication gates completed
-on 2026-07-28. Push and the final GitHub, platform, hardware, publication, and
-announcement gates remain pending.
+on 2026-07-28. The first `main` candidate at `97ed7a2` was rejected after exact
+macOS inspection exposed an automatic one-tab strip beneath the native title
+bar. The local correction and privacy cleanup pass their gates; a replacement
+push and the final GitHub, platform, hardware, publication, and announcement
+gates remain pending.
 
 ## Objective
 
@@ -840,19 +843,28 @@ The owner then rejected workflow-derived `0.1.34` as a regression below native
 builds that had already displayed `0.1.63`; the completed correction makes
 `0.1.64` the first non-regressive canonical release version everywhere.
 
-The local evidence is:
+The current local evidence is:
 
-- the cumulative gate passes 683 Python tests on Python 3.13, 81 web tests,
+- the cumulative gate passes 684 Python tests on Python 3.13, 81 web tests,
   compile/syntax checks, and source/wheel builds;
-- the Python 3.11 floor separately passes all 683 Python tests, compilation,
+- the Python 3.11 floor separately passes all 684 Python tests, compilation,
   and package builds;
 - the canonical-version guard was red-proven by temporarily restoring
   `0.1.34`, observing the focused test fail, restoring `0.1.64`, and passing all
   54 focused packaging/release tests;
 - the source and wheel report canonical version `0.1.64`;
+- the first post-push candidate from Desktop run `30388161235` at `97ed7a2`
+  reproduced its manifest/checksums, verified its attestations, and passed
+  macOS native checks, but live inspection showed macOS's automatic one-tab
+  strip beneath the normal title bar, so those artifacts are invalidated and
+  no tag or Release was created;
+- commit `3496bbe` disables automatic macOS window tabbing before pywebview
+  creates a window; its regression was red-proven, and exact-path inspection of
+  the rebuilt app shows one native window, no accessibility tab-bar role,
+  unconditional Keymap startup, and About-only version `0.1.64`;
 - a fresh macOS preflight build produced
-  `AM-Configurator-0.1.64-macOS-arm64.dmg`, 25,509,941 bytes, with SHA-256
-  `6e4c4217ba4bc29aa8fde44d5b91e2bf8c33a50e55d7868fefa0867fd5c167cf`;
+  `AM-Configurator-0.1.64-macOS-arm64.dmg`, 25,509,984 bytes, with SHA-256
+  `c419a7b60a5e76bc1a1c1b68744e45b4a618526b7e6a1254ccc636353c9eed10`;
 - that local DMG passes bundle and mounted-image smoke, the real WKWebView
   policy smoke, `hdiutil verify`, and deep strict ad-hoc signature verification
   with no Developer ID authority;
@@ -860,16 +872,19 @@ The local evidence is:
   acceptance confirms the quiet About dialog reports `0.1.64`, every fresh
   launch opens Keymap, and wide/narrow layouts have no page overflow or console
   error;
-- the tracked/untracked audit finds no untracked files, `.env` files, non-test
-  credential signatures, firmware UID values, public machine-local paths, or
-  oversized tracked files; and
+- commit `95f222c` removes the physical firmware UID from historical docs and
+  replaces the real-value test fixture with a synthetic value; the
+  tracked/untracked audit finds no untracked files, `.env` files, non-test
+  credential signatures, physical firmware UID values, public machine-local
+  paths, or oversized tracked files; and
 - `actionlint` is not installed locally, so its optional check was unavailable.
   GitHub remains authoritative for workflow execution.
 
-This DMG is local preflight evidence only, not a release asset. No push,
-provider request, credential or Keychain access, model mutation/download,
-hardware write, release publication, or Reddit post occurred. The next required
-action is an explicitly authorized push of `main`; the exact GitHub candidate,
+This DMG is local preflight evidence only, not a release asset. No provider
+request, credential or Keychain access, model mutation/download, hardware
+write, release publication, or Reddit post occurred. The first push produced a
+rejected candidate; the next required action is an explicitly authorized
+replacement push of `main`. Exact replacement-artifact qualification,
 cross-platform acceptance, fresh Neon write authorization and check, release
 publication, and announcement review remain pending.
 
