@@ -420,14 +420,39 @@
   Reddit post occurred during the correction preflight. Replacement push,
   final GitHub candidate qualification, exact-artifact hardware acceptance,
   release publication, and Reddit posting retain their explicit gates.
+- Three owner-reported Neon regressions are fixed on local `main`. Commit
+  `537e570` makes keymap macro triggers protocol-aware: the Neon reports Vial
+  protocol 5 and therefore needs the legacy `0x5F12` macro range rather than
+  protocol 6's inert-on-Neon `0x7700` range. Commit `7305e0a` adds the Neon's
+  separate under-key and top-display lighting controls to the assignment
+  palette. Commit `1bd850c` preserves the canonical Neon geometry selected
+  during startup so Lighting cannot fall back to a matrix of square cells.
+  Focused regressions were added for all three fixes. A GET-only read through
+  the exact rebuilt bundle shows the old `0x7700` trigger values as raw
+  keycodes on layer 2, while the known LED-bearing restore JSON renders the
+  same four positions as semantic Macro 1–4 assignments. The native UI opens
+  unconditionally on Keymap, renders the 87-key Neon layout, exposes both
+  lighting-control groups, and renders Lighting as the same keyboard-shaped
+  geometry with individually labelled LEDs. No write dialog or keyboard SET
+  was opened, so corrected macro execution on physical hardware remains an
+  exact-candidate acceptance item rather than a completed claim. The clean
+  gate passes 687 Python tests (one skipped), 83 web tests, compile/syntax
+  checks, and source/wheel builds. Frozen bundle and mounted-DMG smoke, the
+  real WKWebView policy smoke, `hdiutil verify`, and deep strict ad-hoc
+  signature verification pass. The current local artifact is
+  `dist/AM-Configurator-0.1.64-macOS-arm64.dmg` (25,629,920 bytes, SHA-256
+  `364df91494702bd3945da09a83bbe8a98936112cc250564b6ae207e1700dee89`).
 
 ## Next
 
 - Obtain the required explicit authorization before pushing the current local
-  `main`, including `3496bbe`, `95f222c`, `621adef`, and this release
+  `main` through the Neon macro/control/geometry fixes and this release
   bookkeeping. After the push, wait for CI and all desktop workflows, download
   the exact replacement GitHub candidate artifacts, and rerun the
-  cross-platform and separately authorized hardware acceptance gates.
+  cross-platform gates. The exact macOS candidate's Neon acceptance must load
+  the LED-bearing restore JSON, complete one confirmed full write and physical
+  Esc + F2 unlock, then exercise all four assigned macro trigger keys before
+  release publication.
 
 ## Blockers
 
