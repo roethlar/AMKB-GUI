@@ -2818,6 +2818,45 @@ class SavedItemLibrary:
                 except OSError:
                     pass
 
+    def create_keyboard_profile(
+        self,
+        *,
+        origin: str,
+        name: str,
+        configuration: bytes,
+        device: Mapping[str, object],
+        sections: list[str] | tuple[str, ...],
+        tags: list[str] | tuple[str, ...] = (),
+    ) -> dict:
+        """Publish one exact configuration asset plus its profile projection."""
+
+        if not isinstance(configuration, bytes) or not configuration:
+            raise ManifestError(
+                "The keyboard profile configuration bytes must be non-empty."
+            )
+        if not isinstance(sections, (list, tuple)):
+            raise ManifestError(
+                "The keyboard profile sections must be a list or tuple."
+            )
+        return self.create_item(
+            kind="keyboard_profile",
+            origin=origin,
+            name=name,
+            tags=tags,
+            device=device,
+            profile={
+                "asset_id": "configuration",
+                "sections": list(sections),
+            },
+            assets={
+                "configuration": {
+                    "kind": "profile",
+                    "mime_type": "application/json",
+                    "data": configuration,
+                }
+            },
+        )
+
     def _find_item_dir(self, item_id: str) -> Path:
         canonical_id = _canonical_uuid(item_id, "item ID")
         for root in self._roots():

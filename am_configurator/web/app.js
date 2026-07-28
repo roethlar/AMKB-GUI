@@ -87,17 +87,20 @@ const state = {
   proceduralRecipes: new Map(),
   proceduralRecipeLoads: new Set(),
   library: {
-    jobs: [],
+    items: [],
     details: new Map(),
     detailLoads: new Set(),
+    compatibilities: new Map(),
+    compatibilityLoads: new Set(),
     assetUrls: new Map(),
     assetLoads: createEpochLoadRegistry(),
     assetErrors: new Map(),
     filter: "all",
     query: "",
-    selectedJobId: null,
+    selectedCatalogId: null,
     loaded: false,
     loading: false,
+    importing: false,
     error: "",
     warnings: [],
     epoch: 0,
@@ -768,15 +771,105 @@ function clearConceptAssetUrls() {
   state.mappedLightingResultLoads.clear();
 }
 
+function arrayBufferToBase64(buffer) {
+  const bytes=new Uint8Array(buffer);
+  let binary="";
+  for(let index=0;index<bytes.length;index+=0x8000){
+    binary+=String.fromCharCode(...bytes.subarray(index,index+0x8000));
+  }
+  return btoa(binary);
+}
+
+async function importLibraryProfiles(input) {
+  const files=[...input.files];
+  input.value="";
+  if(!files.length||state.library.importing)return;
+  state.library.importing=true;
+  renderLibrary();
+  let imported=0;
+  const failures=[];
+  try{
+    for(const file of files){
+      try{
+        const data=arrayBufferToBase64(await file.arrayBuffer());
+        await api("/api/library/import/profile",{
+          method:"POST",
+          body:JSON.stringify({name:file.name,data}),
+        });
+        imported++;
+      }catch(error){
+        failures.push(`${file.name}: ${error.message}`);
+      }
+    }
+    if(imported){
+      state.library.filter="profiles";
+      state.library.loaded=false;
+      await loadLibrary({force:true});
+    }
+    if(failures.length){
+      toast(
+        imported?"Some profiles were not added":"Profiles were not added",
+        failures.slice(0,3).join("\n"),
+        "error",
+      );
+    }else{
+      toast(
+        imported===1?"Profile added to Library":"Profiles added to Library",
+        `${imported} exact JSON file${imported===1?" was":"s were"} banked.`,
+        "success",
+      );
+    }
+  }finally{
+    state.library.importing=false;
+    if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
+  }
+}
+
+async function saveMappingToLibrary() {
+  if(!state.config)return;
+  const button=$("#save-mapping-library");
+  if(button)button.disabled=true;
+  try{
+    const revision=await synchronizeOpenDocument();
+    if(!revision)throw new Error(state.documentSyncError||"The open document could not be synchronized.");
+    const targetKeyLayout=profileTargetLayout();
+    const detail=await api("/api/library/save/profile",{
+      method:"POST",
+      body:JSON.stringify({
+        name:state.fileName||`${productLabel(productId())} mapping`,
+        document_revision:revision,
+        ...(targetKeyLayout?{key_layout:targetKeyLayout}:{}),
+      }),
+    });
+    state.library.loaded=false;
+    toast("Mapping saved to Library",`${detail.name} · ${detail.item.profile.sections.length} sections`,"success");
+  }catch(error){
+    toast("Could not save mapping",error.message,"error");
+  }finally{
+    if(button&&button.isConnected)button.disabled=false;
+  }
+}
+
 function clearLibraryAssetUrls() {
   for(const url of state.library.assetUrls.values())URL.revokeObjectURL(url);
   state.library.assetUrls.clear();
   state.library.assetErrors.clear();
 }
 
+const profileCompatibilityStatuses=["exact","convertible","portable","blocked"];
+
+function libraryManifest(detail) {
+  return detail?.job||detail?.item||null;
+}
+
+function libraryCatalogPath(catalogId) {
+  return String(catalogId||"").split(":").map(encodeURIComponent).join(":");
+}
+
 function libraryFilterQuery() {
   const params=new URLSearchParams({page:"1",limit:"24"});
-  if(state.library.filter==="animation")params.set("kind","preview_animation");
+  if(state.library.filter==="generated")params.set("kind","generation_job");
+  else if(state.library.filter==="profiles")params.set("kind","keyboard_profile");
   else if(state.library.filter==="partial")params.set("status","partial");
   if(state.library.query.trim())params.set("query",state.library.query.trim());
   return params.toString();
@@ -793,26 +886,27 @@ function libraryStatusLabel(value) {
 }
 
 function libraryCoverAsset(detail) {
-  const procedural=detail?.assets?.find(asset=>asset.kind==="preview_animation")
-    || detail?.assets?.find(asset=>asset.kind==="raster_animation");
+  const manifest=libraryManifest(detail);
+  const procedural=manifest?.assets?.find(asset=>asset.kind==="preview_animation")
+    || manifest?.assets?.find(asset=>asset.kind==="raster_animation");
   if(procedural)return procedural;
-  const selected=detail?.candidates?.find(candidate=>candidate.candidate_id===detail.selected_candidate_id);
-  const first=selected||detail?.candidates?.[0];
+  const selected=manifest?.candidates?.find(candidate=>candidate.candidate_id===manifest.selected_candidate_id);
+  const first=selected||manifest?.candidates?.[0];
   if(first?.asset_id)return {asset_id:first.asset_id,mime_type:first.mime_type||"image/png"};
-  return detail?.assets?.find(asset=>asset.kind==="preview_poster")
-    || detail?.assets?.find(asset=>["preview_animation","source_video"].includes(asset.kind))
+  return manifest?.assets?.find(asset=>asset.kind==="preview_poster")
+    || manifest?.assets?.find(asset=>["preview_animation","source_video","preview"].includes(asset.kind))
     || null;
 }
 
-async function loadLibraryAsset(jobId,assetId,{retry=false}={}) {
-  const key=`${jobId}:${assetId}`;
+async function loadLibraryAsset(catalogId,assetId,{retry=false}={}) {
+  const key=`${catalogId}:${assetId}`;
   const epoch=state.library.epoch;
   if(state.library.assetUrls.has(key))return;
   const lease=state.library.assetLoads.begin(key,epoch);
   if(!lease)return;
   state.library.assetErrors.delete(key);
   try{
-    const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
+    const response=await fetch(`/api/library/assets/${libraryCatalogPath(catalogId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
     if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load asset (${response.status})`);}
     const url=URL.createObjectURL(await response.blob());
     if(!lease.current(state.library.epoch)){URL.revokeObjectURL(url);return;}
@@ -824,7 +918,7 @@ async function loadLibraryAsset(jobId,assetId,{retry=false}={}) {
     if(retry)state.library.assetErrors.set(key,error.message);
     else{
       state.library.assetErrors.set(key,"Retrying…");
-      setTimeout(()=>loadLibraryAsset(jobId,assetId,{retry:true}),250);
+      setTimeout(()=>loadLibraryAsset(catalogId,assetId,{retry:true}),250);
     }
   }finally{
     const ownsCurrent=lease.current(state.library.epoch);
@@ -833,25 +927,70 @@ async function loadLibraryAsset(jobId,assetId,{retry=false}={}) {
   }
 }
 
-async function ensureLibraryJobDetail(jobId) {
-  if(state.library.details.has(jobId)||state.library.detailLoads.has(jobId))return;
+function profileTargetLayout() {
+  if(!state.config||!state.loadedDevice)return null;
+  const device=state.devices.find(item=>deviceKey(item)===state.loadedDevice);
+  return device&&sameProductFamily(productId(),device.product_id)&&Array.isArray(device.key_layout)&&device.key_layout.length
+    ? device.key_layout
+    : null;
+}
+
+async function ensureLibraryProfileCompatibility(catalogId,{force=false}={}) {
+  const detail=state.library.details.get(catalogId);
+  if(detail?.kind!=="keyboard_profile"||state.library.compatibilityLoads.has(catalogId))return;
+  if(!state.config){
+    state.library.compatibilities.set(catalogId,{revision:null,result:null,error:"Open or read a keyboard configuration to preview what can be imported."});
+    renderLibrary();
+    return;
+  }
+  if(!force&&state.library.compatibilities.get(catalogId)?.revision===state.documentRevision)return;
   const epoch=state.library.epoch;
-  state.library.detailLoads.add(jobId);
+  state.library.compatibilityLoads.add(catalogId);
+  state.library.compatibilities.delete(catalogId);
+  renderLibrary();
   try{
-    const detail=await api(`/api/lighting/library/${encodeURIComponent(jobId)}`);
+    const revision=await synchronizeOpenDocument();
+    if(!revision)throw new Error(state.documentSyncError||"The open document could not be synchronized.");
+    const targetKeyLayout=profileTargetLayout();
+    const result=await api(`/api/library/items/${libraryCatalogPath(catalogId)}/compatibility`,{
+      method:"POST",
+      body:JSON.stringify({
+        document_revision:revision,
+        ...(targetKeyLayout?{target_key_layout:targetKeyLayout}:{}),
+      }),
+    });
+    if(epoch!==state.library.epoch||state.library.selectedCatalogId!==catalogId)return;
+    state.library.compatibilities.set(catalogId,{revision,result,error:""});
+  }catch(error){
+    if(epoch===state.library.epoch&&state.library.selectedCatalogId===catalogId){
+      state.library.compatibilities.set(catalogId,{revision:state.documentRevision,result:null,error:error.message});
+    }
+  }finally{
+    state.library.compatibilityLoads.delete(catalogId);
+    if(epoch===state.library.epoch&&state.lighting.route===ROUTES.LIBRARY)renderLibrary();
+  }
+}
+
+async function ensureLibraryItemDetail(catalogId) {
+  if(state.library.details.has(catalogId)||state.library.detailLoads.has(catalogId))return;
+  const epoch=state.library.epoch;
+  state.library.detailLoads.add(catalogId);
+  try{
+    const detail=await api(`/api/library/items/${libraryCatalogPath(catalogId)}`);
     if(epoch!==state.library.epoch)return;
-    state.library.details.set(jobId,detail);
+    state.library.details.set(catalogId,detail);
     const cover=libraryCoverAsset(detail);
-    if(cover)void loadLibraryAsset(jobId,cover.asset_id);
-    if(state.library.selectedJobId===jobId){
-      for(const asset of detail.assets||[]){
-        if(["concept","selected_still","preview_poster","preview_animation","source_video"].includes(asset.kind))void loadLibraryAsset(jobId,asset.asset_id);
+    if(cover)void loadLibraryAsset(catalogId,cover.asset_id);
+    if(state.library.selectedCatalogId===catalogId){
+      for(const asset of libraryManifest(detail)?.assets||[]){
+        if(["concept","selected_still","preview_poster","preview_animation","source_video","preview"].includes(asset.kind))void loadLibraryAsset(catalogId,asset.asset_id);
       }
+      if(detail.kind==="keyboard_profile")void ensureLibraryProfileCompatibility(catalogId);
     }
     if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
   }catch(error){
     if(epoch===state.library.epoch){state.library.error=error.message;if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();}
-  }finally{state.library.detailLoads.delete(jobId);}
+  }finally{state.library.detailLoads.delete(catalogId);}
 }
 
 async function loadLibrary({force=false}={}) {
@@ -859,17 +998,22 @@ async function loadLibrary({force=false}={}) {
   state.library.loading=true;
   state.library.error="";
   const epoch=++state.library.epoch;
-  if(force){clearLibraryAssetUrls();state.library.details.clear();state.library.selectedJobId=null;}
+  if(force){
+    clearLibraryAssetUrls();
+    state.library.details.clear();
+    state.library.compatibilities.clear();
+    state.library.selectedCatalogId=null;
+  }
   renderLibrary();
   try{
-    const result=await api(`/api/lighting/library?${libraryFilterQuery()}`);
+    const result=await api(`/api/library/items?${libraryFilterQuery()}`);
     if(epoch!==state.library.epoch)return;
-    state.library.jobs=result.jobs||[];
+    state.library.items=result.items||[];
     state.library.warnings=result.errors||[];
     state.library.loaded=true;
-    for(const job of state.library.jobs)void ensureLibraryJobDetail(job.job_id);
+    for(const item of state.library.items)void ensureLibraryItemDetail(item.catalog_id);
   }catch(error){
-    if(epoch===state.library.epoch){state.library.jobs=[];state.library.error=error.message;state.library.loaded=true;}
+    if(epoch===state.library.epoch){state.library.items=[];state.library.error=error.message;state.library.loaded=true;}
   }finally{
     if(epoch===state.library.epoch){state.library.loading=false;renderLibrary();}
   }
@@ -878,69 +1022,101 @@ async function loadLibrary({force=false}={}) {
 function libraryEmptyMarkup() {
   if(state.library.loading)return '<div class="library-empty"><div class="loader"></div><strong>Loading your Library…</strong></div>';
   if(state.library.error)return `<div class="library-empty"><strong>Library could not be loaded.</strong><p>${esc(state.library.error)}</p><button type="button" class="button ghost" data-library-retry>Try again</button></div>`;
-  if(!state.settings?.library?.current_root)return '<div class="library-empty"><strong>Choose a Library folder to save generated media.</strong><p>Settings controls where generated assets are banked.</p><button type="button" class="button primary" data-library-settings>Open Settings</button></div>';
-  return '<div class="library-empty"><strong>Nothing here yet.</strong><p>Generated animations and historical media will appear here as they are saved.</p></div>';
+  if(!state.settings?.library?.current_root)return '<div class="library-empty"><strong>Choose a Library folder to bank profiles and lighting.</strong><p>Settings controls where imported files and generated assets are stored.</p><button type="button" class="button primary" data-library-settings>Open Settings</button></div>';
+  return '<div class="library-empty"><strong>Nothing here yet.</strong><p>Add a keyboard JSON file, save a mapping, or create lighting to bank it here.</p></div>';
 }
 
-function libraryCardMarkup(job) {
-  const detail=state.library.details.get(job.job_id);
+function libraryKindLabel(kind) {
+  return {
+    generation_job:"Generated",
+    keyboard_profile:"Keyboard profile",
+    media_source:"Media source",
+    lighting_composition:"Lighting",
+  }[kind]||libraryStatusLabel(kind);
+}
+
+function libraryCardMarkup(item) {
+  const detail=state.library.details.get(item.catalog_id);
   const cover=libraryCoverAsset(detail);
-  const url=cover&&state.library.assetUrls.get(`${job.job_id}:${cover.asset_id}`);
-  const kind=detail?.assets?.some(asset=>["preview_animation","raster_animation"].includes(asset.kind))?"Animation":detail?.assets?.some(asset=>asset.kind==="source_video")?"Video":"Stills";
-  return `<button type="button" class="library-card" data-library-job="${esc(job.job_id)}">
-    <span class="library-card-poster">${url?`<img src="${esc(url)}" alt="">`:'<span class="library-card-placeholder" aria-hidden="true">✦</span>'}</span>
-    <span class="library-card-copy"><strong>${esc(job.prompt)}</strong><span>${kind} · ${libraryStatusLabel(job.status)} · ${libraryDate(job.updated_at)}</span><small>${job.asset_count} saved asset${job.asset_count===1?"":"s"}</small></span>
+  const url=cover&&state.library.assetUrls.get(`${item.catalog_id}:${cover.asset_id}`);
+  const icon=item.kind==="keyboard_profile"?"⌨":"✦";
+  return `<button type="button" class="library-card" data-library-item="${esc(item.catalog_id)}">
+    <span class="library-card-poster">${url?`<img src="${esc(url)}" alt="">`:`<span class="library-card-placeholder" aria-hidden="true">${icon}</span>`}</span>
+    <span class="library-card-copy"><strong>${esc(item.name)}</strong><span>${esc(libraryKindLabel(item.kind))} · ${libraryStatusLabel(item.status)} · ${libraryDate(item.updated_at)}</span><small>${item.asset_count} saved asset${item.asset_count===1?"":"s"}</small></span>
   </button>`;
 }
 
-function libraryMediaMarkup(jobId,asset,index,detail) {
-  const url=state.library.assetUrls.get(`${jobId}:${asset.asset_id}`);
+function libraryMediaMarkup(catalogId,asset,index) {
+  const url=state.library.assetUrls.get(`${catalogId}:${asset.asset_id}`);
   const label=asset.kind.replaceAll("_"," ");
-  const loadError=state.library.assetErrors.get(`${jobId}:${asset.asset_id}`);
-  if(!url&&loadError&&loadError!=="Retrying…")return `<div class="library-media-card failed"><strong>Could not load this ${esc(label)}.</strong><small>${esc(loadError)}</small><button type="button" class="button ghost" data-library-asset-retry="${esc(asset.asset_id)}" data-library-asset-job="${esc(jobId)}">Retry</button></div>`;
+  const loadError=state.library.assetErrors.get(`${catalogId}:${asset.asset_id}`);
+  if(!url&&loadError&&loadError!=="Retrying…")return `<div class="library-media-card failed"><strong>Could not load this ${esc(label)}.</strong><small>${esc(loadError)}</small><button type="button" class="button ghost" data-library-asset-retry="${esc(asset.asset_id)}" data-library-asset-item="${esc(catalogId)}">Retry</button></div>`;
   if(!url)return `<div class="library-media-card loading"><span class="library-card-placeholder">${loadError||"Loading…"}</span><small>${esc(label)}</small></div>`;
   if(asset.mime_type==="video/mp4")return `<figure class="library-media-card"><video src="${esc(url)}" controls muted playsinline preload="metadata"></video><figcaption>${esc(label)}</figcaption></figure>`;
   return `<figure class="library-media-card"><img src="${esc(url)}" alt="Saved lighting asset ${index+1}"><figcaption><span>${esc(label)}</span></figcaption></figure>`;
 }
 
-function libraryDetailMarkup(jobId) {
-  const summary=state.library.jobs.find(job=>job.job_id===jobId);
-  const detail=state.library.details.get(jobId);
+function libraryProfileCompatibilityMarkup(catalogId,detail) {
+  const compatibility=state.library.compatibilities.get(catalogId);
+  if(!state.config)return '<section class="profile-compatibility-sheet"><h3>Compatibility</h3><p>Open or read a keyboard configuration to preview what can be imported.</p></section>';
+  if(state.library.compatibilityLoads.has(catalogId)||!compatibility)return '<section class="profile-compatibility-sheet"><h3>Compatibility</h3><div class="loader"></div><p>Comparing this profile with the open document…</p></section>';
+  if(compatibility.error)return `<section class="profile-compatibility-sheet"><h3>Compatibility</h3><p class="library-warning">${esc(compatibility.error)}</p><button type="button" class="button ghost" data-library-compatibility-retry>Try again</button></section>`;
+  const plan=compatibility.result;
+  const rows=["keymap","macros","lighting"].map(section=>{
+    const verdict=plan.sections?.[section]||{status:"blocked",detail:"This section is unavailable."};
+    const status=profileCompatibilityStatuses.includes(verdict.status)?verdict.status:"blocked";
+    const available=status!=="blocked";
+    return `<li class="${available?"compatible":"blocked"}"><span class="profile-compatibility-mark" aria-hidden="true">${available?"✓":"—"}</span><span><strong>${esc(libraryStatusLabel(section))}</strong><small>${esc(verdict.detail)}</small></span><span class="pill ${available?"":"muted"}">${esc(libraryStatusLabel(status))}</span></li>`;
+  }).join("");
+  return `<section class="profile-compatibility-sheet"><div><h3>Compatibility</h3><span class="pill">${esc(libraryStatusLabel(plan.summary))}</span></div><p>Preview only. Nothing is imported or written to the keyboard.</p><ul>${rows}</ul></section>`;
+}
+
+function libraryDetailMarkup(catalogId) {
+  const summary=state.library.items.find(item=>item.catalog_id===catalogId);
+  const detail=state.library.details.get(catalogId);
   if(!detail)return '<div class="library-empty"><div class="loader"></div><strong>Loading saved media…</strong></div>';
-  const media=(detail.assets||[]).filter(asset=>["concept","selected_still","preview_poster","preview_animation","raster_animation","source_video"].includes(asset.kind));
+  const manifest=libraryManifest(detail);
+  const media=(manifest?.assets||[]).filter(asset=>["concept","selected_still","preview","preview_poster","preview_animation","raster_animation","source_video"].includes(asset.kind));
+  const profile=detail.kind==="keyboard_profile"?detail.item?.profile:null;
+  const sectionList=(profile?.sections||[]).map(section=>`<span class="pill muted">${esc(libraryStatusLabel(section))}</span>`).join("");
   return `<section class="library-detail" aria-labelledby="library-detail-title">
     <button type="button" class="library-back" data-library-back>← Library</button>
-    <header><div><p class="eyebrow">${esc(libraryStatusLabel(detail.status))}</p><h2 id="library-detail-title">${esc(detail.prompt)}</h2><p>${libraryDate(detail.created_at)} · ${media.length} saved media item${media.length===1?"":"s"}</p></div><span class="pill ${detail.status==="partial"?"muted":""}">${esc(libraryStatusLabel(detail.phase||detail.status))}</span></header>
-    <div class="library-media-grid">${media.length?media.map((asset,index)=>libraryMediaMarkup(jobId,asset,index,detail)).join(""):'<p class="library-no-media">This job has no viewable media yet.</p>'}</div>
-    ${summary?.costs?.actual_incomplete?'<p class="library-warning">Provider cost reporting is incomplete for this item.</p>':""}
+    <header><div><p class="eyebrow">${esc(libraryKindLabel(detail.kind))}</p><h2 id="library-detail-title">${esc(detail.name)}</h2><p>${libraryDate(detail.created_at)} · ${detail.asset_count} saved asset${detail.asset_count===1?"":"s"}</p></div><span class="pill ${detail.status==="partial"?"muted":""}">${esc(libraryStatusLabel(detail.status))}</span></header>
+    ${profile?`<div class="profile-section-list" aria-label="Saved profile sections">${sectionList}</div>${libraryProfileCompatibilityMarkup(catalogId,detail)}`:""}
+    ${media.length?`<div class="library-media-grid">${media.map((asset,index)=>libraryMediaMarkup(catalogId,asset,index)).join("")}</div>`:profile?"":'<p class="library-no-media">This item has no viewable media yet.</p>'}
+    ${manifest?.costs?.actual_incomplete?'<p class="library-warning">Provider cost reporting is incomplete for this item.</p>':""}
   </section>`;
 }
 
 function wireLibraryContent() {
-  $$("[data-library-job]",$("#library-content")).forEach(card=>card.addEventListener("click",()=>openLibraryJob(card.dataset.libraryJob)));
-  $$("[data-library-asset-retry]",$("#library-content")).forEach(button=>button.addEventListener("click",()=>loadLibraryAsset(button.dataset.libraryAssetJob,button.dataset.libraryAssetRetry,{retry:true})));
-  $("[data-library-back]",$("#library-content"))?.addEventListener("click",()=>{state.library.selectedJobId=null;renderLibrary();});
+  $$("[data-library-item]",$("#library-content")).forEach(card=>card.addEventListener("click",()=>openLibraryItem(card.dataset.libraryItem)));
+  $$("[data-library-asset-retry]",$("#library-content")).forEach(button=>button.addEventListener("click",()=>loadLibraryAsset(button.dataset.libraryAssetItem,button.dataset.libraryAssetRetry,{retry:true})));
+  $("[data-library-back]",$("#library-content"))?.addEventListener("click",()=>{state.library.selectedCatalogId=null;renderLibrary();});
+  $("[data-library-compatibility-retry]",$("#library-content"))?.addEventListener("click",()=>ensureLibraryProfileCompatibility(state.library.selectedCatalogId,{force:true}));
   $("[data-library-retry]",$("#library-content"))?.addEventListener("click",()=>loadLibrary({force:true}));
   $("[data-library-settings]",$("#library-content"))?.addEventListener("click",openSettings);
 }
 
-function openLibraryJob(jobId) {
-  state.library.selectedJobId=jobId;
+function openLibraryItem(catalogId) {
+  state.library.selectedCatalogId=catalogId;
+  state.library.compatibilities.delete(catalogId);
   renderLibrary();
-  void ensureLibraryJobDetail(jobId);
+  if(state.library.details.has(catalogId))void ensureLibraryProfileCompatibility(catalogId,{force:true});
+  else void ensureLibraryItemDetail(catalogId);
 }
 
 function renderLibrary() {
   const content=$("#library-content");
   if(!content)return;
-  const selected=state.library.selectedJobId;
+  const selected=state.library.selectedCatalogId;
   if(selected)content.innerHTML=libraryDetailMarkup(selected);
-  else if(state.library.jobs.length)content.innerHTML=`<div class="library-grid">${state.library.jobs.map(libraryCardMarkup).join("")}</div>`;
+  else if(state.library.items.length)content.innerHTML=`<div class="library-grid">${state.library.items.map(libraryCardMarkup).join("")}</div>`;
   else content.innerHTML=libraryEmptyMarkup();
   const status=$("#library-status");
-  status.textContent=state.library.loading?"Refreshing Library…":state.library.warnings.length?"Some previously recorded Library items could not be read.":state.library.jobs.length?`${state.library.jobs.length} saved job${state.library.jobs.length===1?"":"s"}`:"";
+  status.textContent=state.library.loading?"Refreshing Library…":state.library.warnings.length?"Some previously recorded Library items could not be read.":state.library.items.length?`${state.library.items.length} saved item${state.library.items.length===1?"":"s"}`:"";
   status.classList.toggle("warning",Boolean(state.library.warnings.length));
   $("#library-reveal").disabled=!state.settings?.library?.current_root;
+  $("#library-add-files").disabled=state.library.importing;
   $$("[data-library-filter]").forEach(button=>{const active=button.dataset.libraryFilter===state.library.filter;button.classList.toggle("active",active);button.setAttribute("aria-pressed",String(active));});
   wireLibraryContent();
   if(!state.library.loaded&&!state.library.loading)void loadLibrary();
@@ -1098,7 +1274,7 @@ function renderKeymap() {
     <div class="screen-shell">
       <header class="screen-header">
         <div><p class="eyebrow">${esc(layout.name)}</p><h1>Keymap</h1><p class="description">Select a physical key, then choose what it should send.</p></div>
-        <div class="segmented layer-tabs">${layers().map((_,i) => `<button class="${i===state.layer?'active':''}" data-layer="${i}">${i+1}</button>`).join("")}</div>
+        <div class="keymap-header-actions"><button id="save-mapping-library" type="button" class="button ghost">Save mapping to Library</button><div class="segmented layer-tabs">${layers().map((_,i) => `<button class="${i===state.layer?'active':''}" data-layer="${i}">${i+1}</button>`).join("")}</div></div>
       </header>
       <div class="editor-grid">
         <section class="card"><div class="card-header"><strong>Layer ${state.layer+1}</strong><small>${layout.keys.length} physical keys</small></div><div class="card-body">
@@ -1115,6 +1291,7 @@ function renderKeymap() {
     </div>`;
   $$("[data-layer]").forEach(button => button.addEventListener("click", () => { state.layer = Number(button.dataset.layer); renderKeymap(); }));
   $$(".keycap").forEach(button => button.addEventListener("click", () => { state.selected = Number(button.dataset.index); renderKeymap(); }));
+  $("#save-mapping-library")?.addEventListener("click",saveMappingToLibrary);
   wireKeyInspector();
 }
 
@@ -2700,6 +2877,8 @@ $("#settings-api-test").addEventListener("click",()=>testAiBackend("api"));
 $("#settings-api-remove").addEventListener("click",clearSettingsKey);
 $("#settings-choose-library").addEventListener("click",chooseLibraryFolder);
 $("#settings-reveal-library").addEventListener("click",revealLibraryFolder);
+$("#library-add-files").addEventListener("click",()=>$("#library-profile-input").click());
+$("#library-profile-input").addEventListener("change",event=>void importLibraryProfiles(event.currentTarget));
 $("#library-refresh").addEventListener("click",()=>loadLibrary({force:true}));
 $("#library-reveal").addEventListener("click",async()=>{
   const path=state.settings?.library?.current_root;

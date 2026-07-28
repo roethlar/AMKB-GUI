@@ -3091,6 +3091,195 @@ class LightingStudioEndpointTests(unittest.TestCase):
                 status, _ = self._request("GET", f"/api/library/items?{query}")
                 self.assertEqual(400, status)
 
+    def test_profile_import_and_mapping_save_bank_exact_data_without_side_effects(
+        self,
+    ) -> None:
+        profile = _base_config("80")
+        profile["macro_key"] = [
+            {
+                "original_key": "#00951500",
+                "layer_key": ["#11070004", "#10070004"],
+                "intvel_ms": [25, 0],
+            }
+        ]
+        profile["page_data"] = [_page(index) for index in range(8)]
+        profile["page_num"] = len(profile["page_data"])
+        profile["page_data"][5]["keyframes"] = {
+            "valid": 1,
+            "frame_num": 1,
+            "frame_data": [
+                {"frame_index": 0, "frame_RGB": ["#112233"] * 90}
+            ],
+        }
+        original = (
+            json.dumps(profile, ensure_ascii=False, indent=3).encode("utf-8")
+            + b"\n"
+        )
+        device_dir = store.device_dir("80", create=True)
+        current_sentinel = device_dir / "current.json"
+        history_sentinel = device_dir / "history" / "keep.json"
+        history_sentinel.parent.mkdir(parents=True)
+        current_sentinel.write_bytes(b"current stays")
+        history_sentinel.write_bytes(b"history stays")
+
+        self.assertIsNone(self._server.state.config)
+        invalid_data = base64.b64encode(b"{}").decode("ascii")
+        for path, body in (
+            (
+                "/api/library/import/profile",
+                {"name": "Invalid.json", "data": invalid_data},
+            ),
+            (
+                "/api/library/import/profile?unexpected=true",
+                {"name": "Invalid.json", "data": invalid_data},
+            ),
+            (
+                "/api/library/import/profile",
+                {
+                    "name": "Invalid.json",
+                    "data": invalid_data,
+                    "extra": True,
+                },
+            ),
+        ):
+            with self.subTest(path=path, fields=sorted(body)):
+                status, _ = self._request("POST", path, body)
+                self.assertEqual(400, status)
+        status, empty = self._request(
+            "GET",
+            "/api/library/items?kind=keyboard_profile",
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(0, empty["total"])
+
+        status, imported = self._request(
+            "POST",
+            "/api/library/import/profile",
+            {
+                "name": "Original Relic mapping.json",
+                "data": base64.b64encode(original).decode("ascii"),
+            },
+        )
+        self.assertEqual(201, status)
+        self.assertEqual("keyboard_profile", imported["kind"])
+        self.assertEqual("json_import", imported["item"]["origin"])
+        self.assertEqual(
+            ["identity", "keymap", "macros", "lighting"],
+            imported["item"]["profile"]["sections"],
+        )
+        self.assertRegex(
+            imported["item"]["device"]["keymap_signature"],
+            r"^keymap:v1:[0-9a-f]{64}$",
+        )
+        imported_asset = imported["item"]["profile"]["asset_id"]
+        status, headers, payload = self._raw_request(
+            f"/api/library/assets/{imported['catalog_id']}/{imported_asset}"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("application/json", headers["Content-Type"])
+        self.assertEqual(original, payload)
+        self.assertIsNone(self._server.state.config)
+
+        status, synchronized = self._request(
+            "POST",
+            "/api/document/sync",
+            {"config": profile},
+        )
+        self.assertEqual(200, status)
+        revision = synchronized["revision"]
+        before_document = copy.deepcopy(self._server.state.config)
+        status, saved = self._request(
+            "POST",
+            "/api/library/save/profile",
+            {
+                "name": "Current Relic mapping",
+                "document_revision": revision,
+            },
+        )
+        self.assertEqual(201, status)
+        self.assertEqual("verified_export", saved["item"]["origin"])
+        self.assertEqual(revision, self._server.state.document_revision)
+        self.assertEqual(before_document, self._server.state.config)
+        saved_asset = saved["item"]["profile"]["asset_id"]
+        status, _headers, saved_payload = self._raw_request(
+            f"/api/library/assets/{saved['catalog_id']}/{saved_asset}"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(profile, json.loads(saved_payload))
+        self.assertEqual(b"current stays", current_sentinel.read_bytes())
+        self.assertEqual(b"history stays", history_sentinel.read_bytes())
+
+    def test_profile_compatibility_preview_is_sectioned_and_read_only(self) -> None:
+        source = _base_config("80")
+        source["macro_key"] = [
+            {
+                "original_key": "#00951500",
+                "layer_key": ["#11070004", "#10070004"],
+                "intvel_ms": [25, 0],
+            }
+        ]
+        source["page_data"] = [_page(index) for index in range(8)]
+        source["page_num"] = len(source["page_data"])
+        source["page_data"][5]["keyframes"] = {
+            "valid": 1,
+            "frame_num": 1,
+            "frame_data": [
+                {"frame_index": 0, "frame_RGB": ["#112233"] * 90}
+            ],
+        }
+        source_bytes = json.dumps(source, separators=(",", ":")).encode("utf-8")
+        status, imported = self._request(
+            "POST",
+            "/api/library/import/profile",
+            {
+                "name": "Portable Relic.json",
+                "data": base64.b64encode(source_bytes).decode("ascii"),
+            },
+        )
+        self.assertEqual(201, status)
+
+        destination = _base_config("AM21")
+        status, synchronized = self._request(
+            "POST",
+            "/api/document/sync",
+            {"config": destination},
+        )
+        self.assertEqual(200, status)
+        revision = synchronized["revision"]
+        before = copy.deepcopy(self._server.state.config)
+        status, exact = self._request(
+            "POST",
+            f"/api/library/items/{imported['catalog_id']}/compatibility",
+            {"document_revision": revision},
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("exact", exact["sections"]["keymap"]["status"])
+        self.assertEqual("portable", exact["sections"]["macros"]["status"])
+        self.assertEqual("exact", exact["sections"]["lighting"]["status"])
+        self.assertEqual("portable", exact["summary"])
+        self.assertEqual(before, self._server.state.config)
+        self.assertEqual(revision, self._server.state.document_revision)
+
+        incompatible = _base_config("ALICE")
+        status, synchronized = self._request(
+            "POST",
+            "/api/document/sync",
+            {"config": incompatible},
+        )
+        self.assertEqual(200, status)
+        incompatible_revision = synchronized["revision"]
+        status, partial = self._request(
+            "POST",
+            f"/api/library/items/{imported['catalog_id']}/compatibility",
+            {"document_revision": incompatible_revision},
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("blocked", partial["sections"]["keymap"]["status"])
+        self.assertEqual("portable", partial["sections"]["macros"]["status"])
+        self.assertEqual("blocked", partial["sections"]["lighting"]["status"])
+        self.assertEqual("partial", partial["summary"])
+        self.assertEqual(incompatible, self._server.state.config)
+
     def test_library_remove_restore_and_delete_routes_are_exact_and_active_safe(
         self,
     ) -> None:

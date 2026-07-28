@@ -219,7 +219,7 @@ test("inline generation tool omits backend identity and keeps the exact target d
   const settings=html.slice(html.indexOf('id="settings-screen"'));
   assert.match(settings,/settings-ai-local/);
   assert.match(settings,/settings-ai-api/);
-  assert.match(js,/summary\?\.costs\?\.actual_incomplete/);
+  assert.match(js,/manifest\?\.costs\?\.actual_incomplete/);
 });
 
 test("generation is inline with no detached dialog or Create route", () => {
@@ -233,28 +233,48 @@ test("generation is inline with no detached dialog or Create route", () => {
 });
 
 test("Library remains document-independent and browses procedural plus historical media", () => {
-  for(const id of ["lighting-library-toolbar","library-search","library-refresh","library-reveal","library-status","library-content"]){
+  for(const id of ["lighting-library-toolbar","library-profile-input","library-add-files","library-search","library-refresh","library-reveal","library-status","library-content"]){
     assert.match(html,new RegExp(`id="${id}"`));
   }
-  assert.match(html,/data-library-filter="animation"/);
+  assert.match(html,/data-library-filter="generated"/);
+  assert.match(html,/data-library-filter="profiles"/);
   assert.match(html,/data-library-filter="partial"/);
-  assert.match(js,/kind","preview_animation"/);
+  assert.match(js,/kind","generation_job"/);
+  assert.match(js,/kind","keyboard_profile"/);
   assert.match(js,/"preview_animation","raster_animation","source_video"/);
-  assert.match(js,/fetch\(`\/api\/lighting\/assets\//);
+  assert.match(js,/api\(`\/api\/library\/items\?/);
+  assert.match(js,/fetch\(`\/api\/library\/assets\//);
   assert.match(js,/"X-AM-Token":token/);
   assert.match(js,/URL\.createObjectURL/);
   assert.match(js,/URL\.revokeObjectURL/);
   assert.doesNotMatch(js,/data-library-animate-job=/);
 });
 
+test("profile banking is explicit, exact-source, and previews section compatibility", () => {
+  assert.match(html,/id="library-profile-input"[^>]*accept="application\/json,.json"[^>]*multiple/);
+  assert.match(html,/id="library-add-files"[^>]*>Add files…</);
+  assert.match(js,/async function importLibraryProfiles\(/);
+  assert.match(js,/file\.arrayBuffer\(\)/);
+  assert.match(js,/\/api\/library\/import\/profile/);
+  assert.match(js,/async function saveMappingToLibrary\(/);
+  assert.match(js,/\/api\/library\/save\/profile/);
+  assert.match(js,/id="save-mapping-library"/);
+  assert.match(js,/\/compatibility`/);
+  for(const status of ["exact","convertible","portable","blocked"]){
+    assert.match(js,new RegExp(`"${status}"`));
+  }
+  const openFlow=js.slice(js.indexOf("async function readFiles"),js.indexOf("function saveConfig"));
+  assert.doesNotMatch(openFlow,/library\/import\/profile/);
+});
+
 test("Library media failures retry once and become actionable", () => {
   assert.match(js,/assetErrors:\s*new Map\(\)/);
   assert.match(js,/data-library-asset-retry=/);
-  assert.match(js,/loadLibraryAsset\(jobId,assetId,\{retry:true\}\)/);
+  assert.match(js,/loadLibraryAsset\(catalogId,assetId,\{retry:true\}\)/);
 });
 
 test("Library asset loads revoke stale blobs and preserve refreshed ownership", () => {
-  const loader=js.slice(js.indexOf("async function loadLibraryAsset"),js.indexOf("async function ensureLibraryJobDetail"));
+  const loader=js.slice(js.indexOf("async function loadLibraryAsset"),js.indexOf("function profileTargetLayout"));
   assert.match(loader,/createObjectURL/);
   assert.match(loader,/if\(!lease\.current\(state\.library\.epoch\)\)\{URL\.revokeObjectURL\(url\);return;\}/);
   assert.match(loader,/const ownsCurrent=lease\.current\(state\.library\.epoch\)/);

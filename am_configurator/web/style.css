@@ -120,6 +120,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .screen-header { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 20px; margin-bottom: 24px; }
 .screen-header h1 { margin: 5px 0 0; font-size: 30px; letter-spacing: -.035em; }
 .screen-header p.description { margin: 7px 0 0; color: var(--muted); }
+.keymap-header-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .header-controls { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .segmented { display: inline-flex; padding: 3px; gap: 2px; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; }
 .segmented button { border: 0; min-width: 38px; height: 32px; padding: 0 11px; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
@@ -162,7 +163,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .route-requirement strong, .route-requirement p { display: block; margin: 0; }
 .route-requirement p { margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .library-browser { min-width: 0; }
-.library-toolbar { display: grid; grid-template-columns: auto minmax(170px,1fr) auto auto; align-items: center; gap: 8px; }
+.library-toolbar { display: grid; grid-template-columns: auto minmax(170px,1fr) auto auto auto; align-items: center; gap: 8px; }
 .library-filters { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
 .library-filters button { min-height: 30px; padding: 0 11px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; }
 .library-filters button.active { color: white; background: var(--panel-3); }
@@ -201,6 +202,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .library-media-card.failed { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 18px; text-align: center; }
 .library-media-card.failed > small { max-width: 420px; padding: 0; line-height: 1.45; text-transform: none; }
 .library-no-media { color: var(--muted); }
+.profile-section-list { display: flex; flex-wrap: wrap; gap: 6px; margin: -5px 0 14px; }
+.profile-compatibility-sheet { display: grid; gap: 10px; margin-bottom: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); }
+.profile-compatibility-sheet > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.profile-compatibility-sheet h3, .profile-compatibility-sheet p { margin: 0; }
+.profile-compatibility-sheet p { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.profile-compatibility-sheet ul { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+.profile-compatibility-sheet li { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); }
+.profile-compatibility-sheet li.blocked { opacity: .72; }
+.profile-compatibility-sheet li span:nth-child(2) { display: grid; gap: 2px; }
+.profile-compatibility-sheet li small { color: var(--muted); font-size: 9px; line-height: 1.4; }
+.profile-compatibility-mark { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 50%; color: #9ce9bc; background: rgba(80,190,120,.12); }
+.profile-compatibility-sheet li.blocked .profile-compatibility-mark { color: var(--muted); background: var(--panel-3); }
 .lighting-edit-shell { min-width: 0; padding-top: 14px; }
 .lighting-edit-empty { min-height: 460px; }
 
@@ -572,7 +585,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .assignment-heading .search-field { width: 100%; }
   .lighting-context { flex-wrap: wrap; }
   .lighting-context-group.target-context { flex-basis: 100%; }
-  .library-toolbar { grid-template-columns: 1fr auto auto; }
+  .library-toolbar { grid-template-columns: 1fr auto auto auto; }
   .library-filters { grid-column: 1 / -1; }
   .library-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }

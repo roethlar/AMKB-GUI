@@ -1859,6 +1859,38 @@ class SavedItemLibraryTests(unittest.TestCase):
         with self.assertRaises(InvalidIdentifierError):
             self.library.resolve_asset("../escape", record["asset_id"])
 
+    def test_keyboard_profile_helper_retains_exact_json_bytes(self) -> None:
+        payload = (
+            b'{\n  "product_info": {"product_id": "80"},\n'
+            b'  "key_layer": {"valid": 1}\n}\n'
+        )
+        device = {
+            "product_id": "80",
+            "family": "80",
+            "product_label": "Relic 80",
+            "keymap_signature": "keymap:v1:" + "1" * 64,
+            "lighting_signature": "lighting-set:v1:" + "2" * 64,
+        }
+
+        item = self.library.create_keyboard_profile(
+            origin="json_import",
+            name="Relic mapping.json",
+            configuration=payload,
+            device=device,
+            sections=("identity", "keymap"),
+            tags=("mapping",),
+        )
+
+        self.assertEqual("keyboard_profile", item["kind"])
+        self.assertEqual(["identity", "keymap"], item["profile"]["sections"])
+        self.assertEqual(device, item["device"])
+        record = item["assets"][0]
+        self.assertEqual("profile", record["kind"])
+        self.assertEqual("application/json", record["mime_type"])
+        owned = self.library.resolve_asset(item["item_id"], record["asset_id"])
+        with owned.open_verified() as stream:
+            self.assertEqual(payload, stream.read())
+
     def test_all_saved_item_discriminators_resolve_server_owned_asset_labels(self) -> None:
         device = {
             "product_id": "NEON80",

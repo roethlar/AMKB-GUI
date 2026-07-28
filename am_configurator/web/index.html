@@ -116,10 +116,13 @@
                 <div id="lighting-library-toolbar" class="library-toolbar">
                   <div class="library-filters" role="group" aria-label="Library filter">
                     <button type="button" class="active" data-library-filter="all" aria-pressed="true">All</button>
-                    <button type="button" data-library-filter="animation" aria-pressed="false">Animations</button>
+                    <button type="button" data-library-filter="generated" aria-pressed="false">Generated</button>
+                    <button type="button" data-library-filter="profiles" aria-pressed="false">Profiles</button>
                     <button type="button" data-library-filter="partial" aria-pressed="false">Partial</button>
                   </div>
-                  <label class="library-search"><span class="sr-only">Search prompts</span><input id="library-search" class="text-field" type="search" placeholder="Search Library"></label>
+                  <label class="library-search"><span class="sr-only">Search Library</span><input id="library-search" class="text-field" type="search" placeholder="Search Library"></label>
+                  <input id="library-profile-input" type="file" accept="application/json,.json" multiple hidden>
+                  <button id="library-add-files" type="button" class="button ghost">Add files…</button>
                   <button id="library-refresh" type="button" class="button ghost">Refresh</button>
                   <button id="library-reveal" type="button" class="button ghost">Reveal folder</button>
                 </div>

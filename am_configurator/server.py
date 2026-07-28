@@ -9,11 +9,12 @@ import io
 import json
 import math
 import mimetypes
+import re
 import secrets
 import threading
 import time
 import webbrowser
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from http import HTTPStatus
@@ -44,6 +45,7 @@ _KEY_FIELDS = (
     "exchange_key", "exchange_num",
 )
 _MAX_GIF_BYTES = 12_000_000
+_MAX_PROFILE_BYTES = 10_000_000
 _KEYMAP_VERIFY_ATTEMPTS = 4
 _KEYMAP_VERIFY_RETRY_SECONDS = 1.0
 _MACRO_EVENTS_PER_BLOCK = 8
@@ -403,6 +405,8 @@ def _keymap_compatibility(
     source: dict[str, Any],
     source_descriptor: dict[str, Any],
     target_descriptor: dict[str, Any],
+    *,
+    source_keymap_signature: str | None = None,
 ) -> dict[str, Any]:
     layers = _profile_layers(source)
     if layers is None:
@@ -419,19 +423,32 @@ def _keymap_compatibility(
         )
     source_keymap = source_descriptor["keymap"]
     target_keymap = target_descriptor["keymap"]
-    if not source_keymap["layout_known"]:
+    if source_keymap_signature is not None:
+        if (
+            not isinstance(source_keymap_signature, str)
+            or not re.fullmatch(r"keymap:v1:[0-9a-f]{64}", source_keymap_signature)
+        ):
+            return _compatibility_section(
+                "blocked",
+                "source_layout_unknown",
+                "The saved profile has no verified physical-layout evidence.",
+            )
+        source_signature = source_keymap_signature
+    elif not source_keymap["layout_known"]:
         return _compatibility_section(
             "blocked",
             "source_layout_unknown",
             "The saved profile has no verified physical-layout evidence.",
         )
+    else:
+        source_signature = source_keymap["signature"]
     if not target_keymap["layout_known"]:
         return _compatibility_section(
             "blocked",
             "target_layout_unknown",
             "The destination has no verified physical-layout evidence.",
         )
-    if source_keymap["signature"] != target_keymap["signature"]:
+    if source_signature != target_keymap["signature"]:
         return _compatibility_section(
             "blocked",
             "keymap_signature_mismatch",
@@ -610,6 +627,129 @@ def _active_lighting_targets(config: dict[str, Any]) -> list[str]:
     return sorted(active)
 
 
+def _profile_sections(config: dict[str, Any]) -> list[str]:
+    sections = ["identity"]
+    layers = _profile_layers(config)
+    if layers:
+        sections.append("keymap")
+    if (
+        isinstance(config.get("macro_key"), list)
+        and config["macro_key"]
+        or isinstance(config.get("MACRO_key"), list)
+        and config["MACRO_key"]
+    ):
+        sections.append("macros")
+    if _active_lighting_targets(config):
+        sections.append("lighting")
+    return sections
+
+
+def _validated_profile_config(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("The selected JSON is not a configuration object.")
+    validation = validate_config(value)
+    if not validation["ok"]:
+        detail = "; ".join(validation["errors"][:3])
+        raise ValueError(f"The selected JSON is not a valid configuration: {detail}")
+    product_id = ((value.get("product_info") or {}).get("product_id"))
+    if not isinstance(product_id, str) or not product_id.strip():
+        raise ValueError("The selected JSON has no product_info.product_id.")
+    return copy.deepcopy(value)
+
+
+def _profile_name(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValueError("The Library profile name is missing.")
+    name = value.strip()
+    if (
+        not name
+        or len(name) > 200
+        or "/" in name
+        or "\\" in name
+        or any(ord(character) < 32 or ord(character) == 127 for character in name)
+    ):
+        raise ValueError("The Library profile name is invalid.")
+    return name
+
+
+def _decode_profile_data(value: object) -> tuple[bytes, dict[str, Any]]:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > ((_MAX_PROFILE_BYTES + 2) // 3) * 4 + 8
+    ):
+        raise ValueError("The configuration file is missing or too large.")
+    try:
+        payload = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("The configuration file encoding is invalid.") from exc
+    if not payload or len(payload) > _MAX_PROFILE_BYTES:
+        raise ValueError("The configuration file is missing or too large.")
+    try:
+        decoded = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("The configuration file is not valid JSON.") from exc
+    return payload, _validated_profile_config(decoded)
+
+
+def _profile_device_metadata(
+    config: dict[str, Any],
+    *,
+    key_layout: object = None,
+) -> dict[str, Any]:
+    product_id = str(config["product_info"]["product_id"])
+    try:
+        descriptor = device_mapping.device_descriptor(
+            product_id,
+            key_layout=key_layout,
+        )
+    except ValueError:
+        return {
+            "product_id": product_id,
+            "family": "unknown",
+            "product_label": product_id,
+            "keymap_signature": None,
+            "lighting_signature": None,
+        }
+
+    target_signatures = {
+        target: descriptor["lighting"][target]["signature"]
+        for target in _active_lighting_targets(config)
+        if target in descriptor["lighting"]
+    }
+    lighting_signature: str | None = None
+    if target_signatures:
+        encoded = json.dumps(
+            target_signatures,
+            allow_nan=False,
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        lighting_signature = (
+            "lighting-set:v1:" + hashlib.sha256(encoded).hexdigest()
+        )
+    return {
+        "product_id": descriptor["product_id"],
+        "family": descriptor["family"],
+        "product_label": descriptor["product_label"],
+        "keymap_signature": descriptor["keymap"]["signature"],
+        "lighting_signature": lighting_signature,
+    }
+
+
+def _profile_snapshot_bytes(config: Mapping[str, Any]) -> bytes:
+    return (
+        json.dumps(
+            config,
+            allow_nan=False,
+            ensure_ascii=False,
+            indent=2,
+        ).encode("utf-8")
+        + b"\n"
+    )
+
+
 def _lighting_compatibility(
     source: dict[str, Any],
     source_descriptor: dict[str, Any],
@@ -676,6 +816,7 @@ def config_section_compatibility(
     *,
     target_product_id: Any = None,
     source_key_layout: object = None,
+    source_keymap_signature: str | None = None,
     target_key_layout: object = None,
     target_layer_count: int | None = None,
     target_macro_count: int | None = None,
@@ -733,6 +874,7 @@ def config_section_compatibility(
         source_config,
         source_descriptor,
         target_descriptor,
+        source_keymap_signature=source_keymap_signature,
     )
     macros, _normalized_macros = _macro_compatibility(
         source_config,
@@ -1601,6 +1743,24 @@ class _State:
             self._document_revision = None
             self.config = None
 
+    def document_snapshot(self, revision: str) -> dict[str, Any]:
+        """Return one immutable revision without changing the open document."""
+
+        with self._document_lock:
+            snapshot = self._document_snapshot
+            current = self._document_revision
+            if snapshot is None or current is None:
+                raise DocumentRevisionError(
+                    "document_required",
+                    "Open or read a keyboard configuration first.",
+                )
+            if not secrets.compare_digest(revision, current):
+                raise DocumentRevisionError(
+                    "document_stale",
+                    "The open document changed. Try again.",
+                )
+        return json.loads(snapshot)
+
     def procedural_target(self, revision: str, target: str) -> dict:
         if not isinstance(target, str) or not target:
             raise ValueError("target must name one selected LED destination.")
@@ -2162,6 +2322,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._native_choose_library(body)
             elif path == "/api/native/reveal-library":
                 self._native_reveal_library(body)
+            elif path == "/api/library/import/profile":
+                self._library_import_profile(body)
+            elif path == "/api/library/save/profile":
+                self._library_save_profile(body)
             elif path.startswith("/api/library/items/"):
                 self._library_post(path, body)
             elif path == "/api/lighting/effects":
@@ -2469,6 +2633,160 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._json({"job_id": manifest["job_id"]}, status)
 
+    def _bank_keyboard_profile(
+        self,
+        *,
+        config: dict[str, Any],
+        configuration: bytes,
+        origin: str,
+        name: str,
+        key_layout: object = None,
+    ) -> dict[str, Any]:
+        catalog = self.state.library_catalog()
+        item = catalog.saved_items.create_keyboard_profile(
+            origin=origin,
+            name=_profile_name(name),
+            configuration=configuration,
+            device=_profile_device_metadata(config, key_layout=key_layout),
+            sections=_profile_sections(config),
+        )
+        return catalog.get(f"item:{item['item_id']}")
+
+    def _library_import_profile(self, body: dict[str, Any]) -> None:
+        if urlparse(self.path).query:
+            raise ValueError("Profile import does not accept query fields.")
+        if set(body) != {"name", "data"}:
+            raise ValueError(
+                "Profile import requires exactly one file name and encoded file."
+            )
+        configuration, config = _decode_profile_data(body["data"])
+        detail = self._bank_keyboard_profile(
+            config=config,
+            configuration=configuration,
+            origin="json_import",
+            name=body["name"],
+        )
+        self._json(detail, HTTPStatus.CREATED)
+
+    def _library_save_profile(self, body: dict[str, Any]) -> None:
+        if urlparse(self.path).query:
+            raise ValueError("Saving a mapping does not accept query fields.")
+        if set(body) not in (
+            {"name", "document_revision"},
+            {"name", "document_revision", "key_layout"},
+        ):
+            raise ValueError(
+                "Saving a mapping requires a name and current document revision."
+            )
+        revision = body["document_revision"]
+        if not isinstance(revision, str) or not 24 <= len(revision) <= 200:
+            raise ValueError("document_revision must be an opaque revision string.")
+        try:
+            config = self.state.document_snapshot(revision)
+        except DocumentRevisionError as exc:
+            self._json(
+                {"code": exc.code, "error": str(exc)},
+                HTTPStatus.CONFLICT,
+            )
+            return
+        detail = self._bank_keyboard_profile(
+            config=config,
+            configuration=_profile_snapshot_bytes(config),
+            origin="verified_export",
+            name=body["name"],
+            key_layout=body.get("key_layout"),
+        )
+        self._json(detail, HTTPStatus.CREATED)
+
+    @staticmethod
+    def _catalog_profile_config(
+        catalog: Any,
+        catalog_id: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        detail = catalog.get(catalog_id)
+        item = detail.get("item")
+        if (
+            detail.get("namespace") != "item"
+            or detail.get("kind") != "keyboard_profile"
+            or not isinstance(item, dict)
+        ):
+            raise ValueError("This Library item is not a keyboard profile.")
+        profile = item.get("profile")
+        if not isinstance(profile, dict):
+            raise ValueError("This Library keyboard profile is invalid.")
+        owned = catalog.resolve_asset(
+            catalog_id,
+            profile.get("asset_id"),
+        )
+        byte_size = owned.record.get("byte_size")
+        if type(byte_size) is not int or not 0 < byte_size <= _MAX_PROFILE_BYTES:
+            raise ValueError("This Library keyboard profile is too large.")
+        with owned.open_verified() as stream:
+            configuration = stream.read(byte_size + 1)
+        if len(configuration) != byte_size:
+            raise ValueError("This Library keyboard profile changed while it was read.")
+        try:
+            value = json.loads(configuration)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("This Library keyboard profile is not valid JSON.") from exc
+        config = _validated_profile_config(value)
+        device = item.get("device")
+        source_product_id = str(config["product_info"]["product_id"])
+        try:
+            expected_product_id = device_mapping.device_descriptor(
+                source_product_id
+            )["product_id"]
+        except ValueError:
+            expected_product_id = source_product_id
+        if (
+            not isinstance(device, dict)
+            or device.get("product_id")
+            != expected_product_id
+        ):
+            raise ValueError("This Library keyboard profile identity is inconsistent.")
+        return detail, config
+
+    def _library_profile_compatibility(
+        self,
+        catalog_id: str,
+        body: dict[str, Any],
+    ) -> None:
+        if set(body) not in (
+            {"document_revision"},
+            {"document_revision", "target_key_layout"},
+        ):
+            raise ValueError(
+                "Profile compatibility requires the current document revision."
+            )
+        revision = body["document_revision"]
+        if not isinstance(revision, str) or not 24 <= len(revision) <= 200:
+            raise ValueError("document_revision must be an opaque revision string.")
+        try:
+            destination = self.state.document_snapshot(revision)
+        except DocumentRevisionError as exc:
+            self._json(
+                {"code": exc.code, "error": str(exc)},
+                HTTPStatus.CONFLICT,
+            )
+            return
+        catalog = self.state.library_catalog()
+        detail, source = self._catalog_profile_config(catalog, catalog_id)
+        source_device = detail["item"]["device"]
+        compatibility = config_section_compatibility(
+            source,
+            destination,
+            source_keymap_signature=source_device.get("keymap_signature"),
+            target_key_layout=body.get("target_key_layout"),
+        )
+        self._json(
+            {
+                **compatibility,
+                "catalog_id": detail["catalog_id"],
+                "name": detail["name"],
+                "source_sections": detail["item"]["profile"]["sections"],
+            }
+        )
+
     def _active_library_catalog_ids(self) -> set[str]:
         active_ids = {
             getattr(self.state._generation_gate, "active_job_id", None),
@@ -2486,11 +2804,18 @@ class _Handler(BaseHTTPRequestHandler):
             raise ValueError(
                 "Library mutations do not accept query fields."
             )
+        parts = path.strip("/").split("/")
+        if (
+            len(parts) == 5
+            and parts[:3] == ["api", "library", "items"]
+            and parts[4] == "compatibility"
+        ):
+            self._library_profile_compatibility(parts[3], body)
+            return
         if body:
             raise ValueError(
                 "The Library mutation body has unsupported fields."
             )
-        parts = path.strip("/").split("/")
         if (
             len(parts) != 5
             or parts[:3] != ["api", "library", "items"]

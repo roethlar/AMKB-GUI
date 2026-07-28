@@ -138,7 +138,7 @@
   compile/syntax checks, and package builds.
 - The owner-approved unified Lighting implementation in
   `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` is
-  active. Slices 2-11 are complete. Catalog schema 2 names the six fixed API
+  active. Slices 2-12 are complete. Catalog schema 2 names the six fixed API
   providers; settings schema 6 preserves the complete xAI record through a
   credential-free v5 migration; provider-scoped vault operations, environment
   overrides, disclosure records, setup fingerprints, capability caches, and
@@ -224,14 +224,23 @@
   evidence, layer/macro capacity overflow, unsupported Vial assignments,
   lighting mismatches, and invalid candidate documents fail closed. The six
   focused signature/compatibility/projection guards fail against pre-slice
-  production code and pass with the implementation restored. The clean full
-  gate passes 642 Python tests, 59 web tests, compile/syntax checks, and
-  source/wheel builds. The heavy
+  production code and pass with the implementation restored. Keymap now offers
+  explicit profile banking, while Library accepts one or more configuration
+  JSON files without changing the open document, device store, or hardware.
+  Imported profiles retain the exact source bytes; current mappings retain a
+  complete normalized snapshot. Both carry section presence plus device/layout
+  signatures, render as mixed-catalog cards/details, and obtain a read-only
+  server compatibility preview for the open document. The profile helper,
+  import/save endpoints, exact-byte retention, side-effect isolation, and web
+  shell guards fail against pre-slice production code and pass with the
+  implementation restored. The clean full gate passes 645 Python tests, 60 web
+  tests, compile/syntax checks, and source/wheel builds. The heavy
   procedural recovery fixture uses the production 180-second operation
   deadline instead of a flaky 30-second test-only override. No real provider
   request, credential mutation, Keychain prompt, model mutation/download,
   real Library mutation/deletion, hardware write, push, or release occurred.
-  Next action is slice 12, profile banking. Local
+  Next action is slice 13, transform-aware media rendering and media banking.
+  Local
   `main` remains unpublished; the push policy requires a fresh explicit owner
   go.
 
