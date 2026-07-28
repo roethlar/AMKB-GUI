@@ -962,7 +962,7 @@ def run_desktop(config_paths: list[str] | None = None, *, debug: bool = False) -
         height=920,
         min_size=(1000, 680),
         background_color="#0d0d0f",
-        text_select=True,
+        text_select=False,
         zoomable=True,
     )
     bridge._bind_window(window)

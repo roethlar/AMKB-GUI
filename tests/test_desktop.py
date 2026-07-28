@@ -498,6 +498,7 @@ class DesktopWindowTests(unittest.TestCase):
 
         disable_tabbing.assert_called_once_with()
         self.assertNotIn("js_api", created["kwargs"])
+        self.assertFalse(created["kwargs"]["text_select"])
         bridge = fake_server.state.desktop_bridge
         self.assertIsInstance(bridge, desktop.DesktopBridge)
         self.assertIs(bridge._window, window)

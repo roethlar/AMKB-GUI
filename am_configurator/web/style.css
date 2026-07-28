@@ -24,6 +24,26 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
+body,
+body * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+input:not([type]),
+input[type="text"],
+input[type="search"],
+input[type="email"],
+input[type="url"],
+input[type="tel"],
+input[type="password"],
+input[type="number"],
+textarea,
+[contenteditable="true"],
+[contenteditable="plaintext-only"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .settings-ai-panels { border: 0; margin: 0; padding: 0; }
 .settings-ai-panels legend { margin-bottom: 10px; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
 .settings-backend-panel { margin-top: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-2); }
@@ -590,7 +610,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .write-summary strong { font-size: 18px; }
 .write-summary small { color: var(--muted); margin-top: 2px; }
 .confirm-label { color: var(--muted); display: block; font-size: 12px; margin-bottom: 8px; }
-.confirm-token { color: var(--violet-2); font: 700 22px/1 ui-monospace, monospace; letter-spacing: .08em; margin-bottom: 10px; user-select: all; }
+.confirm-token { color: var(--violet-2); font: 700 22px/1 ui-monospace, monospace; letter-spacing: .08em; margin-bottom: 10px; user-select: none; }
 .confirm-input { font: 700 16px ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
 .write-status { min-height: 38px; color: var(--muted); font-size: 12px; line-height: 1.5; margin: 12px 0 0; }
 .write-status.working { color: var(--violet-2); }

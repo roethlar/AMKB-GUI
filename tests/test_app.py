@@ -479,6 +479,30 @@ class DesktopServerTests(unittest.TestCase):
         self.assertIn(".about-link", style)
         self.assertNotIn("button primary", about.group(0))
 
+    def test_text_selection_is_limited_to_editable_controls(self) -> None:
+        style = (ROOT / "am_configurator" / "web" / "style.css").read_text(
+            encoding="utf-8"
+        )
+        noneditable = re.search(
+            r"body,\s*body \* \{(?P<body>.*?)\}",
+            style,
+            re.DOTALL,
+        )
+        editable = re.search(
+            r'input:not\(\[type\]\),.*?\[contenteditable="plaintext-only"\] '
+            r"\{(?P<body>.*?)\}",
+            style,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(noneditable)
+        self.assertIsNotNone(editable)
+        self.assertIn("-webkit-user-select: none", noneditable.group("body"))
+        self.assertIn("user-select: none", noneditable.group("body"))
+        self.assertIn("-webkit-user-select: text", editable.group("body"))
+        self.assertIn("user-select: text", editable.group("body"))
+        self.assertNotIn("user-select: all", style)
+
     def test_am21_creates_relic_edge_tracks_only_for_custom_slots(self) -> None:
         source = (ROOT / "am_configurator" / "web" / "app.js").read_text(
             encoding="utf-8"
