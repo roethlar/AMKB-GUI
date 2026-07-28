@@ -644,15 +644,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .library-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
 
+@media (max-width: 820px) {
+  .topbar { height: auto; min-height: 0; grid-template-columns: 1fr auto; gap: 10px; padding: 12px; }
+  .top-actions { grid-column: 1 / -1; width: 100%; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+  .top-actions::-webkit-scrollbar { display: none; }
+}
+
 @media (max-width: 720px) {
   #app { min-height: 100vh; height: 100dvh; }
-  .topbar { height: auto; min-height: 0; grid-template-columns: 1fr auto; gap: 10px; padding: 12px; }
   .brand small, .document-meta .pill { display: none; }
   .brand-mark { width: 32px; height: 32px; }
   .document-meta { justify-content: flex-end; font-size: 11px; }
   .document-meta #file-name { max-width: 150px; }
-  .top-actions { grid-column: 1 / -1; width: 100%; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
-  .top-actions::-webkit-scrollbar { display: none; }
   .top-actions .button { min-height: 34px; padding-inline: 10px; font-size: 11px; }
   #device-button { order: -2; }
   #write-button { order: -1; }

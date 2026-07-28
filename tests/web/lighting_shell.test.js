@@ -393,8 +393,11 @@ test("manual Lighting layout, keyboard controls, narrow windows, and reduced mot
   assert.match(css,/@media\s*\(max-width:\s*720px\)/);
   assert.match(css,/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
   const medium=css.match(/@media\s*\(max-width:\s*1240px\)\s*\{[\s\S]*?\n\}/)?.[0]||"";
+  const zoomed=css.match(/@media\s*\(max-width:\s*820px\)\s*\{[\s\S]*?\n\}/)?.[0]||"";
   assert.match(medium,/grid-template-areas:\s*"canvas controls"\s*"frames frames"/);
   assert.match(medium,/overflow-x:\s*auto/);
+  assert.match(zoomed,/\.topbar\s*\{[^}]*grid-template-columns:\s*1fr auto/);
+  assert.match(zoomed,/\.top-actions\s*\{[^}]*overflow-x:\s*auto/);
 });
 
 test("Neon keymap wiring uses the validated layout and assignment gate", () => {
