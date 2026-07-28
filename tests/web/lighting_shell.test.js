@@ -195,12 +195,11 @@ test("one master switch owns and hides every AI setup control", () => {
   assert.match(css,/\.settings-row input\[role="switch"\]:checked::before\s*\{[^}]*translateX\(20px\)/);
 });
 
-test("the global header presents the injected runtime version as a badge", () => {
-  assert.match(
-    html,
-    /id="app-version" title="Application version">Version __AM_VERSION__<\/span>/
-  );
-  assert.match(css,/\.app-version\s*\{[^}]*border:[^}]*font-size:\s*11px[^}]*font-weight:\s*700/);
+test("About is the only normal application-version surface", () => {
+  assert.match(html,/id="about-button"[^>]*>About<\/button>/);
+  assert.match(html,/id="about-dialog"[\s\S]*Version __AM_VERSION__[\s\S]*<\/dialog>/);
+  assert.doesNotMatch(html,/id="app-version"|class="app-version"/);
+  assert.match(css,/\.about-link\s*\{[^}]*background:\s*transparent[^}]*font-size:\s*11px/);
 });
 
 test("Settings explains incompatible Ollama discovery without adding show", () => {
