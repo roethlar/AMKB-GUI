@@ -192,3 +192,43 @@ jobs:
             candidate-metadata/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
+
+  provenance:
+    name: Release provenance
+    needs: [installer, candidate-metadata]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read canonical application version
+        id: build_version
+        run: python build_tools/release_info.py version --github-output
+      - name: Download release subjects
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: AM-Configurator-${{ steps.build_version.outputs.version }}-*
+          path: candidate-provenance
+          merge-multiple: true
+      - name: Attest macOS installer
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: candidate-provenance/AM-Configurator-${{ steps.build_version.outputs.version }}-macOS-arm64.dmg
+      - name: Attest Windows installer
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: candidate-provenance/AM-Configurator-${{ steps.build_version.outputs.version }}-Windows-x64-Setup.exe
+      - name: Attest Linux installer
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: candidate-provenance/AM-Configurator-${{ steps.build_version.outputs.version }}-Linux-x86_64.AppImage
+      - name: Attest release metadata
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: |
+            candidate-provenance/release-manifest.json
+            candidate-provenance/SHA256SUMS.txt

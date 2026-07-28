@@ -440,6 +440,56 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("- main", trigger)
         self.assertNotIn("tags:", trigger)
 
+    def test_main_installers_receive_keyless_provenance(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+        installing = (ROOT / "docs" / "installing.md").read_text(encoding="utf-8")
+        unprivileged, provenance = workflow.split("  provenance:\n", 1)
+        pinned_action = (
+            "actions/attest-build-provenance@"
+            "e8998f949152b193b063cb0ec769d69d929409be"
+        )
+
+        self.assertNotIn("id-token: write", unprivileged)
+        self.assertNotIn("attestations: write", unprivileged)
+        self.assertIn("needs: [installer, candidate-metadata]", provenance)
+        self.assertIn("github.event_name == 'push'", provenance)
+        self.assertIn("github.ref == 'refs/heads/main'", provenance)
+        self.assertIn(
+            "permissions:\n"
+            "      contents: read\n"
+            "      id-token: write\n"
+            "      attestations: write",
+            provenance,
+        )
+        self.assertEqual(4, provenance.count(pinned_action))
+        self.assertNotIn("actions/attest-build-provenance@v", provenance)
+        for filename in (
+            "AM-Configurator-${{ steps.build_version.outputs.version }}"
+            "-macOS-arm64.dmg",
+            "AM-Configurator-${{ steps.build_version.outputs.version }}"
+            "-Windows-x64-Setup.exe",
+            "AM-Configurator-${{ steps.build_version.outputs.version }}"
+            "-Linux-x86_64.AppImage",
+        ):
+            with self.subTest(subject=filename):
+                self.assertIn(f"subject-path: candidate-provenance/{filename}", provenance)
+        self.assertIn(
+            "subject-path: |\n"
+            "            candidate-provenance/release-manifest.json\n"
+            "            candidate-provenance/SHA256SUMS.txt",
+            provenance,
+        )
+        self.assertIn(
+            "gh attestation verify <downloaded-file> --repo roethlar/AMKB-GUI",
+            installing,
+        )
+        self.assertIn(
+            "does not replace platform code signing",
+            " ".join(installing.split()),
+        )
+
     def test_desktop_workflow_runs_frozen_native_policy_on_every_platform(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
             encoding="utf-8"

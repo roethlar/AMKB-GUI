@@ -337,9 +337,15 @@
   and keeps workflow run identity as provenance only. The Desktop workflow
   collects metadata only after all installers succeed on `main` push or manual
   dispatch, using immutable `actions/download-artifact` source. Its ten focused
-  guards were red-proven and the complete packaging module passes. Push,
-  hardware write, release publication, and Reddit posting retain their explicit
-  gates.
+  guards were red-proven and the complete packaging module passes. A separate
+  downstream provenance job now owns the only OIDC/attestation write
+  permissions, runs solely for `main` pushes, and creates four records for the
+  three exact installers plus the manifest/checksum pair with the official
+  action pinned to commit `e8998f9`. Pull requests and manual candidates remain
+  unable to request an OIDC token. The focused provenance guard was red-proven,
+  and public install guidance now includes the `gh attestation verify` command
+  without presenting provenance as platform signing. Push, hardware write,
+  release publication, and Reddit posting retain their explicit gates.
 
 ## Blockers
 

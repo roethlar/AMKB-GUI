@@ -444,15 +444,18 @@ Files:
 
 Changes:
 
-- Give the installer job `contents: read`, `id-token: write`, and
-  `attestations: write` at job scope.
-- After each native installer passes its platform smoke, attest that exact file
-  with the official GitHub provenance action pinned to an immutable commit.
-- Gate the step to `github.event_name == 'push'` and
-  `github.ref == 'refs/heads/main'`.
-- Attest `release-manifest.json` and `SHA256SUMS.txt` in the metadata job after
-  they are generated.
-- Keep pull requests read-only and unable to request an OIDC token.
+- Keep the installer and metadata jobs read-only.
+- Add one downstream provenance job with job-scoped `contents: read`,
+  `id-token: write`, and `attestations: write`. It runs only after the installer
+  matrix and metadata job succeed.
+- Gate the complete provenance job to `github.event_name == 'push'` and
+  `github.ref == 'refs/heads/main'`, so pull requests and manual-dispatch builds
+  cannot request an OIDC token.
+- Download and attest each exact native installer after its platform smoke has
+  passed, using the official GitHub provenance action pinned to an immutable
+  commit.
+- Attest `release-manifest.json` and `SHA256SUMS.txt` together as the fourth
+  provenance record.
 - Add static workflow guards for the exact event condition, least-privilege
   permissions, immutable action reference, and installer subject path.
 - Add release documentation for `gh attestation verify <file> --repo
