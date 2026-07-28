@@ -1,9 +1,15 @@
 # Unified Lighting Studio and Asset Library
 
-**Status:** Approved by the owner for implementation on 2026-07-27. The
-approved scope is the integrated Studio, mixed Library, imported-media/AI
-separation, local still animation, and six API recipe providers recorded in
-`.agents/decisions.md`.
+**Status:** Implemented through slice 17 on 2026-07-28. The clean repository
+gate passes 666 Python tests and 78 web tests plus compile/syntax checks and
+source/wheel builds. Native build 62 passes bundled and mounted-DMG frozen
+smoke, the real WKWebView policy smoke, deep code-signature verification, and
+DMG verification; its checksum-verified artifact is
+`dist/AM-Configurator-0.1.62-macOS-arm64.dmg`. The sole acceptance remainder is
+the browser-control-limited interactive visual pass recorded in
+`.agents/state.md`. No real provider request, credential access or mutation,
+model mutation/download, Library deletion, hardware write, push, or release
+publication occurred.
 
 ## Goal
 

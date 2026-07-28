@@ -138,7 +138,7 @@
   compile/syntax checks, and package builds.
 - The owner-approved unified Lighting implementation in
   `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` is
-  active. Slices 2-13 are complete. Catalog schema 2 names the six fixed API
+  complete through slice 17. Catalog schema 2 names the six fixed API
   providers; settings schema 6 preserves the complete xAI record through a
   credential-free v5 migration; provider-scoped vault operations, environment
   overrides, disclosure records, setup fingerprints, capability caches, and
@@ -274,21 +274,44 @@
   target signatures, restores brightness, and creates one undo checkpoint.
   Media sources reopen in Studio from the mixed Library. The new browser state
   module is syntax-gated in both CI and the canonical repository gate. All
-  slice-15 behavioral guards were red-proven. The clean full gate passes 662
-  Python tests, 72 web tests, compile/syntax checks, and source/wheel builds.
-  The heavy
-  procedural recovery fixture uses the production 180-second operation
-  deadline instead of a flaky 30-second test-only override. No real provider
-  request, credential mutation, Keychain prompt, model mutation/download,
-  real Library mutation/deletion, hardware write, push, or release occurred.
-  Next action is slice 16, the complete mixed-Library UI, compatible profile
-  section Apply, and reversible removal controls.
-  Local
-  `main` remains unpublished; the push policy requires a fresh explicit owner
-  go.
+  slice-15 behavioral guards were red-proven. The heavy procedural recovery
+  fixture uses the production 180-second operation deadline instead of a flaky
+  test-only override. The mixed Library now exposes All, Sources, Lighting,
+  Keymaps, and Removed; generated results and historical jobs share Lighting,
+  compatible profile sections apply through one revalidated candidate and one
+  undo checkpoint, removal is reversible, pagination and stale-request
+  ownership are explicit, and keyboard navigation is retained.
+  Frozen smoke now fetches the mixed-Library shell plus its composer, state,
+  application, and stylesheet assets. Native policy verifies Local/API, all six
+  provider IDs, and hidden AI details while AI is off. The policy server injects
+  empty device discovery so browser startup never reaches attached keyboards or
+  initializes macOS hidapi; this closes the prior post-success `hid_exit`
+  SIGTRAP without bypassing WKWebView. The focused guards were red-proven.
+  Browser inspection found and red-proved a 760px header overflow; the header
+  now enters its internally scrollable two-row layout at 820px. Studio and all
+  five Library filters have no page-level overflow at 1440x920 or 760x900, AI
+  off shows only the master switch, and AI on-but-unready shows setup in
+  Settings but no Lighting AI control. The remaining visual evidence is listed
+  under Blockers.
+  The clean full gate passes 666 Python tests, 78 web tests, compile/syntax
+  checks, and source/wheel builds. Native build 62 passes bundled and mounted
+  DMG frozen smoke, the real WKWebView policy smoke, deep code-signature
+  verification, and DMG verification. The artifact is
+  `dist/AM-Configurator-0.1.62-macOS-arm64.dmg` (SHA-256
+  `6c71ac75f90222bb334bc5b8807c458c32227b3cb70ba3c99566653087aef751`).
+  No real provider request, credential access or mutation, Keychain prompt,
+  model mutation/download, real Library mutation/deletion, hardware write,
+  push, or release occurred. Local `main` remains unpublished; the push policy
+  requires a fresh explicit owner go.
 
 ## Blockers
 
+- Browser control disconnected before the fake-ready Lighting state and the
+  remaining interactive import/effect/profile/remove flows could be visually
+  re-run, then reported no available browser. Their focused automated guards
+  and native policy checks pass, but that manual visual evidence remains
+  uncollected; full visual acceptance must not be claimed until it is repeated
+  with browser control available.
 - N10 has no remaining blocker. Broader device-family checks require their
   corresponding keyboards; they do not block the completed Neon scope.
 - Code signing and notarization are blocked on paid developer accounts, an
