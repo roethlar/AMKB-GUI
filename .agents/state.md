@@ -2,7 +2,7 @@
 
 ## Now
 
-- The canonical release-version correction is complete locally. The owner
+- The canonical release-version correction landed as `39b5507`. The owner
   approved `0.1.64` after identifying that `0.1.34` would regress below native
   builds that had already displayed `0.1.63`. Runtime/package metadata,
   installer names, tests, install/release copy, README, the issue form, durable
@@ -399,10 +399,10 @@
 
 ## Next
 
-- Commit the completed `0.1.64` correction, then obtain the required explicit
-  authorization before pushing `main`. After the push, wait for CI and all
-  desktop workflows, download the exact GitHub candidate artifacts, and run the
-  remaining cross-platform and separately authorized hardware acceptance gates.
+- Obtain the required explicit authorization before pushing `main` at
+  `39b5507`. After the push, wait for CI and all desktop workflows, download the
+  exact GitHub candidate artifacts, and run the remaining cross-platform and
+  separately authorized hardware acceptance gates.
 
 ## Blockers
 
