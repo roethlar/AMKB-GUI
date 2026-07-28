@@ -507,6 +507,14 @@ const RELIC_LED_MAP = [
   60,-1,61,62,63,64,65,66,67,68,69,70,-1,71,-1,87,-1,
   75,76,77,78,-1,-1,79,-1,-1,80,-1,85,86,88,83,82,81,
 ];
+const RELIC_LED_LAYOUT=projectVialLedLayout(
+  {
+    key_layout:RELIC_LAYOUT.map(([index,x,y,width=4.8,rotation=0])=>({
+      index,x,y,width:Math.min(width,100-x),height:12.2,rotation,
+    })),
+  },
+  {width:17,height:6,count:89,map:RELIC_LED_MAP},
+);
 
 const LED_MODELS = {
   CB: {
@@ -518,7 +526,7 @@ const LED_MODELS = {
     targets:DEVICE_TARGETS.ALICE,
   },
   "80": {
-    name:"Relic 80", keyMap:RELIC_LED_MAP, keyColumns:17, keyRaster:"18×7",
+    name:"Relic 80", keyMap:RELIC_LED_MAP, keyColumns:17, keyRaster:"17×6", physicalLayout:RELIC_LED_LAYOUT,
     targets:DEVICE_TARGETS["80"],
   },
   // No keyMap, keyColumns, or keyRaster: the Neon's axial and head geometry is
@@ -3049,7 +3057,8 @@ function renderLightingEdit() {
     const description=body?'Center light':`Key ${keyLabel}, matrix ${item.keyIndex}`;
     const grouped=item.groupCount>1;
     const groupClass=grouped?`multi-led ${item.groupPosition===0?'group-first':''} ${item.groupPosition===item.groupCount-1?'group-last':''}`:"";
-    return `<button class="pixel physical-pixel ${body?'body-led':''} ${groupClass}" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${item.index}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;height:${item.h??10.7}%;--rotation:${item.rotation}deg;background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="${esc(description)}, LED ${item.index}, ${esc(color)}" title="${esc(description)} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
+    const segmentDescription=grouped?`, segment ${item.groupPosition+1} of ${item.groupCount}`:"";
+    return `<button class="pixel physical-pixel ${body?'body-led':''} ${groupClass}" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${item.index}" data-pixel-description="${esc(description+segmentDescription)}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;height:${item.h??10.7}%;--rotation:${item.rotation}deg;background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="${esc(description+segmentDescription)}, LED ${item.index}, ${esc(color)}" title="${esc(description+segmentDescription)} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
   }).join("")}</div>`:`<div class="pixel-grid ${gridClass}" role="grid" aria-label="LED paint grid" style="grid-template-columns:repeat(${columns},1fr)">${rasterCells}</div>`;
   const raster=model.keyRaster||(servedTarget?`${servedTarget.width}×${servedTarget.height}`:"");
   const gifSize=state.ledTarget==="frames"?"40×5":state.ledTarget==="spotlight_frames"?"18×7 → 7 edge LEDs":`${raster} → ${mappedCount} mapped LEDs`;
@@ -3150,7 +3159,10 @@ function wireLedEditor(gridColumns) {
   const paintEnabled=state.studioTool==="paint"&&!localAnimationDraftMatches();
   const paint = pixel => {
     if(!paintEnabled)return;
-    const frame=currentFrame();if(!frame)return;const i=Number(pixel.dataset.pixel);frame.frame_RGB[i]=state.ledColor;pixel.style.background=state.ledColor;pixel.style.setProperty('--pixel-color',state.ledColor);pixel.title=`LED ${i} · ${state.ledColor}`;pixel.setAttribute('aria-label',`LED ${i}, ${state.ledColor}`);
+    const frame=currentFrame();if(!frame)return;const i=Number(pixel.dataset.pixel);frame.frame_RGB[i]=state.ledColor;pixel.style.background=state.ledColor;pixel.style.setProperty('--pixel-color',state.ledColor);
+    const description=pixel.dataset.pixelDescription;
+    pixel.title=description?`${description} · LED ${i} · ${state.ledColor}`:`LED ${i} · ${state.ledColor}`;
+    pixel.setAttribute('aria-label',description?`${description}, LED ${i}, ${state.ledColor}`:`LED ${i}, ${state.ledColor}`);
   };
   const strokeController=createPaintStrokeController({releaseTarget:window,checkpoint:pushUndo,paint});
   activePaintStrokeController=strokeController;

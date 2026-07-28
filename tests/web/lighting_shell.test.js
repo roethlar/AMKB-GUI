@@ -4,6 +4,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
+const {
+  projectVialLedLayout,
+} = require("../../am_configurator/web/lighting_targets.js");
 
 const root = path.resolve(__dirname, "../..");
 const html = fs.readFileSync(path.join(root, "am_configurator/web/index.html"), "utf8");
@@ -421,6 +425,40 @@ test("manual Lighting layout, keyboard controls, narrow windows, and reduced mot
   assert.match(medium,/overflow-x:\s*auto/);
   assert.match(zoomed,/\.topbar\s*\{[^}]*grid-template-columns:\s*1fr auto/);
   assert.match(zoomed,/\.top-actions\s*\{[^}]*overflow-x:\s*auto/);
+});
+
+test("Relic per-key lighting uses the sized Keymap geometry and segments its spacebar LEDs", () => {
+  assert.match(
+    js,
+    /const RELIC_LED_LAYOUT=projectVialLedLayout\([\s\S]*width:17,height:6,count:89,map:RELIC_LED_MAP/,
+  );
+  assert.match(
+    js,
+    /"80":\s*\{[\s\S]*physicalLayout:RELIC_LED_LAYOUT/,
+  );
+  assert.match(
+    js,
+    /const segmentDescription=grouped\?`, segment \$\{item\.groupPosition\+1\} of \$\{item\.groupCount\}`:""/,
+  );
+  assert.match(js,/data-pixel-description="\$\{esc\(description\+segmentDescription\)\}"/);
+  const paintHandler=js.slice(
+    js.indexOf("const paint = pixel =>"),
+    js.indexOf("const strokeController=",js.indexOf("const paint = pixel =>")),
+  );
+  assert.match(paintHandler,/pixel\.dataset\.pixelDescription/);
+  const constants=js.slice(
+    js.indexOf("const RELIC_LAYOUT"),
+    js.indexOf("const LED_MODELS"),
+  );
+  const context={projectVialLedLayout};
+  vm.runInNewContext(`${constants}\nglobalThis.result=RELIC_LED_LAYOUT;`,context);
+  assert.equal(context.result.length,89);
+  assert.deepEqual(
+    context.result.filter(item=>item.keyIndex===128).map(
+      item=>[item.index,item.groupPosition,item.groupCount,item.showLabel],
+    ),
+    [[78,0,3,false],[79,1,3,true],[80,2,3,false]],
+  );
 });
 
 test("Neon keymap wiring uses the validated layout and assignment gate", () => {
