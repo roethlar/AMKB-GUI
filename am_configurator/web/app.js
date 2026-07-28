@@ -10,7 +10,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
-const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
+const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const {defaultSourceTransform, interpolateMoveZoom, normalizedPointer, panSourceTransform, presetSourceTransform, renderColorEffect, scaleSourceTransform, validateEffectSpec, validateSourceTransform} = LightingComposer;
 const {
   compatibleProfileSections,
@@ -543,7 +543,7 @@ function servedGeometry(family, target) {
 
 function geometryUnavailableNotice() {
   const loading=state.capabilities===null;
-  return `<div class="empty-state"><p class="eyebrow">${loading?"Loading device layout":"Device layout unavailable"}</p><h1>${loading?"Fetching the LED layout for this keyboard…":"The LED layout for this keyboard could not be loaded."}</h1><p>${loading?"The editor opens once the layout arrives.":"Reload the application to try again. Editing is held back deliberately: painting against a guessed layout would author LED positions that do not exist on the device."}</p></div>`;
+  return `<div class="empty-state"><p class="eyebrow">${loading?"Loading device layout":"Device layout unavailable"}</p><h1>${loading?"Fetching the LED layout for this keyboard…":"The LED layout for this keyboard could not be loaded."}</h1><p>${loading?"The editor opens once the layout arrives.":"Connect the keyboard by USB and scan Devices, or read it again. Editing is held back deliberately: painting against a guessed square grid would author LED positions that do not exist on the device."}</p></div>`;
 }
 const LED_SPEEDS = [255,240,224,208,192,176,160,146,132,118,100,90,76,62,48,34];
 
@@ -681,7 +681,7 @@ function activeLayout() {
   if (family === "80") return {name:"Relic 80", className:"relic", keys:RELIC_LAYOUT};
   if (family === "ALICE") return {name:"AFA", className:"afa", keys:AFA_LAYOUT};
   if (family === "NEON") {
-    const device=state.devices.find(candidate=>deviceKey(candidate)===state.loadedDevice);
+    const device=displayGeometryDevice();
     const keys=projectVialKeyLayout(device);
     return keys
       ? {name:"AM Neon 80",className:"neon",keys}
@@ -3021,12 +3021,17 @@ function renderLightingEdit() {
     return;
   }
   const columns=state.ledTarget==="frames"?40:state.ledTarget==="spotlight_frames"?7:(model.keyColumns||servedTarget?.width);
-  const device=state.devices.find(candidate=>deviceKey(candidate)===state.loadedDevice);
+  const device=displayGeometryDevice();
   const physicalLayout=state.ledTarget==="keyframes"
     ?model.physicalLayout
     :state.ledTarget==="axial"
       ?projectVialLedLayout(device,servedTarget)
       :null;
+  const neonAxial=productFamily(productId())==="NEON"&&state.ledTarget==="axial";
+  if(neonAxial&&!physicalLayout){
+    $("#lighting-edit-content").innerHTML=geometryUnavailableNotice();
+    return;
+  }
   const pixelMap=physicalLayout?physicalLayout.map(item=>item.index):state.ledTarget==="keyframes"?(model.keyMap||servedTarget?.map):state.ledTarget==="spotlight_frames"?[0,1,2,3,4,5,6]:(model.displayMap||servedTarget?.map||Array.from({length},(_,index)=>index));
   const mappedCount=new Set(pixelMap.filter(index=>index>=0)).size;
   const focusablePixelCount=physicalLayout?.length||pixelMap.filter(index=>index>=0).length;
@@ -3364,6 +3369,10 @@ function deviceKey(device) {
   return device?`${device.transport}:${device.address}`:null;
 }
 
+function displayGeometryDevice() {
+  return selectVialLayoutDevice(productId(),state.devices,state.loadedDevice);
+}
+
 // The handle fields a device request body carries.
 function deviceAddress(device) {
   return {transport:device.transport,address:device.address};
@@ -3493,6 +3502,11 @@ function updateDeviceActions() {
 }
 
 async function scanDevices() {
+  const priorDisplayGeometry=projectVialKeyLayout(displayGeometryDevice());
+  const refreshDisplayGeometry=()=>{
+    const nextDisplayGeometry=projectVialKeyLayout(displayGeometryDevice());
+    if(JSON.stringify(priorDisplayGeometry)!==JSON.stringify(nextDisplayGeometry))renderScreen();
+  };
   $("#device-list").innerHTML='<div class="loader"></div>';
   $("#device-actions").hidden=true;
   try {
@@ -3515,6 +3529,7 @@ async function scanDevices() {
       state.selectedDevice=null;
       $("#device-list").innerHTML='<div class="event-empty">No supported keyboard found.<br>Connect it by USB, not through the dongle.</div>';
       updateDeviceActions();
+      refreshDisplayGeometry();
       return;
     }
     if(!keyboards.some(device=>deviceKey(device)===state.selectedDevice)){
@@ -3524,6 +3539,7 @@ async function scanDevices() {
     $$('.device-card').forEach(card=>card.addEventListener('click',()=>{state.selectedDevice=card.dataset.device;$$('.device-card').forEach(node=>node.classList.toggle('selected',node===card));updateDeviceActions();}));
     $("#device-actions").hidden=false;
     updateDeviceActions();
+    refreshDisplayGeometry();
   }catch(error){$("#device-list").innerHTML=`<div class="event-empty">${esc(error.message)}</div>`;toast('Device scan failed',error.message,'error');}
 }
 

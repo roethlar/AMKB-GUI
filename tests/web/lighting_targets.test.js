@@ -16,6 +16,7 @@ const {
   projectVialKeyLayout,
   projectVialLedLayout,
   renderTargetControls,
+  selectVialLayoutDevice,
   specForProduct,
   supportedFamily,
   trackColorCount,
@@ -219,6 +220,41 @@ test("the validated Vial layout becomes the physical Neon key geometry", () => {
       {index: 0, x: 10, y: 0, width: 5, height: 14},
     ],
   }), null);
+});
+
+test("one scanned Neon supplies display geometry before a full device read", () => {
+  const key_layout = [
+    {index: 0, x: 0, y: 0, width: 5, height: 14, rotation: 0},
+    {index: 15, x: 0, y: 18, width: 7.5, height: 14, rotation: 0},
+  ];
+  const first = {
+    transport: "hid",
+    address: "first",
+    product_id: "NEON80",
+    key_layout,
+  };
+  const second = {
+    transport: "hid",
+    address: "second",
+    product_id: "AM Neon 80",
+    key_layout,
+  };
+
+  assert.equal(selectVialLayoutDevice("NEON80", [first], null), first);
+  assert.equal(selectVialLayoutDevice("NEON80", [first, second], null), null);
+  assert.equal(
+    selectVialLayoutDevice("NEON80", [first, second], "hid:second"),
+    second,
+  );
+  assert.equal(
+    selectVialLayoutDevice("NEON80", [second], "hid:first"),
+    null,
+  );
+  assert.equal(selectVialLayoutDevice("AM21", [first], null), null);
+  assert.equal(selectVialLayoutDevice("NEON80", [{
+    ...first,
+    key_layout: [],
+  }], null), null);
 });
 
 test("the Neon palette exposes only assignments its QMK wire format accepts", () => {

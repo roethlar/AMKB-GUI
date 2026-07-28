@@ -156,6 +156,21 @@
     return keys;
   }
 
+  function selectVialLayoutDevice(product, devices, loadedDeviceKey = null) {
+    if (productFamily(product) !== "NEON") return null;
+    const candidates = (Array.isArray(devices) ? devices : []).filter(device => (
+      productFamily(device?.product_id) === "NEON"
+      && projectVialKeyLayout(device)
+    ));
+    const preferred = candidates.find(device => (
+      `${String(device?.transport || "")}:${String(device?.address || "")}`
+      === String(loadedDeviceKey || "")
+    ));
+    if (preferred) return preferred;
+    if (loadedDeviceKey) return null;
+    return candidates.length === 1 ? candidates[0] : null;
+  }
+
   function projectVialLedLayout(device, target) {
     const keys = projectVialKeyLayout(device);
     const width = Number(target?.width);
@@ -415,6 +430,7 @@
     projectVialKeyLayout,
     projectVialLedLayout,
     renderTargetControls,
+    selectVialLayoutDevice,
     specForProduct,
     supportedFamily,
     trackColorCount,

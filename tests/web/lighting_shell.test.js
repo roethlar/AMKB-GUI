@@ -473,13 +473,20 @@ test("Neon keymap wiring uses the validated layout and assignment gate", () => {
   const layout = js.slice(js.indexOf("function activeLayout"), js.indexOf("function keyClass"));
   const palette = js.slice(js.indexOf("function renderAssignmentPalette"), js.indexOf("function activeLayout"));
   const assign = js.slice(js.indexOf("async function assignSelected"), js.indexOf("function wireKeyInspector"));
+  const scan = js.slice(js.indexOf("async function scanDevices"), js.indexOf("async function readDevice"));
   const read = js.slice(js.indexOf("async function readDevice"), js.indexOf("async function writeDevice"));
   const neonLayout = layout.slice(layout.indexOf('if (family === "NEON")'), layout.indexOf("const layer"));
   assert.match(palette, /NEON_LIGHTING_CONTROLS/);
   assert.match(palette, /neonLightingGroups/);
 
-  assert.match(layout, /family === "NEON"[\s\S]*projectVialKeyLayout\(device\)/);
-  assert.match(js, /state\.ledTarget==="axial"[\s\S]*projectVialLedLayout\(device,servedTarget\)/);
+  assert.match(js, /function displayGeometryDevice\(\)[\s\S]*selectVialLayoutDevice\(productId\(\),state\.devices,state\.loadedDevice\)/);
+  assert.match(layout, /family === "NEON"[\s\S]*displayGeometryDevice\(\)[\s\S]*projectVialKeyLayout\(device\)/);
+  assert.match(js, /const device=displayGeometryDevice\(\);[\s\S]*state\.ledTarget==="axial"[\s\S]*projectVialLedLayout\(device,servedTarget\)/);
+  assert.match(js, /const neonAxial=productFamily\(productId\(\)\)==="NEON"&&state\.ledTarget==="axial"/);
+  assert.match(js, /if\(neonAxial&&!physicalLayout\)[\s\S]*geometryUnavailableNotice/);
+  assert.match(scan, /const priorDisplayGeometry=projectVialKeyLayout\(displayGeometryDevice\(\)\)/);
+  assert.match(scan, /const nextDisplayGeometry=projectVialKeyLayout\(displayGeometryDevice\(\)\)/);
+  assert.match(scan, /JSON\.stringify\(priorDisplayGeometry\)!==JSON\.stringify\(nextDisplayGeometry\)[\s\S]*renderScreen\(\)/);
   assert.match(css, /\.physical-pixel\.multi-led[\s\S]*\.group-first[\s\S]*\.group-last/);
   assert.doesNotMatch(neonLayout, /Matrix layout|Math\.floor\(index \/ 25\)/);
   assert.match(palette, /filterAssignmentOptions\(product/);
