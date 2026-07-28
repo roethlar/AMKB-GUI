@@ -435,6 +435,24 @@ class DesktopSmokeTests(unittest.TestCase):
 
 
 class DesktopWindowTests(unittest.TestCase):
+    def test_macos_automatic_window_tabbing_is_disabled(self) -> None:
+        class _FakeNSWindow:
+            automatic_window_tabbing = True
+
+            @classmethod
+            def setAllowsAutomaticWindowTabbing_(cls, value: bool) -> None:
+                cls.automatic_window_tabbing = value
+
+        fake_appkit = types.SimpleNamespace(NSWindow=_FakeNSWindow)
+
+        with (
+            mock.patch.object(desktop.sys, "platform", "darwin"),
+            mock.patch.dict(sys.modules, {"AppKit": fake_appkit}),
+        ):
+            desktop._disable_macos_automatic_window_tabbing()
+
+        self.assertFalse(_FakeNSWindow.automatic_window_tabbing)
+
     def test_run_desktop_binds_native_actions_only_to_loopback_server(self) -> None:
         created: dict = {}
 
@@ -474,9 +492,11 @@ class DesktopWindowTests(unittest.TestCase):
         with (
             mock.patch.dict(sys.modules, {"webview": fake_webview}),
             mock.patch.object(desktop, "create_server", return_value=(fake_server, "http://local")),
+            mock.patch.object(desktop, "_disable_macos_automatic_window_tabbing") as disable_tabbing,
         ):
             self.assertEqual(desktop.run_desktop(debug=True), 0)
 
+        disable_tabbing.assert_called_once_with()
         self.assertNotIn("js_api", created["kwargs"])
         bridge = fake_server.state.desktop_bridge
         self.assertIsInstance(bridge, desktop.DesktopBridge)

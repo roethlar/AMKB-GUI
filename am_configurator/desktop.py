@@ -218,6 +218,16 @@ def _native_webview_policy() -> tuple[str, str | None, str]:
         ) from None
 
 
+def _disable_macos_automatic_window_tabbing() -> None:
+    """Keep one native title bar instead of an extra one-tab macOS strip."""
+    if sys.platform != "darwin":
+        return
+
+    from AppKit import NSWindow
+
+    NSWindow.setAllowsAutomaticWindowTabbing_(False)
+
+
 def _native_policy_probe_script(phase: str) -> str:
     if phase not in _NATIVE_POLICY_PHASES:
         raise ValueError("Native policy phase is invalid.")
@@ -921,6 +931,7 @@ def run_desktop(config_paths: list[str] | None = None, *, debug: bool = False) -
             ) from None
         raise
 
+    _disable_macos_automatic_window_tabbing()
     bridge = DesktopBridge()
     server, url = create_server(config_paths)
     server_state = getattr(server, "state", None)
