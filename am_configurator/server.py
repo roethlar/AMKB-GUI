@@ -865,6 +865,25 @@ def _settings_view(*, credential_store=None) -> dict[str, Any]:
             "required": migration_required,
             "reason": reason if migration_required else None,
         },
+        "ai": {
+            "enabled": settings["ai"]["enabled"],
+            "backend": settings["ai"]["backend"],
+            "api": {
+                "selected_provider": api_settings["selected_provider"],
+                "providers": {
+                    provider: {
+                        "model_id": provider_settings["model_id"],
+                        "disclosure_version": provider_settings[
+                            "disclosure_version"
+                        ],
+                        "disclosure_at": provider_settings["disclosure_at"],
+                    }
+                    for provider, provider_settings in api_settings[
+                        "providers"
+                    ].items()
+                },
+            },
+        },
         "library": {
             "current_root": settings["library"]["current_root"],
             "roots": list(settings["library"]["roots"]),
@@ -1005,7 +1024,9 @@ class _State:
             self._document_revision = None
             self.config = None
 
-    def procedural_target(self, revision: str) -> dict:
+    def procedural_target(self, revision: str, target: str) -> dict:
+        if not isinstance(target, str) or not target:
+            raise ValueError("target must name one selected LED destination.")
         with self._document_lock:
             snapshot = self._document_snapshot
             current = self._document_revision
@@ -1021,14 +1042,7 @@ class _State:
                 )
         document = json.loads(snapshot)
         product_id = document["product_info"]["product_id"]
-        model = device_mapping.led_model(product_id)
-        if model == "CB":
-            targets = ["frames"]
-        elif model == "80":
-            targets = ["keyframes", "spotlight_frames"]
-        else:
-            targets = ["keyframes"]
-        return _Handler._lighting_target(product_id, targets)
+        return _Handler._lighting_target(product_id, [target])
 
     def ai_services(self) -> Any:
         """Return the Ollama/API-only capability service."""
@@ -1714,14 +1728,14 @@ class _Handler(BaseHTTPRequestHandler):
     def _start_procedural_effect(self, body: dict[str, Any]) -> None:
         self._strict_body(
             body,
-            allowed={"prompt", "backend", "document_revision"},
-            required={"prompt", "backend", "document_revision"},
+            allowed={"prompt", "backend", "target", "document_revision"},
+            required={"prompt", "backend", "target", "document_revision"},
         )
         revision = body["document_revision"]
         if not isinstance(revision, str) or not 24 <= len(revision) <= 200:
             raise ValueError("document_revision must be an opaque revision string.")
         try:
-            target = self.state.procedural_target(revision)
+            target = self.state.procedural_target(revision, body["target"])
         except DocumentRevisionError as exc:
             self._json({"code": exc.code, "error": str(exc)}, HTTPStatus.CONFLICT)
             return

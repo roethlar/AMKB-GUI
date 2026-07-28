@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 import tempfile
 import threading
@@ -22,7 +23,10 @@ from am_configurator.generation_admission import (
 from am_configurator.library import GeneratedAssetLibrary
 from am_configurator.llm import ProviderError
 from am_configurator.ollama_client import OllamaClient, OllamaModel
-from am_configurator.procedural_generation import ProceduralGenerationCoordinator
+from am_configurator.procedural_generation import (
+    ProceduralGenerationCoordinator,
+    render_recipe_to_exact_target,
+)
 from am_configurator.recipe_provider import OllamaRecipeProvider, RecipeResult
 
 
@@ -30,7 +34,7 @@ TARGET = {
     "family": "80",
     "product_id": "AM21",
     "raster": {"width": 18, "height": 7},
-    "targets": ["keyframes", "spotlight_frames"],
+    "targets": ["keyframes"],
 }
 ORNITH_RECIPE = Path(__file__).parent / "fixtures" / "ornith_dense_aurora_recipe.json"
 
@@ -202,7 +206,6 @@ class ProceduralGenerationTests(unittest.TestCase):
         self.assertEqual(34, mapped["duration_ms"])
         self.assertFalse(mapped["timing_resampled"])
         self.assertEqual(200, mapped["tracks"]["keyframes"]["frame_count"])
-        self.assertEqual(200, mapped["tracks"]["spotlight_frames"]["frame_count"])
         for phase in ("rendering", "quality_check", "banking"):
             self.assertTrue(
                 any(
@@ -210,6 +213,107 @@ class ProceduralGenerationTests(unittest.TestCase):
                     for current_phase, completed, total in progress_updates
                 ),
                 phase,
+            )
+
+    def test_recipe_rerender_uses_each_exact_destination_without_old_raster_input(
+        self,
+    ) -> None:
+        render_calls: list[tuple[int, int, int]] = []
+        mapping_calls: list[tuple[int, str, tuple[str, ...]]] = []
+
+        def render(_recipe, *, width, height, frame_count, **_kwargs):
+            render_calls.append((width, height, frame_count))
+            return [object() for _index in range(frame_count)]
+
+        def map_frames(
+            frames,
+            *,
+            duration_ms,
+            product_id,
+            targets,
+            **_kwargs,
+        ):
+            materialized = list(frames)
+            mapping_calls.append((len(materialized), product_id, tuple(targets)))
+            return {
+                "source_frames": len(materialized),
+                "decoded_frames": len(materialized),
+                "duration_ms": duration_ms,
+                "source_duration_ms": len(materialized) * duration_ms,
+                "timing_resampled": False,
+                "tracks": {
+                    target: {
+                        "frame_count": len(materialized),
+                        "frames": [[] for _frame in materialized],
+                    }
+                    for target in targets
+                },
+            }
+
+        destinations = (
+            {
+                "family": "80",
+                "product_id": "AM21",
+                "raster": {"width": 18, "height": 7},
+                "targets": ["spotlight_frames"],
+                "frame_cap": 200,
+            },
+            {
+                "family": "CB",
+                "product_id": "CB04",
+                "raster": {"width": 40, "height": 5},
+                "targets": ["frames"],
+                "frame_cap": 80,
+            },
+        )
+        with (
+            patch.object(procedural, "render_recipe", side_effect=render),
+            patch.object(
+                procedural,
+                "map_frames_to_led_tracks",
+                side_effect=map_frames,
+            ),
+        ):
+            rendered = [
+                render_recipe_to_exact_target(_dense_recipe(), target)
+                for target in destinations
+            ]
+
+        self.assertEqual([(18, 7, 200), (40, 5, 80)], render_calls)
+        self.assertEqual(
+            [
+                (200, "AM21", ("spotlight_frames",)),
+                (80, "CB04", ("frames",)),
+            ],
+            mapping_calls,
+        )
+        self.assertIsNot(rendered[0]["frames"], rendered[1]["frames"])
+        self.assertEqual(
+            ["spotlight_frames"],
+            list(rendered[0]["mapped_result"]["tracks"]),
+        )
+        self.assertEqual(["frames"], list(rendered[1]["mapped_result"]["tracks"]))
+        parameters = set(inspect.signature(render_recipe_to_exact_target).parameters)
+        self.assertFalse(
+            parameters
+            & {
+                "source_frames",
+                "source_transform",
+                "source_image",
+                "media",
+                "resize",
+            }
+        )
+        with self.assertRaisesRegex(GenerationError, "one exact LED target"):
+            render_recipe_to_exact_target(
+                _dense_recipe(),
+                {
+                    "family": "80",
+                    "product_id": "AM21",
+                    "raster": {"width": 18, "height": 7},
+                    "targets": ["keyframes", "spotlight_frames"],
+                    "frame_cap": 200,
+                },
             )
 
     def test_invalid_mapped_timeline_is_rejected_before_result_assets_are_banked(self) -> None:

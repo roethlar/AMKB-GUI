@@ -8,8 +8,8 @@ if (queryToken) history.replaceState({}, "", `${location.pathname}${location.has
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
-const {ROUTES, STAGES, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
-const {createReviewView, openRenderedDialog, renderReview, reviewBlockedMessage} = LightingReview;
+const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
+const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
@@ -64,7 +64,6 @@ const state = {
   aiStatus: null,
   localModels: {available:null,models:[],reason:null,loading:false},
   settingsReturnRoute: null,
-  settingsReturnDialog: false,
   settingsSaveBusy: false,
   aiPrompt: "",
   conceptQuantity: 1,
@@ -683,13 +682,7 @@ function documentDescriptor() {
 
 function renderRoute() {
   stopPlayback(false);
-  let route = state.lighting.route;
-  if (route === ROUTES.CREATE && !aiReady() && !state.lighting.activeJob) {
-    state.lighting = reduceLightingState(state.lighting, {type: "NAVIGATE", route: ROUTES.EDIT}).state;
-    route = ROUTES.EDIT;
-    persistLightingState();
-    history.replaceState({}, "", `${location.pathname}${location.search}${formatLightingHash(route)}`);
-  }
+  const route = state.lighting.route;
   $("#empty-state").hidden = true;
   $("#screen").hidden = true;
   $("#lighting-shell").hidden = true;
@@ -712,7 +705,7 @@ function renderRoute() {
     populateSettings();
     return;
   }
-  if (route === ROUTES.CREATE || route === ROUTES.LIBRARY || route === ROUTES.EDIT) {
+  if (route === ROUTES.LIBRARY || route === ROUTES.EDIT) {
     $("#lighting-shell").hidden = false;
     renderLightingShell();
     return;
@@ -729,10 +722,25 @@ function renderRoute() {
 }
 
 function renderLightingJobStrip() {
-  const strip = $("#lighting-job-strip");
+  const host = $("#lighting-job-host");
   const job = state.lighting.activeJob;
-  strip.hidden = !job;
-  if (!job) return;
+  if (!job || !aiReady()) {
+    host.replaceChildren();
+    return;
+  }
+  let strip = $("#lighting-job-strip",host);
+  if (!strip) {
+    host.innerHTML=`<section id="lighting-job-strip" class="lighting-job-strip">
+      <span class="job-state-mark" aria-hidden="true"></span>
+      <div class="job-strip-copy"><strong id="lighting-job-phase">Lighting job</strong><span id="lighting-job-detail">Preparing local workspace…</span></div>
+      <progress id="lighting-job-progress" max="1" value="0" hidden></progress>
+      <div class="job-strip-actions"><button id="lighting-job-view" type="button" class="button ghost">View</button><button id="lighting-job-cancel" type="button" class="button ghost">Cancel</button></div>
+      <span id="lighting-job-phase-live" class="sr-only" aria-live="polite"></span>
+    </section>`;
+    strip=$("#lighting-job-strip",host);
+    $("#lighting-job-view",host).addEventListener("click",revealGenerationStudio);
+    $("#lighting-job-cancel",host).addEventListener("click",cancelLightingJob);
+  }
   const phase = job.phase ? job.phase.replaceAll("_", " ") : "Ready";
   const phaseLabel = phase.charAt(0).toUpperCase() + phase.slice(1);
   if ($("#lighting-job-phase").textContent !== phaseLabel) {
@@ -950,9 +958,9 @@ async function loadConceptAsset(jobId,assetId) {
     const previous=state.conceptAssetUrls.get(key);
     if(previous&&previous!==url)URL.revokeObjectURL(previous);
     state.conceptAssetUrls.set(key,url);
-    refreshGenerationDialog();
+    refreshGenerationStudio();
   }catch(error){
-    if(state.conceptManifest?.job_id===jobId){state.conceptError=error.message;refreshGenerationDialog();}
+    if(state.conceptManifest?.job_id===jobId){state.conceptError=error.message;refreshGenerationStudio();}
   }finally{state.conceptAssetLoads.delete(key);}
 }
 
@@ -967,9 +975,9 @@ async function loadMappedLightingResult(jobId,assetId) {
     if(!result||typeof result!=="object"||!result.tracks)throw new Error("The saved LED result is invalid.");
     if(state.conceptManifest?.job_id!==jobId)return;
     state.mappedLightingResults.set(key,result);
-    refreshGenerationDialog();
+    refreshGenerationStudio();
   }catch(error){
-    if(state.conceptManifest?.job_id===jobId){state.animationError=error.message;refreshGenerationDialog();}
+    if(state.conceptManifest?.job_id===jobId){state.animationError=error.message;refreshGenerationStudio();}
   }finally{state.mappedLightingResultLoads.delete(key);}
 }
 
@@ -989,7 +997,7 @@ async function pollLightingJob(jobId,epoch=state.conceptPollEpoch) {
     if(error.status===400||error.status===404){syncLightingJob(null,{renderPage:false});return;}
     state.conceptError=error.message;
     state.conceptPollFailures++;
-    refreshGenerationDialog();
+    refreshGenerationStudio();
     scheduleLightingJobPoll(jobId,Math.min(5000,800*(2**Math.min(3,state.conceptPollFailures))));
   }
 }
@@ -1029,11 +1037,11 @@ function documentRequirementMarkup(message) {
 
 function renderLightingShell() {
   const route = state.lighting.route;
-  const available = routeAvailability(route, documentDescriptor(), {aiReady: aiReady(), hasActiveJob: Boolean(state.lighting.activeJob)});
+  const available = routeAvailability(route, documentDescriptor());
   const routes = [ROUTES.EDIT, ROUTES.LIBRARY];
   const names = ["edit", "library"];
   routes.forEach((candidate, index) => {
-    const selected = route === candidate || (candidate === ROUTES.EDIT && route === ROUTES.CREATE);
+    const selected = route === candidate;
     const tab = $(`#lighting-${names[index]}-tab`);
     const panel = $(`#lighting-${names[index]}-panel`);
     tab.setAttribute("aria-selected", String(selected));
@@ -1068,17 +1076,12 @@ function renderLightingShell() {
     else step.removeAttribute("aria-current");
   });
 
-  if (route === ROUTES.EDIT || route === ROUTES.CREATE) {
+  if (route === ROUTES.EDIT) {
     if (!available.available) {
       $("#lighting-edit-content").innerHTML = documentRequirementMarkup("Edit works directly on the custom lighting slots in an open document.");
     } else renderLightingEdit();
   }
   if (route === ROUTES.LIBRARY) renderLibrary();
-  const generateOpen=$("#lighting-generate-open");
-  generateOpen.hidden=!aiReady();
-  generateOpen.disabled = !state.config || !pageData().length || !aiReady() || !documentSynchronized();
-  renderGenerationDialog();
-  if (route === ROUTES.CREATE && (aiReady() || state.lighting.activeJob)) setTimeout(openGenerationDialog, 0);
 }
 
 function focusSelectedTarget(target = state.ledTarget) {
@@ -1536,6 +1539,10 @@ function renderLightingEdit() {
   const relicGifOption=relicKeyTarget?`<label class="check-row"><input id="relic-gif-edges" type="checkbox" ${state.relicGifEdges?'checked':''}><span>Also derive edge lights from this GIF</span></label>`:"";
   const edgeTools=edgeAutomation?`<div class="control-group"><label class="control-label">Whole edge animation</label><div class="button-row"><button id="edge-static" class="button ghost">Static color</button><button id="edge-pulse" class="button ghost">Pulse color</button></div><button id="edge-hold" class="button ghost wide-button">Hold painted frame</button><small class="control-help">Generates ${keyFrameCount} edge frames automatically to match the key animation. “Hold” preserves the seven colors painted in the current frame.</small></div>`:"";
   const targetLabel=targets.find(t=>t.key===state.ledTarget)?.label||state.ledTarget;
+  const generationTool=aiReady()?`<section id="lighting-generate-tool" class="card lighting-generate-tool" aria-labelledby="lighting-generate-title" tabindex="-1">
+      <div class="card-header"><div><strong id="lighting-generate-title">Generate lighting</strong><small>Procedural recipe · exact ${esc(targetLabel)} destination</small></div></div>
+      <div id="lighting-generate-content" class="card-body" aria-live="polite"></div>
+    </section>`:"";
   const editorBody=`<div class="card-body">
         <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Animation source</h3><input id="gif-input" type="file" accept="image/gif,.gif" hidden><div class="gif-import-row"><button id="import-gif" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="GIF resize method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
         ${edgeTools}
@@ -1548,8 +1555,9 @@ function renderLightingEdit() {
       <aside class="card frame-list" aria-label="Animation frames"><div class="card-header"><strong>Frames</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?'Editing':'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div></aside>
       <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header"><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}</small></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''}" role="region" aria-label="Paint the selected animation frame">${pixelCanvas}</div></section>
       <aside class="card led-controls" aria-label="Lighting controls"><div class="card-header"><strong>Frame controls</strong><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div>${editorBody}</aside>
-    </div></div>`;
+    </div>${generationTool}</div>`;
   wireLedEditor(columns);
+  renderGenerationStudio();
 }
 
 function focusSelectedFrame() {
@@ -1721,11 +1729,8 @@ function setSettingsStatus(message, kind = "") {
 
 function finishSettings() {
   const route=state.settingsReturnRoute&&state.settingsReturnRoute!==ROUTES.SETTINGS?state.settingsReturnRoute:ROUTES.EDIT;
-  const reopen=state.settingsReturnDialog;
   state.settingsReturnRoute=null;
-  state.settingsReturnDialog=false;
-  navigateTo(route,{focusHeading:!reopen});
-  if(reopen)setTimeout(openGenerationDialog,0);
+  navigateTo(route,{focusHeading:true});
 }
 
 async function chooseLibraryFolder() {
@@ -2067,7 +2072,7 @@ async function confirmDeviceWrite() {
 // ---- Optional procedural generation ---------------------------------------
 
 function aiReady() {
-  return Boolean(state.aiStatus?.enabled && state.aiStatus?.ready);
+  return Boolean(aiStudioAvailable(state.aiStatus));
 }
 
 function selectedAiBackend() {
@@ -2076,9 +2081,12 @@ function selectedAiBackend() {
 
 function proceduralTargetSnapshot() {
   const family=productFamily(productId());
-  if(family==="CB")return {family,productId:productId(),targets:["frames"],frameCap:80};
-  if(family==="80")return {family,productId:productId(),targets:["keyframes","spotlight_frames"],frameCap:200};
-  return {family,productId:productId(),targets:["keyframes"],frameCap:186};
+  return {
+    family,
+    productId:productId(),
+    targets:[state.ledTarget],
+    frameCap:Number(activeFamilySpec().frameCap||0),
+  };
 }
 
 function latestProceduralAttempt(manifest=state.conceptManifest) {
@@ -2095,9 +2103,9 @@ async function loadProceduralRecipe(jobId,assetId) {
     if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load recipe (${response.status})`);}
     const recipe=await response.json();
     if(!recipe||typeof recipe!=="object"||!Array.isArray(recipe.layers))throw new Error("The saved recipe is invalid.");
-    if(state.conceptManifest?.job_id===jobId){state.proceduralRecipes.set(key,recipe);refreshGenerationDialog();}
+    if(state.conceptManifest?.job_id===jobId){state.proceduralRecipes.set(key,recipe);refreshGenerationStudio();}
   }catch(error){
-    if(state.conceptManifest?.job_id===jobId){state.animationError=error.message;refreshGenerationDialog();}
+    if(state.conceptManifest?.job_id===jobId){state.animationError=error.message;refreshGenerationStudio();}
   }finally{state.proceduralRecipeLoads.delete(key);}
 }
 
@@ -2109,9 +2117,8 @@ function hydrateProceduralAssets(manifest) {
   if(attempt.mapped_result_asset_id)void loadMappedLightingResult(manifest.job_id,attempt.mapped_result_asset_id);
 }
 
-function refreshGenerationDialog() {
-  const dialog=$("#lighting-generate-dialog");
-  if(dialog?.open)renderGenerationDialog();
+function refreshGenerationStudio() {
+  if($("#lighting-generate-tool"))renderGenerationStudio();
 }
 
 function syncLightingJob(manifest,{renderPage=true}={}) {
@@ -2133,7 +2140,7 @@ function syncLightingJob(manifest,{renderPage=true}={}) {
   history.replaceState({},"",`${location.pathname}${location.search}${formatLightingHash(state.lighting.route,state.lightingJobId)}`);
   hydrateProceduralAssets(manifest);
   if(renderPage)render();
-  else{renderLightingJobStrip();refreshGenerationDialog();}
+  else{renderLightingJobStrip();refreshGenerationStudio();}
   if(manifest&&["in_progress","accepted","processing"].includes(manifest.status))scheduleLightingJobPoll(manifest.job_id);
 }
 
@@ -2155,7 +2162,7 @@ function proceduralProgressLabel(phase, completed, total) {
   return `${completed} of ${total} frames ${verb}`;
 }
 
-function generationDialogContext() {
+function generationStudioContext() {
   const manifest=state.conceptManifest?.job_id===state.lighting.activeJob?.id?state.conceptManifest:null;
   const target=manifest?.target||proceduralTargetSnapshot();
   const targetKey=target.targets?.[0]||state.ledTarget;
@@ -2184,7 +2191,7 @@ function renderProgressStage(context) {
   const completed=Number(progress?.completed||0),total=Number(progress?.total||0);
   $("#lighting-generate-content").innerHTML=`<div class="concept-stage generation-progress">
     <div class="loader" aria-hidden="true"></div><h3>${esc(proceduralPhaseLabel(manifest?.phase||state.lighting.activeJob?.phase))}</h3>
-    <p>Your job is durable. You can close this window while the result continues banking locally.</p>
+    <p>Your job is durable. You can switch to Library while the result continues banking locally.</p>
     ${total?`<progress max="${total}" value="${Math.min(completed,total)}" aria-label="Generation progress"></progress><p>${proceduralProgressLabel(manifest?.phase||state.lighting.activeJob?.phase,completed,total)}</p>`:""}
     <div class="button-row"><button id="cancel-effect" type="button" class="button ghost">Cancel</button></div>
     ${state.conceptError?`<p class="ai-error" role="alert">${esc(state.conceptError)}</p>`:""}
@@ -2203,40 +2210,24 @@ function renderProceduralReview(context) {
   renderReview($("#lighting-generate-content"),view,applyReviewedLighting);
 }
 
-function renderGenerationDialog() {
-  const dialog=$("#lighting-generate-dialog");
-  if(!dialog)return;
+function renderGenerationStudio() {
+  const container=$("#lighting-generate-content");
+  if(!container||!aiReady())return;
   const active=Boolean(state.lighting.activeJob);
-  dialog.hidden=!aiReady()&&!active;
-  if(!dialog.open)return;
-  const context=generationDialogContext();
+  const context=generationStudioContext();
   if(state.lighting.create.stage===STAGES.REVIEW&&context.manifest)renderProceduralReview(context);
   else if(state.lighting.create.stage===STAGES.PROGRESS&&active)renderProgressStage(context);
   else renderPromptStage(context);
 }
 
-function openGenerationDialog() {
-  const dialog=$("#lighting-generate-dialog");
-  if((!aiReady()&&!state.lighting.activeJob)||!state.config||!pageData().length||(!state.lighting.activeJob&&!documentSynchronized()))return;
-  openRenderedDialog(dialog,renderGenerationDialog);
-  setTimeout(()=>$("#effect-prompt")?.focus(),30);
-}
-
-function handleGenerationDialogClose() {
-  const job=state.lighting.activeJob;
-  if(job&&!["in_progress","accepted","processing"].includes(job.status)){
-    clearConceptAssetUrls();
-    state.proceduralRecipes.clear();
-    state.conceptManifest=null;
-    state.conceptDestination=null;
-    state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:null}).state;
-    state.lightingJobId=null;
-    state.library.loaded=false;
-    persistLightingState();
-    history.replaceState({},"",`${location.pathname}${location.search}${formatLightingHash(state.lighting.route)}`);
-    render();
-  }
-  $("#lighting-generate-open")?.focus();
+function revealGenerationStudio() {
+  if(!aiReady()||!state.config||!pageData().length)return;
+  if(state.lighting.route!==ROUTES.EDIT)navigateTo(ROUTES.EDIT);
+  requestAnimationFrame(()=>{
+    const tool=$("#lighting-generate-tool");
+    tool?.scrollIntoView({behavior:"smooth",block:"start"});
+    (tool?.querySelector("#effect-prompt")||tool)?.focus({preventScroll:true});
+  });
 }
 
 async function startProceduralGeneration() {
@@ -2252,19 +2243,19 @@ async function startProceduralGeneration() {
   state.animationError="";
   const target=proceduralTargetSnapshot();
   state.conceptDestination={slot:state.ledSlot,target:target.targets[0]};
-  renderGenerationDialog();
+  renderGenerationStudio();
   try{
-    const started=await api("/api/lighting/effects",{method:"POST",body:JSON.stringify({prompt,backend:state.aiStatus.backend,document_revision:state.documentRevision})});
+    const started=await api("/api/lighting/effects",{method:"POST",body:JSON.stringify({prompt,backend:state.aiStatus.backend,target:state.ledTarget,document_revision:state.documentRevision})});
     state.conceptPollEpoch++;
     state.conceptDestination={slot:state.ledSlot,target:started.target.targets[0]};
     state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:{id:started.job_id,status:"in_progress",phase:"accepted",progress:null,resultAssetId:null,previewAssetId:null,recipeAssetId:null,target:started.target}}).state;
     state.lightingJobId=started.job_id;
     persistLightingState();
     renderLightingJobStrip();
-    renderGenerationDialog();
+    renderGenerationStudio();
     scheduleLightingJobPoll(started.job_id);
   }catch(error){state.conceptError=aiErrorMessage(error);}
-  finally{state.conceptSubmitting=false;refreshGenerationDialog();}
+  finally{state.conceptSubmitting=false;refreshGenerationStudio();}
 }
 
 function applyReviewedLighting() {
@@ -2273,9 +2264,9 @@ function applyReviewedLighting() {
   const destination=state.conceptDestination;
   if(!manifest||!attempt?.mapped_result_asset_id||!destination)return;
   const decision=reduceLightingState(state.lighting,{type:"APPLY_REQUESTED"},{document:documentDescriptor(),destination});
-  if(decision.blocked){state.animationError=reviewBlockedMessage(decision.blocked);renderGenerationDialog();return;}
+  if(decision.blocked){state.animationError=reviewBlockedMessage(decision.blocked);renderGenerationStudio();return;}
   const result=state.mappedLightingResults.get(`${manifest.job_id}:${attempt.mapped_result_asset_id}`);
-  if(!result){state.animationError="The saved LED result is still loading.";renderGenerationDialog();return;}
+  if(!result){state.animationError="The saved LED result is still loading.";renderGenerationStudio();return;}
   const pairsRelicGif=(manifest.target?.targets||[]).includes("spotlight_frames");
   mutate(()=>{
     state.ledSlot=destination.slot;
@@ -2294,7 +2285,6 @@ function applyReviewedLighting() {
   state.library.loaded=false;
   persistLightingState();
   history.replaceState({},"",`${location.pathname}${location.search}${formatLightingHash(state.lighting.route)}`);
-  $("#lighting-generate-dialog").close();
   render();
   toast("Lighting applied",`${Number(result.source_frames||0)} frames added to Custom ${destination.slot-4}. The keyboard has not been written.`,"success");
 }
@@ -2320,16 +2310,8 @@ async function loadAiConfig() {
 }
 
 function refreshAiGate() {
-  const button=$("#lighting-generate-open");
-  if(button){button.hidden=!aiReady();button.disabled=!state.config||!pageData().length||!aiReady();}
-  const dialog=$("#lighting-generate-dialog");
-  if(dialog){
-    const keep=Boolean(state.lighting.activeJob);
-    dialog.hidden=!aiReady()&&!keep;
-    if(dialog.open&&!aiReady()&&!keep)dialog.close();
-  }
-  if(state.lighting.route===ROUTES.CREATE&&!aiReady()&&!state.lighting.activeJob)navigateTo(ROUTES.EDIT,{replace:true});
-  else if(state.lighting.route===ROUTES.SETTINGS)populateSettings();
+  renderLightingJobStrip();
+  if(state.lighting.route===ROUTES.SETTINGS)populateSettings();
   else if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
   else renderScreen();
 }
@@ -2362,10 +2344,64 @@ function populateLocalModelSelect(local) {
   return projection;
 }
 
-async function openSettings({returnToGeneration=false}={}) {
+function apiProviderSelection(
+  provider=state.aiStatus?.api?.provider,
+  model=state.aiStatus?.api?.model_id,
+) {
+  return projectApiProviderPicker(
+    state.capabilities?.ai_catalog,
+    state.settings?.ai?.api,
+    provider,
+    model,
+  );
+}
+
+function populateApiProviderControls(apiState) {
+  const projection=apiProviderSelection(apiState.provider,apiState.model_id);
+  const providerSelect=$("#settings-api-provider");
+  providerSelect.replaceChildren();
+  projection.providers.forEach(provider=>{
+    const option=document.createElement("option");
+    option.value=provider.id;
+    option.textContent=provider.label;
+    providerSelect.append(option);
+  });
+  if(!projection.providers.length){
+    const option=document.createElement("option");
+    option.value="";
+    option.textContent="Provider catalog unavailable";
+    providerSelect.append(option);
+  }
+  providerSelect.value=projection.providerId||"";
+  providerSelect.disabled=!projection.providerId;
+
+  const modelSelect=$("#settings-api-model");
+  modelSelect.replaceChildren();
+  projection.models.forEach(model=>{
+    const option=document.createElement("option");
+    option.value=model.id;
+    option.textContent=model.label;
+    modelSelect.append(option);
+  });
+  if(!projection.models.length){
+    const option=document.createElement("option");
+    option.value="";
+    option.textContent="No curated models available";
+    modelSelect.append(option);
+  }
+  modelSelect.value=projection.modelId||"";
+  modelSelect.disabled=!projection.modelId;
+
+  const label=projection.providerLabel;
+  $("#settings-api-key-label").textContent=`${label} API key`;
+  $("#settings-api-key").placeholder=`Enter ${label} key`;
+  $("#settings-api-disclosure-detail").textContent=`Your lighting prompt and the selected keyboard raster dimensions go to ${label}. Imported GIF, PNG, and BMP bytes, keymaps, macros, device paths, and Library files never leave this computer. API use may cost money under your provider account.`;
+  $("#settings-api-test").textContent=`Test ${label} setup`;
+  return projection;
+}
+
+async function openSettings() {
   if(state.lighting.route!==ROUTES.SETTINGS)state.settingsReturnRoute=state.lighting.route;
-  state.settingsReturnDialog=returnToGeneration||$("#lighting-generate-dialog").open;
-  if($("#lighting-generate-dialog").open)$("#lighting-generate-dialog").close();
   navigateTo(ROUTES.SETTINGS,{focusHeading:true});
   setSettingsStatus("");
   await loadAiConfig();
@@ -2426,11 +2462,10 @@ function populateSettings() {
   $("#settings-local-clear").disabled=!local.model_selected;
   $("#settings-local-test").disabled=!local.model_verified;
   const apiState=status?.api||{};
-  $("#settings-api-credential-state").textContent=apiState.credential_set?"A credential is stored securely.":"No credential is configured.";
+  const apiProjection=populateApiProviderControls(apiState);
+  $("#settings-api-credential-state").textContent=apiState.credential_set?`A ${apiProjection.providerLabel} credential is stored securely.`:`No ${apiProjection.providerLabel} credential is configured.`;
   $("#settings-api-remove").disabled=!apiState.credential_set;
   $("#settings-api-disclosure-ack").checked=Boolean(apiState.disclosure_current);
-  $("#settings-api-provider").value=apiState.provider||"xai";
-  $("#settings-api-model").value=apiState.model_id||"grok-4.5";
   $("#settings-library-root").value=state.settings?.library?.current_root||"";
   $("#settings-reveal-library").disabled=!state.settings?.library?.current_root;
 }
@@ -2450,7 +2485,7 @@ async function setAiEnabled(enabled) {
   $("#settings-ai-details").hidden=!enabled;
   setSettingsStatus(enabled?"Turning on AI features…":"Turning off AI features…","working");
   try{
-    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled,backend,provider:"xai",model_id:"grok-4.5"})});
+    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled,backend})});
     if(enabled&&state.aiStatus.backend==="local")await refreshLocalModels({quiet:true});
     else{
       if(!enabled)state.localModels={available:null,models:[],reason:null,loading:false};
@@ -2474,6 +2509,41 @@ async function selectAiBackend(backend) {
     refreshAiGate();
     setSettingsStatus(backend==="local"?"Local backend selected. Choose an installed Ollama model, then test its setup.":"API backend selected. Save a credential, accept the disclosure, and test its setup.");
   }catch(error){setSettingsStatus(error.message,"error");}
+}
+
+async function selectApiProvider() {
+  const selection=apiProviderSelection($("#settings-api-provider").value,null);
+  if(!selection.providerId||!selection.modelId){
+    setSettingsStatus("The API provider catalog is unavailable.","error");
+    return;
+  }
+  setSettingsStatus(`Selecting ${selection.providerLabel}…`,"working");
+  try{
+    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend:"api",provider:selection.providerId,model_id:selection.modelId})});
+    state.settings=await api("/api/settings");
+    populateSettings();
+    refreshAiGate();
+    setSettingsStatus(`${selection.providerLabel} selected. Save its credential, accept its disclosure, and run Test setup.`);
+  }catch(error){populateSettings();setSettingsStatus(error.message,"error");}
+}
+
+async function selectApiModel() {
+  const selection=apiProviderSelection(
+    $("#settings-api-provider").value,
+    $("#settings-api-model").value,
+  );
+  if(!selection.providerId||!selection.modelId){
+    setSettingsStatus("Choose a curated API model first.","error");
+    return;
+  }
+  setSettingsStatus(`Selecting ${selection.models.find(model=>model.id===selection.modelId)?.label||selection.modelId}…`,"working");
+  try{
+    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend:"api",provider:selection.providerId,model_id:selection.modelId})});
+    state.settings=await api("/api/settings");
+    populateSettings();
+    refreshAiGate();
+    setSettingsStatus("Model selected. Run Test setup.");
+  }catch(error){populateSettings();setSettingsStatus(error.message,"error");}
 }
 
 async function refreshLocalModels({quiet=false}={}) {
@@ -2504,15 +2574,19 @@ async function clearLocalModel() {
 async function testAiBackend(backend) {
   setSettingsStatus(backend==="local"?"Testing the selected model through local Ollama…":"Testing the API setup…","working");
   try{
-    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend,provider:"xai",model_id:"grok-4.5"})});
+    if(state.aiStatus?.backend!==backend)state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend})});
     if(backend==="api"){
+      const selection=apiProviderSelection();
+      if(!selection.providerId||!selection.modelId||!selection.disclosureVersion)throw new Error("The selected API provider is unavailable.");
+      if(state.aiStatus?.api?.provider!==selection.providerId||state.aiStatus?.api?.model_id!==selection.modelId){
+        state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({provider:selection.providerId,model_id:selection.modelId})});
+        state.settings=await api("/api/settings");
+      }
       const key=$("#settings-api-key").value.trim();
-      if(key){state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:"xai",key})});$("#settings-api-key").value="";}
+      if(key){state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:selection.providerId,key})});$("#settings-api-key").value="";}
       if(!state.aiStatus.api.disclosure_current){
         if(!$("#settings-api-disclosure-ack").checked)throw new Error("Accept the API data disclosure before testing.");
-        const version=state.capabilities?.privacy_disclosure_version;
-        if(!version)throw new Error("The current API disclosure is unavailable.");
-        state.settings=await api("/api/settings/privacy",{method:"POST",body:JSON.stringify({provider:state.aiStatus?.api?.provider||"xai",version})});
+        state.settings=await api("/api/settings/privacy",{method:"POST",body:JSON.stringify({provider:selection.providerId,version:selection.disclosureVersion})});
       }
     }
     state.aiStatus=await api("/api/ai/test",{method:"POST",body:JSON.stringify({backend})});
@@ -2527,14 +2601,18 @@ async function testAiBackend(backend) {
 async function saveApiCredential() {
   const key=$("#settings-api-key").value.trim();
   if(!key){setSettingsStatus("Enter an API key to save.","error");return;}
+  const selection=apiProviderSelection();
+  if(!selection.providerId){setSettingsStatus("Choose an API provider first.","error");return;}
   setSettingsStatus("Saving credential securely…","working");
-  try{state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:"xai",key})});$("#settings-api-key").value="";populateSettings();setSettingsStatus("Credential saved. Run Test setup.");}
+  try{state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:selection.providerId,key})});$("#settings-api-key").value="";populateSettings();setSettingsStatus(`${selection.providerLabel} credential saved. Run Test setup.`);}
   catch(error){setSettingsStatus(error.message,"error");}
 }
 
 async function clearSettingsKey() {
+  const selection=apiProviderSelection();
+  if(!selection.providerId){setSettingsStatus("Choose an API provider first.","error");return;}
   setSettingsStatus("Removing credential…","working");
-  try{state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:"xai",key:""})});populateSettings();refreshAiGate();setSettingsStatus("API credential removed.");}
+  try{state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:selection.providerId,key:""})});populateSettings();refreshAiGate();setSettingsStatus(`${selection.providerLabel} credential removed.`);}
   catch(error){setSettingsStatus(error.message,"error");}
 }
 
@@ -2563,7 +2641,7 @@ async function saveSettings({exit=false}={}) {
   try{
     const backend=selectedAiBackend();
     const enabled=$("#settings-ai-enabled").checked;
-    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled,backend,provider:"xai",model_id:"grok-4.5"})});
+    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled,backend})});
     const requestedRoot=$("#settings-library-root").value.trim()||null;
     if(requestedRoot!==state.settings.library?.current_root)state.settings=await api("/api/settings/library",{method:"POST",body:JSON.stringify({current_root:requestedRoot})});
     state.library.loaded=false;
@@ -2614,6 +2692,8 @@ $("#settings-local-model-select").addEventListener("change",populateSettings);
 $("#settings-local-select").addEventListener("click",selectOllamaModel);
 $("#settings-local-test").addEventListener("click",()=>testAiBackend("local"));
 $("#settings-local-clear").addEventListener("click",clearLocalModel);
+$("#settings-api-provider").addEventListener("change",selectApiProvider);
+$("#settings-api-model").addEventListener("change",selectApiModel);
 $("#settings-api-key").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();saveApiCredential();}});
 $("#settings-api-save-key").addEventListener("click",saveApiCredential);
 $("#settings-api-test").addEventListener("click",()=>testAiBackend("api"));
@@ -2638,8 +2718,6 @@ $("#library-search").addEventListener("input",event=>{
   if(state.library.searchTimer)clearTimeout(state.library.searchTimer);
   state.library.searchTimer=setTimeout(()=>{state.library.loaded=false;void loadLibrary({force:true});},280);
 });
-$("#lighting-generate-open").addEventListener("click",openGenerationDialog);
-$("#lighting-generate-dialog").addEventListener("close",handleGenerationDialogClose);
 $$('.nav-item').forEach(item=>item.addEventListener('click',()=>navigateTo(item.dataset.route, {focusHeading: true})));
 $$('[data-lighting-route]').forEach(tab => {
   tab.addEventListener('click', () => navigateTo(tab.dataset.lightingRoute));
@@ -2662,8 +2740,6 @@ $$('[data-lighting-slot]').forEach(button=>button.addEventListener('click',()=>{
   state.ledPixel=0;
   renderLightingShell();
 }));
-$("#lighting-job-view").addEventListener("click",openGenerationDialog);
-$("#lighting-job-cancel").addEventListener("click", cancelLightingJob);
 window.addEventListener("popstate", () => {
   const parsed = parseLightingHash(location.hash);
   state.lightingJobId = parsed.jobId;

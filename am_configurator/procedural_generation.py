@@ -104,6 +104,94 @@ def _json_bytes(value: object, work: procedural.WorkBudget) -> bytes:
     return bytes(output)
 
 
+def _canonical_exact_target(target: object) -> dict:
+    snapshot = canonical_target_snapshot(target)
+    if len(snapshot["targets"]) != 1:
+        raise GenerationValidationError(
+            "procedural generation requires one exact LED target"
+        )
+    return snapshot
+
+
+def render_recipe_frames_to_exact_target(
+    recipe: dict[str, Any],
+    target: object,
+    *,
+    work: procedural.WorkBudget | None = None,
+    progress: procedural.ProgressCallback | None = None,
+) -> tuple[dict, list[Image.Image]]:
+    """Render a validated recipe at one canonical destination's native raster."""
+
+    snapshot = _canonical_exact_target(target)
+    frames = procedural.render_recipe(
+        recipe,
+        width=snapshot["raster"]["width"],
+        height=snapshot["raster"]["height"],
+        frame_count=snapshot["frame_cap"],
+        work=work,
+        progress=progress,
+    )
+    return snapshot, frames
+
+
+def map_rendered_recipe_frames_to_exact_target(
+    frames: list[Image.Image],
+    target: object,
+    *,
+    duration_ms: int = FASTEST_FRAME_DURATION_MS,
+    work: procedural.WorkBudget | None = None,
+    progress: procedural.ProgressCallback | None = None,
+) -> dict:
+    """Map native recipe frames without entering any imported-media renderer."""
+
+    snapshot = _canonical_exact_target(target)
+    mapped = procedural.map_frames_to_led_tracks(
+        frames,
+        duration_ms=duration_ms,
+        product_id=snapshot["product_id"],
+        targets=snapshot["targets"],
+        work=work,
+        progress=progress,
+    )
+    return device_mapping.validate_mapped_result(
+        mapped,
+        frame_count=snapshot["frame_cap"],
+        duration_ms=duration_ms,
+        targets=snapshot["targets"],
+    )
+
+
+def render_recipe_to_exact_target(
+    recipe: dict[str, Any],
+    target: object,
+    *,
+    duration_ms: int = FASTEST_FRAME_DURATION_MS,
+    work: procedural.WorkBudget | None = None,
+    render_progress: procedural.ProgressCallback | None = None,
+    mapping_progress: procedural.ProgressCallback | None = None,
+) -> dict[str, Any]:
+    """Rerender recipe source directly for a new exact destination."""
+
+    snapshot, frames = render_recipe_frames_to_exact_target(
+        recipe,
+        target,
+        work=work,
+        progress=render_progress,
+    )
+    mapped = map_rendered_recipe_frames_to_exact_target(
+        frames,
+        snapshot,
+        duration_ms=duration_ms,
+        work=work,
+        progress=mapping_progress,
+    )
+    return {
+        "target": snapshot,
+        "frames": frames,
+        "mapped_result": mapped,
+    }
+
+
 class ProceduralGenerationCoordinator:
     """Bank one exact procedural result without ever auto-replaying API work."""
 
@@ -148,7 +236,7 @@ class ProceduralGenerationCoordinator:
             raise GenerationValidationError(
                 f"prompt must be a non-empty string of at most {MAX_RECIPE_PROMPT_CHARS} characters"
             )
-        snapshot = canonical_target_snapshot(target)
+        snapshot = _canonical_exact_target(target)
         return prompt.strip(), snapshot
 
     @staticmethod
@@ -581,11 +669,9 @@ class ProceduralGenerationCoordinator:
                     "rendering",
                     request.frame_count,
                 )
-                frames = procedural.render_recipe(
+                rendered_target, frames = render_recipe_frames_to_exact_target(
                     result.recipe,
-                    width=request.width,
-                    height=request.height,
-                    frame_count=request.frame_count,
+                    target,
                     work=work,
                     progress=lambda completed, _total: render_progress(completed),
                 )
@@ -695,21 +781,14 @@ class ProceduralGenerationCoordinator:
                 )
                 preview_bytes = preview_output.getvalue()
                 mapping_offset = request.frame_count * 5
-                mapped = procedural.map_frames_to_led_tracks(
+                mapped = map_rendered_recipe_frames_to_exact_target(
                     frames,
                     duration_ms=FASTEST_FRAME_DURATION_MS,
-                    product_id=target["product_id"],
-                    targets=target["targets"],
+                    target=rendered_target,
                     work=work,
                     progress=lambda completed, _total: report_banking(
                         mapping_offset + completed
                     ),
-                )
-                device_mapping.validate_mapped_result(
-                    mapped,
-                    frame_count=request.frame_count,
-                    duration_ms=FASTEST_FRAME_DURATION_MS,
-                    targets=target["targets"],
                 )
                 mapped_bytes = _json_bytes(mapped, work)
                 work.check()

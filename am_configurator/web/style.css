@@ -148,7 +148,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .lighting-view-tabs [role="tab"] { min-height: 30px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; }
 .lighting-view-tabs [role="tab"]:hover { color: var(--text); }
 .lighting-view-tabs [role="tab"][aria-selected="true"] { color: white; background: var(--panel-3); box-shadow: 0 2px 8px rgba(0,0,0,.22); }
-#lighting-generate-open { min-height: 32px; margin-left: auto; padding-inline: 13px; font-size: 12px; }
 .lighting-context { min-width: 0; min-height: 45px; display: flex; align-items: center; gap: 14px; margin-top: 8px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(21,21,24,.72); }
 .lighting-context-group { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .lighting-context-group.target-context { flex: 1; }
@@ -205,8 +204,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .lighting-edit-shell { min-width: 0; padding-top: 14px; }
 .lighting-edit-empty { min-height: 460px; }
 
-.generation-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); }
-.generation-dialog .dialog-card { max-height: calc(100dvh - 32px); overflow-y: auto; }
+.lighting-generate-tool { margin-top: 18px; overflow: hidden; scroll-margin-top: 18px; }
+.lighting-generate-tool > .card-header > div { display: grid; gap: 3px; }
+.lighting-generate-tool > .card-header small { color: var(--muted); font-size: 10px; font-weight: 400; }
+.lighting-generate-tool > .card-body { padding: 16px; }
 .ai-dialog-content { display: grid; gap: 10px; }
 .generation-ready { padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); }
 .generation-ready p { margin: 5px 0 0; color: var(--muted); line-height: 1.5; }
@@ -606,7 +607,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .lighting-heading span { max-width: 150px; }
   .lighting-view-tabs { order: 3; width: 100%; }
   .lighting-view-tabs [role="tab"] { flex: 1; }
-  #lighting-generate-open { margin-left: 0; }
   .lighting-context { align-items: stretch; padding: 7px; }
   .lighting-context-group { align-items: center; }
   .lighting-context-group.target-context { min-width: 100%; }
@@ -616,7 +616,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .library-filters button { flex: 1; }
   .library-grid, .library-media-grid { grid-template-columns: 1fr; }
   .library-detail > header { flex-direction: column; }
-  .generation-dialog .dialog-card { padding: 16px; }
   .animate-layout { grid-template-columns: 1fr; }
   .animation-anchor { display: grid; grid-template-columns: minmax(180px,.8fr) minmax(0,1.2fr); }
   .animation-anchor > img, .animation-anchor > .concept-placeholder { height: 100%; min-height: 116px; aspect-ratio: auto; }

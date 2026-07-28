@@ -138,7 +138,7 @@
   compile/syntax checks, and package builds.
 - The owner-approved unified Lighting implementation in
   `docs/superpowers/plans/2026-07-27-unified-lighting-studio-library.md` is
-  active. Slices 2-7 are complete. Catalog schema 2 names the six fixed API
+  active. Slices 2-8 are complete. Catalog schema 2 names the six fixed API
   providers; settings schema 6 preserves the complete xAI record through a
   credential-free v5 migration; provider-scoped vault operations, environment
   overrides, disclosure records, setup fingerprints, capability caches, and
@@ -180,13 +180,22 @@
   outcomes, cache-hit/miss dated usage-cost estimation, and shared
   setup/generation registry wiring. Its provider isolation, request, transport,
   cache-split usage, finish states, ambiguity, cancellation, one-paid-request,
-  and no-retry guards were red-proven. The full gate passes 619 Python tests, 57
-  web tests, compile/syntax checks, and source/wheel builds. The heavy
+  and no-retry guards were red-proven. Settings now derives all six providers,
+  their model choices, and provider-scoped setup actions from catalog metadata,
+  preserving each provider's saved model and using the catalog default on first
+  selection. Lighting Studio exposes one inline Generate tool only while the
+  selected provider is ready; AI-off and unready states remove that tool and
+  the job strip. Procedural generation requires exactly one selected target,
+  rejects media/compositor fields, and renders recipes directly at the
+  destination raster and frame ceiling before mapping. The detached generation
+  dialog and `lighting/create` route are gone. Exact-target, Settings, and
+  hidden-tool/job-strip guards were red-proven. The full gate passes 621 Python
+  tests, 59 web tests, compile/syntax checks, and source/wheel builds. The heavy
   procedural recovery fixture uses the production 180-second operation
   deadline instead of a flaky 30-second test-only override. No real provider
-  request, credential mutation, Keychain prompt, model mutation, or hardware
-  write occurred. Next action is slice 8, provider Settings and exact-target AI
-  Studio integration. Local
+  request, credential mutation, Keychain prompt, model mutation/download,
+  hardware write, push, or release occurred. Next action is slice 9, generic
+  saved-item storage and the mixed Library catalog. Local
   `main` remains unpublished; the push policy requires a fresh explicit owner
   go.
 

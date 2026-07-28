@@ -44,15 +44,6 @@
       || "This saved result cannot be applied to the current document.";
   }
 
-  function openRenderedDialog(dialog, render) {
-    if (!dialog || typeof dialog.showModal !== "function") {
-      throw new TypeError("A generation dialog is required.");
-    }
-    dialog.hidden = false;
-    if (!dialog.open) dialog.showModal();
-    if (typeof render === "function") render();
-  }
-
   function createReviewView(options = {}) {
     const attempt = options.attempt && typeof options.attempt === "object"
       ? options.attempt
@@ -125,7 +116,6 @@
     REVIEW_BLOCK_REASONS,
     assetUrl,
     createReviewView,
-    openRenderedDialog,
     renderReview,
     reviewBlockedMessage,
   });

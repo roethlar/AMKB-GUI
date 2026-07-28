@@ -7,7 +7,6 @@ const {STAGES, createLightingState, reduceLightingState} = require("../../am_con
 const {
   REVIEW_BLOCK_REASONS,
   createReviewView,
-  openRenderedDialog,
   renderReview,
   reviewBlockedMessage,
 } = require("../../am_configurator/web/lighting_review.js");
@@ -65,25 +64,9 @@ function readyAttempt() {
   };
 }
 
-test("generation dialog opens before its first render", () => {
-  const dialog = {
-    hidden: true,
-    open: false,
-    showCalls: 0,
-    showModal() {
-      this.showCalls += 1;
-      this.open = true;
-    },
-  };
-  let renderedWhileOpen = false;
-
-  openRenderedDialog(dialog, () => {
-    renderedWhileOpen = dialog.open;
-  });
-
-  assert.equal(dialog.hidden, false);
-  assert.equal(dialog.showCalls, 1);
-  assert.equal(renderedWhileOpen, true);
+test("review renderer is surface-agnostic and exports no dialog controller", () => {
+  const review = require("../../am_configurator/web/lighting_review.js");
+  assert.equal(Object.hasOwn(review, "openRenderedDialog"), false);
 });
 
 test("ready reducer state renders the authenticated preview and applies exactly once", () => {

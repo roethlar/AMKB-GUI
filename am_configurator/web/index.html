@@ -68,19 +68,7 @@
       </aside>
 
       <main id="main" class="main-content">
-        <section id="lighting-job-strip" class="lighting-job-strip" hidden>
-          <span class="job-state-mark" aria-hidden="true"></span>
-          <div class="job-strip-copy">
-            <strong id="lighting-job-phase">Lighting job</strong>
-            <span id="lighting-job-detail">Preparing local workspace…</span>
-          </div>
-          <progress id="lighting-job-progress" max="1" value="0" hidden></progress>
-          <div class="job-strip-actions">
-            <button id="lighting-job-view" type="button" class="button ghost">View</button>
-            <button id="lighting-job-cancel" type="button" class="button ghost">Cancel</button>
-          </div>
-          <span id="lighting-job-phase-live" class="sr-only" aria-live="polite"></span>
-        </section>
+        <div id="lighting-job-host"></div>
 
         <div id="route-content">
           <section id="empty-state" class="empty-state" hidden>
@@ -99,10 +87,9 @@
                 <span id="lighting-destination-product">No document open</span>
               </div>
               <div class="lighting-view-tabs" role="tablist" aria-label="Lighting views">
-                <button id="lighting-edit-tab" role="tab" aria-controls="lighting-edit-panel" aria-selected="true" tabindex="0" data-lighting-route="lighting/edit">Workspace</button>
+                <button id="lighting-edit-tab" role="tab" aria-controls="lighting-edit-panel" aria-selected="true" tabindex="0" data-lighting-route="lighting/edit">Studio</button>
                 <button id="lighting-library-tab" role="tab" aria-controls="lighting-library-panel" aria-selected="false" tabindex="-1" data-lighting-route="lighting/library">Library</button>
               </div>
-              <button id="lighting-generate-open" type="button" class="button ghost" aria-haspopup="dialog" aria-controls="lighting-generate-dialog" hidden>Generate…</button>
             </header>
 
             <div class="lighting-context" aria-label="Lighting destination">
@@ -164,7 +151,7 @@
                 <fieldset id="settings-ai-panels" class="settings-ai-panels">
                   <legend>Backend</legend>
                   <label class="check-row"><input id="settings-ai-local" type="radio" name="settings-ai-backend" value="local"><span><strong>Local</strong><small>Primary option. Uses a model already installed in Ollama on this computer.</small></span></label>
-                  <label class="check-row"><input id="settings-ai-api" type="radio" name="settings-ai-backend" value="api"><span><strong>API</strong><small>Secondary option. Sends the prompt and raster dimensions to xAI.</small></span></label>
+                  <label class="check-row"><input id="settings-ai-api" type="radio" name="settings-ai-backend" value="api"><span><strong>API</strong><small>Secondary option. Sends the prompt and raster dimensions to the selected curated provider.</small></span></label>
                 </fieldset>
                 <div id="settings-local-panel" class="settings-backend-panel">
                   <div class="settings-section-heading"><div><h3>Ollama model</h3><p id="settings-local-state">Checking Ollama…</p></div><span id="settings-local-runtime" class="pill muted">Checking</span></div>
@@ -179,14 +166,14 @@
                 </div>
                 <div id="settings-api-panel" class="settings-backend-panel" hidden>
                   <div class="settings-rows">
-                    <label class="settings-row" for="settings-api-provider"><span><strong>Provider</strong><small>Curated API backend.</small></span><select id="settings-api-provider" class="select-field"><option value="xai">xAI</option></select></label>
-                    <label class="settings-row" for="settings-api-model"><span><strong>Model</strong><small>Curated structured-recipe model.</small></span><select id="settings-api-model" class="select-field"><option value="grok-4.5">Grok 4.5</option></select></label>
+                    <label class="settings-row" for="settings-api-provider"><span><strong>Provider</strong><small>Curated API backend.</small></span><select id="settings-api-provider" class="select-field"><option value="">Loading providers…</option></select></label>
+                    <label class="settings-row" for="settings-api-model"><span><strong>Model</strong><small>Curated structured-recipe model.</small></span><select id="settings-api-model" class="select-field"><option value="">Loading models…</option></select></label>
                   </div>
                   <div class="settings-key-row">
-                    <div><label class="control-label" for="settings-api-key">xAI API key</label><input id="settings-api-key" class="text-field" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter key"><p id="settings-api-credential-state" class="settings-key-state">No credential is configured.</p></div>
+                    <div><label id="settings-api-key-label" class="control-label" for="settings-api-key">API key</label><input id="settings-api-key" class="text-field" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter provider key"><p id="settings-api-credential-state" class="settings-key-state">No credential is configured.</p></div>
                     <div class="button-row settings-key-actions"><button id="settings-api-save-key" type="button" class="button ghost">Save key</button><button id="settings-api-remove" type="button" class="button ghost">Remove</button></div>
                   </div>
-                  <label class="check-row"><input id="settings-api-disclosure-ack" type="checkbox"><span><strong>Allow prompt data to leave this computer</strong><small>Your prompt and the selected keyboard raster dimensions go to xAI. Keymaps, macros, and device identity do not. API use may cost money under your provider account.</small></span></label>
+                  <label class="check-row"><input id="settings-api-disclosure-ack" type="checkbox"><span><strong id="settings-api-disclosure-title">Allow prompt data to leave this computer</strong><small id="settings-api-disclosure-detail">Your prompt and selected keyboard raster dimensions go to the selected provider. Imported media, keymaps, macros, device paths, and Library files do not. API use may cost money under your provider account.</small></span></label>
                   <button id="settings-api-test" type="button" class="button primary">Test setup</button>
                 </div>
                 </div>
@@ -210,16 +197,6 @@
       </main>
     </div>
   </div>
-
-  <dialog id="lighting-generate-dialog" class="dialog generation-dialog" aria-labelledby="lighting-generate-title" hidden>
-    <form method="dialog" class="dialog-card">
-      <div class="dialog-header">
-        <div><h2 id="lighting-generate-title">Generate lighting</h2></div>
-        <button class="dialog-close" value="cancel" aria-label="Close generation">×</button>
-      </div>
-      <div id="lighting-generate-content"></div>
-    </form>
-  </dialog>
 
   <dialog id="device-dialog" class="dialog">
     <form method="dialog" class="dialog-card">

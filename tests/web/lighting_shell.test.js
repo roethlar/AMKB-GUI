@@ -32,23 +32,25 @@ test("lighting color style interpolation uses only canonical RGB", () => {
 });
 
 test("persistent job strip remains available outside routed content", () => {
-  const strip=html.indexOf('id="lighting-job-strip"');
+  const strip=html.indexOf('id="lighting-job-host"');
   const routeContent=html.indexOf('id="route-content"');
   assert.ok(strip>=0&&strip<routeContent);
-  assert.match(html,/id="lighting-job-phase-live"[^>]*aria-live="polite"/);
-  assert.match(js,/\$\("#lighting-job-view"\)\.addEventListener\("click",openGenerationDialog\)/);
+  assert.doesNotMatch(html,/id="lighting-job-strip"|Lighting job|lighting-job-view/);
+  assert.match(js,/id="lighting-job-phase-live"[^>]*aria-live="polite"/);
+  assert.match(js,/\$\("#lighting-job-view",host\)\.addEventListener\("click",revealGenerationStudio\)/);
+  assert.match(js,/if \(!job \|\| !aiReady\(\)\) \{\s*host\.replaceChildren\(\)/);
 });
 
 test("disabled first paint exposes no generation control outside Settings", () => {
-  const trigger=html.match(/<button id="lighting-generate-open"[^>]*>/)?.[0]||"";
-  const dialog=html.match(/<dialog id="lighting-generate-dialog"[^>]*>/)?.[0]||"";
-  assert.match(trigger,/\shidden(?:\s|>)/);
-  assert.match(dialog,/\shidden(?:\s|>)/);
+  assert.doesNotMatch(html,/lighting-generate-open|lighting-generate-dialog/);
   const beforeSettings=html.slice(0,html.indexOf('id="settings-screen"'));
-  assert.doesNotMatch(beforeSettings,/GGUF|xAI|API key|Optional AI|Test &amp; enable/);
+  assert.doesNotMatch(beforeSettings,/GGUF|xAI|API key|Optional AI|Generate lighting|Test &amp; enable/);
   assert.doesNotMatch(js,/data-library-create/);
-  assert.match(js,/button\.hidden=!aiReady\(\)/);
-  assert.match(js,/route===ROUTES\.CREATE&&!aiReady\(\)&&!state\.lighting\.activeJob/);
+  assert.match(js,/const generationTool=aiReady\(\)\?/);
+  assert.match(js,/id="lighting-generate-tool"/);
+  assert.match(js,/function renderGenerationStudio\(\)/);
+  assert.match(js,/return Boolean\(aiStudioAvailable\(state\.aiStatus\)\)/);
+  assert.doesNotMatch(js,/ROUTES\.CREATE|openGenerationDialog|renderGenerationDialog/);
   const loader=js.slice(js.indexOf("async function loadAiConfig"),js.indexOf("function refreshAiGate"));
   assert.match(loader,/shouldDiscoverLocalModels\(state\.lighting\.route,state\.aiStatus\)/);
   assert.equal((loader.match(/\/api\/ai\/local\/models/g)||[]).length,1);
@@ -81,8 +83,8 @@ test("Settings exposes only installed Ollama models and the curated API", () => 
   assert.match(js,/model_id/);
   assert.match(css,/\.check-row\s*>\s*span\s*\{[^}]*display:\s*grid[^}]*gap:/);
   const effect=js.slice(js.indexOf("async function startProceduralGeneration"),js.indexOf("function applyReviewedLighting",js.indexOf("async function startProceduralGeneration")));
-  assert.match(effect,/JSON\.stringify\(\{prompt,backend:state\.aiStatus\.backend,document_revision:state\.documentRevision\}\)/);
-  assert.doesNotMatch(effect,/model_path|model_id|frame_count|product_id:/);
+  assert.match(effect,/JSON\.stringify\(\{prompt,backend:state\.aiStatus\.backend,target:state\.ledTarget,document_revision:state\.documentRevision\}\)/);
+  assert.doesNotMatch(effect,/model_path|model_id|frame_count|product_id:|source_transform|media/);
   assert.match(js,/api\("\/api\/document\/sync"/);
   const fileOpen=js.slice(js.indexOf("async function readFiles"),js.indexOf("function saveConfig",js.indexOf("async function readFiles")));
   assert.match(fileOpen,/await synchronizeOpenDocument\(\)/);
@@ -112,7 +114,7 @@ test("one master switch owns and hides every AI setup control", () => {
   assert.match(populate,/\$\("#settings-ai-details"\)\.hidden=!enabled/);
   const toggleAction=js.slice(js.indexOf("async function setAiEnabled"),js.indexOf("async function selectAiBackend"));
   assert.match(toggleAction,/api\("\/api\/settings\/ai"/);
-  assert.match(toggleAction,/JSON\.stringify\(\{enabled,backend/);
+  assert.match(toggleAction,/JSON\.stringify\(\{enabled,backend\}\)/);
   const backendAction=js.slice(js.indexOf("async function selectAiBackend"),js.indexOf("async function refreshLocalModels"));
   assert.doesNotMatch(backendAction,/enabled\s*:/);
   const setupAction=js.slice(js.indexOf("async function testAiBackend"),js.indexOf("async function saveApiCredential"));
@@ -153,8 +155,13 @@ test("Settings exposes an explicit blocked-migration credential discard", () => 
 test("API setup stays secondary, explicit, and confined to Settings", () => {
   assert.match(js,/api\("\/api\/settings\/credential"/);
   assert.match(js,/api\("\/api\/settings\/privacy"/);
-  assert.match(html,/prompt and the selected keyboard raster dimensions go to xAI/i);
+  assert.match(html,/id="settings-api-disclosure-detail"/);
   assert.match(html,/API use may cost money/);
+  assert.match(js,/projectApiProviderPicker\(/);
+  assert.match(js,/async function selectApiProvider/);
+  assert.match(js,/async function selectApiModel/);
+  assert.match(js,/provider:selection\.providerId,model_id:selection\.modelId/);
+  assert.doesNotMatch(js,/provider:"xai"|model_id:"grok-4\.5"/);
   const generation=js.slice(js.indexOf("async function startProceduralGeneration"),js.indexOf("function applyReviewedLighting",js.indexOf("async function startProceduralGeneration")));
   assert.doesNotMatch(generation,/settings-api|credential|privacy|disclosure|provider|model_id/);
 });
@@ -193,7 +200,7 @@ test("generation is one prompt, durable progress, animated review, and explicit 
   assert.match(review,/Animated exact-raster lighting preview/);
   assert.match(js,/createReviewView\(\{assetUrls:state\.conceptAssetUrls/);
   assert.match(js,/renderReview\(\$\("#lighting-generate-content"\),view,applyReviewedLighting\)/);
-  assert.match(js,/openRenderedDialog\(dialog,renderGenerationDialog\)/);
+  assert.match(js,/function renderGenerationStudio\(\)/);
   assert.match(js,/saved failure does not disable this backend/);
   assert.match(js,/syncLightingJob\(null,\{renderPage:false\}\)/);
   assert.match(js,/type:"APPLY_REQUESTED"/);
@@ -204,7 +211,7 @@ test("generation is one prompt, durable progress, animated review, and explicit 
   assert.match(apply,/keyboard has not been written/);
 });
 
-test("generation dialog omits backend identity and keeps the target destination", () => {
+test("inline generation tool omits backend identity and keeps the exact target destination", () => {
   const prompt=js.slice(js.indexOf("function renderPromptStage"),js.indexOf("function renderProgressStage"));
   assert.doesNotMatch(prompt,/state\.aiStatus\?\.backend/);
   assert.doesNotMatch(prompt,/===\s*"api"\s*\?\s*"API"\s*:\s*"Local"/);
@@ -215,12 +222,14 @@ test("generation dialog omits backend identity and keeps the target destination"
   assert.match(js,/summary\?\.costs\?\.actual_incomplete/);
 });
 
-test("closing the dialog never cancels or applies a durable job", () => {
-  const start=js.lastIndexOf("function handleGenerationDialogClose");
-  const end=js.indexOf("async function startProceduralGeneration",start);
-  const close=js.slice(start,end);
-  assert.doesNotMatch(close,/api\(|cancel|apply|mutate\(/i);
-  assert.match(js,/You can close this window while the result continues banking locally/);
+test("generation is inline with no detached dialog or Create route", () => {
+  assert.doesNotMatch(html,/lighting-generate-dialog|lighting-generate-open/);
+  assert.doesNotMatch(js,/openRenderedDialog|handleGenerationDialogClose|ROUTES\.CREATE/);
+  assert.doesNotMatch(review,/openRenderedDialog|generation dialog/i);
+  assert.match(js,/You can switch to Library while the result continues banking locally/);
+  assert.match(js,/function revealGenerationStudio\(\)/);
+  assert.match(js,/navigateTo\(ROUTES\.EDIT/);
+  assert.match(js,/scrollIntoView/);
 });
 
 test("Library remains document-independent and browses procedural plus historical media", () => {

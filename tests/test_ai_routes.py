@@ -515,6 +515,55 @@ class OptionalAIRouteTests(unittest.TestCase):
             store.load_settings(credential_store=self.credentials)["ai"]["enabled"]
         )
 
+    def test_settings_projects_all_provider_models_and_mutations_remain_scoped(self) -> None:
+        status, settings = self._request("GET", "/api/settings")
+
+        self.assertEqual(200, status)
+        api = settings["ai"]["api"]
+        self.assertEqual("xai", api["selected_provider"])
+        self.assertEqual(
+            {"xai", "anthropic", "openai", "gemini", "moonshot", "deepseek"},
+            set(api["providers"]),
+        )
+        self.assertEqual("grok-4.5", api["providers"]["xai"]["model_id"])
+        self.assertIsNone(api["providers"]["anthropic"]["model_id"])
+        self.assertNotIn("setup_fingerprint", json.dumps(settings))
+
+        status, _response = self._request(
+            "POST",
+            "/api/settings/ai",
+            {
+                "backend": "api",
+                "provider": "anthropic",
+                "model_id": "claude-opus-5",
+            },
+        )
+        self.assertEqual(200, status)
+        status, _response = self._request(
+            "POST",
+            "/api/settings/ai",
+            {
+                "provider": "openai",
+                "model_id": "gpt-5.6-sol",
+            },
+        )
+        self.assertEqual(200, status)
+        status, projected = self._request("GET", "/api/settings")
+        self.assertEqual(200, status)
+        self.assertEqual("openai", projected["ai"]["api"]["selected_provider"])
+        self.assertEqual(
+            "claude-opus-5",
+            projected["ai"]["api"]["providers"]["anthropic"]["model_id"],
+        )
+        self.assertEqual(
+            "gpt-5.6-sol",
+            projected["ai"]["api"]["providers"]["openai"]["model_id"],
+        )
+        self.assertEqual(
+            "grok-4.5",
+            projected["ai"]["api"]["providers"]["xai"]["model_id"],
+        )
+
     def test_blocked_legacy_migration_requires_confirmed_credential_discard(self) -> None:
         secret = "sk-only-legacy-route-copy"
         library_root = Path(self.temporary.name) / "legacy-library"
@@ -587,6 +636,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             {
                 "prompt": "Dense violet aurora",
                 "backend": "local",
+                "target": "keyframes",
                 "document_revision": self.document_revision,
             },
         )
@@ -607,7 +657,7 @@ class OptionalAIRouteTests(unittest.TestCase):
                 "family": "80",
                 "product_id": "AM21",
                 "raster": {"width": 18, "height": 7},
-                "targets": ["keyframes", "spotlight_frames"],
+                "targets": ["keyframes"],
                 "frame_cap": 200,
             },
             manifest["target"],
@@ -623,9 +673,11 @@ class OptionalAIRouteTests(unittest.TestCase):
             {
                 "prompt": "attempted override",
                 "backend": "local",
+                "target": "keyframes",
                 "document_revision": self.document_revision,
                 "product_id": "CB04",
                 "model_path": "/tmp/model.gguf",
+                "source_transform": {"version": 1},
             },
         )
         self.assertEqual(400, status)
@@ -636,6 +688,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             {
                 "prompt": "stale backend",
                 "backend": "api",
+                "target": "keyframes",
                 "document_revision": self.document_revision,
             },
         )
@@ -643,7 +696,48 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.assertEqual("backend_mismatch", response["code"])
         self.assertEqual(1, len(self.provider.calls))
 
-    def test_effect_route_derives_each_device_family_target_server_side(self) -> None:
+        for body in (
+            {
+                "prompt": "missing exact target",
+                "backend": "local",
+                "document_revision": self.document_revision,
+            },
+            {
+                "prompt": "unsupported exact target",
+                "backend": "local",
+                "target": "frames",
+                "document_revision": self.document_revision,
+            },
+        ):
+            with self.subTest(body=body):
+                status, _response = self._request(
+                    "POST",
+                    "/api/lighting/effects",
+                    body,
+                )
+                self.assertEqual(400, status)
+        for field, value in (
+            ("source_transform", {"version": 1}),
+            ("source_item_id", "00000000-0000-4000-8000-000000000000"),
+            ("media", "image/gif"),
+            ("resample", "lanczos"),
+        ):
+            with self.subTest(media_field=field):
+                status, _response = self._request(
+                    "POST",
+                    "/api/lighting/effects",
+                    {
+                        "prompt": "reject media composition",
+                        "backend": "local",
+                        "target": "keyframes",
+                        "document_revision": self.document_revision,
+                        field: value,
+                    },
+                )
+                self.assertEqual(400, status)
+        self.assertEqual(1, len(self.provider.calls))
+
+    def test_effect_route_validates_each_selected_device_target_server_side(self) -> None:
         calls: list[dict] = []
 
         def start_effect(**kwargs):
@@ -661,6 +755,7 @@ class OptionalAIRouteTests(unittest.TestCase):
         cases = (
             (
                 "CB04",
+                "frames",
                 {
                     "family": "CB",
                     "product_id": "CB04",
@@ -671,6 +766,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             ),
             (
                 "ALICE",
+                "keyframes",
                 {
                     "family": "ALICE",
                     "product_id": "ALICE",
@@ -679,9 +775,20 @@ class OptionalAIRouteTests(unittest.TestCase):
                     "frame_cap": 186,
                 },
             ),
+            (
+                "AM21",
+                "spotlight_frames",
+                {
+                    "family": "80",
+                    "product_id": "AM21",
+                    "raster": {"width": 18, "height": 7},
+                    "targets": ["spotlight_frames"],
+                    "frame_cap": 200,
+                },
+            ),
         )
-        for product_id, expected in cases:
-            with self.subTest(product_id=product_id):
+        for product_id, selected_target, expected in cases:
+            with self.subTest(product_id=product_id, target=selected_target):
                 stale_revision = self.document_revision
                 revision = self._sync_document(product_id)
                 before = len(calls)
@@ -691,6 +798,7 @@ class OptionalAIRouteTests(unittest.TestCase):
                     {
                         "prompt": "stale target",
                         "backend": "local",
+                        "target": selected_target,
                         "document_revision": stale_revision,
                     },
                 )
@@ -703,6 +811,7 @@ class OptionalAIRouteTests(unittest.TestCase):
                     {
                         "prompt": "canonical target",
                         "backend": "local",
+                        "target": selected_target,
                         "document_revision": revision,
                     },
                 )
@@ -728,6 +837,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             {
                 "prompt": "ignored loop control",
                 "backend": "local",
+                "target": "keyframes",
                 "loop_mode": "ping_pong",
                 "document_revision": self.document_revision,
             },
@@ -798,6 +908,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             {
                 "prompt": "blocked",
                 "backend": "local",
+                "target": "keyframes",
                 "document_revision": self.document_revision,
             },
         )
@@ -815,6 +926,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             {
                 "prompt": "no device",
                 "backend": "local",
+                "target": "keyframes",
                 "document_revision": stale_revision,
             },
         )

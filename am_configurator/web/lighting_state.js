@@ -9,7 +9,6 @@
   const ROUTES = Object.freeze({
     KEYMAP: "keymap",
     MACROS: "macros",
-    CREATE: "lighting/create",
     LIBRARY: "lighting/library",
     EDIT: "lighting/edit",
     SETTINGS: "settings",
@@ -20,7 +19,7 @@
     REVIEW: "review",
   });
   const VALID_ROUTES = new Set(Object.values(ROUTES));
-  const DOCUMENT_ROUTES = new Set([ROUTES.KEYMAP, ROUTES.MACROS, ROUTES.CREATE, ROUTES.EDIT]);
+  const DOCUMENT_ROUTES = new Set([ROUTES.KEYMAP, ROUTES.MACROS, ROUTES.EDIT]);
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const ASSIGNMENT_CODE = /^#[0-9a-f]{8}$/i;
   const RGB_COLOR = /^#[0-9a-f]{6}$/i;
@@ -193,6 +192,83 @@
     return status?.enabled === true && status?.backend === "local";
   }
 
+  function aiStudioAvailable(status) {
+    return status?.enabled === true && status?.ready === true;
+  }
+
+  function projectApiProviderPicker(
+    catalog,
+    apiSettings = {},
+    requestedProvider = null,
+    requestedModel = null,
+  ) {
+    const providers = [];
+    for (const [id, metadata] of Object.entries(catalog?.providers || {})) {
+      if (typeof id !== "string" || !id || typeof metadata?.label !== "string" || !metadata.label) continue;
+      const models = [];
+      const seen = new Set();
+      for (const candidate of Array.isArray(metadata.models) ? metadata.models : []) {
+        if (
+          typeof candidate?.id !== "string"
+          || !candidate.id
+          || typeof candidate?.label !== "string"
+          || !candidate.label
+          || seen.has(candidate.id)
+        ) continue;
+        seen.add(candidate.id);
+        models.push({id: candidate.id, label: candidate.label});
+      }
+      if (!models.length || !seen.has(metadata.default_model)) continue;
+      providers.push({
+        id,
+        label: metadata.label,
+        defaultModel: metadata.default_model,
+        disclosureVersion: typeof metadata.disclosure_version === "string"
+          ? metadata.disclosure_version
+          : null,
+        models,
+      });
+    }
+    const providerIds = new Set(providers.map(provider => provider.id));
+    const preferredProvider = typeof requestedProvider === "string"
+      ? requestedProvider
+      : null;
+    const storedProvider = typeof apiSettings?.selected_provider === "string"
+      ? apiSettings.selected_provider
+      : null;
+    const providerId = providerIds.has(preferredProvider)
+      ? preferredProvider
+      : providerIds.has(storedProvider)
+        ? storedProvider
+        : providers[0]?.id || null;
+    const selected = providers.find(provider => provider.id === providerId) || null;
+    if (!selected) {
+      return {
+        providerId: null,
+        providerLabel: "API provider",
+        providers: [],
+        modelId: null,
+        models: [],
+        disclosureVersion: null,
+      };
+    }
+    const modelIds = new Set(selected.models.map(model => model.id));
+    const storedModel = apiSettings?.providers?.[providerId]?.model_id;
+    const modelId = modelIds.has(requestedModel)
+      ? requestedModel
+      : modelIds.has(storedModel)
+        ? storedModel
+        : selected.defaultModel;
+    return {
+      providerId,
+      providerLabel: selected.label,
+      providers: providers.map(provider => ({id: provider.id, label: provider.label})),
+      modelId,
+      models: selected.models.map(model => ({...model})),
+      disclosureVersion: selected.disclosureVersion,
+    };
+  }
+
   function projectLocalModelPicker(inventory, local = {}, previousValue = "") {
     const models = Array.isArray(inventory?.models) ? inventory.models : [];
     const loading = inventory?.loading === true;
@@ -341,13 +417,10 @@
     return id;
   }
 
-  function routeAvailability(route, document, options = {}) {
+  function routeAvailability(route, document) {
     const candidate = normalizedRoute(route);
     if (DOCUMENT_ROUTES.has(candidate) && !document) {
       return {available: false, reason: "document-required"};
-    }
-    if (candidate === ROUTES.CREATE && options.aiReady !== true && !options.hasActiveJob) {
-      return {available: false, reason: "ai-not-ready"};
     }
     return {available: true, reason: null};
   }
@@ -449,6 +522,7 @@
   return Object.freeze({
     ROUTES,
     STAGES,
+    aiStudioAvailable,
     applyCompatibility,
     createEpochLoadRegistry,
     createPaintStrokeController,
@@ -461,6 +535,7 @@
     normalizeImportedAssignmentCodes,
     normalizeImportedLightingColors,
     parseLightingHash,
+    projectApiProviderPicker,
     projectLocalModelPicker,
     projectLightingJob,
     reduceLightingState,

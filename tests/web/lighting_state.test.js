@@ -6,6 +6,7 @@ const assert = require("node:assert/strict");
 const {
   ROUTES,
   STAGES,
+  aiStudioAvailable,
   applyCompatibility,
   escapeMarkup,
   createEpochLoadRegistry,
@@ -19,6 +20,7 @@ const {
   normalizeImportedLightingColors,
   parseLightingHash,
   projectLightingJob,
+  projectApiProviderPicker,
   projectLocalModelPicker,
   reduceLightingState,
   routeAvailability,
@@ -259,6 +261,73 @@ function compatibleDocument(overrides = {}) {
   };
 }
 
+function apiCatalog() {
+  const entries = [
+    ["xai", "xAI", "grok-4.5", [["grok-4.5", "Grok 4.5"]]],
+    ["anthropic", "Anthropic", "claude-sonnet-5", [
+      ["claude-sonnet-5", "Claude Sonnet 5"],
+      ["claude-opus-5", "Claude Opus 5"],
+    ]],
+    ["openai", "OpenAI", "gpt-5.6-sol", [["gpt-5.6-sol", "GPT-5.6 Sol"]]],
+    ["gemini", "Gemini", "gemini-3.6-flash", [["gemini-3.6-flash", "Gemini 3.6 Flash"]]],
+    ["moonshot", "Kimi / Moonshot", "kimi-k3", [["kimi-k3", "Kimi K3"]]],
+    ["deepseek", "DeepSeek", "deepseek-v4-pro", [["deepseek-v4-pro", "DeepSeek V4 Pro"]]],
+  ];
+  return {
+    schema_version: 2,
+    providers: Object.fromEntries(entries.map(([id, label, defaultModel, models]) => [
+      id,
+      {
+        label,
+        default_model: defaultModel,
+        disclosure_version: `disclosure-${id}`,
+        models: models.map(([modelId, modelLabel]) => ({id: modelId, label: modelLabel})),
+      },
+    ])),
+  };
+}
+
+function apiSettings() {
+  return {
+    selected_provider: "xai",
+    providers: Object.fromEntries(
+      Object.keys(apiCatalog().providers).map(provider => [
+        provider,
+        {model_id: provider === "xai" ? "grok-4.5" : null},
+      ]),
+    ),
+  };
+}
+
+test("AI Studio exists only for enabled and currently ready capability", () => {
+  assert.equal(aiStudioAvailable(null), false);
+  assert.equal(aiStudioAvailable({enabled: false, ready: true}), false);
+  assert.equal(aiStudioAvailable({enabled: true, ready: false}), false);
+  assert.equal(aiStudioAvailable({enabled: true, ready: true}), true);
+});
+
+test("provider picker uses all six catalog providers and submits the first default", () => {
+  const catalog = apiCatalog();
+  const settings = apiSettings();
+  const initial = projectApiProviderPicker(catalog, settings, "anthropic");
+
+  assert.deepEqual(
+    initial.providers.map(provider => provider.id),
+    ["xai", "anthropic", "openai", "gemini", "moonshot", "deepseek"],
+  );
+  assert.equal(initial.providerId, "anthropic");
+  assert.equal(initial.modelId, "claude-sonnet-5");
+  assert.equal(initial.disclosureVersion, "disclosure-anthropic");
+
+  settings.providers.anthropic.model_id = "claude-opus-5";
+  const restored = projectApiProviderPicker(catalog, settings, "anthropic");
+  assert.equal(restored.modelId, "claude-opus-5");
+  assert.deepEqual(
+    restored.models.map(model => model.id),
+    ["claude-sonnet-5", "claude-opus-5"],
+  );
+});
+
 test("defaults to the manual Lighting workspace at the prompt stage", () => {
   assert.deepEqual(createLightingState(), {
     route: ROUTES.EDIT,
@@ -359,18 +428,16 @@ test("hash routing round-trips safe routes and opaque job IDs", () => {
   for (const route of Object.values(ROUTES)) {
     assert.deepEqual(parseLightingHash(formatLightingHash(route, JOB_ID)), {route, jobId: JOB_ID});
   }
+  assert.deepEqual(parseLightingHash("#/lighting/create"), {route: ROUTES.EDIT, jobId: null});
   assert.deepEqual(parseLightingHash("#/not-a-route?job=prompt-text"), {route: ROUTES.EDIT, jobId: null});
   assert.deepEqual(parseLightingHash("#/lighting/library?job=../../manifest.json"), {route: ROUTES.LIBRARY, jobId: null});
 });
 
-test("Library and Settings remain available while Create requires a ready gate", () => {
-  const document=compatibleDocument();
+test("Library and Settings remain document-independent without a Create route", () => {
   assert.deepEqual(routeAvailability(ROUTES.LIBRARY,null),{available:true,reason:null});
   assert.deepEqual(routeAvailability(ROUTES.SETTINGS,null),{available:true,reason:null});
-  assert.deepEqual(routeAvailability(ROUTES.CREATE,document),{available:false,reason:"ai-not-ready"});
-  assert.deepEqual(routeAvailability(ROUTES.CREATE,document,{aiReady:true}),{available:true,reason:null});
-  assert.deepEqual(routeAvailability(ROUTES.CREATE,document,{hasActiveJob:true}),{available:true,reason:null});
   assert.deepEqual(routeAvailability(ROUTES.EDIT,null),{available:false,reason:"document-required"});
+  assert.equal(Object.hasOwn(ROUTES,"CREATE"),false);
 });
 
 test("Apply compatibility fails closed with a specific reason", () => {
