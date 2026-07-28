@@ -1,19 +1,52 @@
 # Repository Decisions
 
-## 2026-07-28 — Public releases cannot depend on paid signing accounts
+## 2026-07-28 — The application has one canonical product version
 
-Status: approved by the owner on 2026-07-28 as a fixed constraint for the
-public-release plan.
+Status: approved by the owner on 2026-07-28 while correcting the public-release
+plan.
 
-- No release path may require an Apple Developer Program membership,
+- The current product/release version is `0.1.34`.
+- `am_configurator/_version.py` is the canonical source. Source metadata, UI,
+  local and CI builds, package metadata, native bundles/installers, filenames,
+  manifests, tags, releases, and announcement copy must all report that exact
+  version.
+- Local build counters, GitHub workflow run numbers, dates, commit counts, and
+  packaging attempts are diagnostic provenance only. They never become
+  application versions.
+- Failed or repeated unpublished build attempts retain the canonical version.
+  A version changes only through a deliberate source edit for a new public
+  product release.
+
+## 2026-07-28 — Application chrome is quiet and remembers its section
+
+Status: approved by the owner on 2026-07-28 while reviewing the native
+application.
+
+- Native/browser chrome owns the product title. The application content does
+  not repeat the logo and `AM Configurator` title as a nested header.
+- The version is absent from normal application chrome. One unobtrusive About
+  link opens a small dialog that reports the canonical version and ordinary
+  project information; it is not styled as a primary action or badge.
+- First launch defaults to Keymap. Later launches restore the last manually
+  selected primary section; Settings and automatic workflow navigation do not
+  replace that preference. A valid explicit URL route still wins.
+
+## 2026-07-28 — Installers are permanently platform-unsigned
+
+Status: approved by the owner on 2026-07-28 as a permanent product constraint.
+
+- Releases never depend on or pursue an Apple Developer Program membership,
   Authenticode certificate, paid developer/signing account, or borrowed signing
   identity.
 - macOS may retain deterministic ad-hoc signing for bundle integrity, but the
   app remains not notarized and must never be represented as Developer
   ID-signed. Windows remains Authenticode-unsigned.
-- Missing platform signing is disclosed plainly in install instructions,
-  release notes, and announcement copy. Documentation uses only the narrow
-  per-application OS approval flow and never directs users to disable
+- Platform signing does not determine product maturity or release channel.
+  Releases are normal public releases when their functional gates pass.
+- Missing platform signing receives one ordinary factual sentence where users
+  download/install, followed by the narrow per-application OS approval flow. It
+  is not product branding, a beta label, an all-caps warning, a banner, or
+  “unsigned by design” copy. Documentation never directs users to disable
   Gatekeeper, SmartScreen, Defender, or equivalent protections globally.
 - Free hashes and keyless GitHub build provenance may strengthen artifact
   integrity, but must not be described as substitutes for platform publisher

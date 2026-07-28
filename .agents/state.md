@@ -313,24 +313,28 @@
   subsequently pushed to `origin`; GitHub CI and all three Desktop installer
   jobs passed at `8b50fb9`.
 
-- The 2026-07-28 unsigned-public-beta release plan is drafted at
-  `docs/superpowers/plans/2026-07-28-unsigned-public-beta-release.md`. The owner
-  settled that no Apple Developer Program membership, Authenticode certificate,
-  or other paid signing account is available. The plan recommends the next
-  successful `main` installer version as an unsigned GitHub prerelease, adds
-  free hashes/keyless provenance, exact-artifact platform and Neon acceptance,
-  corrected public documentation, release notes, and a Reddit-safe claim
-  boundary. Implementation and publication await plan approval.
+- The 2026-07-28 public-release plan is drafted at
+  `docs/superpowers/plans/2026-07-28-public-release.md`. The owner settled that
+  installers remain permanently platform-unsigned, the release is normal
+  rather than beta/prerelease, and `0.1.34` is the one canonical version.
+  Build counters and workflow runs remain provenance only. The plan also
+  removes duplicate in-app branding, moves version into an unobtrusive About
+  dialog, defaults first launch to Keymap, restores the last manually selected
+  primary section, adds free hashes/keyless provenance, exact-artifact platform
+  and Neon acceptance, corrected public documentation, release notes, and a
+  Reddit-safe claim boundary. Implementation and publication await plan
+  approval.
 
 ## Blockers
 
 - N10 has no remaining blocker. Broader device-family checks require their
   corresponding keyboards; they do not block the completed Neon scope.
-- Paid platform signing and notarization are unavailable by settled owner
-  constraint. The release path must remain unsigned: deterministic macOS
+- Platform signing and notarization are permanently excluded by settled owner
+  constraint. Releases remain normal public releases: deterministic macOS
   ad-hoc signing only, no notarization, and no Windows Authenticode certificate.
-  `README.md` discloses the current unsigned state; on macOS 15+ an
-  ad-hoc-signed download requires approval through System Settings.
+  `README.md` discloses the current unsigned state in ordinary language; on
+  macOS 15+ an ad-hoc-signed download requires approval through System
+  Settings.
 - One decision is waiting on the owner: whether to remove the Windows
   verification leftovers on `netwatch-01`, recorded in `.agents/machines.md`.
   They are harmless and useful for further Windows work.

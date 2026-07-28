@@ -1,16 +1,16 @@
-# Unsigned Public Beta Release
+# Public Release
 
-Status: draft as of 2026-07-28. The owner requires a public release path that
-does not use an Apple Developer Program membership, an Authenticode
-certificate, or any other paid developer/signing account. This plan recommends
-publishing the next native build as **AM Configurator 0.1.N Public Beta**, where
-`N` is the final successful `main` Desktop installers workflow run number, and
-marking the GitHub Release as a prerelease. Implementation and publication
-remain blocked until the owner approves this plan and that release identity.
+Status: draft as of 2026-07-28. The owner settled two permanent product
+constraints: every installer remains unsigned, and the application has one
+canonical version everywhere. This plan sets that version to **0.1.34** and
+publishes it as the repository's normal public GitHub Release. Unsigned status
+is a concise install-time fact, not a beta label, release title, application
+banner, or substitute product identity. Implementation and publication remain
+blocked until the owner approves this revised plan.
 
 ## Objective
 
-Publish one honest, reproducible, publicly downloadable AM Configurator beta
+Publish one honest, reproducible, publicly downloadable AM Configurator release
 for macOS arm64, Windows x64, and Linux x86-64, then prepare a Reddit
 announcement that cannot direct users to an old build or overstate hardware,
 AI, signing, or firmware support.
@@ -19,8 +19,9 @@ The release must:
 
 - contain the completed Neon 80 and unified Lighting Studio work on the final
   `main` commit;
-- use one matching version across the UI, filenames, manifest, Git tag, release
-  title, release notes, and announcement;
+- use canonical version `0.1.34` across source metadata, the UI, local and CI
+  builds, filenames, manifest, Git tag, release title, release notes, and
+  announcement;
 - make the absence of Apple notarization and Windows Authenticode signing
   explicit before download and before first launch;
 - retain all existing build, license, provenance, device-safety, and
@@ -34,6 +35,8 @@ The release must:
 
 ## Fixed constraints
 
+- Do not sign or notarize application installers. This is a permanent product
+  constraint, not a deferred release task.
 - Do not enroll in, purchase, borrow, share, or request access to a paid
   developer or code-signing account.
 - Do not create or distribute a self-signed Windows certificate. It does not
@@ -59,6 +62,13 @@ The release must:
 - Do not weaken automated tests, package-content checks, typed write
   confirmation, device identity checks, or hardware unlock behavior because
   the packages are unsigned.
+- Do not use “unsigned by design,” all-caps warning copy, a warning banner, a
+  beta label, or the GitHub prerelease flag. State the unsigned fact once in
+  ordinary download/install language and provide the necessary OS-specific
+  first-launch instructions.
+- Do not derive application versions from a local build counter, GitHub
+  workflow run number, date, commit count, platform, or packaging attempt.
+  Those values are diagnostic provenance fields only.
 
 ## Current baseline
 
@@ -70,17 +80,21 @@ the 2026-07-28 planning baseline.
 - CI run `30369190578` and Desktop installers run `30369190195` passed for that
   commit.
 - Desktop workflow run 34 produced temporary `0.1.34` macOS, Windows, and Linux
-  artifacts. They are Actions artifacts, not durable public release assets,
+  artifacts. They establish `0.1.34` as the next product version, but they are
+  not the final release candidate because release-preparation changes still
+  have to land. They are Actions artifacts, not durable public release assets,
   and expire on 2026-08-11.
 - The public GitHub Releases page exposes only `v0.1.11`, whose tag points to
   `98abb138406093dacea97df2b49be91aa11fdf10`. It is not a release of the
   current product.
-- The current desktop workflow also triggers on `v*` tags while deriving the
-  package version from `github.run_number`. A tag made for an already-built
-  candidate therefore triggers a second build with a different package
-  version. The existing `v0.1.11` release avoided that mismatch by attaching
-  run-11 artifacts while the tag-triggered run 12 produced unused `0.1.12`
-  artifacts. This ambiguity must be removed before another tag.
+- The source tree says `0.1.0`, Desktop workflow run 34 stamped `0.1.34`, and
+  local native acceptance reached `0.1.63`. These are three names for one
+  product state and are unacceptable. The existing local counter and
+  workflow-run stamping must be removed before another native build.
+- The current desktop workflow also triggers on `v*` tags. A release tag
+  therefore triggers a redundant second artifact set. A tag must label an
+  already-qualified final candidate, not start another differently identified
+  build.
 - `README.md` still says “before the first tagged release,” omits Neon 80 from
   the supported-keyboards table, and does not describe the current unified
   Lighting Studio, PNG/BMP import, mixed Library, or exact unsigned-install
@@ -120,16 +134,28 @@ the 2026-07-28 planning baseline.
 
 ## Release identity and version invariants
 
-Use the established workflow-run patch version instead of inventing a second
-version source:
+`am_configurator/_version.py` is the sole canonical product-version source. Set
+it to `0.1.34`. Configure Hatch to derive Python project metadata from that file
+instead of repeating a literal version in `pyproject.toml`.
 
-1. Land all release-preparation code and documentation on `main`.
-2. Push `main` only after the required push approval.
-3. Let the successful `main` Desktop installers workflow produce
-   `0.1.<github.run_number>`.
-4. Treat that successful run number as `N`.
-5. Create the GitHub prerelease and its tag as `v0.1.N`, targeting that
-   workflow's exact `headSha`.
+Every build of the same source version remains `0.1.34`:
+
+- local native builds;
+- GitHub pull-request and `main` builds;
+- application UI;
+- Python package metadata;
+- macOS bundle and DMG;
+- Windows application and installer;
+- Linux AppImage;
+- artifact names;
+- release manifest and checksums;
+- Git tag and GitHub Release; and
+- release notes and announcement.
+
+Local build counters and GitHub workflow run numbers are not versions. Keep the
+workflow run ID/number and source commit in logs, Actions metadata, attestations,
+and `release-manifest.json` so two attempts remain distinguishable without
+renaming the product.
 
 The following are hard release invariants:
 
@@ -137,26 +163,26 @@ The following are hard release invariants:
   `success`.
 - The candidate workflow `headSha`, final local `HEAD`, and remote `main` SHA
   are identical before publication.
-- The tag is exactly `v` plus the application version embedded in all three
-  installers.
-- The release title is `AM Configurator 0.1.N Public Beta`.
-- GitHub's prerelease flag is true. Do not mark this unsigned build as the
-  repository's stable/latest release.
+- Source, UI, package metadata, and all native artifacts report `0.1.34`.
+- The tag is exactly `v0.1.34`.
+- The release title is `AM Configurator 0.1.34`.
+- GitHub's prerelease flag is false. This becomes the repository's normal
+  latest release.
 - The required filenames are exactly:
-  - `AM-Configurator-0.1.N-macOS-arm64.dmg`
-  - `AM-Configurator-0.1.N-Windows-x64-Setup.exe`
-  - `AM-Configurator-0.1.N-Linux-x86_64.AppImage`
+  - `AM-Configurator-0.1.34-macOS-arm64.dmg`
+  - `AM-Configurator-0.1.34-Windows-x64-Setup.exe`
+  - `AM-Configurator-0.1.34-Linux-x86_64.AppImage`
   - `SHA256SUMS.txt`
   - `release-manifest.json`
-- The UI version badge reports `0.1.N` on every platform.
+- The UI version badge reports `0.1.34` on every platform.
 - Do not overwrite a published asset, move or recreate a release tag, rewrite
   the release commit, or silently replace a failed candidate. Fixes receive a
-  new successful `main` run and a new `v0.1.<new run number>` prerelease.
+  deliberate canonical version bump, new artifacts, and a new release.
 
 Remove the `v*` tag trigger from `.github/workflows/desktop.yml`. A release tag
-is a label for the already-qualified `main` workflow artifact set, not a request
-for a second differently versioned build. Guard this behavior in
-`tests/test_packaging.py`.
+is a label for the already-qualified final `main` artifact set, not a request
+for a second build. Remove all local-counter and workflow-run-number version
+stamping. Guard this behavior in `tests/test_packaging.py`.
 
 ## Distribution trust model
 
@@ -198,48 +224,153 @@ Files:
 - `.agents/state.md`
 - this plan
 
-Record only the settled constraint as owner-approved. Keep the recommended
-`Public Beta` identity in this plan's draft status until the owner approves the
-plan. Correct stale state that says `main` has not been pushed, and point current
-work to this plan.
+Record the permanently unsigned-installer and one-version decisions as
+owner-approved. Keep implementation/publication blocked until the owner
+approves the revised plan. Correct stale state that says `main` has not been
+pushed, and point current work to this plan.
 
 Commit:
 
-`docs: plan unsigned public beta release`
+`docs: make release identity canonical`
 
-### 1. Make one successful main run own one candidate version
+### 1. Establish `0.1.34` as the one product version
 
 Files:
 
+- `am_configurator/_version.py`
+- `pyproject.toml`
+- `uv.lock`
+- `build_tools/release_info.py`
+- `build.py`
+- `.am-configurator-build-number` (remove)
 - `.github/workflows/desktop.yml`
 - `tests/test_packaging.py`
+- `README.md`
 
 Changes:
 
+- Set `am_configurator/_version.py` to `0.1.34` and make it the only canonical
+  version source.
+- Change `pyproject.toml` from a repeated literal project version to Hatch's
+  dynamic version configuration pointing at `am_configurator/_version.py`.
+- Refresh `uv.lock` mechanically and prove built wheel/sdist metadata reports
+  `0.1.34`.
+- Remove `base_version`, `build_version`, and `stamp_build_version` behavior
+  from `build_tools/release_info.py`. `project_version` must strictly read and
+  validate the canonical three-part numeric version.
+- Keep one read-only CLI path that prints the canonical version and can write
+  that same value to `$GITHUB_OUTPUT`; it must never mutate source.
+- Remove `reserve_local_build_number`, `--build-number`, temporary version
+  stamping/restoration, and counter-file updates from `build.py`.
+- Remove the tracked `.am-configurator-build-number` file.
+- Make local native artifact names use `project_version()` unchanged.
+- Replace the Desktop workflow's
+  `stamp --build-number ${{ github.run_number }}` step with the read-only
+  canonical-version output.
 - Remove the `push.tags: ["v*"]` trigger.
 - Retain pull-request, `main` push, and manual-dispatch installer builds.
-- Keep `github.run_number` as the branch candidate's patch version.
 - Increase candidate artifact retention from 14 to 30 days so a candidate does
   not expire during qualification; GitHub Release assets become the durable
   copy after publication.
+- Replace README local-build examples that expose `--build-number`.
 - Add a packaging regression guard proving:
+  - source import, Python package metadata, local build planning, CI build
+    planning, installer definitions, and filenames all use `0.1.34`;
+  - no local counter or workflow run number can alter a version;
   - `main` pushes still build installers;
   - tags do not trigger a second installer build;
-  - the run-number stamp remains the sole candidate version source; and
   - the three platform artifact globs remain present.
 
 Focused verification:
 
 ```text
-uv run --frozen python -m unittest tests.test_packaging.ReleaseInfoTests.test_desktop_workflow_publishes_native_installers -v
+uv run --frozen python -m unittest tests.test_packaging.ReleaseInfoTests.test_one_canonical_version_drives_every_build -v
 uv run --frozen python -m unittest tests.test_packaging.ReleaseInfoTests.test_release_tags_do_not_rebuild_a_different_version -v
+uv build
 ```
 
 Commit:
 
-`build: keep release tags on qualified artifacts`
+`build: use one canonical application version`
 
-### 2. Generate a strict cross-platform release manifest
+### 2. Remove duplicate branding and move version into About
+
+Files:
+
+- `am_configurator/server.py`
+- `am_configurator/web/index.html`
+- `am_configurator/web/app.js`
+- `am_configurator/web/lighting_state.js`
+- `am_configurator/web/style.css`
+- `tests/test_app.py`
+- relevant `tests/web/*.test.js`
+
+Changes:
+
+- Remove the in-content logo, duplicate `AM Configurator` heading, and prominent
+  version pill from the application toolbar. The native window title is the
+  desktop title; the browser tab title remains the browser title.
+- Reflow the toolbar so document state and actions occupy the application
+  chrome directly. Do not replace the removed brand block with another card,
+  badge, or framed header.
+- Add one quiet, text-styled **About** control at the bottom of the left
+  navigation. It must not use primary-button styling or compete with Keymap,
+  Macros, Lighting, Settings, Devices, or Write.
+- Open an accessible About dialog containing:
+  - `AM Configurator`;
+  - `Version 0.1.34`, sourced from the same canonical server-rendered value as
+    the rest of the application;
+  - the independent-community/non-affiliation statement;
+  - MIT license identification; and
+  - the public GitHub repository link.
+- Do not put signing warnings, “unsigned by design,” build counters, workflow
+  run numbers, commit counts, or a beta label in the About control or dialog.
+  Unsigned-install information belongs in download/install documentation.
+- Support click/tap activation, keyboard activation, focus placement, focus
+  return, explicit close, backdrop close where consistent with existing
+  dialogs, and reduced motion.
+- At narrow widths, keep About unobtrusive and reachable without creating
+  horizontal overflow or a second nested-window visual boundary.
+- Change `normalizedRoute` and hash parsing so an absent, empty, or invalid
+  route falls back to Keymap, not Lighting.
+- Persist the last manually chosen primary section across launches. Remember
+  Keymap, Macros, Lighting Studio, and Lighting Library; do not make Settings
+  the next startup screen merely because the app closed while Settings was
+  open.
+- Let an explicit valid URL hash win over the remembered section. If persistent
+  browser storage is unavailable or corrupt, fall back safely to Keymap.
+- Do not treat automatic workflow navigation—such as opening a generated
+  result—as a new user startup preference unless the user subsequently chooses
+  that section.
+- Keep the existing no-document empty state: a first launch without a document
+  opens the Keymap section and explains how to open a configuration.
+
+Regression guards must prove:
+
+- the application shell has no visible duplicate product title;
+- no version appears in the normal toolbar/sidebar state;
+- About is the only normal UI route that reveals the product version;
+- the dialog reports exactly `0.1.34`;
+- the About control is semantically interactive but lacks action-button
+  classes;
+- close/focus behavior is accessible; and
+- first run defaults to Keymap, a manual primary-section choice survives a
+  relaunch, Settings does not replace that choice, explicit hashes win, and
+  corrupt storage falls back to Keymap; and
+- wide, narrow, zoomed, and reduced-motion layouts remain overflow-free.
+
+Focused verification:
+
+```text
+uv run --frozen python -m unittest tests.test_app.AppShellTests.test_version_lives_only_in_about -v
+node --test tests/web/about_dialog.test.js tests/web/navigation_state.test.js
+```
+
+Commit:
+
+`fix: move application version into About`
+
+### 3. Generate a strict cross-platform release manifest
 
 Files:
 
@@ -280,8 +411,7 @@ After the matrix installer jobs, add a `candidate-metadata` job that:
 - checks out the same commit;
 - downloads all three installer artifacts with
   `actions/download-artifact`, pinned to a reviewed immutable commit;
-- derives the version with the existing release metadata helper and the same
-  `github.run_number`;
+- reads the canonical version with the existing release metadata helper;
 - runs `release_manifest.py`;
 - uploads the manifest and checksum file as a separate candidate-metadata
   Actions artifact; and
@@ -302,7 +432,7 @@ Commit:
 
 `build: generate strict release manifests`
 
-### 3. Add free keyless build provenance
+### 4. Add free keyless build provenance
 
 Files:
 
@@ -336,14 +466,14 @@ uv run --frozen python -m unittest tests.test_packaging.ReleaseInfoTests.test_ma
 
 Commit:
 
-`build: attest unsigned release artifacts`
+`build: attest release artifacts`
 
-### 4. Correct public support and download documentation
+### 5. Correct public support and download documentation
 
 Files:
 
 - `README.md`
-- `docs/installing-unsigned.md`
+- `docs/installing.md`
 - `docs/neon-80-linux.md`
 - `tests/test_packaging.py`
 
@@ -369,7 +499,7 @@ README changes:
   key and can send the entered prompt/recipe request to that provider.
 - Preserve the independent-community/non-affiliation statement.
 
-`docs/installing-unsigned.md` must provide:
+`docs/installing.md` must provide:
 
 - exact SHA-256 and GitHub-attestation verification instructions;
 - macOS: verify the DMG, drag to Applications, attempt one launch, then use
@@ -388,7 +518,7 @@ Commit:
 
 `docs: explain unsigned installation and Neon support`
 
-### 5. Refresh public screenshots without private state
+### 6. Refresh public screenshots without private state
 
 Files:
 
@@ -399,8 +529,11 @@ Files:
 
 Use deterministic fixture data in the browser/native UI. Screenshots must:
 
-- show the current application version area without claiming a release version
-  before the final candidate exists;
+- show one product title supplied by the native/browser chrome, not a second
+  in-content title;
+- keep the version absent from the normal application shell; if an About
+  screenshot is needed for install support, capture it separately rather than
+  turning it into the README hero;
 - show the real keyboard-shaped keymap and Lighting geometry;
 - make multi-LED keys individually identifiable;
 - show the unified Lighting Studio and mixed Library rather than the retired
@@ -418,12 +551,12 @@ Commit:
 
 `docs: refresh public product screenshots`
 
-### 6. Add public beta release notes and issue intake
+### 7. Add public release notes and issue intake
 
 Files:
 
-- `docs/releases/2026-07-public-beta.md`
-- `docs/releases/2026-07-public-beta-reddit.md`
+- `docs/releases/2026-07-public-release.md`
+- `docs/releases/2026-07-public-release-reddit.md`
 - `.github/ISSUE_TEMPLATE/bug-report.yml`
 - `.github/ISSUE_TEMPLATE/config.yml`
 
@@ -470,11 +603,13 @@ they have deliberately sanitized them.
 
 The Reddit draft must:
 
-- use “unsigned public beta” in the title or first sentence;
-- link directly to the matching GitHub prerelease, not Actions;
+- use a normal AM Configurator/Neon feature title with no beta or signing label;
+- link directly to the matching normal GitHub Release, not Actions;
 - name the tested Neon 80 path without claiming every firmware revision;
 - tell users to back up known LED data before a full write;
-- disclose the macOS/Windows warning before asking anyone to install;
+- include one ordinary body sentence that the installers are not code-signed
+  and macOS or Windows may request first-launch approval, then link the detailed
+  installation instructions;
 - keep AI out of the headline unless every advertised backend receives a live
   qualification;
 - invite reports through the issue form; and
@@ -483,7 +618,7 @@ The Reddit draft must:
 
 Commit:
 
-`docs: draft public beta release materials`
+`docs: draft public release materials`
 
 ## Verification gates
 
@@ -546,7 +681,8 @@ After the approved `main` push:
 6. Run `release_manifest.py` again locally and byte-compare its manifest and
    checksum file with the workflow-generated copies.
 7. Verify all four GitHub attestations against `roethlar/AMKB-GUI`.
-8. Confirm the version in all filenames is `0.1.<run number>`.
+8. Confirm source metadata, all filenames, and each native artifact report
+   exactly `0.1.34`; record workflow run number separately as provenance.
 9. Inspect each asset for unexpected files, credentials, local paths, internal
    runtime/model binaries, missing licenses/notices, and missing Linux udev
    data.
@@ -559,8 +695,8 @@ Use the downloaded GitHub candidate bytes.
 
 | Platform | Required evidence |
 |---|---|
-| macOS arm64 | Browser-downloaded DMG hash matches; `hdiutil verify`; mounted-app ad-hoc signature verifies; normal launch produces the expected Gatekeeper refusal; the documented System Settings **Open Anyway** path launches the app; version badge matches; frozen smoke passes. |
-| Windows 11 x64 | Download on `netwatch-01`; SHA-256 matches; `Get-AuthenticodeSignature` reports the documented unsigned state; SmartScreen copy is accurate; per-user install, launch, version inspection, native-policy smoke, and uninstall pass; Defender is not disabled or bypassed. |
+| macOS arm64 | Browser-downloaded DMG hash matches; `hdiutil verify`; mounted-app ad-hoc signature verifies; normal launch produces the expected Gatekeeper refusal; the documented System Settings **Open Anyway** path launches the app; About reports `0.1.34`; frozen smoke passes. |
+| Windows 11 x64 | Download on `netwatch-01`; SHA-256 matches; `Get-AuthenticodeSignature` reports the documented unsigned state; SmartScreen copy is accurate; per-user install, launch, About-version inspection, native-policy smoke, and uninstall pass; Defender is not disabled or bypassed. |
 | Linux x86-64 | GitHub runner AppImage smoke passes; SHA-256 and attestation match; AppImage contains license/notices and the udev rule; `--print-udev-rule` emits the shipped rule. Record that no physical Linux Neon check ran unless suitable hardware is actually available. |
 
 A platform warning matching the documented unsigned state is expected. A
@@ -657,7 +793,7 @@ additional board requires its own fresh authorization.
 Allowed claims:
 
 - independent, open-source community application;
-- unsigned public beta;
+- normal public release `0.1.34`;
 - exact supported operating systems and architectures;
 - Neon 80 was physically tested on the recorded firmware identity;
 - the listed device families have explicit implementation and automated
@@ -677,8 +813,9 @@ Disallowed claims:
 - all provider APIs are live-qualified when they are not;
 - no cloud/network activity after the user explicitly enables and configures a
   remote AI provider;
-- zero risk of configuration loss; or
-- stable/general-availability release while GitHub marks it as a prerelease.
+- zero risk of configuration loss;
+- signed, notarized, or warning-free; or
+- beta/prerelease merely because the permanent packages are unsigned.
 
 ## Publication sequence
 
@@ -690,10 +827,12 @@ Publication is not authorized by plan approval.
 3. Obtain one explicit push approval, push `main`, and wait for CI plus Desktop
    installers.
 4. Complete gates C through F against the final successful `main` run.
-5. Derive `N`, `0.1.N`, and `v0.1.N` from that run; do not guess them earlier.
+5. Confirm the final run still reports canonical version `0.1.34`; its run
+   number must not alter source, UI, metadata, or artifact names.
 6. Prepare a final release body from
-   `docs/releases/2026-07-public-beta.md`, substituting only the exact version,
-   run, commit, hashes, attestation instructions, and verified limitations.
+   `docs/releases/2026-07-public-release.md`, substituting only the exact
+   commit, run provenance, hashes, attestation instructions, and verified
+   limitations. The product version remains `0.1.34`.
 7. Present one cold owner gate that names:
    - tag/version and exact commit;
    - all five asset names and hashes;
@@ -701,13 +840,16 @@ Publication is not authorized by plan approval.
    - unsigned/notarized state;
    - any AI providers not live-qualified;
    - the exact GitHub Release title/body classification; and
-   - the proposed action: create the tag and public GitHub prerelease.
+   - the proposed action: create tag `v0.1.34` and the normal public GitHub
+     Release `AM Configurator 0.1.34`.
 8. On that explicit go, create the release with `gh release create` using
-   `--target <exact SHA>`, `--prerelease`, the approved title/body, and exactly
-   the five qualified assets. Let GitHub create the tag at that target; do not
-   perform a separate tag push or trigger another installer build.
+   `v0.1.34`, `--target <exact SHA>`, `--latest`, the approved title/body, and
+   exactly the five qualified assets. Do not pass `--prerelease`. Let GitHub
+   create the tag at that target; do not perform a separate tag push or trigger
+   another installer build.
 9. Read back the Release and tag through the GitHub API. Require the tag target,
-   prerelease flag, asset names, sizes, and hashes to match the approved set.
+   normal/latest classification, asset names, sizes, and hashes to match the
+   approved set.
 10. Test every public asset URL without relying on the maintainer's authenticated
     browser session. Download again and compare SHA-256.
 11. Update `.agents/state.md`, this plan's completion record, and any release
@@ -721,10 +863,12 @@ Publication is not authorized by plan approval.
 ## Failure and rollback policy
 
 - Before publication, any failed gate rejects the candidate. Fix on `main`,
-  commit, obtain the next push approval, and use the next successful workflow
-  run/version.
+  commit, obtain the next push approval, and rebuild the same canonical
+  `0.1.34` version until one exact candidate passes. Unpublished failed attempts
+  do not consume product versions.
 - After publication, never overwrite assets or move the tag. A code or package
-  fix is a new prerelease with a new run-derived patch version.
+  fix requires an explicit canonical version bump, new artifacts, and a new
+  normal release.
 - If a release has a configuration-loss, wrong-device, or false-verification
   defect, stop recommending downloads. Prepare an explicit warning for the
   GitHub Release and Reddit thread and request approval for those outward edits.
@@ -751,20 +895,25 @@ For the first 72 hours after the announcement:
 - put known limitations into the GitHub Release body and a Reddit comment only
   with outward-edit approval;
 - treat a reproducible hardware-safety defect as release-critical; and
-- use a new patch prerelease for fixes rather than modifying published bytes.
+- choose and commit one new canonical patch version for fixes rather than
+  modifying published bytes.
 
-Do not promise a signing date. The absence of paid signing accounts is a
-settled constraint, not a temporary task expected to resolve during this
-release.
+Do not promise future signing. Permanently unsigned installers are a settled
+product constraint.
 
 ## Completion criteria
 
 The release plan is complete only when:
 
-- the owner has approved the `Public Beta` identity and this plan;
+- the owner has approved the normal `0.1.34` public-release identity and this
+  plan;
 - every implementation slice is committed and the worktree is clean;
 - the full local gate and GitHub CI pass on the final commit;
-- one successful `main` Desktop run owns the release version and exact SHA;
+- canonical version `0.1.34` is identical in source, UI/About, package metadata,
+  local/CI planning, all native artifacts, filenames, manifest, tag, Release,
+  notes, and announcement;
+- one successful `main` Desktop run owns the exact release SHA and provenance
+  without becoming a product version;
 - the three candidate installers, checksum file, and manifest agree exactly;
 - GitHub provenance verifies for every promised subject;
 - unsigned first-launch instructions match observed macOS and Windows behavior;
@@ -773,8 +922,8 @@ The release plan is complete only when:
   acceptance;
 - unqualified AI providers are described as experimental and omitted from the
   headline;
-- the GitHub prerelease tag, target, assets, notes, hashes, and public links are
-  verified;
+- the normal/latest GitHub Release tag, target, assets, notes, hashes, and
+  public links are verified;
 - the Reddit draft links to that release and stays within the claim boundary;
 - release bookkeeping is committed; and
 - no paid account, platform certificate, notarization, security bypass, asset
