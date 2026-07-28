@@ -1,12 +1,14 @@
 # Public Release
 
-Status: draft as of 2026-07-28. The owner settled two permanent product
-constraints: every installer remains unsigned, and the application has one
-canonical version everywhere. This plan sets that version to **0.1.34** and
-publishes it as the repository's normal public GitHub Release. Unsigned status
-is a concise install-time fact, not a beta label, release title, application
-banner, or substitute product identity. Implementation and publication remain
-blocked until the owner approves this revised plan.
+Status: approved by the owner on 2026-07-28, with the unconditional requirement
+that every application launch starts on Keymap. The owner also settled two
+permanent product constraints: every installer remains unsigned, and the
+application has one canonical version everywhere. This plan sets that version
+to **0.1.34** and publishes it as the repository's normal public GitHub Release.
+Unsigned status is a concise install-time fact, not a beta label, release title,
+application banner, or substitute product identity. Plan approval authorizes
+implementation and local verification only; push, hardware write, release
+publication, and Reddit posting retain their explicit gates.
 
 ## Objective
 
@@ -333,17 +335,18 @@ Changes:
   horizontal overflow or a second nested-window visual boundary.
 - Change `normalizedRoute` and hash parsing so an absent, empty, or invalid
   route falls back to Keymap, not Lighting.
-- Persist the last manually chosen primary section across launches. Remember
-  Keymap, Macros, Lighting Studio, and Lighting Library; do not make Settings
-  the next startup screen merely because the app closed while Settings was
-  open.
-- Let an explicit valid URL hash win over the remembered section. If persistent
-  browser storage is unavailable or corrupt, fall back safely to Keymap.
-- Do not treat automatic workflow navigation—such as opening a generated
-  result—as a new user startup preference unless the user subsequently chooses
-  that section.
-- Keep the existing no-document empty state: a first launch without a document
-  opens the Keymap section and explains how to open a configuration.
+- Start every new page/application launch on Keymap unconditionally. Ignore a
+  previously selected section, persisted route, session route, and startup URL
+  hash for initial route selection.
+- Preserve active lighting-job identity separately from route selection so
+  starting on Keymap does not discard or cancel work.
+- Allow normal Keymap, Macros, Lighting Studio, Lighting Library, and Settings
+  navigation after startup, including browser history within that running
+  session. None of those choices changes the next launch route.
+- Replace the initial URL/history entry with Keymap so the visible hash and
+  active navigation agree immediately after boot.
+- Keep the existing no-document empty state: launch opens the Keymap section
+  and explains how to open a configuration.
 
 Regression guards must prove:
 
@@ -354,9 +357,9 @@ Regression guards must prove:
 - the About control is semantically interactive but lacks action-button
   classes;
 - close/focus behavior is accessible; and
-- first run defaults to Keymap, a manual primary-section choice survives a
-  relaunch, Settings does not replace that choice, explicit hashes win, and
-  corrupt storage falls back to Keymap; and
+- every fresh boot selects Keymap despite saved Lighting, Library, Macros, or
+  Settings state and despite a startup hash, while active-job recovery remains
+  intact; and
 - wide, narrow, zoomed, and reduced-motion layouts remain overflow-free.
 
 Focused verification:

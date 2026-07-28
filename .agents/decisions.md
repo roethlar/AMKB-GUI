@@ -17,7 +17,7 @@ plan.
   A version changes only through a deliberate source edit for a new public
   product release.
 
-## 2026-07-28 — Application chrome is quiet and remembers its section
+## 2026-07-28 — Application chrome is quiet and launch always opens Keymap
 
 Status: approved by the owner on 2026-07-28 while reviewing the native
 application.
@@ -27,9 +27,10 @@ application.
 - The version is absent from normal application chrome. One unobtrusive About
   link opens a small dialog that reports the canonical version and ordinary
   project information; it is not styled as a primary action or badge.
-- First launch defaults to Keymap. Later launches restore the last manually
-  selected primary section; Settings and automatic workflow navigation do not
-  replace that preference. A valid explicit URL route still wins.
+- Every launch opens Keymap unconditionally. Saved/session routes, the prior
+  section, Settings, automatic workflow navigation, and a startup URL hash do
+  not change the initial route. Normal navigation and history remain available
+  after startup, and active lighting-job recovery remains independent.
 
 ## 2026-07-28 — Installers are permanently platform-unsigned
 

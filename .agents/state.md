@@ -319,11 +319,11 @@
   rather than beta/prerelease, and `0.1.34` is the one canonical version.
   Build counters and workflow runs remain provenance only. The plan also
   removes duplicate in-app branding, moves version into an unobtrusive About
-  dialog, defaults first launch to Keymap, restores the last manually selected
-  primary section, adds free hashes/keyless provenance, exact-artifact platform
-  and Neon acceptance, corrected public documentation, release notes, and a
-  Reddit-safe claim boundary. Implementation and publication await plan
-  approval.
+  dialog, opens Keymap unconditionally on every launch, adds free hashes/keyless
+  provenance, exact-artifact platform and Neon acceptance, corrected public
+  documentation, release notes, and a Reddit-safe claim boundary. The owner
+  approved implementation and local verification on 2026-07-28; push, hardware
+  write, release publication, and Reddit posting retain their explicit gates.
 
 ## Blockers
 
