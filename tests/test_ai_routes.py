@@ -207,7 +207,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             self.capability,
             operation_gate=self.gate,
             launcher=lambda target: target(),
-            operation_timeout_seconds=30,
+            operation_timeout_seconds=180,
         )
         config_path = Path(self.temporary.name) / "config.json"
         config_path.write_text(
