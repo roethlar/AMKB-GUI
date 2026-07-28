@@ -313,7 +313,7 @@
   subsequently pushed to `origin`; GitHub CI and all three Desktop installer
   jobs passed at `8b50fb9`.
 
-- The 2026-07-28 public-release plan is drafted at
+- The approved 2026-07-28 public-release plan is at
   `docs/superpowers/plans/2026-07-28-public-release.md`. The owner settled that
   installers remain permanently platform-unsigned, the release is normal
   rather than beta/prerelease, and `0.1.34` is the one canonical version.
@@ -321,9 +321,18 @@
   removes duplicate in-app branding, moves version into an unobtrusive About
   dialog, opens Keymap unconditionally on every launch, adds free hashes/keyless
   provenance, exact-artifact platform and Neon acceptance, corrected public
-  documentation, release notes, and a Reddit-safe claim boundary. The owner
-  approved implementation and local verification on 2026-07-28; push, hardware
-  write, release publication, and Reddit posting retain their explicit gates.
+  documentation, release notes, and a Reddit-safe claim boundary. Release
+  identity and the plan landed in `0f18963`; canonical source/package/local/CI
+  versioning landed in `4ce7003` with its metadata-test repair in `6a9e1f1`.
+  Native-build guidance now agrees that counters are provenance only. The
+  duplicate in-content brand/version block is removed, a quiet About dialog is
+  the sole normal UI version surface, and launch state now forces Keymap despite
+  saved routes or startup hashes while preserving active lighting-job identity.
+  The focused server, state, and syntax checks pass. The connected-browser
+  controller currently enumerates no browser session even though Chrome,
+  extension, and native-host diagnostics pass, so the wide/narrow visual check
+  remains queued for the cumulative UI gate. Push, hardware write, release
+  publication, and Reddit posting retain their explicit gates.
 
 ## Blockers
 

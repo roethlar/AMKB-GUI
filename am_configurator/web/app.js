@@ -8,7 +8,7 @@ if (queryToken) history.replaceState({}, "", `${location.pathname}${location.has
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
-const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLightingState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
+const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, localModelRefreshFailed, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeLocalModels, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectLocalModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverLocalModels} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const {defaultSourceTransform, interpolateMoveZoom, normalizedPointer, panSourceTransform, presetSourceTransform, renderColorEffect, scaleSourceTransform, validateEffectSpec, validateSourceTransform} = LightingComposer;
@@ -31,15 +31,11 @@ let activePaintStrokeController = null;
 function restoredLightingState() {
   let saved = {};
   try { saved = JSON.parse(sessionStorage.getItem(LIGHTING_SESSION_KEY) || "{}"); } catch (error) {}
-  const parsed = parseLightingHash(location.hash);
-  const hasRoute = /^#\//.test(location.hash);
-  return {
-    lighting: createLightingState({...saved, route: hasRoute ? parsed.route : saved.route}),
-    jobId: parsed.jobId || saved.activeJob?.id || null,
-  };
+  return createLaunchState(saved, location.hash);
 }
 
 const restoredLighting = restoredLightingState();
+history.replaceState({}, "", `${location.pathname}${restoredLighting.hash}`);
 
 const state = {
   config: null,
@@ -4311,6 +4307,16 @@ $("#library-confirm-action").addEventListener("click",async event=>{
 });
 $("#library-confirm-dialog").addEventListener("close",()=>{
   libraryConfirmAction=null;
+});
+$("#about-button").addEventListener("click",()=>{
+  const dialog=$("#about-dialog");
+  if(!dialog.open)dialog.showModal();
+});
+$("#about-dialog").addEventListener("click",event=>{
+  if(event.target===event.currentTarget)event.currentTarget.close();
+});
+$("#about-dialog").addEventListener("close",()=>{
+  $("#about-button").focus({preventScroll:true});
 });
 $$('.nav-item').forEach(item=>item.addEventListener('click',()=>navigateTo(item.dataset.route, {focusHeading: true})));
 $$('[data-lighting-route]').forEach(tab => {

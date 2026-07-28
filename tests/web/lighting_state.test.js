@@ -10,6 +10,7 @@ const {
   applyCompatibility,
   escapeMarkup,
   createEpochLoadRegistry,
+  createLaunchState,
   createPaintStrokeController,
   createLightingState,
   formatLightingHash,
@@ -328,9 +329,9 @@ test("provider picker uses all six catalog providers and submits the first defau
   );
 });
 
-test("defaults to the manual Lighting workspace at the prompt stage", () => {
+test("defaults to Keymap at the prompt stage", () => {
   assert.deepEqual(createLightingState(), {
-    route: ROUTES.EDIT,
+    route: ROUTES.KEYMAP,
     create: {stage: STAGES.PROMPT},
     activeJob: null,
   });
@@ -428,9 +429,29 @@ test("hash routing round-trips safe routes and opaque job IDs", () => {
   for (const route of Object.values(ROUTES)) {
     assert.deepEqual(parseLightingHash(formatLightingHash(route, JOB_ID)), {route, jobId: JOB_ID});
   }
-  assert.deepEqual(parseLightingHash("#/lighting/create"), {route: ROUTES.EDIT, jobId: null});
-  assert.deepEqual(parseLightingHash("#/not-a-route?job=prompt-text"), {route: ROUTES.EDIT, jobId: null});
+  assert.deepEqual(parseLightingHash("#/lighting/create"), {route: ROUTES.KEYMAP, jobId: null});
+  assert.deepEqual(parseLightingHash("#/not-a-route?job=prompt-text"), {route: ROUTES.KEYMAP, jobId: null});
   assert.deepEqual(parseLightingHash("#/lighting/library?job=../../manifest.json"), {route: ROUTES.LIBRARY, jobId: null});
+});
+
+test("every launch starts Keymap while preserving active job identity", () => {
+  const saved = {
+    route: ROUTES.LIBRARY,
+    create: {stage: STAGES.REVIEW},
+    activeJob: readyJob(),
+  };
+  const launched = createLaunchState(
+    saved,
+    formatLightingHash(ROUTES.SETTINGS, JOB_ID),
+  );
+
+  assert.equal(launched.lighting.route, ROUTES.KEYMAP);
+  assert.equal(launched.lighting.activeJob.id, JOB_ID);
+  assert.equal(launched.jobId, JOB_ID);
+  assert.equal(launched.hash, formatLightingHash(ROUTES.KEYMAP, JOB_ID));
+  for (const route of Object.values(ROUTES)) {
+    assert.equal(createLaunchState({route}, formatLightingHash(route)).lighting.route, ROUTES.KEYMAP);
+  }
 });
 
 test("Library and Settings remain document-independent without a Create route", () => {

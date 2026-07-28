@@ -10,13 +10,6 @@
 <body>
   <div id="app">
     <header class="topbar">
-      <div class="brand">
-        <img class="brand-mark" src="/icon.png" alt="">
-        <div>
-          <strong>AM Configurator</strong>
-          <span class="app-version" id="app-version" title="Application version">Version __AM_VERSION__</span>
-        </div>
-      </div>
       <div class="document-meta">
         <span id="dirty-dot" class="dirty-dot"></span>
         <span id="file-name">No configuration open</span>
@@ -60,10 +53,13 @@
             <span class="nav-icon">✦</span><span>Lighting</span><small id="nav-leds">—</small>
           </button>
         </nav>
-        <div class="sidebar-footer">
-          <button id="undo-button" class="icon-button" title="Undo (⌘Z)" aria-label="Undo">↶</button>
-          <button id="redo-button" class="icon-button" title="Redo (⇧⌘Z)" aria-label="Redo">↷</button>
-          <button id="validate-button" class="icon-button" title="Validate configuration" aria-label="Validate configuration">✓</button>
+        <div class="sidebar-bottom">
+          <button id="about-button" type="button" class="about-link">About</button>
+          <div class="sidebar-footer">
+            <button id="undo-button" class="icon-button" title="Undo (⌘Z)" aria-label="Undo">↶</button>
+            <button id="redo-button" class="icon-button" title="Redo (⇧⌘Z)" aria-label="Redo">↷</button>
+            <button id="validate-button" class="icon-button" title="Validate configuration" aria-label="Validate configuration">✓</button>
+          </div>
         </div>
       </aside>
 
@@ -209,6 +205,23 @@
       </main>
     </div>
   </div>
+
+  <dialog id="about-dialog" class="dialog about-dialog" aria-labelledby="about-title">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-header">
+        <div><p class="eyebrow">About</p><h2 id="about-title">AM Configurator</h2></div>
+        <button class="dialog-close" value="cancel" aria-label="Close About">×</button>
+      </div>
+      <div class="about-content">
+        <p class="about-version">Version __AM_VERSION__</p>
+        <p>Independent open-source community project. Not affiliated with or endorsed by Angry Miao.</p>
+        <div class="about-meta">
+          <a href="https://github.com/roethlar/AMKB-GUI" target="_blank" rel="noopener noreferrer">GitHub repository</a>
+          <span>MIT License</span>
+        </div>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="device-dialog" class="dialog">
     <form method="dialog" class="dialog-card">

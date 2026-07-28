@@ -41,7 +41,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .topbar {
   height: 72px;
   display: grid;
-  grid-template-columns: 250px 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   border-bottom: 1px solid var(--line);
   background: rgba(13, 13, 15, .94);
@@ -51,12 +51,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   z-index: 10;
   flex: none;
 }
-
-.brand { display: flex; align-items: center; gap: 12px; letter-spacing: -.01em; }
-.brand strong { display: block; font-size: 15px; }
-.app-version { display: inline-flex; margin-top: 4px; border: 1px solid rgba(170, 140, 255, .55); border-radius: 999px; padding: 2px 7px; color: var(--text); background: rgba(131, 88, 255, .18); font-size: 11px; font-weight: 700; line-height: 1.2; letter-spacing: .025em; }
-.brand small { color: var(--muted); display: block; margin-top: 2px; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
-.brand-mark { width: 36px; height: 36px; border-radius: 10px; object-fit: cover; flex: none; box-shadow: 0 0 28px rgba(131, 88, 255, .28); }
 
 .document-meta { display: flex; align-items: center; justify-content: center; gap: 9px; min-width: 0; color: #d1d1d6; }
 .document-meta #file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 360px; }
@@ -98,6 +92,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .nav-item.active .nav-icon { color: var(--violet-2); }
 .nav-item small { color: var(--muted-2); font-variant-numeric: tabular-nums; }
 .nav-icon { font-size: 18px; text-align: center; }
+.sidebar-bottom { display: grid; gap: 9px; }
+.about-link { justify-self: start; border: 0; padding: 2px 4px; background: transparent; color: var(--muted-2); cursor: pointer; font-size: 11px; line-height: 1.4; }
+.about-link:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 .sidebar-footer { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
 .icon-button { border: 1px solid var(--line); background: var(--panel); height: 34px; border-radius: 8px; color: var(--muted); cursor: pointer; }
 .icon-button:hover:not(:disabled) { color: white; border-color: var(--line-strong); }
@@ -555,6 +552,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .dialog-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
 .dialog-header h2 { margin: 5px 0 0; font-size: 24px; letter-spacing: -.035em; }
 .dialog-close { border: 0; background: transparent; color: var(--muted); font-size: 28px; cursor: pointer; }
+.about-dialog { width: min(430px, calc(100vw - 40px)); }
+.about-content { display: grid; gap: 12px; color: var(--muted); line-height: 1.55; }
+.about-content p { margin: 0; }
+.about-version { color: var(--text); font-size: 13px; font-variant-numeric: tabular-nums; }
+.about-meta { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 4px; font-size: 12px; }
+.about-meta a { color: var(--violet-2); }
 .device-list { min-height: 100px; display: grid; gap: 8px; }
 .device-card { border: 1px solid var(--line); background: var(--panel-2); border-radius: 11px; padding: 13px 14px; display: grid; grid-template-columns: 1fr auto; cursor: pointer; text-align: left; }
 .device-card:hover, .device-card.selected { border-color: var(--violet); }
@@ -622,7 +625,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 @media (max-width: 1120px) {
-  .topbar { grid-template-columns: 220px 1fr auto; }
+  .topbar { grid-template-columns: minmax(0, 1fr) auto; }
   .top-actions .button { padding: 0 10px; }
   .workspace { grid-template-columns: 160px minmax(0, 1fr); }
   .editor-grid { grid-template-columns: 1fr; }
@@ -652,8 +655,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 @media (max-width: 720px) {
   #app { min-height: 100vh; height: 100dvh; }
-  .brand small, .document-meta .pill { display: none; }
-  .brand-mark { width: 32px; height: 32px; }
+  .document-meta .pill { display: none; }
   .document-meta { justify-content: flex-end; font-size: 11px; }
   .document-meta #file-name { max-width: 150px; }
   .top-actions .button { min-height: 34px; padding-inline: 10px; font-size: 11px; }
@@ -665,6 +667,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .nav-item { min-height: 38px; grid-template-columns: auto 1fr; justify-content: center; padding-inline: 8px; }
   .nav-item small { display: none; }
   .nav-icon { font-size: 15px; }
+  .sidebar-bottom { display: flex; align-items: center; gap: 7px; }
   .sidebar-footer { min-width: 116px; }
   .icon-button { height: 38px; }
   .main-content { height: auto; }

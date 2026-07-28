@@ -112,7 +112,7 @@
   }
 
   function normalizedRoute(value) {
-    return VALID_ROUTES.has(value) ? value : ROUTES.EDIT;
+    return VALID_ROUTES.has(value) ? value : ROUTES.KEYMAP;
   }
 
   function normalizedStage(value) {
@@ -519,12 +519,24 @@
     return {route, jobId: UUID.test(candidate) ? candidate : null};
   }
 
+  function createLaunchState(saved = {}, hash = "") {
+    const parsed = parseLightingHash(hash);
+    const lighting = createLightingState({...saved, route: ROUTES.KEYMAP});
+    const jobId = parsed.jobId || lighting.activeJob?.id || null;
+    return {
+      lighting,
+      jobId,
+      hash: formatLightingHash(ROUTES.KEYMAP, jobId),
+    };
+  }
+
   return Object.freeze({
     ROUTES,
     STAGES,
     aiStudioAvailable,
     applyCompatibility,
     createEpochLoadRegistry,
+    createLaunchState,
     createPaintStrokeController,
     createLightingState,
     escapeMarkup,

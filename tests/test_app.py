@@ -445,6 +445,40 @@ class DesktopServerTests(unittest.TestCase):
         self.assertIn("Devices → Read keymap &amp; macros", source)
         self.assertNotIn("Device → Read", source)
 
+    def test_version_lives_only_in_about(self) -> None:
+        html = (ROOT / "am_configurator" / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        script = (ROOT / "am_configurator" / "web" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        style = (ROOT / "am_configurator" / "web" / "style.css").read_text(
+            encoding="utf-8"
+        )
+        topbar = re.search(
+            r'<header class="topbar">(?P<body>.*?)</header>', html, re.DOTALL
+        )
+        about = re.search(
+            r'<dialog id="about-dialog".*?</dialog>', html, re.DOTALL
+        )
+
+        self.assertIsNotNone(topbar)
+        self.assertIsNotNone(about)
+        self.assertNotIn("AM Configurator", topbar.group("body"))
+        self.assertNotIn("Version", topbar.group("body"))
+        self.assertNotIn('class="brand"', html)
+        self.assertNotIn('id="app-version"', html)
+        self.assertIn(
+            '<button id="about-button" type="button" class="about-link">About</button>',
+            html,
+        )
+        self.assertIn("AM Configurator", about.group(0))
+        self.assertIn("Version __AM_VERSION__", about.group(0))
+        self.assertEqual(1, html.count("__AM_VERSION__"))
+        self.assertIn('$("#about-button").addEventListener("click"', script)
+        self.assertIn(".about-link", style)
+        self.assertNotIn("button primary", about.group(0))
+
     def test_am21_creates_relic_edge_tracks_only_for_custom_slots(self) -> None:
         source = (ROOT / "am_configurator" / "web" / "app.js").read_text(
             encoding="utf-8"
@@ -636,14 +670,14 @@ class DesktopServerTests(unittest.TestCase):
             with urlopen(url, timeout=2) as response:
                 page = response.read()
                 self.assertIn(b"AM Configurator", page)
-                version_badge = (
-                    f'id="app-version" title="Application version">'
-                    f"Version {__version__}</span>"
-                ).encode()
-                self.assertIn(
-                    version_badge,
-                    page,
+                self.assertNotIn(b'class="brand"', page)
+                self.assertNotIn(b'id="app-version"', page)
+                self.assertEqual(1, page.count(f"Version {__version__}".encode()))
+                about = re.search(
+                    rb'<dialog id="about-dialog".*?</dialog>', page, re.DOTALL
                 )
+                self.assertIsNotNone(about)
+                self.assertIn(f"Version {__version__}".encode(), about.group(0))
                 self.assertNotIn(b"__AM_VERSION__", page)
             request = Request(
                 f"http://127.0.0.1:{server.server_port}/api/config",
