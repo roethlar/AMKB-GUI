@@ -741,7 +741,9 @@ Library environment:
 - permanent deletion requires its existing confirmation and never targets a
   user Library;
 - keymap, macro, and Lighting canvases preserve physical key sizing and
-  multi-LED labels; and
+  multi-LED labels;
+- dragging non-editable UI text creates no selection and never traps later
+  clicks, while editable text controls retain normal selection; and
 - reduced-motion and keyboard navigation remain usable.
 
 If the already-installed local Ollama service and a previously selected model
@@ -845,9 +847,9 @@ builds that had already displayed `0.1.63`; the completed correction makes
 
 The current local evidence is:
 
-- the cumulative gate passes 684 Python tests on Python 3.13, 81 web tests,
+- the cumulative gate passes 685 Python tests on Python 3.13, 81 web tests,
   compile/syntax checks, and source/wheel builds;
-- the Python 3.11 floor separately passes all 684 Python tests, compilation,
+- the Python 3.11 floor separately passes all 685 Python tests, compilation,
   and package builds;
 - the canonical-version guard was red-proven by temporarily restoring
   `0.1.34`, observing the focused test fail, restoring `0.1.64`, and passing all
@@ -862,9 +864,14 @@ The current local evidence is:
   creates a window; its regression was red-proven, and exact-path inspection of
   the rebuilt app shows one native window, no accessibility tab-bar role,
   unconditional Keymap startup, and About-only version `0.1.64`;
+- commit `621adef` disables native page-text selection and limits stylesheet
+  selection to text inputs, textareas, and editable content. Both regressions
+  were red-proven; exact-bundle inspection confirms a drag across the Keymap
+  heading creates no highlight, the next Settings click works, and text inside
+  the Library path field remains selectable;
 - a fresh macOS preflight build produced
-  `AM-Configurator-0.1.64-macOS-arm64.dmg`, 25,509,984 bytes, with SHA-256
-  `c419a7b60a5e76bc1a1c1b68744e45b4a618526b7e6a1254ccc636353c9eed10`;
+  `AM-Configurator-0.1.64-macOS-arm64.dmg`, 25,507,199 bytes, with SHA-256
+  `0aa59150b2821ef48292ae1fc094ee8d3a1e54c997691eb0cd17587304dea557`;
 - that local DMG passes bundle and mounted-image smoke, the real WKWebView
   policy smoke, `hdiutil verify`, and deep strict ad-hoc signature verification
   with no Developer ID authority;

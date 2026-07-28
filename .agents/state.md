@@ -376,9 +376,9 @@
   firmware, OS, version, operation, write, installer, reproduction, and
   sanitized-log context. Both release-packet guards were red-proven and the
   issue-form YAML parses successfully. The cumulative local pre-publication
-  gate now passes 684 Python tests on Python 3.13, 81 web tests,
+  gate now passes 685 Python tests on Python 3.13, 81 web tests,
   compile/syntax checks, and source/wheel builds. The Python 3.11 floor
-  separately passes all 684 Python tests, compilation, and package builds.
+  separately passes all 685 Python tests, compilation, and package builds.
   The first post-push GitHub candidate from Desktop run `30388161235` at
   `97ed7a2` reproduced its manifest/checksums exactly, verified all
   attestations, and passed macOS native checks, but it is rejected: live
@@ -387,10 +387,17 @@
   automatic macOS window tabbing before pywebview creates a window. Its
   regression was red-proven, and exact-path inspection of the rebuilt bundle
   confirms one native window, no accessibility tab-bar role, unconditional
-  `#/keymap` startup, and About-only version `0.1.64`. The fresh local artifact
-  is `dist/AM-Configurator-0.1.64-macOS-arm64.dmg` (25,509,984 bytes,
+  `#/keymap` startup, and About-only version `0.1.64`. Owner review then exposed
+  that globally selectable page text could trap subsequent clicks. Commit
+  `621adef` disables native page-text selection and limits CSS selection to
+  text inputs, textareas, and editable content. Both native and stylesheet
+  regressions were red-proven. Exact-bundle inspection confirms that dragging
+  across the Keymap heading creates no highlight and the next Settings click
+  works, while text inside the Library path field remains selectable. The
+  fresh local artifact is
+  `dist/AM-Configurator-0.1.64-macOS-arm64.dmg` (25,507,199 bytes,
   SHA-256
-  `c419a7b60a5e76bc1a1c1b68744e45b4a618526b7e6a1254ccc636353c9eed10`);
+  `0aa59150b2821ef48292ae1fc094ee8d3a1e54c997691eb0cd17587304dea557`);
   bundle and mounted-DMG smoke, the real WKWebView policy smoke,
   `hdiutil verify`, and deep strict ad-hoc signature verification pass with
   `Signature=adhoc`, no team identity, and bundle version `0.1.64`. No keyboard
@@ -417,10 +424,10 @@
 ## Next
 
 - Obtain the required explicit authorization before pushing the current local
-  `main`, including `3496bbe`, `95f222c`, and this release bookkeeping. After
-  the push, wait for CI and all desktop workflows, download the exact replacement
-  GitHub candidate artifacts, and rerun the cross-platform and separately
-  authorized hardware acceptance gates.
+  `main`, including `3496bbe`, `95f222c`, `621adef`, and this release
+  bookkeeping. After the push, wait for CI and all desktop workflows, download
+  the exact replacement GitHub candidate artifacts, and rerun the
+  cross-platform and separately authorized hardware acceptance gates.
 
 ## Blockers
 
