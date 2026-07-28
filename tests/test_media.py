@@ -1375,6 +1375,134 @@ class SourceTransformTests(unittest.TestCase):
         )
 
 
+class LocalAnimationEffectTests(unittest.TestCase):
+    def _effect(
+        self,
+        effect_type: str,
+        parameters: dict,
+        *,
+        frame_count: int = 5,
+    ) -> dict:
+        return {
+            "version": 1,
+            "type": effect_type,
+            "frame_count": frame_count,
+            "duration_ms": 90,
+            "parameters": parameters,
+        }
+
+    def test_color_effects_match_the_browser_golden_contract(self) -> None:
+        source = [["#FF8040", "#204080", "#FFFFFF"]]
+        coordinates = [
+            {"x": 0.0, "y": 0.5},
+            {"x": 0.5, "y": 0.5},
+            {"x": 1.0, "y": 0.5},
+        ]
+        cases = {
+            "pulse": (
+                {"minimum_brightness": 0.2},
+                [
+                    ["#FF8040", "#204080", "#FFFFFF"],
+                    ["#994D26", "#13264D", "#999999"],
+                    ["#331A0D", "#060D1A", "#333333"],
+                    ["#994D26", "#13264D", "#999999"],
+                    ["#FF8040", "#204080", "#FFFFFF"],
+                ],
+            ),
+            "hue_cycle": (
+                {"turns": 1.0},
+                [
+                    ["#FF8040", "#204080", "#FFFFFF"],
+                    ["#99FF40", "#732080", "#FFFFFF"],
+                    ["#40FFCC", "#802620", "#FFFFFF"],
+                    ["#404CFF", "#668020", "#FFFFFF"],
+                    ["#FF40E5", "#20804D", "#FFFFFF"],
+                ],
+            ),
+            "sweep": (
+                {
+                    "direction": "left_to_right",
+                    "width": 0.35,
+                    "minimum_brightness": 0.1,
+                },
+                [
+                    ["#1A0D06", "#03060D", "#1A1A1A"],
+                    ["#CE6734", "#03060D", "#1A1A1A"],
+                    ["#1A0D06", "#204080", "#1A1A1A"],
+                    ["#1A0D06", "#03060D", "#CECECE"],
+                    ["#1A0D06", "#03060D", "#1A1A1A"],
+                ],
+            ),
+            "shimmer": (
+                {"depth": 0.6, "seed": 824},
+                [
+                    ["#914924", "#1D3A74", "#BDBDBD"],
+                    ["#67341A", "#122448", "#6E6E6E"],
+                    ["#A55329", "#0D1A34", "#7D7D7D"],
+                    ["#F67B3E", "#152A54", "#D6D6D6"],
+                    ["#EA753B", "#1F3E7C", "#FEFEFE"],
+                ],
+            ),
+        }
+        for effect_type, (parameters, expected) in cases.items():
+            with self.subTest(effect=effect_type):
+                effect = media_composition.validate_effect_spec(
+                    self._effect(effect_type, parameters),
+                    frame_limit=16,
+                    still_source=False,
+                )
+                self.assertEqual(
+                    expected,
+                    media_composition.render_color_effect(
+                        source,
+                        effect,
+                        coordinates=coordinates,
+                    ),
+                )
+
+    def test_move_zoom_is_still_only_and_interpolates_exact_transforms(self) -> None:
+        start = {
+            "version": 1,
+            "offset_x": 0.0,
+            "offset_y": 0.0,
+            "scale_x": 1.0,
+            "scale_y": 1.0,
+            "aspect_locked": True,
+            "sampling": "box",
+            "background": "#000000",
+        }
+        end = {
+            **start,
+            "offset_x": 0.5,
+            "scale_x": 2.0,
+            "scale_y": 2.0,
+        }
+        effect = self._effect(
+            "move_zoom",
+            {"start_transform": start, "end_transform": end},
+            frame_count=3,
+        )
+        with self.assertRaisesRegex(ValueError, "still"):
+            media_composition.validate_effect_spec(
+                effect,
+                frame_limit=16,
+                still_source=False,
+            )
+        checked = media_composition.validate_effect_spec(
+            effect,
+            frame_limit=16,
+            still_source=True,
+        )
+        self.assertEqual(
+            [
+                start,
+                {**start, "offset_x": 0.25, "scale_x": 1.5, "scale_y": 1.5},
+                end,
+            ],
+            media_composition.interpolate_move_zoom(checked),
+        )
+
+
 class MediaRenderCoordinatorTests(unittest.TestCase):
     @staticmethod
     def _transform():
@@ -1490,14 +1618,16 @@ class MediaRenderCoordinatorTests(unittest.TestCase):
                 failures[0],
                 media_composition.MediaRenderSuperseded,
             )
-            with self.assertRaises(media_composition.MediaRenderSuperseded):
-                renderer.render(
-                    catalog_id,
-                    product_id="CB04",
-                    targets=["frames"],
-                    transform=self._transform(),
-                    epoch=1,
-                )
+            for stale_epoch in (1, 2):
+                with self.subTest(epoch=stale_epoch):
+                    with self.assertRaises(media_composition.MediaRenderSuperseded):
+                        renderer.render(
+                            catalog_id,
+                            product_id="CB04",
+                            targets=["frames"],
+                            transform=self._transform(),
+                            epoch=stale_epoch,
+                        )
 
             item_dir = root / "items" / manifest["item_id"]
             self.assertEqual([], list((item_dir / ".work").iterdir()))

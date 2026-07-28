@@ -17,12 +17,14 @@ test("pure lighting state loads before the application adapter", () => {
   const reviewScript=html.indexOf('<script src="/lighting_review.js"></script>');
   const targetsScript=html.indexOf('<script src="/lighting_targets.js"></script>');
   const composerScript=html.indexOf('<script src="/lighting_composer.js"></script>');
+  const libraryStateScript=html.indexOf('<script src="/library_state.js"></script>');
   const appScript=html.indexOf('<script src="/app.js"></script>');
-  assert.ok(stateScript>=0&&stateScript<reviewScript&&reviewScript<targetsScript&&targetsScript<composerScript&&composerScript<appScript);
+  assert.ok(stateScript>=0&&stateScript<reviewScript&&reviewScript<targetsScript&&targetsScript<composerScript&&composerScript<libraryStateScript&&libraryStateScript<appScript);
   assert.match(server,/"\/lighting_state\.js":\s*"lighting_state\.js"/);
   assert.match(server,/"\/lighting_review\.js":\s*"lighting_review\.js"/);
   assert.match(server,/"\/lighting_targets\.js":\s*"lighting_targets\.js"/);
   assert.match(server,/"\/lighting_composer\.js":\s*"lighting_composer\.js"/);
+  assert.match(server,/"\/library_state\.js":\s*"library_state\.js"/);
 });
 
 test("Studio is one Paint, Source, and Animate shell with local draft acceptance", () => {
@@ -46,6 +48,30 @@ test("Studio is one Paint, Source, and Animate shell with local draft acceptance
   assert.match(css,/\.studio-tool-tabs/);
   assert.match(css,/\.media-compositor-stage/);
   assert.match(css,/\.animation-draft-controls/);
+});
+
+test("media import banks before composition and applies only an accepted preview", () => {
+  assert.match(js,/accept="image\/gif,image\/png,image\/bmp,\.gif,\.png,\.bmp"/);
+  assert.match(js,/async function importMedia\(input\)/);
+  assert.match(js,/\/api\/library\/import\/media\?name=/);
+  assert.match(js,/function renderMediaCompositionPreview\(\)/);
+  assert.match(js,/\/render`,\{method:"POST"/);
+  assert.match(js,/function applyMediaCompositionDraft\(\)/);
+  const applyStart=js.indexOf("function applyMediaCompositionDraft");
+  const applyEnd=js.indexOf("function ",applyStart+10);
+  assert.equal((js.slice(applyStart,applyEnd).match(/mutate\(/g)||[]).length,1);
+  assert.match(js,/nextMediaRenderEpoch\(state\.mediaRenderEpoch\)/);
+  assert.match(js,/const timelineFrames=mediaPreviewFrames\.length\?mediaPreviewFrames:documentFrames/);
+  assert.match(js,/function activeMediaPreviewTrack\(\)/);
+  assert.match(js,/function cancelMediaComposition\(\)/);
+  assert.match(js,/id="media-compose-apply"/);
+  assert.match(js,/id="media-compose-cancel"/);
+  assert.match(js,/id="save-lighting-library"/);
+  assert.match(js,/\/api\/library\/save\/lighting/);
+  assert.match(js,/lightingProvenanceForPage\(/);
+  assert.match(js,/page\.lightness=Number\(destination\.lightness\)/);
+  assert.match(js,/data-library-open-source/);
+  assert.match(js,/data-library-apply-lighting/);
 });
 
 test("lighting color style interpolation uses only canonical RGB", () => {

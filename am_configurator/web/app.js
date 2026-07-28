@@ -12,6 +12,14 @@ const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLightin
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const {defaultSourceTransform, interpolateMoveZoom, normalizedPointer, panSourceTransform, presetSourceTransform, renderColorEffect, scaleSourceTransform, validateEffectSpec, validateSourceTransform} = LightingComposer;
+const {
+  createLightingProvenance,
+  createMediaDraft,
+  lightingProvenanceForPage,
+  mediaDraftCanApply,
+  nextMediaRenderEpoch,
+  reduceMediaDraft,
+} = LibraryState;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
 
@@ -55,6 +63,8 @@ const state = {
   sourceTransform: defaultSourceTransform("box"),
   sourcePreviewMode: "result",
   mediaComposition: null,
+  mediaRenderEpoch: 0,
+  appliedLightingProvenance: null,
   localAnimationEffect: "pulse",
   localAnimationFrameCount: 8,
   localAnimationDuration: 90,
@@ -912,6 +922,7 @@ function libraryCoverAsset(detail) {
   if(first?.asset_id)return {asset_id:first.asset_id,mime_type:first.mime_type||"image/png"};
   return manifest?.assets?.find(asset=>asset.kind==="preview_poster")
     || manifest?.assets?.find(asset=>["preview_animation","source_video","preview"].includes(asset.kind))
+    || manifest?.assets?.find(asset=>asset.kind==="source")
     || null;
 }
 
@@ -1000,7 +1011,7 @@ async function ensureLibraryItemDetail(catalogId) {
     if(cover)void loadLibraryAsset(catalogId,cover.asset_id);
     if(state.library.selectedCatalogId===catalogId){
       for(const asset of libraryManifest(detail)?.assets||[]){
-        if(["concept","selected_still","preview_poster","preview_animation","source_video","preview"].includes(asset.kind))void loadLibraryAsset(catalogId,asset.asset_id);
+        if(["concept","selected_still","preview_poster","preview_animation","source_video","preview","source"].includes(asset.kind))void loadLibraryAsset(catalogId,asset.asset_id);
       }
       if(detail.kind==="keyboard_profile")void ensureLibraryProfileCompatibility(catalogId);
     }
@@ -1093,14 +1104,20 @@ function libraryDetailMarkup(catalogId) {
   const detail=state.library.details.get(catalogId);
   if(!detail)return '<div class="library-empty"><div class="loader"></div><strong>Loading saved media…</strong></div>';
   const manifest=libraryManifest(detail);
-  const media=(manifest?.assets||[]).filter(asset=>["concept","selected_still","preview","preview_poster","preview_animation","raster_animation","source_video"].includes(asset.kind));
+  const media=(manifest?.assets||[]).filter(asset=>["concept","selected_still","preview","preview_poster","preview_animation","raster_animation","source_video","source"].includes(asset.kind));
   const profile=detail.kind==="keyboard_profile"?detail.item?.profile:null;
   const sectionList=(profile?.sections||[]).map(section=>`<span class="pill muted">${esc(libraryStatusLabel(section))}</span>`).join("");
+  const actions=detail.kind==="media_source"
+    ?`<button type="button" class="button primary" data-library-open-source ${state.config?"":"disabled"}>Open in Studio</button>`
+    :detail.kind==="lighting_composition"
+      ?`<button type="button" class="button primary" data-library-apply-lighting ${state.config?"":"disabled"}>Apply to slot ${state.ledSlot-4}</button>`
+      :"";
   return `<section class="library-detail" aria-labelledby="library-detail-title">
     <button type="button" class="library-back" data-library-back>← Library</button>
     <header><div><p class="eyebrow">${esc(libraryKindLabel(detail.kind))}</p><h2 id="library-detail-title">${esc(detail.name)}</h2><p>${libraryDate(detail.created_at)} · ${detail.asset_count} saved asset${detail.asset_count===1?"":"s"}</p></div><span class="pill ${detail.status==="partial"?"muted":""}">${esc(libraryStatusLabel(detail.status))}</span></header>
     ${profile?`<div class="profile-section-list" aria-label="Saved profile sections">${sectionList}</div>${libraryProfileCompatibilityMarkup(catalogId,detail)}`:""}
     ${media.length?`<div class="library-media-grid">${media.map((asset,index)=>libraryMediaMarkup(catalogId,asset,index)).join("")}</div>`:profile?"":'<p class="library-no-media">This item has no viewable media yet.</p>'}
+    ${actions?`<div class="library-detail-actions">${actions}</div>`:""}
     ${manifest?.costs?.actual_incomplete?'<p class="library-warning">Provider cost reporting is incomplete for this item.</p>':""}
   </section>`;
 }
@@ -1110,8 +1127,103 @@ function wireLibraryContent() {
   $$("[data-library-asset-retry]",$("#library-content")).forEach(button=>button.addEventListener("click",()=>loadLibraryAsset(button.dataset.libraryAssetItem,button.dataset.libraryAssetRetry,{retry:true})));
   $("[data-library-back]",$("#library-content"))?.addEventListener("click",()=>{state.library.selectedCatalogId=null;renderLibrary();});
   $("[data-library-compatibility-retry]",$("#library-content"))?.addEventListener("click",()=>ensureLibraryProfileCompatibility(state.library.selectedCatalogId,{force:true}));
+  $("[data-library-open-source]",$("#library-content"))?.addEventListener("click",()=>openLibrarySource(state.library.selectedCatalogId));
+  $("[data-library-apply-lighting]",$("#library-content"))?.addEventListener("click",()=>applyLibraryLighting(state.library.selectedCatalogId));
   $("[data-library-retry]",$("#library-content"))?.addEventListener("click",()=>loadLibrary({force:true}));
   $("[data-library-settings]",$("#library-content"))?.addEventListener("click",openSettings);
+}
+
+function openLibrarySource(catalogId) {
+  const detail=state.library.details.get(catalogId);
+  const source=detail?.item?.source;
+  const destination=currentMediaDestination();
+  if(detail?.kind!=="media_source"||!source||!destination){
+    return toast(
+      "Could not open source",
+      "Open a supported keyboard configuration and try again.",
+      "error",
+    );
+  }
+  state.sourceTransform=defaultSourceTransform(state.gifResample);
+  state.mediaComposition=createMediaDraft({
+    catalogId,
+    source:{
+      asset_id:source.asset_id,
+      mime_type:source.mime_type,
+      width:source.width,
+      height:source.height,
+      frame_count:source.frame_count,
+      duration_ms:source.duration_ms,
+    },
+    destination,
+    transform:state.sourceTransform,
+  });
+  state.studioTool="source";
+  navigateTo(ROUTES.EDIT);
+  void loadMediaCompositionSourceAsset();
+  void renderMediaCompositionPreview();
+}
+
+async function applyLibraryLighting(catalogId) {
+  const detail=state.library.details.get(catalogId);
+  const composition=detail?.item?.composition;
+  if(detail?.kind!=="lighting_composition"||!composition){
+    return toast("Could not apply lighting","This saved lighting item is unavailable.","error");
+  }
+  try{
+    const destination=composition.destination;
+    if(
+      detail.item.device?.family!==productFamily(productId())
+      ||!activeLedModel()?.targets.some(candidate=>candidate.key===destination.target)
+    ){
+      throw new Error("This rendered lighting does not match the open keyboard.");
+    }
+    for(const [track,metadata] of Object.entries(composition.tracks||{})){
+      if(servedGeometry(productFamily(productId()),track)?.signature!==metadata.signature){
+        throw new Error(`The saved ${track} track does not match this keyboard.`);
+      }
+    }
+    const response=await fetch(`/api/library/assets/${libraryCatalogPath(catalogId)}/${encodeURIComponent(composition.rendered_asset_id)}`,{headers:{"X-AM-Token":token}});
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load lighting (${response.status})`);}
+    const result=await response.json();
+    if(!result?.tracks)throw new Error("The saved LED result is invalid.");
+    const pairsRelic=destination.target==="keyframes"&&Boolean(result.tracks.spotlight_frames);
+    if(
+      !Number.isSafeInteger(destination.lightness)
+      ||destination.lightness<0
+      ||destination.lightness>100
+    ){
+      throw new Error("The saved lighting brightness is invalid.");
+    }
+    const candidate=clone(getPage(state.ledSlot));
+    applyLedResultToPage(candidate,result,destination.target,pairsRelic);
+    candidate.lightness=Number(destination.lightness);
+    const provenance=createLightingProvenance({
+      slot:state.ledSlot,
+      target:destination.target,
+      sourceCatalogId:composition.source_catalog_id,
+      transform:composition.transform,
+      effects:composition.effects,
+      page:candidate,
+    });
+    mutate(()=>{
+      const page=getPage(state.ledSlot);
+      applyLedResultToPage(page,result,destination.target,pairsRelic);
+      page.lightness=Number(destination.lightness);
+      state.appliedLightingProvenance=provenance;
+      state.ledTarget=destination.target;
+      state.ledFrame=0;
+    });
+    state.studioTool="paint";
+    navigateTo(ROUTES.EDIT);
+    toast(
+      "Saved lighting applied",
+      "The open document changed through one undo checkpoint. Nothing was written to the keyboard.",
+      "success",
+    );
+  }catch(error){
+    toast("Could not apply lighting",error.message,"error");
+  }
 }
 
 function openLibraryItem(catalogId) {
@@ -1259,6 +1371,7 @@ function renderLightingShell() {
   renderTargetControls(targetHost,targets,state.ledTarget,destinationLocked,target=>{
     cancelLocalAnimationDraft({render:false});
     state.ledTarget = target;
+    refreshMediaCompositionDestination();
     state.ledFrame = 0;
     state.ledPixel = 0;
     renderLightingShell();
@@ -1672,7 +1785,9 @@ function setStudioTool(tool,{focus=true}={}) {
 }
 
 function mediaSourceSize() {
-  const source=state.mediaComposition?.source||state.mediaComposition?.item?.media;
+  const source=["cancelled"].includes(state.mediaComposition?.status)
+    ?null
+    :state.mediaComposition?.source;
   const width=Number(source?.width);
   const height=Number(source?.height);
   return Number.isSafeInteger(width)&&width>0&&Number.isSafeInteger(height)&&height>0
@@ -1690,8 +1805,84 @@ function mediaDestinationSize() {
 }
 
 function stillMediaCompositionActive() {
-  const source=state.mediaComposition?.source||state.mediaComposition?.item?.media;
+  const source=state.mediaComposition?.status==="cancelled"
+    ?null
+    :state.mediaComposition?.source;
   return Boolean(source&&Number(source.frame_count)===1);
+}
+
+function mediaCompositionTargets() {
+  const target=state.ledTarget;
+  const paired=activeLedModel()===LED_MODELS["80"]
+    &&target==="keyframes"
+    &&state.relicGifEdges;
+  return paired?["keyframes","spotlight_frames"]:[target];
+}
+
+function currentMediaDestination() {
+  const target=state.ledTarget;
+  const geometry=servedGeometry(productFamily(productId()),target);
+  if(!geometry)return null;
+  return {
+    productId:productId(),
+    target,
+    targets:mediaCompositionTargets(),
+    width:Number(geometry.width),
+    height:Number(geometry.height),
+  };
+}
+
+function refreshMediaCompositionDestination() {
+  const destination=currentMediaDestination();
+  if(
+    destination
+    &&state.mediaComposition
+    &&state.mediaComposition.status!=="cancelled"
+  ){
+    state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
+      type:"DESTINATION_CHANGED",
+      destination,
+    });
+  }
+}
+
+function updateMediaCompositionTransform(transform) {
+  const checked=validateSourceTransform(transform);
+  state.sourceTransform=checked;
+  if(state.mediaComposition&&state.mediaComposition.status!=="cancelled"){
+    let draft=state.mediaComposition;
+    if(draft.effects.some(effect=>effect.type==="move_zoom")){
+      draft=reduceMediaDraft(draft,{type:"EFFECTS_CHANGED",effects:[]});
+    }
+    state.mediaComposition=reduceMediaDraft(draft,{
+      type:"TRANSFORM_CHANGED",
+      transform:checked,
+    });
+  }
+  return checked;
+}
+
+function mediaCompositionSourceUrl() {
+  const draft=state.mediaComposition;
+  if(!draft||draft.status==="cancelled")return "";
+  return state.library.assetUrls.get(`${draft.catalogId}:${draft.source.asset_id}`)||"";
+}
+
+function activeMediaPreviewTrack() {
+  if(state.studioTool!=="source"||state.mediaComposition?.status!=="ready")return null;
+  const track=state.mediaComposition.mappedResult?.tracks?.[state.ledTarget];
+  return track&&Array.isArray(track.frames)&&track.frames.length
+    ?track
+    :null;
+}
+
+async function loadMediaCompositionSourceAsset() {
+  const draft=state.mediaComposition;
+  if(!draft||draft.status==="cancelled")return;
+  await loadLibraryAsset(draft.catalogId,draft.source.asset_id);
+  if(state.mediaComposition?.catalogId===draft.catalogId&&state.lighting.route===ROUTES.EDIT){
+    renderLightingEdit();
+  }
 }
 
 function updateSourceTransformView() {
@@ -1713,10 +1904,204 @@ function applySourceTransformPreset(mode) {
   const destination=mediaDestinationSize();
   if(!source||!destination)return;
   try{
-    state.sourceTransform=presetSourceTransform(mode,source,destination,state.sourceTransform);
+    updateMediaCompositionTransform(
+      presetSourceTransform(mode,source,destination,state.sourceTransform),
+    );
     updateSourceTransformView();
   }catch(error){
     toast("Could not change source framing",error.message,"error");
+  }
+}
+
+async function importMedia(input) {
+  const file=input.files?.[0];
+  input.value="";
+  if(!file)return;
+  if(file.size>12_000_000){
+    return toast(
+      "Image is too large",
+      "Choose a GIF, PNG, or BMP smaller than 12 MB.",
+      "error",
+    );
+  }
+  const destination=currentMediaDestination();
+  if(!destination){
+    return toast(
+      "Destination unavailable",
+      "The selected keyboard target has no render geometry.",
+      "error",
+    );
+  }
+  const button=$("#import-media");
+  if(button){button.disabled=true;button.textContent="Banking…";}
+  try{
+    const response=await fetch(`/api/library/import/media?name=${encodeURIComponent(file.name)}`,{
+      method:"POST",
+      headers:{
+        "X-AM-Token":token,
+        "Content-Type":file.type||"application/octet-stream",
+      },
+      body:file,
+    });
+    const payload=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(payload.error||`Could not import media (${response.status})`);
+    const detail=payload.item;
+    const source=detail?.item?.source;
+    if(!detail?.catalog_id||!source)throw new Error("The banked media response is invalid.");
+    state.sourceTransform=validateSourceTransform({
+      ...state.sourceTransform,
+      sampling:state.gifResample,
+    });
+    state.mediaComposition=createMediaDraft({
+      catalogId:detail.catalog_id,
+      source:{
+        asset_id:source.asset_id,
+        mime_type:source.mime_type,
+        width:source.width,
+        height:source.height,
+        frame_count:source.frame_count,
+        duration_ms:source.duration_ms,
+      },
+      destination,
+      transform:state.sourceTransform,
+    });
+    state.library.loaded=false;
+    state.studioTool="source";
+    renderLightingEdit();
+    void loadMediaCompositionSourceAsset();
+    await renderMediaCompositionPreview();
+    toast(
+      payload.deduplicated?"Source reopened":"Source added to Library",
+      `${file.name} · ${source.frame_count} frame${source.frame_count===1?"":"s"}`,
+      "success",
+    );
+  }catch(error){
+    toast("Could not import media",error.message,"error");
+  }finally{
+    if(button?.isConnected){
+      button.disabled=false;
+      button.textContent="Add GIF, PNG, or BMP";
+    }
+  }
+}
+
+async function renderMediaCompositionPreview() {
+  const draft=state.mediaComposition;
+  if(!draft||draft.status==="cancelled")return;
+  const epoch=nextMediaRenderEpoch(state.mediaRenderEpoch);
+  state.mediaRenderEpoch=epoch;
+  state.mediaComposition=reduceMediaDraft(draft,{
+    type:"RENDER_REQUESTED",
+    epoch,
+  });
+  renderLightingEdit();
+  try{
+    const result=await api(`/api/library/items/${libraryCatalogPath(draft.catalogId)}/render`,{method:"POST",body:JSON.stringify({
+      product_id:draft.destination.productId,
+      targets:draft.destination.targets,
+      transform:draft.transform,
+      effects:draft.effects,
+      epoch,
+    })});
+    if(state.mediaComposition?.catalogId!==draft.catalogId)return;
+    state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
+      type:"RENDER_SUCCEEDED",
+      epoch,
+      mappedResult:result.mapped_result,
+    });
+  }catch(error){
+    if(state.mediaComposition?.catalogId!==draft.catalogId)return;
+    state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
+      type:"RENDER_FAILED",
+      epoch,
+      error:error.message,
+    });
+  }
+  if(state.lighting.route===ROUTES.EDIT)renderLightingEdit();
+}
+
+function applyMediaCompositionDraft() {
+  const draft=state.mediaComposition;
+  if(!mediaDraftCanApply(draft)){
+    return toast("Preview required","Render this framing before applying it.","error");
+  }
+  const pairsRelic=draft.destination.targets.includes("spotlight_frames")
+    &&draft.destination.target==="keyframes";
+  mutate(()=>{
+    const page=getPage(state.ledSlot);
+    applyLedResultToPage(
+      page,
+      draft.mappedResult,
+      draft.destination.target,
+      pairsRelic,
+    );
+    state.ledTarget=draft.destination.target;
+    state.ledFrame=0;
+    state.mediaComposition=reduceMediaDraft(draft,{type:"APPLIED"});
+    state.appliedLightingProvenance=createLightingProvenance({
+      slot:state.ledSlot,
+      target:draft.destination.target,
+      sourceCatalogId:draft.catalogId,
+      transform:draft.transform,
+      effects:draft.effects,
+      page,
+    });
+  });
+  toast(
+    "Media applied",
+    "The selected slot changed through one undo checkpoint. Nothing was written to the keyboard.",
+    "success",
+  );
+}
+
+function cancelMediaComposition() {
+  if(!state.mediaComposition)return;
+  state.mediaComposition=reduceMediaDraft(state.mediaComposition,{type:"CANCELLED"});
+  renderLightingEdit();
+  toast(
+    "Composition cancelled",
+    "The open document was not changed. The imported source remains in Library.",
+    "success",
+  );
+}
+
+async function saveLightingToLibrary() {
+  if(!state.config)return;
+  const button=$("#save-lighting-library");
+  if(button)button.disabled=true;
+  try{
+    const revision=await synchronizeOpenDocument();
+    if(!revision)throw new Error(state.documentSyncError||"The open document could not be synchronized.");
+    const provenance=lightingProvenanceForPage(
+      state.appliedLightingProvenance,
+      {
+        slot:state.ledSlot,
+        target:state.ledTarget,
+        page:getPage(state.ledSlot),
+      },
+    );
+    const detail=await api("/api/library/save/lighting",{
+      method:"POST",
+      body:JSON.stringify({
+        name:`${productLabel(productId())} · slot ${state.ledSlot-4} lighting`,
+        document_revision:revision,
+        slot:state.ledSlot,
+        target:state.ledTarget,
+        source_catalog_id:provenance?.source_catalog_id??null,
+        transform:provenance?.transform??null,
+        effects:provenance?.effects??[],
+      }),
+    });
+    state.library.loaded=false;
+    toast(
+      "Lighting saved to Library",
+      `${detail.name} · ${Object.keys(detail.item.composition.tracks).length} track${Object.keys(detail.item.composition.tracks).length===1?"":"s"}`,
+      "success",
+    );
+  }catch(error){
+    toast("Could not save lighting",error.message,"error");
+  }finally{
+    if(button?.isConnected)button.disabled=false;
   }
 }
 
@@ -1820,7 +2205,19 @@ function previewLocalAnimation() {
       transforms:[],
     };
     if(effect.type==="move_zoom"){
+      if(!state.mediaComposition||state.mediaComposition.status==="cancelled"){
+        throw new Error("Move & zoom requires one active imported still.");
+      }
       draft.transforms=interpolateMoveZoom(effect);
+      state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
+        type:"EFFECTS_CHANGED",
+        effects:[effect],
+      });
+      state.localAnimationDraft=null;
+      state.studioTool="source";
+      renderLightingEdit();
+      void renderMediaCompositionPreview();
+      return;
     }else{
       draft.frames=renderColorEffect(
         [sourceColors],
@@ -1874,6 +2271,14 @@ function applyLocalAnimationDraft() {
     state.ledFrame=0;
     state.localAnimationDraft=null;
     state.localAnimationPreviewFrame=0;
+    state.appliedLightingProvenance=createLightingProvenance({
+      slot:draft.slot,
+      target:draft.target,
+      sourceCatalogId:null,
+      transform:null,
+      effects:[draft.effect],
+      page,
+    });
   });
   toast("Animation applied",`${frames.length} deterministic frames replaced the selected track.`,"success");
 }
@@ -1935,6 +2340,9 @@ function wireStudioInspector() {
   $("#animate-accept")?.addEventListener("click",applyLocalAnimationDraft);
   $("#animate-cancel")?.addEventListener("click",()=>cancelLocalAnimationDraft());
   $("#animate-draft-frame")?.addEventListener("input",event=>showLocalAnimationDraftFrame(event.target.value));
+  $("#media-compose-preview")?.addEventListener("click",renderMediaCompositionPreview);
+  $("#media-compose-apply")?.addEventListener("click",applyMediaCompositionDraft);
+  $("#media-compose-cancel")?.addEventListener("click",cancelMediaComposition);
 
   $$("[data-source-preview]").forEach(button=>button.addEventListener("click",()=>{
     if(button.disabled)return;
@@ -1945,7 +2353,7 @@ function wireStudioInspector() {
   $("#source-stretch")?.addEventListener("change",event=>{
     const locked=!event.target.checked;
     try{
-      state.sourceTransform=validateSourceTransform({
+      updateMediaCompositionTransform({
         ...state.sourceTransform,
         aspect_locked:locked,
         scale_y:locked?state.sourceTransform.scale_x:state.sourceTransform.scale_y,
@@ -1957,7 +2365,7 @@ function wireStudioInspector() {
     const target=Number(event.target.value)/100;
     const factor=target/state.sourceTransform.scale_x;
     try{
-      state.sourceTransform=validateSourceTransform({
+      updateMediaCompositionTransform({
         ...state.sourceTransform,
         scale_x:target,
         scale_y:state.sourceTransform.aspect_locked
@@ -1978,7 +2386,9 @@ function wireStudioInspector() {
     stage.addEventListener("pointermove",event=>{
       if(!pointer||state.studioTool!=="source")return;
       const next=normalizedPointer(event,stage.getBoundingClientRect());
-      state.sourceTransform=panSourceTransform(state.sourceTransform,next.x-pointer.x,next.y-pointer.y);
+      updateMediaCompositionTransform(
+        panSourceTransform(state.sourceTransform,next.x-pointer.x,next.y-pointer.y),
+      );
       pointer=next;
       updateSourceTransformView();
     });
@@ -1988,7 +2398,9 @@ function wireStudioInspector() {
     stage.addEventListener("wheel",event=>{
       if(state.studioTool!=="source")return;
       event.preventDefault();
-      state.sourceTransform=scaleSourceTransform(state.sourceTransform,event.deltaY<0?1.08:1/1.08,"both");
+      updateMediaCompositionTransform(
+        scaleSourceTransform(state.sourceTransform,event.deltaY<0?1.08:1/1.08,"both"),
+      );
       updateSourceTransformView();
     },{passive:false});
     stage.addEventListener("keydown",event=>{
@@ -2002,11 +2414,15 @@ function wireStudioInspector() {
       }[event.key];
       if(pan){
         event.preventDefault();
-        state.sourceTransform=panSourceTransform(state.sourceTransform,pan[0],pan[1]);
+        updateMediaCompositionTransform(
+          panSourceTransform(state.sourceTransform,pan[0],pan[1]),
+        );
         updateSourceTransformView();
       }else if(["+","=","-","_"].includes(event.key)){
         event.preventDefault();
-        state.sourceTransform=scaleSourceTransform(state.sourceTransform,["-","_"].includes(event.key)?1/1.08:1.08,"both");
+        updateMediaCompositionTransform(
+          scaleSourceTransform(state.sourceTransform,["-","_"].includes(event.key)?1/1.08:1.08,"both"),
+        );
         updateSourceTransformView();
       }
     });
@@ -2031,9 +2447,17 @@ function renderLightingEdit() {
   if (!targets.some(target=>target.key===state.ledTarget)) state.ledTarget=targets[0].key;
   if(!availableStudioTools().includes(state.studioTool))state.studioTool="paint";
   const {track,length}=trackInfo();
-  const frames=track?.frame_data||[];
-  state.ledFrame=Math.min(state.ledFrame,Math.max(0,frames.length-1));
-  const frame=frames[state.ledFrame];
+  const documentFrames=track?.frame_data||[];
+  const mediaPreviewTrack=activeMediaPreviewTrack();
+  const mediaPreviewFrames=(mediaPreviewTrack?.frames||[]).map(
+    (colors,index)=>({frame_index:index,frame_RGB:colors}),
+  );
+  const timelineFrames=mediaPreviewFrames.length?mediaPreviewFrames:documentFrames;
+  state.ledFrame=Math.min(state.ledFrame,Math.max(0,timelineFrames.length-1));
+  const frame=documentFrames[Math.min(
+    state.ledFrame,
+    Math.max(0,documentFrames.length-1),
+  )];
   const gridClass=state.ledTarget==="frames"?"display":state.ledTarget==="spotlight_frames"?"edge":"key";
   // Geometry the server publishes from device_mapping, which is the authority
   // for these tables. A family whose maps are not hardcoded below — the Neon,
@@ -2064,14 +2488,23 @@ function renderLightingEdit() {
     physicalLayout,
     columns,
   );
-  const activeDraft=localAnimationDraftMatches()?state.localAnimationDraft:null;
+  const activeDraft=state.studioTool==="animate"&&localAnimationDraftMatches()
+    ?state.localAnimationDraft
+    :null;
   const draftColors=activeDraft?.frames[
     Math.min(
       state.localAnimationPreviewFrame,
       Math.max(0,activeDraft.frames.length-1),
     )
   ];
-  const displayFrame=draftColors?{frame_index:state.localAnimationPreviewFrame,frame_RGB:draftColors}:frame;
+  const mediaPreviewColors=mediaPreviewTrack?.frames?.[
+    Math.min(state.ledFrame,Math.max(0,mediaPreviewTrack.frame_count-1))
+  ];
+  const displayFrame=draftColors
+    ?{frame_index:state.localAnimationPreviewFrame,frame_RGB:draftColors}
+    :mediaPreviewColors
+      ?{frame_index:state.ledFrame,frame_RGB:mediaPreviewColors}
+      :frame;
   const keyLabels=layers()[0]?.layer||[];
   let pixelOrder=0;
   const rasterCells=pixelMap.map(index=>{
@@ -2097,15 +2530,28 @@ function renderLightingEdit() {
   const edgeAutomation=model===LED_MODELS["80"]&&state.ledTarget==="spotlight_frames";
   const keyFrameCount=Math.max(1,page?.keyframes?.frame_data?.length||1);
   const encodedSpeed=firmwareLedSpeed(page?.speed_ms??90);
-  const gifButtonLabel=pairsRelicGif?"Import GIF to both":relicKeyTarget?"Import key GIF":"Import GIF";
+  const gifButtonLabel="Add GIF, PNG, or BMP";
   const gifHelp=pairsRelicGif
-    ? "Replaces both tracks from one 18×7 animation: 89 key LEDs plus 7 edge LEDs."
-    : relicKeyTarget?"Replaces the 89-key track; your separate edge animation is preserved and retimed to match.":edgeAutomation?`Maps this GIF to the 7 edge LEDs, then retimes it to the key track’s ${keyFrameCount} frames.`:`Replaces this track by resizing every GIF frame to ${gifSize}.`;
+    ? "Banks the source, previews one framing across both Relic tracks, then applies only after confirmation."
+    : relicKeyTarget?"Banks the source and previews the key track while preserving and retiming the separate edge animation.":edgeAutomation?`Banks the source and previews it on the 7 edge LEDs at the key track’s ${keyFrameCount}-frame timing.`:`Banks the source, then previews every frame at ${gifSize} before Apply.`;
   const relicGifOption=relicKeyTarget?`<label class="check-row"><input id="relic-gif-edges" type="checkbox" ${state.relicGifEdges?'checked':''}><span>Also derive edge lights from this GIF</span></label>`:"";
   const edgeTools=edgeAutomation?`<div class="control-group"><label class="control-label">Whole edge animation</label><div class="button-row"><button id="edge-static" class="button ghost">Static color</button><button id="edge-pulse" class="button ghost">Pulse color</button></div><button id="edge-hold" class="button ghost wide-button">Hold painted frame</button><small class="control-help">Generates ${keyFrameCount} edge frames automatically to match the key animation. “Hold” preserves the seven colors painted in the current frame.</small></div>`:"";
   const targetLabel=targets.find(t=>t.key===state.ledTarget)?.label||state.ledTarget;
   const sourceReady=Boolean(mediaSourceSize()&&mediaDestinationSize());
   const sourceDisabled=sourceReady?"":"disabled";
+  const mediaDraft=state.mediaComposition?.status==="cancelled"?null:state.mediaComposition;
+  const mediaSourceUrl=mediaCompositionSourceUrl();
+  const mediaStatus=mediaDraft?.status==="rendering"
+    ?"Rendering the server-authoritative LED preview…"
+    :mediaDraft?.status==="ready"
+      ?"Preview ready. Apply changes only this open document."
+      :mediaDraft?.status==="failed"
+        ?mediaDraft.error
+        :mediaDraft?.status==="applied"
+          ?"Applied to this slot. The banked source remains available for reframing."
+          :mediaDraft
+            ?"Adjust framing, then render a preview."
+            :"Choose media to bank it in Library before composition opens.";
   const familyFrameCap=Math.min(256,activeFamilySpec().frameCap||256);
   const fixedEdgeFrameCount=edgeAutomation&&keyFrameCount>=2;
   const edgeAnimationUnavailable=edgeAutomation&&keyFrameCount<2;
@@ -2120,9 +2566,11 @@ function renderLightingEdit() {
         <div class="control-group"><label class="control-label" for="speed">Frame duration</label><select id="speed" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===encodedSpeed?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select><small class="control-help">These are the timing steps exposed by Angry Miao firmware.</small></div>
       </div>`;
   const sourceBody=`<div id="studio-source-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-source-tab" ${state.studioTool==="source"?"":"hidden"}>
-        <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Imported media</h3><input id="gif-input" type="file" accept="image/gif,.gif" hidden><div class="gif-import-row"><button id="import-gif" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="GIF resize method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
-        <div class="control-group source-transform-controls" aria-disabled="${String(!sourceReady)}"><span class="control-label">Framing</span><div class="source-preset-grid"><button class="button ghost" data-source-preset="fit" ${sourceDisabled}>Fit</button><button class="button ghost" data-source-preset="fill" ${sourceDisabled}>Fill</button><button class="button ghost" data-source-preset="center" ${sourceDisabled}>Center</button><button class="button ghost" data-source-preset="reset" ${sourceDisabled}>Reset</button></div><label class="control-label secondary-label" for="source-zoom">Zoom</label><div class="range-row"><input id="source-zoom" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_x*100)}" ${sourceDisabled}><span id="source-zoom-value" class="range-value">${Math.round(state.sourceTransform.scale_x*100)}%</span></div><label class="check-row"><input id="source-stretch" type="checkbox" ${state.sourceTransform.aspect_locked?"":"checked"} ${sourceDisabled}><span>Stretch width and height independently</span></label><small class="control-help">${sourceReady?"Drag on the canvas to pan; use the wheel or slider to zoom.":"Import media to open framing controls. The current GIF path remains unchanged until the source is banked."}</small></div>
+        <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Imported media</h3><input id="media-input" type="file" accept="image/gif,image/png,image/bmp,.gif,.png,.bmp" hidden><div class="gif-import-row"><button id="import-media" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="Media sampling method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
+        <div class="control-group source-transform-controls" aria-disabled="${String(!sourceReady)}"><span class="control-label">Framing</span><div class="source-preset-grid"><button class="button ghost" data-source-preset="fit" ${sourceDisabled}>Fit</button><button class="button ghost" data-source-preset="fill" ${sourceDisabled}>Fill</button><button class="button ghost" data-source-preset="center" ${sourceDisabled}>Center</button><button class="button ghost" data-source-preset="reset" ${sourceDisabled}>Reset</button></div><label class="control-label secondary-label" for="source-zoom">Zoom</label><div class="range-row"><input id="source-zoom" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_x*100)}" ${sourceDisabled}><span id="source-zoom-value" class="range-value">${Math.round(state.sourceTransform.scale_x*100)}%</span></div><label class="check-row"><input id="source-stretch" type="checkbox" ${state.sourceTransform.aspect_locked?"":"checked"} ${sourceDisabled}><span>Stretch width and height independently</span></label><small class="control-help">${sourceReady?"Drag on the canvas to pan; use the wheel or slider to zoom.":"Import media to bank the source and open framing controls."}</small></div>
         <div class="control-group"><span class="control-label">Canvas preview</span><div class="segmented source-preview-toggle" role="group" aria-label="Canvas preview"><button type="button" data-source-preview="result" aria-pressed="${String(state.sourcePreviewMode==="result")}" class="${state.sourcePreviewMode==="result"?"active":""}">LED result</button><button type="button" data-source-preview="source" aria-pressed="${String(state.sourcePreviewMode==="source")}" class="${state.sourcePreviewMode==="source"?"active":""}" ${sourceDisabled}>Source overlay</button></div></div>
+        <div class="media-composition-status ${mediaDraft?.status==="failed"?"failed":""}" aria-live="polite">${esc(mediaStatus)}</div>
+        <div class="media-composition-actions"><button id="media-compose-preview" class="button ghost" ${sourceReady&&mediaDraft?.status!=="rendering"?"":"disabled"}>Render preview</button><button id="media-compose-apply" class="button primary" ${mediaDraftCanApply(mediaDraft)?"":"disabled"}>Apply</button><button id="media-compose-cancel" class="button ghost" ${mediaDraft?"":"disabled"}>Cancel</button></div>
       </div>`;
   const animateBody=`<div id="studio-animate-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-animate-tab" ${state.studioTool==="animate"?"":"hidden"}>
         <div class="control-group"><label class="control-label" for="animate-effect">Animate this</label><select id="animate-effect" class="select-field"><option value="pulse" ${state.localAnimationEffect==="pulse"?"selected":""}>Pulse</option><option value="hue_cycle" ${state.localAnimationEffect==="hue_cycle"?"selected":""}>Hue cycle</option><option value="sweep" ${state.localAnimationEffect==="sweep"?"selected":""}>Sweep</option><option value="shimmer" ${state.localAnimationEffect==="shimmer"?"selected":""}>Shimmer</option><option value="move_zoom" ${state.localAnimationEffect==="move_zoom"?"selected":""} ${moveZoomReady?"":"disabled"}>Move &amp; zoom${moveZoomReady?"":" · still only"}</option></select><small class="control-help">Builds a deterministic local draft from the selected frame. No AI or network request is used.</small></div>
@@ -2134,8 +2582,8 @@ function renderLightingEdit() {
   const generationTab=aiReady()?`<button id="studio-generate-tab" role="tab" aria-controls="studio-generate-panel" aria-selected="${String(state.studioTool==="generate")}" tabindex="${state.studioTool==="generate"?0:-1}" data-studio-tool="generate">Generate</button>`:"";
   const generationPanel=aiReady()?`<section id="studio-generate-panel" class="studio-tool-panel lighting-generate-tool" role="tabpanel" aria-labelledby="studio-generate-tab" ${state.studioTool==="generate"?"":"hidden"}><div id="lighting-generate-tool" tabindex="-1"><div class="studio-panel-heading"><strong id="lighting-generate-title">Generate lighting</strong><small>Procedural recipe · exact ${esc(targetLabel)} destination</small></div><div id="lighting-generate-content" aria-live="polite"></div></div></section>`:"";
   $("#lighting-edit-content").innerHTML=`<div class="lighting-edit-shell"><div class="led-layout">
-      <aside class="card frame-list" aria-label="Animation frames"><div class="card-header"><strong>Frames</strong><small>${frames.length}</small></div><div class="frame-items">${frames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?'Editing':'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost">+ Duplicate</button><button id="remove-frame" class="button ghost" ${frames.length<=1?'disabled':''}>Delete</button></div></aside>
-      <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header led-canvas-heading"><div><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}${activeDraft?' · Draft preview':''}</small></div><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${activeDraft?'draft-preview':''}" role="region" aria-label="${activeDraft?'Preview the local animation draft':'Paint the selected animation frame'}"><div id="media-compositor-stage" class="media-compositor-stage" tabindex="${sourceReady&&state.studioTool==="source"?'0':'-1'}" style="--source-offset-x:${state.sourceTransform.offset_x};--source-offset-y:${state.sourceTransform.offset_y};--source-scale-x:${state.sourceTransform.scale_x};--source-scale-y:${state.sourceTransform.scale_y}">${pixelCanvas}<div class="destination-overlay" aria-hidden="true"></div></div></div></section>
+      <aside class="card frame-list" aria-label="${mediaPreviewFrames.length?'Media preview':'Animation'} frames"><div class="card-header"><strong>${mediaPreviewFrames.length?'Preview frames':'Frames'}</strong><small>${timelineFrames.length}</small></div><div class="frame-items">${timelineFrames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?(mediaPreviewFrames.length?'Previewing':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost" ${mediaPreviewFrames.length?'disabled':''}>+ Duplicate</button><button id="remove-frame" class="button ghost" ${timelineFrames.length<=1||mediaPreviewFrames.length?'disabled':''}>Delete</button></div></aside>
+      <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header led-canvas-heading"><div><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}${activeDraft||mediaPreviewColors?' · Draft preview':''}</small></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost">Save lighting</button><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${activeDraft||mediaPreviewColors?'draft-preview':''}" role="region" aria-label="${activeDraft||mediaPreviewColors?'Preview the lighting draft':'Paint the selected animation frame'}"><div id="media-compositor-stage" class="media-compositor-stage" tabindex="${sourceReady&&state.studioTool==="source"?'0':'-1'}" style="--source-offset-x:${state.sourceTransform.offset_x};--source-offset-y:${state.sourceTransform.offset_y};--source-scale-x:${state.sourceTransform.scale_x};--source-scale-y:${state.sourceTransform.scale_y}">${state.studioTool==="source"&&mediaSourceUrl&&state.sourcePreviewMode==="source"?`<img class="media-source-overlay" src="${esc(mediaSourceUrl)}" alt="">`:""}${pixelCanvas}<div class="destination-overlay" aria-hidden="true"></div></div></div></section>
       <aside class="card led-controls studio-inspector" aria-label="Lighting controls"><div class="studio-tool-tabs ${aiReady()?'with-generate':''}" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Source</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Animate</button>${generationTab}</div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}${generationPanel}</div></aside>
     </div></div>`;
   wireLedEditor(columns);
@@ -2159,13 +2607,17 @@ function wireLedEditor(gridColumns) {
   activePaintStrokeController=null;
   $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>selectLightingFrame(button.dataset.frame)));
   $("#first-frame")?.addEventListener("click",()=>mutate(ensureTrack));
-  $("#import-gif").addEventListener("click",()=>$("#gif-input").click());
+  $("#import-media").addEventListener("click",()=>$("#media-input").click());
   $("#gif-resample").addEventListener("change",event=>{
     state.gifResample=event.target.value;
-    state.sourceTransform=validateSourceTransform({...state.sourceTransform,sampling:state.gifResample});
+    updateMediaCompositionTransform({...state.sourceTransform,sampling:state.gifResample});
   });
-  $("#relic-gif-edges")?.addEventListener("change",event=>{state.relicGifEdges=event.target.checked;renderLightingEdit();});
-  $("#gif-input").addEventListener("change",event=>importGif(event.currentTarget));
+  $("#relic-gif-edges")?.addEventListener("change",event=>{
+    state.relicGifEdges=event.target.checked;
+    refreshMediaCompositionDestination();
+    renderLightingEdit();
+  });
+  $("#media-input").addEventListener("change",event=>importMedia(event.currentTarget));
   $("#edge-static")?.addEventListener("click",()=>replaceEdgeAnimation("static"));
   $("#edge-pulse")?.addEventListener("click",()=>replaceEdgeAnimation("pulse"));
   $("#edge-hold")?.addEventListener("click",()=>replaceEdgeAnimation("hold"));
@@ -2215,6 +2667,7 @@ function wireLedEditor(gridColumns) {
   $("#clear-led").addEventListener("click",()=>mutate(()=>{const track=ensureTrack();track.frame_data[state.ledFrame].frame_RGB.fill("#000000");}));
   $("#brightness").addEventListener("change",event=>mutate(()=>{getPage(state.ledSlot).lightness=Number(event.target.value);}));
   $("#speed").addEventListener("change",event=>mutate(()=>{getPage(state.ledSlot).speed_ms=Number(event.target.value);}));
+  $("#save-lighting-library").addEventListener("click",saveLightingToLibrary);
   $("#play-led").addEventListener("click",toggleLightingPlayback);
 }
 
@@ -2239,41 +2692,25 @@ function applyLedResultToPage(page,result,primaryTarget,pairsRelicGif) {
   if(result.duration_ms&&primaryTarget!=="spotlight_frames")page.speed_ms=Number(result.duration_ms);
 }
 
-async function importGif(input) {
-  const file=input.files?.[0];
-  input.value="";
-  if(!file)return;
-  if(file.size>12_000_000)return toast("GIF is too large","Choose a GIF smaller than 12 MB.","error");
-  const target=state.ledTarget;
-  const pairsRelicGif=activeLedModel()===LED_MODELS["80"]&&target==="keyframes"&&state.relicGifEdges;
-  const targets=pairsRelicGif?["keyframes","spotlight_frames"]:[target];
-  const button=$("#import-gif");button.disabled=true;button.textContent="Converting…";
-  try{
-    const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("Could not read the GIF."));reader.readAsDataURL(file);});
-    const encoded=String(dataUrl).split(",",2)[1];
-    const result=await api("/api/led/gif",{method:"POST",body:JSON.stringify({data:encoded,targets,resample:state.gifResample,product_id:productId()})});
-    mutate(()=>{applyLedResultToPage(getPage(state.ledSlot),result,target,pairsRelicGif);state.ledFrame=0;});
-    const primary=result.tracks[target];
-    const mapped=pairsRelicGif?"89 key + 7 edge LEDs":`${primary.mapped_pixels} mapped LEDs`;
-    const synchronized=target==="spotlight_frames"&&primary.frame_count!==getPage(state.ledSlot).spotlight_frames.frame_num?` · retimed to ${getPage(state.ledSlot).spotlight_frames.frame_num} key frames`:"";
-    const timing=`${result.duration_ms}ms / ${(1000/result.duration_ms).toFixed(1)}fps${result.timing_resampled?' · variable GIF timing resampled':''}`;
-    const truncated=result.source_frames>result.decoded_frames?` · ${result.source_frames-result.decoded_frames} source frames beyond the 256-frame limit were omitted`:"";
-    toast("GIF imported",`${file.name} · ${primary.frame_count} device frames · ${timing} · ${mapped}${synchronized}${truncated}`,"success");
-  }catch(error){toast("Could not import GIF",error.message,"error");}
-  finally{if(button.isConnected){button.disabled=false;button.textContent=pairsRelicGif?"Import GIF to both":target==="keyframes"&&activeLedModel()===LED_MODELS["80"]?"Import key GIF":"Import GIF";}}
-}
-
 function startPlayback() {
-  const track=trackInfo().track;if(!track?.frame_data?.length)return;
+  const preview=activeMediaPreviewTrack();
+  const track=trackInfo().track;
+  const frames=preview?.frames?.map(
+    (colors,index)=>({frame_index:index,frame_RGB:colors}),
+  )||track?.frame_data;
+  if(!frames?.length)return;
   state.playing=true;renderLightingEdit();
   const tick=()=>{
     if(!state.playing)return;
-    state.ledFrame=(state.ledFrame+1)%track.frame_data.length;
-    const frame=track.frame_data[state.ledFrame];
+    state.ledFrame=(state.ledFrame+1)%frames.length;
+    const frame=frames[state.ledFrame];
     $$('.pixel').forEach(pixel=>{const color=frame.frame_RGB[Number(pixel.dataset.pixel)]||'#000000';pixel.style.background=safeRgbColor(color);pixel.style.setProperty('--pixel-color',safeRgbColor(color));});
     $$('.frame-item').forEach((node,i)=>{const selected=i===state.ledFrame;node.classList.toggle('active',selected);node.setAttribute('aria-pressed',String(selected));node.setAttribute('aria-label',`Frame ${i+1}${selected?', selected':''}`);});
   };
-  state.playTimer=setInterval(tick,Math.max(12,Number(getPage(state.ledSlot)?.speed_ms||90)));
+  const duration=preview
+    ?state.mediaComposition?.mappedResult?.duration_ms
+    :getPage(state.ledSlot)?.speed_ms;
+  state.playTimer=setInterval(tick,Math.max(12,Number(duration||90)));
 }
 
 function toggleLightingPlayback() {

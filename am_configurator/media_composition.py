@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import math
 import re
@@ -36,6 +37,20 @@ _TRANSFORM_FIELDS = {
     "aspect_locked",
     "sampling",
     "background",
+}
+_EFFECT_FIELDS = {
+    "version",
+    "type",
+    "frame_count",
+    "duration_ms",
+    "parameters",
+}
+_EFFECT_DIRECTIONS = {
+    "left_to_right",
+    "right_to_left",
+    "top_to_bottom",
+    "bottom_to_top",
+    "diagonal",
 }
 _SAMPLING = {"nearest", "box", "lanczos"}
 _HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
@@ -409,6 +424,472 @@ def validate_source_transform(value: object) -> SourceTransform:
     )
 
 
+def _bounded_number(
+    value: object,
+    minimum: float,
+    maximum: float,
+    label: str,
+) -> float:
+    number = _finite_number(value, label)
+    if not minimum <= number <= maximum:
+        raise ValueError(f"{label} is outside its supported range.")
+    return number
+
+
+def _bounded_integer(
+    value: object,
+    minimum: int,
+    maximum: int,
+    label: str,
+) -> int:
+    if type(value) is not int or not minimum <= value <= maximum:
+        raise ValueError(f"{label} is outside its supported range.")
+    return value
+
+
+def _exact_parameters(
+    value: object,
+    fields: set[str],
+    label: str,
+) -> Mapping[str, object]:
+    if not isinstance(value, Mapping) or set(value) != fields:
+        raise ValueError(f"{label} parameters are invalid.")
+    return value
+
+
+def validate_effect_spec(
+    value: object,
+    *,
+    frame_limit: int = 256,
+    still_source: bool = False,
+) -> dict[str, object]:
+    """Validate the shared deterministic version-1 local-effect schema."""
+
+    limit = _bounded_integer(frame_limit, 2, 256, "Effect frame limit")
+    if not isinstance(value, Mapping) or set(value) != _EFFECT_FIELDS:
+        raise ValueError("The local effect schema is unsupported.")
+    if type(value["version"]) is not int or value["version"] != 1:
+        raise ValueError("The local effect version is unsupported.")
+    effect_type = value["type"]
+    if not isinstance(effect_type, str):
+        raise ValueError("The local effect type is invalid.")
+    frame_count = _bounded_integer(
+        value["frame_count"],
+        2,
+        limit,
+        "Effect frame count",
+    )
+    duration_ms = _bounded_integer(
+        value["duration_ms"],
+        10,
+        60_000,
+        "Effect frame duration",
+    )
+
+    parameters: dict[str, object]
+    if effect_type == "pulse":
+        raw = _exact_parameters(
+            value["parameters"],
+            {"minimum_brightness"},
+            "Pulse",
+        )
+        parameters = {
+            "minimum_brightness": _bounded_number(
+                raw["minimum_brightness"],
+                0.0,
+                1.0,
+                "Pulse minimum brightness",
+            )
+        }
+    elif effect_type == "hue_cycle":
+        raw = _exact_parameters(value["parameters"], {"turns"}, "Hue cycle")
+        parameters = {
+            "turns": _bounded_number(
+                raw["turns"],
+                0.125,
+                4.0,
+                "Hue cycle turns",
+            )
+        }
+    elif effect_type == "sweep":
+        raw = _exact_parameters(
+            value["parameters"],
+            {"direction", "width", "minimum_brightness"},
+            "Sweep",
+        )
+        direction = raw["direction"]
+        if not isinstance(direction, str) or direction not in _EFFECT_DIRECTIONS:
+            raise ValueError("The Sweep direction is unsupported.")
+        parameters = {
+            "direction": direction,
+            "width": _bounded_number(
+                raw["width"],
+                0.05,
+                2.0,
+                "Sweep width",
+            ),
+            "minimum_brightness": _bounded_number(
+                raw["minimum_brightness"],
+                0.0,
+                1.0,
+                "Sweep minimum brightness",
+            ),
+        }
+    elif effect_type == "shimmer":
+        raw = _exact_parameters(
+            value["parameters"],
+            {"depth", "seed"},
+            "Shimmer",
+        )
+        parameters = {
+            "depth": _bounded_number(
+                raw["depth"],
+                0.0,
+                1.0,
+                "Shimmer depth",
+            ),
+            "seed": _bounded_integer(
+                raw["seed"],
+                0,
+                0xFFFFFFFF,
+                "Shimmer seed",
+            ),
+        }
+    elif effect_type == "move_zoom":
+        if still_source is not True:
+            raise ValueError("Move & zoom requires one imported still source.")
+        raw = _exact_parameters(
+            value["parameters"],
+            {"start_transform", "end_transform"},
+            "Move & zoom",
+        )
+        start = validate_source_transform(raw["start_transform"])
+        end = validate_source_transform(raw["end_transform"])
+        if (
+            start.aspect_locked != end.aspect_locked
+            or start.sampling != end.sampling
+            or start.background != end.background
+        ):
+            raise ValueError(
+                "Move & zoom endpoints use incompatible transforms."
+            )
+        parameters = {
+            "start_transform": start.to_dict(),
+            "end_transform": end.to_dict(),
+        }
+    else:
+        raise ValueError("The local effect type is unsupported.")
+
+    return {
+        "version": 1,
+        "type": effect_type,
+        "frame_count": frame_count,
+        "duration_ms": duration_ms,
+        "parameters": parameters,
+    }
+
+
+def _parse_color(value: object) -> tuple[int, int, int]:
+    if not isinstance(value, str) or not _HEX_COLOR.fullmatch(value):
+        raise ValueError("A local effect source color is invalid.")
+    return tuple(int(value[index : index + 2], 16) for index in (1, 3, 5))
+
+
+def _hex_color(red: float, green: float, blue: float) -> str:
+    channels = (
+        max(0, min(255, math.floor(channel + 0.5)))
+        for channel in (red, green, blue)
+    )
+    return "#" + "".join(f"{channel:02X}" for channel in channels)
+
+
+def _scale_color(color: str, multiplier: float) -> str:
+    red, green, blue = _parse_color(color)
+    return _hex_color(
+        red * multiplier,
+        green * multiplier,
+        blue * multiplier,
+    )
+
+
+def _rgb_to_hsv(color: tuple[int, int, int]) -> list[float]:
+    red, green, blue = (channel / 255 for channel in color)
+    maximum = max(red, green, blue)
+    minimum = min(red, green, blue)
+    delta = maximum - minimum
+    hue = 0.0
+    if delta > 0:
+        if maximum == red:
+            hue = ((green - blue) / delta) % 6
+        elif maximum == green:
+            hue = (blue - red) / delta + 2
+        else:
+            hue = (red - green) / delta + 4
+        hue /= 6
+        if hue < 0:
+            hue += 1
+    return [hue, 0.0 if maximum == 0 else delta / maximum, maximum]
+
+
+def _hsv_to_rgb(color: Sequence[float]) -> tuple[float, float, float]:
+    hue_value, saturation, value = color
+    hue = ((hue_value % 1) + 1) % 1
+    section = hue * 6
+    index = math.floor(section)
+    fraction = section - index
+    low = value * (1 - saturation)
+    falling = value * (1 - fraction * saturation)
+    rising = value * (1 - (1 - fraction) * saturation)
+    channels = (
+        (value, rising, low),
+        (falling, value, low),
+        (low, value, rising),
+        (low, falling, value),
+        (rising, low, value),
+        (value, low, falling),
+    )[index % 6]
+    return tuple(channel * 255 for channel in channels)
+
+
+def _hue_color(color: str, turns: float) -> str:
+    hsv = _rgb_to_hsv(_parse_color(color))
+    hsv[0] += turns
+    return _hex_color(*_hsv_to_rgb(hsv))
+
+
+def _noise_phase(seed: int, pixel_index: int) -> float:
+    mask = 0xFFFFFFFF
+    value = (
+        (seed & mask)
+        ^ (((pixel_index + 1) & mask) * 0x9E3779B1 & mask)
+    ) & mask
+    value ^= value >> 16
+    value = value * 0x7FEB352D & mask
+    value ^= value >> 15
+    value = value * 0x846CA68B & mask
+    value ^= value >> 16
+    return (value / 0x100000000) * math.pi * 2
+
+
+def _validated_coordinates(
+    value: object,
+    length: int,
+) -> list[dict[str, float]]:
+    if (
+        not isinstance(value, (list, tuple))
+        or len(value) != length
+    ):
+        raise ValueError("Sweep coordinates do not match the source frame.")
+    coordinates: list[dict[str, float]] = []
+    for index, coordinate in enumerate(value):
+        if not isinstance(coordinate, Mapping):
+            raise ValueError(f"Sweep coordinate {index + 1} is invalid.")
+        coordinates.append(
+            {
+                "x": _bounded_number(
+                    coordinate.get("x"),
+                    0.0,
+                    1.0,
+                    f"Sweep coordinate {index + 1} x",
+                ),
+                "y": _bounded_number(
+                    coordinate.get("y"),
+                    0.0,
+                    1.0,
+                    f"Sweep coordinate {index + 1} y",
+                ),
+            }
+        )
+    return coordinates
+
+
+def _sweep_position(coordinate: Mapping[str, float], direction: str) -> float:
+    if direction == "left_to_right":
+        return coordinate["x"]
+    if direction == "right_to_left":
+        return 1 - coordinate["x"]
+    if direction == "top_to_bottom":
+        return coordinate["y"]
+    if direction == "bottom_to_top":
+        return 1 - coordinate["y"]
+    return (coordinate["x"] + coordinate["y"]) / 2
+
+
+def render_color_effect(
+    source_frames: object,
+    effect: object,
+    *,
+    coordinates: object = None,
+) -> list[list[str]]:
+    """Render color/intensity effects identically to the browser reducer."""
+
+    raw_frame_count = (
+        effect.get("frame_count")
+        if isinstance(effect, Mapping)
+        else None
+    )
+    checked = validate_effect_spec(
+        effect,
+        frame_limit=raw_frame_count
+        if type(raw_frame_count) is int
+        else 256,
+        still_source=False,
+    )
+    if checked["type"] == "move_zoom":
+        raise ValueError("Move & zoom renders source transforms, not LED colors.")
+    if not isinstance(source_frames, (list, tuple)) or not source_frames:
+        raise ValueError("A local effect requires source frames.")
+    first = source_frames[0]
+    pixel_count = len(first) if isinstance(first, (list, tuple)) else -1
+    if pixel_count <= 0:
+        raise ValueError("A local effect source frame is empty.")
+    frames: list[list[str]] = []
+    for frame_index, frame in enumerate(source_frames):
+        if not isinstance(frame, (list, tuple)) or len(frame) != pixel_count:
+            raise ValueError(
+                f"Local effect source frame {frame_index + 1} is invalid."
+            )
+        normalized: list[str] = []
+        for color in frame:
+            _parse_color(color)
+            normalized.append(color.upper())
+        frames.append(normalized)
+
+    effect_type = str(checked["type"])
+    positions = (
+        _validated_coordinates(coordinates, pixel_count)
+        if effect_type == "sweep"
+        else None
+    )
+    frame_count = int(checked["frame_count"])
+    parameters = checked["parameters"]
+    assert isinstance(parameters, dict)
+    output: list[list[str]] = []
+    for frame_index in range(frame_count):
+        source_index = min(
+            len(frames) - 1,
+            math.floor(frame_index * len(frames) / frame_count),
+        )
+        source = frames[source_index]
+        if effect_type == "pulse":
+            phase = frame_index / (frame_count - 1)
+            wave = math.sin(math.pi * phase) ** 2
+            minimum = float(parameters["minimum_brightness"])
+            output.append(
+                [
+                    _scale_color(
+                        color,
+                        1 - (1 - minimum) * wave,
+                    )
+                    for color in source
+                ]
+            )
+        elif effect_type == "hue_cycle":
+            turns = (
+                float(parameters["turns"])
+                * frame_index
+                / frame_count
+            )
+            output.append([_hue_color(color, turns) for color in source])
+        elif effect_type == "sweep":
+            assert positions is not None
+            width = float(parameters["width"])
+            progress = frame_index / (frame_count - 1)
+            center = -width + progress * (1 + width * 2)
+            minimum = float(parameters["minimum_brightness"])
+            colors: list[str] = []
+            for pixel_index, color in enumerate(source):
+                distance = abs(
+                    _sweep_position(
+                        positions[pixel_index],
+                        str(parameters["direction"]),
+                    )
+                    - center
+                )
+                mask = max(0.0, min(1.0, 1 - distance / width))
+                colors.append(
+                    _scale_color(
+                        color,
+                        minimum + (1 - minimum) * mask,
+                    )
+                )
+            output.append(colors)
+        else:
+            depth = float(parameters["depth"])
+            loop_phase = math.pi * 2 * frame_index / frame_count
+            output.append(
+                [
+                    _scale_color(
+                        color,
+                        1
+                        - depth
+                        + depth
+                        * (
+                            0.5
+                            + 0.5
+                            * math.sin(
+                                loop_phase
+                                + _noise_phase(
+                                    int(parameters["seed"]),
+                                    pixel_index,
+                                )
+                            )
+                        ),
+                    )
+                    for pixel_index, color in enumerate(source)
+                ]
+            )
+    return output
+
+
+def interpolate_move_zoom(effect: object) -> list[dict[str, object]]:
+    """Expand a validated Move & zoom effect into exact transform keyframes."""
+
+    raw_frame_count = (
+        effect.get("frame_count")
+        if isinstance(effect, Mapping)
+        else None
+    )
+    checked = validate_effect_spec(
+        effect,
+        frame_limit=raw_frame_count
+        if type(raw_frame_count) is int
+        else 256,
+        still_source=True,
+    )
+    if checked["type"] != "move_zoom":
+        raise ValueError("Only Move & zoom produces transform keyframes.")
+    parameters = checked["parameters"]
+    assert isinstance(parameters, dict)
+    start = parameters["start_transform"]
+    end = parameters["end_transform"]
+    assert isinstance(start, dict) and isinstance(end, dict)
+    frame_count = int(checked["frame_count"])
+    result: list[dict[str, object]] = []
+    for index in range(frame_count):
+        progress = index / (frame_count - 1)
+        result.append(
+            validate_source_transform(
+                {
+                    **start,
+                    "offset_x": float(start["offset_x"])
+                    + (float(end["offset_x"]) - float(start["offset_x"]))
+                    * progress,
+                    "offset_y": float(start["offset_y"])
+                    + (float(end["offset_y"]) - float(start["offset_y"]))
+                    * progress,
+                    "scale_x": float(start["scale_x"])
+                    + (float(end["scale_x"]) - float(start["scale_x"]))
+                    * progress,
+                    "scale_y": float(start["scale_y"])
+                    + (float(end["scale_y"]) - float(start["scale_y"]))
+                    * progress,
+                }
+            ).to_dict()
+        )
+    return result
+
+
 def _resampling_filter(image_module: Any, sampling: str) -> Any:
     return {
         "nearest": image_module.Resampling.NEAREST,
@@ -523,7 +1004,7 @@ class MediaRenderCoordinator:
     def _begin(self, catalog_id: str, epoch: int) -> Callable[[], None]:
         with self._lock:
             latest = self._latest_epochs.get(catalog_id)
-            if latest is not None and epoch < latest:
+            if latest is not None and epoch <= latest:
                 raise MediaRenderSuperseded(
                     "A newer media preview superseded this render."
                 )
@@ -557,6 +1038,7 @@ class MediaRenderCoordinator:
         targets: Sequence[str],
         transform: Mapping[str, object],
         epoch: int,
+        effects: Sequence[Mapping[str, object]] = (),
         progress: Callable[[int, int], None] | None = None,
     ) -> dict[str, object]:
         if type(epoch) is not int or not 0 <= epoch <= 2**53:
@@ -569,6 +1051,12 @@ class MediaRenderCoordinator:
             or any(not isinstance(target, str) or not target for target in targets)
         ):
             raise ValueError("Media render targets must be a non-empty list.")
+        if (
+            not isinstance(effects, (list, tuple))
+            or len(effects) > 8
+            or any(not isinstance(effect, Mapping) for effect in effects)
+        ):
+            raise ValueError("Media render effects must be a bounded list.")
         checked_transform = validate_source_transform(transform)
         detail = self.catalog.get(catalog_id)
         item = detail.get("item")
@@ -616,20 +1104,120 @@ class MediaRenderCoordinator:
             check()
             from . import device_mapping
 
-            mapped = device_mapping.compose_media_frames_to_led_tracks(
-                decoded.frames,
-                decoded.durations_ms,
-                list(targets),
-                checked_transform.to_dict(),
-                product_id,
-                work_check=check,
-                progress=progress,
-            )
+            frame_limit = device_mapping.family_spec(
+                device_mapping.led_model(product_id)
+            ).frame_cap
+            checked_effects = [
+                validate_effect_spec(
+                    effect,
+                    frame_limit=frame_limit,
+                    still_source=decoded.frame_count == 1,
+                )
+                for effect in effects
+            ]
+            move_effects = [
+                effect
+                for effect in checked_effects
+                if effect["type"] == "move_zoom"
+            ]
+            if len(move_effects) > 1:
+                raise ValueError(
+                    "A media composition can contain only one Move & zoom effect."
+                )
+            if move_effects:
+                if checked_effects[0]["type"] != "move_zoom":
+                    raise ValueError(
+                        "Move & zoom must be the first media composition effect."
+                    )
+                transforms = interpolate_move_zoom(move_effects[0])
+                raster, resolved_targets = device_mapping.generation_spec(
+                    product_id,
+                    list(targets),
+                    len(transforms),
+                )
+                rendered_frames = [
+                    render_source_frame(
+                        decoded.frames[0],
+                        (raster.width, raster.height),
+                        frame_transform,
+                    )
+                    for frame_transform in transforms
+                ]
+                mapped = device_mapping.frames_to_led_tracks(
+                    rendered_frames,
+                    [int(move_effects[0]["duration_ms"])] * len(rendered_frames),
+                    resolved_targets,
+                    "nearest",
+                    product_id,
+                    work_check=check,
+                    progress=progress,
+                    frame_limit=frame_limit,
+                    source_frame_limit=frame_limit,
+                )
+            else:
+                mapped = device_mapping.compose_media_frames_to_led_tracks(
+                    decoded.frames,
+                    decoded.durations_ms,
+                    list(targets),
+                    checked_transform.to_dict(),
+                    product_id,
+                    work_check=check,
+                    progress=progress,
+                )
+            color_effects = [
+                effect
+                for effect in checked_effects
+                if effect["type"] != "move_zoom"
+            ]
+            for effect in color_effects:
+                for target, track in mapped["tracks"].items():
+                    capabilities = device_mapping.target_capabilities()[
+                        mapped["model"]
+                    ]["targets"]
+                    target_capability = next(
+                        entry
+                        for entry in capabilities
+                        if entry["name"] == target
+                    )
+                    coordinates = [
+                        {"x": 0.5, "y": 0.5}
+                        for _index in range(track["pixels"])
+                    ]
+                    width = target_capability["width"]
+                    height = target_capability["height"]
+                    for source_index, output_index in enumerate(
+                        target_capability["map"]
+                    ):
+                        if output_index < 0:
+                            continue
+                        coordinates[output_index] = {
+                            "x": ((source_index % width) + 0.5) / width,
+                            "y": ((source_index // width) + 0.5) / height,
+                        }
+                    for copy_rule in target_capability["copies"]:
+                        coordinates[copy_rule["output_index"]] = copy.deepcopy(
+                            coordinates[copy_rule["source_index"]]
+                        )
+                    frames = render_color_effect(
+                        track["frames"],
+                        effect,
+                        coordinates=coordinates,
+                    )
+                    track["frames"] = frames
+                    track["frame_count"] = len(frames)
+                mapped["source_frames"] = int(effect["frame_count"])
+                mapped["decoded_frames"] = int(effect["frame_count"])
+                mapped["duration_ms"] = int(effect["duration_ms"])
+                mapped["source_duration_ms"] = (
+                    int(effect["frame_count"]) * int(effect["duration_ms"])
+                )
+                mapped["timing_resampled"] = False
             check()
             return {
                 "catalog_id": catalog_id,
                 "epoch": epoch,
                 "transform": checked_transform.to_dict(),
+                "effects": checked_effects,
                 "mapped_result": mapped,
             }
         finally:
@@ -647,6 +1235,9 @@ __all__ = [
     "MediaRenderSuperseded",
     "SourceTransform",
     "decode_media",
+    "interpolate_move_zoom",
+    "render_color_effect",
     "render_source_frame",
+    "validate_effect_spec",
     "validate_source_transform",
 ]

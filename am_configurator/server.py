@@ -37,6 +37,7 @@ _STATIC = {
     "/lighting_state.js": "lighting_state.js",
     "/lighting_targets.js": "lighting_targets.js",
     "/lighting_composer.js": "lighting_composer.js",
+    "/library_state.js": "library_state.js",
     "/icon.png": "icon.png",
     "/style.css": "style.css",
 }
@@ -749,6 +750,200 @@ def _profile_snapshot_bytes(config: Mapping[str, Any]) -> bytes:
         ).encode("utf-8")
         + b"\n"
     )
+
+
+def _lighting_composition_tracks(
+    config: Mapping[str, Any],
+    *,
+    slot: int,
+    target: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Project one validated custom slot into the saved mapped-result shape."""
+
+    product_info = config.get("product_info")
+    product_id = (
+        product_info.get("product_id")
+        if isinstance(product_info, Mapping)
+        else None
+    )
+    if not isinstance(product_id, str) or not product_id:
+        raise ValueError("The open document has no supported product identity.")
+    descriptor = device_mapping.device_descriptor(product_id)
+    lighting = descriptor["lighting"]
+    if target not in lighting:
+        raise ValueError("The selected lighting target is unavailable.")
+    pages = config.get("page_data")
+    if not isinstance(pages, list):
+        raise ValueError("The open document has no lighting pages.")
+    page = next(
+        (
+            candidate
+            for candidate in pages
+            if isinstance(candidate, Mapping)
+            and candidate.get("page_index") == slot
+        ),
+        pages[slot] if 0 <= slot < len(pages) else None,
+    )
+    if not isinstance(page, Mapping):
+        raise ValueError("The selected custom lighting slot is unavailable.")
+
+    tracks: dict[str, dict[str, Any]] = {}
+    track_metadata: dict[str, dict[str, Any]] = {}
+    for track_name, target_descriptor in lighting.items():
+        raw_track = page.get(track_name)
+        if not isinstance(raw_track, Mapping) or raw_track.get("valid") != 1:
+            continue
+        raw_frames = raw_track.get("frame_data")
+        if not isinstance(raw_frames, list) or not raw_frames:
+            continue
+        if len(raw_frames) > descriptor["limits"]["frames"]:
+            raise ValueError(
+                f"The {track_name} lighting track exceeds the frame limit."
+            )
+        expected_pixels = target_descriptor["output_leds"]
+        frames: list[list[str]] = []
+        for frame_index, raw_frame in enumerate(raw_frames):
+            colors = (
+                raw_frame.get("frame_RGB")
+                if isinstance(raw_frame, Mapping)
+                else None
+            )
+            if (
+                not isinstance(colors, list)
+                or len(colors) != expected_pixels
+                or any(not _hex_color(color) for color in colors)
+            ):
+                raise ValueError(
+                    f"The {track_name} lighting track contains an invalid frame."
+                )
+            frames.append([color.upper() for color in colors])
+        tracks[track_name] = {
+            "frames": frames,
+            "frame_count": len(frames),
+            "width": target_descriptor["width"],
+            "height": target_descriptor["height"],
+            "pixels": expected_pixels,
+            "mapped_pixels": expected_pixels,
+        }
+        track_metadata[track_name] = {
+            "signature": target_descriptor["signature"],
+            "semantic_target": target_descriptor["semantic_target"],
+            "track_role": target_descriptor["track_role"],
+            "relationship": (
+                "selected" if track_name == target else "authored_companion"
+            ),
+            "frame_count": len(frames),
+        }
+    if target not in tracks:
+        raise ValueError("The selected lighting target has no authored frames.")
+
+    speed_ms = page.get("speed_ms")
+    if type(speed_ms) is not int or not 1 <= speed_ms <= 60_000:
+        raise ValueError("The selected lighting slot has invalid timing.")
+    lightness = page.get("lightness")
+    if type(lightness) is not int or not 0 <= lightness <= 100:
+        raise ValueError("The selected lighting slot has invalid brightness.")
+    primary_count = tracks[target]["frame_count"]
+    mapped_result = {
+        "tracks": tracks,
+        "source_frames": primary_count,
+        "decoded_frames": primary_count,
+        "duration_ms": speed_ms,
+        "source_duration_ms": primary_count * speed_ms,
+        "timing_resampled": False,
+        "model": descriptor["family"],
+    }
+    destination = {
+        "product_id": descriptor["product_id"],
+        "family": descriptor["family"],
+        "slot": slot,
+        "target": target,
+        "targets": list(tracks),
+        "frame_limit": descriptor["limits"]["frames"],
+        "lightness": lightness,
+        "speed_ms": speed_ms,
+    }
+    return mapped_result, track_metadata, destination
+
+
+def _lighting_composition_device(
+    descriptor: Mapping[str, Any],
+    track_metadata: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    signatures = {
+        name: metadata["signature"]
+        for name, metadata in track_metadata.items()
+    }
+    encoded = json.dumps(
+        signatures,
+        allow_nan=False,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("ascii")
+    return {
+        "product_id": descriptor["product_id"],
+        "family": descriptor["family"],
+        "product_label": descriptor["product_label"],
+        "keymap_signature": None,
+        "lighting_signature": (
+            "lighting-set:v1:" + hashlib.sha256(encoded).hexdigest()
+        ),
+    }
+
+
+def _lighting_composition_preview(mapped_result: Mapping[str, Any]) -> bytes:
+    """Create one bounded first-frame PNG without exposing profile data."""
+
+    try:
+        from PIL import Image, ImageDraw
+    except ModuleNotFoundError as exc:
+        raise ValueError(
+            "Saving a lighting preview needs Pillow. Reinstall AM Configurator."
+        ) from exc
+
+    tracks = mapped_result.get("tracks")
+    if not isinstance(tracks, Mapping) or not tracks:
+        raise ValueError("The lighting composition has no previewable tracks.")
+    rows: list[tuple[str, list[str]]] = []
+    for name, track in tracks.items():
+        frames = track.get("frames") if isinstance(track, Mapping) else None
+        colors = frames[0] if isinstance(frames, list) and frames else None
+        if (
+            not isinstance(name, str)
+            or not isinstance(colors, list)
+            or not colors
+            or any(not _hex_color(color) for color in colors)
+        ):
+            raise ValueError("The lighting composition preview is invalid.")
+        rows.append((name, colors))
+
+    cell = 8
+    gap = 6
+    columns = min(32, max(1, max(len(colors) for _name, colors in rows)))
+    row_heights = [
+        math.ceil(len(colors) / columns) * cell
+        for _name, colors in rows
+    ]
+    width = columns * cell
+    height = sum(row_heights) + gap * (len(rows) - 1)
+    if width * height > 4_000_000:
+        raise ValueError("The lighting composition preview is too large.")
+    image = Image.new("RGB", (width, height), (0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    top = 0
+    for (_name, colors), row_height in zip(rows, row_heights, strict=True):
+        for index, color in enumerate(colors):
+            left = (index % columns) * cell
+            y = top + (index // columns) * cell
+            draw.rectangle(
+                (left, y, left + cell - 1, y + cell - 1),
+                fill=color,
+            )
+        top += row_height + gap
+    output = io.BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return output.getvalue()
 
 
 def _lighting_compatibility(
@@ -2357,6 +2552,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._native_reveal_library(body)
             elif path == "/api/library/import/profile":
                 self._library_import_profile(body)
+            elif path == "/api/library/save/lighting":
+                self._library_save_lighting(body)
             elif path == "/api/library/save/profile":
                 self._library_save_profile(body)
             elif path.startswith("/api/library/items/"):
@@ -2815,6 +3012,135 @@ class _Handler(BaseHTTPRequestHandler):
         )
         self._json(detail, HTTPStatus.CREATED)
 
+    def _library_save_lighting(self, body: dict[str, Any]) -> None:
+        from . import media_composition
+
+        if urlparse(self.path).query:
+            raise ValueError("Saving lighting does not accept query fields.")
+        expected = {
+            "name",
+            "document_revision",
+            "slot",
+            "target",
+            "source_catalog_id",
+            "transform",
+            "effects",
+        }
+        if set(body) != expected:
+            raise ValueError(
+                "Saving lighting requires one current slot and its provenance."
+            )
+        revision = body["document_revision"]
+        if not isinstance(revision, str) or not 24 <= len(revision) <= 200:
+            raise ValueError("document_revision must be an opaque revision string.")
+        try:
+            config = self.state.document_snapshot(revision)
+        except DocumentRevisionError as exc:
+            self._json(
+                {"code": exc.code, "error": str(exc)},
+                HTTPStatus.CONFLICT,
+            )
+            return
+
+        slot = body["slot"]
+        if type(slot) is not int or slot not in {5, 6, 7}:
+            raise ValueError("Lighting can be saved only from custom slots 5–7.")
+        target = body["target"]
+        if not isinstance(target, str) or not target:
+            raise ValueError("A selected lighting target is required.")
+        mapped_result, tracks, destination = _lighting_composition_tracks(
+            config,
+            slot=slot,
+            target=target,
+        )
+        product_id = str(config["product_info"]["product_id"])
+        descriptor = device_mapping.device_descriptor(product_id)
+
+        catalog = self.state.library_catalog()
+        source_catalog_id = body["source_catalog_id"]
+        checked_transform: dict[str, object] | None
+        still_source = False
+        if source_catalog_id is None:
+            if body["transform"] is not None:
+                raise ValueError(
+                    "A source transform requires one banked media source."
+                )
+            checked_transform = None
+        else:
+            if not isinstance(source_catalog_id, str):
+                raise ValueError("The composition media source is invalid.")
+            source_detail = catalog.get(source_catalog_id)
+            source_item = source_detail.get("item")
+            source = (
+                source_item.get("source")
+                if isinstance(source_item, dict)
+                else None
+            )
+            if (
+                source_detail.get("namespace") != "item"
+                or source_detail.get("kind") != "media_source"
+                or source_detail.get("removed") is not False
+                or not isinstance(source, dict)
+            ):
+                raise ValueError(
+                    "The composition media source is unavailable."
+                )
+            checked_transform = media_composition.validate_source_transform(
+                body["transform"]
+            ).to_dict()
+            still_source = source["frame_count"] == 1
+
+        raw_effects = body["effects"]
+        if not isinstance(raw_effects, list) or len(raw_effects) > 8:
+            raise ValueError("The lighting composition effects are invalid.")
+        effects = [
+            media_composition.validate_effect_spec(
+                effect,
+                frame_limit=descriptor["limits"]["frames"],
+                still_source=still_source,
+            )
+            for effect in raw_effects
+        ]
+        rendered = json.dumps(
+            mapped_result,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        preview = _lighting_composition_preview(mapped_result)
+        item = catalog.saved_items.create_item(
+            kind="lighting_composition",
+            origin="manual",
+            name=body["name"],
+            device=_lighting_composition_device(descriptor, tracks),
+            composition={
+                "schema_version": 1,
+                "source_catalog_id": source_catalog_id,
+                "transform": checked_transform,
+                "effects": effects,
+                "manual_overrides": [],
+                "destination": destination,
+                "tracks": tracks,
+                "rendered_asset_id": "rendered",
+                "preview_asset_id": "preview",
+            },
+            assets={
+                "rendered": {
+                    "kind": "result",
+                    "mime_type": "application/json",
+                    "data": rendered,
+                },
+                "preview": {
+                    "kind": "preview",
+                    "mime_type": "image/png",
+                    "data": preview,
+                },
+            },
+        )
+        detail = catalog.get(f"item:{item['item_id']}")
+        self._json(detail, HTTPStatus.CREATED)
+
     @staticmethod
     def _catalog_profile_config(
         catalog: Any,
@@ -2931,7 +3257,10 @@ class _Handler(BaseHTTPRequestHandler):
             and parts[:3] == ["api", "library", "items"]
             and parts[4] == "render"
         ):
-            if set(body) != {"product_id", "targets", "transform", "epoch"}:
+            if set(body) not in (
+                {"product_id", "targets", "transform", "epoch"},
+                {"product_id", "targets", "transform", "effects", "epoch"},
+            ):
                 raise ValueError(
                     "Media rendering requires product_id, targets, transform, and epoch."
                 )
@@ -2942,6 +3271,7 @@ class _Handler(BaseHTTPRequestHandler):
                     targets=body["targets"],
                     transform=body["transform"],
                     epoch=body["epoch"],
+                    effects=body.get("effects", ()),
                 )
             )
             return

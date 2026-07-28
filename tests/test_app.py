@@ -3243,6 +3243,136 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual(1, len(stored["assets"]))
         self.assertEqual(png_payload, (item_dir / stored["assets"][0]["relative_path"]).read_bytes())
 
+    def test_save_lighting_banks_validated_slot_result_and_source_provenance(
+        self,
+    ) -> None:
+        from PIL import Image
+
+        profile = _base_config("80")
+        profile["page_data"] = [_page(index) for index in range(8)]
+        profile["page_num"] = 8
+        profile["page_data"][5]["keyframes"] = {
+            "valid": 1,
+            "frame_num": 2,
+            "frame_data": [
+                {
+                    "frame_index": 0,
+                    "frame_RGB": ["#112233"] * 90,
+                },
+                {
+                    "frame_index": 1,
+                    "frame_RGB": ["#445566"] * 90,
+                },
+            ],
+        }
+        profile["page_data"][5]["spotlight_frames"] = {
+            "valid": 1,
+            "frame_num": 2,
+            "frame_data": [
+                {
+                    "frame_index": 0,
+                    "frame_RGB": ["#778899"] * 24,
+                },
+                {
+                    "frame_index": 1,
+                    "frame_RGB": ["#AABBCC"] * 24,
+                },
+            ],
+        }
+        status, synchronized = self._request(
+            "POST",
+            "/api/document/sync",
+            {"config": profile},
+        )
+        self.assertEqual(200, status)
+        revision = synchronized["revision"]
+        before = copy.deepcopy(self._server.state.config)
+
+        output = io.BytesIO()
+        Image.new("RGB", (4, 2), (20, 40, 80)).save(output, format="PNG")
+        status, imported = self._media_request("banked-source.png", output.getvalue())
+        self.assertEqual(201, status)
+        source_catalog_id = imported["item"]["catalog_id"]
+        transform = {
+            "version": 1,
+            "offset_x": 0.25,
+            "offset_y": -0.1,
+            "scale_x": 1.5,
+            "scale_y": 1.5,
+            "aspect_locked": True,
+            "sampling": "box",
+            "background": "#000000",
+        }
+        effect = {
+            "version": 1,
+            "type": "pulse",
+            "frame_count": 2,
+            "duration_ms": 90,
+            "parameters": {"minimum_brightness": 0.2},
+        }
+        status, saved = self._request(
+            "POST",
+            "/api/library/save/lighting",
+            {
+                "name": "Current Relic lighting",
+                "document_revision": revision,
+                "slot": 5,
+                "target": "keyframes",
+                "source_catalog_id": source_catalog_id,
+                "transform": transform,
+                "effects": [effect],
+            },
+        )
+        self.assertEqual(201, status)
+        self.assertEqual("lighting_composition", saved["kind"])
+        composition = saved["item"]["composition"]
+        self.assertEqual(source_catalog_id, composition["source_catalog_id"])
+        self.assertEqual(transform, composition["transform"])
+        self.assertEqual([effect], composition["effects"])
+        self.assertEqual(5, composition["destination"]["slot"])
+        self.assertEqual("keyframes", composition["destination"]["target"])
+        self.assertEqual(
+            {"keyframes", "spotlight_frames"},
+            set(composition["tracks"]),
+        )
+        result_id = composition["rendered_asset_id"]
+        status, headers, payload = self._raw_request(
+            f"/api/library/assets/{saved['catalog_id']}/{result_id}"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("application/json", headers["Content-Type"])
+        mapped = json.loads(payload)
+        self.assertEqual(2, mapped["tracks"]["keyframes"]["frame_count"])
+        self.assertEqual(
+            ["#112233"] * 90,
+            mapped["tracks"]["keyframes"]["frames"][0],
+        )
+        preview_id = composition["preview_asset_id"]
+        status, headers, preview = self._raw_request(
+            f"/api/library/assets/{saved['catalog_id']}/{preview_id}"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("image/png", headers["Content-Type"])
+        self.assertTrue(preview.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertEqual(before, self._server.state.config)
+        self.assertEqual(revision, self._server.state.document_revision)
+
+        status, stale = self._request(
+            "POST",
+            "/api/library/save/lighting",
+            {
+                "name": "Stale",
+                "document_revision": "x" * 32,
+                "slot": 5,
+                "target": "keyframes",
+                "source_catalog_id": None,
+                "transform": None,
+                "effects": [],
+            },
+        )
+        self.assertEqual(409, status)
+        self.assertEqual("document_stale", stale["code"])
+
     def test_media_upload_envelope_and_decode_failures_publish_nothing(self) -> None:
         from PIL import Image
 

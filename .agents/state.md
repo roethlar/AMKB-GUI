@@ -248,28 +248,41 @@
   the destination family's frame ceiling, so a long GIF cannot silently lose
   its tail. The media validation, transform, asymmetric orientation, complete
   timeline, deduplication, concurrency, source-preservation, epoch, binary
-  envelope, route, and no-publication guards were red-proven. The clean full
-  Studio now keeps its timeline, exact LED canvas, and one right-hand
+  envelope, route, and no-publication guards were red-proven. The Studio keeps
+  its timeline, exact LED canvas, and one right-hand
   Paint/Source/Animate inspector stable while tools change; ready-only
   procedural generation is a fourth inspector tool and remains absent when AI
   is unavailable. The canvas exposes the destination overlay and normalized
-  pan/zoom/stretch controls without changing the existing direct GIF path yet.
-  Pulse, Hue cycle, Sweep, and seeded Shimmer produce bounded deterministic
-  local drafts; still-only Move & zoom produces normalized transform
-  keyframes. Preview is document-neutral, stale drafts fail closed, and Accept
-  replaces the selected track through exactly one undo checkpoint while
-  preserving the existing Relic dependent-track retiming rule. Manual paint,
-  keyboard frame/pixel navigation, playback, target geometry, and responsive
-  layout remain available. The focused compositor and Studio-shell guards were
-  red-proven before implementation and pass restored. The clean full gate
-  passes 659 Python tests, 66 web tests, compile/syntax checks, and source/wheel
-  builds. The heavy
+  pan/zoom/stretch controls. Pulse, Hue cycle, Sweep, and seeded Shimmer produce
+  bounded deterministic local drafts; still-only Move & zoom produces
+  normalized transform keyframes. Preview is document-neutral, stale drafts
+  fail closed, and Accept replaces the selected track through exactly one undo
+  checkpoint while preserving the existing Relic dependent-track retiming
+  rule. Manual paint, keyboard frame/pixel navigation, playback, target
+  geometry, and responsive layout remain available. The focused compositor and
+  Studio-shell guards were red-proven before implementation and pass restored.
+  The direct GIF replacement path is now gone: GIF, PNG, and BMP imports bank
+  the immutable source first, open one transform draft, render a
+  server-authoritative preview, expose the complete mapped timeline for
+  selection/playback, and mutate the open slot only through explicit Apply.
+  Cancelling retains the source and changes no document data. Render epochs are
+  strictly increasing across reopened drafts and equal/stale server epochs fail
+  closed. Manual, locally animated, and imported lighting can be saved as exact
+  composition assets with preview, timing, brightness, target relationships,
+  and source/effect provenance; provenance is retained only while the exact
+  applied page is unchanged. Saved lighting reapplication verifies family and
+  target signatures, restores brightness, and creates one undo checkpoint.
+  Media sources reopen in Studio from the mixed Library. The new browser state
+  module is syntax-gated in both CI and the canonical repository gate. All
+  slice-15 behavioral guards were red-proven. The clean full gate passes 662
+  Python tests, 72 web tests, compile/syntax checks, and source/wheel builds.
+  The heavy
   procedural recovery fixture uses the production 180-second operation
   deadline instead of a flaky 30-second test-only override. No real provider
   request, credential mutation, Keychain prompt, model mutation/download,
   real Library mutation/deletion, hardware write, push, or release occurred.
-  Next action is slice 15, bank-first GIF/PNG/BMP composition and saved
-  lighting Library items.
+  Next action is slice 16, the complete mixed-Library UI, compatible profile
+  section Apply, and reversible removal controls.
   Local
   `main` remains unpublished; the push policy requires a fresh explicit owner
   go.

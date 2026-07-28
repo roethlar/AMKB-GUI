@@ -60,6 +60,8 @@ jobs:
         run: node --check am_configurator/web/lighting_targets.js
       - name: Check lighting composer JavaScript
         run: node --check am_configurator/web/lighting_composer.js
+      - name: Check Library state JavaScript
+        run: node --check am_configurator/web/library_state.js
       - name: Check application JavaScript
         run: node --check am_configurator/web/app.js
       - name: Build Python distributions
