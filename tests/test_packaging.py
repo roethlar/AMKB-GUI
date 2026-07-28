@@ -381,7 +381,8 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("assets/am-configurator-512.png", linux)
         self.assertIn('"/icon.png": "icon.png"', server)
         self.assertIn('<link rel="icon" href="/icon.png"', html)
-        self.assertIn('<img class="brand-mark" src="/icon.png"', html)
+        self.assertIn('<img src="/icon.png" alt="">', html)
+        self.assertNotIn('class="brand-mark"', html)
 
     def test_native_bundle_ships_project_license_and_attribution(self) -> None:
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
