@@ -281,6 +281,10 @@ Status: approved by the owner on 2026-07-25.
 
 ## 2026-07-22 — Ollama/API-only AI backends
 
+Supersession: the fixed-loopback and server-local-only eligibility implications
+are superseded on 2026-07-29 by the configurable Ollama backend decision above.
+The API-only and no-model-management portions remain current.
+
 Status: approved by the owner on 2026-07-22. This supersedes every product,
 plan, packaging, and release statement that retains direct GGUF selection or an
 application-managed llama.cpp runtime, including the advanced-fallback portion
@@ -302,6 +306,11 @@ of the earlier Ollama-first decision below.
   boundary remain unchanged.
 
 ## 2026-07-22 — Ollama-first local model setup
+
+Status: superseded in part on 2026-07-29 by the configurable Ollama backend
+decision above. Fixed-loopback and cloud-exclusion wording below is historical;
+hidden-by-default AI, no model management, and explicit setup testing remain
+current.
 
 Status: approved by the owner on 2026-07-22. This supersedes the direct-GGUF
 onboarding and Ollama release-exclusion portions of the 2026-07-21 Optional AI
