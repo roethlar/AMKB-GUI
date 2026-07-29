@@ -55,7 +55,10 @@ test("Studio is one Paint, Source, and Animate shell with local draft acceptance
 });
 
 test("media import banks before composition and applies only an accepted preview", () => {
-  assert.match(js,/accept="image\/gif,image\/png,image\/bmp,\.gif,\.png,\.bmp"/);
+  // pywebview's Cocoa file-dialog bridge handles image/* explicitly as
+  // public.image. A list of concrete MIME and extension tokens leaves valid
+  // GIF/PNG/BMP files disabled in the native NSOpenPanel.
+  assert.match(js,/accept="image\/\*"/);
   assert.match(js,/async function importMedia\(input\)/);
   assert.match(js,/\/api\/library\/import\/media\?name=/);
   assert.match(js,/function renderMediaCompositionPreview\(\)/);

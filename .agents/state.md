@@ -460,12 +460,32 @@
   red-proven against that failure; the local repair now passes 687 Python tests
   (one skipped), 83 web tests, compilation/syntax checks, and source/wheel
   builds.
+- Desktop run `30416604544` (run 37) and CI run `30416604729` both passed at
+  exact commit `dd891e3ab69101e368a2cb2a57295f9b29765d16`, but exact packaged
+  macOS inspection exposed that the media picker's concrete GIF/PNG/BMP MIME
+  and extension list disabled valid source images. Run 37 is rejected. The
+  repair uses pywebview's Cocoa-compatible `image/*` supertype; its focused
+  regression was red-proven against the concrete list. The clean repository
+  gate passes 687 Python tests (one skipped), 83 web tests, compilation/syntax
+  checks, and source/wheel builds. A clean native build passes frozen smoke and
+  DMG verification. Its exact-byte `/Applications` qualification matched the
+  build by `rsync -acn`, matched ad-hoc CDHash
+  `bbdb6617f28511c047ee69f4ad8329250564394b`, passed deep strict signature
+  verification, launched on Keymap, reported `0.1.64` only in About, and banked
+  fresh GIF, PNG, and BMP sources with hashes identical to the selected files.
+  The owner's installed app was restored after qualification. The current
+  local artifact is `dist/AM-Configurator-0.1.64-macOS-arm64.dmg` (24,505,055
+  bytes, SHA-256
+  `d7cfb5e0ae7233396ed990dff4ebd7c5a9667a9dd27920df5b438b76b24bea07`).
+  No provider request, credential or Keychain access, model mutation/download,
+  keyboard SET, tag, Release, or announcement occurred.
 
 ## Next
 
-- Commit and push the red-proven Library-filter repair under the repository-local
-  push policy, wait for CI and all desktop workflows, download the exact
-  replacement artifacts, and restart gates C through F. The exact macOS
+- Commit and push the red-proven native media-picker repair under the
+  repository-local push policy, wait for CI and all desktop workflows,
+  download the exact replacement artifacts, and restart gates C through F. The
+  exact macOS
   candidate's Neon acceptance must load the LED-bearing restore JSON, receive a
   fresh hardware-write authorization immediately before the write, complete
   the physical Esc + F2 unlock, and exercise all four macro trigger keys before

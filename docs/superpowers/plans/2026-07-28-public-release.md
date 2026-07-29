@@ -6,16 +6,18 @@ permanent product constraints: every installer remains unsigned, and the
 application has one canonical version everywhere. This plan sets that version
 to **0.1.64** and publishes it as the repository's normal public GitHub Release.
 Unsigned status is a concise install-time fact, not a beta label, release title,
-application banner, or substitute product identity. Plan approval authorizes
-implementation and local verification only; push, hardware write, release
-publication, and Reddit posting retain their explicit gates.
+application banner, or substitute product identity. Ordinary verified pushes to
+the canonical `origin` follow `.agents/push-policy.md` and are pre-authorized;
+hardware writes, tags, release publication, and Reddit posting retain their
+explicit action-time gates.
 
 Implementation status: slices 0–7 and the local pre-publication gates completed
-on 2026-07-28. The first `main` candidate at `97ed7a2` was rejected after exact
-macOS inspection exposed an automatic one-tab strip beneath the native title
-bar. The local correction and privacy cleanup pass their gates; a replacement
-push and the final GitHub, platform, hardware, publication, and announcement
-gates remain pending.
+on 2026-07-28. Three `main` candidates have been rejected by exact-artifact
+inspection: `97ed7a2` exposed a macOS tab strip, `6cffe01` exposed an obsolete
+Library filter, and `dd891e3` exposed a packaged macOS media picker that disabled
+valid source images. The corrected media picker and its clean local native
+candidate pass their gates; a replacement push and the final GitHub, platform,
+hardware, publication, and announcement gates remain pending.
 
 ## Objective
 
@@ -904,11 +906,28 @@ The current local evidence is:
   after selecting the canonical `keymaps` filter. The complete repository gate
   passes with the repair, so a new GitHub candidate is required before gates C
   through F can resume.
+- the third replacement candidate from Desktop run `30416604544` (run 37) and
+  CI run `30416604729` at
+  `dd891e3ab69101e368a2cb2a57295f9b29765d16` passed, but its exact packaged
+  macOS media picker disabled valid GIF and PNG files because the HTML input
+  supplied concrete MIME and extension tokens that pywebview's Cocoa bridge
+  could not map reliably. The candidate is rejected.
+- the media input now supplies the Cocoa-compatible `image/*` supertype. Its
+  regression guard was red-proven against the concrete list, the clean
+  repository gate passes 687 Python tests (one skipped) and 83 web tests plus
+  compilation, syntax, and source/wheel builds, and the clean native build
+  passes frozen smoke and DMG verification. An exact-byte `/Applications`
+  qualification matched the build by `rsync -acn`, matched ad-hoc CDHash
+  `bbdb6617f28511c047ee69f4ad8329250564394b`, and passed deep strict signature
+  verification. The app launched on Keymap, reported `0.1.64` only in About,
+  and banked fresh GIF, PNG, and BMP sources with hashes identical to the
+  selected files. The local DMG is 24,505,055 bytes with SHA-256
+  `d7cfb5e0ae7233396ed990dff4ebd7c5a9667a9dd27920df5b438b76b24bea07`.
 
 No provider request, credential or Keychain access, model mutation/download,
-hardware write, release publication, or Reddit post occurred during either
-rejected-candidate pass. The next required action is a replacement push of the
-Library repair under the repository-local push policy. Exact
+hardware write, release publication, or Reddit post occurred during these
+rejected-candidate passes. The next required action is a replacement push of the
+media-picker repair under the repository-local push policy. Exact
 replacement-artifact qualification, Windows host acceptance, fresh Neon write
 authorization and check, release publication, and announcement review remain
 pending.
@@ -920,8 +939,8 @@ Publication is not authorized by plan approval.
 1. Finish and commit every implementation slice.
 2. Update this plan's completion record and `.agents/state.md` with
    pre-publication evidence.
-3. Obtain one explicit push approval, push `main`, and wait for CI plus Desktop
-   installers.
+3. Push verified `main` under `.agents/push-policy.md`, then wait for CI plus
+   Desktop installers.
 4. Complete gates C through F against the final successful `main` run.
 5. Confirm the final run still reports canonical version `0.1.64`; its run
    number must not alter source, UI, metadata, or artifact names.
