@@ -324,6 +324,12 @@ test("profile banking is explicit, exact-source, and applies selected compatible
   assert.match(html,/id="library-profile-input"[^>]*accept="application\/json,.json"[^>]*multiple/);
   assert.match(html,/id="library-add-files"[^>]*>Add files…</);
   assert.match(js,/async function importLibraryProfiles\(/);
+  const importFlow=js.slice(
+    js.indexOf("async function importLibraryProfiles"),
+    js.indexOf("async function saveMappingToLibrary"),
+  );
+  assert.match(importFlow,/state\.library\.filter="keymaps"/);
+  assert.doesNotMatch(importFlow,/state\.library\.filter="profiles"/);
   assert.match(js,/file\.arrayBuffer\(\)/);
   assert.match(js,/\/api\/library\/import\/profile/);
   assert.match(js,/async function saveMappingToLibrary\(/);

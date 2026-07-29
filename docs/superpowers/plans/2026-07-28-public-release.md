@@ -847,9 +847,9 @@ builds that had already displayed `0.1.63`; the completed correction makes
 
 The current local evidence is:
 
-- the cumulative gate passes 685 Python tests on Python 3.13, 81 web tests,
+- the cumulative gate passes 687 Python tests on Python 3.13, 83 web tests,
   compile/syntax checks, and source/wheel builds;
-- the Python 3.11 floor separately passes all 685 Python tests, compilation,
+- the Python 3.11 floor separately passes all 687 Python tests, compilation,
   and package builds;
 - the canonical-version guard was red-proven by temporarily restoring
   `0.1.34`, observing the focused test fail, restoring `0.1.64`, and passing all
@@ -886,14 +886,32 @@ The current local evidence is:
   paths, or oversized tracked files; and
 - `actionlint` is not installed locally, so its optional check was unavailable.
   GitHub remains authoritative for workflow execution.
+- the second replacement candidate from Desktop run `30414278566` (run 36) at
+  `6cffe0196e3a778ecb2ac41025cccab6d8d7b948` passed CI, every installer job,
+  deterministic metadata regeneration, and all four GitHub attestations. Its
+  macOS exact-artifact native checks, Linux package checks, and unsigned Windows
+  PE inspection passed. Exact native UI inspection also confirmed one window,
+  unconditional Keymap launch, About-only version `0.1.64`, AI-off privacy,
+  Neon physical geometry, and GET-only device reading without a keyboard SET;
+  however, this candidate is rejected.
+- the rejected candidate's temporary-Library acceptance banked GIF, PNG, BMP,
+  manual lighting, and the live Neon mapping; exercised pan, locked zoom,
+  independent stretch, preview, Apply, undo, and all local effects; and
+  reapplied exact-compatible lighting. Importing a valid cross-keyboard profile
+  then exposed an obsolete client filter name (`profiles`) after the profile
+  had safely banked, making the Library refresh fail instead of opening the
+  Keymaps view. A focused guard failed against that exact behavior and passes
+  after selecting the canonical `keymaps` filter. The complete repository gate
+  passes with the repair, so a new GitHub candidate is required before gates C
+  through F can resume.
 
-This DMG is local preflight evidence only, not a release asset. No provider
-request, credential or Keychain access, model mutation/download, hardware
-write, release publication, or Reddit post occurred. The first push produced a
-rejected candidate; the next required action is an explicitly authorized
-replacement push of `main`. Exact replacement-artifact qualification,
-cross-platform acceptance, fresh Neon write authorization and check, release
-publication, and announcement review remain pending.
+No provider request, credential or Keychain access, model mutation/download,
+hardware write, release publication, or Reddit post occurred during either
+rejected-candidate pass. The next required action is a replacement push of the
+Library repair under the repository-local push policy. Exact
+replacement-artifact qualification, Windows host acceptance, fresh Neon write
+authorization and check, release publication, and announcement review remain
+pending.
 
 ## Publication sequence
 

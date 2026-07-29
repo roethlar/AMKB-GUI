@@ -442,16 +442,33 @@
   signature verification pass. The current local artifact is
   `dist/AM-Configurator-0.1.64-macOS-arm64.dmg` (25,629,920 bytes, SHA-256
   `364df91494702bd3945da09a83bbe8a98936112cc250564b6ae207e1700dee89`).
+- Desktop run `30414278566` (run 36) and CI run `30414278607` both passed at
+  exact commit `6cffe0196e3a778ecb2ac41025cccab6d8d7b948`. Candidate metadata reproduced
+  byte-for-byte, all four attestations verified, and the exact macOS and Linux
+  packages passed their available native and content checks. The Windows
+  install/smoke/uninstall workflow passed and its exact installer has no
+  Authenticode Security Directory, but `netwatch-01` remains unreachable for
+  the real-host hash, SmartScreen, and About inspection. Exact macOS UI
+  acceptance confirmed the corrected window/version/startup/privacy/Neon
+  geometry and GET-only read paths. Its temporary Library banked GIF, PNG, BMP,
+  manual lighting, and a Neon mapping; exercised transforms, all local effects,
+  Apply/undo, source reopen, and exact-compatible lighting apply. Importing a
+  valid cross-keyboard profile then exposed that the client still selected the
+  removed `profiles` filter rather than the canonical `keymaps` filter. The
+  item banked safely, but the Library refresh failed, so run 36 is rejected and
+  no keyboard SET, tag, Release, or announcement occurred. A focused guard was
+  red-proven against that failure; the local repair now passes 687 Python tests
+  (one skipped), 83 web tests, compilation/syntax checks, and source/wheel
+  builds.
 
 ## Next
 
-- Obtain the required explicit authorization before pushing the current local
-  `main` through the Neon macro/control/geometry fixes and this release
-  bookkeeping. After the push, wait for CI and all desktop workflows, download
-  the exact replacement GitHub candidate artifacts, and rerun the
-  cross-platform gates. The exact macOS candidate's Neon acceptance must load
-  the LED-bearing restore JSON, complete one confirmed full write and physical
-  Esc + F2 unlock, then exercise all four assigned macro trigger keys before
+- Commit and push the red-proven Library-filter repair under the repository-local
+  push policy, wait for CI and all desktop workflows, download the exact
+  replacement artifacts, and restart gates C through F. The exact macOS
+  candidate's Neon acceptance must load the LED-bearing restore JSON, receive a
+  fresh hardware-write authorization immediately before the write, complete
+  the physical Esc + F2 unlock, and exercise all four macro trigger keys before
   release publication.
 
 ## Blockers
@@ -467,3 +484,7 @@
 - One decision is waiting on the owner: whether to remove the Windows
   verification leftovers on `netwatch-01`, recorded in `.agents/machines.md`.
   They are harmless and useful for further Windows work.
+- `netwatch-01` currently times out over SSH, so the required exact Windows
+  host inspection waits for the owner to wake it. The macOS Open Anyway test
+  and Neon full write each require action-time authorization; neither blocks
+  building and qualifying the next candidate up to those exact gates.

@@ -866,7 +866,7 @@ async function importLibraryProfiles(input) {
       }
     }
     if(imported){
-      state.library.filter="profiles";
+      state.library.filter="keymaps";
       state.library.loaded=false;
       await loadLibrary({force:true});
     }
