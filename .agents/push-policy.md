@@ -5,14 +5,22 @@ Referenced by `AGENTS.md` (Prime Invariants): "Push policy: see
 
 ## Rule
 
-**Ask before every push.** Pushing to any remote requires an explicit owner go
-for that push. Approval to commit is never approval to push, and a go for one
-push does not carry to the next.
+Ordinary, non-force pushes of committed and verified in-scope work to this
+repository's canonical `origin` are pre-authorized. Push when needed to continue
+an owner-approved workflow; do not stop for a per-push approval.
 
-Committing locally needs no push approval — the standing rule to commit each
-slice as it lands is unchanged. Work accumulates on the local branch until the
-owner says to push.
+Explicit owner authorization is still required for:
+
+- force-pushing or any other remote history rewrite;
+- pushing to a remote other than the canonical `origin`;
+- creating or pushing tags, publishing a release, or publishing an
+  announcement;
+- deleting a remote branch or other remote ref; and
+- pushing work outside the scope the owner approved.
+
+Never push uncommitted or knowingly failing work.
 
 ## Provenance
 
-Owner ruling, 2026-07-25: "push policy: ask".
+Owner ruling, 2026-07-28: make this repository's push policy non-blocking and
+repo-local. This supersedes the 2026-07-25 per-push approval rule.
