@@ -34,9 +34,8 @@ _Last verified: 2026-07-29_
   `4966cf1a3fed94822e11fdbf4dca498a7e617beef995ee2435dec8cb2b131622`;
   `Get-AuthenticodeSignature` reports `NotSigned` with no signer. It arrived by
   SCP and therefore is not evidence for browser Mark-of-the-Web or SmartScreen.
-  It is precursor evidence only after the handoff bookkeeping push moves
-  `origin/main`. Use the browser-downloaded Windows artifact from the successful
-  Desktop run whose `headSha` equals the pulled `origin/main`, require its
+  It is precursor evidence only. Use the browser-downloaded Windows artifact
+  selected by the active release plan's live final-candidate checks, require its
   candidate-manifest hash, then test normal per-user install, visible About
   version `0.1.64`, `--native-policy-smoke`, and uninstall without disabling
   or bypassing Defender or SmartScreen.
