@@ -2,39 +2,39 @@
 
 ## Now
 
-- The approved public-release plan at
-  `docs/superpowers/plans/2026-07-28-public-release.md` remains in flight.
-  Implementation and local preflight are complete. As of `3d89351`, CI run
-  `30450040146` and Desktop installers run `30450040069` (run 40) completed
-  successfully for that exact `main` commit, including the required test,
-  installer, candidate-metadata, and release-provenance jobs. The run-40
-  artifacts have not yet received exact-artifact qualification. No tag,
-  Release, announcement, macOS Open Anyway action, provider credential
-  access, or release-candidate hardware write has occurred. Candidate
-  qualification must stop and report on the first failed tool, test, gate,
-  or required-host check rather than retrying.
+- Public-release qualification is stopped. The unpublished `0.1.64` candidate
+  is rejected after product inspection found three release-blocking classes:
+  Ollama Cloud inventory is deliberately hidden, one Ollama Generate action may
+  run three complete model requests before failing, and normal UI/README paths
+  expose implementation-led language and controls instead of a clear
+  gamer-facing product.
+- The approved release work remains historical context in
+  `docs/superpowers/plans/2026-07-28-public-release.md`; it must not resume
+  against an existing candidate. No tag, Release, announcement, macOS Open
+  Anyway action, live cloud prompt, provider credential use, or
+  release-candidate hardware write followed the rejection.
+- The remediation plan is
+  `docs/superpowers/plans/2026-07-29-human-facing-product-remediation.md`.
+  It records configurable loopback/LAN Ollama origins, complete
+  completion-capable inventory including Ollama Cloud, one model call per
+  Generate action, plain-language UI, progressive disclosure, and a user-first
+  README. Implementation awaits owner approval after independent openreview.
 
 ## Next
 
-- On `netwatch-01`, resolve the successful Desktop run whose `headSha` matches
-  the live canonical `main`, then download its Windows installer and candidate
-  metadata through the browser, require the manifest hash, verify SHA-256 and
-  Authenticode state, observe SmartScreen, run the normal per-user install,
-  launch and inspect About version `0.1.64`, run
-  `--native-policy-smoke`, and uninstall without disabling or bypassing
-  Defender or SmartScreen. Stop immediately and report the first failure.
-  Once Windows passes, continue the same candidate's remaining macOS/Linux,
-  UI, Open Anyway, and freshly authorized Neon gates before requesting
-  publication approval.
+- Run the requested unprimed openreview over the remediation-plan commit using
+  the owner-named Claude Fable 5 reviewer at xhigh effort. Permit one bounded
+  Claude transport smoke and one actual review attempt only; do not retry a
+  failed attempt.
+- Surface the plan and review outcome to the owner. Make no implementation
+  change until the owner approves the reviewed plan.
 
 ## Blockers
 
-- No external blocker prevents starting the Windows gate on this host once the
-  final candidate SHA is selected by the required live git/workflow checks.
-- One cleanup decision is waiting on the owner: whether to remove the
-  Windows verification leftovers on `netwatch-01`, recorded in
-  `.agents/machines.md`. They remain harmless and useful for this release
-  qualification.
-- The later macOS Open Anyway check and Neon full write require action-time
-  authorization. Tag creation, release publication, and announcement remain
-  separately gated outward actions.
+- Product implementation is blocked only on approval of the reviewed
+  remediation plan.
+- Live Ollama Cloud prompts, keyboard writes, macOS Open Anyway, tag creation,
+  release publication, and announcements remain separately gated actions.
+- This Windows host cannot validate SmartScreen because SmartScreen is disabled.
+  Do not ask the owner to repeat that check on another machine; the next release
+  plan must record the unverified gate or an independently available host.
