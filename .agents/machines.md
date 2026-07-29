@@ -4,7 +4,7 @@ Per-machine facts that do not belong in the portable `state.md`.
 
 ## netwatch-01 (Windows 11, x86-64)
 
-_Last verified: 2026-07-24_
+_Last verified: 2026-07-29_
 
 - Reachable as `michael@netwatch-01` over SSH with key auth from `michael-mac`.
   Resolution is not always available; it failed until the owner brought the host
@@ -28,6 +28,18 @@ _Last verified: 2026-07-24_
 - The Windows suite is slower than macOS, about 102 s against 84 s, and was
   non-deterministic before the `st_ctime_ns` fix. It should now report identical
   counts across consecutive runs; variance is a signal, not noise.
+- The exact run-39 Windows candidate is
+  `C:\Users\michael\AM-Configurator-0.1.64-Windows-x64-Setup-run39.exe`.
+  Its SHA-256 is
+  `4966cf1a3fed94822e11fdbf4dca498a7e617beef995ee2435dec8cb2b131622`;
+  `Get-AuthenticodeSignature` reports `NotSigned` with no signer. It arrived by
+  SCP and therefore is not evidence for browser Mark-of-the-Web or SmartScreen.
+  It is precursor evidence only after the handoff bookkeeping push moves
+  `origin/main`. Use the browser-downloaded Windows artifact from the successful
+  Desktop run whose `headSha` equals the pulled `origin/main`, require its
+  candidate-manifest hash, then test normal per-user install, visible About
+  version `0.1.64`, `--native-policy-smoke`, and uninstall without disabling
+  or bypassing Defender or SmartScreen.
 
 ## michael-mac additions
 
