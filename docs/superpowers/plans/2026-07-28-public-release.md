@@ -17,9 +17,10 @@ inspection: `97ed7a2` exposed a macOS tab strip, `6cffe01` exposed an obsolete
 Library filter, and both `dd891e3` and `f64aa97` exposed packaged macOS media
 picker filters that disabled valid source images. The media picker now delegates
 format authority to the existing bounded, signature-sniffing import endpoint,
-and its clean local native candidate passes its gates. A replacement push and
-the final GitHub, platform, hardware, publication, and announcement gates remain
-pending.
+and its clean local native candidate passes its gates. The final GitHub
+candidate is selected only from a successful push run whose `headSha` matches
+the live canonical `main`. Exact-artifact platform, hardware, publication, and
+announcement gates remain pending.
 
 ## Objective
 
@@ -965,9 +966,9 @@ The current local evidence is:
 
 No provider request, credential or Keychain access, model mutation/download,
 hardware write, release publication, or Reddit post occurred during these
-rejected-candidate passes. The next required action is a replacement push of the
-filter-free media-picker repair under the repository-local push policy. Exact
-replacement-artifact qualification, Windows host acceptance, fresh Neon write
+rejected-candidate passes. Final candidate selection is governed by the live
+commit and workflow identity rather than this historical implementation record.
+Exact-artifact qualification, Windows host acceptance, fresh Neon write
 authorization and check, release publication, and announcement review remain
 pending.
 
