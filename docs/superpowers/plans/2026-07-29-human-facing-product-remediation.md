@@ -522,9 +522,11 @@ Files:
 
 - `am_configurator/store.py`
 - `am_configurator/ollama_client.py`
+- `am_configurator/local_animation.py`
 - `tests/test_ai_capability.py`
+- `tests/test_app.py` (`SettingsStoreTests`)
+- `tests/test_local_animation.py`
 - `tests/test_ollama_client.py`
-- `tests/test_store.py` or the existing settings test module
 
 Required guards:
 
@@ -538,6 +540,8 @@ Required guards:
 - HTTP and HTTPS select the correct connection class;
 - inventory/chat use only the normalized origin plus fixed API paths;
 - proxies and redirects remain disabled; and
+- the developer local-animation adapter constructs its Ollama client from the
+  same normalized origin; and
 - changing the origin clears model/setup state without contacting a server.
 
 Commit:
@@ -577,9 +581,11 @@ feat: support Ollama server and cloud models
 
 Files:
 
+- `am_configurator/local_animation.py`
 - `am_configurator/procedural_generation.py`
 - `am_configurator/recipe_inference.py`
 - `am_configurator/recipe_provider.py`
+- `tests/test_local_animation.py`
 - `tests/test_procedural_generation.py`
 - `tests/test_recipe_inference.py`
 - `tests/test_recipe_provider.py`
@@ -590,6 +596,8 @@ Required guards:
 - Ollama schema failure makes exactly one provider call;
 - Ollama quality failure makes exactly one provider call;
 - Direct API failure continues to make exactly one provider call;
+- the developer local-animation adapter makes exactly one provider call and
+  emits no correction prompt;
 - cancellation never creates another attempt;
 - a new explicit Try again creates one new job and one new call;
 - historical manifests with multiple attempts remain readable; and
