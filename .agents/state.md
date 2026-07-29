@@ -22,17 +22,21 @@
 
 ## Next
 
-- Run the requested unprimed openreview over the remediation-plan commit using
-  the owner-named Claude Fable 5 reviewer at xhigh effort. Permit one bounded
-  Claude transport smoke and one actual review attempt only; do not retry a
-  failed attempt.
-- Surface the plan and review outcome to the owner. Make no implementation
-  change until the owner approves the reviewed plan.
+- Surface the remediation plan and failed review transport outcome to the
+  owner. The requested Claude Fable 5 xhigh openreview was pinned to
+  `d77106491edc8d76118bc04ab98ad8b0d3760bb2..013bd403c36838bcf1d70b355607c8a552d81f73`.
+  Its one bounded smoke and one actual review attempt both stopped before model
+  or tool use because the Claude OAuth session was expired and could not be
+  refreshed. No verdict exists, and no retry or alternate reviewer was run.
+- Make no product implementation change until the owner approves the plan.
+  Another review attempt requires a fresh owner request after Claude
+  authentication is restored.
 
 ## Blockers
 
-- Product implementation is blocked only on approval of the reviewed
-  remediation plan.
+- Product implementation is blocked on owner approval of the remediation plan.
+  The requested independent review is unavailable until Claude authentication
+  is restored; the failed transport produced no plan findings or clean verdict.
 - Live Ollama Cloud prompts, keyboard writes, macOS Open Anyway, tag creation,
   release publication, and announcements remain separately gated actions.
 - This Windows host cannot validate SmartScreen because SmartScreen is disabled.
