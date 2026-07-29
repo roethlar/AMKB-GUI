@@ -479,10 +479,31 @@
   `d7cfb5e0ae7233396ed990dff4ebd7c5a9667a9dd27920df5b438b76b24bea07`).
   No provider request, credential or Keychain access, model mutation/download,
   keyboard SET, tag, Release, or announcement occurred.
+- Desktop run `30419761672` (run 38) and CI run `30419761680` both passed at
+  exact commit `f64aa974a047d680c8d04722d3f3fb66293eb79a`. Deterministic metadata,
+  all five attestations, exact macOS native checks, available Linux checks, and
+  unsigned-Windows package inspection passed. Run 38 is rejected: the packaged
+  `accept="image/*"` input still showed valid GIF, PNG, and BMP files with
+  **Open** disabled. WKWebView owns HTML file inputs, so pywebview's Python
+  wildcard-UTI mapping does not apply. The replacement removes the media
+  input's `accept` attribute and retains server-side bounded signature/decode
+  validation. Its focused guard was red-proven against `image/*`; the full gate
+  passes 687 Python tests (one skipped), 83 web tests, compilation/syntax
+  checks, and source/wheel builds. The clean local DMG passes frozen and native
+  policy smoke, DMG verification, and deep strict ad-hoc signature
+  verification; it reports `0.1.64`, CDHash
+  `991ccb95cb09f3d53391dc7ed04a35046b8e36f8`, and SHA-256
+  `74090c617f37e1f0eddcea985f0587c120949b81275e9c23d15b1f56e634cc4b`.
+  Exact packaged UI acceptance enabled and banked GIF, PNG, and BMP with asset
+  bytes matching each selected file. A selected plain-text file was rejected
+  by the import endpoint and created no Library item. The temporary app used
+  isolated data and Library roots; no provider request, credential or Keychain
+  access, model mutation/download, keyboard SET, tag, Release, or announcement
+  occurred.
 
 ## Next
 
-- Commit and push the red-proven native media-picker repair under the
+- Commit and push the red-proven filter-free native media-picker repair under the
   repository-local push policy, wait for CI and all desktop workflows,
   download the exact replacement artifacts, and restart gates C through F. The
   exact macOS

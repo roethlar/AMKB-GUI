@@ -55,10 +55,13 @@ test("Studio is one Paint, Source, and Animate shell with local draft acceptance
 });
 
 test("media import banks before composition and applies only an accepted preview", () => {
-  // pywebview's Cocoa file-dialog bridge handles image/* explicitly as
-  // public.image. A list of concrete MIME and extension tokens leaves valid
-  // GIF/PNG/BMP files disabled in the native NSOpenPanel.
-  assert.match(js,/accept="image\/\*"/);
+  // WKWebView owns HTML file inputs and can leave valid GIF/PNG/BMP files
+  // disabled when an accept filter is present. The bounded import endpoint
+  // remains the authority for supported media after selection.
+  const mediaInput=js.match(/<input id="media-input"[^>]*>/)?.[0]||"";
+  assert.match(mediaInput,/type="file"/);
+  assert.match(mediaInput,/\shidden(?:\s|>)/);
+  assert.doesNotMatch(mediaInput,/\saccept=/);
   assert.match(js,/async function importMedia\(input\)/);
   assert.match(js,/\/api\/library\/import\/media\?name=/);
   assert.match(js,/function renderMediaCompositionPreview\(\)/);
