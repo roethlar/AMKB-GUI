@@ -775,20 +775,9 @@ For every new behavioral test:
 5. rerun the focused test and confirm PASS; and
 6. run the slice's adjacent suite before committing.
 
-After all slices, run from the repository root:
-
-```sh
-uv run --frozen python -m unittest discover -s tests -v
-uv run --frozen python -m compileall -q am_configurator packaging build_tools
-node --test tests/web/*.test.js
-node --check am_configurator/web/lighting_state.js
-node --check am_configurator/web/lighting_review.js
-node --check am_configurator/web/lighting_targets.js
-node --check am_configurator/web/lighting_composer.js
-node --check am_configurator/web/library_state.js
-node --check am_configurator/web/app.js
-uv build
-```
+After all slices, run the current automated verification entry point recorded
+in `.agents/repo-guidance.md` under **Verification**. That location is
+authoritative; this plan intentionally does not duplicate its command list.
 
 Then run the current-OS native build through `python build.py --skip-sync` and
 the finished executable's `--smoke-test`. Do not invoke PyInstaller directly.
