@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import unittest
+import importlib.util
 import inspect
+import unittest
 from pathlib import Path
 
 from am_configurator import recipe_inference
@@ -54,19 +55,34 @@ class RecipeInferenceContractTests(unittest.TestCase):
                 self.assertNotIn(forbidden, source)
         self.assertNotIn("attempt", inspect.signature(build_ollama_recipe_payload).parameters)
 
-    def test_ollama_recipe_callers_do_not_redeclare_sampling_parameters(self) -> None:
+    def test_only_production_provider_owns_ollama_inference_details(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        for relative in (
-            "am_configurator/recipe_provider.py",
-            "am_configurator/local_animation.py",
-        ):
-            source = (root / relative).read_text(encoding="utf-8")
-            self.assertIn("build_ollama_recipe_payload(", source)
+        provider_source = (root / "am_configurator" / "recipe_provider.py").read_text(
+            encoding="utf-8"
+        )
+        qualification_source = (
+            root / "build_tools" / "qualify_recipe_model.py"
+        ).read_text(encoding="utf-8")
+        retired_adapter = "local_" + "animation"
+
+        self.assertIn("build_ollama_recipe_payload(", provider_source)
+        for source in (provider_source, qualification_source):
             self.assertNotIn('"temperature"', source)
             self.assertNotIn('"num_predict"', source)
             self.assertNotIn("7319 +", source)
             self.assertNotIn("generate_attempt", source)
             self.assertNotIn("validation_reason", source)
+        self.assertNotIn("build_ollama_recipe_payload", qualification_source)
+        self.assertIn("OllamaRecipeProvider", qualification_source)
+        self.assertIn("RecipeRequest(", qualification_source)
+        if retired_adapter in qualification_source:
+            self.fail("Qualification imports the retired developer adapter.")
+        self.assertFalse(
+            (root / "am_configurator" / f"{retired_adapter}.py").exists()
+        )
+        self.assertIsNone(
+            importlib.util.find_spec(f"am_configurator.{retired_adapter}")
+        )
 
 
 if __name__ == "__main__":

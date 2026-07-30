@@ -345,6 +345,22 @@ fails.
 
 Commit as one misplaced-code finding.
 
+### Implementation sequencing record
+
+R3 completed on 2026-07-30 in the commit containing this record. The
+qualification CLI now discovers the requested model through the production
+Ollama client, constructs the production provider with that exact inventory
+record, and submits one production `RecipeRequest` per corpus case. It no longer
+owns payload construction, sampling defaults, parsing, or retry behavior. The
+duplicate shipped adapter and its isolated tests are gone.
+
+The focused provider/qualification suite passed 46 tests. The complete entry
+point passed 633 Python tests (5 skipped), 125 browser tests, every JavaScript
+syntax check, Python byte-compilation, and wheel/sdist builds. The rebuilt wheel
+(49 files) and sdist (112 files) contain neither the retired adapter nor its
+client type. The absence/delegation guard was proved red by temporarily
+restoring the dynamic import, then green after restoration.
+
 ## Slice R4 — Enforce dependency ownership without adding an audit dependency
 
 Add `tests/test_dependencies.py` using only `ast`, `importlib.metadata`,

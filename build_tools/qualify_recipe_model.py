@@ -1,9 +1,9 @@
 """Evaluate strict procedural recipes with an optional Ollama developer run.
 
 This provider-neutral corpus helper is not a production or release entry point.
-Its command line can contact only fixed-loopback Ollama; direct model files,
-application-managed runtimes, and the historical GGUF qualification path are
-intentionally unsupported.
+Its command line delegates to the production Ollama client and recipe provider;
+direct model files, application-managed runtimes, and the historical GGUF
+qualification path are intentionally unsupported.
 """
 
 from __future__ import annotations
@@ -14,9 +14,17 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
 from am_configurator.device_mapping import generation_spec
+from am_configurator.llm import ProviderError
+from am_configurator.ollama_client import (
+    CHAT_TIMEOUT_SECONDS,
+    DEFAULT_OLLAMA_BASE_URL,
+    OllamaClient,
+    OllamaError,
+    OllamaModel,
+)
 from am_configurator.procedural import (
     DENSITIES,
     QualityError,
@@ -26,6 +34,11 @@ from am_configurator.procedural import (
     validate_quality,
     validate_recipe,
     write_animation_artifacts,
+)
+from am_configurator.recipe_provider import (
+    OllamaRecipeProvider,
+    RecipeProvider,
+    RecipeRequest,
 )
 
 
@@ -239,24 +252,31 @@ def qualify_recipe(
         return result
 
 
-RecipeGenerator = Callable[[PromptCase], dict[str, Any]]
-
-
 def qualify_model(
     cases: Sequence[PromptCase],
-    generate: RecipeGenerator,
+    provider: RecipeProvider,
     *,
     output_directory: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Generate and qualify cases sequentially through an injected provider."""
+    """Generate and qualify cases through the production recipe-provider contract."""
 
     results = []
     for case in cases:
         case_output = output_directory / case.case_id if output_directory else None
         generation_started = time.monotonic()
         try:
-            recipe = generate(case)
-        except RecipeError as exc:
+            generated = provider.generate(
+                RecipeRequest(
+                    prompt=case.prompt,
+                    width=case.width,
+                    height=case.height,
+                    frame_count=case.frame_count,
+                    density_default=case.density,
+                ),
+                time.monotonic() + CHAT_TIMEOUT_SECONDS,
+                lambda: False,
+            )
+        except ProviderError as exc:
             results.append(
                 {
                     "case_id": case.case_id,
@@ -269,10 +289,27 @@ def qualify_model(
             )
             continue
         generation_seconds = round(time.monotonic() - generation_started, 6)
-        result = qualify_recipe(case, recipe, output_directory=case_output)
+        result = qualify_recipe(case, generated.recipe, output_directory=case_output)
         result["generation_seconds"] = generation_seconds
         results.append(result)
     return results
+
+
+def _ollama_provider(
+    endpoint: str,
+    model_id: str,
+) -> tuple[OllamaRecipeProvider, OllamaModel, str]:
+    client = OllamaClient(base_url=endpoint)
+    models = client.list_models(
+        deadline=time.monotonic() + CHAT_TIMEOUT_SECONDS
+    )
+    model = next(
+        (candidate for candidate in models if candidate.model_id == model_id),
+        None,
+    )
+    if model is None:
+        raise ValueError("Requested Ollama model is not available.")
+    return OllamaRecipeProvider(model, client=client), model, client.base_url
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -280,7 +317,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--corpus", type=Path, default=DEFAULT_CORPUS)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model", default="ornith:latest")
-    parser.add_argument("--endpoint", default="http://127.0.0.1:11434")
+    parser.add_argument("--endpoint", default=DEFAULT_OLLAMA_BASE_URL)
     parser.add_argument("--case", action="append", dest="case_ids")
     return parser
 
@@ -296,36 +333,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise ValueError("One or more requested qualification cases do not exist.")
         output = args.output.resolve()
         output.mkdir(parents=True, exist_ok=True)
-        from am_configurator.local_animation import OllamaRecipeClient
-
-        client = OllamaRecipeClient(endpoint=args.endpoint)
-
-        def generate(case: PromptCase) -> dict[str, Any]:
-            return client.generate(
-                case.prompt,
-                model=args.model,
-                width=case.width,
-                height=case.height,
-                frame_count=case.frame_count,
-                density_default=case.density,
-            )
-
-        results = qualify_model(cases, generate, output_directory=output)
-        provider = {
-            "kind": "ollama-development",
-            "model": args.model,
-            "endpoint": args.endpoint,
+        recipe_provider, model, endpoint = _ollama_provider(args.endpoint, args.model)
+        results = qualify_model(cases, recipe_provider, output_directory=output)
+        provider_record = {
+            "kind": "ollama",
+            "model": model.model_id,
+            "digest": model.digest,
+            "location": model.location,
+            "endpoint": endpoint,
         }
         report = {
             "schema_version": 1,
-            "provider": provider,
+            "provider": provider_record,
             "passed": all(result["passed"] for result in results),
             "results": results,
         }
         (output / "qualification.json").write_text(
             json.dumps(report, indent=2) + "\n", encoding="utf-8"
         )
-    except (OSError, ValueError, RecipeError) as exc:
+    except (OSError, ValueError, RecipeError, ProviderError, OllamaError) as exc:
         print(f"Qualification failed: {exc}")
         return 1
     print(json.dumps(report, indent=2))

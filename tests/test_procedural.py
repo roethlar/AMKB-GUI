@@ -5,10 +5,13 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from PIL import Image
 
 from am_configurator.device_mapping import frames_to_led_tracks
+from am_configurator.llm import ProviderError
+from am_configurator.ollama_client import DEFAULT_OLLAMA_BASE_URL, OllamaModel
 from am_configurator.procedural import (
     QualityError,
     RecipeError,
@@ -25,9 +28,11 @@ from am_configurator.procedural import (
     write_gif,
     write_animation_artifacts,
 )
+from am_configurator.recipe_provider import RecipeRequest, RecipeResult
 from build_tools import qualify_recipe_model as qualification_tool
 from build_tools.qualify_recipe_model import (
     load_prompt_corpus,
+    qualify_model,
     qualify_recipe,
 )
 
@@ -426,7 +431,8 @@ class ArtifactAndMappingTests(unittest.TestCase):
 
 class QualificationCorpusTests(unittest.TestCase):
     def test_developer_qualification_tool_has_no_direct_model_entry_point(self) -> None:
-        option_names = {action.dest for action in qualification_tool._parser()._actions}
+        parser = qualification_tool._parser()
+        option_names = {action.dest for action in parser._actions}
         self.assertTrue(
             {
                 "llama_cli",
@@ -438,10 +444,133 @@ class QualificationCorpusTests(unittest.TestCase):
         )
         self.assertFalse(hasattr(qualification_tool, "LlamaCliRecipeClient"))
         self.assertFalse(hasattr(qualification_tool, "qualify_local_case"))
+        defaults = parser.parse_args(["--output", "qualification"])
+        self.assertEqual(DEFAULT_OLLAMA_BASE_URL, defaults.endpoint)
         source = Path(qualification_tool.__file__).read_text("utf-8")
         self.assertNotIn("import subprocess", source)
         self.assertNotIn("--llama-cli", source)
         self.assertNotIn("--model-file", source)
+
+    def test_qualification_uses_discovered_model_and_production_provider(self) -> None:
+        case = next(
+            case
+            for case in load_prompt_corpus(FIXTURE)
+            if case.case_id == "relic-sparse-comets"
+        )
+        model = OllamaModel(
+            model_id="ornith:latest",
+            digest="a" * 64,
+            size_bytes=1_234,
+            parameter_size="8B",
+            quantization="Q4_K_M",
+        )
+        observed: dict = {"requests": []}
+
+        class FakeClient:
+            def __init__(self, *, base_url):
+                observed["base_url"] = base_url
+                self.base_url = base_url
+
+            def list_models(self, *, deadline):
+                observed["inventory_deadline"] = deadline
+                return (model,)
+
+        class FakeProvider:
+            def __init__(self, selected_model, *, client):
+                observed["model"] = selected_model
+                observed["client"] = client
+
+            def generate(self, request, deadline, cancelled):
+                observed["requests"].append((request, deadline, cancelled()))
+                return RecipeResult(
+                    recipe=_recipe(),
+                    backend="ollama",
+                    provider="ollama",
+                    model_id=model.model_id,
+                    usage=None,
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            with (
+                mock.patch.object(qualification_tool, "OllamaClient", FakeClient),
+                mock.patch.object(
+                    qualification_tool, "OllamaRecipeProvider", FakeProvider
+                ),
+                mock.patch("builtins.print"),
+            ):
+                exit_code = qualification_tool.main(
+                    [
+                        "--output",
+                        str(output),
+                        "--endpoint",
+                        "http://127.0.0.1:12000",
+                        "--model",
+                        model.model_id,
+                        "--case",
+                        case.case_id,
+                    ]
+                )
+            report = json.loads(
+                (output / "qualification.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("http://127.0.0.1:12000", observed["base_url"])
+        self.assertIs(model, observed["model"])
+        self.assertEqual(1, len(observed["requests"]))
+        request, deadline, cancelled = observed["requests"][0]
+        self.assertEqual(
+            RecipeRequest(
+                prompt=case.prompt,
+                width=case.width,
+                height=case.height,
+                frame_count=case.frame_count,
+                density_default=case.density,
+            ),
+            request,
+        )
+        self.assertIsInstance(deadline, float)
+        self.assertFalse(cancelled)
+        self.assertTrue(report["passed"])
+        self.assertEqual(
+            {
+                "kind": "ollama",
+                "model": model.model_id,
+                "digest": model.digest,
+                "location": model.location,
+                "endpoint": "http://127.0.0.1:12000",
+            },
+            report["provider"],
+        )
+
+    def test_qualify_model_records_one_production_provider_failure(self) -> None:
+        case = next(
+            case
+            for case in load_prompt_corpus(FIXTURE)
+            if case.case_id == "relic-sparse-comets"
+        )
+        calls: list[RecipeRequest] = []
+
+        class FailingProvider:
+            def generate(self, request, _deadline, _cancelled):
+                calls.append(request)
+                raise ProviderError("bad_response", "Production validation failed.")
+
+        results = qualify_model((case,), FailingProvider())
+
+        self.assertEqual(1, len(calls))
+        self.assertEqual(
+            [
+                {
+                    "case_id": case.case_id,
+                    "passed": False,
+                    "generation_seconds": results[0]["generation_seconds"],
+                    "error": "Production validation failed.",
+                }
+            ],
+            results,
+        )
 
     def test_committed_corpus_covers_devices_densities_effects_and_adversarial_prompts(self) -> None:
         cases = load_prompt_corpus(FIXTURE)
