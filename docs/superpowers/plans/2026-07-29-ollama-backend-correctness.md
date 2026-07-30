@@ -1,9 +1,10 @@
 # Ollama Backend Correctness Remediation
 
 **Status:** Backend implementation completed through Slice B3 on 2026-07-29.
-Slice B4 remains open only for the native executable smoke check; the build
-host does not have the required pinned FFmpeg source archive and detached
-signature staged under `build/ffmpeg/sources`.
+The owner superseded Slice B4 on 2026-07-30 by making AI procedural-only and
+prohibiting FFmpeg. The removal and replacement proof now belongs to
+`docs/superpowers/plans/2026-07-30-ffmpeg-removal-and-dependency-audit.md`.
+No FFmpeg source build or native FFmpeg smoke is required or permitted.
 
 ## Objective
 
@@ -330,31 +331,12 @@ Commit:
 fix: stop automatic Ollama regeneration
 ```
 
-### Slice B4 — Close backend remediation
+### Slice B4 — Superseded; do not execute
 
-Files:
-
-- `.agents/state.md`
-- this plan
-- affected durable verification records
-
-Required checks:
-
-- run the current automated verification entry point in
-  `.agents/repo-guidance.md`;
-- run `python build.py --skip-sync` and the built executable's `--smoke-test`;
-- exercise endpoint and inventory behavior only with bounded fake loopback/LAN
-  servers;
-- prove exact one-call behavior with automated counters;
-- record implementation commits and any remaining platform gates;
-- record that no live cloud prompt, provider credential, or keyboard write was
-  used.
-
-Commit:
-
-```text
-docs: close Ollama backend remediation
-```
+The remaining B4 check depended on retaining and building FFmpeg for a native
+media smoke. The 2026-07-30 owner decision prohibits that path. Do not stage an
+FFmpeg archive, build FFmpeg, or run the retired smoke. The current removal plan
+owns deleting the obsolete path and proving the resulting native artifact.
 
 ## Guard-Proof Procedure
 
@@ -378,8 +360,8 @@ is `.agents/repo-guidance.md` under **Verification**.
 - The focused B3 suite passed 58 tests, and the full automated verification
   entry point passed after B3.
 - `python build.py --skip-sync` stopped before packaging because the pinned
-  FFmpeg source archive was not staged. No executable was produced, so
-  `--smoke-test` was not run.
+  FFmpeg source archive was not staged. This is historical evidence only: the
+  owner later prohibited FFmpeg, so no executable smoke is owed under B4.
 - No live Ollama Cloud prompt, provider credential, or keyboard write was used.
 
 ## Acceptance Criteria
@@ -394,9 +376,10 @@ This plan is complete only when:
 - each Generate/Try again/Test setup action makes exactly one model request;
 - no retry protocol or correction machinery remains;
 - Direct API, Library, and historical manifest behavior still pass;
-- automated verification, native smoke, and fake-server checks pass;
+- automated verification and fake-server checks pass; replacement native
+  artifact proof belongs to the FFmpeg-removal plan;
 - every slice is committed independently with guard proof;
 - no live cloud prompt, credentialed provider request, or keyboard write occurs.
 
-The product-experience plan remains separately pending after this plan closes.
-No release candidate is built until both plans are complete.
+The product-experience plan and the FFmpeg-removal plan own their separate
+remaining work. No release candidate is built until both are complete.

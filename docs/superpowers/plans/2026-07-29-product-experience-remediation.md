@@ -1,11 +1,10 @@
 # Product Experience and User Documentation Remediation
 
-**Status:** Drafted on 2026-07-29 from owner-approved product direction.
-The owner approved the two-plan structure on 2026-07-29. Implementation is not
-yet approved. This plan is independently approvable from the Ollama backend
-correctness plan, but implementation starts only after that plan closes so the
-UI is built against final backend names, routes, status fields, and disclosure
-behavior.
+**Status:** Owner-approved. Slices P1-P5 and their follow-up fixes were landed
+on `main` by 2026-07-30. Slice P6 remains open and is paused until
+`docs/superpowers/plans/2026-07-30-ffmpeg-removal-and-dependency-audit.md`
+closes, so the next candidate is built and qualified without the retired
+AI-video/FFmpeg path.
 
 ## Objective
 
@@ -44,9 +43,10 @@ announcement.
 - status payload names and loopback API routes;
 - exactly-one-request generation behavior.
 
-This plan consumes those contracts and does not redefine them. The product
-plan may be approved while backend implementation is in progress, but no
-product slice begins until backend Slice B4 is committed.
+This plan consumes those contracts and does not redefine them. Backend Slices
+B1-B3 landed before the product work consumed them. Backend Slice B4 was
+superseded by the 2026-07-30 procedural-only/FFmpeg-prohibited decision and
+must not be executed.
 
 ## Current Baseline
 
@@ -402,10 +402,11 @@ docs: add a clear user quick start
 
 ### Slice P6 — Close remediation and prepare a distinct candidate
 
-The rejected unpublished `0.1.64` identifier is not reused. After both plans
-are complete, set the canonical version in `am_configurator/_version.py` to
-`0.1.65`. This version change and its propagation are part of the new candidate,
-not a revision of the rejected candidate.
+The rejected unpublished `0.1.64` identifier is not reused. After the
+FFmpeg-removal plan is complete, set the canonical version in
+`am_configurator/_version.py` to `0.1.65`. This version change and its
+propagation are part of the new candidate, not a revision of the rejected
+candidate.
 
 Files:
 
@@ -468,6 +469,7 @@ This plan is complete only when:
 - README supplies a direct download and five-minute start;
 - screenshots match the verified interface and contain no sensitive data;
 - automated verification and native smoke pass;
-- both plans are complete and independently committed;
+- this plan and the FFmpeg-removal plan are complete and independently
+  committed;
 - `0.1.64` remains rejected and the next candidate is `0.1.65`;
 - release qualification resumes only for that new exact candidate.

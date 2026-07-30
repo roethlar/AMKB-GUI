@@ -1,5 +1,25 @@
 # Repository Decisions
 
+## 2026-07-30 — AI is procedural-only and FFmpeg is prohibited
+
+Status: approved by the owner on 2026-07-30. This supersedes every earlier
+decision or plan statement that retains AI video generation, AI-video recovery,
+an FFmpeg runtime, or an FFmpeg build path.
+
+- AI produces only a strict procedural LED recipe. The application validates
+  and renders that recipe locally into exact-target LED frames.
+- The product does not request, download, process, resume, display as a
+  generated result, or otherwise consume AI video.
+- FFmpeg is not a runtime, build, test, CI, packaging, recovery, or optional
+  dependency. The project never builds FFmpeg from source and never substitutes
+  a prebuilt FFmpeg binary.
+- Historical video-generation jobs are not resumable. Removing their execution
+  path must not delete user files automatically.
+- Every direct dependency and bundled build tool must own a live supported
+  product or artifact responsibility. Dead, duplicate, historical-only, or
+  speculative dependencies are removed rather than retained for compatibility
+  with retired behavior.
+
 ## 2026-07-29 — Ollama is a configurable backend and generation never auto-retries
 
 Status: approved by the owner on 2026-07-29 while rejecting the current release

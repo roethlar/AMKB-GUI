@@ -7,7 +7,12 @@
   `docs/superpowers/plans/2026-07-21-optional-ai-backends.md`. That later plan
   supersedes this plan's visible still/video generation flow while preserving
   its durable Library, compatibility, manual editor, mapping, and explicit
-  Apply foundations. Product decisions are recorded in `.agents/decisions.md`.
+  Apply foundations. On 2026-07-30 the owner prohibited AI video and FFmpeg
+  entirely; that decision supersedes every remaining video-generation,
+  recovery, and FFmpeg instruction in this historical plan. The current
+  deletion work is specified in
+  `docs/superpowers/plans/2026-07-30-ffmpeg-removal-and-dependency-audit.md`.
+  Product decisions are recorded in `.agents/decisions.md`.
 - **Branch**: `llm-led-generator`
 - **Starting commit**: `137dbc85d2f731aeef1ce4b93c512c21792c42d5`
 - **Goal**: keep the manual Lighting editor as the primary product workspace

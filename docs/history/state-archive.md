@@ -1494,3 +1494,10 @@
   `reddit_draft.md`; it needs a resolving download link before posting and
   should be re-drafted from this record if lost. No tag, Release, or
   announcement has been created.
+
+## Archived 2026-07-30 by catchup
+
+- Backend Slices B1-B3 and product Slices P1-P5, including their follow-up
+  fixes, are landed on `main`. Backend Slice B4 and product Slice P6 remain
+  open. P6 has not started: `am_configurator/_version.py` still reports
+  `0.1.64`, and `0.1.65` appears only in the product plan.
