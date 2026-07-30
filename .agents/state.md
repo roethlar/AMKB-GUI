@@ -47,6 +47,16 @@
   window automation from a DPI-unaware shell process uses virtualized
   coordinates at 125% scale, so captures must multiply sizes by the scale
   factor or the right/bottom ~20% of the window silently disappears.
+- The owner then caught a real pre-existing board overflow with an open
+  document: `.keyboard-stage` combined `aspect-ratio: 2.95/1` with
+  `min-height: 260px`, and CSS transfers that min-height through the ratio
+  into an implicit ~767px min-width, so the keymap board spilled out of its
+  card and under the inspector whenever the keymap column was narrower
+  (roughly 1121-1427px viewports before the P4 breakpoints). Fixed by capping
+  the stage at `max-width: 100%`, which clamps the transferred minimum;
+  guarded in `tests/web/design_tokens.test.js`. Lesson recorded: per-screen
+  manual checks must use an open document — the empty-state pass cannot catch
+  document-dependent layout.
 - Product-experience implementation runs in parallel on
   `claude/product-experience-remediation`, a worktree branch based at the
   shared docs tip `0271213`. Slice P2 is implemented and guard-proven:

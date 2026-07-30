@@ -114,3 +114,9 @@ test("the keymap editor drops to one column before its 620px floor can clip", ()
   assert.match(block, /\.editor-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(block, /\.inspector \{ position: static; \}/);
 });
+
+test("the keyboard board can never outgrow its card", () => {
+  // aspect-ratio + min-height transfers an implicit ~767px min-width to the
+  // stage; without a 100% cap the board spills under the key inspector.
+  assert.match(css, /\.keyboard-stage \{[^}]*min-height: 260px; max-width: 100%;/);
+});
