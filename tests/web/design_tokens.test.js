@@ -120,3 +120,13 @@ test("the keyboard board can never outgrow its card", () => {
   // stage; without a 100% cap the board spills under the key inspector.
   assert.match(css, /\.keyboard-stage \{[^}]*min-height: 260px; max-width: 100%;/);
 });
+
+test("panel control rows wrap instead of blowing out of fixed columns", () => {
+  // Grid children default to min-width:auto, so a 1fr/1fr row overflows a
+  // ~210px tool column as soon as a label's min-content exceeds its track.
+  assert.match(css, /\.button-row \{ display: grid; grid-template-columns: repeat\(auto-fit, minmax\(110px, 1fr\)\);/);
+  assert.match(css, /\.button-row > \* \{ min-width: 0; \}/);
+  assert.match(css, /\.gif-import-row \{ display: grid; grid-template-columns: repeat\(auto-fit, minmax\(130px, 1fr\)\);/);
+  assert.match(css, /\.gif-import-row > \* \{ min-width: 0; \}/);
+  assert.match(css, /\.search-field, \.text-field, \.select-field \{ width: 100%; min-width: 0; max-width: 100%;/);
+});

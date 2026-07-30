@@ -57,6 +57,20 @@
   guarded in `tests/web/design_tokens.test.js`. Lesson recorded: per-screen
   manual checks must use an open document — the empty-state pass cannot catch
   document-dependent layout.
+- The owner then asked for a holistic fix and connected three keyboards.
+  `build_tools/layout_audit.py` now drives the real app read-only (it never
+  references the write path), reads each connected keyboard, runs the app's
+  own validation, and numerically reports every element that escapes the
+  viewport, escapes a non-scrolling container, or is cut by an
+  overflow-hidden ancestor, across all routes, Studio tools, lighting
+  targets, and four window sizes. First run: CB04, AM21, and ALICE all read
+  and validate clean (7 layers, 4 macros, 8 pages each). The audit found one
+  systemic layout class — grid rows with `min-width:auto` children blowing
+  out of fixed tool columns (`.button-row` 1fr/1fr, `.gif-import-row` 92px
+  select track) — fixed with auto-fit wrapping rows and `min-width: 0`
+  children, guarded in `tests/web/design_tokens.test.js`. Re-run is clean;
+  remaining audit rows are known-benign (`.sr-only` by design; 3-9px keycap
+  and Relic-stage border clipping from layout data ending at 100.6%).
 - Product-experience implementation runs in parallel on
   `claude/product-experience-remediation`, a worktree branch based at the
   shared docs tip `0271213`. Slice P2 is implemented and guard-proven:
