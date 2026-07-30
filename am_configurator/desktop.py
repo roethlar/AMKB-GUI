@@ -258,7 +258,7 @@ def _native_policy_probe_script(phase: str) -> str:
   const settings = document.querySelector("#settings-screen");
   const settingsButton = document.querySelector("#settings-button");
   const aiDetails = document.querySelector("#settings-ai-details");
-  const localPanel = document.querySelector("#settings-local-panel");
+  const localPanel = document.querySelector("#settings-ollama-panel");
   const apiPanel = document.querySelector("#settings-api-panel");
   const backendValues = settings
     ? Array.from(settings.querySelectorAll(
@@ -327,7 +327,7 @@ def _native_policy_probe_script(phase: str) -> str:
       location.hostname === "127.0.0.1" &&
       document.title.includes("AM Configurator") && Boolean(settings),
     settings_provider_catalog_only:
-      backendValues.join(",") === "api,local" &&
+      backendValues.join(",") === "api,ollama" &&
       providerValues().join(",") === expectedProviders.join(",") &&
       /Ollama/.test(settingsText) &&
       !/(GGUF|llama\\.cpp|direct model)/i.test(settingsText) &&

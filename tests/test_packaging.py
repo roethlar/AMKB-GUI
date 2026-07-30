@@ -997,7 +997,7 @@ class ReleaseInfoTests(unittest.TestCase):
             '["local"]',
             'value="local"',
             'id="settings-ai-local"',
-            'id="settings-local-panel"',
+            "settings-local-panel",
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, combined)
