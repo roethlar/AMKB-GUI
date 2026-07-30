@@ -35,16 +35,17 @@
 
 ## Next
 
-- Surface the completed two-plan design and request implementation approval for
-  the backend correctness plan first. It has no unresolved product decisions.
-- After backend Slice B4 closes, begin the product-experience plan only if its
-  implementation has also been approved.
+- Implement backend Slice B1 on `codex/ollama-backend-correctness`, preserving a
+  green full-stack boundary for the schema, endpoint, route, and consumer
+  rename.
+- The owner assigned the product-experience plan to Claude for parallel work.
+  Claude may implement low-conflict visual/documentation work independently;
+  AI language and Settings integration wait for the backend contracts to land.
 
 ## Blockers
 
-- Backend implementation is blocked on owner approval of the backend plan.
-  Product-experience implementation additionally depends on backend completion
-  and its own implementation approval.
+- Backend implementation has no unresolved product decision or approval
+  blocker. Product AI/Settings integration depends on backend completion.
 - Live Ollama Cloud prompts, keyboard writes, macOS Open Anyway, tag creation,
   release publication, and announcements remain separately gated actions.
 - This Windows host cannot validate SmartScreen because SmartScreen is disabled.

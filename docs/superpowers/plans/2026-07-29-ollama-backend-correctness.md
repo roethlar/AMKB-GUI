@@ -1,10 +1,9 @@
 # Ollama Backend Correctness Remediation
 
-**Status:** Drafted on 2026-07-29 from owner-approved product decisions.
-The owner approved the two-plan structure on 2026-07-29. Implementation is not
-yet approved. This plan is independently approvable from the product-experience
-plan, but it must be implemented first because the product plan consumes the
-backend names, routes, status projection, and disclosure behavior defined here.
+**Status:** Approved for implementation by the owner on 2026-07-29. This plan
+is independently approvable from the product-experience plan, but it must be
+implemented first because the product plan consumes the backend names, routes,
+status projection, and disclosure behavior defined here.
 
 ## Objective
 
