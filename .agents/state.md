@@ -9,13 +9,16 @@
   `.agents/decisions.md`.
 - The audited removal work is specified in
   `docs/superpowers/plans/2026-07-30-ffmpeg-removal-and-dependency-audit.md`.
-  The owner approved implementation on 2026-07-30. Slices R1-R3 are
+  The owner approved implementation on 2026-07-30. Slices R1-R4 are
   complete: procedural generation is the only AI generation path; historical
   video execution and recovery are retired; and the obsolete media runtime,
   build/package machinery, native smoke, CI toolchains, fixtures, and tests are
   gone. Model qualification now delegates to the production Ollama recipe
-  provider, and the duplicate shipped developer adapter is gone. Legacy video
-  manifests are reported as unsupported and left untouched.
+  provider; the duplicate shipped developer adapter is gone; and a
+  standard-library guard now rejects ownerless Python dependencies, undeclared
+  imports, orphan package modules, JavaScript package metadata, and retired
+  locked packages. Legacy video manifests are reported as unsupported and left
+  untouched.
 - Public-release qualification is stopped. The unpublished `0.1.64` candidate
   was rejected after product inspection found three release-blocking classes:
   Ollama Cloud inventory was deliberately hidden, one Ollama Generate action
@@ -54,9 +57,9 @@
 
 ## Next
 
-- Execute Slice R4: add the standard-library-only dependency ownership guard,
-  inspect each locked transitive dependency for the three target platforms, and
-  land the policy finding before clean-environment and native-artifact proof.
+- Execute Slice R5: run the complete gates in fresh base and desktop/build
+  environments, inspect a local Windows application bundle, and determine
+  whether the separately gated Inno Setup installer proof can proceed.
 - Product Slice P6 and release qualification remain paused until the
   dependency-removal plan closes. Publishing a Release or announcement remains
   later, separately gated work.

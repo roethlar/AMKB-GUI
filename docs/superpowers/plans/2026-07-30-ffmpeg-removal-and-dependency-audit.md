@@ -395,6 +395,28 @@ packages to direct requirements.
 
 Commit as one dependency-policy guard.
 
+### Implementation sequencing record
+
+R4 completed on 2026-07-30 in the commit containing this record.
+`tests/test_dependencies.py` uses only the standard library to derive runtime
+distribution-to-import ownership, enforce the optional/build owner table,
+reject orphaned top-level application modules, reject JavaScript package
+metadata, and ensure the locked graph covers direct requirements without a
+retired media package.
+
+The five focused guards pass. Each was proved red with an isolated temporary
+sentinel: an unused runtime requirement, a removed PyInstaller command owner, an
+orphan package module, a JavaScript package manifest, and a forbidden locked
+package. The complete entry point passed 638 Python tests (5 skipped), 125
+browser tests, every JavaScript syntax check, Python byte-compilation, and
+wheel/sdist builds.
+
+Python 3.12 locked trees for Windows, Linux, and macOS each resolved from the
+same 43-package lock. Every active transitive package belongs to the retained
+`keyring`, `pywebview`, or `pyinstaller` responsibility; `hidapi`, Pillow, and
+pyserial have no active transitive children. No independent, undeclared,
+JavaScript, model-runtime, or retired media dependency remains.
+
 ## Slice R5 — Native artifact and clean-environment proof
 
 ### Automated verification
