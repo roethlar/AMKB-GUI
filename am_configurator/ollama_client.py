@@ -136,14 +136,22 @@ class OllamaModel:
     size_bytes: int
     parameter_size: str | None
     quantization: str | None
+    location: str = "ollama_server"
 
     def public(self) -> dict[str, object]:
+        location_label = (
+            "Ollama Cloud"
+            if self.location == "ollama_cloud"
+            else "On this Ollama server"
+        )
         return {
             "model_id": self.model_id,
             "digest": self.digest,
             "size_bytes": self.size_bytes,
+            "location": self.location,
             "parameter_size": self.parameter_size,
             "quantization": self.quantization,
+            "label": f"{self.model_id} — {location_label}",
         }
 
 
@@ -163,21 +171,52 @@ def _bounded_detail(value: object) -> str | None:
     return value
 
 
+def _bounded_remote_metadata(value: object, label: str) -> str | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > MAX_OLLAMA_BASE_URL_LENGTH
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ValueError(f"Ollama {label} metadata is invalid.")
+    return value
+
+
 def _model_from_tag(value: object) -> OllamaModel | None:
     if not isinstance(value, dict):
         return None
-    if "remote_model" in value or "remote_host" in value:
+    try:
+        remote_model = _bounded_remote_metadata(
+            value.get("remote_model"),
+            "remote model",
+        )
+        remote_host = _bounded_remote_metadata(
+            value.get("remote_host"),
+            "remote host",
+        )
+    except ValueError:
         return None
     model_id = value.get("model")
     if value.get("name") != model_id or not valid_model_id(model_id):
         return None
-    if model_id.lower().endswith(":cloud"):
-        return None
     digest = value.get("digest")
     if not valid_model_digest(digest):
         return None
+    location = (
+        "ollama_cloud"
+        if remote_model is not None
+        or remote_host is not None
+        or model_id.lower().endswith(":cloud")
+        else "ollama_server"
+    )
     size = value.get("size")
-    if type(size) is not int or size <= 0:
+    if (
+        type(size) is not int
+        or size < 0
+        or (size == 0 and location != "ollama_cloud")
+    ):
         return None
     capabilities = value.get("capabilities")
     if (
@@ -195,6 +234,7 @@ def _model_from_tag(value: object) -> OllamaModel | None:
         size_bytes=size,
         parameter_size=_bounded_detail(details.get("parameter_size")),
         quantization=_bounded_detail(details.get("quantization_level")),
+        location=location,
     )
 
 
@@ -213,6 +253,21 @@ def _local_tag_missing_capabilities(value: object) -> bool:
         and type(value.get("size")) is int
         and value["size"] > 0
     )
+
+
+def ollama_origin_is_loopback(base_url: object) -> bool:
+    """Classify a normalized origin without DNS or network access."""
+
+    normalized = normalize_ollama_base_url(base_url)
+    host = urllib.parse.urlsplit(normalized).hostname
+    if host is None:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 class OllamaClient:
@@ -459,6 +514,7 @@ __all__ = [
     "OllamaError",
     "OllamaModel",
     "normalize_ollama_base_url",
+    "ollama_origin_is_loopback",
     "valid_model_digest",
     "valid_model_id",
 ]

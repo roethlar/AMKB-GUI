@@ -23,6 +23,7 @@ from am_configurator.ollama_client import (
     _OLLAMA_OPENER,
     _build_ollama_opener,
     normalize_ollama_base_url,
+    ollama_origin_is_loopback,
 )
 
 
@@ -175,6 +176,23 @@ class OllamaClientTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     normalize_ollama_base_url(supplied)
 
+    def test_loopback_classification_is_syntactic_and_network_free(self) -> None:
+        for supplied in (
+            "http://localhost:11434",
+            "https://worker.localhost",
+            "http://127.5.4.3:11434",
+            "http://[::1]:11434",
+        ):
+            with self.subTest(loopback=supplied):
+                self.assertTrue(ollama_origin_is_loopback(supplied))
+        for supplied in (
+            "http://ollama.lan:11434",
+            "https://192.168.1.20",
+            "https://[2001:db8::1]",
+        ):
+            with self.subTest(non_loopback=supplied):
+                self.assertFalse(ollama_origin_is_loopback(supplied))
+
     def test_configured_inventory_origin_and_connection_scheme_are_preserved(self) -> None:
         calls = []
 
@@ -243,14 +261,12 @@ class OllamaClientTests(unittest.TestCase):
 
         cases = {
             "name/model mismatch": changed(model="different:latest"),
-            "cloud suffix without remote metadata": _model(
-                "candidate:cloud", "b" * 64
-            ),
-            "remote_model field": changed(remote_model="candidate:latest"),
-            "remote_host field": changed(remote_host="https://ollama.com:443"),
+            "malformed remote_model field": changed(remote_model=True),
+            "malformed remote_host field": changed(remote_host=["cloud"]),
             "completion capability absent": changed(capabilities=["embedding"]),
             "malformed size": changed(size=True),
-            "non-positive size": changed(size=0),
+            "zero-sized server model": changed(size=0),
+            "negative size": changed(size=-1),
             "malformed digest": changed(digest="short"),
             "malformed name": changed(name="bad name", model="bad name"),
         }
@@ -265,6 +281,80 @@ class OllamaClientTests(unittest.TestCase):
                     (),
                     client.list_models(deadline=time.monotonic() + 10),
                 )
+
+    def test_cloud_inventory_is_public_but_remote_metadata_never_controls_transport(self) -> None:
+        remote_host = "https://ollama.example:443"
+        cloud = _model("candidate:cloud", "b" * 64, size=0, remote=True)
+        cloud["remote_host"] = remote_host
+        inventory_calls = []
+        observed = {}
+
+        def opener(request, timeout):
+            inventory_calls.append((request.full_url, timeout))
+            return _Response({"models": [cloud]})
+
+        client = OllamaClient(
+            base_url="https://gateway.lan:12000",
+            opener=opener,
+            connection_factory=_connection_factory(
+                _HTTPResponse({"message": {"content": "{}"}}),
+                observed,
+            ),
+        )
+        models = client.list_models(deadline=time.monotonic() + 10)
+        response = client.chat(
+            {"model": "candidate:cloud", "stream": False},
+            deadline=time.monotonic() + 10,
+            cancelled=lambda: False,
+        )
+
+        self.assertEqual(1, len(models))
+        self.assertEqual("ollama_cloud", models[0].location)
+        self.assertEqual(
+            {
+                "model_id": "candidate:cloud",
+                "digest": "b" * 64,
+                "size_bytes": 0,
+                "location": "ollama_cloud",
+                "parameter_size": "9.0B",
+                "quantization": "Q4_K_M",
+                "label": "candidate:cloud — Ollama Cloud",
+            },
+            models[0].public(),
+        )
+        self.assertNotIn("remote_host", models[0].public())
+        self.assertNotIn(remote_host, json.dumps(models[0].public()))
+        self.assertEqual(
+            [("https://gateway.lan:12000/api/tags")],
+            [url for url, _timeout in inventory_calls],
+        )
+        self.assertEqual(("gateway.lan", 12000), observed["connection"][:2])
+        self.assertEqual({"message": {"content": "{}"}}, response)
+
+    def test_each_cloud_marker_classifies_without_hiding_completion_models(self) -> None:
+        local = _model("local:latest", "a" * 64)
+        suffix = _model("suffix:cloud", "b" * 64, size=0)
+        remote_model = _model("remote-model:latest", "c" * 64, size=0)
+        remote_model["remote_model"] = "remote-model"
+        remote_host = _model("remote-host:latest", "d" * 64, size=0)
+        remote_host["remote_host"] = "https://ollama.com:443"
+        client = OllamaClient(
+            opener=lambda request, timeout: _Response(
+                {"models": [local, suffix, remote_model, remote_host]}
+            )
+        )
+
+        models = client.list_models(deadline=time.monotonic() + 10)
+
+        self.assertEqual(
+            [
+                ("local:latest", "ollama_server"),
+                ("remote-host:latest", "ollama_cloud"),
+                ("remote-model:latest", "ollama_cloud"),
+                ("suffix:cloud", "ollama_cloud"),
+            ],
+            [(model.model_id, model.location) for model in models],
+        )
 
     def test_inventory_accepts_512_entries_rejects_513_and_maps_404(self) -> None:
         models = [

@@ -52,8 +52,13 @@ def _ready_status() -> dict:
             "service_available": True,
             "model_selected": True,
             "model_id": "ornith:latest",
+            "model_digest": "a" * 64,
+            "model_location": "ollama_server",
             "model_verified": True,
             "setup_tested": True,
+            "disclosure_required": False,
+            "disclosure_current": True,
+            "disclosure_version": store.OLLAMA_DISCLOSURE_VERSION,
             "provider": "ollama",
         },
         "api": {
@@ -175,8 +180,10 @@ class _Capability:
                     "model_id": "ornith:latest",
                     "digest": "a" * 64,
                     "size_bytes": 5_629_110_568,
+                    "location": "ollama_server",
                     "parameter_size": "9.0B",
                     "quantization": "Q4_K_M",
+                    "label": "ornith:latest — On this Ollama server",
                 }
             ],
         }
@@ -286,6 +293,11 @@ class OptionalAIRouteTests(unittest.TestCase):
             ("GET", "/api/ai/ollama/models", None),
             ("POST", "/api/settings/ai", {"enabled": False, "backend": "ollama"}),
             ("POST", "/api/settings/ollama", {"base_url": DEFAULT_OLLAMA_BASE_URL}),
+            (
+                "POST",
+                "/api/settings/ollama/disclosure",
+                {"version": store.OLLAMA_DISCLOSURE_VERSION},
+            ),
             ("POST", "/api/settings/credential", {"provider": "xai", "key": "secret"}),
             ("POST", "/api/settings/migration/discard-credential", {"confirm": True}),
             ("POST", "/api/ai/test", {"backend": "ollama"}),
@@ -370,7 +382,13 @@ class OptionalAIRouteTests(unittest.TestCase):
         )
         self.assertEqual(400, status)
         status, response = self._request(
-            "POST", "/api/ai/ollama/select", {"model_id": "ornith:latest"}
+            "POST",
+            "/api/ai/ollama/select",
+            {
+                "model_id": "ornith:latest",
+                "model_digest": "a" * 64,
+                "model_location": "ollama_server",
+            },
         )
         self.assertEqual(200, status)
         ollama = store.load_settings(credential_store=self.credentials)["ai"]["ollama"]
@@ -428,8 +446,10 @@ class OptionalAIRouteTests(unittest.TestCase):
                         "model_id": "ornith:latest",
                         "digest": digest,
                         "size_bytes": 5_629_110_568,
+                        "location": "ollama_server",
                         "parameter_size": "9.0B",
                         "quantization": "Q4_K_M",
+                        "label": "ornith:latest — On this Ollama server",
                     }
                 ],
             },
@@ -437,7 +457,13 @@ class OptionalAIRouteTests(unittest.TestCase):
         )
 
         status, _response = self._request(
-            "POST", "/api/ai/ollama/select", {"model_id": "missing:latest"}
+            "POST",
+            "/api/ai/ollama/select",
+            {
+                "model_id": "missing:latest",
+                "model_digest": "e" * 64,
+                "model_location": "invalid",
+            },
         )
         self.assertEqual(400, status)
         ollama = store.load_settings(credential_store=self.credentials)["ai"]["ollama"]
@@ -455,7 +481,13 @@ class OptionalAIRouteTests(unittest.TestCase):
         )
 
         status, _response = self._request(
-            "POST", "/api/ai/ollama/select", {"model_id": "ornith:latest"}
+            "POST",
+            "/api/ai/ollama/select",
+            {
+                "model_id": "ornith:latest",
+                "model_digest": digest,
+                "model_location": "ollama_server",
+            },
         )
         self.assertEqual(200, status)
         ollama = store.load_settings(credential_store=self.credentials)["ai"]["ollama"]
@@ -464,19 +496,20 @@ class OptionalAIRouteTests(unittest.TestCase):
                 "base_url": DEFAULT_OLLAMA_BASE_URL,
                 "model_id": "ornith:latest",
                 "model_digest": digest,
-                "model_location": None,
+                "model_location": "ollama_server",
                 "setup_fingerprint": None,
                 "disclosure_version": None,
                 "disclosure_at": None,
             },
             ollama,
         )
+        self.assertEqual(2, len(calls), "selection must not rediscover inventory")
 
         transport["outcome"] = {"models": {"not": "a list"}}
         status, response = self._request("GET", "/api/ai/ollama/models")
         self.assertEqual(200, status)
         self.assertEqual({"available": False, "models": []}, response)
-        self.assertEqual(5, len(calls))
+        self.assertEqual(3, len(calls))
         for url, method, timeout in calls:
             self.assertEqual(
                 f"{DEFAULT_OLLAMA_BASE_URL}{OLLAMA_MODELS_PATH}",
@@ -554,6 +587,34 @@ class OptionalAIRouteTests(unittest.TestCase):
                 "base_url"
             ],
         )
+
+    def test_ollama_disclosure_route_is_scoped_to_remote_or_cloud_execution(self) -> None:
+        status, _response = self._request(
+            "POST",
+            "/api/settings/ollama/disclosure",
+            {"version": store.OLLAMA_DISCLOSURE_VERSION},
+        )
+        self.assertEqual(400, status)
+
+        status, _response = self._request(
+            "POST",
+            "/api/settings/ollama",
+            {"base_url": "http://ollama.lan:11434"},
+        )
+        self.assertEqual(200, status)
+        status, response = self._request(
+            "POST",
+            "/api/settings/ollama/disclosure",
+            {"version": store.OLLAMA_DISCLOSURE_VERSION},
+        )
+        self.assertEqual(200, status)
+        self.assertTrue(response["ollama"]["disclosure_current"])
+        saved = store.load_settings(credential_store=self.credentials)["ai"]["ollama"]
+        self.assertEqual(
+            store.OLLAMA_DISCLOSURE_VERSION,
+            saved["disclosure_version"],
+        )
+        self.assertIsInstance(saved["disclosure_at"], str)
 
     def test_settings_projects_all_provider_models_and_mutations_remain_scoped(self) -> None:
         status, settings = self._request("GET", "/api/settings")
@@ -982,7 +1043,13 @@ class OptionalAIRouteTests(unittest.TestCase):
             )
             self.assertEqual(409, status)
             status, _response = self._request(
-                "POST", "/api/ai/ollama/select", {"model_id": "ornith:latest"}
+                "POST",
+                "/api/ai/ollama/select",
+                {
+                    "model_id": "ornith:latest",
+                    "model_digest": "a" * 64,
+                    "model_location": "ollama_server",
+                },
             )
             self.assertEqual(409, status)
             status, _response = self._request(

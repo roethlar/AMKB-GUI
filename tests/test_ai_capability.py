@@ -7,7 +7,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from am_configurator import ai_capability, ai_catalog, llm
+from am_configurator import ai_capability, ai_catalog, llm, store
 from am_configurator.ai_capability import (
     AICapabilityError,
     AICapabilityService,
@@ -137,6 +137,7 @@ class CapabilityTests(unittest.TestCase):
             quantization="Q4_K_M",
         )
         self.ollama_models: list[OllamaModel] = []
+        self.last_ollama_client: _OllamaClient | None = None
         self.credential = None
         self.writes: list[tuple] = []
 
@@ -171,17 +172,18 @@ class CapabilityTests(unittest.TestCase):
             "external": False,
             "invalid": credential_invalid,
         }
+        self.last_ollama_client = _OllamaClient(
+            self.ollama_models,
+            available=ollama_available,
+            error_code=ollama_error,
+        )
         return AICapabilityService(
             settings_loader=lambda: copy.deepcopy(self.settings),
             credential_status_loader=credential_status,
             credential_resolver=lambda _provider: self.credential,
             fingerprint_writer=write_fingerprint,
             api_provider_factory=lambda _provider, key, model: provider or _Provider(),
-            ollama_client=_OllamaClient(
-                self.ollama_models,
-                available=ollama_available,
-                error_code=ollama_error,
-            ),
+            ollama_client=self.last_ollama_client,
             ollama_provider_factory=lambda model: provider or _Provider(),
         )
 
@@ -200,8 +202,13 @@ class CapabilityTests(unittest.TestCase):
                     "service_available": False,
                     "model_selected": False,
                     "model_id": None,
+                    "model_digest": None,
+                    "model_location": None,
                     "model_verified": False,
                     "setup_tested": False,
+                    "disclosure_required": False,
+                    "disclosure_current": True,
+                    "disclosure_version": "ollama-data-disclosure-v1",
                     "provider": "ollama",
                 },
                 "api": {
@@ -268,15 +275,19 @@ class CapabilityTests(unittest.TestCase):
         )
         self.assertEqual([2, 1], [client.calls for _base_url, client in created])
 
-    def test_enabled_status_probes_only_the_selected_backend(self) -> None:
+    def test_enabled_status_never_probes_ollama_inventory(self) -> None:
         ollama = self.settings["ai"]["ollama"]
         ollama.update({
             "model_id": self.ollama_model.model_id,
             "model_digest": self.ollama_model.digest,
+            "model_location": self.ollama_model.location,
             "setup_fingerprint": ollama_setup_fingerprint(
                 ollama["base_url"],
                 self.ollama_model.model_id,
                 self.ollama_model.digest,
+                self.ollama_model.location,
+                None,
+                None,
             ),
         })
         self.settings["ai"].update({"enabled": True, "backend": "ollama"})
@@ -300,7 +311,7 @@ class CapabilityTests(unittest.TestCase):
             ollama_client=ollama,
         )
         self.assertTrue(service.status()["ready"])
-        self.assertEqual(1, ollama.calls)
+        self.assertEqual(0, ollama.calls)
         self.assertEqual(0, credential_calls)
 
         self.credential = "sk-selected-backend-only"
@@ -316,7 +327,7 @@ class CapabilityTests(unittest.TestCase):
         )
         self.settings["ai"]["backend"] = "api"
         self.assertTrue(service.status()["ready"])
-        self.assertEqual(1, ollama.calls)
+        self.assertEqual(0, ollama.calls)
         self.assertEqual(1, credential_calls)
 
     def test_api_status_reads_only_the_selected_provider(self) -> None:
@@ -596,7 +607,7 @@ class CapabilityTests(unittest.TestCase):
 
         self.settings["ai"]["backend"] = "ollama"
         self.assertEqual(
-            "ollama_unavailable",
+            "model_missing",
             self._service(ollama_available=False).status()["reason"],
         )
         self.assertEqual("model_missing", service.status()["reason"])
@@ -606,12 +617,12 @@ class CapabilityTests(unittest.TestCase):
 
         upgrade = self._service(ollama_error="upgrade_required")
         upgrade_status = upgrade.status()
-        self.assertEqual("upgrade_required", upgrade_status["reason"])
-        self.assertTrue(upgrade_status["ollama"]["service_available"])
+        self.assertEqual("model_missing", upgrade_status["reason"])
+        self.assertFalse(upgrade_status["ollama"]["service_available"])
         self.assertFalse(upgrade_status["ready"])
         with self.assertRaises(AICapabilityError) as captured:
             upgrade.require_ready()
-        self.assertEqual("upgrade_required", captured.exception.reason)
+        self.assertEqual("model_missing", captured.exception.reason)
         self.assertEqual(
             {
                 "available": True,
@@ -658,6 +669,68 @@ class CapabilityTests(unittest.TestCase):
         self.assertEqual("ready", status["reason"])
         self.assertNotIn(self.credential, str(status))
 
+    def test_ollama_disclosure_binds_non_loopback_and_cloud_execution(self) -> None:
+        disclosure_at = "2026-07-29T20:00:00+00:00"
+        local = ollama_setup_fingerprint(
+            "http://127.0.0.1:11434",
+            self.ollama_model.model_id,
+            self.ollama_model.digest,
+            "ollama_server",
+            None,
+            None,
+        )
+        remote = ollama_setup_fingerprint(
+            "http://ollama.lan:11434",
+            self.ollama_model.model_id,
+            self.ollama_model.digest,
+            "ollama_server",
+            store.OLLAMA_DISCLOSURE_VERSION,
+            disclosure_at,
+        )
+        cloud = ollama_setup_fingerprint(
+            "http://127.0.0.1:11434",
+            self.ollama_model.model_id,
+            self.ollama_model.digest,
+            "ollama_cloud",
+            store.OLLAMA_DISCLOSURE_VERSION,
+            disclosure_at,
+        )
+        self.assertEqual(3, len({local, remote, cloud}))
+        with self.assertRaisesRegex(ValueError, "disclosure"):
+            ollama_setup_fingerprint(
+                "http://ollama.lan:11434",
+                self.ollama_model.model_id,
+                self.ollama_model.digest,
+                "ollama_server",
+                None,
+                None,
+            )
+
+        ollama = self.settings["ai"]["ollama"]
+        ollama.update({
+            "model_id": self.ollama_model.model_id,
+            "model_digest": self.ollama_model.digest,
+            "model_location": "ollama_cloud",
+        })
+        self.settings["ai"].update({"enabled": True, "backend": "ollama"})
+        service = self._service()
+        blocked = service.status()
+        self.assertEqual("disclosure_required", blocked["reason"])
+        self.assertTrue(blocked["ollama"]["disclosure_required"])
+        self.assertFalse(blocked["ollama"]["disclosure_current"])
+        self.assertEqual(0, self.last_ollama_client.calls)
+
+        ollama.update({
+            "disclosure_version": store.OLLAMA_DISCLOSURE_VERSION,
+            "disclosure_at": disclosure_at,
+            "setup_fingerprint": cloud,
+        })
+        ready = service.status()
+        self.assertTrue(ready["ready"])
+        self.assertTrue(ready["ollama"]["disclosure_current"])
+        self.assertEqual("ollama_cloud", ready["ollama"]["model_location"])
+        self.assertEqual(0, self.last_ollama_client.calls)
+
     def test_ollama_setup_uses_installed_name_and_digest(self) -> None:
         provider = _Provider()
         self.ollama_models = [self.ollama_model]
@@ -665,6 +738,7 @@ class CapabilityTests(unittest.TestCase):
         self.settings["ai"]["ollama"].update({
             "model_id": self.ollama_model.model_id,
             "model_digest": self.ollama_model.digest,
+            "model_location": self.ollama_model.location,
         })
         self.settings["ai"]["enabled"] = True
         service = self._service(provider=provider)
@@ -674,6 +748,7 @@ class CapabilityTests(unittest.TestCase):
         )
 
         self.assertEqual(1, provider.calls)
+        self.assertEqual(1, self.last_ollama_client.calls)
         self.assertTrue(status["ready"])
         self.assertEqual("ollama", status["ollama"]["provider"])
         self.assertEqual("ornith:latest", status["ollama"]["model_id"])
@@ -682,25 +757,39 @@ class CapabilityTests(unittest.TestCase):
                 self.settings["ai"]["ollama"]["base_url"],
                 "ornith:latest",
                 "c" * 64,
+                "ollama_server",
+                None,
+                None,
             ),
             self.settings["ai"]["ollama"]["setup_fingerprint"],
         )
 
         self.ollama_models.clear()
-        self.assertEqual("model_unavailable", service.status()["reason"])
+        self.assertEqual("ready", service.status()["reason"])
+        with self.assertRaises(llm.ProviderError) as missing:
+            service.test_backend(
+                "ollama",
+                deadline=time.monotonic() + 10,
+                cancelled=lambda: False,
+            )
+        self.assertEqual("config", missing.exception.code)
 
-    def test_same_name_digest_replacement_requires_selection_and_new_setup(self) -> None:
+    def test_inventory_identity_change_is_detected_only_by_explicit_setup_test(self) -> None:
         provider = _Provider()
         self.ollama_models = [self.ollama_model]
         old_fingerprint = ollama_setup_fingerprint(
             self.settings["ai"]["ollama"]["base_url"],
             self.ollama_model.model_id,
             self.ollama_model.digest,
+            self.ollama_model.location,
+            None,
+            None,
         )
         ollama = self.settings["ai"]["ollama"]
         ollama.update({
             "model_id": self.ollama_model.model_id,
             "model_digest": self.ollama_model.digest,
+            "model_location": self.ollama_model.location,
             "setup_fingerprint": old_fingerprint,
         })
         self.settings["ai"].update({"enabled": True, "backend": "ollama"})
@@ -716,10 +805,17 @@ class CapabilityTests(unittest.TestCase):
         )
         self.ollama_models[:] = [replacement]
         replaced = service.status()
-        self.assertFalse(replaced["ready"])
-        self.assertEqual("model_unavailable", replaced["reason"])
-        self.assertFalse(replaced["ollama"]["model_verified"])
-        self.assertFalse(replaced["ollama"]["setup_tested"])
+        self.assertTrue(replaced["ready"])
+        self.assertEqual("ready", replaced["reason"])
+        self.assertTrue(replaced["ollama"]["model_verified"])
+        self.assertTrue(replaced["ollama"]["setup_tested"])
+        with self.assertRaises(llm.ProviderError) as changed:
+            service.test_backend(
+                "ollama",
+                deadline=time.monotonic() + 10,
+                cancelled=lambda: False,
+            )
+        self.assertEqual("config", changed.exception.code)
 
         ollama.update({
             "model_digest": replacement.digest,
@@ -741,6 +837,9 @@ class CapabilityTests(unittest.TestCase):
             self.settings["ai"]["ollama"]["base_url"],
             replacement.model_id,
             replacement.digest,
+            replacement.location,
+            None,
+            None,
         )
         self.assertEqual(1, provider.calls)
         self.assertNotEqual(old_fingerprint, new_fingerprint)
@@ -755,6 +854,7 @@ class CapabilityTests(unittest.TestCase):
         ollama.update({
             "model_id": self.ollama_model.model_id,
             "model_digest": self.ollama_model.digest,
+            "model_location": self.ollama_model.location,
         })
         self.settings["ai"]["backend"] = "ollama"
         provider = _Provider()
@@ -783,19 +883,25 @@ class CapabilityTests(unittest.TestCase):
         self.settings["ai"]["ollama"].update({
             "model_id": self.ollama_model.model_id,
             "model_digest": self.ollama_model.digest,
+            "model_location": self.ollama_model.location,
             "setup_fingerprint": ollama_setup_fingerprint(
                 self.settings["ai"]["ollama"]["base_url"],
                 self.ollama_model.model_id,
                 self.ollama_model.digest,
+                self.ollama_model.location,
+                None,
+                None,
             ),
         })
         service = self._service(provider=failure)
 
         provider = service.provider_for_generation()
+        self.assertEqual(0, self.last_ollama_client.calls)
         with self.assertRaises(llm.ProviderError):
             provider.generate(None, time.monotonic() + 10, lambda: False)
 
         self.assertEqual(1, failure.calls)
+        self.assertEqual(0, self.last_ollama_client.calls)
         self.assertTrue(service.status()["ready"])
         self.assertEqual("ready", service.status()["reason"])
 
@@ -861,10 +967,14 @@ class CapabilityTests(unittest.TestCase):
         ollama.update({
             "model_id": self.ollama_model.model_id,
             "model_digest": self.ollama_model.digest,
+            "model_location": self.ollama_model.location,
             "setup_fingerprint": ollama_setup_fingerprint(
                 ollama["base_url"],
                 self.ollama_model.model_id,
                 self.ollama_model.digest,
+                self.ollama_model.location,
+                None,
+                None,
             ),
         })
         local_created: list[object] = []

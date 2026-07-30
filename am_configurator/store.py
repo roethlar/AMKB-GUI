@@ -300,6 +300,7 @@ def snapshot(product_id: str, ir: dict) -> Path:
 
 KEY_MASK = "•" * 8  # Legacy UI display mask; never a legal credential value
 SETTINGS_SCHEMA_VERSION = 7
+OLLAMA_DISCLOSURE_VERSION = "ollama-data-disclosure-v1"
 LOOP_MODES = ("smooth", "none", "ping_pong")
 MIN_CANDIDATE_COUNT = 1
 MAX_CANDIDATE_COUNT = 8
@@ -1770,21 +1771,40 @@ def update_ai_settings(
 def update_ollama_ai_settings(values: object, *, credential_store=None) -> dict:
     """Update one Ollama origin or model identity without contacting the server."""
 
-    from .ollama_client import normalize_ollama_base_url
+    from .ollama_client import (
+        normalize_ollama_base_url,
+        valid_model_digest,
+        valid_model_id,
+    )
 
     body = _object(values, "Ollama AI settings")
     _reject_unknown(
         body,
-        {"base_url", "model_id", "model_digest"},
+        {"base_url", "model_id", "model_digest", "model_location"},
         "Ollama AI settings",
     )
-    if set(body) not in ({"base_url"}, {"model_id", "model_digest"}):
+    if set(body) not in (
+        {"base_url"},
+        {"model_id", "model_digest", "model_location"},
+    ):
         raise ValueError(
             "Ollama settings require base_url or a complete model identity"
         )
     base_url = (
         normalize_ollama_base_url(body["base_url"]) if "base_url" in body else None
     )
+    if base_url is None:
+        identity = (
+            body["model_id"],
+            body["model_digest"],
+            body["model_location"],
+        )
+        if identity != (None, None, None) and (
+            not valid_model_id(identity[0])
+            or not valid_model_digest(identity[1])
+            or identity[2] not in {"ollama_server", "ollama_cloud"}
+        ):
+            raise ValueError("Ollama model identity is invalid")
 
     def mutate(settings: dict) -> None:
         ollama = settings["ai"]["ollama"]
@@ -1803,12 +1823,43 @@ def update_ollama_ai_settings(values: object, *, credential_store=None) -> dict:
                 }
             )
             return
+        if (
+            ollama["model_id"],
+            ollama["model_digest"],
+            ollama["model_location"],
+        ) == identity:
+            return
         ollama["model_id"] = body["model_id"]
         ollama["model_digest"] = body["model_digest"]
-        ollama["model_location"] = None
+        ollama["model_location"] = body["model_location"]
         ollama["setup_fingerprint"] = None
         ollama["disclosure_version"] = None
         ollama["disclosure_at"] = None
+
+    return _mutate_settings(mutate, credential_store=credential_store)
+
+
+def acknowledge_ollama_disclosure(values: object, *, credential_store=None) -> dict:
+    """Record explicit acknowledgment of the current Ollama data flow."""
+
+    body = _object(values, "Ollama disclosure settings")
+    _reject_unknown(body, {"version"}, "Ollama disclosure settings")
+    if set(body) != {"version"} or body["version"] != OLLAMA_DISCLOSURE_VERSION:
+        raise ValueError("only the current Ollama disclosure can be acknowledged")
+
+    def mutate(settings: dict) -> None:
+        from .ollama_client import ollama_origin_is_loopback
+
+        ollama = settings["ai"]["ollama"]
+        disclosure_required = (
+            not ollama_origin_is_loopback(ollama["base_url"])
+            or ollama["model_location"] == "ollama_cloud"
+        )
+        if not disclosure_required:
+            raise ValueError("Ollama disclosure is not required")
+        ollama["disclosure_version"] = OLLAMA_DISCLOSURE_VERSION
+        ollama["disclosure_at"] = _now_iso()
+        ollama["setup_fingerprint"] = None
 
     return _mutate_settings(mutate, credential_store=credential_store)
 

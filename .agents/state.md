@@ -40,12 +40,23 @@
   the origin, migration, client-cache, no-request endpoint, and no-alias tests
   fail when their production behavior is removed. No live Ollama request,
   credentialed provider request, or keyboard write was used.
+- Backend Slice B2 is implemented on `codex/ollama-backend-correctness`.
+  Completion-capable server and Ollama Cloud inventory is selectable with an
+  explicit execution location; inventory metadata cannot redirect transport;
+  model selection, status polling, and generation do not rediscover inventory;
+  non-loopback and cloud data flow requires an explicit disclosure; and setup
+  identity binds the normalized endpoint, model identity, execution location,
+  and required disclosure. The full automated verification entry point passed.
+  Guard proofs showed the cloud-classification, non-probing status/generation,
+  non-network selection, location persistence, disclosure, and explicit-only
+  browser Refresh tests fail when their production behavior is removed. No
+  live Ollama request, credentialed provider request, or keyboard write was
+  used.
 
 ## Next
 
-- Implement backend Slice B2: accept and classify every valid
-  completion-capable Ollama inventory entry, bind execution location and
-  disclosure into setup identity, and never use `remote_host` as transport.
+- Implement backend Slice B3: remove automatic Ollama regeneration so every
+  Generate or Try again action makes exactly one model request.
 - The owner assigned the product-experience plan to Claude for parallel work.
   Claude may implement low-conflict visual/documentation work independently;
   AI language and Settings integration wait for the backend contracts to land.

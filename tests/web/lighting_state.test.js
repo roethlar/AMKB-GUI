@@ -14,6 +14,7 @@ const {
   createPaintStrokeController,
   createLightingState,
   formatLightingHash,
+  ollamaEndpointDataFlow,
   ollamaModelRefreshFailed,
   nextGridIndex,
   normalizeOllamaModels,
@@ -26,7 +27,6 @@ const {
   reduceLightingState,
   routeAvailability,
   safeRgbColor,
-  shouldDiscoverOllamaModels,
 } = require("../../am_configurator/web/lighting_state.js");
 
 const JOB_ID = "4d36e96e-e2aa-4e72-8808-4d03b5ba7e61";
@@ -124,17 +124,23 @@ class FakeEventTarget {
   }
 }
 
-test("Ollama discovery stays behind an enabled Local AI switch", () => {
-  const disabled={enabled:false,backend:"ollama"};
-  const ollamaEnabled={enabled:true,backend:"ollama"};
-  const apiEnabled={enabled:true,backend:"api"};
-  assert.equal(shouldDiscoverOllamaModels(ROUTES.EDIT,disabled),false);
-  assert.equal(shouldDiscoverOllamaModels(ROUTES.EDIT,null),false);
-  assert.equal(shouldDiscoverOllamaModels(ROUTES.EDIT,apiEnabled),false);
-  assert.equal(shouldDiscoverOllamaModels(ROUTES.EDIT,ollamaEnabled),true);
-  assert.equal(shouldDiscoverOllamaModels(ROUTES.SETTINGS,disabled),false);
-  assert.equal(shouldDiscoverOllamaModels(ROUTES.SETTINGS,ollamaEnabled),true);
-  assert.equal(shouldDiscoverOllamaModels(ROUTES.SETTINGS,apiEnabled),false);
+test("Ollama endpoint data flow is classified without DNS or network access", () => {
+  assert.deepEqual(
+    ollamaEndpointDataFlow("http://127.0.0.1:11434","ollama_server"),
+    {disclosureRequired:false,insecureRemote:false,loopback:true},
+  );
+  assert.deepEqual(
+    ollamaEndpointDataFlow("http://ollama.lan:11434","ollama_server"),
+    {disclosureRequired:true,insecureRemote:true,loopback:false},
+  );
+  assert.deepEqual(
+    ollamaEndpointDataFlow("https://ollama.lan","ollama_cloud"),
+    {disclosureRequired:true,insecureRemote:false,loopback:false},
+  );
+  assert.equal(
+    ollamaEndpointDataFlow("http://localhost:11434","ollama_cloud").disclosureRequired,
+    true,
+  );
 });
 
 test("epoch load ownership lets refresh supersede an in-flight asset safely", () => {
@@ -156,6 +162,7 @@ const MODEL_A = Object.freeze({
   model_id: "ornith:latest",
   digest: "a".repeat(64),
   size_bytes: 5000000,
+  location: "ollama_server",
   parameter_size: "9.0B",
   quantization: "Q4_K_M",
 });
@@ -163,6 +170,7 @@ const MODEL_B = Object.freeze({
   model_id: "small:latest",
   digest: "b".repeat(64),
   size_bytes: 3000000,
+  location: "ollama_cloud",
   parameter_size: "4.0B",
   quantization: "Q4_K_M",
 });
@@ -180,12 +188,28 @@ test("local model picker distinguishes inventory and selected-model states", () 
   const unavailable=normalizeOllamaModels({available:false,models:[]});
   assert.equal(projectOllamaModelPicker(unavailable,{}).inventoryState,"unavailable");
 
-  const selected={model_id:MODEL_A.model_id,model_verified:true};
+  assert.deepEqual(
+    available.models.map(model=>model.label),
+    [
+      "ornith:latest — On this Ollama server",
+      "small:latest — Ollama Cloud",
+    ],
+  );
+
+  const selected={
+    model_id:MODEL_A.model_id,
+    model_digest:MODEL_A.digest,
+    model_location:MODEL_A.location,
+  };
   assert.equal(projectOllamaModelPicker(available,selected).selectionState,"selected");
 
   const removed=projectOllamaModelPicker(
     normalizeOllamaModels({available:true,models:[MODEL_B]}),
-    {model_id:MODEL_A.model_id,model_verified:false},
+    {
+      model_id:MODEL_A.model_id,
+      model_digest:MODEL_A.digest,
+      model_location:MODEL_A.location,
+    },
   );
   assert.equal(removed.selectionState,"removed");
   assert.equal(removed.value,MODEL_A.model_id);
@@ -197,7 +221,11 @@ test("local model picker distinguishes inventory and selected-model states", () 
 
   const changed=projectOllamaModelPicker(
     normalizeOllamaModels({available:true,models:[{...MODEL_A,digest:"c".repeat(64)}]}),
-    {model_id:MODEL_A.model_id,model_verified:false},
+    {
+      model_id:MODEL_A.model_id,
+      model_digest:MODEL_A.digest,
+      model_location:MODEL_A.location,
+    },
   );
   assert.equal(changed.selectionState,"digest_changed");
   assert.equal(changed.value,MODEL_A.model_id);
@@ -215,7 +243,11 @@ test("local model picker preserves a preferred choice after transient refresh fa
   const failed=ollamaModelRefreshFailed(available);
   const picker=projectOllamaModelPicker(
     failed,
-    {model_id:MODEL_A.model_id,model_verified:true},
+    {
+      model_id:MODEL_A.model_id,
+      model_digest:MODEL_A.digest,
+      model_location:MODEL_A.location,
+    },
     MODEL_B.model_id,
   );
   assert.equal(picker.inventoryState,"transient_failure");

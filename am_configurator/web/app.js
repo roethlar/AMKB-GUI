@@ -8,7 +8,7 @@ if (queryToken) history.replaceState({}, "", `${location.pathname}${location.has
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
-const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeOllamaModels, ollamaModelRefreshFailed, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectOllamaModelPicker, reduceLightingState, routeAvailability, safeRgbColor, shouldDiscoverOllamaModels} = LightingState;
+const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeOllamaModels, ollamaEndpointDataFlow, ollamaModelRefreshFailed, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectOllamaModelPicker, reduceLightingState, routeAvailability, safeRgbColor} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const {defaultSourceTransform, interpolateMoveZoom, normalizedPointer, panSourceTransform, presetSourceTransform, renderColorEffect, scaleSourceTransform, validateEffectSpec, validateSourceTransform} = LightingComposer;
@@ -3891,10 +3891,7 @@ async function loadAiConfig() {
   const requests=await Promise.allSettled([api("/api/settings"),api("/api/ai/status")]);
   if(requests[0].status==="fulfilled")state.settings=requests[0].value;
   if(requests[1].status==="fulfilled")state.aiStatus=requests[1].value;
-  if(shouldDiscoverOllamaModels(state.lighting.route,state.aiStatus)){
-    try{state.ollamaModels=normalizeOllamaModels(await api("/api/ai/ollama/models"));}
-    catch(error){state.ollamaModels=ollamaModelRefreshFailed(state.ollamaModels);}
-  }else state.ollamaModels={available:null,models:[],reason:null,loading:false};
+  state.ollamaModels={available:null,models:[],reason:null,loading:false};
   refreshAiGate();
 }
 
@@ -3907,7 +3904,7 @@ function refreshAiGate() {
 
 function aiReasonText(reason,status=state.aiStatus) {
   return ({
-    disabled:"AI features are off.",backend_unselected:"Choose a backend.",ollama_unavailable:"Start Ollama on this computer, then refresh the installed models.",upgrade_required:"Upgrade Ollama to use local AI, then refresh the installed models.",model_missing:"Choose one of the models already installed in Ollama.",model_unavailable:"The selected Ollama model is no longer installed with the same identity. Refresh and choose it again.",setup_required:"Run the setup test for this backend.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_invalid:"The API credential is invalid.",credential_missing:"Save an API credential.",disclosure_required:"Accept the API data disclosure.",auth_invalid:"The API credential was rejected.",ready:"Ready.",
+    disabled:"AI features are off.",backend_unselected:"Choose a backend.",ollama_unavailable:"The configured Ollama server is unavailable.",upgrade_required:"Upgrade the configured Ollama server, then refresh its models.",model_missing:"Refresh and choose a model from the configured Ollama server.",model_unavailable:"The selected Ollama model is no longer available with the same identity. Refresh and choose it again.",setup_required:"Run the setup test for this backend.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_invalid:"The API credential is invalid.",credential_missing:"Save an API credential.",disclosure_required:status?.backend==="ollama"?"Accept the Ollama data disclosure.":"Accept the API data disclosure.",auth_invalid:"The API credential was rejected.",ready:"Ready.",
   })[reason]||"Setup needs attention.";
 }
 
@@ -4029,28 +4026,42 @@ function populateSettings() {
   const pickerProjection=populateOllamaModelSelect(ollama);
   const ollamaAvailable=state.ollamaModels.available===true;
   const upgradeRequired=state.ollamaModels.reason==="upgrade_required"||status?.reason==="upgrade_required";
-  $("#settings-ollama-base-url").value=ollama.base_url||state.settings?.ai?.ollama?.base_url||"";
-  $("#settings-ollama-runtime").textContent=state.ollamaModels.loading?"Checking":upgradeRequired?"Upgrade needed":ollamaAvailable?"Ollama ready":"Unavailable";
+  const ollamaBaseUrl=ollama.base_url||state.settings?.ai?.ollama?.base_url||"";
+  const ollamaFlow=ollamaEndpointDataFlow(ollamaBaseUrl,ollama.model_location);
+  $("#settings-ollama-base-url").value=ollamaBaseUrl;
+  $("#settings-ollama-runtime").textContent=state.ollamaModels.loading?"Checking":upgradeRequired?"Upgrade needed":ollamaAvailable?"Server reached":state.ollamaModels.available===false?"Unavailable":"Not checked";
   $("#settings-ollama-runtime").className=`pill ${ollamaAvailable&&!upgradeRequired?"":"muted"}`;
+  $("#settings-ollama-transport-warning").hidden=!ollamaFlow.insecureRemote;
+  const ollamaDisclosureRequired=Boolean(ollama.disclosure_required);
+  $("#settings-ollama-disclosure").hidden=!ollamaDisclosureRequired;
+  $("#settings-ollama-disclosure-detail").textContent=[
+    !ollamaFlow.loopback?"The configured Ollama server receives your lighting prompt and the selected keyboard dimensions.":null,
+    ollama.model_location==="ollama_cloud"?"The configured Ollama server may forward the request to Ollama Cloud.":null,
+    "Imported media, profiles, keymaps, macros, device paths, and Library files are not sent.",
+  ].filter(Boolean).join(" ");
+  $("#settings-ollama-disclosure-ack").checked=Boolean(ollama.disclosure_current);
   let ollamaGuidance="Refresh models from the configured Ollama server.";
   if(backend==="ollama"){
     if(upgradeRequired)ollamaGuidance="Upgrade the configured Ollama server, then refresh models.";
     else if(pickerProjection.inventoryState==="transient_failure")ollamaGuidance="Ollama could not be refreshed. The previous model choice is preserved; try Refresh again.";
+    else if(pickerProjection.inventoryState==="not_refreshed")ollamaGuidance=ollama.model_selected?"Run Test setup, or Refresh to update the model list.":"Refresh models from the configured Ollama server.";
     else if(!ollamaAvailable)ollamaGuidance="Check the Ollama server URL, then refresh models.";
-    else if(pickerProjection.selectionState==="none")ollamaGuidance="Choose one of the models reported by Ollama.";
+    else if(pickerProjection.selectionState==="none")ollamaGuidance="Choose one of the models reported by this Ollama server.";
     else if(pickerProjection.selectionState==="removed")ollamaGuidance="The selected model is no longer available. Refresh and choose another model.";
     else if(pickerProjection.selectionState==="digest_changed")ollamaGuidance="The selected model name now has a different identity. Select it again, then rerun setup.";
+    else if(ollamaDisclosureRequired&&!ollama.disclosure_current)ollamaGuidance="Review and accept the Ollama data disclosure, then run Test setup.";
     else if(!ollama.setup_tested)ollamaGuidance="Run Test setup to verify this model can create lighting recipes.";
     else ollamaGuidance="Ready.";
   }
   $("#settings-ollama-state").textContent=ollamaGuidance;
-  const selectedSuffix=pickerProjection.selectionState==="selected"?" · installed":pickerProjection.selectionState==="removed"?" · no longer installed":pickerProjection.selectionState==="digest_changed"?" · installed identity changed":pickerProjection.selectionState==="transient_failure"?" · refresh needed":"";
-  $("#settings-ollama-model").textContent=ollama.model_selected?`Selected in Ollama: ${ollama.model_id}${selectedSuffix}`:"No Ollama model selected.";
+  const selectedLocation=ollama.model_location==="ollama_cloud"?"Ollama Cloud":"On this Ollama server";
+  const selectedSuffix=pickerProjection.selectionState==="removed"?" · no longer available":pickerProjection.selectionState==="digest_changed"?" · identity changed":pickerProjection.selectionState==="transient_failure"?" · refresh to check":"";
+  $("#settings-ollama-model").textContent=ollama.model_selected?`Selected: ${ollama.model_id} — ${selectedLocation}${selectedSuffix}`:"No Ollama model selected.";
   const picker=$("#settings-ollama-model-select");
   $("#settings-ollama-refresh").disabled=state.ollamaModels.loading;
   $("#settings-ollama-select").disabled=picker.disabled||!picker.value||!state.ollamaModels.models.some(model=>model.model_id===picker.value);
   $("#settings-ollama-clear").disabled=!ollama.model_selected;
-  $("#settings-ollama-test").disabled=!ollama.model_verified;
+  $("#settings-ollama-test").disabled=!ollama.model_selected;
   const apiState=status?.api||{};
   const apiProjection=populateApiProviderControls(apiState);
   $("#settings-api-credential-state").textContent=apiState.credential_set?`A ${apiProjection.providerLabel} credential is stored securely.`:`No ${apiProjection.providerLabel} credential is configured.`;
@@ -4076,11 +4087,8 @@ async function setAiEnabled(enabled) {
   setSettingsStatus(enabled?"Turning on AI features…":"Turning off AI features…","working");
   try{
     state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled,backend})});
-    if(enabled&&state.aiStatus.backend==="ollama")await refreshOllamaModels({quiet:true});
-    else{
-      if(!enabled)state.ollamaModels={available:null,models:[],reason:null,loading:false};
-      populateSettings();
-    }
+    if(!enabled)state.ollamaModels={available:null,models:[],reason:null,loading:false};
+    populateSettings();
     refreshAiGate();
     setSettingsStatus(enabled?(aiReady()?"AI features are on and ready.":`${aiReasonText(state.aiStatus.reason)} Configure the selected backend below.`):"AI features are off. All AI setup and generation controls are hidden.");
   }catch(error){
@@ -4094,8 +4102,7 @@ async function selectAiBackend(backend) {
   setSettingsStatus("Updating backend…","working");
   try{
     state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend})});
-    if(backend==="ollama")await refreshOllamaModels({quiet:true});
-    else populateSettings();
+    populateSettings();
     refreshAiGate();
     setSettingsStatus(backend==="ollama"?"Ollama selected. Refresh models, choose one, then test its setup.":"API backend selected. Save a credential, accept the disclosure, and test its setup.");
   }catch(error){setSettingsStatus(error.message,"error");}
@@ -4159,8 +4166,12 @@ async function saveOllamaBaseUrl({quiet=false}={}) {
         base_url:result.ollama.base_url,
         model_selected:false,
         model_id:null,
+        model_digest:null,
+        model_location:null,
         model_verified:false,
         setup_tested:false,
+        disclosure_required:!ollamaEndpointDataFlow(result.ollama.base_url).loopback,
+        disclosure_current:ollamaEndpointDataFlow(result.ollama.base_url).loopback,
         provider:"ollama",
       },
     };
@@ -4178,19 +4189,20 @@ async function saveOllamaBaseUrl({quiet=false}={}) {
 async function refreshOllamaModels({quiet=false}={}) {
   state.ollamaModels={...state.ollamaModels,loading:true};
   populateSettings();
-  if(!quiet)setSettingsStatus("Checking models already installed in Ollama…","working");
+  if(!quiet)setSettingsStatus("Refreshing models from the configured Ollama server…","working");
   try{
     state.ollamaModels=normalizeOllamaModels(await api("/api/ai/ollama/models"));
     populateSettings();
-    if(!quiet)setSettingsStatus(state.ollamaModels.reason==="upgrade_required"?"The configured Ollama server must be upgraded before models can be discovered.":state.ollamaModels.available?(state.ollamaModels.models.length?`${state.ollamaModels.models.length} Ollama model${state.ollamaModels.models.length===1?"":"s"} available.`:"The configured Ollama server has no eligible models."):"The configured Ollama server is unavailable.",state.ollamaModels.reason==="upgrade_required"||!state.ollamaModels.available?"error":"");
+    if(!quiet)setSettingsStatus(state.ollamaModels.reason==="upgrade_required"?"The configured Ollama server must be upgraded before models can be discovered.":state.ollamaModels.available?(state.ollamaModels.models.length?`${state.ollamaModels.models.length} completion model${state.ollamaModels.models.length===1?"":"s"} reported.`:"The configured Ollama server reported no completion models."):"The configured Ollama server is unavailable.",state.ollamaModels.reason==="upgrade_required"||!state.ollamaModels.available?"error":"");
   }catch(error){state.ollamaModels=ollamaModelRefreshFailed(state.ollamaModels);populateSettings();if(!quiet)setSettingsStatus("The configured Ollama server could not be reached. The previous model choice is preserved; try Refresh again.","error");}
 }
 
 async function selectOllamaModel() {
   const modelId=$("#settings-ollama-model-select").value;
-  if(!modelId){setSettingsStatus("Choose an installed Ollama model first.","error");return;}
+  const model=state.ollamaModels.models.find(candidate=>candidate.model_id===modelId);
+  if(!model){setSettingsStatus("Refresh and choose an Ollama model first.","error");return;}
   setSettingsStatus(`Selecting ${modelId}…`,"working");
-  try{state.aiStatus=await api("/api/ai/ollama/select",{method:"POST",body:JSON.stringify({model_id:modelId})});populateSettings();refreshAiGate();setSettingsStatus(`${modelId} selected. Run Test setup.`);}
+  try{state.aiStatus=await api("/api/ai/ollama/select",{method:"POST",body:JSON.stringify({model_id:model.model_id,model_digest:model.digest,model_location:model.location})});populateSettings();refreshAiGate();setSettingsStatus(`${model.label} selected. Run Test setup.`);}
   catch(error){setSettingsStatus(error.message,"error");}
 }
 
@@ -4204,7 +4216,12 @@ async function testAiBackend(backend) {
   setSettingsStatus(backend==="ollama"?"Testing the selected model through Ollama…":"Testing the API setup…","working");
   try{
     if(state.aiStatus?.backend!==backend)state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend})});
-    if(backend==="api"){
+    if(backend==="ollama"){
+      if(state.aiStatus?.ollama?.disclosure_required&&!state.aiStatus.ollama.disclosure_current){
+        if(!$("#settings-ollama-disclosure-ack").checked)throw new Error("Accept the Ollama data disclosure before testing.");
+        state.aiStatus=await api("/api/settings/ollama/disclosure",{method:"POST",body:JSON.stringify({version:state.aiStatus.ollama.disclosure_version})});
+      }
+    }else{
       const selection=apiProviderSelection();
       if(!selection.providerId||!selection.modelId||!selection.disclosureVersion)throw new Error("The selected API provider is unavailable.");
       if(state.aiStatus?.api?.provider!==selection.providerId||state.aiStatus?.api?.model_id!==selection.modelId){

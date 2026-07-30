@@ -128,12 +128,11 @@ test("disabled first paint exposes no generation control outside Settings", () =
   assert.match(js,/return Boolean\(aiStudioAvailable\(state\.aiStatus\)\)/);
   assert.doesNotMatch(js,/ROUTES\.CREATE|openGenerationDialog|renderGenerationDialog/);
   const loader=js.slice(js.indexOf("async function loadAiConfig"),js.indexOf("function refreshAiGate"));
-  assert.match(loader,/shouldDiscoverOllamaModels\(state\.lighting\.route,state\.aiStatus\)/);
-  assert.equal((loader.match(/\/api\/ai\/ollama\/models/g)||[]).length,1);
-  assert.doesNotMatch(loader,/Promise\.allSettled\(\[[^\]]*\/api\/ai\/ollama\/models/);
+  assert.doesNotMatch(loader,/\/api\/ai\/ollama\/models|shouldDiscoverOllamaModels/);
+  assert.equal((js.match(/\/api\/ai\/ollama\/models/g)||[]).length,1);
 });
 
-test("Settings exposes only installed Ollama models and the curated API", () => {
+test("Settings exposes Ollama server and cloud models plus the curated API", () => {
   const ollama=html.indexOf('id="settings-ai-ollama"');
   const api=html.indexOf('id="settings-ai-api"');
   assert.ok(ollama>=0&&ollama<api);
@@ -142,6 +141,8 @@ test("Settings exposes only installed Ollama models and the curated API", () => 
     "settings-ollama-base-url","settings-ollama-save-url","settings-ollama-model",
     "settings-ollama-model-select","settings-ollama-refresh",
     "settings-ollama-select","settings-ollama-test","settings-ollama-clear",
+    "settings-ollama-transport-warning","settings-ollama-disclosure",
+    "settings-ollama-disclosure-ack","settings-ollama-disclosure-detail",
     "settings-api-provider","settings-api-model","settings-api-key","settings-api-credential-state",
     "settings-api-disclosure-ack","settings-api-test","settings-api-remove",
   ])assert.match(html,new RegExp(`id="${id}"`));
@@ -152,9 +153,12 @@ test("Settings exposes only installed Ollama models and the curated API", () => 
   assert.doesNotMatch(html,/settings-gguf|settings-local-advanced/);
   assert.match(js,/api\("\/api\/ai\/ollama\/models"/);
   assert.match(js,/api\("\/api\/ai\/ollama\/select"/);
-  assert.match(js,/JSON\.stringify\(\{model_id/);
+  assert.match(js,/JSON\.stringify\(\{model_id:model\.model_id,model_digest:model\.digest,model_location:model\.location\}\)/);
   assert.match(js,/api\("\/api\/ai\/ollama\/clear"/);
   assert.match(js,/api\("\/api\/ai\/test"/);
+  assert.match(js,/api\(\"\/api\/settings\/ollama\/disclosure\"/);
+  assert.match(js,/On this Ollama server/);
+  assert.match(js,/Ollama Cloud/);
   assert.doesNotMatch(js,/\/api\/ai\/ollama\/gguf|settings-gguf|chooseAdvancedLocalModel/);
   assert.doesNotMatch(server,/\/api\/ai\/ollama\/gguf|_select_advanced_local_model|_choose_local_model/);
   assert.match(js,/model_id/);

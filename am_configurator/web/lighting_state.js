@@ -164,19 +164,29 @@
       for (const candidate of value.models) {
         const modelId = candidate?.model_id;
         const digest = candidate?.digest;
-        if (typeof modelId !== "string" || !modelId || typeof digest !== "string" || !digest || seen.has(modelId)) continue;
+        const location = candidate?.location;
+        if (
+          typeof modelId !== "string"
+          || !modelId
+          || typeof digest !== "string"
+          || !digest
+          || !["ollama_server", "ollama_cloud"].includes(location)
+          || seen.has(modelId)
+        ) continue;
         seen.add(modelId);
         models.push({
           model_id: modelId,
           digest,
           size_bytes: Number(candidate.size_bytes) || 0,
+          location,
           parameter_size: typeof candidate.parameter_size === "string" ? candidate.parameter_size : null,
           quantization: typeof candidate.quantization === "string" ? candidate.quantization : null,
+          label: `${modelId} — ${location === "ollama_cloud" ? "Ollama Cloud" : "On this Ollama server"}`,
         });
       }
     }
     return {
-      available: value?.available === true,
+      available: value?.available === true ? true : value?.available === false ? false : null,
       models,
       reason: value?.reason === "upgrade_required" ? "upgrade_required" : null,
       loading: false,
@@ -188,8 +198,26 @@
     return {...normalized, available: false, reason: "refresh_failed", loading: false};
   }
 
-  function shouldDiscoverOllamaModels(route, status) {
-    return status?.enabled === true && status?.backend === "ollama";
+  function ollamaEndpointDataFlow(baseUrl, modelLocation = null) {
+    let endpoint;
+    try {
+      endpoint = new URL(String(baseUrl || ""));
+    } catch (error) {
+      return {disclosureRequired: false, insecureRemote: false, loopback: false};
+    }
+    const host = endpoint.hostname.toLowerCase();
+    const loopback = (
+      host === "localhost"
+      || host.endsWith(".localhost")
+      || host === "[::1]"
+      || host === "::1"
+      || /^127(?:\.\d{1,3}){3}$/.test(host)
+    );
+    return {
+      disclosureRequired: !loopback || modelLocation === "ollama_cloud",
+      insecureRemote: !loopback && endpoint.protocol === "http:",
+      loopback,
+    };
   }
 
   function aiStudioAvailable(status) {
@@ -275,27 +303,32 @@
     const available = inventory?.available === true;
     const reason = ["upgrade_required", "refresh_failed"].includes(inventory?.reason) ? inventory.reason : null;
     const selectedId = typeof ollama?.model_id === "string" && ollama.model_id ? ollama.model_id : null;
+    const selectedModel = models.find(model => model.model_id === selectedId) || null;
     const installedIds = new Set(models.map(model => model.model_id));
-    let inventoryState = "available";
+    let inventoryState = "not_refreshed";
     if (loading) inventoryState = "loading";
     else if (reason === "upgrade_required") inventoryState = "upgrade_required";
     else if (reason === "refresh_failed") inventoryState = "transient_failure";
-    else if (!available) inventoryState = "unavailable";
+    else if (inventory?.available === false) inventoryState = "unavailable";
+    else if (!available) inventoryState = "not_refreshed";
     else if (!models.length) inventoryState = "empty";
+    else inventoryState = "available";
 
     let selectionState = "none";
     if (selectedId) {
-      if (["loading", "unavailable", "transient_failure"].includes(inventoryState)) selectionState = "transient_failure";
+      if (["loading", "unavailable", "transient_failure", "not_refreshed"].includes(inventoryState)) selectionState = "transient_failure";
       else if (!installedIds.has(selectedId)) selectionState = "removed";
-      else if (ollama.model_verified !== true) selectionState = "digest_changed";
+      else if (
+        selectedModel.digest !== ollama.model_digest
+        || selectedModel.location !== ollama.model_location
+      ) selectionState = "digest_changed";
       else selectionState = "selected";
     }
 
     const options = models.map(model => {
-      const details = [model.parameter_size, model.quantization].filter(Boolean).join(" · ");
       return {
         value: model.model_id,
-        label: details ? `${model.model_id} — ${details}` : model.model_id,
+        label: model.label,
         disabled: false,
       };
     });
@@ -313,8 +346,10 @@
       ? "Checking installed models…"
       : inventoryState === "upgrade_required"
         ? "Upgrade Ollama to discover models"
+        : inventoryState === "not_refreshed"
+          ? "Refresh to check models"
         : available
-          ? models.length ? "Choose an installed model" : "No eligible local models found"
+          ? models.length ? "Choose a model" : "No completion models reported"
           : "Ollama is not available";
     return {
       available,
@@ -541,6 +576,7 @@
     createLightingState,
     escapeMarkup,
     formatLightingHash,
+    ollamaEndpointDataFlow,
     ollamaModelRefreshFailed,
     nextGridIndex,
     normalizeOllamaModels,
@@ -553,6 +589,5 @@
     reduceLightingState,
     routeAvailability,
     safeRgbColor,
-    shouldDiscoverOllamaModels,
   });
 });

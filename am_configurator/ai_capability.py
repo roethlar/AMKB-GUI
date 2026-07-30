@@ -15,6 +15,7 @@ from .ollama_client import (
     OllamaError,
     OllamaModel,
     normalize_ollama_base_url,
+    ollama_origin_is_loopback,
     valid_model_digest,
     valid_model_id,
 )
@@ -73,8 +74,11 @@ def ollama_setup_fingerprint(
     base_url: str,
     model_id: str,
     model_digest: str,
+    model_location: str,
+    disclosure_version: str | None,
+    disclosure_at: str | None,
 ) -> str:
-    """Bind readiness to one configured Ollama origin and model identity."""
+    """Bind readiness to one Ollama origin, execution location, and disclosure."""
 
     if not valid_model_id(model_id) or not valid_model_digest(model_digest):
         raise ValueError("Ollama model identity is invalid")
@@ -82,14 +86,31 @@ def ollama_setup_fingerprint(
         base_url = normalize_ollama_base_url(base_url)
     except ValueError:
         raise ValueError("Ollama server URL is invalid") from None
-    return _sha256_object({
-        "kind": "ollama-origin-v1",
+    if model_location not in {"ollama_server", "ollama_cloud"}:
+        raise ValueError("Ollama model location is invalid")
+    disclosure_required = (
+        not ollama_origin_is_loopback(base_url)
+        or model_location == "ollama_cloud"
+    )
+    if disclosure_required and (
+        disclosure_version != store.OLLAMA_DISCLOSURE_VERSION
+        or not isinstance(disclosure_at, str)
+        or not disclosure_at
+    ):
+        raise ValueError("Ollama disclosure is not current")
+    payload = {
+        "kind": "ollama-origin-v2",
         "base_url": base_url,
         "model_id": model_id,
         "model_digest": model_digest,
+        "model_location": model_location,
         "recipe_schema_version": procedural.SCHEMA_VERSION,
         "setup_test_version": SETUP_TEST_VERSION,
-    })
+    }
+    if disclosure_required:
+        payload["disclosure_version"] = disclosure_version
+        payload["disclosure_at"] = disclosure_at
+    return _sha256_object(payload)
 
 
 def api_setup_fingerprint(
@@ -244,11 +265,90 @@ class AICapabilityService:
             "models": [model.public() for model in models],
         }
 
-    def _ollama_inventory_components(self, settings: dict[str, Any]) -> dict[str, Any]:
+    def _ollama_components(
+        self,
+        settings: dict[str, Any],
+        *,
+        runtime: bool = False,
+    ) -> dict[str, Any]:
+        """Project stored Ollama readiness without probing the configured server."""
+
         ollama = settings["ai"]["ollama"]
+        base_url = normalize_ollama_base_url(ollama["base_url"])
         selected_id = ollama["model_id"]
         selected_digest = ollama["model_digest"]
-        client = self._ollama_client_for(settings)
+        selected_location = ollama["model_location"]
+        selected = (
+            valid_model_id(selected_id)
+            and valid_model_digest(selected_digest)
+            and selected_location in {"ollama_server", "ollama_cloud"}
+        )
+        disclosure_required = (
+            not ollama_origin_is_loopback(base_url)
+            or selected_location == "ollama_cloud"
+        )
+        disclosure_current = (
+            not disclosure_required
+            or (
+                ollama["disclosure_version"] == store.OLLAMA_DISCLOSURE_VERSION
+                and isinstance(ollama["disclosure_at"], str)
+                and bool(ollama["disclosure_at"])
+            )
+        )
+        expected = None
+        model = None
+        if selected and disclosure_current:
+            expected = ollama_setup_fingerprint(
+                base_url,
+                selected_id,
+                selected_digest,
+                selected_location,
+                ollama["disclosure_version"],
+                ollama["disclosure_at"],
+            )
+            model = OllamaModel(
+                model_id=selected_id,
+                digest=selected_digest,
+                size_bytes=0,
+                parameter_size=None,
+                quantization=None,
+                location=selected_location,
+            )
+        setup_tested = (
+            isinstance(expected, str)
+            and ollama["setup_fingerprint"] == expected
+        )
+        return {
+            "base_url": base_url,
+            "service_available": setup_tested,
+            "upgrade_required": False,
+            "selected": selected,
+            "model_id": selected_id,
+            "model_digest": selected_digest,
+            "model_location": selected_location,
+            "verified": selected,
+            "model": model,
+            "client": self._ollama_client_for(settings) if runtime and selected else None,
+            "expected": expected,
+            "setup_tested": setup_tested,
+            "disclosure_required": disclosure_required,
+            "disclosure_current": disclosure_current,
+            "disclosure_version": store.OLLAMA_DISCLOSURE_VERSION,
+            "provider": "ollama",
+        }
+
+    def _ollama_inventory_components(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """Verify the stored identity against one explicit inventory request."""
+
+        stored = self._ollama_components(settings, runtime=True)
+        client = stored["client"]
+        if client is None:
+            return {
+                **stored,
+                "service_available": False,
+                "verified": False,
+                "model": None,
+            }
         try:
             models = client.list_models(deadline=time.monotonic() + 5.0)
             if not isinstance(models, tuple) or any(
@@ -269,65 +369,19 @@ class AICapabilityService:
             (
                 candidate
                 for candidate in models
-                if candidate.model_id == selected_id
-                and candidate.digest == selected_digest
+                if candidate.model_id == stored["model_id"]
+                and candidate.digest == stored["model_digest"]
+                and candidate.location == stored["model_location"]
             ),
             None,
         )
-        expected = None
-        if model is not None:
-            try:
-                expected = ollama_setup_fingerprint(
-                    ollama["base_url"],
-                    model.model_id,
-                    model.digest,
-                )
-            except ValueError:
-                expected = None
         return {
+            **stored,
             "available": available,
+            "service_available": available,
             "upgrade_required": upgrade_required,
-            "selected": selected_id is not None and selected_digest is not None,
-            "model_id": selected_id,
             "model": model,
-            "client": client,
             "verified": model is not None,
-            "expected": expected,
-        }
-
-    def _ollama_components(self, settings: dict[str, Any]) -> dict[str, Any]:
-        ollama = self._ollama_inventory_components(settings)
-        return {
-            "base_url": settings["ai"]["ollama"]["base_url"],
-            "service_available": ollama["available"],
-            "upgrade_required": ollama["upgrade_required"],
-            "selected": ollama["selected"],
-            "model_id": ollama["model_id"],
-            "verified": ollama["verified"],
-            "model": ollama["model"],
-            "client": ollama["client"],
-            "expected": ollama["expected"],
-            "provider": "ollama",
-        }
-
-    @staticmethod
-    def _unprobed_ollama_components(settings: dict[str, Any]) -> dict[str, Any]:
-        ollama = settings["ai"]["ollama"]
-        selected = (
-            ollama["model_id"] is not None
-            and ollama["model_digest"] is not None
-        )
-        return {
-            "base_url": ollama["base_url"],
-            "service_available": False,
-            "upgrade_required": False,
-            "selected": selected,
-            "model_id": ollama["model_id"],
-            "verified": False,
-            "model": None,
-            "client": None,
-            "expected": None,
-            "provider": "ollama",
         }
 
     def _api_components(self, settings: dict[str, Any]) -> dict[str, Any]:
@@ -414,19 +468,12 @@ class AICapabilityService:
             settings = self._settings_loader()
             enabled = settings["ai"]["enabled"] is True
             backend = settings["ai"]["backend"]
-            ollama = self._unprobed_ollama_components(settings)
+            ollama = self._ollama_components(settings)
             api = self._unprobed_api_components(settings)
-            ollama_tested = False
+            ollama_tested = ollama["setup_tested"]
             api_tested = False
 
-            if probe and enabled and backend == "ollama":
-                ollama = self._ollama_components(settings)
-                ollama_tested = (
-                    ollama["expected"] is not None
-                    and settings["ai"]["ollama"]["setup_fingerprint"]
-                    == ollama["expected"]
-                )
-            elif probe and enabled and backend == "api":
+            if probe and enabled and backend == "api":
                 api = self._api_components(settings)
                 api_tested = (
                     api["expected"] is not None
@@ -439,14 +486,10 @@ class AICapabilityService:
             elif backend is None:
                 reason = "backend_unselected"
             elif backend == "ollama":
-                if not ollama["service_available"]:
-                    reason = "ollama_unavailable"
-                elif ollama["upgrade_required"]:
-                    reason = "upgrade_required"
-                elif not ollama["selected"]:
+                if not ollama["selected"]:
                     reason = "model_missing"
-                elif not ollama["verified"]:
-                    reason = "model_unavailable"
+                elif not ollama["disclosure_current"]:
+                    reason = "disclosure_required"
                 else:
                     reason = self._remembered_reason("ollama", ollama["expected"])
                     if reason is None and not ollama_tested:
@@ -492,8 +535,13 @@ class AICapabilityService:
                     "service_available": ollama["service_available"],
                     "model_selected": ollama["selected"],
                     "model_id": ollama["model_id"],
+                    "model_digest": ollama["model_digest"],
+                    "model_location": ollama["model_location"],
                     "model_verified": ollama["verified"],
                     "setup_tested": ollama_tested,
+                    "disclosure_required": ollama["disclosure_required"],
+                    "disclosure_current": ollama["disclosure_current"],
+                    "disclosure_version": ollama["disclosure_version"],
                     "provider": ollama["provider"],
                 },
                 "api": {
@@ -519,8 +567,13 @@ class AICapabilityService:
                     "service_available": False,
                     "model_selected": False,
                     "model_id": None,
+                    "model_digest": None,
+                    "model_location": None,
                     "model_verified": False,
                     "setup_tested": False,
+                    "disclosure_required": False,
+                    "disclosure_current": True,
+                    "disclosure_version": store.OLLAMA_DISCLOSURE_VERSION,
                     "provider": "ollama",
                 },
                 "api": {
@@ -546,7 +599,7 @@ class AICapabilityService:
         status = self.require_ready()
         if status["backend"] == "ollama":
             settings = self._settings_loader()
-            components = self._ollama_components(settings)
+            components = self._ollama_components(settings, runtime=True)
             model = components["model"]
             client = components["client"]
             identity = components["expected"]
@@ -603,10 +656,28 @@ class AICapabilityService:
         )
 
         if backend == "ollama":
-            components = self._ollama_components(settings)
-            fingerprint = components["expected"]
+            stored = self._ollama_components(settings, runtime=True)
+            if not stored["selected"]:
+                raise llm.ProviderError("config", "Choose an Ollama model first.")
+            if not stored["disclosure_current"]:
+                raise llm.ProviderError(
+                    "config",
+                    "The Ollama data disclosure is not current.",
+                )
+            components = self._ollama_inventory_components(settings)
+            fingerprint = stored["expected"]
             model = components["model"]
-            client = components["client"]
+            client = stored["client"]
+            if components["upgrade_required"]:
+                raise llm.ProviderError(
+                    "config",
+                    "Upgrade the configured Ollama server.",
+                )
+            if not components["service_available"]:
+                raise llm.ProviderError(
+                    "offline",
+                    "The configured Ollama server is unavailable.",
+                )
             if fingerprint is None or model is None or client is None:
                 raise llm.ProviderError("config", "The selected Ollama model is unavailable.")
             provider = self._provider_for_identity(

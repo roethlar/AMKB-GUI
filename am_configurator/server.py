@@ -2413,6 +2413,7 @@ class _Handler(BaseHTTPRequestHandler):
         return path.startswith("/api/ai/") or path in {
             "/api/settings/ai",
             "/api/settings/ollama",
+            "/api/settings/ollama/disclosure",
             "/api/settings/credential",
             "/api/settings/migration/discard-credential",
         }
@@ -2557,6 +2558,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._save_ai_settings(body)
             elif path == "/api/settings/ollama":
                 self._save_ollama_settings(body)
+            elif path == "/api/settings/ollama/disclosure":
+                self._save_ollama_disclosure(body)
             elif path == "/api/settings/credential":
                 self._save_ai_credential(body)
             elif path == "/api/settings/migration/discard-credential":
@@ -2741,6 +2744,21 @@ class _Handler(BaseHTTPRequestHandler):
             }
         )
 
+    def _save_ollama_disclosure(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(
+            body,
+            allowed={"version"},
+            required={"version"},
+        )
+        self._require_ai_idle()
+        store.acknowledge_ollama_disclosure(
+            body,
+            credential_store=self.state._credential_store,
+        )
+        self._json(self.state.ai_services().status(probe=False))
+
     def _discard_legacy_ai_credential(self, body: dict[str, Any]) -> None:
         from . import store
 
@@ -2772,33 +2790,18 @@ class _Handler(BaseHTTPRequestHandler):
     def _select_ollama_model(self, body: dict[str, Any]) -> None:
         from . import store
 
-        self._strict_body(body, allowed={"model_id"}, required={"model_id"})
-        self._require_ai_idle()
-        model_id = body["model_id"]
-        if not isinstance(model_id, str):
-            raise ValueError("The Ollama model name is invalid.")
-        capability = self.state.ai_services()
-        discovered = capability.discover_ollama_models()
-        if discovered.get("available") is not True:
-            self._json(
-                {"error": "The configured Ollama server is unavailable."},
-                HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        match = next(
-            (
-                model
-                for model in discovered.get("models", [])
-                if isinstance(model, dict) and model.get("model_id") == model_id
-            ),
-            None,
+        self._strict_body(
+            body,
+            allowed={"model_id", "model_digest", "model_location"},
+            required={"model_id", "model_digest", "model_location"},
         )
-        if match is None:
-            raise ValueError("The selected Ollama model is unavailable.")
+        self._require_ai_idle()
+        capability = self.state.ai_services()
         store.update_ollama_ai_settings(
             {
-                "model_id": match["model_id"],
-                "model_digest": match["digest"],
+                "model_id": body["model_id"],
+                "model_digest": body["model_digest"],
+                "model_location": body["model_location"],
             },
             credential_store=self.state._credential_store,
         )
@@ -2812,7 +2815,11 @@ class _Handler(BaseHTTPRequestHandler):
         self._require_ai_idle()
         capability = self.state.ai_services()
         store.update_ollama_ai_settings(
-            {"model_id": None, "model_digest": None},
+            {
+                "model_id": None,
+                "model_digest": None,
+                "model_location": None,
+            },
             credential_store=self.state._credential_store,
         )
         self._json(capability.status(probe=False))

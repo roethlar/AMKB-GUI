@@ -167,12 +167,16 @@
                     <label for="settings-ollama-base-url"><span class="control-label">Ollama server URL</span><input id="settings-ollama-base-url" class="text-field" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="http://127.0.0.1:11434"></label>
                     <button id="settings-ollama-save-url" type="button" class="button ghost">Save server</button>
                   </div>
+                  <p id="settings-ollama-transport-warning" class="settings-key-state" hidden>This server uses unencrypted HTTP. Your lighting prompt and keyboard dimensions can be read in transit on the network.</p>
                   <div class="settings-local-picker">
                     <label for="settings-ollama-model-select"><span class="control-label">Available model</span><select id="settings-ollama-model-select" class="select-field"><option value="">Refresh to check models…</option></select></label>
                     <button id="settings-ollama-refresh" type="button" class="button ghost">Refresh models</button>
                     <button id="settings-ollama-select" type="button" class="button ghost">Use selected model</button>
                   </div>
                   <p id="settings-ollama-model" class="settings-key-state">No Ollama model selected.</p>
+                  <div id="settings-ollama-disclosure" class="settings-disclosure" hidden>
+                    <label class="check-row"><input id="settings-ollama-disclosure-ack" type="checkbox"><span><strong>I understand where Ollama sends this request</strong><small id="settings-ollama-disclosure-detail"></small></span></label>
+                  </div>
                   <div class="button-row settings-local-actions"><button id="settings-ollama-test" type="button" class="button primary">Test setup</button><button id="settings-ollama-clear" type="button" class="button ghost">Clear selection</button></div>
                   <p class="control-help">AM Configurator lists models reported by this Ollama server. It never downloads, pulls, or removes models.</p>
                 </div>

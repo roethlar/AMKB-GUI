@@ -727,17 +727,73 @@ class SettingsV6Tests(unittest.TestCase):
             {
                 "model_id": "ornith:latest",
                 "model_digest": "b" * 64,
+                "model_location": "ollama_server",
             },
             credential_store=self.vault,
         )
         self.assertEqual("ornith:latest", updated["ai"]["ollama"]["model_id"])
+        self.assertEqual("ollama_server", updated["ai"]["ollama"]["model_location"])
         self.assertIsNone(updated["ai"]["ollama"]["setup_fingerprint"])
 
         with self.assertRaises(ValueError):
             store.update_ollama_ai_settings(
-                {"model_id": "cloud:cloud", "model_digest": None},
+                {
+                    "model_id": "cloud:cloud",
+                    "model_digest": None,
+                    "model_location": "ollama_cloud",
+                },
                 credential_store=self.vault,
             )
+
+    def test_ollama_disclosure_is_required_only_for_remote_or_cloud_data_flow(self) -> None:
+        store.update_ollama_ai_settings(
+            {
+                "model_id": "ornith:latest",
+                "model_digest": "b" * 64,
+                "model_location": "ollama_server",
+            },
+            credential_store=self.vault,
+        )
+        with self.assertRaisesRegex(ValueError, "not required"):
+            store.acknowledge_ollama_disclosure(
+                {"version": store.OLLAMA_DISCLOSURE_VERSION},
+                credential_store=self.vault,
+            )
+
+        selected = store.update_ollama_ai_settings(
+            {
+                "model_id": "cloud:cloud",
+                "model_digest": "c" * 64,
+                "model_location": "ollama_cloud",
+            },
+            credential_store=self.vault,
+        )
+        self.assertIsNone(selected["ai"]["ollama"]["disclosure_version"])
+        with patch("am_configurator.store._now_iso", return_value="2026-07-29T20:00:00+00:00"):
+            acknowledged = store.acknowledge_ollama_disclosure(
+                {"version": store.OLLAMA_DISCLOSURE_VERSION},
+                credential_store=self.vault,
+            )
+        self.assertEqual(
+            store.OLLAMA_DISCLOSURE_VERSION,
+            acknowledged["ai"]["ollama"]["disclosure_version"],
+        )
+        self.assertEqual(
+            "2026-07-29T20:00:00+00:00",
+            acknowledged["ai"]["ollama"]["disclosure_at"],
+        )
+        self.assertIsNone(acknowledged["ai"]["ollama"]["setup_fingerprint"])
+
+        changed = store.update_ollama_ai_settings(
+            {
+                "model_id": "other:latest",
+                "model_digest": "d" * 64,
+                "model_location": "ollama_server",
+            },
+            credential_store=self.vault,
+        )
+        self.assertIsNone(changed["ai"]["ollama"]["disclosure_version"])
+        self.assertIsNone(changed["ai"]["ollama"]["disclosure_at"])
 
     def test_ollama_origin_change_normalizes_and_resets_identity_without_network(self) -> None:
         configured = copy.deepcopy(V7_DEFAULTS)
