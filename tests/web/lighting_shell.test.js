@@ -205,7 +205,7 @@ test("About is the only normal application-version surface", () => {
   assert.match(html,/id="about-button"[^>]*>About<\/button>/);
   assert.match(html,/id="about-dialog"[\s\S]*Version __AM_VERSION__[\s\S]*<\/dialog>/);
   assert.doesNotMatch(html,/id="app-version"|class="app-version"/);
-  assert.match(css,/\.about-link\s*\{[^}]*background:\s*transparent[^}]*font-size:\s*11px/);
+  assert.match(css,/\.about-link\s*\{[^}]*background:\s*transparent[^}]*font-size:\s*13px/);
 });
 
 test("Settings explains incompatible Ollama discovery without adding show", () => {
@@ -431,7 +431,7 @@ test("manual Lighting layout, keyboard controls, narrow windows, and reduced mot
   assert.match(css,/@media\s*\(max-width:\s*720px\)/);
   assert.match(css,/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
   const medium=css.match(/@media\s*\(max-width:\s*1240px\)\s*\{[\s\S]*?\n\}/)?.[0]||"";
-  const zoomed=css.match(/@media\s*\(max-width:\s*820px\)\s*\{[\s\S]*?\n\}/)?.[0]||"";
+  const zoomed=css.match(/@media\s*\(max-width:\s*1120px\)\s*\{[\s\S]*?\n\}/)?.[0]||"";
   assert.match(medium,/grid-template-areas:\s*"canvas controls"\s*"frames frames"/);
   assert.match(medium,/overflow-x:\s*auto/);
   assert.match(zoomed,/\.topbar\s*\{[^}]*grid-template-columns:\s*1fr auto/);
@@ -439,11 +439,12 @@ test("manual Lighting layout, keyboard controls, narrow windows, and reduced mot
 });
 
 test("narrow Keymap releases the desktop keyboard minimum without page clipping", () => {
-  const start=css.indexOf("@media (max-width: 1120px)");
-  const end=css.indexOf("@media (max-width: 980px)",start);
-  const stacked=css.slice(start,end);
-  assert.match(stacked,/\.editor-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-  assert.match(stacked,/\.editor-grid\s*>\s*\*\s*\{[^}]*min-width:\s*0/);
+  const mediumStart=css.indexOf("@media (max-width: 1240px)");
+  const medium=css.slice(mediumStart,css.indexOf("@media (max-width: 1120px)",mediumStart));
+  assert.match(medium,/\.editor-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(medium,/\.editor-grid\s*>\s*\*\s*\{[^}]*min-width:\s*0/);
+  const stackedStart=css.indexOf("@media (max-width: 1120px)");
+  const stacked=css.slice(stackedStart,css.indexOf("@media (max-width: 980px)",stackedStart));
   assert.match(stacked,/\.keyboard-stage\s*\{[^}]*min-height:\s*0/);
 });
 

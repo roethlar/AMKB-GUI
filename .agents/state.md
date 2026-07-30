@@ -32,6 +32,21 @@
   `https://github.com/roethlar/AgentGovernanceBootstrap/issues/11` tracks the
   toolkit bug that made the original openreview contract produce a
   defect-shaped audit instead of an independent approach.
+- Slice P4 landed on the product branch: 13px helper-text floor (one
+  documented exception: the opt-in keycap matrix overlay), WCAG-checked
+  `--control-line` token on interactive borders, readable disabled states,
+  top-bar actions moved to a scrollable full-width row at ≤1120px, keymap
+  editor single-column at ≤1240px, and a shorter visible Merge label. Guards
+  live in `tests/web/design_tokens.test.js` with computed WCAG contrast
+  assertions. Two viewports were manually verified live at 1000×680 and
+  1280×800 (empty state, chrome, top bar); the full per-screen manual matrix
+  with an open document still rides Slice P6. A resize defect initially
+  reported from screenshots was disproved: an in-page probe on the same
+  pywebview 6.2.1/WebView2 stack reflows correctly on shrink, grow, and
+  maximize. The screenshots were cropped by DPI-unaware capture tooling —
+  window automation from a DPI-unaware shell process uses virtualized
+  coordinates at 125% scale, so captures must multiply sizes by the scale
+  factor or the right/bottom ~20% of the window silently disappears.
 - Product-experience implementation runs in parallel on
   `claude/product-experience-remediation`, a worktree branch based at the
   shared docs tip `0271213`. Slice P2 is implemented and guard-proven:
@@ -51,10 +66,11 @@
 - The owner assigned the product-experience plan to Claude for parallel work.
   Claude may implement low-conflict visual/documentation work independently;
   AI language and Settings integration wait for the backend contracts to land.
-- On `claude/product-experience-remediation`, Slice P4 (hierarchy,
-  accessibility, responsive behavior) is the next low-conflict work. Slices
-  P1 and P3 start only after the completed backend branch merges into the
-  product branch; P5 screenshots and P6 versioning close out after both plans.
+- On `claude/product-experience-remediation`, low-conflict work (P2, P4) is
+  committed. Slices P1 and P3 start only after the completed backend branch
+  merges into the product branch; P5 screenshots and P6 versioning close out
+  after both plans, including the full two-viewport per-screen manual matrix
+  with an open document.
 
 ## Blockers
 
