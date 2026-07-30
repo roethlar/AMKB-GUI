@@ -67,7 +67,9 @@ test("matrix numbers and raw keycodes stay hidden until requested", () => {
 test("palette picks apply to the selected key immediately", () => {
   // A staged Apply proved unusable: the confirmation lived in the inspector,
   // which sits below the whole palette in single-column layouts.
-  assert.match(js, /\$\$\("\.palette-key"\)\.forEach\(button => button\.addEventListener\("click", \(\) => \{\s*assignSelected\(button\.dataset\.code\);/);
+  // cx-5: the handler must await async (Neon) validation before restoring
+  // focus, or the post-validation rerender destroys the focused node.
+  assert.match(js, /\$\$\("\.palette-key"\)\.forEach\(button => button\.addEventListener\("click", async \(\) => \{\s*await assignSelected\(button\.dataset\.code\);/);
   assert.doesNotMatch(js, /pendingCode/);
   assert.match(js, /applied to this key immediately/);
 });

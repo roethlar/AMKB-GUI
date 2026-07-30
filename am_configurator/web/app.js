@@ -2055,8 +2055,8 @@ async function assignSelected(code) {
 }
 
 function wireKeyInspector() {
-  $$(".palette-key").forEach(button => button.addEventListener("click", () => {
-    assignSelected(button.dataset.code);
+  $$(".palette-key").forEach(button => button.addEventListener("click", async () => {
+    await assignSelected(button.dataset.code);
     restoreFocus(`.palette-key[data-code="${button.dataset.code}"]`);
   }));
   $("#key-search")?.addEventListener("input", event => {
