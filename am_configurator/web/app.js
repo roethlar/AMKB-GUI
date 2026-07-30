@@ -49,8 +49,12 @@ const state = {
   lightingJobId: restoredLighting.jobId,
   layer: 0,
   selected: null,
+  pendingCode: null,
+  showTechnicalLabels: false,
+  advancedKeycodeOpen: false,
   keyAssignmentEpoch: 0,
   macro: 0,
+  macroAdvancedOpen: false,
   recording: false,
   recordLast: 0,
   ledSlot: 5,
@@ -291,11 +295,21 @@ function updateMeta() {
   const product = $("#product-pill");
   product.textContent = state.config ? productId() : "—";
   product.classList.toggle("muted", !state.config);
-  $("#nav-layers").textContent = state.config ? String(layers().length) : "—";
-  $("#nav-macros").textContent = state.config ? String((state.config.macro_key || []).length) : "—";
-  $("#nav-leds").textContent = state.config ? (pageData().length ? "3" : "—") : "—";
+  const navCounts = [
+    ["#nav-layers", state.config ? layers().length : null, "layer", "layers"],
+    ["#nav-macros", state.config ? (state.config.macro_key || []).length : null, "macro", "macros"],
+    ["#nav-leds", state.config && pageData().length ? 3 : null, "lighting slot", "lighting slots"],
+  ];
+  for (const [selector, count, singular, plural] of navCounts) {
+    const node = $(selector);
+    node.textContent = count === null ? "—" : String(count);
+    const label = count === null ? "none loaded" : `${count} ${count === 1 ? singular : plural}`;
+    node.setAttribute("aria-label", label);
+    node.title = label;
+  }
   $("#save-button").disabled = !state.config;
   $("#merge-button").disabled = !state.config;
+  $("#merge-button").hidden = !state.config;
   $("#validate-button").disabled = !state.config;
   updateHistoryButtons();
   updateDeviceActions();
@@ -665,7 +679,7 @@ function renderAssignmentPalette(current) {
     options:neonLightingOptions.filter(option=>option.category===group),
   }));
   return `<section class="assignment-panel">
-    <div class="assignment-heading"><div><strong>Available assignments</strong><small>${state.selected===null?'Select a key on the board first.':`Assigning matrix key ${state.selected}`}</small></div><input id="key-search" class="search-field" type="search" placeholder="Filter keys and controls…"></div>
+    <div class="assignment-heading"><div><strong>Available assignments</strong><small>${state.selected===null?'Select a key on the board first.':state.showTechnicalLabels?`Assigning matrix key ${state.selected}`:'Pick what the selected key should send.'}</small></div><input id="key-search" class="search-field" type="search" placeholder="Filter keys and controls…"></div>
     <div class="assignment-scroll"><div class="qwerty-board assignment-section"><p class="control-label">Standard QWERTY keyboard</p>${QWERTY_ROWS.map(row=>`<div class="qwerty-row">${row.map(item=>item?assignmentButton(standardOption(item[0]),current,item[1]):`<span class="qwerty-spacer"></span>`).join("")}</div>`).join("")}</div></div>
     <div class="assignment-groups">
       <div class="assignment-section"><p class="control-label">Navigation & media</p><div class="assignment-grid">${extras.map(option=>assignmentButton(option,current)).join("")}</div></div>
@@ -713,6 +727,10 @@ function render() {
 
 function renderScreen() {
   renderRoute();
+}
+
+function restoreFocus(selector) {
+  requestAnimationFrame(() => document.querySelector(selector)?.focus({preventScroll: true}));
 }
 
 function persistLightingState() {
@@ -778,8 +796,6 @@ function renderRoute() {
     return;
   }
   if (!state.config) {
-    const label = route === ROUTES.MACROS ? "edit macros" : "edit a keymap";
-    $("#empty-title").textContent = `Open a configuration to ${label}.`;
     $("#empty-state").hidden = false;
     return;
   }
@@ -1903,38 +1919,45 @@ function renderKeymap() {
   const layout = activeLayout();
   if (state.selected !== null && !layout.keys.some(key => key[0] === state.selected)) state.selected = null;
   const current=state.selected===null?null:(layer[state.selected]||"#00000000");
+  const technical=state.showTechnicalLabels;
   $("#screen").innerHTML = `
     <div class="screen-shell">
       <header class="screen-header">
         <div><p class="eyebrow">${esc(layout.name)}</p><h1>Keymap</h1><p class="description">Select a physical key, then choose what it should send.</p></div>
-        <div class="keymap-header-actions"><button id="save-mapping-library" type="button" class="button ghost">Save mapping to Library</button><div class="segmented layer-tabs">${layers().map((_,i) => `<button class="${i===state.layer?'active':''}" data-layer="${i}">${i+1}</button>`).join("")}</div></div>
+        <div class="keymap-header-actions"><button id="toggle-technical-labels" type="button" class="button ghost" aria-pressed="${technical}">${technical?'Hide technical labels':'Show technical labels'}</button><button id="save-mapping-library" type="button" class="button ghost">Save mapping to Library</button><div class="segmented layer-tabs">${layers().map((_,i) => `<button class="${i===state.layer?'active':''}" data-layer="${i}" aria-label="Layer ${i+1}">${i+1}</button>`).join("")}</div></div>
       </header>
       <div class="editor-grid">
         <section class="card"><div class="card-header"><strong>Layer ${state.layer+1}</strong><small>${layout.keys.length} physical keys</small></div><div class="card-body">
           <div class="keyboard-stage ${layout.className}">
             ${layout.unavailable?'<div class="inspector-empty"><div><strong>Physical layout unavailable</strong><p>Read this Neon keyboard again to load its validated Vial layout.</p></div></div>':layout.keys.map(([index,x,y,w=4.8,rotation=0,height=null]) => {
               const code = layer[index] || "#00000000";
-              return `<button class="keycap ${keyClass(code)} ${state.selected===index?'selected':''}" data-index="${index}" style="left:${x}%;top:${y}%;width:${w}%;${height===null?'':`height:${height}%;`}transform:rotate(${rotation}deg)" title="Matrix ${index} · ${esc(code)}">${esc(decodeCode(code))}<span>${index}</span></button>`;
+              return `<button class="keycap ${keyClass(code)} ${state.selected===index?'selected':''}" data-index="${index}" style="left:${x}%;top:${y}%;width:${w}%;${height===null?'':`height:${height}%;`}transform:rotate(${rotation}deg)" title="${technical?`Matrix ${index} · ${esc(code)}`:esc(decodeCode(code))}">${esc(decodeCode(code))}${technical?`<span>${index}</span>`:''}</button>`;
             }).join("")}
           </div>
-          ${renderAssignmentPalette(current)}
+          ${renderAssignmentPalette(state.pendingCode??current)}
         </div></section>
         <aside class="card inspector">${renderKeyInspector(layer)}</aside>
       </div>
     </div>`;
-  $$("[data-layer]").forEach(button => button.addEventListener("click", () => { state.layer = Number(button.dataset.layer); renderKeymap(); }));
-  $$(".keycap").forEach(button => button.addEventListener("click", () => { state.selected = Number(button.dataset.index); renderKeymap(); }));
+  $$("[data-layer]").forEach(button => button.addEventListener("click", () => { state.layer = Number(button.dataset.layer); state.pendingCode = null; renderKeymap(); restoreFocus(`[data-layer="${button.dataset.layer}"]`); }));
+  $$(".keycap").forEach(button => button.addEventListener("click", () => { state.selected = Number(button.dataset.index); state.pendingCode = null; renderKeymap(); restoreFocus(`.keycap[data-index="${button.dataset.index}"]`); }));
+  $("#toggle-technical-labels").addEventListener("click", () => { state.showTechnicalLabels = !state.showTechnicalLabels; renderKeymap(); restoreFocus("#toggle-technical-labels"); });
   $("#save-mapping-library")?.addEventListener("click",saveMappingToLibrary);
   wireKeyInspector();
 }
 
 function renderKeyInspector(layer) {
-  if (state.selected === null) return `<div class="inspector-empty"><div><p class="eyebrow">Nothing selected</p><p>Click a keycap to edit its assignment.</p></div></div>`;
+  if (state.selected === null) return `<div class="inspector-empty"><div><p class="eyebrow">Nothing selected</p><p>Click a key to see and change what it sends.</p></div></div>`;
   const current = layer[state.selected] || "#00000000";
-  return `<div class="card-header"><strong>Key ${state.selected}</strong><small>Layer ${state.layer+1}</small></div><div class="card-body">
-    <div class="selected-code"><div><strong>${esc(decodeCode(current))}</strong><br><code>${esc(current)}</code></div><span class="pill">${keyClass(current)||'key'}</span></div>
-    <p class="inspector-help">${productFamily(productId())==="NEON"?"Choose a QMK-representable keyboard or macro assignment. Unsupported media, vendor, and raw codes are refused before they change this profile.":"Choose a key from the QWERTY, macro, or Angry Miao palettes below the keyboard. Raw codes remain available for lossless passthrough."}</p>
-    <div class="raw-row"><input id="raw-code" class="text-field" value="${esc(current)}" maxlength="9" aria-label="Raw keycode"><button id="apply-raw" class="button ghost">Apply</button></div>
+  const technical = state.showTechnicalLabels;
+  const pending = state.pendingCode && state.pendingCode.toUpperCase() !== current.toUpperCase() ? state.pendingCode : null;
+  return `<div class="card-header"><strong>Selected key</strong><small>Layer ${state.layer+1}${technical?` · Matrix ${state.selected}`:""}</small></div><div class="card-body">
+    <div class="selected-code"><div><small class="control-caption">Currently sends</small><br><strong>${esc(decodeCode(current))}</strong>${technical?`<br><code>${esc(current)}</code>`:""}</div><span class="pill">${keyClass(current)||'key'}</span></div>
+    ${pending?`<div class="pending-assignment"><div><small class="control-caption">New assignment</small><br><strong>${esc(decodeCode(pending))}</strong></div><div class="button-row"><button id="apply-assignment" class="button primary">Apply</button><button id="clear-pending" class="button ghost">Cancel</button></div></div>`:`<p class="inspector-help">Pick a new assignment from the groups on the left, then apply it.</p>`}
+    <details id="advanced-keycode" class="advanced-disclosure" ${state.advancedKeycodeOpen?"open":""}><summary>Advanced keycode</summary>
+      <p class="inspector-help">${productFamily(productId())==="NEON"?"Choose a QMK-representable keyboard or macro assignment. Unsupported media, vendor, and raw codes are refused before they change this profile.":"Raw codes pass through to the keyboard firmware unchanged, so unusual assignments survive saving and reloading exactly."}</p>
+      <div class="raw-row"><input id="raw-code" class="text-field" value="${esc(current)}" maxlength="9" aria-label="Raw keycode"><button id="apply-raw" class="button ghost">Apply</button></div>
+    </details>
   </div>`;
 }
 
@@ -1958,12 +1981,19 @@ async function assignSelected(code) {
 }
 
 function wireKeyInspector() {
-  $$(".palette-key").forEach(button => button.addEventListener("click", () => assignSelected(button.dataset.code)));
+  $$(".palette-key").forEach(button => button.addEventListener("click", () => {
+    state.pendingCode = button.dataset.code;
+    renderKeymap();
+    restoreFocus(`.palette-key[data-code="${button.dataset.code}"]`);
+  }));
   $("#key-search")?.addEventListener("input", event => {
     const query = event.target.value.trim().toLowerCase();
     $$(".palette-key").forEach(button => button.hidden = query && !button.dataset.search.includes(query));
     $$(".assignment-section").forEach(section=>{section.hidden=Boolean(query)&&!section.querySelector(".palette-key:not([hidden])");});
   });
+  $("#apply-assignment")?.addEventListener("click", () => { const code = state.pendingCode; state.pendingCode = null; assignSelected(code); });
+  $("#clear-pending")?.addEventListener("click", () => { state.pendingCode = null; renderKeymap(); restoreFocus(".keycap.selected"); });
+  $("#advanced-keycode")?.addEventListener("toggle", event => { state.advancedKeycodeOpen = event.currentTarget.open; });
   $("#apply-raw")?.addEventListener("click", () => assignSelected($("#raw-code").value.trim()));
   $("#raw-code")?.addEventListener("keydown", event => { if (event.key === "Enter") assignSelected(event.currentTarget.value.trim()); });
 }
@@ -2092,36 +2122,40 @@ function renderMacros() {
   const missing=missingMacroTokens();
   const missingWarning=missing.length?`<div class="write-warning macro-warning"><strong>Macro assignments have no readable actions</strong><p>${missing.map(code=>esc(decodeCode(code))).join(", ")} ${missing.length===1?'is':'are'} assigned in the keymap, but the keyboard returned no matching macro definition. Loading cannot reconstruct those keystrokes; restore them from a saved JSON or recreate them before writing.</p></div>`:"";
   $("#screen").innerHTML = `<div class="screen-shell">
-    <header class="screen-header"><div><p class="eyebrow">Up to ${macroTracks} tracks · ${capacity.limit} ${capacity.unit}</p><h1>Macros</h1><p class="description">Record or arrange exact key-down, key-up, and timing events.</p></div><div class="header-controls"><div><small>${capacity.used}/${capacity.limit} ${capacity.unit}</small><div class="limit-meter"><span style="width:${capacity.limit?Math.min(100,capacity.used*100/capacity.limit):0}%"></span></div></div><button id="import-macros" class="button ghost">Import macros</button><button id="add-macro" class="button primary">+ New macro</button></div></header>
+    <header class="screen-header"><div><p class="eyebrow">Reusable key sequences</p><h1>Macros</h1><p class="description">Type text or record keys, then assign the macro to any key on the Keymap screen.</p></div><div class="header-controls"><button id="import-macros" class="button ghost">Import macros</button><button id="add-macro" class="button primary">+ New macro</button></div></header>
     ${missingWarning}
     <div class="macro-layout">
-      <aside class="card macro-list"><div class="card-header"><strong>Macro library</strong><small>${macros().length}/${macroTracks}</small></div><div class="macro-list-items">
+      <aside class="card macro-list"><div class="card-header"><strong>Macros in this profile</strong><small>${macros().length} ${macros().length===1?'macro':'macros'}</small></div><div class="macro-list-items">
         ${macros().length ? macros().map((macro,i) => `<button class="macro-item ${i===state.macro?'active':''}" data-macro="${i}"><span><strong>${esc(decodeCode(macro.original_key))}</strong><small>${(macro.layer_key||[]).length} events</small></span><span class="macro-token">${esc(macro.original_key.slice(-2))}</span></button>`).join("") : `<div class="event-empty">No macros yet.<br>Create one to begin.</div>`}
       </div></aside>
       <section class="card macro-editor">${current ? `<div class="card-header"><strong>${esc(decodeCode(current.original_key))}</strong><small>Assigned to ${assigned} key${assigned===1?'':'s'}</small></div>
         <div class="card-body"><div class="macro-toolbar">
-          <button id="record-macro" class="button ghost ${state.recording?'recording':''}">${state.recording?'■ Stop recording':'● Record'}</button>
-          <button id="add-event" class="button ghost">+ Event</button>
+          <button id="record-macro" class="button ghost ${state.recording?'recording':''}">${state.recording?'■ Stop recording':'● Record keys'}</button>
           <div class="spacer"></div>
           <button id="assign-macro" class="button ghost" ${state.selected===null?'disabled':''}>Assign to selected key</button>
           <button id="delete-macro" class="button danger">Delete</button>
         </div><div class="text-macro-composer">
-          <div><strong>Text → keystrokes</strong><small>Paste text instead of recording it in real time.</small></div>
+          <div><strong>Type text</strong><small>Typed text is converted into the exact keystrokes the keyboard will replay.</small></div>
           <textarea id="macro-text" class="text-field" rows="3" placeholder="Type the exact text this macro should enter…"></textarea>
-          <div class="text-macro-actions"><label>Inter-key delay <input id="macro-text-delay" class="text-field" type="number" min="1" max="1000" value="10"> ms</label><div class="spacer"></div><button id="text-append" class="button ghost">Append</button><button id="text-replace" class="button primary">Replace events</button></div>
-          <small>US keyboard layout · letters, numbers, punctuation, spaces, Tab, and Enter · Shift is generated automatically.</small>
-        </div><div class="event-list">
+          <div class="text-macro-actions"><label>Delay between keys <input id="macro-text-delay" class="text-field" type="number" min="1" max="1000" value="10"> ms</label><div class="spacer"></div><button id="text-append" class="button ghost">Append</button><button id="text-replace" class="button primary">Replace keystrokes</button></div>
+          <small>The delay is how long the keyboard waits between keystrokes — raise it if an app drops characters. US layout · letters, numbers, punctuation, spaces, Tab, and Enter · Shift is added automatically.</small>
+        </div><details id="macro-advanced" class="advanced-disclosure" ${state.macroAdvancedOpen?"open":""}><summary>Edit individual events</summary>
+          <div class="macro-capacity"><small>${capacity.used}/${capacity.limit} ${capacity.unit} · up to ${macroTracks} tracks</small><div class="limit-meter"><span style="width:${capacity.limit?Math.min(100,capacity.used*100/capacity.limit):0}%"></span></div></div>
+          <p class="inspector-help">Each row is one key-down or key-up event and the delay that follows it, exactly as the keyboard replays them.</p>
+          <div class="macro-toolbar"><button id="add-event" class="button ghost">+ Event</button></div>
+          <div class="event-list">
           ${(current.layer_key||[]).length ? current.layer_key.map((code,i) => {
             const down = codeParts(code)?.modifier !== 0x10;
             const base = macroBaseCode(code);
             return `<div class="event-row" data-event="${i}"><span class="event-number">${i+1}</span><button class="event-action ${down?'':'up'}" data-action="${i}">${down?'Key down':'Key up'}</button><select class="select-field event-key" data-event-key="${i}">${eventOptions.map(option=>`<option value="${option.code}" ${option.code===base?'selected':''}>${esc(option.label)}</option>`).join("")}</select><input class="text-field event-delay" type="number" min="0" max="15000" value="${Number(current.intvel_ms?.[i]??25)}" data-delay="${i}" title="Delay after event in milliseconds"><button class="remove-event" data-remove="${i}" title="Remove">×</button></div>`;
-          }).join("") : `<div class="event-empty">${state.recording?'Press keys now. Recording captures both down and up events.':'Record input or add an event manually.'}</div>`}
-        </div></div>` : `<div class="event-empty">Create a macro to open the event editor.</div>`}</section>
+          }).join("") : `<div class="event-empty">${state.recording?'Press keys now. Recording captures both down and up events.':'Record keys or type text above, or add an event here.'}</div>`}
+        </div></details></div>` : `<div class="event-empty">Create a macro to open the editor.</div>`}</section>
     </div></div>`;
   $("#add-macro").addEventListener("click", addMacro);
   $("#import-macros").addEventListener("click",()=>$("#macro-import-input").click());
-  $$("[data-macro]").forEach(button => button.addEventListener("click",()=>{state.macro=Number(button.dataset.macro);renderMacros();}));
+  $$("[data-macro]").forEach(button => button.addEventListener("click",()=>{state.macro=Number(button.dataset.macro);renderMacros();restoreFocus(`[data-macro="${button.dataset.macro}"]`);}));
   if (!current) return;
+  $("#macro-advanced").addEventListener("toggle",event=>{state.macroAdvancedOpen=event.currentTarget.open;});
   $("#delete-macro").addEventListener("click", removeMacro);
   $("#add-event").addEventListener("click", () => {
     const candidate=clone(macros());
@@ -2161,6 +2195,7 @@ function toggleRecording() {
   state.recording = !state.recording;
   state.recordLast = performance.now();
   renderMacros();
+  restoreFocus("#record-macro");
 }
 
 function recordEvent(event, down) {
@@ -4247,6 +4282,8 @@ function showDeviceDialog(){const dialog=$("#device-dialog");if(!dialog.open)dia
 
 $("#open-button").addEventListener("click",()=>$("#open-input").click());
 $("#merge-button").addEventListener("click",()=>$("#merge-input").click());
+$("#empty-open").addEventListener("click",()=>$("#open-input").click());
+$("#empty-connect").addEventListener("click",showDeviceDialog);
 $("#open-input").addEventListener("change",event=>readFiles(event.currentTarget,false));
 $("#merge-input").addEventListener("change",event=>readFiles(event.currentTarget,true));
 $("#macro-import-input").addEventListener("change",event=>importMacros(event.currentTarget));

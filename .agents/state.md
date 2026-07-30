@@ -32,6 +32,16 @@
   `https://github.com/roethlar/AgentGovernanceBootstrap/issues/11` tracks the
   toolkit bug that made the original openreview contract produce a
   defect-shaped audit instead of an independent approach.
+- Product-experience implementation runs in parallel on
+  `claude/product-experience-remediation`, a worktree branch based at the
+  shared docs tip `0271213`. Slice P2 is implemented and guard-proven:
+  onboarding task cards (Connect a keyboard / Open a JSON profile), contextual
+  Merge, Advanced keycode and Show technical labels disclosures with lossless
+  raw round-trip, Type text / Record keys as the normal macro path with
+  complete event editing under Edit individual events, labelled sidebar
+  counts, and focus restoration. Guards live in
+  `tests/web/app_shell.test.js` plus the updated empty-state test in
+  `tests/test_app.py`.
 
 ## Next
 
@@ -41,6 +51,10 @@
 - The owner assigned the product-experience plan to Claude for parallel work.
   Claude may implement low-conflict visual/documentation work independently;
   AI language and Settings integration wait for the backend contracts to land.
+- On `claude/product-experience-remediation`, Slice P4 (hierarchy,
+  accessibility, responsive behavior) is the next low-conflict work. Slices
+  P1 and P3 start only after the completed backend branch merges into the
+  product branch; P5 screenshots and P6 versioning close out after both plans.
 
 ## Blockers
 

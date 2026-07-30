@@ -126,6 +126,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .empty-state h1 { font-size: clamp(38px, 5vw, 66px); line-height: .98; letter-spacing: -.055em; margin: 10px 0 20px; }
 .empty-state > p:not(.eyebrow) { max-width: 580px; color: var(--muted); font-size: 16px; line-height: 1.7; margin: 0 0 30px; }
 .empty-state code { color: var(--violet-2); background: var(--violet-soft); padding: 2px 6px; border-radius: 5px; }
+.empty-actions { display: grid; grid-template-columns: repeat(2, minmax(220px, 280px)); gap: 14px; justify-content: center; margin: 6px 0 26px; }
+.task-card { display: flex; flex-direction: column; gap: 8px; text-align: left; padding: 18px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel-2); cursor: pointer; transition: border-color .15s, background .15s; }
+.task-card:hover { border-color: var(--violet); background: var(--panel-3); }
+.task-card strong { font-size: 16px; }
+.task-card span { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.empty-state > p.empty-note { max-width: 560px; color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0; }
+@media (max-width: 720px) { .empty-actions { grid-template-columns: 1fr; } }
 .eyebrow { color: var(--violet-2); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; font-weight: 700; margin: 0; }
 .empty-orbit { position: relative; width: 130px; height: 130px; display: grid; place-items: center; margin-bottom: 24px; }
 .empty-orbit div { position: absolute; inset: 0; border: 1px solid rgba(131, 88, 255, .4); border-radius: 50%; animation: orbit 12s linear infinite; }
@@ -412,6 +419,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .palette-key.active { border-color: var(--violet); background: var(--violet-soft); color: var(--violet-2); }
 .raw-row { display: flex; gap: 6px; margin-top: 12px; }
 .raw-row .button { padding: 0 10px; }
+.advanced-disclosure { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+.advanced-disclosure summary { width: max-content; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; cursor: pointer; }
+.advanced-disclosure summary:hover { color: var(--text); }
+.advanced-disclosure > :not(summary) { margin-top: 10px; }
+.pending-assignment { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 12px; border: 1px solid var(--violet); border-radius: 10px; background: var(--violet-soft); }
+.pending-assignment .button-row { display: flex; gap: 6px; }
+.macro-capacity { display: grid; gap: 6px; color: var(--muted); }
 .assignment-panel { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); display: grid; gap: 16px; }
 .assignment-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .assignment-heading > div { display: grid; gap: 3px; }

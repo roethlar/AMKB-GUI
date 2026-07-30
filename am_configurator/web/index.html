@@ -17,7 +17,7 @@
       </div>
       <div class="top-actions">
         <button id="open-button" class="button ghost">Open</button>
-        <button id="merge-button" class="button ghost">Merge</button>
+        <button id="merge-button" class="button ghost" hidden>Merge another JSON</button>
         <button id="save-button" class="button ghost">Save JSON</button>
         <button id="settings-button" class="button ghost">Settings</button>
         <button id="write-button" class="button danger" disabled>Write to keyboard</button>
@@ -69,9 +69,19 @@
         <div id="route-content">
           <section id="empty-state" class="empty-state" hidden>
             <div class="empty-orbit"><div></div><img src="/icon.png" alt=""></div>
-            <p class="eyebrow">Local keyboard studio</p>
-            <h1 id="empty-title">Open a configuration to begin.</h1>
-            <p id="empty-description">Connect by USB and choose <code>Devices → Read keymap &amp; macros</code>, or open an existing JSON to preserve every lighting page.</p>
+            <h1 id="empty-title">Set up your keyboard</h1>
+            <p id="empty-description">Start with your keyboard plugged in, or open a profile you saved earlier.</p>
+            <div class="empty-actions">
+              <button id="empty-connect" type="button" class="task-card">
+                <strong>Connect a keyboard</strong>
+                <span>Find your keyboard over USB and read its current setup. Reading never writes to the keyboard.</span>
+              </button>
+              <button id="empty-open" type="button" class="task-card">
+                <strong>Open a JSON profile</strong>
+                <span>Open a complete portable profile with keymaps, macros, and lighting.</span>
+              </button>
+            </div>
+            <p class="empty-note">Some keyboards cannot read their lighting back. Keep a complete JSON profile — or this computer's last verified snapshot — so existing lighting is preserved.</p>
           </section>
 
           <section id="screen" hidden></section>

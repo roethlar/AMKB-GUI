@@ -437,12 +437,21 @@ class DesktopServerTests(unittest.TestCase):
             metadata["project"]["gui-scripts"]["am-configurator"],
         )
 
-    def test_empty_state_copy_names_the_current_device_read_action(self) -> None:
+    def test_empty_state_connect_task_reaches_the_device_read_action(self) -> None:
         source = (ROOT / "am_configurator" / "web" / "index.html").read_text(
             encoding="utf-8"
         )
+        script = (ROOT / "am_configurator" / "web" / "app.js").read_text(
+            encoding="utf-8"
+        )
 
-        self.assertIn("Devices → Read keymap &amp; macros", source)
+        self.assertIn("Connect a keyboard", source)
+        self.assertIn('id="read-device"', source)
+        self.assertIn("Read keymap &amp; macros", source)
+        self.assertIn(
+            '$("#empty-connect").addEventListener("click",showDeviceDialog)',
+            script,
+        )
         self.assertNotIn("Device → Read", source)
 
     def test_version_lives_only_in_about(self) -> None:
