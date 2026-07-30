@@ -157,7 +157,7 @@
     });
   }
 
-  function normalizeLocalModels(value) {
+  function normalizeOllamaModels(value) {
     const models = [];
     const seen = new Set();
     if (Array.isArray(value?.models)) {
@@ -183,13 +183,13 @@
     };
   }
 
-  function localModelRefreshFailed(current) {
-    const normalized = normalizeLocalModels(current);
+  function ollamaModelRefreshFailed(current) {
+    const normalized = normalizeOllamaModels(current);
     return {...normalized, available: false, reason: "refresh_failed", loading: false};
   }
 
-  function shouldDiscoverLocalModels(route, status) {
-    return status?.enabled === true && status?.backend === "local";
+  function shouldDiscoverOllamaModels(route, status) {
+    return status?.enabled === true && status?.backend === "ollama";
   }
 
   function aiStudioAvailable(status) {
@@ -269,12 +269,12 @@
     };
   }
 
-  function projectLocalModelPicker(inventory, local = {}, previousValue = "") {
+  function projectOllamaModelPicker(inventory, ollama = {}, previousValue = "") {
     const models = Array.isArray(inventory?.models) ? inventory.models : [];
     const loading = inventory?.loading === true;
     const available = inventory?.available === true;
     const reason = ["upgrade_required", "refresh_failed"].includes(inventory?.reason) ? inventory.reason : null;
-    const selectedId = typeof local?.model_id === "string" && local.model_id ? local.model_id : null;
+    const selectedId = typeof ollama?.model_id === "string" && ollama.model_id ? ollama.model_id : null;
     const installedIds = new Set(models.map(model => model.model_id));
     let inventoryState = "available";
     if (loading) inventoryState = "loading";
@@ -287,7 +287,7 @@
     if (selectedId) {
       if (["loading", "unavailable", "transient_failure"].includes(inventoryState)) selectionState = "transient_failure";
       else if (!installedIds.has(selectedId)) selectionState = "removed";
-      else if (local.model_verified !== true) selectionState = "digest_changed";
+      else if (ollama.model_verified !== true) selectionState = "digest_changed";
       else selectionState = "selected";
     }
 
@@ -541,18 +541,18 @@
     createLightingState,
     escapeMarkup,
     formatLightingHash,
-    localModelRefreshFailed,
+    ollamaModelRefreshFailed,
     nextGridIndex,
-    normalizeLocalModels,
+    normalizeOllamaModels,
     normalizeImportedAssignmentCodes,
     normalizeImportedLightingColors,
     parseLightingHash,
     projectApiProviderPicker,
-    projectLocalModelPicker,
+    projectOllamaModelPicker,
     projectLightingJob,
     reduceLightingState,
     routeAvailability,
     safeRgbColor,
-    shouldDiscoverLocalModels,
+    shouldDiscoverOllamaModels,
   });
 });

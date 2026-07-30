@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import socket
@@ -11,15 +12,17 @@ import urllib.request
 from unittest.mock import patch
 
 from am_configurator.ollama_client import (
+    DEFAULT_OLLAMA_BASE_URL,
     MAX_OLLAMA_MODELS,
     MAX_OLLAMA_RESPONSE_BYTES,
-    OLLAMA_CHAT_URL,
-    OLLAMA_MODELS_URL,
+    OLLAMA_CHAT_PATH,
+    OLLAMA_MODELS_PATH,
     OllamaClient,
     OllamaError,
     _NoOllamaRedirects,
     _OLLAMA_OPENER,
     _build_ollama_opener,
+    normalize_ollama_base_url,
 )
 
 
@@ -128,7 +131,79 @@ def _model(
 
 
 class OllamaClientTests(unittest.TestCase):
-    def test_discovery_is_fixed_and_returns_sorted_public_models(self) -> None:
+    def test_origin_normalization_accepts_supported_http_and_https_hosts(self) -> None:
+        cases = {
+            "http://localhost:11434/": "http://localhost:11434",
+            "HTTP://OLLAMA.LAN:11434": "http://ollama.lan:11434",
+            "http://192.168.1.20:11434": "http://192.168.1.20:11434",
+            "https://[2001:0db8::1]:11434/": "https://[2001:db8::1]:11434",
+            "http://localhost:80": "http://localhost",
+            "https://ollama.example:443": "https://ollama.example",
+        }
+        for supplied, expected in cases.items():
+            with self.subTest(supplied=supplied):
+                self.assertEqual(expected, normalize_ollama_base_url(supplied))
+
+    def test_origin_normalization_rejects_non_origins_and_unsafe_hosts(self) -> None:
+        cases = (
+            None,
+            "",
+            "localhost:11434",
+            "ftp://localhost:11434",
+            "http://",
+            "http://user@localhost:11434",
+            "http://user:password@localhost:11434",
+            "http://localhost:11434/api/tags",
+            "http://localhost:11434?model=x",
+            "http://localhost:11434#fragment",
+            "http://0.0.0.0:11434",
+            "http://[::]:11434",
+            "http://localhost:bad",
+            "http://localhost:65536",
+            "http://010.000.000.001:11434",
+            "http://127.1:11434",
+            "http://*.example:11434",
+            "http://localhost.:11434",
+            "http://local host:11434",
+            " http://localhost:11434",
+            "http://localhost:11434 ",
+            "http://[fe80::1%25eth0]:11434",
+            "http://localhost:11434\n",
+        )
+        for supplied in cases:
+            with self.subTest(supplied=supplied):
+                with self.assertRaises(ValueError):
+                    normalize_ollama_base_url(supplied)
+
+    def test_configured_inventory_origin_and_connection_scheme_are_preserved(self) -> None:
+        calls = []
+
+        def opener(request, timeout):
+            calls.append((request.full_url, timeout))
+            return _Response({"models": []})
+
+        http_client = OllamaClient(
+            base_url="http://ollama.lan:12000/",
+            opener=opener,
+        )
+        https_client = OllamaClient(
+            base_url="https://ollama.example/",
+            opener=opener,
+        )
+        http_client.list_models(deadline=time.monotonic() + 10)
+        https_client.list_models(deadline=time.monotonic() + 10)
+
+        self.assertEqual(
+            [
+                f"http://ollama.lan:12000{OLLAMA_MODELS_PATH}",
+                f"https://ollama.example{OLLAMA_MODELS_PATH}",
+            ],
+            [url for url, _timeout in calls],
+        )
+        self.assertIs(http.client.HTTPConnection, http_client._connection_factory)
+        self.assertIs(http.client.HTTPSConnection, https_client._connection_factory)
+
+    def test_discovery_uses_configured_origin_and_returns_sorted_public_models(self) -> None:
         calls = []
         payload = {
             "models": [
@@ -141,7 +216,10 @@ class OllamaClientTests(unittest.TestCase):
             calls.append((request, timeout))
             return _Response(payload)
 
-        models = OllamaClient(opener=opener).list_models(
+        models = OllamaClient(
+            base_url="https://OLLAMA.EXAMPLE:443/",
+            opener=opener,
+        ).list_models(
             deadline=time.monotonic() + 10
         )
 
@@ -150,7 +228,10 @@ class OllamaClientTests(unittest.TestCase):
         self.assertEqual("9.0B", models[1].parameter_size)
         self.assertEqual("Q4_K_M", models[1].quantization)
         request, timeout = calls[0]
-        self.assertEqual(OLLAMA_MODELS_URL, request.full_url)
+        self.assertEqual(
+            f"https://ollama.example{OLLAMA_MODELS_PATH}",
+            request.full_url,
+        )
         self.assertEqual("GET", request.get_method())
         self.assertGreater(timeout, 0)
 
@@ -205,7 +286,7 @@ class OllamaClientTests(unittest.TestCase):
 
         def missing(*_args, **_kwargs):
             raise urllib.error.HTTPError(
-                OLLAMA_MODELS_URL,
+                f"{DEFAULT_OLLAMA_BASE_URL}{OLLAMA_MODELS_PATH}",
                 404,
                 "not found",
                 {},
@@ -233,7 +314,10 @@ class OllamaClientTests(unittest.TestCase):
             )
         self.assertEqual("upgrade_required", captured.exception.code)
         self.assertIn("must be upgraded", str(captured.exception))
-        self.assertEqual([OLLAMA_MODELS_URL], [url for url, _timeout in calls])
+        self.assertEqual(
+            [f"{DEFAULT_OLLAMA_BASE_URL}{OLLAMA_MODELS_PATH}"],
+            [url for url, _timeout in calls],
+        )
 
         empty = OllamaClient(
             opener=lambda *_args, **_kwargs: _Response({"models": []})
@@ -253,11 +337,12 @@ class OllamaClientTests(unittest.TestCase):
         ).list_models(deadline=time.monotonic() + 10)
         self.assertEqual((), non_completion)
 
-    def test_chat_uses_only_the_fixed_loopback_endpoint_and_rejects_bad_output(self) -> None:
+    def test_chat_uses_only_the_configured_origin_and_rejects_bad_output(self) -> None:
         observed = {}
 
         body = {"model": "ornith:latest", "stream": False}
         response = OllamaClient(
+            base_url="https://ollama.example:12000",
             connection_factory=_connection_factory(
                 _HTTPResponse({"message": {"content": "{}"}}),
                 observed,
@@ -269,9 +354,9 @@ class OllamaClientTests(unittest.TestCase):
         )
         self.assertEqual({"message": {"content": "{}"}}, response)
         host, port, timeout = observed["connection"]
-        self.assertEqual(("127.0.0.1", 11434), (host, port))
+        self.assertEqual(("ollama.example", 12000), (host, port))
         self.assertEqual("POST", observed["method"])
-        self.assertEqual("/api/chat", observed["path"])
+        self.assertEqual(OLLAMA_CHAT_PATH, observed["path"])
         self.assertEqual(body, observed["body"])
         self.assertGreater(timeout, 0)
         self.assertTrue(observed["connection_object"].closed)
@@ -322,7 +407,7 @@ class OllamaClientTests(unittest.TestCase):
                 cancelled=lambda: False,
             )
         self.assertEqual("unavailable", redirect.exception.code)
-        self.assertNotIn(OLLAMA_CHAT_URL, str(redirect.exception))
+        self.assertNotIn(OLLAMA_CHAT_PATH, str(redirect.exception))
 
         with self.assertRaises(OllamaError) as expired:
             OllamaClient(opener=lambda *_args, **_kwargs: self.fail("opened")).list_models(

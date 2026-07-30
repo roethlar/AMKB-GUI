@@ -5,6 +5,7 @@ import inspect
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from am_configurator import ai_capability, ai_catalog, llm
 from am_configurator.ai_capability import (
@@ -18,14 +19,18 @@ from am_configurator.recipe_provider import RecipeResult
 
 
 DEFAULTS = {
-    "schema_version": 6,
+    "schema_version": 7,
     "ai": {
         "enabled": False,
         "backend": None,
-        "local": {
+        "ollama": {
+            "base_url": "http://127.0.0.1:11434",
             "model_id": None,
             "model_digest": None,
+            "model_location": None,
             "setup_fingerprint": None,
+            "disclosure_version": None,
+            "disclosure_at": None,
         },
         "api": {
             "selected_provider": "xai",
@@ -78,7 +83,7 @@ class _Provider:
                     }
                 ],
             },
-            backend="local",
+            backend="ollama",
             provider="ollama",
             model_id="ornith:latest",
             usage=None,
@@ -190,7 +195,8 @@ class CapabilityTests(unittest.TestCase):
                 "backend": None,
                 "ready": False,
                 "reason": "disabled",
-                "local": {
+                "ollama": {
+                    "base_url": "http://127.0.0.1:11434",
                     "service_available": False,
                     "model_selected": False,
                     "model_id": None,
@@ -236,17 +242,44 @@ class CapabilityTests(unittest.TestCase):
         self.assertEqual(0, ollama.calls)
         self.assertEqual(0, credential_calls)
 
+    def test_ollama_client_is_cached_by_normalized_origin_and_replaced_on_change(self) -> None:
+        created: list[tuple[str, _OllamaClient]] = []
+
+        def client_factory(*, base_url):
+            client = _OllamaClient([])
+            created.append((base_url, client))
+            return client
+
+        with patch.object(ai_capability, "OllamaClient", side_effect=client_factory):
+            service = AICapabilityService(
+                settings_loader=lambda: copy.deepcopy(self.settings),
+            )
+            service.discover_ollama_models()
+            service.discover_ollama_models()
+            self.settings["ai"]["ollama"]["base_url"] = "https://ollama.lan"
+            service.discover_ollama_models()
+
+        self.assertEqual(
+            [
+                "http://127.0.0.1:11434",
+                "https://ollama.lan",
+            ],
+            [base_url for base_url, _client in created],
+        )
+        self.assertEqual([2, 1], [client.calls for _base_url, client in created])
+
     def test_enabled_status_probes_only_the_selected_backend(self) -> None:
-        local = self.settings["ai"]["local"]
-        local.update({
+        ollama = self.settings["ai"]["ollama"]
+        ollama.update({
             "model_id": self.ollama_model.model_id,
             "model_digest": self.ollama_model.digest,
             "setup_fingerprint": ollama_setup_fingerprint(
+                ollama["base_url"],
                 self.ollama_model.model_id,
                 self.ollama_model.digest,
             ),
         })
-        self.settings["ai"].update({"enabled": True, "backend": "local"})
+        self.settings["ai"].update({"enabled": True, "backend": "ollama"})
         ollama = _OllamaClient([self.ollama_model])
         credential_calls = 0
 
@@ -561,7 +594,7 @@ class CapabilityTests(unittest.TestCase):
         service = self._service()
         self.assertEqual("backend_unselected", service.status()["reason"])
 
-        self.settings["ai"]["backend"] = "local"
+        self.settings["ai"]["backend"] = "ollama"
         self.assertEqual(
             "ollama_unavailable",
             self._service(ollama_available=False).status()["reason"],
@@ -574,7 +607,7 @@ class CapabilityTests(unittest.TestCase):
         upgrade = self._service(ollama_error="upgrade_required")
         upgrade_status = upgrade.status()
         self.assertEqual("upgrade_required", upgrade_status["reason"])
-        self.assertTrue(upgrade_status["local"]["service_available"])
+        self.assertTrue(upgrade_status["ollama"]["service_available"])
         self.assertFalse(upgrade_status["ready"])
         with self.assertRaises(AICapabilityError) as captured:
             upgrade.require_ready()
@@ -585,11 +618,11 @@ class CapabilityTests(unittest.TestCase):
                 "models": [],
                 "reason": "upgrade_required",
             },
-            upgrade.discover_local_models(),
+            upgrade.discover_ollama_models(),
         )
         self.assertEqual(
             {"available": True, "models": []},
-            service.discover_local_models(),
+            service.discover_ollama_models(),
         )
 
         self.settings["ai"]["backend"] = "api"
@@ -628,8 +661,8 @@ class CapabilityTests(unittest.TestCase):
     def test_ollama_setup_uses_installed_name_and_digest(self) -> None:
         provider = _Provider()
         self.ollama_models = [self.ollama_model]
-        self.settings["ai"]["backend"] = "local"
-        self.settings["ai"]["local"].update({
+        self.settings["ai"]["backend"] = "ollama"
+        self.settings["ai"]["ollama"].update({
             "model_id": self.ollama_model.model_id,
             "model_digest": self.ollama_model.digest,
         })
@@ -637,16 +670,20 @@ class CapabilityTests(unittest.TestCase):
         service = self._service(provider=provider)
 
         status = service.test_backend(
-            "local", deadline=time.monotonic() + 10, cancelled=lambda: False
+            "ollama", deadline=time.monotonic() + 10, cancelled=lambda: False
         )
 
         self.assertEqual(1, provider.calls)
         self.assertTrue(status["ready"])
-        self.assertEqual("ollama", status["local"]["provider"])
-        self.assertEqual("ornith:latest", status["local"]["model_id"])
+        self.assertEqual("ollama", status["ollama"]["provider"])
+        self.assertEqual("ornith:latest", status["ollama"]["model_id"])
         self.assertEqual(
-            ollama_setup_fingerprint("ornith:latest", "c" * 64),
-            self.settings["ai"]["local"]["setup_fingerprint"],
+            ollama_setup_fingerprint(
+                self.settings["ai"]["ollama"]["base_url"],
+                "ornith:latest",
+                "c" * 64,
+            ),
+            self.settings["ai"]["ollama"]["setup_fingerprint"],
         )
 
         self.ollama_models.clear()
@@ -656,16 +693,17 @@ class CapabilityTests(unittest.TestCase):
         provider = _Provider()
         self.ollama_models = [self.ollama_model]
         old_fingerprint = ollama_setup_fingerprint(
+            self.settings["ai"]["ollama"]["base_url"],
             self.ollama_model.model_id,
             self.ollama_model.digest,
         )
-        local = self.settings["ai"]["local"]
-        local.update({
+        ollama = self.settings["ai"]["ollama"]
+        ollama.update({
             "model_id": self.ollama_model.model_id,
             "model_digest": self.ollama_model.digest,
             "setup_fingerprint": old_fingerprint,
         })
-        self.settings["ai"].update({"enabled": True, "backend": "local"})
+        self.settings["ai"].update({"enabled": True, "backend": "ollama"})
         service = self._service(provider=provider)
         self.assertTrue(service.status()["ready"])
 
@@ -680,71 +718,73 @@ class CapabilityTests(unittest.TestCase):
         replaced = service.status()
         self.assertFalse(replaced["ready"])
         self.assertEqual("model_unavailable", replaced["reason"])
-        self.assertFalse(replaced["local"]["model_verified"])
-        self.assertFalse(replaced["local"]["setup_tested"])
+        self.assertFalse(replaced["ollama"]["model_verified"])
+        self.assertFalse(replaced["ollama"]["setup_tested"])
 
-        local.update({
+        ollama.update({
             "model_digest": replacement.digest,
             "setup_fingerprint": None,
         })
         selected = service.status()
         self.assertFalse(selected["ready"])
         self.assertEqual("setup_required", selected["reason"])
-        self.assertTrue(selected["local"]["model_verified"])
-        self.assertFalse(selected["local"]["setup_tested"])
+        self.assertTrue(selected["ollama"]["model_verified"])
+        self.assertFalse(selected["ollama"]["setup_tested"])
         with self.assertRaises(AICapabilityError) as blocked:
             service.require_ready()
         self.assertEqual("setup_required", blocked.exception.reason)
 
         tested = service.test_backend(
-            "local", deadline=time.monotonic() + 10, cancelled=lambda: False
+            "ollama", deadline=time.monotonic() + 10, cancelled=lambda: False
         )
         new_fingerprint = ollama_setup_fingerprint(
+            self.settings["ai"]["ollama"]["base_url"],
             replacement.model_id,
             replacement.digest,
         )
         self.assertEqual(1, provider.calls)
         self.assertNotEqual(old_fingerprint, new_fingerprint)
-        self.assertEqual(new_fingerprint, local["setup_fingerprint"])
+        self.assertEqual(new_fingerprint, ollama["setup_fingerprint"])
         self.assertTrue(tested["ready"])
         self.assertEqual("ready", tested["reason"])
-        self.assertTrue(tested["local"]["setup_tested"])
+        self.assertTrue(tested["ollama"]["setup_tested"])
 
     def test_setup_requires_master_switch_and_never_changes_its_intent(self) -> None:
         self.ollama_models = [self.ollama_model]
-        local = self.settings["ai"]["local"]
-        local.update({
+        ollama = self.settings["ai"]["ollama"]
+        ollama.update({
             "model_id": self.ollama_model.model_id,
             "model_digest": self.ollama_model.digest,
         })
-        self.settings["ai"]["backend"] = "local"
+        self.settings["ai"]["backend"] = "ollama"
         provider = _Provider()
         service = self._service(provider=provider)
 
         with self.assertRaises(AICapabilityError) as blocked:
             service.test_backend(
-                "local", deadline=time.monotonic() + 10, cancelled=lambda: False
+                "ollama", deadline=time.monotonic() + 10, cancelled=lambda: False
             )
         self.assertEqual("disabled", blocked.exception.reason)
         self.assertEqual(0, provider.calls)
-        self.assertIsNone(local["setup_fingerprint"])
+        self.assertIsNone(ollama["setup_fingerprint"])
 
         self.settings["ai"]["enabled"] = True
         status = service.test_backend(
-            "local", deadline=time.monotonic() + 10, cancelled=lambda: False
+            "ollama", deadline=time.monotonic() + 10, cancelled=lambda: False
         )
         self.assertTrue(status["enabled"])
         self.assertTrue(status["ready"])
         self.assertEqual(1, provider.calls)
 
-    def test_generation_failure_does_not_invalidate_a_ready_local_model(self) -> None:
+    def test_generation_failure_does_not_invalidate_a_ready_ollama_model(self) -> None:
         failure = _FailingProvider("bad_response")
         self.ollama_models = [self.ollama_model]
-        self.settings["ai"].update({"enabled": True, "backend": "local"})
-        self.settings["ai"]["local"].update({
+        self.settings["ai"].update({"enabled": True, "backend": "ollama"})
+        self.settings["ai"]["ollama"].update({
             "model_id": self.ollama_model.model_id,
             "model_digest": self.ollama_model.digest,
             "setup_fingerprint": ollama_setup_fingerprint(
+                self.settings["ai"]["ollama"]["base_url"],
                 self.ollama_model.model_id,
                 self.ollama_model.digest,
             ),
@@ -816,12 +856,13 @@ class CapabilityTests(unittest.TestCase):
 
     def test_provider_construction_is_singleton_per_backend_identity(self) -> None:
         self.ollama_models = [self.ollama_model]
-        self.settings["ai"].update({"enabled": True, "backend": "local"})
-        local = self.settings["ai"]["local"]
-        local.update({
+        self.settings["ai"].update({"enabled": True, "backend": "ollama"})
+        ollama = self.settings["ai"]["ollama"]
+        ollama.update({
             "model_id": self.ollama_model.model_id,
             "model_digest": self.ollama_model.digest,
             "setup_fingerprint": ollama_setup_fingerprint(
+                ollama["base_url"],
                 self.ollama_model.model_id,
                 self.ollama_model.digest,
             ),

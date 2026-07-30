@@ -9,6 +9,7 @@ import unittest
 import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
@@ -18,7 +19,11 @@ from am_configurator.credentials import MemoryCredentialStore
 from am_configurator.generation_admission import OperationGate
 from am_configurator.library import GeneratedAssetLibrary
 from am_configurator.llm import ProviderError
-from am_configurator.ollama_client import OLLAMA_MODELS_URL, OllamaClient
+from am_configurator.ollama_client import (
+    DEFAULT_OLLAMA_BASE_URL,
+    OLLAMA_MODELS_PATH,
+    OllamaClient,
+)
 from am_configurator.procedural_generation import ProceduralGenerationCoordinator
 from am_configurator.recipe_provider import RecipeResult
 from am_configurator.server import create_server
@@ -39,10 +44,11 @@ def _ready_status() -> dict:
     return {
         "schema_version": 1,
         "enabled": True,
-        "backend": "local",
+        "backend": "ollama",
         "ready": True,
         "reason": "ready",
-        "local": {
+        "ollama": {
+            "base_url": DEFAULT_OLLAMA_BASE_URL,
             "service_available": True,
             "model_selected": True,
             "model_id": "ornith:latest",
@@ -92,7 +98,7 @@ class _Provider:
         self.calls.append(request)
         return RecipeResult(
             recipe=json.loads(_RECIPE.read_text("utf-8")),
-            backend="local",
+            backend="ollama",
             provider="ollama",
             model_id="ornith:latest",
             usage=None,
@@ -121,16 +127,17 @@ class _Capability:
         self.closed = False
         self.status_value = _ready_status()
 
-    def status(self):
+    def status(self, *, probe=True):
+        del probe
         return copy.deepcopy(self.status_value)
 
     def backend_setup_valid(self, backend):
         self.validation_calls.append(backend)
         current = self.status()
-        if backend == "local":
-            local = current["local"]
+        if backend == "ollama":
+            ollama = current["ollama"]
             return all(
-                local[field] is True
+                ollama[field] is True
                 for field in (
                     "service_available",
                     "model_selected",
@@ -160,7 +167,7 @@ class _Capability:
         self.test_calls.append(backend)
         return self.status()
 
-    def discover_local_models(self):
+    def discover_ollama_models(self):
         return {
             "available": True,
             "models": [
@@ -276,16 +283,17 @@ class OptionalAIRouteTests(unittest.TestCase):
     def test_status_and_all_new_mutations_require_authentication(self) -> None:
         cases = (
             ("GET", "/api/ai/status", None),
-            ("GET", "/api/ai/local/models", None),
-            ("POST", "/api/settings/ai", {"enabled": False, "backend": "local"}),
+            ("GET", "/api/ai/ollama/models", None),
+            ("POST", "/api/settings/ai", {"enabled": False, "backend": "ollama"}),
+            ("POST", "/api/settings/ollama", {"base_url": DEFAULT_OLLAMA_BASE_URL}),
             ("POST", "/api/settings/credential", {"provider": "xai", "key": "secret"}),
             ("POST", "/api/settings/migration/discard-credential", {"confirm": True}),
-            ("POST", "/api/ai/test", {"backend": "local"}),
-            ("POST", "/api/ai/local/select", {"model_id": "ornith:latest"}),
-            ("POST", "/api/ai/local/gguf/select", {}),
-            ("POST", "/api/ai/local/clear", {}),
+            ("POST", "/api/ai/test", {"backend": "ollama"}),
+            ("POST", "/api/ai/ollama/select", {"model_id": "ornith:latest"}),
+            ("POST", "/api/ai/ollama/gguf/select", {}),
+            ("POST", "/api/ai/ollama/clear", {}),
             ("POST", "/api/document/sync", {"config": _valid_config("AM21")}),
-            ("POST", "/api/lighting/effects", {"prompt": "aurora", "backend": "local"}),
+            ("POST", "/api/lighting/effects", {"prompt": "aurora", "backend": "ollama"}),
         )
         for method, path, body in cases:
             with self.subTest(path=path):
@@ -329,10 +337,10 @@ class OptionalAIRouteTests(unittest.TestCase):
         status, _response = self._request("GET", "/api/ai/status?extra=true")
         self.assertEqual(400, status)
 
-        status, models = self._request("GET", "/api/ai/local/models")
+        status, models = self._request("GET", "/api/ai/ollama/models")
         self.assertEqual(200, status)
         self.assertEqual(["ornith:latest"], [item["model_id"] for item in models["models"]])
-        status, _response = self._request("GET", "/api/ai/local/models?host=other")
+        status, _response = self._request("GET", "/api/ai/ollama/models?host=other")
         self.assertEqual(400, status)
 
         secret = "sk-route-secret-12345678"
@@ -346,36 +354,36 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.assertEqual(secret, self.credentials.get("xai"))
 
         status, _response = self._request(
-            "POST", "/api/settings/ai", {"enabled": False, "backend": "local"}
+            "POST", "/api/settings/ai", {"enabled": False, "backend": "ollama"}
         )
         self.assertEqual(200, status)
-        self.assertEqual("local", store.load_settings(credential_store=self.credentials)["ai"]["backend"])
+        self.assertEqual("ollama", store.load_settings(credential_store=self.credentials)["ai"]["backend"])
 
         status, _response = self._request(
-            "POST", "/api/ai/test", {"backend": "local"}
+            "POST", "/api/ai/test", {"backend": "ollama"}
         )
         self.assertEqual(200, status)
-        self.assertEqual(["local"], self.capability.test_calls)
+        self.assertEqual(["ollama"], self.capability.test_calls)
 
         status, _response = self._request(
-            "POST", "/api/ai/local/select", {"path": "/tmp/injected.gguf"}
+            "POST", "/api/ai/ollama/select", {"path": "/tmp/injected.gguf"}
         )
         self.assertEqual(400, status)
         status, response = self._request(
-            "POST", "/api/ai/local/select", {"model_id": "ornith:latest"}
+            "POST", "/api/ai/ollama/select", {"model_id": "ornith:latest"}
         )
         self.assertEqual(200, status)
-        local = store.load_settings(credential_store=self.credentials)["ai"]["local"]
-        self.assertEqual("ornith:latest", local["model_id"])
+        ollama = store.load_settings(credential_store=self.credentials)["ai"]["ollama"]
+        self.assertEqual("ornith:latest", ollama["model_id"])
 
-        status, response = self._request("POST", "/api/ai/local/gguf/select", {})
+        status, response = self._request("POST", "/api/ai/ollama/gguf/select", {})
         self.assertEqual(404, status)
         self.assertNotIn("private", json.dumps(response))
 
-        status, _response = self._request("POST", "/api/ai/local/clear", {})
+        status, _response = self._request("POST", "/api/ai/ollama/clear", {})
         self.assertEqual(200, status)
         self.assertIsNone(
-            store.load_settings(credential_store=self.credentials)["ai"]["local"]["model_id"]
+            store.load_settings(credential_store=self.credentials)["ai"]["ollama"]["model_id"]
         )
 
     def test_real_ollama_discovery_and_selection_cross_the_server_contract(self) -> None:
@@ -404,13 +412,13 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.server.state._ai_capability = None
         self.server.state._ollama_client = OllamaClient(opener=opener)
 
-        status, response = self._request("GET", "/api/ai/local/models")
+        status, response = self._request("GET", "/api/ai/ollama/models")
         self.assertEqual(200, status)
         self.assertEqual({"available": False, "models": []}, response)
         self.assertIsInstance(self.server.state.ai_services(), AICapabilityService)
 
         transport["outcome"] = {"models": [model]}
-        status, response = self._request("GET", "/api/ai/local/models")
+        status, response = self._request("GET", "/api/ai/ollama/models")
         self.assertEqual(200, status)
         self.assertEqual(
             {
@@ -429,40 +437,51 @@ class OptionalAIRouteTests(unittest.TestCase):
         )
 
         status, _response = self._request(
-            "POST", "/api/ai/local/select", {"model_id": "missing:latest"}
+            "POST", "/api/ai/ollama/select", {"model_id": "missing:latest"}
         )
         self.assertEqual(400, status)
-        local = store.load_settings(credential_store=self.credentials)["ai"]["local"]
+        ollama = store.load_settings(credential_store=self.credentials)["ai"]["ollama"]
         self.assertEqual(
             {
+                "base_url": DEFAULT_OLLAMA_BASE_URL,
                 "model_id": None,
                 "model_digest": None,
+                "model_location": None,
                 "setup_fingerprint": None,
+                "disclosure_version": None,
+                "disclosure_at": None,
             },
-            local,
+            ollama,
         )
 
         status, _response = self._request(
-            "POST", "/api/ai/local/select", {"model_id": "ornith:latest"}
+            "POST", "/api/ai/ollama/select", {"model_id": "ornith:latest"}
         )
         self.assertEqual(200, status)
-        local = store.load_settings(credential_store=self.credentials)["ai"]["local"]
+        ollama = store.load_settings(credential_store=self.credentials)["ai"]["ollama"]
         self.assertEqual(
             {
+                "base_url": DEFAULT_OLLAMA_BASE_URL,
                 "model_id": "ornith:latest",
                 "model_digest": digest,
+                "model_location": None,
                 "setup_fingerprint": None,
+                "disclosure_version": None,
+                "disclosure_at": None,
             },
-            local,
+            ollama,
         )
 
         transport["outcome"] = {"models": {"not": "a list"}}
-        status, response = self._request("GET", "/api/ai/local/models")
+        status, response = self._request("GET", "/api/ai/ollama/models")
         self.assertEqual(200, status)
         self.assertEqual({"available": False, "models": []}, response)
         self.assertEqual(5, len(calls))
         for url, method, timeout in calls:
-            self.assertEqual(OLLAMA_MODELS_URL, url)
+            self.assertEqual(
+                f"{DEFAULT_OLLAMA_BASE_URL}{OLLAMA_MODELS_PATH}",
+                url,
+            )
             self.assertEqual("GET", method)
             self.assertGreater(timeout, 0)
 
@@ -484,14 +503,14 @@ class OptionalAIRouteTests(unittest.TestCase):
     def test_master_switch_persists_intent_before_setup_without_running_it(self) -> None:
         before = store.load_settings(credential_store=self.credentials)
         self.assertFalse(before["ai"]["enabled"])
-        self.assertIsNone(before["ai"]["local"]["setup_fingerprint"])
+        self.assertIsNone(before["ai"]["ollama"]["setup_fingerprint"])
 
         status, _response = self._request(
             "POST",
             "/api/settings/ai",
             {
                 "enabled": True,
-                "backend": "local",
+                "backend": "ollama",
                 "provider": "xai",
                 "model_id": "grok-4.5",
             },
@@ -500,19 +519,40 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.assertEqual(200, status)
         enabled = store.load_settings(credential_store=self.credentials)
         self.assertTrue(enabled["ai"]["enabled"])
-        self.assertEqual("local", enabled["ai"]["backend"])
-        self.assertIsNone(enabled["ai"]["local"]["setup_fingerprint"])
+        self.assertEqual("ollama", enabled["ai"]["backend"])
+        self.assertIsNone(enabled["ai"]["ollama"]["setup_fingerprint"])
         self.assertEqual([], self.capability.validation_calls)
         self.assertEqual([], self.capability.test_calls)
 
         status, _response = self._request(
             "POST",
             "/api/settings/ai",
-            {"enabled": False, "backend": "local"},
+            {"enabled": False, "backend": "ollama"},
         )
         self.assertEqual(200, status)
         self.assertFalse(
             store.load_settings(credential_store=self.credentials)["ai"]["enabled"]
+        )
+
+    def test_ollama_origin_route_normalizes_and_persists_without_discovery(self) -> None:
+        with patch.object(
+            self.capability,
+            "discover_ollama_models",
+            side_effect=AssertionError("origin save contacted Ollama"),
+        ):
+            status, response = self._request(
+                "POST",
+                "/api/settings/ollama",
+                {"base_url": "HTTPS://OLLAMA.LAN:443/"},
+            )
+
+        self.assertEqual(200, status)
+        self.assertEqual("https://ollama.lan", response["ollama"]["base_url"])
+        self.assertEqual(
+            "https://ollama.lan",
+            store.load_settings(credential_store=self.credentials)["ai"]["ollama"][
+                "base_url"
+            ],
         )
 
     def test_settings_projects_all_provider_models_and_mutations_remain_scoped(self) -> None:
@@ -602,7 +642,7 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.assertEqual(original, path.read_bytes())
 
         status, response = self._request(
-            "POST", "/api/settings/ai", {"enabled": False, "backend": "local"}
+            "POST", "/api/settings/ai", {"enabled": False, "backend": "ollama"}
         )
         self.assertEqual(400, status)
         self.assertNotIn(secret, json.dumps(response))
@@ -635,7 +675,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             "/api/lighting/effects",
             {
                 "prompt": "Dense violet aurora",
-                "backend": "local",
+                "backend": "ollama",
                 "target": "keyframes",
                 "document_revision": self.document_revision,
             },
@@ -672,7 +712,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             "/api/lighting/effects",
             {
                 "prompt": "attempted override",
-                "backend": "local",
+                "backend": "ollama",
                 "target": "keyframes",
                 "document_revision": self.document_revision,
                 "product_id": "CB04",
@@ -699,12 +739,12 @@ class OptionalAIRouteTests(unittest.TestCase):
         for body in (
             {
                 "prompt": "missing exact target",
-                "backend": "local",
+                "backend": "ollama",
                 "document_revision": self.document_revision,
             },
             {
                 "prompt": "unsupported exact target",
-                "backend": "local",
+                "backend": "ollama",
                 "target": "frames",
                 "document_revision": self.document_revision,
             },
@@ -728,7 +768,7 @@ class OptionalAIRouteTests(unittest.TestCase):
                     "/api/lighting/effects",
                     {
                         "prompt": "reject media composition",
-                        "backend": "local",
+                        "backend": "ollama",
                         "target": "keyframes",
                         "document_revision": self.document_revision,
                         field: value,
@@ -797,7 +837,7 @@ class OptionalAIRouteTests(unittest.TestCase):
                     "/api/lighting/effects",
                     {
                         "prompt": "stale target",
-                        "backend": "local",
+                        "backend": "ollama",
                         "target": selected_target,
                         "document_revision": stale_revision,
                     },
@@ -810,7 +850,7 @@ class OptionalAIRouteTests(unittest.TestCase):
                     "/api/lighting/effects",
                     {
                         "prompt": "canonical target",
-                        "backend": "local",
+                        "backend": "ollama",
                         "target": selected_target,
                         "document_revision": revision,
                     },
@@ -836,7 +876,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             "/api/lighting/effects",
             {
                 "prompt": "ignored loop control",
-                "backend": "local",
+                "backend": "ollama",
                 "target": "keyframes",
                 "loop_mode": "ping_pong",
                 "document_revision": self.document_revision,
@@ -871,7 +911,7 @@ class OptionalAIRouteTests(unittest.TestCase):
                 "frame_cap": 200,
             },
             models={
-                "backend": "local",
+                "backend": "ollama",
                 "provider": "ollama",
                 "model_id": "ornith:latest",
             },
@@ -907,7 +947,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             "/api/lighting/effects",
             {
                 "prompt": "blocked",
-                "backend": "local",
+                "backend": "ollama",
                 "target": "keyframes",
                 "document_revision": self.document_revision,
             },
@@ -925,7 +965,7 @@ class OptionalAIRouteTests(unittest.TestCase):
             "/api/lighting/effects",
             {
                 "prompt": "no device",
-                "backend": "local",
+                "backend": "ollama",
                 "target": "keyframes",
                 "document_revision": stale_revision,
             },
@@ -938,15 +978,15 @@ class OptionalAIRouteTests(unittest.TestCase):
         token, _cancelled = self.gate.begin("already-running")
         try:
             status, _response = self._request(
-                "POST", "/api/ai/test", {"backend": "local"}
+                "POST", "/api/ai/test", {"backend": "ollama"}
             )
             self.assertEqual(409, status)
             status, _response = self._request(
-                "POST", "/api/ai/local/select", {"model_id": "ornith:latest"}
+                "POST", "/api/ai/ollama/select", {"model_id": "ornith:latest"}
             )
             self.assertEqual(409, status)
             status, _response = self._request(
-                "POST", "/api/ai/local/gguf/select", {}
+                "POST", "/api/ai/ollama/gguf/select", {}
             )
             self.assertEqual(404, status)
         finally:
@@ -959,14 +999,14 @@ class OptionalAIRouteTests(unittest.TestCase):
 
         self.capability.test_backend = rate_limited
         status, response = self._request(
-            "POST", "/api/ai/test", {"backend": "local"}
+            "POST", "/api/ai/test", {"backend": "ollama"}
         )
         self.assertEqual(429, status)
         self.assertEqual("rate_limited", response["code"])
         self.assertEqual(7, response["retry_after"])
         self.assertFalse(self.gate.is_active)
 
-        status, response = self._request("POST", "/api/ai/local/gguf/select", {})
+        status, response = self._request("POST", "/api/ai/ollama/gguf/select", {})
         self.assertEqual(404, status)
         self.assertEqual({"error": "Not found."}, response)
 

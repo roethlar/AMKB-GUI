@@ -299,7 +299,7 @@ def snapshot(product_id: str, ir: dict) -> Path:
 # verified OS credential store before the old file is atomically replaced.
 
 KEY_MASK = "•" * 8  # Legacy UI display mask; never a legal credential value
-SETTINGS_SCHEMA_VERSION = 6
+SETTINGS_SCHEMA_VERSION = 7
 LOOP_MODES = ("smooth", "none", "ping_pong")
 MIN_CANDIDATE_COUNT = 1
 MAX_CANDIDATE_COUNT = 8
@@ -397,16 +397,23 @@ def _api_provider_settings(*, model_id: str | None = None) -> dict:
 
 
 def _default_settings() -> dict:
-    """A fresh copy of the credential-free Ollama/API-only schema v6 defaults."""
+    """A fresh copy of the credential-free Ollama/API-only schema v7 defaults."""
+
+    from .ollama_client import DEFAULT_OLLAMA_BASE_URL
+
     return {
         "schema_version": SETTINGS_SCHEMA_VERSION,
         "ai": {
             "enabled": False,
             "backend": None,
-            "local": {
+            "ollama": {
+                "base_url": DEFAULT_OLLAMA_BASE_URL,
                 "model_id": None,
                 "model_digest": None,
+                "model_location": None,
                 "setup_fingerprint": None,
+                "disclosure_version": None,
+                "disclosure_at": None,
             },
             "api": {
                 "selected_provider": "xai",
@@ -423,10 +430,24 @@ def _default_settings() -> dict:
     }
 
 
+def _default_v6_settings() -> dict:
+    """Former fixed-loopback Ollama shape used only for strict v6 migration."""
+
+    result = _default_settings()
+    result["schema_version"] = 6
+    result["ai"]["local"] = {
+        "model_id": None,
+        "model_digest": None,
+        "setup_fingerprint": None,
+    }
+    del result["ai"]["ollama"]
+    return result
+
+
 def _default_v5_settings() -> dict:
     """Former single-provider API shape used only for strict v5 migration."""
 
-    result = _default_settings()
+    result = _default_v6_settings()
     result["schema_version"] = 5
     result["ai"]["api"] = {
         "provider": "xai",
@@ -969,8 +990,8 @@ def _validate_v5_settings(values: object) -> dict:
     return result
 
 
-def _validate_settings(values: object) -> dict:
-    """Strict-validate and normalize credential-free schema v6 settings."""
+def _validate_v6_settings(values: object) -> dict:
+    """Strict-validate and normalize the former schema v6 settings."""
 
     settings = _object(values, "settings")
     _reject_unknown(
@@ -978,9 +999,9 @@ def _validate_settings(values: object) -> dict:
         {"schema_version", "ai", "library", "generation"},
         "settings",
     )
-    if settings.get("schema_version") != SETTINGS_SCHEMA_VERSION:
+    if settings.get("schema_version") != 6:
         raise ValueError("unsupported settings schema_version")
-    result = _default_settings()
+    result = _default_v6_settings()
 
     ai = _object(settings.get("ai", {}), "settings 'ai'")
     _reject_unknown(ai, {"enabled", "backend", "local", "api"}, "ai settings")
@@ -1093,6 +1114,163 @@ def _validate_settings(values: object) -> dict:
     return result
 
 
+def _validate_settings(values: object) -> dict:
+    """Strict-validate and normalize credential-free schema v7 settings."""
+
+    settings = _object(values, "settings")
+    _reject_unknown(
+        settings,
+        {"schema_version", "ai", "library", "generation"},
+        "settings",
+    )
+    if settings.get("schema_version") != SETTINGS_SCHEMA_VERSION:
+        raise ValueError("unsupported settings schema_version")
+    result = _default_settings()
+
+    ai = _object(settings.get("ai", {}), "settings 'ai'")
+    _reject_unknown(ai, {"enabled", "backend", "ollama", "api"}, "ai settings")
+    enabled = ai.get("enabled", False)
+    backend = ai.get("backend")
+    if type(enabled) is not bool:
+        raise ValueError("ai enabled must be true or false")
+    if backend not in {None, "ollama", "api"}:
+        raise ValueError("ai backend must be ollama, api, or null")
+    if enabled and backend is None:
+        raise ValueError("enabled AI requires a selected backend")
+
+    from .ollama_client import (
+        DEFAULT_OLLAMA_BASE_URL,
+        normalize_ollama_base_url,
+        valid_model_digest,
+        valid_model_id,
+    )
+
+    ollama = _object(ai.get("ollama", {}), "settings 'ai.ollama'")
+    _reject_unknown(
+        ollama,
+        {
+            "base_url",
+            "model_id",
+            "model_digest",
+            "model_location",
+            "setup_fingerprint",
+            "disclosure_version",
+            "disclosure_at",
+        },
+        "Ollama AI settings",
+    )
+    base_url = normalize_ollama_base_url(
+        ollama.get("base_url", DEFAULT_OLLAMA_BASE_URL)
+    )
+    model_id = ollama.get("model_id")
+    model_digest = ollama.get("model_digest")
+    model_location = ollama.get("model_location")
+    if (model_id is None) != (model_digest is None):
+        raise ValueError("Ollama model identity must be complete or empty")
+    if model_id is not None and not valid_model_id(model_id):
+        raise ValueError("Ollama model_id is invalid")
+    if model_digest is not None and not valid_model_digest(model_digest):
+        raise ValueError("Ollama model_digest is invalid")
+    if model_location not in {None, "ollama_server", "ollama_cloud"}:
+        raise ValueError("Ollama model_location is invalid")
+    if model_id is None and model_location is not None:
+        raise ValueError("Ollama model location requires a selected model")
+    ollama_disclosure_version = _optional_text(
+        ollama.get("disclosure_version"), "Ollama disclosure_version"
+    )
+    ollama_disclosure_at = _optional_text(
+        ollama.get("disclosure_at"), "Ollama disclosure_at"
+    )
+    if (ollama_disclosure_version is None) != (ollama_disclosure_at is None):
+        raise ValueError("Ollama disclosure version and timestamp must be set together")
+
+    api = _object(ai.get("api", {}), "settings 'ai.api'")
+    _reject_unknown(api, {"selected_provider", "providers"}, "API AI settings")
+    selected_provider = ai_catalog.validate_api_provider(
+        api.get("selected_provider", "xai")
+    )
+    providers = _object(
+        api.get("providers", {}),
+        "settings 'ai.api.providers'",
+    )
+    if set(providers) != set(_KNOWN_KEY_PROVIDERS):
+        raise ValueError("API provider settings must contain every supported provider")
+    normalized_providers: dict[str, dict] = {}
+    for provider in _KNOWN_KEY_PROVIDERS:
+        provider_settings = _object(
+            providers[provider],
+            f"settings 'ai.api.providers.{provider}'",
+        )
+        _reject_unknown(
+            provider_settings,
+            {
+                "model_id",
+                "setup_fingerprint",
+                "disclosure_version",
+                "disclosure_at",
+            },
+            f"{provider} API settings",
+        )
+        provider_model_id = ai_catalog.validate_provider_model(
+            provider,
+            provider_settings.get("model_id"),
+            allow_none=True,
+        )
+        setup_fingerprint = _fingerprint(
+            provider_settings.get("setup_fingerprint"),
+            f"{provider} setup_fingerprint",
+        )
+        disclosure_version = _optional_text(
+            provider_settings.get("disclosure_version"),
+            f"{provider} disclosure_version",
+        )
+        disclosure_at = _optional_text(
+            provider_settings.get("disclosure_at"),
+            f"{provider} disclosure_at",
+        )
+        if (disclosure_version is None) != (disclosure_at is None):
+            raise ValueError(
+                f"{provider} disclosure version and timestamp must be set together"
+            )
+        if provider_model_id is None and setup_fingerprint is not None:
+            raise ValueError("API setup requires a selected provider model")
+        normalized_providers[provider] = {
+            "model_id": provider_model_id,
+            "setup_fingerprint": setup_fingerprint,
+            "disclosure_version": disclosure_version,
+            "disclosure_at": disclosure_at,
+        }
+
+    result["ai"] = {
+        "enabled": enabled,
+        "backend": backend,
+        "ollama": {
+            "base_url": base_url,
+            "model_id": model_id,
+            "model_digest": model_digest,
+            "model_location": model_location,
+            "setup_fingerprint": _fingerprint(
+                ollama.get("setup_fingerprint"),
+                "Ollama setup_fingerprint",
+            ),
+            "disclosure_version": ollama_disclosure_version,
+            "disclosure_at": ollama_disclosure_at,
+        },
+        "api": {
+            "selected_provider": selected_provider,
+            "providers": normalized_providers,
+        },
+    }
+    result["library"] = _validate_library(settings.get("library", {}))
+    generation = _object(settings.get("generation", {}), "settings 'generation'")
+    _reject_unknown(generation, {"loop_mode"}, "generation settings")
+    loop_mode = generation.get("loop_mode", "smooth")
+    if loop_mode not in LOOP_MODES:
+        raise ValueError("loop_mode must be smooth, none, or ping_pong")
+    result["generation"] = {"loop_mode": loop_mode}
+    return result
+
+
 def _project_v2_settings(settings: dict) -> dict:
     result = _default_v5_settings()
     result["library"] = {
@@ -1146,7 +1324,7 @@ def _project_v4_settings(settings: dict) -> dict:
 def _project_v5_settings(settings: dict) -> dict:
     """Wrap the complete v5 xAI record without touching credential storage."""
 
-    result = _default_settings()
+    result = _default_v6_settings()
     result["ai"]["enabled"] = settings["ai"]["enabled"]
     result["ai"]["backend"] = settings["ai"]["backend"]
     result["ai"]["local"] = dict(settings["ai"]["local"])
@@ -1168,21 +1346,53 @@ def _project_v5_settings(settings: dict) -> dict:
     return result
 
 
+def _project_v6_settings(settings: dict) -> dict:
+    """Project fixed-loopback schema v6 into the configurable v7 contract."""
+
+    result = _default_settings()
+    result["ai"]["enabled"] = settings["ai"]["enabled"]
+    result["ai"]["backend"] = (
+        "ollama" if settings["ai"]["backend"] == "local" else settings["ai"]["backend"]
+    )
+    result["ai"]["ollama"]["model_id"] = settings["ai"]["local"]["model_id"]
+    result["ai"]["ollama"]["model_digest"] = settings["ai"]["local"]["model_digest"]
+    result["ai"]["api"] = {
+        "selected_provider": settings["ai"]["api"]["selected_provider"],
+        "providers": {
+            provider: dict(provider_settings)
+            for provider, provider_settings in settings["ai"]["api"]["providers"].items()
+        },
+    }
+    result["library"] = {
+        "current_root": settings["library"]["current_root"],
+        "roots": list(settings["library"]["roots"]),
+    }
+    result["generation"] = dict(settings["generation"])
+    return result
+
+
 def _validate_migration_projection(settings: dict) -> dict:
     try:
         validated_v5 = _validate_v5_settings(settings)
-        return _validate_settings(_project_v5_settings(validated_v5))
+        validated_v6 = _validate_v6_settings(_project_v5_settings(validated_v5))
+        return _validate_settings(_project_v6_settings(validated_v6))
     except ValueError:
         raise SettingsMigrationValidationError() from None
 
 
 def _decode_settings(values: object) -> tuple[dict, str | None, bool]:
-    """Return ``(normalized_v6, legacy_xai_key, migration_required)``."""
+    """Return ``(normalized_v7, legacy_xai_key, migration_required)``."""
 
     if isinstance(values, dict):
         version = values.get("schema_version")
         if version == SETTINGS_SCHEMA_VERSION:
             return _validate_settings(values), None, False
+        if version == 6:
+            try:
+                validated_v6 = _validate_v6_settings(values)
+                return _validate_settings(_project_v6_settings(validated_v6)), None, True
+            except ValueError:
+                raise SettingsMigrationValidationError() from None
         if version == 5:
             return (
                 _validate_migration_projection(_validate_v5_settings(values)),
@@ -1307,7 +1517,7 @@ def _migrate_legacy_settings(
 
 
 def load_settings_with_status(*, credential_store=None) -> tuple[dict, str | None]:
-    """Return schema v6 settings and a pathless migration-retry reason."""
+    """Return schema v7 settings and a pathless migration-retry reason."""
 
     path = settings_path()
     try:
@@ -1357,7 +1567,7 @@ def load_settings_with_status(*, credential_store=None) -> tuple[dict, str | Non
 
 
 def load_settings(*, credential_store=None) -> dict:
-    """Load credential-free schema v6 settings, retrying safe migrations."""
+    """Load credential-free schema v7 settings, retrying safe migrations."""
 
     return load_settings_with_status(credential_store=credential_store)[0]
 
@@ -1438,7 +1648,7 @@ def save_settings(
     *,
     credential_store=None,
 ) -> dict:
-    """Persist strict v6 settings or accept the temporary legacy key form."""
+    """Persist strict v7 settings or accept the temporary legacy key form."""
 
     if isinstance(values, dict) and values.get("schema_version") == SETTINGS_SCHEMA_VERSION:
         normalized = _validate_settings(values)
@@ -1530,8 +1740,8 @@ def update_ai_settings(
         raise ValueError("AI settings must include a value")
     if "enabled" in body and type(body["enabled"]) is not bool:
         raise ValueError("AI enabled must be true or false")
-    if "backend" in body and body["backend"] not in {None, "local", "api"}:
-        raise ValueError("AI backend must be local, api, or null")
+    if "backend" in body and body["backend"] not in {None, "ollama", "api"}:
+        raise ValueError("AI backend must be ollama, api, or null")
     if "model_id" in body and "provider" not in body:
         raise ValueError("API model_id requires its provider")
     provider = None
@@ -1557,19 +1767,48 @@ def update_ai_settings(
     return _mutate_settings(mutate, credential_store=credential_store)
 
 
-def update_local_ai_settings(values: object, *, credential_store=None) -> dict:
-    """Select or clear one Ollama identity and invalidate local setup."""
+def update_ollama_ai_settings(values: object, *, credential_store=None) -> dict:
+    """Update one Ollama origin or model identity without contacting the server."""
 
-    body = _object(values, "local AI settings")
-    _reject_unknown(body, {"model_id", "model_digest"}, "local AI settings")
-    if set(body) != {"model_id", "model_digest"}:
-        raise ValueError("Ollama selection requires model_id and model_digest")
+    from .ollama_client import normalize_ollama_base_url
+
+    body = _object(values, "Ollama AI settings")
+    _reject_unknown(
+        body,
+        {"base_url", "model_id", "model_digest"},
+        "Ollama AI settings",
+    )
+    if set(body) not in ({"base_url"}, {"model_id", "model_digest"}):
+        raise ValueError(
+            "Ollama settings require base_url or a complete model identity"
+        )
+    base_url = (
+        normalize_ollama_base_url(body["base_url"]) if "base_url" in body else None
+    )
 
     def mutate(settings: dict) -> None:
-        local = settings["ai"]["local"]
-        local["model_id"] = body["model_id"]
-        local["model_digest"] = body["model_digest"]
-        local["setup_fingerprint"] = None
+        ollama = settings["ai"]["ollama"]
+        if base_url is not None:
+            if ollama["base_url"] == base_url:
+                return
+            ollama.update(
+                {
+                    "base_url": base_url,
+                    "model_id": None,
+                    "model_digest": None,
+                    "model_location": None,
+                    "setup_fingerprint": None,
+                    "disclosure_version": None,
+                    "disclosure_at": None,
+                }
+            )
+            return
+        ollama["model_id"] = body["model_id"]
+        ollama["model_digest"] = body["model_digest"]
+        ollama["model_location"] = None
+        ollama["setup_fingerprint"] = None
+        ollama["disclosure_version"] = None
+        ollama["disclosure_at"] = None
 
     return _mutate_settings(mutate, credential_store=credential_store)
 
@@ -1581,17 +1820,17 @@ def set_ai_setup_fingerprint(
     provider: str | None = None,
     credential_store=None,
 ) -> dict:
-    if backend not in {"local", "api"}:
-        raise ValueError("AI backend must be local or api")
+    if backend not in {"ollama", "api"}:
+        raise ValueError("AI backend must be ollama or api")
     normalized = _fingerprint(fingerprint, "setup fingerprint")
     if provider is not None:
         provider = ai_catalog.validate_api_provider(provider)
 
     def mutate(settings: dict) -> None:
-        if backend == "local":
+        if backend == "ollama":
             if provider is not None:
-                raise ValueError("Local AI setup does not accept an API provider")
-            settings["ai"]["local"]["setup_fingerprint"] = normalized
+                raise ValueError("Ollama setup does not accept an API provider")
+            settings["ai"]["ollama"]["setup_fingerprint"] = normalized
             return
         selected = settings["ai"]["api"]["selected_provider"]
         if provider is not None and provider != selected:

@@ -1319,7 +1319,7 @@ class OllamaRecipeProviderTests(unittest.TestCase):
         self.assertEqual(1536, payload["options"]["num_predict"])
         self.assertIn("18x7", payload["messages"][0]["content"])
         self.assertEqual(_recipe(), result.recipe)
-        self.assertEqual("local", result.backend)
+        self.assertEqual("ollama", result.backend)
         self.assertEqual("ollama", result.provider)
         self.assertEqual("ornith:latest", result.model_id)
         self.assertIsNone(result.usage)

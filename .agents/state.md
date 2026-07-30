@@ -32,12 +32,20 @@
   `https://github.com/roethlar/AgentGovernanceBootstrap/issues/11` tracks the
   toolkit bug that made the original openreview contract produce a
   defect-shaped audit instead of an independent approach.
+- Backend Slice B1 is implemented on `codex/ollama-backend-correctness`: schema
+  v7 migrates the fixed-loopback v6 record, Ollama accepts one normalized
+  HTTP(S) origin, endpoint persistence makes no request, clients are cached by
+  origin, and runtime/routes/status/frontend use the atomic `ollama` contract.
+  The full automated verification entry point passed after guard proofs showed
+  the origin, migration, client-cache, no-request endpoint, and no-alias tests
+  fail when their production behavior is removed. No live Ollama request,
+  credentialed provider request, or keyboard write was used.
 
 ## Next
 
-- Implement backend Slice B1 on `codex/ollama-backend-correctness`, preserving a
-  green full-stack boundary for the schema, endpoint, route, and consumer
-  rename.
+- Implement backend Slice B2: accept and classify every valid
+  completion-capable Ollama inventory entry, bind execution location and
+  disclosure into setup identity, and never use `remote_host` as transport.
 - The owner assigned the product-experience plan to Claude for parallel work.
   Claude may implement low-conflict visual/documentation work independently;
   AI language and Settings integration wait for the backend contracts to land.

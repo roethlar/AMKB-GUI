@@ -14,19 +14,19 @@ const {
   createPaintStrokeController,
   createLightingState,
   formatLightingHash,
-  localModelRefreshFailed,
+  ollamaModelRefreshFailed,
   nextGridIndex,
-  normalizeLocalModels,
+  normalizeOllamaModels,
   normalizeImportedAssignmentCodes,
   normalizeImportedLightingColors,
   parseLightingHash,
   projectLightingJob,
   projectApiProviderPicker,
-  projectLocalModelPicker,
+  projectOllamaModelPicker,
   reduceLightingState,
   routeAvailability,
   safeRgbColor,
-  shouldDiscoverLocalModels,
+  shouldDiscoverOllamaModels,
 } = require("../../am_configurator/web/lighting_state.js");
 
 const JOB_ID = "4d36e96e-e2aa-4e72-8808-4d03b5ba7e61";
@@ -125,16 +125,16 @@ class FakeEventTarget {
 }
 
 test("Ollama discovery stays behind an enabled Local AI switch", () => {
-  const disabled={enabled:false,backend:"local"};
-  const localEnabled={enabled:true,backend:"local"};
+  const disabled={enabled:false,backend:"ollama"};
+  const ollamaEnabled={enabled:true,backend:"ollama"};
   const apiEnabled={enabled:true,backend:"api"};
-  assert.equal(shouldDiscoverLocalModels(ROUTES.EDIT,disabled),false);
-  assert.equal(shouldDiscoverLocalModels(ROUTES.EDIT,null),false);
-  assert.equal(shouldDiscoverLocalModels(ROUTES.EDIT,apiEnabled),false);
-  assert.equal(shouldDiscoverLocalModels(ROUTES.EDIT,localEnabled),true);
-  assert.equal(shouldDiscoverLocalModels(ROUTES.SETTINGS,disabled),false);
-  assert.equal(shouldDiscoverLocalModels(ROUTES.SETTINGS,localEnabled),true);
-  assert.equal(shouldDiscoverLocalModels(ROUTES.SETTINGS,apiEnabled),false);
+  assert.equal(shouldDiscoverOllamaModels(ROUTES.EDIT,disabled),false);
+  assert.equal(shouldDiscoverOllamaModels(ROUTES.EDIT,null),false);
+  assert.equal(shouldDiscoverOllamaModels(ROUTES.EDIT,apiEnabled),false);
+  assert.equal(shouldDiscoverOllamaModels(ROUTES.EDIT,ollamaEnabled),true);
+  assert.equal(shouldDiscoverOllamaModels(ROUTES.SETTINGS,disabled),false);
+  assert.equal(shouldDiscoverOllamaModels(ROUTES.SETTINGS,ollamaEnabled),true);
+  assert.equal(shouldDiscoverOllamaModels(ROUTES.SETTINGS,apiEnabled),false);
 });
 
 test("epoch load ownership lets refresh supersede an in-flight asset safely", () => {
@@ -168,23 +168,23 @@ const MODEL_B = Object.freeze({
 });
 
 test("local model picker distinguishes inventory and selected-model states", () => {
-  const available=normalizeLocalModels({available:true,models:[MODEL_A,MODEL_B,null,{model_id:"bad"}]});
+  const available=normalizeOllamaModels({available:true,models:[MODEL_A,MODEL_B,null,{model_id:"bad"}]});
   assert.deepEqual(available.models.map(model=>model.model_id),["ornith:latest","small:latest"]);
-  assert.equal(projectLocalModelPicker(available,{}).inventoryState,"available");
-  assert.equal(projectLocalModelPicker(available,{}).disabled,false);
+  assert.equal(projectOllamaModelPicker(available,{}).inventoryState,"available");
+  assert.equal(projectOllamaModelPicker(available,{}).disabled,false);
 
-  const empty=normalizeLocalModels({available:true,models:[]});
-  assert.equal(projectLocalModelPicker(empty,{}).inventoryState,"empty");
-  assert.equal(projectLocalModelPicker(empty,{}).disabled,true);
+  const empty=normalizeOllamaModels({available:true,models:[]});
+  assert.equal(projectOllamaModelPicker(empty,{}).inventoryState,"empty");
+  assert.equal(projectOllamaModelPicker(empty,{}).disabled,true);
 
-  const unavailable=normalizeLocalModels({available:false,models:[]});
-  assert.equal(projectLocalModelPicker(unavailable,{}).inventoryState,"unavailable");
+  const unavailable=normalizeOllamaModels({available:false,models:[]});
+  assert.equal(projectOllamaModelPicker(unavailable,{}).inventoryState,"unavailable");
 
   const selected={model_id:MODEL_A.model_id,model_verified:true};
-  assert.equal(projectLocalModelPicker(available,selected).selectionState,"selected");
+  assert.equal(projectOllamaModelPicker(available,selected).selectionState,"selected");
 
-  const removed=projectLocalModelPicker(
-    normalizeLocalModels({available:true,models:[MODEL_B]}),
+  const removed=projectOllamaModelPicker(
+    normalizeOllamaModels({available:true,models:[MODEL_B]}),
     {model_id:MODEL_A.model_id,model_verified:false},
   );
   assert.equal(removed.selectionState,"removed");
@@ -195,15 +195,15 @@ test("local model picker distinguishes inventory and selected-model states", () 
     disabled:true,
   });
 
-  const changed=projectLocalModelPicker(
-    normalizeLocalModels({available:true,models:[{...MODEL_A,digest:"c".repeat(64)}]}),
+  const changed=projectOllamaModelPicker(
+    normalizeOllamaModels({available:true,models:[{...MODEL_A,digest:"c".repeat(64)}]}),
     {model_id:MODEL_A.model_id,model_verified:false},
   );
   assert.equal(changed.selectionState,"digest_changed");
   assert.equal(changed.value,MODEL_A.model_id);
 
-  const upgrade=projectLocalModelPicker(
-    normalizeLocalModels({available:true,models:[],reason:"upgrade_required"}),
+  const upgrade=projectOllamaModelPicker(
+    normalizeOllamaModels({available:true,models:[],reason:"upgrade_required"}),
     {},
   );
   assert.equal(upgrade.inventoryState,"upgrade_required");
@@ -211,9 +211,9 @@ test("local model picker distinguishes inventory and selected-model states", () 
 });
 
 test("local model picker preserves a preferred choice after transient refresh failure", () => {
-  const available=normalizeLocalModels({available:true,models:[MODEL_A,MODEL_B]});
-  const failed=localModelRefreshFailed(available);
-  const picker=projectLocalModelPicker(
+  const available=normalizeOllamaModels({available:true,models:[MODEL_A,MODEL_B]});
+  const failed=ollamaModelRefreshFailed(available);
+  const picker=projectOllamaModelPicker(
     failed,
     {model_id:MODEL_A.model_id,model_verified:true},
     MODEL_B.model_id,

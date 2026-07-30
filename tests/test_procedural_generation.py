@@ -51,7 +51,7 @@ def _dim_recipe() -> dict:
 
 
 class _Provider:
-    def __init__(self, recipes: list[dict], *, backend: str = "local") -> None:
+    def __init__(self, recipes: list[dict], *, backend: str = "ollama") -> None:
         self.recipes = [copy.deepcopy(recipe) for recipe in recipes]
         self.backend = backend
         self.calls: list[tuple[int, str | None]] = []
@@ -62,9 +62,9 @@ class _Provider:
         return RecipeResult(
             recipe=copy.deepcopy(recipe),
             backend=self.backend,
-            provider="ollama" if self.backend == "local" else "xai",
-            model_id="ornith:latest" if self.backend == "local" else "grok-4.5",
-            usage=None if self.backend == "local" else {"cost_in_usd_ticks": 42},
+            provider="ollama" if self.backend == "ollama" else "xai",
+            model_id="ornith:latest" if self.backend == "ollama" else "grok-4.5",
+            usage=None if self.backend == "ollama" else {"cost_in_usd_ticks": 42},
         )
 
     def generate(self, request, deadline, cancelled):
@@ -108,7 +108,7 @@ class _Capability:
             "enabled": True,
             "ready": True,
             "backend": backend,
-            "local": {
+            "ollama": {
                 "model_id": "ornith:latest",
                 "provider": "ollama",
             },
@@ -391,8 +391,8 @@ class ProceduralGenerationTests(unittest.TestCase):
                 return {
                     "enabled": True,
                     "ready": True,
-                    "backend": "local",
-                    "local": {
+                    "backend": "ollama",
+                    "ollama": {
                         "model_id": model.model_id,
                         "provider": "ollama",
                     },
@@ -671,7 +671,7 @@ class ProceduralGenerationTests(unittest.TestCase):
             ),
             client=client,
         )
-        provider.backend = "local"
+        provider.backend = "ollama"
         gate = OperationGate()
         coordinator = ProceduralGenerationCoordinator(
             self.library,
@@ -875,7 +875,7 @@ class ProceduralGenerationTests(unittest.TestCase):
         self.assertEqual("interrupted", recovered["status"])
         self.assertEqual("interrupted_api_no_replay", recovered["phase"])
 
-    def test_local_interruption_reconciliation_is_byte_stable_and_actionless(self) -> None:
+    def test_ollama_interruption_reconciliation_is_byte_stable_and_actionless(self) -> None:
         provider = _Provider([_dense_recipe()])
         coordinator = ProceduralGenerationCoordinator(
             self.library,
@@ -886,13 +886,13 @@ class ProceduralGenerationTests(unittest.TestCase):
         empty = self.library.create_job(
             prompt="Interrupted before attempt",
             target=TARGET,
-            models={"backend": "local", "provider": "ollama", "model_id": "ornith:latest"},
+            models={"backend": "ollama", "provider": "ollama", "model_id": "ornith:latest"},
             pipeline="procedural",
         )
         started = self.library.create_job(
             prompt="Interrupted during attempt",
             target=TARGET,
-            models={"backend": "local", "provider": "ollama", "model_id": "ornith:latest"},
+            models={"backend": "ollama", "provider": "ollama", "model_id": "ornith:latest"},
             pipeline="procedural",
         )
         attempt_id = str(uuid.uuid4())
@@ -956,7 +956,7 @@ class ProceduralGenerationTests(unittest.TestCase):
         manifest = self.library.create_job(
             prompt="Failed before job settlement",
             target=TARGET,
-            models={"backend": "local", "provider": "ollama", "model_id": "ornith:latest"},
+            models={"backend": "ollama", "provider": "ollama", "model_id": "ornith:latest"},
             pipeline="procedural",
         )
         attempt_id = str(uuid.uuid4())

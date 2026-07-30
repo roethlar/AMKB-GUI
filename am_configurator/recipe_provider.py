@@ -1343,7 +1343,7 @@ class OllamaRecipeProvider:
         recipe = _validated_recipe_text(_ollama_output_text(response))
         return RecipeResult(
             recipe=recipe,
-            backend="local",
+            backend="ollama",
             provider="ollama",
             model_id=self._model.model_id,
             usage=None,
