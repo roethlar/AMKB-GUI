@@ -52,19 +52,29 @@
   browser Refresh tests fail when their production behavior is removed. No
   live Ollama request, credentialed provider request, or keyboard write was
   used.
+- Backend Slice B3 is implemented in `a7daff3`. Ollama recipe generation,
+  local-animation generation, schema failures, quality failures, and
+  cancellation now make at most one model request per explicit action. Retry
+  prompts, retry seeds, retry limits, and the `generate_attempt` protocol were
+  removed while historical multi-attempt manifests remain supported. The
+  focused B3 suite passed 58 tests and the full automated verification entry
+  point passed.
 
 ## Next
 
-- Implement backend Slice B3: remove automatic Ollama regeneration so every
-  Generate or Try again action makes exactly one model request.
+- Close backend Slice B4 after a Windows native build and executable smoke
+  test. `python build.py --skip-sync` currently stops before packaging because
+  the pinned FFmpeg source archive and detached signature are not staged under
+  `build/ffmpeg/sources`; no executable was produced.
 - The owner assigned the product-experience plan to Claude for parallel work.
-  Claude may implement low-conflict visual/documentation work independently;
-  AI language and Settings integration wait for the backend contracts to land.
+  The backend contracts are now committed, so its AI language and Settings
+  integration no longer need to wait for B1-B3.
 
 ## Blockers
 
 - Backend implementation has no unresolved product decision or approval
-  blocker. Product AI/Settings integration depends on backend completion.
+  blocker. Native smoke remains blocked only on the missing staged FFmpeg
+  sources described above.
 - Live Ollama Cloud prompts, keyboard writes, macOS Open Anyway, tag creation,
   release publication, and announcements remain separately gated actions.
 - This Windows host cannot validate SmartScreen because SmartScreen is disabled.
