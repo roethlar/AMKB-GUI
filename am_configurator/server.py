@@ -53,14 +53,12 @@ _KEYMAP_VERIFY_RETRY_SECONDS = 1.0
 _MACRO_EVENTS_PER_BLOCK = 8
 _CYBERBOARD_MACRO_READBACK_BLOCKS = 15
 
-_MAX_ASSET_RANGE_BYTES = 8 * 1024 * 1024
 _LIGHTING_ASSET_MIMES = frozenset(
     {
         "image/bmp",
         "image/png",
         "image/jpeg",
         "image/gif",
-        "video/mp4",
         "application/json",
     }
 )
@@ -1851,8 +1849,7 @@ class _State:
         config: dict[str, Any] | None,
         token: str,
         lighting_library: Any = None,
-        lighting_coordinator: Any = None,
-        lighting_dependencies: dict[str, Any] | None = None,
+        operation_gate: Any = None,
         ai_capability: Any = None,
         credential_store: Any = None,
         procedural_coordinator: Any = None,
@@ -1861,10 +1858,6 @@ class _State:
             Callable[[], list[tuple[transport.DeviceHandle, Any]]] | None
         ) = None,
     ) -> None:
-        if (lighting_library is None) != (lighting_coordinator is None):
-            raise ValueError(
-                "lighting_library and lighting_coordinator must be injected together"
-            )
         self.config = copy.deepcopy(config)
         self.token = token
         self._document_lock = threading.Lock()
@@ -1886,8 +1879,6 @@ class _State:
         self.desktop_bridge: Any = None
         self._lighting_lock = threading.Lock()
         self._lighting_library = lighting_library
-        self._lighting_coordinator = lighting_coordinator
-        self._lighting_dependencies = dict(lighting_dependencies or {})
         self._ai_lock = threading.Lock()
         self._ai_capability = ai_capability
         self._credential_store = credential_store
@@ -1903,13 +1894,9 @@ class _State:
         self._media_renderer_catalog_identity: int | None = None
         from .generation_admission import PROCESS_OPERATION_GATE
 
-        self._generation_gate = self._lighting_dependencies.get(
-            "operation_gate", PROCESS_OPERATION_GATE
-        )
+        self._generation_gate = operation_gate or PROCESS_OPERATION_GATE
         self._lighting_root_signature: tuple[Any, ...] | None = None
-        self._lighting_reconcile_signature: (
-            tuple[int, bool, bytes | None] | None
-        ) = None
+        self._lighting_reconcile_signature: tuple[int, int] | None = None
         self._lighting_reconcile_pending = False
         self._lighting_reconcile_worker: threading.Thread | None = None
         if config is not None:
@@ -2032,7 +2019,7 @@ class _State:
         """Return the current Library and its local-first procedural coordinator."""
         from .library import GeneratedAssetLibrary
 
-        library, _legacy = self.lighting_services()
+        library = self.lighting_library()
         if (
             self._procedural_coordinator is not None
             and self._procedural_library_identity == id(library)
@@ -2055,7 +2042,7 @@ class _State:
         """Return the mixed catalog for the current generated-asset root set."""
         from .library import GeneratedAssetLibrary, LibraryCatalog
 
-        library, _coordinator = self.lighting_services()
+        library = self.lighting_library()
         if not isinstance(library, GeneratedAssetLibrary):
             raise RuntimeError("Library catalog services are unavailable.")
         with self._lighting_lock:
@@ -2100,12 +2087,11 @@ class _State:
 
         return self._device_executor.submit(serialized).result()
 
-    def lighting_services(self) -> tuple[Any, Any]:
-        """Return durable services, refreshing idle production roots from Settings."""
+    def lighting_library(self) -> Any:
+        """Return the durable Library, refreshing idle production roots from Settings."""
         if self._lighting_root_signature is None and self._lighting_library is not None:
-            return self._lighting_library, self._lighting_coordinator
+            return self._lighting_library
         from . import store
-        from .generation import GenerationCoordinator
         from .library import GeneratedAssetLibrary
 
         settings = store.load_settings()
@@ -2113,7 +2099,6 @@ class _State:
         roots = tuple(settings["library"]["roots"])
         signature = (current_root, *roots)
         with self._lighting_lock:
-            active = getattr(self._lighting_coordinator, "active_job_id", None)
             procedural_active = getattr(
                 self._procedural_coordinator, "active_job_id", None
             )
@@ -2126,79 +2111,36 @@ class _State:
                 self._lighting_library is not None
                 and (
                     self._lighting_root_signature == signature
-                    or active is not None
                     or procedural_active is not None
                     or media_active
                 )
             ):
-                return self._lighting_library, self._lighting_coordinator
+                return self._lighting_library
             library = GeneratedAssetLibrary(current_root, roots)
-            coordinator = GenerationCoordinator(
-                library, **self._lighting_dependencies
-            )
             self._lighting_library = library
-            self._lighting_coordinator = coordinator
             self._lighting_root_signature = signature
-            return library, coordinator
+            return library
 
     def reconcile_lighting(self, *, force: bool = False) -> list[dict]:
-        """Reconcile durable work now and again whenever the effective key changes."""
-        from . import store
+        """Reconcile procedural work without consulting retired video credentials."""
         from .generation_admission import GenerationBusyError
 
         if self._generation_gate.is_active:
             self._defer_lighting_reconciliation()
             return []
 
-        _library, coordinator = self.lighting_services()
-        settings = store.load_settings(credential_store=self._credential_store)
-        ai_settings = settings["ai"]
-        api_selected = (
-            ai_settings["enabled"] is True
-            and ai_settings["backend"] == "api"
-            and ai_settings["api"]["selected_provider"] == "xai"
-        )
-        credential_checked = api_selected
-        api_key = (
-            store.resolve_xai_key(credential_store=self._credential_store)
-            if credential_checked
-            else None
-        )
-        key_fingerprint = (
-            hashlib.sha256(api_key.encode("utf-8")).digest() if api_key else None
-        )
-        signature = (id(coordinator), api_selected, key_fingerprint)
+        library, procedural = self.procedural_services()
+        signature = (id(library), id(procedural))
         with self._lighting_lock:
             if not force and signature == self._lighting_reconcile_signature:
                 return []
-            # Claim this signature before reconciliation so concurrent requests
-            # cannot launch the same accepted video twice. A failure clears the
-            # claim, allowing the next safe trigger to retry.
+            # Claim this exact local pipeline before reconciliation. A failure
+            # clears the claim, allowing the next safe trigger to retry.
             self._lighting_reconcile_signature = signature
         try:
             token, _cancelled = self._generation_gate.begin()
             try:
-                actions = coordinator.reconcile_startup(
-                    api_key=api_key,
-                    _admission_token=token,
-                )
-                if actions and not credential_checked:
-                    recovery_key = store.resolve_xai_key(
-                        credential_store=self._credential_store
-                    )
-                    if recovery_key:
-                        actions = coordinator.reconcile_startup(
-                            api_key=recovery_key,
-                            _admission_token=token,
-                        )
-                try:
-                    _procedural_library, procedural = self.procedural_services()
-                except RuntimeError:
-                    return actions
-                return [
-                    *actions,
-                    *procedural.reconcile_startup(_admission_token=token),
-                ]
+                return procedural.reconcile_startup(_admission_token=token)
             finally:
                 self._generation_gate.finish(token)
         except GenerationBusyError:
@@ -2896,7 +2838,6 @@ class _Handler(BaseHTTPRequestHandler):
         }
 
     def _lighting_post(self, path: str, body: dict[str, Any]) -> None:
-        library, coordinator = self.state.lighting_services()
         if path == "/api/lighting/concepts":
             self._retired_ai_mutation()
             return
@@ -2909,21 +2850,20 @@ class _Handler(BaseHTTPRequestHandler):
         if action in {"concepts", "animate", "process"}:
             self._retired_ai_mutation()
             return
+        if action != "cancel":
+            self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+            return
+        library = self.state.lighting_library()
         # Resolve through the manifest boundary before any coordinator action;
         # this validates canonical IDs and historical-root ownership uniformly.
         manifest = library.load_manifest(job_id)
-        if action == "cancel":
-            self._strict_body(body, allowed=set())
-            if manifest.get("pipeline") == "procedural":
-                _procedural_library, procedural = self.state.procedural_services()
-                manifest = procedural.cancel(job_id)
-            else:
-                manifest = coordinator.cancel(job_id)
-            status = HTTPStatus.OK
-        else:
-            self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
+        if manifest.get("pipeline") != "procedural":
+            self._retired_ai_mutation()
             return
-        self._json({"job_id": manifest["job_id"]}, status)
+        self._strict_body(body, allowed=set())
+        _procedural_library, procedural = self.state.procedural_services()
+        manifest = procedural.cancel(job_id)
+        self._json({"job_id": manifest["job_id"]})
 
     @staticmethod
     def _media_import_name(query: str) -> str:
@@ -3337,7 +3277,6 @@ class _Handler(BaseHTTPRequestHandler):
     def _active_library_catalog_ids(self) -> set[str]:
         active_ids = {
             getattr(self.state._generation_gate, "active_job_id", None),
-            getattr(self.state._lighting_coordinator, "active_job_id", None),
             getattr(self.state._procedural_coordinator, "active_job_id", None),
         }
         catalog_ids = {
@@ -3503,7 +3442,7 @@ class _Handler(BaseHTTPRequestHandler):
         )
 
     def _lighting_get(self, path: str, query: str) -> None:
-        library, _coordinator = self.state.lighting_services()
+        library = self.state.lighting_library()
         if path == "/api/lighting/library":
             self._lighting_library_page(library, query)
             return
@@ -3639,56 +3578,10 @@ class _Handler(BaseHTTPRequestHandler):
                 payload = stream.read(total + 1)
             if len(payload) != total:
                 raise ValueError("The Library asset changed while it was read.")
-            extra = {"Accept-Ranges": "bytes"} if mime_type == "video/mp4" else None
-            self._headers(HTTPStatus.OK, mime_type, len(payload), extra)
+            self._headers(HTTPStatus.OK, mime_type, len(payload))
             self.wfile.write(payload)
             return
-        if mime_type != "video/mp4" or not range_header.startswith("bytes="):
-            self._range_not_satisfiable(total)
-            return
-        requested = range_header[6:]
-        if "," in requested or requested.count("-") != 1:
-            self._range_not_satisfiable(total)
-            return
-        first, last = requested.split("-", 1)
-        try:
-            if first:
-                start = int(first)
-                end = int(last) if last else total - 1
-            else:
-                suffix = int(last)
-                if suffix <= 0:
-                    raise ValueError
-                start = max(0, total - suffix)
-                end = total - 1
-        except ValueError:
-            self._range_not_satisfiable(total)
-            return
-        if (
-            start < 0
-            or end < start
-            or start >= total
-            or end >= total
-            or end - start + 1 > _MAX_ASSET_RANGE_BYTES
-        ):
-            self._range_not_satisfiable(total)
-            return
-        # A media player issues many Range requests per playback; verifying the
-        # whole file on each seek reads far more than the slice being served.
-        # The initial non-Range request verifies content end to end.
-        with owned.open_verified(verify_content=False) as stream:
-            stream.seek(start)
-            payload = stream.read(end - start + 1)
-        self._headers(
-            HTTPStatus.PARTIAL_CONTENT,
-            mime_type,
-            len(payload),
-            {
-                "Accept-Ranges": "bytes",
-                "Content-Range": f"bytes {start}-{end}/{total}",
-            },
-        )
-        self.wfile.write(payload)
+        self._range_not_satisfiable(total)
 
     def _convert_gif(self, body: dict[str, Any]) -> None:
         encoded = body.get("data")
@@ -3982,8 +3875,7 @@ def create_server(
     *,
     port: int = 0,
     lighting_library: Any = None,
-    lighting_coordinator: Any = None,
-    lighting_dependencies: dict[str, Any] | None = None,
+    operation_gate: Any = None,
     ai_capability: Any = None,
     credential_store: Any = None,
     procedural_coordinator: Any = None,
@@ -3994,9 +3886,9 @@ def create_server(
 ) -> tuple[_Server, str]:
     """Create the loopback configurator server without starting its event loop.
 
-    Tests may inject complete durable/procedural coordinators, the capability
-    service and credential store, or just dependency maps for
-    production construction. These seams keep endpoint tests offline.
+    Tests may inject the durable library, procedural coordinator, operation
+    gate, capability service, and credential store. These seams keep endpoint
+    tests offline.
     """
     configs: list[dict[str, Any]] = []
     for raw_path in config_paths or []:
@@ -4014,8 +3906,7 @@ def create_server(
         merge_configs(configs),
         token,
         lighting_library=lighting_library,
-        lighting_coordinator=lighting_coordinator,
-        lighting_dependencies=lighting_dependencies,
+        operation_gate=operation_gate,
         ai_capability=ai_capability,
         credential_store=credential_store,
         procedural_coordinator=procedural_coordinator,

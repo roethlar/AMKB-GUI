@@ -1,13 +1,13 @@
 """Durable, private storage and catalog projection for Lighting Studio assets.
 
-The library is intentionally independent of provider and device code.  It owns
-generated-job recovery plus immutable saved items; callers decide whether a
-returned ``resume_video_poll`` action is scheduled.  Catalog reads never invoke
-reconciliation, paid work, local processing, or device operations.
+The library is intentionally independent of provider and device code. It owns
+procedural-job recovery plus immutable saved items. Catalog reads never invoke
+paid work, local processing, or device operations. Retired video manifests are
+recognized only so scans can leave their files untouched and report them as
+unsupported.
 
 Manifest schema version 2 adds a pipeline discriminator and procedural attempt
-records while normalizing version 1 video manifests in memory without rewriting
-them. Future stages mutate those existing containers
+records. Future stages mutate those existing containers
 (``concept_batches``, ``animation_attempts``, ``provider_requests``, ``costs``,
 and ``recovery``) instead of adding ad-hoc top-level keys.  Assets are internal
 relative paths in the manifest, but public views expose only opaque job and
@@ -60,14 +60,13 @@ else:
 MANIFEST_SCHEMA_VERSION = 2
 SAVED_ITEM_SCHEMA_VERSION = 1
 DEFAULT_MINIMUM_FREE_BYTES = 256 * 1024 * 1024
-_DIRECTORIES = ("concepts", "video", "frames", "preview", "result", ".work")
+_DIRECTORIES = ("concepts", "frames", "preview", "result", ".work")
 _ASSET_LAYOUT = {
     "concept": ("concepts", {"image/png": ".png", "image/jpeg": ".jpg"}),
     "selected_still": ("concepts", {"image/png": ".png", "image/jpeg": ".jpg"}),
-    "source_video": ("video", {"video/mp4": ".mp4"}),
     "frame": ("frames", {"image/png": ".png"}),
     "preview_poster": ("preview", {"image/png": ".png", "image/jpeg": ".jpg"}),
-    "preview_animation": ("preview", {"image/gif": ".gif", "video/mp4": ".mp4"}),
+    "preview_animation": ("preview", {"image/gif": ".gif"}),
     "mapped_result": ("result", {"application/json": ".json"}),
     "recipe": ("result", {"application/json": ".json"}),
     "raster_animation": ("frames", {"image/gif": ".gif"}),
@@ -275,7 +274,6 @@ _MANIFEST_V1_FIELDS = {
 }
 _MANIFEST_V2_FIELDS = _MANIFEST_V1_FIELDS | {"pipeline", "procedural_attempts"}
 _PIPELINES = {"legacy_video", "procedural"}
-_DEFAULT_LOOP_MODE = object()
 _PROCEDURAL_ATTEMPT_FIELDS = {
     "attempt_id",
     "index",
@@ -1312,7 +1310,7 @@ def _validate_manifest(value: object, *, expected_job_id: str | None = None) -> 
     return copy.deepcopy(value)
 
 
-def _read_manifest(path: Path, job_id: str) -> dict:
+def _read_manifest_value(path: Path) -> object:
     if _is_linklike(path) or not path.is_file():
         raise ManifestError("This job manifest could not be read.")
     try:
@@ -1324,9 +1322,18 @@ def _read_manifest(path: Path, job_id: str) -> dict:
             payload = file.read(_MAX_MANIFEST_BYTES + 1)
         if len(payload) > _MAX_MANIFEST_BYTES:
             raise ManifestError("This job manifest could not be read.")
-        value = json.loads(payload.decode("utf-8"))
-        return _validate_manifest(value, expected_job_id=job_id)
+        return json.loads(payload.decode("utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise ManifestError("This job manifest could not be read.") from exc
+
+
+def _read_manifest(path: Path, job_id: str) -> dict:
+    try:
+        return _validate_manifest(
+            _read_manifest_value(path),
+            expected_job_id=job_id,
+        )
+    except RecursionError as exc:
         raise ManifestError("This job manifest could not be read.") from exc
 
 
@@ -1462,20 +1469,8 @@ class GeneratedAssetLibrary:
         prompt: str = "",
         target: Mapping[str, object] | None = None,
         models: Mapping[str, object] | None = None,
-        loop_mode: object = _DEFAULT_LOOP_MODE,
-        pipeline: str = "legacy_video",
     ) -> dict:
-        """Create an owner-private UUID job and its initial manifest."""
-        if pipeline not in _PIPELINES:
-            raise ManifestError("The job pipeline is unsupported.")
-        if pipeline == "procedural" and loop_mode is not _DEFAULT_LOOP_MODE:
-            raise ManifestError("Procedural jobs do not accept a loop mode.")
-        resolved_loop_mode = "smooth" if loop_mode is _DEFAULT_LOOP_MODE else loop_mode
-        if pipeline == "legacy_video" and (
-            not isinstance(resolved_loop_mode, str)
-            or resolved_loop_mode not in _LOOP_MODES
-        ):
-            raise ManifestError("The job loop mode is invalid.")
+        """Create an owner-private procedural job and its initial manifest."""
         root = self.preflight()
         jobs_dir = root / "jobs"
         job_dir: Path | None = None
@@ -1503,7 +1498,7 @@ class GeneratedAssetLibrary:
             timestamp = _now_iso()
             manifest = {
                 "schema_version": MANIFEST_SCHEMA_VERSION,
-                "pipeline": pipeline,
+                "pipeline": "procedural",
                 "job_id": job_id,
                 "created_at": timestamp,
                 "updated_at": timestamp,
@@ -1530,8 +1525,6 @@ class GeneratedAssetLibrary:
                 "errors": [],
                 "recovery": {},
             }
-            if pipeline == "legacy_video":
-                manifest["loop_mode"] = resolved_loop_mode
             normalized = _validate_manifest(manifest, expected_job_id=job_id)
             with _job_lock(job_dir):
                 _atomic_write_json(job_dir / "manifest.json", normalized)
@@ -1862,7 +1855,33 @@ class GeneratedAssetLibrary:
                 try:
                     if _is_linklike(entry) or not entry.is_dir():
                         raise ManifestError("This job manifest could not be read.")
-                    manifest = _read_manifest(entry / "manifest.json", job_id)
+                    manifest_path = entry / "manifest.json"
+                    value = _read_manifest_value(manifest_path)
+                    if (
+                        isinstance(value, dict)
+                        and (
+                            value.get("schema_version") == 1
+                            or value.get("pipeline") == "legacy_video"
+                        )
+                    ):
+                        if _canonical_uuid(value.get("job_id"), "job ID") != job_id:
+                            raise ManifestError(
+                                "The job manifest does not own this directory."
+                            )
+                        errors.append(
+                            {
+                                "job_id": job_id,
+                                "code": "unsupported_video_job",
+                                "message": "This retired video job is unsupported and was left unchanged.",
+                            }
+                        )
+                        continue
+                    try:
+                        manifest = _validate_manifest(value, expected_job_id=job_id)
+                    except RecursionError as exc:
+                        raise ManifestError(
+                            "This job manifest could not be read."
+                        ) from exc
                 except ManifestError:
                     errors.append(
                         {"job_id": job_id, "code": "corrupt_manifest", "message": "This job manifest could not be read."}
@@ -1910,24 +1929,6 @@ class GeneratedAssetLibrary:
         _make_private_directory(work)
         if os.name != "nt":
             os.chmod(work, 0o700)
-
-    @staticmethod
-    def _video_request_id(manifest: dict) -> str | None:
-        video = manifest["provider_requests"].get("video")
-        if not isinstance(video, dict):
-            return None
-        request_id = video.get("request_id")
-        if isinstance(request_id, str) and _SAFE_REQUEST_ID.fullmatch(request_id):
-            return request_id
-        return None
-
-    @staticmethod
-    def _video_request_status(manifest: dict) -> str | None:
-        video = manifest["provider_requests"].get("video")
-        if not isinstance(video, dict):
-            return None
-        status = video.get("status")
-        return status if isinstance(status, str) else None
 
     def _recover_orphan_assets(self, job_dir: Path, job_id: str) -> dict:
         """Finish exact durable asset intents left around an atomic rename."""
@@ -1985,78 +1986,13 @@ class GeneratedAssetLibrary:
             return False
         return True
 
-    def _source_video_asset(self, job_dir: Path, manifest: dict) -> dict | None:
-        for asset in reversed(manifest["assets"]):
-            if (
-                asset["kind"] == "source_video"
-                and asset["status"] in {"complete", "cancelled_saved"}
-                and self._asset_record_is_valid(job_dir, manifest, asset)
-            ):
-                return asset
-        return None
-
     def _reconcile_scanned_job(self, original: dict, job_dir: Path) -> dict | None:
         job_id = original["job_id"]
         original = self._recover_orphan_assets(job_dir, job_id)
         status = original["status"]
         phase = original["phase"]
-        request_id = self._video_request_id(original)
-        request_status = self._video_request_status(original)
-        source_video = self._source_video_asset(job_dir, original)
-        has_mapped_result = any(
-            asset["kind"] == "mapped_result"
-            and asset["status"] == "complete"
-            and self._asset_record_is_valid(job_dir, original, asset)
-            for asset in original["assets"]
-        )
         changes: dict[str, object] = {}
-        action = None
-
-        if source_video is not None and not has_mapped_result and status not in {
-            "ready_to_process",
-            "cancelled_saved",
-        }:
-            recovery = copy.deepcopy(original["recovery"])
-            recovery["source_video_asset_id"] = source_video["asset_id"]
-            if status == "cancelled" or original["cancel_requested_at"] is not None:
-                changes = {
-                    "status": "cancelled_saved",
-                    "phase": "cancelled_saved",
-                    "recovery": recovery,
-                }
-            else:
-                changes = {
-                    "status": "ready_to_process",
-                    "phase": "ready_to_process",
-                    "recovery": recovery,
-                }
-        elif (
-            request_id is not None
-            and source_video is None
-            and phase
-            in {
-                "video_submitting",
-                "video_submitted",
-                "video_polling",
-                "video_downloading",
-                "background_retrieval",
-            }
-            and request_status not in {"failed", "expired"}
-        ):
-            action = {
-                "job_id": job_id,
-                "action": "resume_video_poll",
-                "request_id": request_id,
-            }
-        elif request_id is not None and request_status in {"failed", "expired"}:
-            changes = {"status": request_status, "phase": "video_terminal"}
-        elif (
-            status == "in_progress"
-            and phase in {"video_submitting", "video_submitted"}
-            and request_id is None
-        ):
-            changes = {"status": "submission_unknown", "phase": "interrupted"}
-        elif status == "in_progress" and phase in {
+        if status == "in_progress" and phase in {
             "concept_generation",
             "concepts_generating",
         }:
@@ -2078,11 +2014,7 @@ class GeneratedAssetLibrary:
                 "status": "partial" if has_candidates else "interrupted",
                 "phase": "interrupted",
             }
-        elif (
-            status == "in_progress"
-            and phase in {"local_processing", "processing"}
-            and source_video is None
-        ):
+        elif status == "in_progress" and phase in {"local_processing", "processing"}:
             changes = {"status": "interrupted", "phase": "interrupted"}
         if changes:
             original = self.update_manifest(job_id, changes)
@@ -2092,7 +2024,7 @@ class GeneratedAssetLibrary:
                 latest = _read_manifest(job_dir / "manifest.json", job_id)
                 if latest["status"] in _TERMINAL_OR_IDLE_STATUSES:
                     self._purge_work(job_dir)
-        return action
+        return None
 
     def reconcile(self) -> dict[str, list[dict]]:
         """Persist safe states while isolating and reporting damaged jobs."""

@@ -193,14 +193,6 @@ class _Capability:
         self.closed = True
 
 
-class _LegacyCoordinator:
-    active_job_id = None
-
-    def reconcile_startup(self, *, api_key=None, _admission_token=None):
-        del _admission_token
-        return []
-
-
 class OptionalAIRouteTests(unittest.TestCase):
     _DEFAULT = object()
 
@@ -232,8 +224,7 @@ class OptionalAIRouteTests(unittest.TestCase):
         self.server, url = create_server(
             [str(config_path)],
             lighting_library=self.library,
-            lighting_coordinator=_LegacyCoordinator(),
-            lighting_dependencies={"operation_gate": self.gate},
+            operation_gate=self.gate,
             ai_capability=self.capability,
             credential_store=self.credentials,
             procedural_coordinator=self.procedural,
@@ -994,7 +985,6 @@ class OptionalAIRouteTests(unittest.TestCase):
                 "provider": "ollama",
                 "model_id": "ornith:latest",
             },
-            pipeline="procedural",
         )
         cancelled: list[str] = []
 

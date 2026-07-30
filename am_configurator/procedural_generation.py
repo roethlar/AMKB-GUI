@@ -282,7 +282,6 @@ class ProceduralGenerationCoordinator:
                 prompt=prompt,
                 target=snapshot,
                 models=models,
-                pipeline="procedural",
             )
             job_id = manifest["job_id"]
             self._gate.bind(token, job_id)

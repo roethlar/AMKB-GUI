@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import inspect
+import importlib.util
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from am_configurator import ai_catalog, generation, llm, server, store
+from am_configurator import ai_catalog, llm, server, store
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,14 +65,7 @@ class LegacyInlineGeneratorRemovalTests(unittest.TestCase):
                 self.assertNotIn(token, source)
 
     def test_retired_paid_mutation_stack_is_not_importable_or_configurable(self) -> None:
-        for name in (
-            "start_concepts",
-            "more_like_this",
-            "start_animation",
-            "retry_local",
-        ):
-            with self.subTest(coordinator_method=name):
-                self.assertFalse(hasattr(generation.GenerationCoordinator, name))
+        self.assertIsNone(importlib.util.find_spec("am_configurator.generation"))
 
         for name in (
             "ConceptPlan",
@@ -87,7 +81,7 @@ class LegacyInlineGeneratorRemovalTests(unittest.TestCase):
         ):
             with self.subTest(provider_symbol=name):
                 self.assertFalse(hasattr(llm, name))
-        self.assertFalse(hasattr(llm.XaiVideoProvider, "submit"))
+        self.assertFalse(hasattr(llm, "XaiVideoProvider"))
 
         self.assertEqual({"interpreter"}, set(ai_catalog.MODEL_CATALOG))
         with (

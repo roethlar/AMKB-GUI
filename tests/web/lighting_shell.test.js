@@ -331,7 +331,8 @@ test("Library remains document-independent and browses every saved kind", () => 
   assert.doesNotMatch(html,/data-library-filter="generated"/);
   assert.doesNotMatch(html,/data-library-filter="partial"/);
   assert.match(js,/libraryCatalogQuery/);
-  assert.match(js,/"preview_animation","raster_animation","source_video"/);
+  assert.match(js,/"preview_animation","raster_animation"/);
+  assert.doesNotMatch(js,/source_video|video\/mp4/);
   assert.match(js,/api\(`\/api\/library\/items\?/);
   assert.match(js,/fetch\(`\/api\/library\/assets\//);
   assert.match(js,/"X-AM-Token":token/);

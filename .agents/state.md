@@ -9,8 +9,15 @@
   `.agents/decisions.md`.
 - The audited removal work is specified in
   `docs/superpowers/plans/2026-07-30-ffmpeg-removal-and-dependency-audit.md`.
-  It is still a draft awaiting explicit implementation approval. No production
-  code has changed under that plan.
+  The owner approved implementation on 2026-07-30. Slice R1 is complete: the
+  historical generation coordinator, xAI video polling, video recovery,
+  source-video serving/UI, and their execution tests are gone; procedural
+  generation remains the only AI generation path. Legacy video manifests are
+  reported as unsupported and left untouched.
+- The low-level FFmpeg implementation in `am_configurator/media.py` is no
+  longer reachable from a production route or coordinator. Its atomic removal
+  with the FFmpeg runtime, build, package, CI, smoke, and test surfaces is the
+  approved R2 sequencing recorded in the plan.
 - Public-release qualification is stopped. The unpublished `0.1.64` candidate
   was rejected after product inspection found three release-blocking classes:
   Ollama Cloud inventory was deliberately hidden, one Ollama Generate action
@@ -49,20 +56,16 @@
 
 ## Next
 
-- Await the owner's explicit approval or rejection of
-  `docs/superpowers/plans/2026-07-30-ffmpeg-removal-and-dependency-audit.md`.
-- If approved, execute Slice R1 first: remove the retired AI-video execution
-  and recovery runtime while proving procedural generation is unchanged,
-  retired endpoints start no work, and historical user files are untouched.
-  Land and verify that finding before starting FFmpeg packaging removal.
+- Execute Slice R2: delete the now-unreachable video subsystem together with
+  the FFmpeg runtime resolver, source/build tooling, package data, native smoke,
+  CI prerequisites, fixtures, and tests. Prove GIF/PNG/BMP import and
+  procedural rendering remain intact, then land the finding before R3.
 - Product Slice P6 and release qualification remain paused until the
   dependency-removal plan closes. Publishing a Release or announcement remains
   later, separately gated work.
 
 ## Blockers
 
-- Production implementation is blocked only on explicit approval of the
-  FFmpeg-removal and dependency-audit plan.
 - Final local Windows installer proof requires Inno Setup 6. Installing it is a
   separate owner-gated host mutation; it does not block the source-removal and
   automated-audit slices.

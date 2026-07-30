@@ -90,15 +90,12 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                 "targets": ["display"],
             },
             "models": {
-                "interpreter": "grok-4.5",
-                "concept": "grok-imagine-image",
-                "video": "grok-imagine-video-1.5",
+                "backend": "ollama",
+                "provider": "ollama",
+                "model_id": "ornith:latest",
             },
-            "loop_mode": "smooth",
         }
         values.update(overrides)
-        if values.get("pipeline") == "procedural" and "loop_mode" not in overrides:
-            values.pop("loop_mode")
         return self.library.create_job(**values)
 
     def _job_dir(self, job_id: str, root: Path | None = None) -> Path:
@@ -154,17 +151,16 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         job_id = manifest["job_id"]
         self.assertEqual(job_id, str(uuid.UUID(job_id)))
         self.assertEqual(2, manifest["schema_version"])
-        self.assertEqual("legacy_video", manifest["pipeline"])
+        self.assertEqual("procedural", manifest["pipeline"])
         self.assertEqual([], manifest["procedural_attempts"])
         self.assertEqual("created", manifest["status"])
         self.assertEqual("preflight", manifest["phase"])
-        self.assertEqual("smooth", manifest["loop_mode"])
+        self.assertNotIn("loop_mode", manifest)
 
         job_dir = self._job_dir(job_id)
         for relative in (
             "manifest.json",
             "concepts",
-            "video",
             "frames",
             "preview",
             "result",
@@ -175,7 +171,7 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         if os.name != "nt":
             for directory in (self.root, self.root / "jobs", job_dir):
                 self.assertEqual(0o700, stat.S_IMODE(directory.stat().st_mode))
-            for relative in ("concepts", "video", "frames", "preview", "result", ".work"):
+            for relative in ("concepts", "frames", "preview", "result", ".work"):
                 self.assertEqual(
                     0o700,
                     stat.S_IMODE((job_dir / relative).stat().st_mode),
@@ -186,7 +182,7 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
             )
             self.assertEqual(0o600, stat.S_IMODE((job_dir / ".lock").stat().st_mode))
 
-    def test_procedural_jobs_omit_loop_mode_but_historical_manifests_still_load(self) -> None:
+    def test_procedural_jobs_omit_retired_pipeline_controls(self) -> None:
         manifest = self.library.create_job(
             prompt="Periodic aurora",
             target={"family": "80"},
@@ -195,58 +191,47 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                 "provider": "ollama",
                 "model_id": "ornith:latest",
             },
-            pipeline="procedural",
         )
         self.assertNotIn("loop_mode", manifest)
 
-        historical = copy.deepcopy(manifest)
-        historical["loop_mode"] = "ping_pong"
-        self._write_manifest_directly(manifest["job_id"], historical)
-        self.assertEqual(
-            "ping_pong",
-            self.library.load_manifest(manifest["job_id"])["loop_mode"],
-        )
-
-        with self.assertRaises(ManifestError):
+        with self.assertRaises(TypeError):
             self.library.create_job(
                 prompt="No procedural loop input",
-                pipeline="procedural",
                 loop_mode="smooth",
             )
+        with self.assertRaises(TypeError):
+            self.library.create_job(prompt="No retired pipeline", pipeline="legacy_video")
 
-    def test_v1_manifest_normalizes_in_memory_without_rewriting_disk(self) -> None:
+    def test_retired_video_manifest_is_reported_without_touching_files(self) -> None:
         job = self._create_job()
-        asset = self.library.bank_asset(
-            job["job_id"],
-            kind="concept",
-            data=b"\x89PNG\r\n\x1a\nlegacy-browseable",
-            mime_type="image/png",
-            origin="xai",
-        )
-        path = self._job_dir(job["job_id"]) / "manifest.json"
-        legacy = json.loads(path.read_text("utf-8"))
-        legacy["schema_version"] = 1
-        legacy.pop("pipeline")
-        legacy.pop("procedural_attempts")
-        path.write_text(json.dumps(legacy, indent=2) + "\n", encoding="utf-8")
-        before = path.read_bytes()
+        job_dir = self._job_dir(job["job_id"])
+        manifest_path = job_dir / "manifest.json"
+        retired = json.loads(manifest_path.read_text("utf-8"))
+        retired["pipeline"] = "legacy_video"
+        retired["loop_mode"] = "smooth"
+        retired["models"] = {"video": "retired-model"}
+        manifest_path.write_text(json.dumps(retired, indent=2) + "\n", encoding="utf-8")
+        video_dir = job_dir / "video"
+        video_dir.mkdir(mode=0o700)
+        sentinel = video_dir / "historical.mp4"
+        sentinel.write_bytes(b"historical-user-bytes")
+        before_manifest = manifest_path.read_bytes()
+        before_sentinel = sentinel.read_bytes()
 
-        loaded = self.library.load_manifest(job["job_id"])
-        scanned = self.library.scan()["jobs"][0]
+        scan = self.library.scan()
+        report = self.library.reconcile()
 
-        self.assertEqual(2, loaded["schema_version"])
-        self.assertEqual("legacy_video", loaded["pipeline"])
-        self.assertEqual([], loaded["procedural_attempts"])
-        self.assertEqual("legacy_video", scanned["pipeline"])
+        self.assertEqual([], scan["jobs"])
+        self.assertEqual([], report["actions"])
         self.assertEqual(
-            b"\x89PNG\r\n\x1a\nlegacy-browseable",
-            self.library.resolve_asset(job["job_id"], asset["asset_id"]).path.read_bytes(),
+            {"unsupported_video_job"},
+            {error["code"] for error in [*scan["errors"], *report["errors"]]},
         )
-        self.assertEqual(before, path.read_bytes())
+        self.assertEqual(before_manifest, manifest_path.read_bytes())
+        self.assertEqual(before_sentinel, sentinel.read_bytes())
 
     def test_procedural_manifest_accepts_only_new_local_artifact_kinds(self) -> None:
         job = self._create_job(
-            pipeline="procedural",
             models={
                 "backend": "local",
                 "provider": "llama.cpp",
@@ -326,7 +311,7 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                 stream.read(4096)
 
         def path_using_caller() -> None:
-            # generation.py and procedural_generation.py use owned.path directly
+            # procedural_generation.py uses owned.path directly
             # and never call open_verified, so their verification must remain.
             self.library.resolve_asset(job_id, asset_id)
 
@@ -995,11 +980,10 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                 "targets": ["display"],
             },
             models={
-                "interpreter": "grok-4.5",
-                "concept": "grok-imagine-image",
-                "video": "grok-imagine-video-1.5",
+                "backend": "ollama",
+                "provider": "ollama",
+                "model_id": "ornith:latest",
             },
-            loop_mode="smooth",
         )
         combined = GeneratedAssetLibrary(
             self.root,
@@ -1024,7 +1008,7 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                 raise PermissionError("denied at /private/work")
             real_purge(job_dir)
 
-        class StartupCoordinator:
+        class ProceduralCoordinator:
             active_job_id = None
 
             def __init__(self) -> None:
@@ -1033,23 +1017,14 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
             def reconcile_startup(
                 self,
                 *,
-                api_key=None,
                 _admission_token=None,
             ) -> list[dict]:
-                del api_key, _admission_token
+                del _admission_token
                 result = combined.reconcile()
                 self.errors = result["errors"]
                 return result["actions"]
 
-        class ProceduralCoordinator:
-            active_job_id = None
-
-            @staticmethod
-            def reconcile_startup(*, _admission_token=None) -> list[dict]:
-                del _admission_token
-                return []
-
-        startup = StartupCoordinator()
+        startup = ProceduralCoordinator()
 
         with (
             patch("am_configurator.library._job_lock", controlled_lock),
@@ -1062,9 +1037,8 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
             report = combined.reconcile()
             server, _url = create_server(
                 lighting_library=combined,
-                lighting_coordinator=startup,
                 credential_store=MemoryCredentialStore(),
-                procedural_coordinator=ProceduralCoordinator(),
+                procedural_coordinator=startup,
             )
             try:
                 self.assertGreater(server.server_port, 0)
@@ -1264,155 +1238,20 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         self.assertNotIn(str(self.root), rendered)
         self.assertNotIn(secret, rendered)
 
-    def test_restart_reconciliation_never_repeats_paid_work(self) -> None:
-        accepted = self._create_job(prompt="accepted")
-        self.library.update_manifest(
-            accepted["job_id"],
-            lambda current: current.update(
-                {
-                    "status": "in_progress",
-                    "phase": "video_polling",
-                    "provider_requests": {
-                        "video": {"request_id": "vid_request_123", "status": "accepted"}
-                    },
-                }
-            ),
-        )
-
-        cancelled_visible = self._create_job(prompt="cancelled but paid")
-        self.library.update_manifest(
-            cancelled_visible["job_id"],
-            lambda current: current.update(
-                {
-                    "status": "cancelled",
-                    "phase": "video_polling",
-                    "cancel_requested_at": current["updated_at"],
-                    "provider_requests": {
-                        "video": {"request_id": "vid_cancelled_456", "status": "accepted"}
-                    },
-                }
-            ),
-        )
-
-        submitted = self._create_job(prompt="accepted before phase advance")
-        self.library.update_manifest(
-            submitted["job_id"],
-            lambda current: current.update(
-                {
-                    "status": "in_progress",
-                    "phase": "video_submitting",
-                    "provider_requests": {
-                        "video": {"request_id": "vid_submitted_789", "status": "accepted"}
-                    },
-                }
-            ),
-        )
-
-        unknown = self._create_job(prompt="unknown")
-        self.library.update_manifest(
-            unknown["job_id"],
-            {"status": "in_progress", "phase": "video_submitting"},
-        )
-
-        provider_failed = self._create_job(prompt="provider failed")
-        self.library.update_manifest(
-            provider_failed["job_id"],
-            {
-                "status": "in_progress",
-                "phase": "video_polling",
-                "provider_requests": {
-                    "video": {"request_id": "vid_failed_345", "status": "failed"}
-                },
-            },
-        )
-
-        local = self._create_job(prompt="local")
-        video = self.library.bank_asset(
-            local["job_id"],
-            kind="source_video",
-            data=b"\x00\x00\x00\x18ftypisomvideo",
-            mime_type="video/mp4",
-            origin="xai",
-        )
-        self.library.update_manifest(
-            local["job_id"],
-            {"status": "in_progress", "phase": "local_processing"},
-        )
-        local_work = self._job_dir(local["job_id"]) / ".work" / "frame.png"
-        local_work.write_bytes(b"temp")
-
-        banked_before_phase = self._create_job(prompt="banked before phase advance")
-        banked_video = self.library.bank_asset(
-            banked_before_phase["job_id"],
-            kind="source_video",
-            data=b"\x00\x00\x00\x18ftypisomcrash",
-            mime_type="video/mp4",
-            origin="xai",
-        )
-        self.library.update_manifest(
-            banked_before_phase["job_id"],
-            {
-                "status": "in_progress",
-                "phase": "video_downloading",
-                "provider_requests": {
-                    "video": {"request_id": "vid_banked_012", "status": "done"}
-                },
-            },
-        )
+    def test_retired_video_assets_cannot_be_created_or_resumed(self) -> None:
+        job = self._create_job()
+        with self.assertRaises(ManifestError):
+            self.library.bank_asset(
+                job["job_id"],
+                kind="source_video",
+                data=b"\x00\x00\x00\x18ftypisomvideo",
+                mime_type="video/mp4",
+                origin="xai",
+            )
 
         report = self.library.reconcile()
+        self.assertEqual([], report["actions"])
         self.assertEqual([], report["errors"])
-        actions = report["actions"]
-        self.assertEqual(
-            {
-                (accepted["job_id"], "vid_request_123"),
-                (cancelled_visible["job_id"], "vid_cancelled_456"),
-                (submitted["job_id"], "vid_submitted_789"),
-            },
-            {(action["job_id"], action["request_id"]) for action in actions},
-        )
-        self.assertTrue(
-            all(action["action"] == "resume_video_poll" for action in actions),
-            actions,
-        )
-        self.assertEqual("in_progress", self.library.load_manifest(accepted["job_id"])["status"])
-        self.assertEqual("submission_unknown", self.library.load_manifest(unknown["job_id"])["status"])
-        self.assertEqual(
-            "failed",
-            self.library.load_manifest(provider_failed["job_id"])["status"],
-        )
-        local_manifest = self.library.load_manifest(local["job_id"])
-        self.assertEqual("ready_to_process", local_manifest["status"])
-        self.assertEqual(video["asset_id"], local_manifest["recovery"]["source_video_asset_id"])
-        self.assertFalse(local_work.exists())
-        banked_manifest = self.library.load_manifest(banked_before_phase["job_id"])
-        self.assertEqual("ready_to_process", banked_manifest["status"])
-        self.assertEqual(
-            banked_video["asset_id"],
-            banked_manifest["recovery"]["source_video_asset_id"],
-        )
-
-        tampered = self._create_job(prompt="tampered mp4")
-        tampered_video = self.library.bank_asset(
-            tampered["job_id"],
-            kind="source_video",
-            data=b"\x00\x00\x00\x18ftypisomvalid",
-            mime_type="video/mp4",
-            origin="xai",
-        )
-        tampered_path = self.library.resolve_asset(
-            tampered["job_id"], tampered_video["asset_id"]
-        ).path
-        tampered_path.write_bytes(b"tampered")
-        self.library.update_manifest(
-            tampered["job_id"],
-            {"status": "in_progress", "phase": "local_processing"},
-        )
-        self.library.reconcile()
-        self.assertEqual(
-            "interrupted",
-            self.library.load_manifest(tampered["job_id"])["status"],
-        )
 
     def test_terminal_reconciliation_purges_work_without_following_symlinks(self) -> None:
         terminal = self._create_job()
@@ -1527,7 +1366,7 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                     },
                 },
                 "provider_requests": {
-                    "video": {"request_id": "safe_request_id", "status": "accepted"}
+                    "recipe": {"request_id": "safe_request_id", "status": "accepted"}
                 }
             },
         )
@@ -1557,14 +1396,14 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         with self.assertRaisesRegex(ManifestError, "sensitive"):
             self.library.update_manifest(
                 job["job_id"],
-                {"provider_requests": {"video": {"media_url": "data:image/png;base64,AAAA"}}},
+                {"provider_requests": {"recipe": {"media_url": "data:image/png;base64,AAAA"}}},
             )
         with self.assertRaisesRegex(ManifestError, "request ID"):
             self.library.update_manifest(
                 job["job_id"],
                 {
                     "provider_requests": {
-                        "video": {
+                        "recipe": {
                             "request_id": "https://vidgen.x.ai/file?token=secret",
                             "status": "accepted",
                         }
@@ -1576,7 +1415,7 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                 job["job_id"],
                 {
                     "provider_requests": {
-                        "video": {
+                        "recipe": {
                             "request_id": "safe_request_id",
                             "status": "accepted",
                             "raw_response": {"provider": "opaque"},
@@ -1589,7 +1428,7 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                 job["job_id"],
                 {
                     "provider_requests": {
-                        "video": {
+                        "recipe": {
                             "request_id": "safe_request_id",
                             "status": "done",
                             "url": (
@@ -2192,11 +2031,10 @@ class LibraryCatalogTests(unittest.TestCase):
                 "targets": ["frames"],
             },
             models={
-                "interpreter": "test",
-                "concept": "test",
-                "video": "test",
+                "backend": "ollama",
+                "provider": "ollama",
+                "model_id": "test",
             },
-            loop_mode="smooth",
         )
         job = self.jobs.update_manifest(
             job["job_id"],
@@ -2324,11 +2162,10 @@ class LibraryRemovalTests(unittest.TestCase):
                 "targets": ["frames"],
             },
             models={
-                "interpreter": "test",
-                "concept": "test",
-                "video": "test",
+                "backend": "ollama",
+                "provider": "ollama",
+                "model_id": "test",
             },
-            loop_mode="smooth",
         )
         return self.jobs.update_manifest(
             manifest["job_id"],
@@ -2407,11 +2244,10 @@ class LibraryRemovalTests(unittest.TestCase):
                 "targets": ["frames"],
             },
             models={
-                "interpreter": "test",
-                "concept": "test",
-                "video": "test",
+                "backend": "ollama",
+                "provider": "ollama",
+                "model_id": "test",
             },
-            loop_mode="smooth",
         )
         historical_catalog.jobs.update_manifest(
             job["job_id"],
@@ -2478,11 +2314,10 @@ class LibraryRemovalTests(unittest.TestCase):
                 "targets": ["frames"],
             },
             models={
-                "interpreter": "test",
-                "concept": "test",
-                "video": "test",
+                "backend": "ollama",
+                "provider": "ollama",
+                "model_id": "test",
             },
-            loop_mode="smooth",
         )
         with self.assertRaises(LibraryItemActiveError):
             self.catalog.remove(f"job:{active_job['job_id']}")

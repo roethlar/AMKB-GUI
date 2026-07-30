@@ -1036,7 +1036,7 @@ function libraryCoverAsset(detail) {
   const first=selected||manifest?.candidates?.[0];
   if(first?.asset_id)return {asset_id:first.asset_id,mime_type:first.mime_type||"image/png"};
   return manifest?.assets?.find(asset=>asset.kind==="preview_poster")
-    || manifest?.assets?.find(asset=>["preview_animation","source_video","preview"].includes(asset.kind))
+    || manifest?.assets?.find(asset=>["preview_animation","preview"].includes(asset.kind))
     || manifest?.assets?.find(asset=>asset.kind==="source")
     || null;
 }
@@ -1152,7 +1152,7 @@ async function ensureLibraryItemDetail(catalogId) {
     if(cover)void loadLibraryAsset(catalogId,cover.asset_id);
     if(state.library.selectedCatalogId===catalogId){
       for(const asset of libraryManifest(detail)?.assets||[]){
-        if(["concept","selected_still","preview_poster","preview_animation","source_video","preview","source"].includes(asset.kind))void loadLibraryAsset(catalogId,asset.asset_id);
+        if(["concept","selected_still","preview_poster","preview_animation","preview","source"].includes(asset.kind))void loadLibraryAsset(catalogId,asset.asset_id);
       }
     }
     if(detail.kind==="keyboard_profile")void ensureLibraryProfileCompatibility(catalogId);
@@ -1310,7 +1310,6 @@ const LIBRARY_ASSET_LABELS = {
   preview_poster:"preview image",
   preview_animation:"preview animation",
   raster_animation:"lighting animation",
-  source_video:"imported video",
   source:"imported media",
 };
 
@@ -1324,7 +1323,6 @@ function libraryMediaMarkup(catalogId,asset,index) {
   const loadError=state.library.assetErrors.get(`${catalogId}:${asset.asset_id}`);
   if(!url&&loadError&&loadError!=="Retrying…")return `<div class="library-media-card failed"><strong>Could not load this ${esc(label)}.</strong><small>${esc(loadError)}</small><button type="button" class="button ghost" data-library-asset-retry="${esc(asset.asset_id)}" data-library-asset-item="${esc(catalogId)}">Retry</button></div>`;
   if(!url)return `<div class="library-media-card loading"><span class="library-card-placeholder">${loadError||"Loading…"}</span><small>${esc(label)}</small></div>`;
-  if(asset.mime_type==="video/mp4")return `<figure class="library-media-card"><video src="${esc(url)}" controls muted playsinline preload="metadata"></video><figcaption>${esc(label)}</figcaption></figure>`;
   return `<figure class="library-media-card"><img src="${esc(url)}" alt="Saved lighting asset ${index+1}"><figcaption><span>${esc(label)}</span></figcaption></figure>`;
 }
 
@@ -1350,7 +1348,7 @@ function libraryDetailMarkup(catalogId) {
   const detail=state.library.details.get(catalogId);
   if(!detail)return '<div class="library-empty"><div class="loader"></div><strong>Loading saved media…</strong></div>';
   const manifest=libraryManifest(detail);
-  const media=(manifest?.assets||[]).filter(asset=>["concept","selected_still","preview","preview_poster","preview_animation","raster_animation","source_video","source"].includes(asset.kind));
+  const media=(manifest?.assets||[]).filter(asset=>["concept","selected_still","preview","preview_poster","preview_animation","raster_animation","source"].includes(asset.kind));
   const profile=detail.kind==="keyboard_profile"?detail.item?.profile:null;
   const sectionList=(profile?.sections||[]).map(section=>`<span class="pill muted">${esc(libraryStatusLabel(section))}</span>`).join("");
   const compatibility=libraryDetailCompatibility(catalogId,detail);

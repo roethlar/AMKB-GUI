@@ -27,7 +27,6 @@ class DeviceMappingArchitectureTests(unittest.TestCase):
         self.assertNotIn("from .server", mapping_source)
         self.assertNotIn("from am_configurator.server", mapping_source)
         for relative in (
-            "am_configurator/generation.py",
             "am_configurator/procedural.py",
             "build_tools/qualify_recipe_model.py",
         ):

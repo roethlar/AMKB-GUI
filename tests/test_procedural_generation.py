@@ -809,7 +809,6 @@ class ProceduralGenerationTests(unittest.TestCase):
             prompt="Interrupted API",
             target=TARGET,
             models={"backend": "api", "provider": "xai", "model_id": "grok-4.5"},
-            pipeline="procedural",
         )
         attempt_id = str(uuid.uuid4())
 
@@ -853,13 +852,11 @@ class ProceduralGenerationTests(unittest.TestCase):
             prompt="Interrupted before attempt",
             target=TARGET,
             models={"backend": "ollama", "provider": "ollama", "model_id": "ornith:latest"},
-            pipeline="procedural",
         )
         started = self.library.create_job(
             prompt="Interrupted during attempt",
             target=TARGET,
             models={"backend": "ollama", "provider": "ollama", "model_id": "ornith:latest"},
-            pipeline="procedural",
         )
         attempt_id = str(uuid.uuid4())
 
@@ -923,7 +920,6 @@ class ProceduralGenerationTests(unittest.TestCase):
             prompt="Failed before job settlement",
             target=TARGET,
             models={"backend": "ollama", "provider": "ollama", "model_id": "ornith:latest"},
-            pipeline="procedural",
         )
         attempt_id = str(uuid.uuid4())
         completed_at = "2026-07-21T01:02:03+00:00"

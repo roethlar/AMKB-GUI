@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 import unittest
@@ -19,11 +20,10 @@ class GenerationAdmissionArchitectureTests(unittest.TestCase):
         self.assertNotIn("import generation", admission_source)
         self.assertNotIn("procedural_generation", admission_source)
 
-    def test_admission_recovery_and_procedural_modules_import_in_any_order(self) -> None:
+    def test_admission_and_procedural_modules_import_in_any_order(self) -> None:
         orders = (
-            ("generation_admission", "generation", "procedural_generation"),
-            ("generation", "procedural_generation", "generation_admission"),
-            ("procedural_generation", "generation_admission", "generation"),
+            ("generation_admission", "procedural_generation"),
+            ("procedural_generation", "generation_admission"),
         )
         for order in orders:
             imports = ";".join(
@@ -32,11 +32,9 @@ class GenerationAdmissionArchitectureTests(unittest.TestCase):
             script = (
                 f"{imports};"
                 "from am_configurator import generation_admission as a;"
-                "from am_configurator import generation as g;"
                 "from am_configurator import procedural_generation as p;"
-                "assert a.OperationGate is g.OperationGate is p.OperationGate;"
-                "assert a.GenerationBusyError is g.GenerationBusyError is p.GenerationBusyError;"
-                "assert a.PROCESS_OPERATION_GATE is g.PROCESS_OPERATION_GATE"
+                "assert a.OperationGate is p.OperationGate;"
+                "assert a.GenerationBusyError is p.GenerationBusyError"
             )
             with self.subTest(order=order):
                 completed = subprocess.run(
@@ -52,6 +50,9 @@ class GenerationAdmissionArchitectureTests(unittest.TestCase):
                     completed.returncode,
                     completed.stdout + completed.stderr,
                 )
+
+    def test_retired_video_generation_module_is_absent(self) -> None:
+        self.assertIsNone(importlib.util.find_spec("am_configurator.generation"))
 
 
 if __name__ == "__main__":

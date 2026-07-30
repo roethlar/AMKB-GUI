@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import inspect
 import io
 import json
 import os
@@ -61,7 +62,7 @@ from am_configurator.protocol import exclusive_serial_kwargs
 from am_configurator.macros import macro_frames, parse_macro_frames
 from am_configurator.writer import car_light_data_frames, car_light_info_frames
 from am_configurator import ai_catalog, credentials, device_mapping, llm, server, store
-from am_configurator import generation, media_composition
+from am_configurator import generation_admission as generation, media_composition
 from build_tools.release_info import project_version
 from am_configurator.library import (
     GeneratedAssetLibrary,
@@ -745,13 +746,7 @@ class DesktopServerTests(unittest.TestCase):
             )
 
     def test_loopback_server_can_be_owned_by_a_native_window(self) -> None:
-        server, url = create_server(
-            lighting_library=object(),
-            lighting_coordinator=SimpleNamespace(
-                active_job_id=None,
-                reconcile_startup=lambda **_kwargs: [],
-            ),
-        )
+        server, url = create_server()
         self.assertEqual("127.0.0.1", server.server_address[0])
         token = parse_qs(urlparse(url).query)["token"][0]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -1302,21 +1297,6 @@ def _request_header(request, name: str) -> str | None:
     return None
 
 
-class _FakeGetTransport:
-    """Fake xAI GET transport with no payload argument."""
-
-    def __init__(self, *, response=None, error: BaseException | None = None) -> None:
-        self._response = response
-        self._error = error
-        self.calls: list[dict] = []
-
-    def __call__(self, url, api_key, deadline):
-        self.calls.append({"url": url, "api_key": api_key, "deadline": deadline})
-        if self._error is not None:
-            raise self._error
-        return self._response
-
-
 def _responses_envelope(plan_dict: dict) -> dict:
     """A minimal xAI ``/v1/responses`` structured-output envelope carrying
     ``plan_dict`` as the assistant message's ``output_text`` JSON."""
@@ -1555,28 +1535,19 @@ class GrokTransportTests(unittest.TestCase):
             "https://api.x.ai/v1/responses#fragment",
         )
         for url in invalid_urls:
-            for method in ("post", "get"):
-                with self.subTest(url=url, method=method):
-                    opener = _RecordingOpener(response=_FakeResponse(b"{}"))
-                    with self.assertRaises(llm.ProviderError) as ctx:
-                        if method == "post":
-                            llm._xai_request(
-                                url,
-                                {},
-                                _FAKE_KEY,
-                                self._future_deadline(),
-                                opener=opener,
-                            )
-                        else:
-                            llm._xai_get_request(
-                                url,
-                                _FAKE_KEY,
-                                self._future_deadline(),
-                                opener=opener,
-                            )
-                    self.assertEqual(ctx.exception.code, "config")
-                    self.assertEqual(opener.calls, [])
-                    self.assertNotIn(_FAKE_KEY, str(ctx.exception))
+            with self.subTest(url=url):
+                opener = _RecordingOpener(response=_FakeResponse(b"{}"))
+                with self.assertRaises(llm.ProviderError) as ctx:
+                    llm._xai_request(
+                        url,
+                        {},
+                        _FAKE_KEY,
+                        self._future_deadline(),
+                        opener=opener,
+                    )
+                self.assertEqual(ctx.exception.code, "config")
+                self.assertEqual(opener.calls, [])
+                self.assertNotIn(_FAKE_KEY, str(ctx.exception))
 
     def test_default_xai_opener_ignores_proxies_and_refuses_redirects(self) -> None:
         with patch.dict(
@@ -1624,8 +1595,13 @@ class GrokTransportTests(unittest.TestCase):
 
         with patch.dict(
             os.environ,
-            {"HTTPS_PROXY": f"http://{sentinel_proxy[0]}:{sentinel_proxy[1]}"},
-            clear=True,
+            {
+                "HTTPS_PROXY": f"http://{sentinel_proxy[0]}:{sentinel_proxy[1]}",
+                "HTTP_PROXY": "",
+                "ALL_PROXY": "",
+                "NO_PROXY": "",
+            },
+            clear=False,
         ):
             opener = llm._default_opener()
         with patch.object(socket, "create_connection", side_effect=block_network):
@@ -1834,168 +1810,6 @@ class GrokTransportTests(unittest.TestCase):
             self.assertNotIn(_FAKE_KEY, ctx.exception.message)
 
 
-
-
-class HistoricalVideoPollProviderTests(unittest.TestCase):
-    """Status-only recovery for historical accepted xAI video requests."""
-
-    def _future_deadline(self) -> float:
-        return time.monotonic() + 30.0
-
-    def test_poll_validates_request_id_before_get_and_accepts_every_status(self) -> None:
-        invalid_ids = (
-            "",
-            "-starts-wrong",
-            "has/slash",
-            "has?query",
-            "has#fragment",
-            "has%2Fescape",
-            "has\ncontrol",
-            "a" * 201,
-        )
-        for request_id in invalid_ids:
-            transport = _FakeGetTransport(response={})
-            provider = llm.XaiVideoProvider(
-                _FAKE_KEY,
-                poll_transport=transport,
-            )
-            with self.subTest(request_id=request_id):
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    provider.poll(request_id, self._future_deadline())
-                self.assertEqual(ctx.exception.code, "config")
-                self.assertEqual(transport.calls, [])
-
-        longest = "a" + "~" * 199
-        transport = _FakeGetTransport(response={"status": "pending"})
-        result = llm.XaiVideoProvider(
-            _FAKE_KEY,
-            poll_transport=transport,
-        ).poll(longest, self._future_deadline())
-        self.assertEqual(result.request_id, longest)
-        self.assertEqual(len(transport.calls), 1)
-
-        for status in ("pending", "failed", "expired"):
-            response = {
-                "status": status,
-                "usage": {"cost_in_usd_ticks": 17},
-            }
-            transport = _FakeGetTransport(response=response)
-            result = llm.XaiVideoProvider(
-                _FAKE_KEY,
-                poll_transport=transport,
-            ).poll("req_123", self._future_deadline())
-            self.assertEqual(result.status, status)
-            self.assertIsNone(result.video_url)
-            self.assertIsNone(result.duration)
-            self.assertEqual(result.usage.cost_in_usd_ticks, 17)
-            self.assertEqual(
-                transport.calls[0]["url"],
-                llm.XAI_VIDEO_STATUS_URL.format(request_id="req_123"),
-            )
-
-    def test_poll_rejects_malformed_or_mismatched_echoed_request_ids(self) -> None:
-        signed_url = "https://cdn.example/video.mp4?signature=temporary-secret"
-        for echoed_request_id in ("different_request", "has/slash", None):
-            response = {
-                "request_id": echoed_request_id,
-                "status": "done",
-                "video": {"url": signed_url, "duration": 1},
-                "usage": {"cost_in_usd_ticks": 29},
-            }
-            provider = llm.XaiVideoProvider(
-                _FAKE_KEY,
-                poll_transport=_FakeGetTransport(response=response),
-            )
-            with self.subTest(echoed_request_id=echoed_request_id):
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    provider.poll("req_123", self._future_deadline())
-                self.assertEqual(ctx.exception.code, "bad_response")
-                self.assertEqual(ctx.exception.usage.cost_in_usd_ticks, 29)
-
-    def test_done_requires_one_second_video_url_and_usage_is_exact_or_missing(self) -> None:
-        signed_url = "https://cdn.example/video.mp4?signature=temporary-secret"
-        done = {
-            "request_id": "req.done-1",
-            "status": "done",
-            "video": {"url": signed_url, "duration": 1},
-        }
-        result = llm.XaiVideoProvider(
-            _FAKE_KEY,
-            poll_transport=_FakeGetTransport(response=done),
-        ).poll("req.done-1", self._future_deadline())
-        self.assertEqual(result.video_url, signed_url)
-        self.assertEqual(result.duration, 1)
-        self.assertIsNone(result.usage.cost_in_usd_ticks)
-        self.assertFalse(result.usage.reported)
-        self.assertNotIn(signed_url, repr(result))
-        self.assertNotIn(signed_url, str(result))
-
-        bad_responses = (
-            {**done, "status": "queued"},
-            {**done, "video": {}},
-            {**done, "video": {"url": "", "duration": 1}},
-            {**done, "video": {"url": signed_url, "duration": 2}},
-            {**done, "usage": {"cost_in_usd_ticks": True}},
-        )
-        for response in bad_responses:
-            with self.subTest(response=response):
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm.XaiVideoProvider(
-                        _FAKE_KEY,
-                        poll_transport=_FakeGetTransport(response=response),
-                    ).poll("req.done-1", self._future_deadline())
-                self.assertEqual(ctx.exception.code, "bad_response")
-
-    def test_poll_preserves_typed_usage_and_redacts_errors(self) -> None:
-        usage = llm.ProviderUsage(cost_in_usd_ticks=77, reported=True)
-        transport = _FakeGetTransport(error=llm.ProviderError(
-            "rate_limited",
-            f"poll failed using {_FAKE_KEY}",
-            retry_after=9,
-            usage=usage,
-        ))
-        provider = llm.XaiVideoProvider(
-            _FAKE_KEY,
-            poll_transport=transport,
-        )
-        with self.assertRaises(llm.ProviderError) as ctx:
-            provider.poll("req_1", self._future_deadline())
-        self.assertEqual(ctx.exception.code, "rate_limited")
-        self.assertEqual(ctx.exception.retry_after, 9)
-        self.assertEqual(ctx.exception.usage, usage)
-        self.assertNotIn(_FAKE_KEY, str(ctx.exception))
-        self.assertEqual(len(transport.calls), 1)
-
-    def test_get_transport_uses_validated_url_deadline_timeout_and_no_body(self) -> None:
-        response = _FakeResponse(json.dumps({
-            "request_id": "req_1", "status": "pending"
-        }).encode("utf-8"))
-        opener = _RecordingOpener(response=response)
-        with patch.object(llm.time, "monotonic", return_value=100.0):
-            parsed = llm._xai_get_request(
-                llm.XAI_VIDEO_STATUS_URL.format(request_id="req_1"),
-                _FAKE_KEY,
-                112.5,
-                opener=opener,
-            )
-        self.assertEqual(parsed["status"], "pending")
-        self.assertEqual(len(opener.calls), 1)
-        request, timeout = opener.calls[0]
-        self.assertEqual(request.get_method(), "GET")
-        self.assertIsNone(request.data)
-        self.assertEqual(timeout, 12.5)
-
-        expired = _RecordingOpener(response=response)
-        with patch.object(llm.time, "monotonic", return_value=200.0):
-            with self.assertRaises(llm.ProviderError) as ctx:
-                llm._xai_get_request(
-                    llm.XAI_VIDEO_STATUS_URL.format(request_id="req_1"),
-                    _FAKE_KEY,
-                    200.0,
-                    opener=expired,
-                )
-        self.assertEqual(ctx.exception.code, "timeout")
-        self.assertEqual(expired.calls, [])
 
 
 class LedGenerateEndpointTests(unittest.TestCase):
@@ -2462,22 +2276,17 @@ class LedGenerateEndpointTests(unittest.TestCase):
 
         vault = TrackingCredentialStore()
         self._server.state._credential_store = vault
-        with patch.object(
-            llm,
-            "_xai_get_request",
-            return_value={"models": []},
-        ) as provider:
-            for path, body in (
-                ("/api/settings/key", {"provider": "xai", "key": "must-not-land"}),
-                ("/api/settings/test", {}),
-            ):
-                with self.subTest(path=path):
-                    status, response = self._request("POST", path, body)
-                    self.assertIn(status, {404, 410})
-                    self.assertNotIn("must-not-land", json.dumps(response))
+        for path, body in (
+            ("/api/settings/key", {"provider": "xai", "key": "must-not-land"}),
+            ("/api/settings/test", {}),
+        ):
+            with self.subTest(path=path):
+                status, response = self._request("POST", path, body)
+                self.assertIn(status, {404, 410})
+                self.assertNotIn("must-not-land", json.dumps(response))
 
         self.assertEqual([], vault.calls)
-        provider.assert_not_called()
+        self.assertFalse(hasattr(llm, "_xai_get_request"))
         self.assertFalse(hasattr(server._Handler, "_lighting_settings"))
         self.assertFalse(hasattr(server, "_xai_get"))
         self.assertFalse(hasattr(self._server.state, "llm_transport"))
@@ -2545,24 +2354,21 @@ class LedGenerateEndpointTests(unittest.TestCase):
                 self.assertEqual("retired", data["code"])
 
 
-class _LightingEndpointCoordinator:
+class _ProceduralEndpointCoordinator:
     def __init__(self, library: GeneratedAssetLibrary) -> None:
         self.library = library
         self.calls: list[tuple[str, tuple, dict]] = []
-        self.reconcile_calls: list[str | None] = []
-        self.recovery_actions: list[dict] = []
+        self.reconcile_tokens: list[object | None] = []
         self.failure: Exception | None = None
         self.active_job_id: str | None = None
 
     def reconcile_startup(
         self,
         *,
-        api_key: str | None = None,
         _admission_token: object | None = None,
     ):
-        del _admission_token
-        self.reconcile_calls.append(api_key)
-        return list(self.recovery_actions)
+        self.reconcile_tokens.append(_admission_token)
+        return []
 
     def _raise_or_record(self, name: str, args: tuple, kwargs: dict) -> None:
         self.calls.append((name, args, kwargs))
@@ -2575,163 +2381,42 @@ class _LightingEndpointCoordinator:
 
 
 class CombinedReconciliationAdmissionTests(unittest.TestCase):
-    def test_disabled_ai_without_remote_recovery_skips_credential_lookup(self) -> None:
-        class Coordinator:
-            active_job_id = None
-
-            def __init__(self) -> None:
-                self.calls: list[str | None] = []
-
-            def reconcile_startup(
-                self,
-                *,
-                api_key=None,
-                _admission_token=None,
-            ) -> list[dict]:
-                del _admission_token
-                self.calls.append(api_key)
-                return []
-
-        coordinator = Coordinator()
-        state = server._State(
-            None,
-            "test-token",
-            lighting_library=object(),
-            lighting_coordinator=coordinator,
-            credential_store=credentials.MemoryCredentialStore(),
-        )
-        disabled_settings = {"ai": {"enabled": False, "backend": None}}
-        try:
-            with (
-                patch.object(store, "load_settings", return_value=disabled_settings),
-                patch.object(store, "resolve_xai_key") as resolve_key,
-            ):
-                self.assertEqual([], state.reconcile_lighting(force=True))
-        finally:
-            state.close()
-
-        resolve_key.assert_not_called()
-        self.assertEqual([None], coordinator.calls)
-
-    def test_accepted_remote_recovery_resolves_credential_on_demand(self) -> None:
-        action = {"job_id": "job-1", "request_id": "request-1"}
-
-        class Coordinator:
-            active_job_id = None
-
-            def __init__(self) -> None:
-                self.calls: list[str | None] = []
-
-            def reconcile_startup(
-                self,
-                *,
-                api_key=None,
-                _admission_token=None,
-            ) -> list[dict]:
-                del _admission_token
-                self.calls.append(api_key)
-                return [action]
-
-        coordinator = Coordinator()
-        state = server._State(
-            None,
-            "test-token",
-            lighting_library=object(),
-            lighting_coordinator=coordinator,
-            credential_store=credentials.MemoryCredentialStore(),
-        )
-        disabled_settings = {"ai": {"enabled": False, "backend": None}}
-        try:
-            with (
-                patch.object(store, "load_settings", return_value=disabled_settings),
-                patch.object(
-                    store,
-                    "resolve_xai_key",
-                    return_value="recovery-secret",
-                ) as resolve_key,
-            ):
-                self.assertEqual([action], state.reconcile_lighting(force=True))
-        finally:
-            state.close()
-
-        resolve_key.assert_called_once_with(
-            credential_store=state._credential_store
-        )
-        self.assertEqual([None, "recovery-secret"], coordinator.calls)
-
-    def test_enabled_api_resolves_credential_before_reconciliation(self) -> None:
-        class Coordinator:
-            active_job_id = None
-
-            def __init__(self) -> None:
-                self.calls: list[str | None] = []
-
-            def reconcile_startup(
-                self,
-                *,
-                api_key=None,
-                _admission_token=None,
-            ) -> list[dict]:
-                del _admission_token
-                self.calls.append(api_key)
-                return []
-
-        coordinator = Coordinator()
-        state = server._State(
-            None,
-            "test-token",
-            lighting_library=object(),
-            lighting_coordinator=coordinator,
-            credential_store=credentials.MemoryCredentialStore(),
-        )
-        api_settings = {
-            "ai": {
-                "enabled": True,
-                "backend": "api",
-                "api": {"selected_provider": "xai"},
-            }
-        }
-        try:
-            with (
-                patch.object(store, "load_settings", return_value=api_settings),
-                patch.object(
-                    store,
-                    "resolve_xai_key",
-                    return_value="api-secret",
-                ) as resolve_key,
-            ):
-                self.assertEqual([], state.reconcile_lighting(force=True))
-        finally:
-            state.close()
-
-        resolve_key.assert_called_once_with(
-            credential_store=state._credential_store
-        )
-        self.assertEqual(["api-secret"], coordinator.calls)
-
-    def test_legacy_and_procedural_reconciliation_share_one_state_lease(self) -> None:
+    def test_startup_reconciliation_never_resolves_a_video_credential(self) -> None:
         gate = generation.OperationGate()
-        procedural_entered = threading.Event()
-        release_procedural = threading.Event()
 
-        class LegacyCoordinator:
+        class ProceduralCoordinator:
             active_job_id = None
 
             def __init__(self) -> None:
                 self.tokens: list[object | None] = []
 
-            def reconcile_startup(
-                self,
-                *,
-                api_key=None,
-                _admission_token=None,
-            ) -> list[dict]:
-                del api_key
+            def reconcile_startup(self, *, _admission_token=None) -> list[dict]:
                 self.tokens.append(_admission_token)
-                if _admission_token is None:
-                    token, _cancelled = gate.begin()
-                    gate.finish(token)
                 return []
+
+        procedural = ProceduralCoordinator()
+        state = server._State(
+            None,
+            "test-token",
+            lighting_library=object(),
+            operation_gate=gate,
+            credential_store=credentials.MemoryCredentialStore(),
+            procedural_coordinator=procedural,
+        )
+        try:
+            with patch.object(store, "resolve_xai_key") as resolve_key:
+                self.assertEqual([], state.reconcile_lighting(force=True))
+        finally:
+            state.close()
+
+        resolve_key.assert_not_called()
+        self.assertEqual(1, len(procedural.tokens))
+        self.assertIsNotNone(procedural.tokens[0])
+
+    def test_procedural_reconciliation_holds_one_state_lease(self) -> None:
+        gate = generation.OperationGate()
+        procedural_entered = threading.Event()
+        release_procedural = threading.Event()
 
         class ProceduralCoordinator:
             active_job_id = None
@@ -2750,14 +2435,12 @@ class CombinedReconciliationAdmissionTests(unittest.TestCase):
                 return []
 
         library = object()
-        legacy = LegacyCoordinator()
         procedural = ProceduralCoordinator()
         state = server._State(
             None,
             "test-token",
             lighting_library=library,
-            lighting_coordinator=legacy,
-            lighting_dependencies={"operation_gate": gate},
+            operation_gate=gate,
             credential_store=credentials.MemoryCredentialStore(),
             procedural_coordinator=procedural,
         )
@@ -2765,8 +2448,7 @@ class CombinedReconciliationAdmissionTests(unittest.TestCase):
 
         def run_reconciliation() -> None:
             try:
-                with patch.object(store, "resolve_xai_key", return_value=None):
-                    state.reconcile_lighting(force=True)
+                state.reconcile_lighting(force=True)
             except BaseException as error:
                 failures.append(error)
 
@@ -2785,9 +2467,8 @@ class CombinedReconciliationAdmissionTests(unittest.TestCase):
 
         self.assertFalse(worker.is_alive())
         self.assertEqual([], failures)
-        self.assertEqual(1, len(legacy.tokens))
-        self.assertIsNotNone(legacy.tokens[0])
-        self.assertEqual(legacy.tokens, procedural.tokens)
+        self.assertEqual(1, len(procedural.tokens))
+        self.assertIsNotNone(procedural.tokens[0])
         replacement_token, _replacement_cancelled = gate.begin("after-reconcile")
         gate.finish(replacement_token)
 
@@ -2858,10 +2539,12 @@ class LightingStudioEndpointTests(unittest.TestCase):
             {"provider": "xai", "version": "2026-07-20-xai-v1"}
         )
         self.library = GeneratedAssetLibrary(self.root, minimum_free_bytes=1)
-        self.coordinator = _LightingEndpointCoordinator(self.library)
+        self.gate = generation.OperationGate()
+        self.coordinator = _ProceduralEndpointCoordinator(self.library)
         self._server, url = create_server(
             lighting_library=self.library,
-            lighting_coordinator=self.coordinator,
+            operation_gate=self.gate,
+            procedural_coordinator=self.coordinator,
         )
         self._token = parse_qs(urlparse(url).query)["token"][0]
         self._base = f"http://127.0.0.1:{self._server.server_port}"
@@ -2963,11 +2646,10 @@ class LightingStudioEndpointTests(unittest.TestCase):
                 "frame_cap": 80,
             },
             models={
-                "interpreter": "grok-4.5",
-                "concept": "grok-imagine-image",
-                "video": "grok-imagine-video-1.5",
+                "backend": "ollama",
+                "provider": "ollama",
+                "model_id": "ornith:latest",
             },
-            loop_mode="smooth",
         )
         return self.library.update_manifest(
             manifest["job_id"], {"status": status, "phase": status}
@@ -3034,65 +2716,35 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual([], self.coordinator.calls)
         write_config.assert_not_called()
 
-    def test_startup_reconciliation_retries_when_a_key_becomes_available(self) -> None:
-        self._server.shutdown()
-        self._server.server_close()
-        self._thread.join(timeout=2)
-        store.update_api_key({"provider": "xai", "key": ""})
-        coordinator = _LightingEndpointCoordinator(self.library)
-        coordinator.recovery_actions = [
-            {"job_id": "job-1", "request_id": "request-1"}
-        ]
-        self._server, url = create_server(
-            lighting_library=self.library,
-            lighting_coordinator=coordinator,
-        )
-        self._token = parse_qs(urlparse(url).query)["token"][0]
-        self._base = f"http://127.0.0.1:{self._server.server_port}"
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
-        self._thread.start()
-
-        self.assertEqual([None], coordinator.reconcile_calls)
-        status, response = self._request(
-            "POST",
-            "/api/settings/credential",
-            {"provider": "xai", "key": "sk-restored-secret"},
-        )
-        self.assertEqual(200, status)
-        self.assertEqual(
-            [None, None, "sk-restored-secret"],
-            coordinator.reconcile_calls,
-        )
-        self.assertNotIn("sk-restored-secret", json.dumps(response))
-
     def test_reconciliation_waits_for_active_generation_to_finish(self) -> None:
         gate = generation.OperationGate()
-        coordinator = _LightingEndpointCoordinator(self.library)
+        coordinator = _ProceduralEndpointCoordinator(self.library)
         self._server.shutdown()
         self._server.server_close()
         self._thread.join(timeout=2)
         self._server, url = create_server(
             lighting_library=self.library,
-            lighting_coordinator=coordinator,
-            lighting_dependencies={"operation_gate": gate},
+            operation_gate=gate,
+            procedural_coordinator=coordinator,
         )
         self._token = parse_qs(urlparse(url).query)["token"][0]
         self._base = f"http://127.0.0.1:{self._server.server_port}"
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
-        coordinator.reconcile_calls.clear()
+        coordinator.reconcile_tokens.clear()
 
         token, _cancelled = gate.begin("active-generation")
         try:
             self.assertEqual([], self._server.state.reconcile_lighting(force=True))
-            self.assertEqual([], coordinator.reconcile_calls)
+            self.assertEqual([], coordinator.reconcile_tokens)
         finally:
             gate.finish(token)
 
         deadline = time.monotonic() + 2
-        while not coordinator.reconcile_calls and time.monotonic() < deadline:
+        while not coordinator.reconcile_tokens and time.monotonic() < deadline:
             time.sleep(0.01)
-        self.assertEqual([None], coordinator.reconcile_calls)
+        self.assertEqual(1, len(coordinator.reconcile_tokens))
+        self.assertIsNotNone(coordinator.reconcile_tokens[0])
 
     def test_retired_generation_stays_gone_while_admission_is_busy(self) -> None:
         gate = generation.OperationGate()
@@ -3100,7 +2752,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self._server.server_close()
         self._thread.join(timeout=2)
         self._server, url = create_server(
-            lighting_dependencies={"operation_gate": gate},
+            operation_gate=gate,
         )
         self._token = parse_qs(urlparse(url).query)["token"][0]
         self._base = f"http://127.0.0.1:{self._server.server_port}"
@@ -3121,9 +2773,17 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual(410, status)
         self.assertEqual("retired", data["code"])
 
-    def test_retired_mutations_and_legacy_cancel_dispatch_without_device_writes(self) -> None:
+    def test_retired_mutations_and_legacy_cancel_start_no_work(self) -> None:
         job = self._job()
         job_id = job["job_id"]
+        manifest_path = self.root / "jobs" / job_id / "manifest.json"
+        retired_manifest = json.loads(manifest_path.read_text("utf-8"))
+        retired_manifest["pipeline"] = "legacy_video"
+        retired_manifest["loop_mode"] = "smooth"
+        manifest_path.write_text(
+            json.dumps(retired_manifest) + "\n",
+            encoding="utf-8",
+        )
         retired = (
             ("/api/lighting/concepts", {"prompt": "old"}),
             (f"/api/lighting/jobs/{job_id}/concepts", {"candidate_count": 2}),
@@ -3142,21 +2802,20 @@ class LightingStudioEndpointTests(unittest.TestCase):
             status, data = self._request(
                 "POST", f"/api/lighting/jobs/{job_id}/cancel", {}
             )
-            self.assertEqual(200, status)
-            self.assertEqual(job_id, data["job_id"])
-            self.assertEqual("cancel", self.coordinator.calls[-1][0])
+            self.assertEqual(410, status)
+            self.assertEqual("retired", data["code"])
+            self.assertEqual([], self.coordinator.calls)
             write_config.assert_not_called()
 
-        before = len(self.coordinator.calls)
         status, _ = self._request(
             "POST", f"/api/lighting/jobs/{job_id}/cancel", {"extra": True}
         )
-        self.assertEqual(400, status)
+        self.assertEqual(410, status)
         status, _ = self._request(
             "POST", "/api/lighting/jobs/not-a-job/cancel", {}
         )
         self.assertEqual(400, status)
-        self.assertEqual(before, len(self.coordinator.calls))
+        self.assertEqual([], self.coordinator.calls)
 
     def test_retired_creation_never_dispatches_provider_errors(self) -> None:
         cases = (
@@ -3181,7 +2840,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.coordinator.failure = None
 
     def test_unexpected_lighting_errors_never_expose_local_paths(self) -> None:
-        secret_path = self.root / "jobs" / "private-video.mp4"
+        secret_path = self.root / "jobs" / "private-asset.png"
         job_id = "00000000-0000-4000-8000-000000000000"
         asset_id = "00000000-0000-4000-8000-000000000001"
         with patch.object(
@@ -4008,7 +3667,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
         status, _ = self._request("GET", route)
         self.assertEqual(404, status)
 
-    def test_asset_streaming_enforces_ownership_mime_and_bounded_single_ranges(self) -> None:
+    def test_asset_streaming_enforces_ownership_mime_and_rejects_ranges(self) -> None:
         job = self._job()
         other = self._job(prompt="other")
         image = self.library.bank_asset(
@@ -4018,15 +3677,6 @@ class LightingStudioEndpointTests(unittest.TestCase):
             mime_type="image/png",
             origin="test",
         )
-        video_payload = b"0123456789abcdefghijklmnopqrstuvwxyz"
-        video = self.library.bank_asset(
-            job["job_id"],
-            kind="source_video",
-            data=video_payload,
-            mime_type="video/mp4",
-            origin="test",
-        )
-
         status, headers, payload = self._raw_request(
             f"/api/lighting/assets/{job['job_id']}/{image['asset_id']}"
         )
@@ -4038,43 +3688,14 @@ class LightingStudioEndpointTests(unittest.TestCase):
             headers={"Range": "bytes=0-1"},
         )
         self.assertEqual(416, status)
-        status, headers, payload = self._raw_request(
-            f"/api/lighting/assets/{job['job_id']}/{video['asset_id']}",
-            headers={"Range": "bytes=10-19"},
-        )
-        self.assertEqual(206, status)
-        self.assertEqual("bytes 10-19/36", headers["Content-Range"])
-        self.assertEqual(video_payload[10:20], payload)
-        self.assertEqual("bytes", headers["Accept-Ranges"])
-
         status, _headers, _payload = self._raw_request(
             f"/api/lighting/assets/{other['job_id']}/{image['asset_id']}"
         )
         self.assertEqual(404, status)
         status, _headers, _payload = self._raw_request(
-            f"/api/lighting/assets/{job['job_id']}/{video['asset_id']}",
-            headers={"Range": "bytes=0-1,3-4"},
-        )
-        self.assertEqual(416, status)
-        status, _headers, _payload = self._raw_request(
             "/api/lighting/assets/not-a-job/not-an-asset"
         )
         self.assertEqual(400, status)
-
-        oversized = self.library.bank_asset(
-            job["job_id"],
-            kind="source_video",
-            data=b"v" * (server._MAX_ASSET_RANGE_BYTES + 1),
-            mime_type="video/mp4",
-            origin="test",
-        )
-        status, _headers, _payload = self._raw_request(
-            f"/api/lighting/assets/{job['job_id']}/{oversized['asset_id']}",
-            headers={
-                "Range": f"bytes=0-{server._MAX_ASSET_RANGE_BYTES}"
-            },
-        )
-        self.assertEqual(416, status)
 
         owned_image = self.library.resolve_asset(job["job_id"], image["asset_id"])
         external = Path(self._tmp) / "external.png"
@@ -4087,13 +3708,14 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual(404, status)
 
     def test_retired_creation_has_no_injectable_legacy_stack(self) -> None:
+        for name in ("lighting_coordinator", "lighting_dependencies"):
+            self.assertNotIn(name, inspect.signature(server._State).parameters)
+            self.assertNotIn(name, inspect.signature(create_server).parameters)
         self._server.shutdown()
         self._server.server_close()
         self._thread.join(timeout=2)
         self._server, url = create_server(
-            lighting_dependencies={
-                "operation_gate": generation.OperationGate(),
-            }
+            operation_gate=generation.OperationGate(),
         )
         self._token = parse_qs(urlparse(url).query)["token"][0]
         self._base = f"http://127.0.0.1:{self._server.server_port}"

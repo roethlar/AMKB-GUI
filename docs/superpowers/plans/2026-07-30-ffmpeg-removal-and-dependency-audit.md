@@ -1,10 +1,10 @@
 # FFmpeg Removal and Dependency Ownership Audit
 
-**Status:** Draft. The owner approved the product direction on 2026-07-30:
-AI is procedural-only, FFmpeg must be removed entirely, and dependencies without
-a live supported responsibility must not remain. Implementation requires
-explicit approval of this plan. Installing Inno Setup 6 on the Windows
-verification host is a separate host mutation and remains owner-gated.
+**Status:** Approved and in progress. The owner approved implementation on
+2026-07-30. AI is procedural-only, FFmpeg must be removed entirely, and
+dependencies without a live supported responsibility must not remain.
+Installing Inno Setup 6 on the Windows verification host is a separate host
+mutation and remains owner-gated.
 
 ## Authority and supersession
 
@@ -169,26 +169,20 @@ Out of scope:
 3. In `am_configurator/llm.py`, remove `XaiVideoProvider`, `VideoStatus`, and
    video polling/request helpers and constants. Preserve shared provider error,
    usage, redaction, bounded HTTP, and recipe-provider behavior.
-4. In `am_configurator/media.py`, remove only the video subsystem:
-   `DownloadedVideo`, `ProcessedAnimation`, video URL/download helpers,
-   FFmpeg command construction/execution, local MP4 frame processing, and
-   video-only cancellation/publication helpers. Preserve image/GIF validation
-   and every function called by media composition or procedural generation.
-5. In `am_configurator/library.py`:
+4. In `am_configurator/library.py`:
    - remove `source_video` as an accepted asset kind;
    - remove `video/mp4` from generated preview types;
    - remove video-request and source-video resume/reconcile branches;
    - keep generic file integrity and ownership checks;
    - when an old video manifest is scanned, fail it closed as unsupported
      without modifying or deleting its directory or assets.
-6. In `am_configurator/web/app.js`, remove source-video labels, generated-MP4
+5. In `am_configurator/web/app.js`, remove source-video labels, generated-MP4
    display branches, and legacy asset selection. Preserve procedural
    `preview_animation` GIF behavior.
 
 ### Tests
 
 - Delete `tests/test_generation.py`.
-- Remove video-only cases from `tests/test_media.py`.
 - Remove historical video-resume cases from `tests/test_app.py`,
   `tests/test_library.py`, `tests/test_ai_routes.py`, and browser source guards.
 - Retain or add behavior tests proving:
@@ -215,10 +209,32 @@ node --test tests/web/lighting_shell.test.js
 
 Commit as one retired-subsystem finding.
 
+### Implementation sequencing record
+
+R1 completed on 2026-07-30 in the commit containing this record. The complete
+verification entry point passed: 702 Python tests (8 skipped), 125 browser
+tests, every JavaScript syntax check, Python byte-compilation, and wheel/sdist
+build. The new retirement guards were also proved red by temporarily restoring
+their production seams, then green after restoration.
+
+R1 makes the retained low-level video implementation unreachable from every
+production API, coordinator, startup-recovery, library, and UI path. Deleting
+the video-only portion of `am_configurator/media.py` and its
+`tests/test_media.py` cases is sequenced into R2 so the FFmpeg implementation,
+runtime resolver, package data, build tooling, native smoke, and tests disappear
+as one atomic finding rather than leaving an untestable split subsystem between
+commits.
+
 ## Slice R2 — Remove FFmpeg from runtime, builds, and artifacts
 
 ### Delete
 
+- The video-only subsystem in `am_configurator/media.py`:
+  `DownloadedVideo`, `ProcessedAnimation`, video URL/download helpers, FFmpeg
+  command construction/execution, local MP4 frame processing, and video-only
+  cancellation/publication helpers. Preserve image/GIF validation and every
+  function called by media composition or procedural generation.
+- The corresponding video-only cases in `tests/test_media.py`.
 - `am_configurator/ffmpeg_runtime.py`
 - `build_tools/ffmpeg_bundle.py`
 - `build_tools/prepare_ffmpeg.py`
