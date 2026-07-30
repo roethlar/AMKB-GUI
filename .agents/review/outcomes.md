@@ -109,3 +109,5 @@
   matrix were green. The UI matrix found one first-open generation-dialog
   ordering regression; `68ef671` closed it with a red-proven executable test
   and a clean real-browser recheck.
+
+- 2026-07-30 - codereview codex (gpt-5.6-sol @ high, standard, escalated: T1) over 0271213487979a50641d41e614a63f9f3ed38076..3830e8489ef10c0259ac6925bf1e0ecdf75bb0d3: verdict findings, capability_ok true; 5 admitted at intake (cx-1..cx-5, two MEDIUM three LOW), none declined. Verdict artifact: schema-enforced JSON via codex exec --output-schema.
