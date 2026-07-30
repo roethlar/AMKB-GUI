@@ -146,6 +146,16 @@ test("every Apply names the slot, the document-only change, and the Write action
   assert.match(jsFunction("mediaCompositionStatusText"), /lightingAppliedDetail\(\)/);
 });
 
+test("a stale model refresh cannot fill inventory from a previous origin", () => {
+  // cx-3: an in-flight refresh against origin A must not populate the
+  // inventory after origin B is saved.
+  const refresh = jsFunction("refreshOllamaModels");
+  assert.match(refresh, /const epoch=state\.ollamaInventoryEpoch/);
+  assert.match(refresh, /if\(epoch!==state\.ollamaInventoryEpoch\)return;/);
+  const save = jsFunction("saveOllamaBaseUrl");
+  assert.match(save, /state\.ollamaInventoryEpoch\+\+/);
+});
+
 test("the generated-result review states the destination, scope, and next action", () => {
   const view = createReviewView({
     assetUrls: new Map(),

@@ -97,6 +97,7 @@ const state = {
   settings: null,
   aiStatus: null,
   ollamaModels: {available:null,models:[],reason:null,loading:false},
+  ollamaInventoryEpoch: 0,
   settingsReturnRoute: null,
   settingsSaveBusy: false,
   aiPrompt: "",
@@ -4375,6 +4376,7 @@ async function saveOllamaBaseUrl({quiet=false}={}) {
   try{
     const result=await api("/api/settings/ollama",{method:"POST",body:JSON.stringify({base_url:baseUrl})});
     state.settings={...state.settings,ai:{...state.settings?.ai,ollama:result.ollama}};
+    state.ollamaInventoryEpoch++;
     state.ollamaModels={available:null,models:[],reason:null,loading:false};
     state.aiStatus={
       ...state.aiStatus,
@@ -4406,14 +4408,17 @@ async function saveOllamaBaseUrl({quiet=false}={}) {
 }
 
 async function refreshOllamaModels({quiet=false}={}) {
+  const epoch=state.ollamaInventoryEpoch;
   state.ollamaModels={...state.ollamaModels,loading:true};
   populateSettings();
   if(!quiet)setSettingsStatus("Refreshing models from the configured Ollama server…","working");
   try{
-    state.ollamaModels=normalizeOllamaModels(await api("/api/ai/ollama/models"));
+    const models=normalizeOllamaModels(await api("/api/ai/ollama/models"));
+    if(epoch!==state.ollamaInventoryEpoch)return;
+    state.ollamaModels=models;
     populateSettings();
     if(!quiet)setSettingsStatus(state.ollamaModels.reason==="upgrade_required"?"The configured Ollama server must be upgraded before models can be discovered.":state.ollamaModels.available?(state.ollamaModels.models.length?`${state.ollamaModels.models.length} completion model${state.ollamaModels.models.length===1?"":"s"} reported.`:"The configured Ollama server reported no completion models."):"The configured Ollama server is unavailable.",state.ollamaModels.reason==="upgrade_required"||!state.ollamaModels.available?"error":"");
-  }catch(error){state.ollamaModels=ollamaModelRefreshFailed(state.ollamaModels);populateSettings();if(!quiet)setSettingsStatus("The configured Ollama server could not be reached. The previous model choice is preserved; try Refresh again.","error");}
+  }catch(error){if(epoch!==state.ollamaInventoryEpoch)return;state.ollamaModels=ollamaModelRefreshFailed(state.ollamaModels);populateSettings();if(!quiet)setSettingsStatus("The configured Ollama server could not be reached. The previous model choice is preserved; try Refresh again.","error");}
 }
 
 async function selectOllamaModel() {
