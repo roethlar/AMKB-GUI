@@ -1,0 +1,473 @@
+# Product Experience and User Documentation Remediation
+
+**Status:** Drafted on 2026-07-29 from owner-approved product direction.
+The owner approved the two-plan structure on 2026-07-29. Implementation is not
+yet approved. This plan is independently approvable from the Ollama backend
+correctness plan, but implementation starts only after that plan closes so the
+UI is built against final backend names, routes, status fields, and disclosure
+behavior.
+
+## Objective
+
+Replace the current implementation-led interface and README with a
+gamer-facing keyboard application whose normal path explains user tasks rather
+than storage, rendering, firmware, or provider internals.
+
+The completed product must:
+
+- give a new user two obvious starting actions: connect a keyboard or open a
+  profile;
+- keep Keymap, Macros, Lighting, Library, Settings, and AI workflows task-led;
+- use Ollama and Direct API names consistently;
+- explain failures in plain language and offer one clear next action;
+- hide low-level controls behind explicit Advanced disclosures without losing
+  capability or round-trip fidelity;
+- preserve device-write safety, lossless raw keycodes, macro event editing,
+  complete lighting controls, Library durability, and preview/apply boundaries;
+- present a readable, accessible hierarchy at the native minimum window and
+  common desktop viewports; and
+- give a new user a direct download and five-minute README path.
+
+The rejected unpublished `0.1.64` candidate remains unpublishable. This plan
+does not authorize release, a live cloud prompt, provider credential use,
+keyboard writes during implementation, tag creation, publication, or
+announcement.
+
+## Dependency on Backend Correctness
+
+`docs/superpowers/plans/2026-07-29-ollama-backend-correctness.md` owns:
+
+- settings schema and migration;
+- Ollama origin validation and transport;
+- inventory eligibility and location;
+- setup identity and disclosure triggers;
+- status payload names and loopback API routes;
+- exactly-one-request generation behavior.
+
+This plan consumes those contracts and does not redefine them. The product
+plan may be approved while backend implementation is in progress, but no
+product slice begins until backend Slice B4 is committed.
+
+## Current Baseline
+
+The implementation at the plan base has these user-facing problems:
+
+- `am_configurator/web/index.html`, `app.js`, `lighting_state.js`, and
+  `lighting_review.js` expose terms including Local, API backend, durable job,
+  banked/banking, procedural recipe, exact LED frames, raster dimensions,
+  deterministic seed, model identity, and mapped/stored counts.
+- The empty state is paragraph-led and makes merge behavior visible before a
+  user has opened a document.
+- The normal Keymap inspector exposes matrix positions and raw eight-digit
+  keycodes.
+- The normal Macro view exposes key-down/key-up events and per-event timing.
+- The normal Lighting view exposes sampling, stretch algorithms, deterministic
+  seeds, raw frame counts, and draft/render terminology.
+- Settings describes provider implementation instead of the chosen service,
+  endpoint, model destination, and explicit actions.
+- Sidebar counts and dense helper text lack a clear hierarchy at ordinary
+  window sizes.
+- `README.md` places provenance and implementation detail before a direct
+  supported-device, download, and first-use path.
+
+## Non-Goals
+
+- Do not redesign device protocols, profile schemas, rendering algorithms,
+  Library storage, or the hardware-write confirmation boundary.
+- Do not remove raw keycode editing, matrix labels, macro event editing,
+  firmware timing, sampling, stretch, seed, diagnostic counts, or other expert
+  capability; move it behind Advanced disclosure.
+- Do not make Apply and Save to Library the same action.
+- Do not expose credentials, serials, filesystem paths, raw exceptions, or
+  diagnostic payloads in normal UI or screenshots.
+- Do not add a live cloud prompt, provider qualification, or keyboard write to
+  automated or manual implementation verification.
+- Do not duplicate backend correctness rules from the backend plan.
+
+## Product Language Contract
+
+Normal UI, surfaced API errors, README instructions, installation guidance, and
+screenshots use these replacements:
+
+| Internal term | User-facing replacement |
+|---|---|
+| local backend | Ollama |
+| API backend | Direct API |
+| local model | model on this Ollama server |
+| bank / banked / banking | save / saved / saving to Library |
+| durable job | generation continues in the background |
+| procedural recipe | lighting effect or lighting pattern |
+| exact LED frames | lighting frames |
+| raster dimensions | keyboard or display size |
+| model identity changed | the model was updated; test it again |
+| source | imported media |
+| deterministic draft | preview |
+| accept draft | apply preview |
+| catalog identity / asset identity | saved Library item |
+| mapped / stored counts | hidden normally; shown under Technical details |
+
+Internal names, manifest fields, developer tests, and diagnostic logs may keep
+precise engineering terms when they are not user-visible.
+
+Every surfaced failure answers:
+
+1. what failed in user terms;
+2. whether anything was saved or changed;
+3. the next available action.
+
+Typed errors are mapped at the API/UI boundary. Raw exception text stays in
+local diagnostics and test assertions.
+
+## Interaction Design
+
+### First Run and Empty State
+
+Show two primary task cards:
+
+- **Connect a keyboard** — opens Devices and states that reading never writes;
+- **Open a JSON profile** — opens a complete portable profile.
+
+Keep one concise lighting safety note: keyboards whose firmware cannot read
+lighting require a complete JSON profile or the application's last verified
+local snapshot to preserve existing lighting.
+
+Do not introduce merge concepts before a document is open. Show **Merge another
+JSON** only for an open document or when a key-only export needs its matching
+lighting file.
+
+### Application Chrome
+
+Group actions by task:
+
+- file: Open, Save JSON, contextual Merge;
+- application: Settings;
+- device: Devices, Write to keyboard.
+
+Keep quiet chrome and Keymap-first launch. Do not add a nested product title or
+version to ordinary chrome.
+
+Give sidebar counts visible or accessible labels such as `7 layers`, `4
+macros`, and `3 lighting slots`; unexplained numbers are not acceptable.
+
+### Keymap
+
+The normal inspector contains:
+
+- selected physical key;
+- current assignment in plain language;
+- searchable assignment groups;
+- Apply.
+
+Move raw keycode editing and firmware passthrough explanation into collapsed
+**Advanced keycode**. Hide matrix/LED numbers by default and expose them through
+**Show technical labels**. Preserve lossless raw-code round trips.
+
+### Macros
+
+The default workflow contains:
+
+- **Type text** to convert text to keystrokes;
+- **Record keys** to capture a sequence;
+- one simple delay control with a timing explanation.
+
+Move the key-down/key-up table, per-event delay editing, track counts, and
+capacity diagnostics into **Edit individual events**. Capacity errors remain
+pre-mutation and use task language.
+
+### Lighting Studio and Library
+
+Normal tools are:
+
+- Paint;
+- Import media;
+- Effects;
+- AI.
+
+Use a consistent two-step boundary: **Preview**, then **Apply to lighting
+slot**.
+
+Move sampling method, independent-axis stretch, pattern seed, raw frame counts,
+mapped/stored counts, and firmware timing into contextual **Advanced** or
+**Technical details** sections. Normal controls use friendly presets constrained
+to firmware-safe values.
+
+Use **Save to Library** consistently for manual lighting, imported media,
+keymaps, macros, and generated effects. Apply changes only the open document;
+Library persistence is always a separate labelled action.
+
+AI progress uses:
+
+- Creating lighting;
+- Checking the result;
+- Saving to Library.
+
+The progress explanation is:
+
+> You can open Library while this finishes. Closing the progress view does not
+> cancel generation.
+
+The panel shows destination, selected Ollama or Direct API model, one prompt,
+one Generate/Try again action, and Cancel. It never claims a job/result is
+durable, banked, exact, or procedural.
+
+### Settings
+
+Backend choices are **Ollama** and **Direct API**. Remove Primary computer,
+Secondary provider, Installed model, and eligible local model wording.
+
+The Ollama panel contains:
+
+- Server URL with loopback default and a LAN example;
+- configured-host connection status without credentials;
+- Refresh models;
+- a picker labelled On this Ollama server or Ollama Cloud;
+- the disclosure supplied by the backend contract;
+- Use model;
+- Test setup;
+- Clear selection.
+
+Saving a changed URL performs no request. Refresh and Test setup are the only
+actions that initiate inventory and setup generation.
+
+### Visual Hierarchy and Accessibility
+
+Retain the dark visual identity while enforcing:
+
+- body text at least 14 px at 100% scale;
+- helper text at least 13 px;
+- WCAG AA 4.5:1 contrast for normal text;
+- 3:1 contrast for large text and control boundaries;
+- visible focus on every interactive element;
+- readable, distinguishable disabled controls;
+- consistent primary, secondary, destructive, and Advanced hierarchy;
+- no clipped primary action, horizontal clipping, or overlapping panel at the
+  native minimum window or 1280×800;
+- no regression at 1600×1000.
+
+Automated DOM tests own structural, vocabulary, keyboard-navigation, and stable
+token assertions. Manual visual verification owns perceptual hierarchy.
+
+## README and Screenshots
+
+Restructure `README.md`:
+
+1. one-sentence product purpose;
+2. **Download the latest release**;
+3. supported keyboards and operating systems;
+4. five-minute quick start;
+5. three current screenshots;
+6. Keymap, Macros, Lighting, Library, and optional AI capabilities;
+7. concise device-write and lighting-backup safety;
+8. installation-verification link;
+9. collapsed developer/build instructions.
+
+README labels and actions must match the application. Move maintainer-only
+reproducibility and provenance detail out of the normal download path while
+retaining it in installation/release documentation.
+
+Capture screenshots only after final UI verification. They contain no
+credential, device serial, personal path, live cloud prompt, or result.
+
+## Implementation Slices
+
+Every slice is guard-proven, fully verified, and committed before the next.
+Normal and Advanced paths must both remain functional at every boundary.
+
+### Slice P1 — Replace implementation vocabulary and error presentation
+
+Files:
+
+- `am_configurator/web/index.html`
+- `am_configurator/web/app.js`
+- `am_configurator/web/lighting_state.js`
+- `am_configurator/web/lighting_review.js`
+- surfaced Python error mappings
+- affected Python and web tests
+
+Required guards:
+
+- normal UI contains none of the banned language in the contract;
+- phases and failures state the task, saved/changed state, and next action;
+- Ollama and Direct API labels match backend status;
+- generated-result review uses lighting-effect language;
+- raw exception text is not surfaced;
+- internal manifest compatibility is unchanged.
+
+Commit:
+
+```text
+fix: use plain language throughout the app
+```
+
+### Slice P2 — Simplify onboarding, Keymap, and Macros
+
+Files:
+
+- `am_configurator/web/index.html`
+- `am_configurator/web/app.js`
+- `am_configurator/web/style.css`
+- relevant web tests
+
+Required guards:
+
+- empty state exposes Connect a keyboard and Open a JSON profile;
+- Merge is contextual;
+- raw keycodes and technical labels are hidden until requested;
+- lossless raw assignment still round-trips;
+- Type text and Record keys remain normal Macro actions;
+- event-level editing remains complete under Advanced;
+- keyboard navigation and focus restoration pass.
+
+Commit:
+
+```text
+feat: simplify keymap and macro workflows
+```
+
+### Slice P3 — Simplify Lighting, Library, and Settings
+
+Files:
+
+- `am_configurator/web/index.html`
+- `am_configurator/web/app.js`
+- `am_configurator/web/lighting_state.js`
+- `am_configurator/web/lighting_review.js`
+- `am_configurator/web/style.css`
+- relevant web and route tests
+
+Required guards:
+
+- tool names and Preview/Apply actions match this plan;
+- technical controls retain values and behavior under Advanced;
+- every Library save is explicit and separate from Apply;
+- Settings URL save makes no request;
+- Refresh and Test setup remain distinct explicit actions;
+- non-loopback HTTP and Ollama Cloud disclosures are correct;
+- generation failure exposes one Try again action and makes no automatic call;
+- AI-off mode hides AI-only controls while all manual tools remain available.
+
+Commit:
+
+```text
+feat: simplify lighting and AI setup
+```
+
+### Slice P4 — Correct hierarchy, accessibility, and responsive behavior
+
+Files:
+
+- `am_configurator/web/style.css`
+- minimal semantic markup required for accessibility
+- web structure/navigation tests
+
+Required checks:
+
+- stable token/contrast assertions;
+- keyboard-only traversal of every primary task;
+- visible focus and readable disabled controls;
+- no clipped primary action at 1280×800 or native minimum;
+- no regression at 1600×1000;
+- no hidden modal action at minimum size;
+- manual inspection of Keymap, Macros, Lighting, Library, Settings, empty
+  state, errors, and dialogs at both target viewports.
+
+Commit:
+
+```text
+fix: improve application legibility and hierarchy
+```
+
+### Slice P5 — Rewrite user entry documentation
+
+Files:
+
+- `README.md`
+- user installation documentation whose labels changed
+- `docs/images/*.png`
+- link and copy tests
+
+Required checks:
+
+- README order matches this plan;
+- latest-release installation links resolve;
+- README and application action labels agree;
+- three screenshots match the verified UI and contain no sensitive data;
+- developer/build instructions remain accurate.
+
+Commit:
+
+```text
+docs: add a clear user quick start
+```
+
+### Slice P6 — Close remediation and prepare a distinct candidate
+
+The rejected unpublished `0.1.64` identifier is not reused. After both plans
+are complete, set the canonical version in `am_configurator/_version.py` to
+`0.1.65`. This version change and its propagation are part of the new candidate,
+not a revision of the rejected candidate.
+
+Files:
+
+- `am_configurator/_version.py`
+- generated/version consumers updated by the repository's normal build flow
+- `.agents/state.md`
+- this plan
+- the backend plan status/pointer
+- the release plan status/pointers
+
+Required checks:
+
+- full automated verification entry point passes;
+- `python build.py --skip-sync` and executable `--smoke-test` pass;
+- every screen/error state passes the two-viewport manual matrix;
+- version assertions and artifact names resolve to `0.1.65`;
+- no live cloud prompt, provider credential, or keyboard write was used;
+- exact implementation commits and remaining platform gates are recorded.
+
+Commit:
+
+```text
+docs: close product experience remediation
+```
+
+Building the new exact candidate follows this slice. Tagging, publication,
+announcements, live cloud qualification, macOS Open Anyway, and hardware writes
+retain separate action-time gates.
+
+## Guard-Proof and Verification Procedure
+
+For each new behavioral guard:
+
+1. run the focused test and confirm PASS;
+2. temporarily revert only the production behavior it guards;
+3. rerun and confirm FAIL for the predicted reason;
+4. restore the behavior;
+5. rerun and confirm PASS;
+6. run the full automated verification entry point before commit.
+
+Do not duplicate verification commands here. The authoritative entry point is
+`.agents/repo-guidance.md` under **Verification**.
+
+Manual visual checks record viewport, view/dialog, normal/Advanced state,
+keyboard traversal, and result. They do not use a live cloud prompt or keyboard
+write.
+
+## Acceptance Criteria
+
+This plan is complete only when:
+
+- first run has two obvious primary tasks;
+- ordinary UI contains none of the banned implementation vocabulary;
+- Keymap, Macros, Lighting, Library, and Settings expose a clear normal path;
+- all expert controls remain complete under labelled disclosure;
+- errors explain failure, saved/changed state, and next action;
+- Ollama/Direct API setup and execution labels are unambiguous;
+- Apply and Save to Library remain distinct;
+- keyboard navigation, focus, contrast, minimum-size, and viewport checks pass;
+- README supplies a direct download and five-minute start;
+- screenshots match the verified interface and contain no sensitive data;
+- automated verification and native smoke pass;
+- both plans are complete and independently committed;
+- `0.1.64` remains rejected and the next candidate is `0.1.65`;
+- release qualification resumes only for that new exact candidate.
