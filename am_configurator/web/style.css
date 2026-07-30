@@ -180,6 +180,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .control-caption { display: block; margin: 0; color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
 .segmented.compact { padding: 2px; }
 .segmented.compact button { min-width: 31px; height: 29px; padding-inline: 9px; font-size: 13px; }
+/* Friendly presets sit in a narrow tool column, so they wrap rather than
+   overflow it. Every preset value is a firmware-safe step. */
+.speed-presets, .length-presets { display: flex; flex-wrap: wrap; width: 100%; }
+.speed-presets > *, .length-presets > * { flex: 1 1 auto; min-width: 0; }
 .lighting-shell [role="tabpanel"] { max-width: 1540px; min-width: 0; margin: 0 auto; }
 .lighting-panel-body { padding: 18px 0 0; }
 
@@ -266,6 +270,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .concept-prompt textarea { min-height: 92px; padding: 10px 12px; resize: vertical; line-height: 1.5; }
 .concept-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .concept-destination { align-self: center; overflow: hidden; color: var(--muted); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.concept-model { color: var(--muted-2); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
 .concept-next { margin-left: auto; color: var(--violet-2); font-size: 13px; }
 .concept-phase { min-height: 18px; margin: -4px 0 0; color: var(--violet-2); font-size: 13px; }
 .concept-progress-row { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 10px; margin-top: -8px; color: var(--muted); font-size: 13px; }
@@ -510,9 +515,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .pixel-grid.physical .body-led { border-radius: 999px; border-color: var(--violet-2); }
 .led-controls { position: sticky; top: 20px; }
 .studio-inspector { overflow: hidden; }
-.studio-tool-tabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
-.studio-tool-tabs.with-generate { grid-template-columns: repeat(2,minmax(0,1fr)); }
-.studio-tool-tabs button { min-width: 0; min-height: 34px; border: 1px solid transparent; border-radius: 7px; padding: 6px 8px; color: var(--muted); background: transparent; font: inherit; font-size: 13px; cursor: pointer; }
+/* Task-named tools ("Import media") are longer than the old one-word labels,
+   so the row auto-fits and wraps instead of blowing out the tool column. */
+.studio-tool-tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.studio-tool-tabs > * { min-width: 0; }
+.studio-tool-tabs.with-generate { grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); }
+.studio-tool-tabs button { min-width: 0; min-height: 34px; border: 1px solid transparent; border-radius: 7px; padding: 6px 8px; color: var(--muted); background: transparent; font: inherit; font-size: 13px; line-height: 1.25; cursor: pointer; }
 .studio-tool-tabs button:hover { color: var(--text); background: var(--panel-3); }
 .studio-tool-tabs button[aria-selected="true"] { color: var(--text); border-color: var(--line-strong); background: var(--violet-soft); }
 .studio-inspector-body { max-height: calc(100vh - 205px); overflow: auto; padding: 16px; }
@@ -541,14 +549,16 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .source-preview-toggle button { flex: 1; }
 .media-composition-status { min-height: 42px; margin-bottom: 10px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); background: var(--panel-2); font-size: 13px; line-height: 1.45; }
 .media-composition-status.failed { border-color: rgba(239,98,98,.45); color: var(--danger); }
-.media-composition-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.media-composition-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; }
+.media-composition-actions > * { min-width: 0; }
 .media-composition-actions #media-compose-preview { grid-column: 1 / -1; }
 .secondary-label { margin-top: 14px; }
 .animation-draft-empty, .animation-draft-controls { margin-bottom: 12px; padding: 11px; border: 1px dashed var(--line-strong); border-radius: 9px; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .animation-draft-controls { display: grid; gap: 8px; color: var(--text); border-style: solid; background: var(--violet-soft); }
 .animation-draft-controls input { width: 100%; accent-color: var(--violet); }
 .animation-draft-controls small { color: var(--muted); }
-.animation-draft-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.animation-draft-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; }
+.animation-draft-actions > * { min-width: 0; }
 .animation-draft-actions #animate-preview { grid-column: 1 / -1; }
 .control-group { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
 .control-group:last-child { border-bottom: 0; margin-bottom: 0; }

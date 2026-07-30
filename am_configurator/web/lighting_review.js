@@ -75,10 +75,17 @@
       : !attempt.mapped_result_asset_id
         ? "The generated lighting is unavailable, so nothing was changed. Generate it again."
         : "";
+    // Apply is document-only. The hint names the destination slot, that scope,
+    // and the single action that reaches the keyboard, so the review stage
+    // answers "where did my work go?" the same way every other Apply does.
+    const writeAction = typeof options.writeActionLabel === "string" && options.writeActionLabel
+      ? options.writeActionLabel
+      : "Write to keyboard";
     return Object.freeze({
       previewUrl: assetUrl(options.assetUrls, options.jobId, attempt.preview_asset_id),
       summary,
       detail: `${frameCount} lighting frames · ${options.targetLabel || "Lighting"} · Custom ${customSlot}`,
+      applyHint: `Apply puts this in Custom slot ${customSlot} · ${options.targetLabel || "Lighting"} and changes the open document only. Nothing has been written to the keyboard yet — use the ${writeAction} button when you are ready.`,
       blockedMessage,
       loadingMessage,
       errorMessage: typeof options.errorMessage === "string" ? options.errorMessage : "",
@@ -99,8 +106,8 @@
       ${review.blockedMessage ? `<p class="ai-error" role="alert">${escapeHtml(review.blockedMessage)}</p>` : ""}
       ${review.loadingMessage ? `<p class="ai-error" role="status">${escapeHtml(review.loadingMessage)}</p>` : ""}
       ${review.errorMessage ? `<p class="ai-error" role="alert">${escapeHtml(review.errorMessage)}</p>` : ""}
-      <div class="button-row"><button id="apply-procedural-effect" type="button" class="button primary" ${review.applyDisabled ? "disabled" : ""}>Apply</button></div>
-      <small class="control-help">Apply is one undoable document-only change. Nothing is written to the keyboard.</small></div>
+      <div class="button-row"><button id="apply-procedural-effect" type="button" class="button primary" ${review.applyDisabled ? "disabled" : ""}>Apply to lighting slot</button></div>
+      <small class="control-help">${escapeHtml(review.applyHint || "")}</small></div>
     </div>`;
     const button = container.querySelector("#apply-procedural-effect");
     if (!button) return;

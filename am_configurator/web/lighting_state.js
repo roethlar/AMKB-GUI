@@ -343,7 +343,7 @@
     const previous = typeof previousValue === "string" ? previousValue : "";
     const value = optionValues.has(previous) ? previous : optionValues.has(selectedId) ? selectedId : "";
     const placeholder = loading
-      ? "Checking installed models…"
+      ? "Checking models on this Ollama server…"
       : inventoryState === "upgrade_required"
         ? "Upgrade Ollama to discover models"
         : inventoryState === "not_refreshed"

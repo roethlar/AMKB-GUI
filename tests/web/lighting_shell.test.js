@@ -31,7 +31,11 @@ test("pure lighting state loads before the application adapter", () => {
   assert.match(server,/"\/library_state\.js":\s*"library_state\.js"/);
 });
 
-test("Studio is one Paint, Source, and Animate shell with local draft acceptance", () => {
+// Slice P3 renamed the visible tool labels to Paint / Import media / Effects /
+// AI while the internal tool keys and element ids stayed stable. This guard
+// keeps owning the stable keys; the visible labels are owned by
+// tests/web/lighting_flow.test.js.
+test("Studio is one Paint, Import media, and Effects shell with local draft acceptance", () => {
   for(const id of [
     "studio-paint-tab","studio-source-tab","studio-animate-tab",
     "studio-paint-panel","studio-source-panel","studio-animate-panel",
@@ -288,7 +292,12 @@ test("generation is one prompt, durable progress, animated review, and explicit 
   const applyEnd=js.indexOf("async function loadAiConfig",applyStart);
   const apply=js.slice(applyStart,applyEnd);
   assert.equal((apply.match(/mutate\(/g)||[]).length,1);
-  assert.match(apply,/keyboard has not been written/);
+  // Slice P3 moved this sentence into the shared post-Apply feedback helper so
+  // every Apply says the same thing. The intent is unchanged: applying a
+  // generated result must state that the keyboard has not been written.
+  assert.match(apply,/lightingAppliedDetail\(/);
+  const detail=js.slice(js.indexOf("function lightingAppliedDetail"),js.indexOf("\nfunction ",js.indexOf("function lightingAppliedDetail")+10));
+  assert.match(detail,/Nothing has been written to the keyboard yet/);
 });
 
 test("inline generation tool omits backend identity and keeps the exact target destination", () => {

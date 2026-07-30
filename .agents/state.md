@@ -144,6 +144,13 @@
   native build and executable smoke remain open, blocked only on the missing
   staged FFmpeg sources noted under Next.
 
+- Known intermittent (backend, pre-existing): under full-suite load,
+  `test_procedural_generation...test_local_cancellation_stops_without_retry_or_ready_artifacts`
+  occasionally fails with manifest status `interrupted` instead of
+  `cancelled` (observed once on 2026-07-29; 4/4 green in isolation and green
+  in adjacent full runs). Likely a cancellation-timing race in the B3
+  one-request path; owned by backend follow-up, not masked or retried away.
+
 ## Next
 
 - Close backend Slice B4 after a Windows native build and executable smoke
