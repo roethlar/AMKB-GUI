@@ -48,8 +48,8 @@ artifacts = ["am_configurator/data/*.rules"]
 [tool.hatch.build.targets.sdist]
 # Every pattern is root-anchored with a leading "/": these are gitignore-style,
 # so a bare "README.md" would also match docs/verification/*/README.md and drag
-# internal material back in. Nested files still ship via their parent directory
-# (packaging/ffmpeg/README.md comes in under "/packaging/").
+# internal material back in. Nested files still ship through included parent
+# directories.
 include = [
   "/am_configurator/",
   "/assets/",

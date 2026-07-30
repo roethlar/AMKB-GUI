@@ -3,17 +3,11 @@
 from pathlib import Path
 import sys
 
-from am_configurator.ffmpeg_runtime import get_ffmpeg_runtime
 from build_tools.release_info import project_version
 
 
 project = Path(SPECPATH).parent
 app_version = project_version(project)
-ffmpeg_binary = get_ffmpeg_runtime()
-ffmpeg_metadata = project / "packaging" / "ffmpeg"
-binaries = [
-    (str(ffmpeg_binary), "ffmpeg"),
-]
 hidden_imports = [
     "am_configurator.ai_capability",
     "am_configurator.credentials",
@@ -50,19 +44,13 @@ executable_icon = (
 a = Analysis(
     [str(project / "packaging" / "launcher.py")],
     pathex=[str(project)],
-    binaries=binaries,
+    binaries=[],
     datas=[
         (str(project / "am_configurator" / "web"), "am_configurator/web"),
         # The Linux udev rule must reach the user, not only the source archive:
         # the permission error tells them to install it, and an AppImage user
         # has no source tree to install it from.
         (str(project / "am_configurator" / "data"), "am_configurator/data"),
-        (str(ffmpeg_binary.with_name("ffmpeg-runtime.json")), "ffmpeg"),
-        (str(ffmpeg_metadata / "manifest.json"), "ffmpeg"),
-        (str(ffmpeg_metadata / "LGPL-2.1.txt"), "ffmpeg"),
-        (str(ffmpeg_metadata / "README.md"), "ffmpeg"),
-        (str(ffmpeg_metadata / "ffmpeg-devel.asc"), "ffmpeg"),
-        (str(project / "tests" / "fixtures" / "tiny-motion.mp4"), "smoke"),
         # The protocol layer derives from MIT-licensed cyberboard-cli, whose
         # notice must accompany every copy. The Windows installer's LicenseFile
         # only displays it during setup, so it has to ship as bundle data too.

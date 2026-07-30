@@ -134,60 +134,6 @@ class DesktopBridgeTests(unittest.TestCase):
 
 
 class DesktopSmokeTests(unittest.TestCase):
-    def test_ffmpeg_smoke_derives_geometry_for_every_registered_family(self) -> None:
-        from am_configurator import device_mapping, ffmpeg_runtime, media
-
-        frame_caps = {"CB": 2, "80": 2, "ALICE": 2, "NEON": 2}
-        capabilities = {
-            "CB": {"targets": [{"width": 15, "height": 6}]},
-            "80": {"targets": [{"width": 18, "height": 7}]},
-            "ALICE": {"targets": [{"width": 16, "height": 5}]},
-            "NEON": {"targets": [{"width": 19, "height": 6}]},
-        }
-        calls = []
-
-        def process(_fixture, output, _work, **kwargs):
-            output.mkdir()
-            paths = []
-            for index in range(kwargs["frame_count"]):
-                path = output / f"{index}.png"
-                path.touch()
-                paths.append(path)
-            calls.append(
-                (
-                    kwargs["width"],
-                    kwargs["height"],
-                    kwargs["loop_mode"],
-                )
-            )
-            return types.SimpleNamespace(frame_paths=paths)
-
-        with (
-            mock.patch.object(device_mapping, "MODEL_FRAME_CAPS", frame_caps),
-            mock.patch.object(
-                device_mapping,
-                "target_capabilities",
-                return_value=capabilities,
-            ),
-            mock.patch.object(
-                ffmpeg_runtime,
-                "get_ffmpeg_runtime",
-                return_value=Path("/offline/ffmpeg"),
-            ),
-            mock.patch.object(media, "process_video_frames", side_effect=process),
-        ):
-            desktop._run_ffmpeg_media_smoke()
-
-        self.assertEqual(
-            [
-                (15, 6, "smooth"),
-                (18, 7, "none"),
-                (16, 5, "ping_pong"),
-                (19, 6, "smooth"),
-            ],
-            calls,
-        )
-
     def test_full_smoke_uses_only_in_memory_credentials_and_offline_ollama(self) -> None:
         captured: dict = {}
         opened_assets: list[str] = []
@@ -252,7 +198,6 @@ class DesktopSmokeTests(unittest.TestCase):
             mock.patch.object(desktop, "_run_disabled_ai_smoke"),
             mock.patch.object(desktop, "_run_api_recipe_smoke"),
             mock.patch.object(desktop, "_run_ollama_recipe_smoke"),
-            mock.patch.object(desktop, "_run_ffmpeg_media_smoke"),
             mock.patch.object(desktop, "create_server", side_effect=create_server),
             mock.patch.object(desktop, "urlopen", side_effect=open_loopback),
         ):

@@ -10,10 +10,6 @@ if [[ ! -d "$app_path" ]]; then
   exit 1
 fi
 
-# Prove PyInstaller's nested signature is the exact deterministic transform of
-# the prepared, attested FFmpeg bytes; bind both hashes and the CDHash before
-# refreshing only the outer app seal.
-uv run --frozen python -m build_tools.finalize_ffmpeg_bundle "$app_path"
 codesign --force --sign - "$app_path"
 codesign --verify --deep --strict "$app_path"
 

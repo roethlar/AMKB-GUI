@@ -335,7 +335,6 @@ def _file_stat_identity(details: os.stat_result) -> tuple[int, ...]:
     disagrees with itself and every banked asset is rejected.  ``st_mode`` and
     reparse status are asserted directly against both the path and the
     descriptor by the callers, so excluding them here removes no check.
-    ``ffmpeg_runtime._regular_file_identity`` carries the same contract.
     """
     return (
         details.st_dev,
@@ -1762,8 +1761,8 @@ class GeneratedAssetLibrary:
         identity for the under-lock recheck from ``lstat`` instead.  Only the
         authenticated serving route passes it, because that route immediately
         calls :meth:`OwnedAsset.open_verified`, which re-checks the descriptor it
-        actually serves from.  Callers that use ``owned.path`` directly, such as
-        the FFmpeg-facing generation paths, must keep the default.
+        actually serves from. Callers that use ``owned.path`` directly must keep
+        the default.
         """
         canonical_job_id = _canonical_uuid(job_id, "job ID")
         canonical_asset_id = _canonical_uuid(asset_id, "asset ID")

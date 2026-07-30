@@ -72,10 +72,6 @@ def build_installer(
             root,
         )
     runner(
-        ["uv", "run", "--frozen", "python", "-m", "build_tools.prepare_ffmpeg"],
-        root,
-    )
-    runner(
         [
             "uv",
             "run",

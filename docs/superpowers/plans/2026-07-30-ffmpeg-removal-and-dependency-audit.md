@@ -309,6 +309,21 @@ runtime.
 
 Commit as one bundled-dependency finding.
 
+### Implementation sequencing record
+
+R2 completed on 2026-07-30 in the commit containing this record. The retired
+media module, FFmpeg runtime and build helpers, package metadata, native smoke,
+CI toolchains, fixtures, and tests are gone. GIF/PNG/BMP composition and
+procedural Pillow rendering remain supported.
+
+The focused R2 suite passed 74 tests (2 skipped). The complete verification
+entry point passed 638 Python tests (5 skipped), 125 browser tests, every
+JavaScript syntax check, Python byte-compilation, and wheel/sdist builds. The
+rebuilt wheel (50 files) and sdist (114 files) contained none of the retired
+runtime, source, license, fixture, or identifying token. New absence guards were
+proved red by temporarily restoring the retired media module, workflow
+toolchain references, and third-party notice, then green after restoration.
+
 ## Slice R3 — Remove the developer-only shipped adapter
 
 1. Refactor `build_tools/qualify_recipe_model.py` to construct the production

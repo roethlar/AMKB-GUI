@@ -9,15 +9,11 @@
   `.agents/decisions.md`.
 - The audited removal work is specified in
   `docs/superpowers/plans/2026-07-30-ffmpeg-removal-and-dependency-audit.md`.
-  The owner approved implementation on 2026-07-30. Slice R1 is complete: the
-  historical generation coordinator, xAI video polling, video recovery,
-  source-video serving/UI, and their execution tests are gone; procedural
-  generation remains the only AI generation path. Legacy video manifests are
-  reported as unsupported and left untouched.
-- The low-level FFmpeg implementation in `am_configurator/media.py` is no
-  longer reachable from a production route or coordinator. Its atomic removal
-  with the FFmpeg runtime, build, package, CI, smoke, and test surfaces is the
-  approved R2 sequencing recorded in the plan.
+  The owner approved implementation on 2026-07-30. Slices R1 and R2 are
+  complete: procedural generation is the only AI generation path; historical
+  video execution and recovery are retired; and the obsolete media runtime,
+  build/package machinery, native smoke, CI toolchains, fixtures, and tests are
+  gone. Legacy video manifests are reported as unsupported and left untouched.
 - Public-release qualification is stopped. The unpublished `0.1.64` candidate
   was rejected after product inspection found three release-blocking classes:
   Ollama Cloud inventory was deliberately hidden, one Ollama Generate action
@@ -56,10 +52,9 @@
 
 ## Next
 
-- Execute Slice R2: delete the now-unreachable video subsystem together with
-  the FFmpeg runtime resolver, source/build tooling, package data, native smoke,
-  CI prerequisites, fixtures, and tests. Prove GIF/PNG/BMP import and
-  procedural rendering remain intact, then land the finding before R3.
+- Execute Slice R3: make the developer model-qualification tool delegate to the
+  production Ollama recipe provider, prove the delegation and one-request
+  contract, then delete the duplicate shipped adapter and its isolated tests.
 - Product Slice P6 and release qualification remain paused until the
   dependency-removal plan closes. Publishing a Release or announcement remains
   later, separately gated work.

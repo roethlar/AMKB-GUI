@@ -315,9 +315,8 @@ class ReleaseInfoTests(unittest.TestCase):
             self.assertEqual(original, version_file.read_text(encoding="utf-8"))
             self.assertEqual("uv", commands[0][0])
             self.assertIn("sync", commands[0])
-            self.assertIn("build_tools.prepare_ffmpeg", commands[1])
-            self.assertIn("pyinstaller", commands[2])
-            self.assertTrue(commands[3][-1].endswith("build_dmg.sh"))
+            self.assertIn("pyinstaller", commands[1])
+            self.assertTrue(commands[2][-1].endswith("build_dmg.sh"))
 
     def test_failed_build_does_not_mutate_canonical_version(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -521,40 +520,23 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(package=package):
                 self.assertIn(package, workflow)
 
-    def test_windows_ffmpeg_uses_the_setup_msys2_installation(self) -> None:
+    def test_desktop_workflow_has_no_retired_media_build_toolchain(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
             encoding="utf-8"
         )
-
-        self.assertIn("id: msys2", workflow)
-        self.assertIn(
-            "MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}",
-            workflow,
-        )
-        self.assertNotIn("C:/msys64", workflow)
-        self.assertIn('Join-Path $env:MSYS2_LOCATION "usr/bin"', workflow)
-        self.assertIn('Join-Path $env:MSYS2_LOCATION "mingw64/bin"', workflow)
-        self.assertIn('$env:PATH = "$usrBin;$mingwBin;$env:PATH"', workflow)
-        for variable in ("$gpg", "$bash", "$cc", "$ar", "$ranlib", "$strip"):
-            self.assertIn(variable, workflow)
-
-    def test_desktop_workflow_stages_ffmpeg_source_only_on_cache_miss(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
-            encoding="utf-8"
-        )
-        source_stage = workflow.split(
-            "- name: Stage pinned FFmpeg source",
-            1,
-        )[1].split(
-            "- name: Prepare verified FFmpeg runtime",
-            1,
-        )[0]
-
-        self.assertIn("id: ffmpeg-cache", workflow)
-        self.assertIn(
-            "if: steps.ffmpeg-cache.outputs.cache-hit != 'true'",
-            source_stage,
-        )
+        lowered = workflow.casefold()
+        retired_tool = "ff" + "mpeg"
+        for forbidden in (
+            retired_tool,
+            "gnupg",
+            "msys2",
+            "mingw",
+            "diffutils",
+            "build-essential",
+            "zlib1g-dev",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, lowered)
 
     def test_desktop_workflow_has_no_obsolete_vulkan_setup(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
@@ -599,8 +581,6 @@ class ReleaseInfoTests(unittest.TestCase):
             ROOT / "packaging" / "macos" / "build_dmg.sh",
             ROOT / "packaging" / "linux" / "build_appimage.sh",
             ROOT / "packaging" / "windows" / "build_installer.ps1",
-            ROOT / "build_tools" / "prepare_ffmpeg.py",
-            ROOT / "build_tools" / "ffmpeg_bundle.py",
         )
         release_surface = "\n".join(path.read_text("utf-8") for path in paths)
         release_surface = release_surface.casefold().replace("ollama", "")
@@ -732,8 +712,7 @@ class ReleaseInfoTests(unittest.TestCase):
         # The project's own license carries the project's copyright, not the
         # upstream's; GeneralD's notice is preserved in the bundled file above.
         self.assertIn("Copyright (c) 2026 Michael Coelho", licence)
-        # FFmpeg's separate LGPL obligation must not regress alongside it.
-        self.assertIn("GNU Lesser General Public License", notices)
+        self.assertNotIn("ff" + "mpeg", notices.casefold())
         # The Neon's axial LED payload ordering is derived from the Apache-2.0
         # neon80_driver. The obligation attaches to the derived data, so the
         # attribution has to travel in every artifact, not only the repository.
@@ -907,44 +886,92 @@ class ReleaseInfoTests(unittest.TestCase):
         for backend in ("macOS", "SecretService", "Windows"):
             self.assertIn(f'"keyring.backends.{backend}"', spec)
 
-    def test_native_bundle_contains_verified_ffmpeg_and_real_media_smoke(self) -> None:
-        spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
-        build_script = (ROOT / "build.py").read_text(encoding="utf-8")
-        smoke = (ROOT / "am_configurator" / "desktop.py").read_text(encoding="utf-8")
-        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(encoding="utf-8")
-        macos = (ROOT / "packaging" / "macos" / "build_dmg.sh").read_text(encoding="utf-8")
-        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
-        finalizer = (ROOT / "build_tools" / "finalize_ffmpeg_bundle.py").read_text(
-            encoding="utf-8"
+    def test_native_bundle_and_build_surface_have_no_retired_video_stack(self) -> None:
+        paths = (
+            ROOT / "packaging" / "am_configurator.spec",
+            ROOT / "build.py",
+            ROOT / "am_configurator" / "desktop.py",
+            ROOT / ".github" / "workflows" / "desktop.yml",
+            ROOT / "packaging" / "macos" / "build_dmg.sh",
+            ROOT / "THIRD_PARTY_NOTICES",
+            ROOT / "pyproject.toml",
         )
+        shipping_surface = "\n".join(path.read_text("utf-8") for path in paths)
+        lowered = shipping_surface.casefold()
+        retired_tool = "ff" + "mpeg"
+        retired_fixture = "tiny-motion" + ".mp4"
+        retired_processor = "process_video" + "_frames"
+        for forbidden in (
+            retired_tool,
+            retired_fixture,
+            retired_processor,
+            "video/mp4",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, lowered)
 
-        self.assertIn("build_tools.prepare_ffmpeg", build_script)
-        self.assertIn("build_tools.prepare_ffmpeg", workflow)
-        self.assertIn("packaging/ffmpeg/manifest.json text eol=lf", attributes)
-        self.assertIn("get_ffmpeg_runtime", spec)
-        self.assertIn('(str(ffmpeg_binary), "ffmpeg")', spec)
+        spec = paths[0].read_text("utf-8")
+        macos = paths[4].read_text("utf-8")
         self.assertNotIn("upx=True", spec)
         self.assertEqual(spec.count("upx=False"), 2)
-        for name in ("manifest.json", "ffmpeg-runtime.json", "LGPL-2.1.txt", "README.md"):
-            self.assertIn(name, spec)
-        self.assertIn("tiny-motion.mp4", spec)
-        self.assertIn("process_video_frames", smoke)
-        self.assertIn("MODEL_FRAME_CAPS", smoke)
-        self.assertIn("get_ffmpeg_runtime", smoke)
-        self.assertIn("build_tools.finalize_ffmpeg_bundle", macos)
         self.assertIn("codesign --force --sign -", macos)
-        for field in (
-            "ffmpeg-signing.json",
-            "prepared_binary_sha256",
-            "signed_binary_sha256",
-            "signing_identity",
-            "cdhash",
-            "capabilities",
+
+        removed_paths = (
+            ROOT / ".gitattributes",
+            ROOT / "am_configurator" / f"{retired_tool}_runtime.py",
+            ROOT / "am_configurator" / "media.py",
+            ROOT / "build_tools" / f"{retired_tool}_bundle.py",
+            ROOT / "build_tools" / f"prepare_{retired_tool}.py",
+            ROOT / "build_tools" / f"finalize_{retired_tool}_bundle.py",
+            ROOT / "packaging" / retired_tool,
+            ROOT / "tests" / "fixtures" / retired_fixture,
+            ROOT / "tests" / f"test_{retired_tool}_bundle.py",
+        )
+        for path in removed_paths:
+            with self.subTest(removed=str(path.relative_to(ROOT))):
+                self.assertFalse(path.exists())
+        for module in (
+            f"am_configurator.{retired_tool}_runtime",
+            "am_configurator.media",
+            f"build_tools.{retired_tool}_bundle",
+            f"build_tools.prepare_{retired_tool}",
+            f"build_tools.finalize_{retired_tool}_bundle",
         ):
-            with self.subTest(provenance_field=field):
-                self.assertIn(field, finalizer)
-        self.assertIn("verify_runtime_attestation", finalizer)
-        self.assertNotIn("inspect_runtime(", finalizer)
+            with self.subTest(module=module):
+                self.assertIsNone(importlib.util.find_spec(module))
+
+    def test_current_surfaces_have_no_retired_media_tool_reference(self) -> None:
+        retired_tool = (b"ff" + b"mpeg").lower()
+        paths = [
+            ROOT / "build.py",
+            ROOT / "pyproject.toml",
+            ROOT / "README.md",
+            ROOT / "THIRD_PARTY_NOTICES",
+        ]
+        attributes = ROOT / ".gitattributes"
+        if attributes.exists():
+            paths.append(attributes)
+        for root in (
+            ROOT / "am_configurator",
+            ROOT / "build_tools",
+            ROOT / "packaging",
+            ROOT / ".github" / "workflows",
+            ROOT / "tests",
+        ):
+            paths.extend(
+                path
+                for path in root.rglob("*")
+                if path.is_file()
+                and "__pycache__" not in path.parts
+                and path.suffix.casefold() not in {".pyc", ".pyo"}
+            )
+
+        for path in sorted(set(paths)):
+            relative = path.relative_to(ROOT).as_posix()
+            with self.subTest(path=relative):
+                self.assertNotIn(retired_tool.decode("ascii"), relative.casefold())
+                if retired_tool in path.read_bytes().lower():
+                    self.fail(f"{relative} contains a retired media-tool reference")
 
     def test_native_packages_are_ollama_api_only(self) -> None:
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text("utf-8")
@@ -1075,17 +1102,10 @@ class ReleaseInfoTests(unittest.TestCase):
         ):
             self.assertIsNone(importlib.util.find_spec(module), module)
 
-        allowed_ffmpeg_modules = {
-            ROOT / "am_configurator" / "ffmpeg_runtime.py",
-            ROOT / "build_tools" / "ffmpeg_bundle.py",
-            ROOT / "build_tools" / "prepare_ffmpeg.py",
-            ROOT / "build_tools" / "finalize_ffmpeg_bundle.py",
-        }
         source_paths = [
             path
             for root in (ROOT / "am_configurator", ROOT / "build_tools")
             for path in root.glob("*.py")
-            if path not in allowed_ffmpeg_modules
         ]
         source_paths.extend((ROOT / "build.py", ROOT / "packaging" / "am_configurator.spec"))
         source_paths.extend((ROOT / ".github" / "workflows").glob("*"))
@@ -1111,8 +1131,6 @@ class ReleaseInfoTests(unittest.TestCase):
 
         for path in (ROOT / "packaging").rglob("*"):
             relative = path.relative_to(ROOT / "packaging")
-            if relative.parts and relative.parts[0] == "ffmpeg":
-                continue
             lowered = relative.as_posix().lower()
             self.assertNotIn("llama", lowered)
             self.assertNotIn(".gguf", lowered)

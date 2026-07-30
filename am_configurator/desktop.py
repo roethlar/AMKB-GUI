@@ -776,52 +776,6 @@ def _run_ollama_recipe_smoke() -> None:
         )
 
 
-def _run_ffmpeg_media_smoke() -> None:
-    """Resolve the bundled runtime and process real MP4 frames fully offline."""
-    from .device_mapping import MODEL_FRAME_CAPS, target_capabilities
-    from .ffmpeg_runtime import get_ffmpeg_runtime
-    from .media import process_video_frames
-
-    frozen_root = getattr(sys, "_MEIPASS", None)
-    fixture = (
-        Path(frozen_root) / "smoke" / "tiny-motion.mp4"
-        if frozen_root is not None
-        else Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "tiny-motion.mp4"
-    )
-    if not fixture.is_file():
-        raise SystemExit("Desktop smoke test failed: bundled MP4 fixture is unavailable.")
-    ffmpeg = get_ffmpeg_runtime()
-    capabilities = target_capabilities()
-    loop_modes = ("smooth", "none", "ping_pong")
-    with tempfile.TemporaryDirectory(prefix="am-media-smoke-") as temporary:
-        root = Path(temporary)
-        work = root / ".work"
-        work.mkdir()
-        for index, (family, frame_count) in enumerate(MODEL_FRAME_CAPS.items()):
-            targets = capabilities.get(family, {}).get("targets", [])
-            if not targets:
-                raise SystemExit(
-                    f"Desktop smoke test failed: {family} has no media geometry."
-                )
-            width = int(targets[0]["width"])
-            height = int(targets[0]["height"])
-            result = process_video_frames(
-                fixture.resolve(),
-                root / f"frames-{family}",
-                work,
-                ffmpeg_path=ffmpeg,
-                width=width,
-                height=height,
-                frame_count=frame_count,
-                loop_mode=loop_modes[index % len(loop_modes)],
-                deadline=time.monotonic() + 60,
-            )
-            if len(result.frame_paths) != frame_count or any(not path.is_file() for path in result.frame_paths):
-                raise SystemExit("Desktop smoke test failed: bundled FFmpeg produced invalid frames.")
-        if list(work.iterdir()):
-            raise SystemExit("Desktop smoke test failed: FFmpeg left temporary media behind.")
-
-
 def run_smoke_test() -> int:
     """Exercise the frozen entry point, bundled assets, and loopback server."""
     from .credentials import MemoryCredentialStore
@@ -840,7 +794,6 @@ def run_smoke_test() -> int:
     _run_disabled_ai_smoke()
     _run_api_recipe_smoke()
     _run_ollama_recipe_smoke()
-    _run_ffmpeg_media_smoke()
     if os.environ.get("AM_SMOKE_NET") == "1":
         request = Request("https://example.com/", method="HEAD")
         with urlopen(  # noqa: S310 - explicit opt-in packaged CA trust check
