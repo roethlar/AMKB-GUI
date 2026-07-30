@@ -204,6 +204,7 @@ def main() -> int:
 
     import webview
 
+    from am_configurator.desktop import _native_webview_policy
     from am_configurator.server import create_server
 
     report = {"devices": [], "validation": {}, "layout": {}, "errors": []}
@@ -216,8 +217,9 @@ def main() -> int:
     window = webview.create_window(
         "layout audit", url, width=1440, height=920, min_size=(1000, 680)
     )
+    _backend, renderer, _expected = _native_webview_policy()
     webview.start(
-        func=_run, args=(window, report, args.out), gui="edgechromium",
+        func=_run, args=(window, report, args.out), gui=renderer,
         private_mode=True,
     )
     findings = sum(len(rows) for rows in report["layout"].values())

@@ -502,6 +502,15 @@ class DesktopServerTests(unittest.TestCase):
         )
         self.assertNotIn("Device → Read", source)
 
+    def test_layout_audit_uses_the_platform_webview_policy(self) -> None:
+        # cx-4: a hardcoded gui="edgechromium" breaks the audit tool on the
+        # macOS/Linux platforms the app itself supports.
+        source = (ROOT / "build_tools" / "layout_audit.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn('gui="edgechromium"', source)
+        self.assertIn("_native_webview_policy", source)
+
     def test_version_lives_only_in_about(self) -> None:
         html = (ROOT / "am_configurator" / "web" / "index.html").read_text(
             encoding="utf-8"
