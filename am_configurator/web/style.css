@@ -410,6 +410,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .keycap.vendor { color: var(--violet-2); }
 .keycap span { opacity: .75; font-size: 10px; margin-top: 3px; }
 .keyboard-stage.afa .keycap { height: 10.7%; width: 3.8%; min-width: 25px; min-height: 25px; }
+/* A 75% board is 16u wide by 6.5u tall; the shared 2.95 stage is sized for
+   the wider Relic and stretches CyberBoard keycaps. */
+.keyboard-stage.cyber { aspect-ratio: 2.46 / 1; }
 
 .inspector { min-height: 420px; position: sticky; top: 20px; }
 .inspector-empty { min-height: 380px; display: grid; place-items: center; color: var(--muted); text-align: center; padding: 35px; }
