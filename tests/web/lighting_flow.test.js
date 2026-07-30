@@ -151,7 +151,18 @@ test("a stale model refresh cannot fill inventory from a previous origin", () =>
   // inventory after origin B is saved.
   const refresh = jsFunction("refreshOllamaModels");
   assert.match(refresh, /const epoch=state\.ollamaInventoryEpoch/);
-  assert.match(refresh, /if\(epoch!==state\.ollamaInventoryEpoch\)return;/);
+  // Each branch carries its own discard: a single loose match would stay
+  // green if only the success-path check were removed (cx-3 reopen round 1).
+  assert.match(
+    refresh,
+    /const models=normalizeOllamaModels\(await api\("\/api\/ai\/ollama\/models"\)\);\s*if\(epoch!==state\.ollamaInventoryEpoch\)return;\s*state\.ollamaModels=models;/,
+    "the success path must discard stale results before assigning"
+  );
+  assert.match(
+    refresh,
+    /catch\(error\)\{if\(epoch!==state\.ollamaInventoryEpoch\)return;/,
+    "the failure path must discard stale results before assigning"
+  );
   const save = jsFunction("saveOllamaBaseUrl");
   assert.match(save, /state\.ollamaInventoryEpoch\+\+/);
 });
