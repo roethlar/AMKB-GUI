@@ -122,6 +122,19 @@ test("disclosures are native and focus is restored after re-renders", () => {
   assert.match(js, /\$\{state\.macroAdvancedOpen\?"open":""\}/);
 });
 
+test("every Relic key ends on the board", () => {
+  const marker = "const RELIC_LAYOUT = [";
+  const start = js.indexOf(marker);
+  assert.ok(start >= 0);
+  const end = js.indexOf("];", start);
+  const body = js.slice(start + marker.length, end).replace(/,\s*$/, "");
+  const layout = JSON.parse("[" + body + "]");
+  assert.ok(layout.length > 80);
+  for (const [index, x, , w = 4.8] of layout) {
+    assert.ok(x + w <= 100.0001, `key ${index} ends at ${(x + w).toFixed(1)}% of the stage`);
+  }
+});
+
 test("sidebar counts carry visible or accessible labels", () => {
   assert.match(js, /\["#nav-layers", state\.config \? layers\(\)\.length : null, "layer", "layers"\]/);
   assert.match(js, /"macro", "macros"\]/);

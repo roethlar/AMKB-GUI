@@ -71,6 +71,21 @@
   children, guarded in `tests/web/design_tokens.test.js`. Re-run is clean;
   remaining audit rows are known-benign (`.sr-only` by design; 3-9px keycap
   and Relic-stage border clipping from layout data ending at 100.6%).
+- Owner testing on live hardware caught a P2 regression and two
+  board-geometry defects. The staged palette Apply was reverted to immediate
+  assignment: its confirmation lived in the key inspector, which
+  single-column layouts place below the entire palette, so assignments could
+  not be changed in practice. The plan's Keymap wording lists "Apply" among
+  normal inspector contents; immediate assignment is a deliberate deviation
+  after this usability failure — reconcile the plan wording at P6 or by
+  owner ruling. RELIC_LAYOUT's right column ended at 100.6% of the stage, so
+  the P4 stage clamp cut the PrtSc/PgUp/arrow column; the data now ends at
+  exactly 100% with a computed guard. Known gap queued next: CyberBoard
+  keymaps render the uniform generic matrix fallback because the app has no
+  CB physical layout. Planned approach: dump CB04 matrix occupancy through
+  the layout-audit bridge, author CB layout data from standard 75% row
+  templates, and have the owner verify against the physical board (the
+  cyberboard-cli reference checkout does not exist on this Windows host).
 - Product-experience implementation runs in parallel on
   `claude/product-experience-remediation`, a worktree branch based at the
   shared docs tip `0271213`. Slice P2 is implemented and guard-proven:
