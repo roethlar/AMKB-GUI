@@ -122,17 +122,27 @@ test("disclosures are native and focus is restored after re-renders", () => {
   assert.match(js, /\$\{state\.macroAdvancedOpen\?"open":""\}/);
 });
 
-test("every Relic key ends on the board", () => {
-  const marker = "const RELIC_LAYOUT = [";
+function parseLayout(name) {
+  const marker = `const ${name} = [`;
   const start = js.indexOf(marker);
-  assert.ok(start >= 0);
+  assert.ok(start >= 0, `${name} must exist`);
   const end = js.indexOf("];", start);
   const body = js.slice(start + marker.length, end).replace(/,\s*$/, "");
-  const layout = JSON.parse("[" + body + "]");
-  assert.ok(layout.length > 80);
-  for (const [index, x, , w = 4.8] of layout) {
-    assert.ok(x + w <= 100.0001, `key ${index} ends at ${(x + w).toFixed(1)}% of the stage`);
+  return JSON.parse("[" + body + "]");
+}
+
+test("every authored physical key ends on the board", () => {
+  for (const [name, minKeys] of [["RELIC_LAYOUT", 81], ["CB04_LAYOUT", 81]]) {
+    const layout = parseLayout(name);
+    assert.ok(layout.length >= minKeys, `${name} has ${layout.length} keys`);
+    const indices = new Set();
+    for (const [index, x, , w = 4.8] of layout) {
+      assert.ok(!indices.has(index), `${name} repeats matrix index ${index}`);
+      indices.add(index);
+      assert.ok(x + w <= 100.0001, `${name} key ${index} ends at ${(x + w).toFixed(1)}% of the stage`);
+    }
   }
+  assert.match(js, /family === "CB" && productId\(\) === "CB04"/);
 });
 
 test("sidebar counts carry visible or accessible labels", () => {

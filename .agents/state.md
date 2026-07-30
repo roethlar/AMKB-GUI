@@ -86,6 +86,13 @@
   the layout-audit bridge, author CB layout data from standard 75% row
   templates, and have the owner verify against the physical board (the
   cyberboard-cli reference checkout does not exist on this Windows host).
+- CB04_LAYOUT is now authored in `am_configurator/web/app.js` from the 81
+  matrix cells read off the connected CB04 (75% template, 1u = 6.1% of the
+  stage, right column at 93.9%), selected by `activeLayout` for family CB and
+  product CB04 only; other CyberBoard models keep the generic fallback. A
+  computed guard asserts both authored layouts keep every key on the board
+  with no duplicate matrix indices. The geometry awaits the owner's visual
+  confirmation against the physical keyboard.
 - Product-experience implementation runs in parallel on
   `claude/product-experience-remediation`, a worktree branch based at the
   shared docs tip `0271213`. Slice P2 is implemented and guard-proven:
