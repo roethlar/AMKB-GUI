@@ -1,8 +1,9 @@
-"""Hardened fixed-loopback client for an already-running local Ollama service."""
+"""Hardened client for one user-configured Ollama server."""
 
 from __future__ import annotations
 
 import http.client
+import ipaddress
 import json
 import queue
 import re
@@ -10,25 +11,26 @@ import socket
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Callable
 
 
-OLLAMA_BASE_URL = "http://127.0.0.1:11434"
-OLLAMA_MODELS_URL = f"{OLLAMA_BASE_URL}/api/tags"
-OLLAMA_CHAT_URL = f"{OLLAMA_BASE_URL}/api/chat"
-OLLAMA_HOST = "127.0.0.1"
-OLLAMA_PORT = 11434
+DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+OLLAMA_BASE_URL = DEFAULT_OLLAMA_BASE_URL
+OLLAMA_MODELS_PATH = "/api/tags"
 OLLAMA_CHAT_PATH = "/api/chat"
 MAX_OLLAMA_RESPONSE_BYTES = 1_000_000
 MAX_OLLAMA_MODELS = 512
+MAX_OLLAMA_BASE_URL_LENGTH = 2_048
 DISCOVERY_TIMEOUT_SECONDS = 5.0
 CHAT_TIMEOUT_SECONDS = 180.0
 OLLAMA_CANCEL_POLL_SECONDS = 0.05
 
 _MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
 class _NoOllamaRedirects(urllib.request.HTTPRedirectHandler):
@@ -44,6 +46,70 @@ def _build_ollama_opener():
 
 
 _OLLAMA_OPENER = _build_ollama_opener()
+
+
+def normalize_ollama_base_url(value: object) -> str:
+    """Validate and normalize one credential-free HTTP(S) Ollama origin."""
+
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or len(value) > MAX_OLLAMA_BASE_URL_LENGTH
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ValueError("Ollama server URL is invalid.")
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        raise ValueError("Ollama server URL is invalid.") from None
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"}:
+        raise ValueError("Ollama server URL must use HTTP or HTTPS.")
+    if (
+        not parsed.netloc
+        or parsed.hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in {"", "/"}
+    ):
+        raise ValueError("Ollama server URL must be one HTTP(S) origin.")
+
+    raw_host = parsed.hostname
+    if raw_host.endswith(".") or "%" in raw_host:
+        raise ValueError("Ollama server host is invalid.")
+    bracketed = False
+    try:
+        address = ipaddress.ip_address(raw_host)
+    except ValueError:
+        try:
+            host = raw_host.encode("idna").decode("ascii").lower()
+        except UnicodeError:
+            raise ValueError("Ollama server host is invalid.") from None
+        labels = host.split(".")
+        if (
+            len(host) > 253
+            or any(not label or _DNS_LABEL.fullmatch(label) is None for label in labels)
+            or all(label.isdigit() for label in labels)
+        ):
+            raise ValueError("Ollama server host is invalid.")
+    else:
+        if address.is_unspecified:
+            raise ValueError("Ollama server host cannot be unspecified.")
+        host = address.compressed
+        bracketed = address.version == 6
+
+    default_port = 80 if scheme == "http" else 443
+    if port is None:
+        port = default_port
+    if not 1 <= port <= 65_535:
+        raise ValueError("Ollama server port is invalid.")
+    rendered_host = f"[{host}]" if bracketed else host
+    rendered_port = "" if port == default_port else f":{port}"
+    return f"{scheme}://{rendered_host}{rendered_port}"
 
 
 class OllamaError(RuntimeError):
@@ -70,14 +136,22 @@ class OllamaModel:
     size_bytes: int
     parameter_size: str | None
     quantization: str | None
+    location: str = "ollama_server"
 
     def public(self) -> dict[str, object]:
+        location_label = (
+            "Ollama Cloud"
+            if self.location == "ollama_cloud"
+            else "On this Ollama server"
+        )
         return {
             "model_id": self.model_id,
             "digest": self.digest,
             "size_bytes": self.size_bytes,
+            "location": self.location,
             "parameter_size": self.parameter_size,
             "quantization": self.quantization,
+            "label": f"{self.model_id} — {location_label}",
         }
 
 
@@ -97,21 +171,52 @@ def _bounded_detail(value: object) -> str | None:
     return value
 
 
+def _bounded_remote_metadata(value: object, label: str) -> str | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > MAX_OLLAMA_BASE_URL_LENGTH
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ValueError(f"Ollama {label} metadata is invalid.")
+    return value
+
+
 def _model_from_tag(value: object) -> OllamaModel | None:
     if not isinstance(value, dict):
         return None
-    if "remote_model" in value or "remote_host" in value:
+    try:
+        remote_model = _bounded_remote_metadata(
+            value.get("remote_model"),
+            "remote model",
+        )
+        remote_host = _bounded_remote_metadata(
+            value.get("remote_host"),
+            "remote host",
+        )
+    except ValueError:
         return None
     model_id = value.get("model")
     if value.get("name") != model_id or not valid_model_id(model_id):
         return None
-    if model_id.lower().endswith(":cloud"):
-        return None
     digest = value.get("digest")
     if not valid_model_digest(digest):
         return None
+    location = (
+        "ollama_cloud"
+        if remote_model is not None
+        or remote_host is not None
+        or model_id.lower().endswith(":cloud")
+        else "ollama_server"
+    )
     size = value.get("size")
-    if type(size) is not int or size <= 0:
+    if (
+        type(size) is not int
+        or size < 0
+        or (size == 0 and location != "ollama_cloud")
+    ):
         return None
     capabilities = value.get("capabilities")
     if (
@@ -129,6 +234,7 @@ def _model_from_tag(value: object) -> OllamaModel | None:
         size_bytes=size,
         parameter_size=_bounded_detail(details.get("parameter_size")),
         quantization=_bounded_detail(details.get("quantization_level")),
+        location=location,
     )
 
 
@@ -149,17 +255,42 @@ def _local_tag_missing_capabilities(value: object) -> bool:
     )
 
 
+def ollama_origin_is_loopback(base_url: object) -> bool:
+    """Classify a normalized origin without DNS or network access."""
+
+    normalized = normalize_ollama_base_url(base_url)
+    host = urllib.parse.urlsplit(normalized).hostname
+    if host is None:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 class OllamaClient:
-    """The only production transport to Ollama's fixed local HTTP API."""
+    """The only production transport to one normalized Ollama origin."""
 
     def __init__(
         self,
         *,
+        base_url: object = DEFAULT_OLLAMA_BASE_URL,
         opener: Callable[..., Any] | Any = _OLLAMA_OPENER,
-        connection_factory: Callable[..., Any] = http.client.HTTPConnection,
+        connection_factory: Callable[..., Any] | None = None,
     ) -> None:
+        self.base_url = normalize_ollama_base_url(base_url)
+        parsed = urllib.parse.urlsplit(self.base_url)
+        self._host = parsed.hostname
+        self._port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        self._models_url = f"{self.base_url}{OLLAMA_MODELS_PATH}"
         self._opener = opener
-        self._connection_factory = connection_factory
+        self._connection_factory = connection_factory or (
+            http.client.HTTPSConnection
+            if parsed.scheme == "https"
+            else http.client.HTTPConnection
+        )
 
     @staticmethod
     def _timeout(deadline: float, ceiling: float) -> float:
@@ -201,8 +332,8 @@ class OllamaClient:
         timeout = self._timeout(deadline, CHAT_TIMEOUT_SECONDS)
         try:
             connection = self._connection_factory(
-                OLLAMA_HOST,
-                OLLAMA_PORT,
+                self._host,
+                self._port,
                 timeout=timeout,
             )
         except (OSError, ValueError):
@@ -240,7 +371,7 @@ class OllamaClient:
 
         worker = threading.Thread(
             target=exchange,
-            name="ollama-loopback-exchange",
+            name="ollama-exchange",
             daemon=True,
         )
         worker.start()
@@ -318,7 +449,7 @@ class OllamaClient:
 
     def list_models(self, *, deadline: float) -> tuple[OllamaModel, ...]:
         request = urllib.request.Request(
-            OLLAMA_MODELS_URL,
+            self._models_url,
             headers={"Accept": "application/json"},
             method="GET",
         )
@@ -374,13 +505,16 @@ class OllamaClient:
 
 
 __all__ = [
+    "DEFAULT_OLLAMA_BASE_URL",
     "MAX_OLLAMA_RESPONSE_BYTES",
     "OLLAMA_BASE_URL",
-    "OLLAMA_CHAT_URL",
-    "OLLAMA_MODELS_URL",
+    "OLLAMA_CHAT_PATH",
+    "OLLAMA_MODELS_PATH",
     "OllamaClient",
     "OllamaError",
     "OllamaModel",
+    "normalize_ollama_base_url",
+    "ollama_origin_is_loopback",
     "valid_model_digest",
     "valid_model_id",
 ]

@@ -9,7 +9,16 @@ import time
 from typing import Any, Callable
 
 from . import ai_catalog, credentials, llm, procedural, store
-from .ollama_client import OllamaClient, OllamaError, OllamaModel, valid_model_digest, valid_model_id
+from .ollama_client import (
+    DEFAULT_OLLAMA_BASE_URL,
+    OllamaClient,
+    OllamaError,
+    OllamaModel,
+    normalize_ollama_base_url,
+    ollama_origin_is_loopback,
+    valid_model_digest,
+    valid_model_id,
+)
 from .recipe_provider import (
     AnthropicRecipeProvider,
     DeepSeekRecipeProvider,
@@ -61,18 +70,47 @@ def _sha256_object(value: dict[str, Any]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def ollama_setup_fingerprint(model_id: str, model_digest: str) -> str:
-    """Bind readiness to one installed fixed-loopback Ollama model identity."""
+def ollama_setup_fingerprint(
+    base_url: str,
+    model_id: str,
+    model_digest: str,
+    model_location: str,
+    disclosure_version: str | None,
+    disclosure_at: str | None,
+) -> str:
+    """Bind readiness to one Ollama origin, execution location, and disclosure."""
 
     if not valid_model_id(model_id) or not valid_model_digest(model_digest):
         raise ValueError("Ollama model identity is invalid")
-    return _sha256_object({
-        "kind": "ollama-loopback-v1",
+    try:
+        base_url = normalize_ollama_base_url(base_url)
+    except ValueError:
+        raise ValueError("Ollama server URL is invalid") from None
+    if model_location not in {"ollama_server", "ollama_cloud"}:
+        raise ValueError("Ollama model location is invalid")
+    disclosure_required = (
+        not ollama_origin_is_loopback(base_url)
+        or model_location == "ollama_cloud"
+    )
+    if disclosure_required and (
+        disclosure_version != store.OLLAMA_DISCLOSURE_VERSION
+        or not isinstance(disclosure_at, str)
+        or not disclosure_at
+    ):
+        raise ValueError("Ollama disclosure is not current")
+    payload = {
+        "kind": "ollama-origin-v2",
+        "base_url": base_url,
         "model_id": model_id,
         "model_digest": model_digest,
+        "model_location": model_location,
         "recipe_schema_version": procedural.SCHEMA_VERSION,
         "setup_test_version": SETUP_TEST_VERSION,
-    })
+    }
+    if disclosure_required:
+        payload["disclosure_version"] = disclosure_version
+        payload["disclosure_at"] = disclosure_at
+    return _sha256_object(payload)
 
 
 def api_setup_fingerprint(
@@ -145,12 +183,9 @@ class AICapabilityService:
             if api_provider_factory is None
             else api_provider_factory
         )
-        self._ollama_client = OllamaClient() if ollama_client is None else ollama_client
-        self._ollama_provider_factory = (
-            self._default_ollama_provider
-            if ollama_provider_factory is None
-            else ollama_provider_factory
-        )
+        self._injected_ollama_client = ollama_client
+        self._ollama_clients: dict[str, OllamaClient] = {}
+        self._ollama_provider_factory = ollama_provider_factory
         self._provider_lock = threading.Lock()
         self._providers: dict[str, tuple[str, object]] = {}
         self._failure_reasons: dict[str, tuple[str, str]] = {}
@@ -171,8 +206,23 @@ class AICapabilityService:
             return DeepSeekRecipeProvider(key, model_id=model_id)
         raise ValueError("API provider adapter is unavailable")
 
-    def _default_ollama_provider(self, model: OllamaModel):
-        return OllamaRecipeProvider(model, client=self._ollama_client)
+    def _ollama_client_for(self, settings: dict[str, Any]) -> OllamaClient:
+        if self._injected_ollama_client is not None:
+            return self._injected_ollama_client
+        base_url = normalize_ollama_base_url(
+            settings["ai"]["ollama"]["base_url"]
+        )
+        with self._provider_lock:
+            client = self._ollama_clients.get(base_url)
+            if client is None:
+                client = OllamaClient(base_url=base_url)
+                self._ollama_clients = {base_url: client}
+            return client
+
+    def _new_ollama_provider(self, model: OllamaModel, client: object):
+        if self._ollama_provider_factory is not None:
+            return self._ollama_provider_factory(model)
+        return OllamaRecipeProvider(model, client=client)
 
     def _provider_for_identity(
         self,
@@ -189,11 +239,13 @@ class AICapabilityService:
             return provider
 
 
-    def discover_local_models(self) -> dict[str, Any]:
-        """Return a bounded public list of eligible fixed-loopback models."""
+    def discover_ollama_models(self) -> dict[str, Any]:
+        """Return a bounded public list from the configured Ollama origin."""
 
         try:
-            models = self._ollama_client.list_models(deadline=time.monotonic() + 5.0)
+            settings = self._settings_loader()
+            client = self._ollama_client_for(settings)
+            models = client.list_models(deadline=time.monotonic() + 5.0)
         except OllamaError as exc:
             if exc.code == "upgrade_required":
                 return {
@@ -213,16 +265,96 @@ class AICapabilityService:
             "models": [model.public() for model in models],
         }
 
-    def _ollama_components(self, settings: dict[str, Any]) -> dict[str, Any]:
-        local = settings["ai"]["local"]
-        selected_id = local["model_id"]
-        selected_digest = local["model_digest"]
+    def _ollama_components(
+        self,
+        settings: dict[str, Any],
+        *,
+        runtime: bool = False,
+    ) -> dict[str, Any]:
+        """Project stored Ollama readiness without probing the configured server."""
+
+        ollama = settings["ai"]["ollama"]
+        base_url = normalize_ollama_base_url(ollama["base_url"])
+        selected_id = ollama["model_id"]
+        selected_digest = ollama["model_digest"]
+        selected_location = ollama["model_location"]
+        selected = (
+            valid_model_id(selected_id)
+            and valid_model_digest(selected_digest)
+            and selected_location in {"ollama_server", "ollama_cloud"}
+        )
+        disclosure_required = (
+            not ollama_origin_is_loopback(base_url)
+            or selected_location == "ollama_cloud"
+        )
+        disclosure_current = (
+            not disclosure_required
+            or (
+                ollama["disclosure_version"] == store.OLLAMA_DISCLOSURE_VERSION
+                and isinstance(ollama["disclosure_at"], str)
+                and bool(ollama["disclosure_at"])
+            )
+        )
+        expected = None
+        model = None
+        if selected and disclosure_current:
+            expected = ollama_setup_fingerprint(
+                base_url,
+                selected_id,
+                selected_digest,
+                selected_location,
+                ollama["disclosure_version"],
+                ollama["disclosure_at"],
+            )
+            model = OllamaModel(
+                model_id=selected_id,
+                digest=selected_digest,
+                size_bytes=0,
+                parameter_size=None,
+                quantization=None,
+                location=selected_location,
+            )
+        setup_tested = (
+            isinstance(expected, str)
+            and ollama["setup_fingerprint"] == expected
+        )
+        return {
+            "base_url": base_url,
+            "service_available": setup_tested,
+            "upgrade_required": False,
+            "selected": selected,
+            "model_id": selected_id,
+            "model_digest": selected_digest,
+            "model_location": selected_location,
+            "verified": selected,
+            "model": model,
+            "client": self._ollama_client_for(settings) if runtime and selected else None,
+            "expected": expected,
+            "setup_tested": setup_tested,
+            "disclosure_required": disclosure_required,
+            "disclosure_current": disclosure_current,
+            "disclosure_version": store.OLLAMA_DISCLOSURE_VERSION,
+            "provider": "ollama",
+        }
+
+    def _ollama_inventory_components(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """Verify the stored identity against one explicit inventory request."""
+
+        stored = self._ollama_components(settings, runtime=True)
+        client = stored["client"]
+        if client is None:
+            return {
+                **stored,
+                "service_available": False,
+                "verified": False,
+                "model": None,
+            }
         try:
-            models = self._ollama_client.list_models(deadline=time.monotonic() + 5.0)
+            models = client.list_models(deadline=time.monotonic() + 5.0)
             if not isinstance(models, tuple) or any(
                 not isinstance(model, OllamaModel) for model in models
             ):
-                raise OllamaError("bad_response", "Invalid local model list.")
+                raise OllamaError("bad_response", "Invalid Ollama model list.")
             available = True
             upgrade_required = False
         except OllamaError as exc:
@@ -237,53 +369,19 @@ class AICapabilityService:
             (
                 candidate
                 for candidate in models
-                if candidate.model_id == selected_id
-                and candidate.digest == selected_digest
+                if candidate.model_id == stored["model_id"]
+                and candidate.digest == stored["model_digest"]
+                and candidate.location == stored["model_location"]
             ),
             None,
         )
-        expected = None
-        if model is not None:
-            try:
-                expected = ollama_setup_fingerprint(model.model_id, model.digest)
-            except ValueError:
-                expected = None
         return {
+            **stored,
             "available": available,
+            "service_available": available,
             "upgrade_required": upgrade_required,
-            "selected": selected_id is not None and selected_digest is not None,
-            "model_id": selected_id,
             "model": model,
             "verified": model is not None,
-            "expected": expected,
-        }
-
-    def _local_components(self, settings: dict[str, Any]) -> dict[str, Any]:
-        ollama = self._ollama_components(settings)
-        return {
-            "service_available": ollama["available"],
-            "upgrade_required": ollama["upgrade_required"],
-            "selected": ollama["selected"],
-            "model_id": ollama["model_id"],
-            "verified": ollama["verified"],
-            "model": ollama["model"],
-            "expected": ollama["expected"],
-            "provider": "ollama",
-        }
-
-    @staticmethod
-    def _unprobed_local_components(settings: dict[str, Any]) -> dict[str, Any]:
-        local = settings["ai"]["local"]
-        selected = local["model_id"] is not None and local["model_digest"] is not None
-        return {
-            "service_available": False,
-            "upgrade_required": False,
-            "selected": selected,
-            "model_id": local["model_id"],
-            "verified": False,
-            "model": None,
-            "expected": None,
-            "provider": "ollama",
         }
 
     def _api_components(self, settings: dict[str, Any]) -> dict[str, Any]:
@@ -365,24 +463,17 @@ class AICapabilityService:
             return None
         return remembered[0]
 
-    def status(self) -> dict[str, Any]:
+    def status(self, *, probe: bool = True) -> dict[str, Any]:
         try:
             settings = self._settings_loader()
             enabled = settings["ai"]["enabled"] is True
             backend = settings["ai"]["backend"]
-            local = self._unprobed_local_components(settings)
+            ollama = self._ollama_components(settings)
             api = self._unprobed_api_components(settings)
-            local_tested = False
+            ollama_tested = ollama["setup_tested"]
             api_tested = False
 
-            if enabled and backend == "local":
-                local = self._local_components(settings)
-                local_tested = (
-                    local["expected"] is not None
-                    and settings["ai"]["local"]["setup_fingerprint"]
-                    == local["expected"]
-                )
-            elif enabled and backend == "api":
+            if probe and enabled and backend == "api":
                 api = self._api_components(settings)
                 api_tested = (
                     api["expected"] is not None
@@ -394,18 +485,14 @@ class AICapabilityService:
                 reason = "disabled"
             elif backend is None:
                 reason = "backend_unselected"
-            elif backend == "local":
-                if not local["service_available"]:
-                    reason = "ollama_unavailable"
-                elif local["upgrade_required"]:
-                    reason = "upgrade_required"
-                elif not local["selected"]:
+            elif backend == "ollama":
+                if not ollama["selected"]:
                     reason = "model_missing"
-                elif not local["verified"]:
-                    reason = "model_unavailable"
+                elif not ollama["disclosure_current"]:
+                    reason = "disclosure_required"
                 else:
-                    reason = self._remembered_reason("local", local["expected"])
-                    if reason is None and not local_tested:
+                    reason = self._remembered_reason("ollama", ollama["expected"])
+                    if reason is None and not ollama_tested:
                         reason = "setup_required"
                     elif reason is None:
                         reason = "ready"
@@ -440,16 +527,22 @@ class AICapabilityService:
             return {
                 "schema_version": CAPABILITY_SCHEMA_VERSION,
                 "enabled": enabled,
-                "backend": backend if backend in {None, "local", "api"} else None,
+                "backend": backend if backend in {None, "ollama", "api"} else None,
                 "ready": ready,
                 "reason": reason,
-                "local": {
-                    "service_available": local["service_available"],
-                    "model_selected": local["selected"],
-                    "model_id": local["model_id"],
-                    "model_verified": local["verified"],
-                    "setup_tested": local_tested,
-                    "provider": local["provider"],
+                "ollama": {
+                    "base_url": ollama["base_url"],
+                    "service_available": ollama["service_available"],
+                    "model_selected": ollama["selected"],
+                    "model_id": ollama["model_id"],
+                    "model_digest": ollama["model_digest"],
+                    "model_location": ollama["model_location"],
+                    "model_verified": ollama["verified"],
+                    "setup_tested": ollama_tested,
+                    "disclosure_required": ollama["disclosure_required"],
+                    "disclosure_current": ollama["disclosure_current"],
+                    "disclosure_version": ollama["disclosure_version"],
+                    "provider": ollama["provider"],
                 },
                 "api": {
                     "provider": api["provider"],
@@ -469,12 +562,18 @@ class AICapabilityService:
                 "backend": None,
                 "ready": False,
                 "reason": "setup_required",
-                "local": {
+                "ollama": {
+                    "base_url": DEFAULT_OLLAMA_BASE_URL,
                     "service_available": False,
                     "model_selected": False,
                     "model_id": None,
+                    "model_digest": None,
+                    "model_location": None,
                     "model_verified": False,
                     "setup_tested": False,
+                    "disclosure_required": False,
+                    "disclosure_current": True,
+                    "disclosure_version": store.OLLAMA_DISCLOSURE_VERSION,
                     "provider": "ollama",
                 },
                 "api": {
@@ -498,17 +597,22 @@ class AICapabilityService:
         """Resolve only the currently ready backend; callers supply no model."""
 
         status = self.require_ready()
-        if status["backend"] == "local":
+        if status["backend"] == "ollama":
             settings = self._settings_loader()
-            components = self._local_components(settings)
+            components = self._ollama_components(settings, runtime=True)
             model = components["model"]
+            client = components["client"]
             identity = components["expected"]
-            if not isinstance(model, OllamaModel) or not isinstance(identity, str):
+            if (
+                not isinstance(model, OllamaModel)
+                or client is None
+                or not isinstance(identity, str)
+            ):
                 raise AICapabilityError("model_unavailable")
             return self._provider_for_identity(
-                "local",
+                "ollama",
                 identity,
-                lambda: self._ollama_provider_factory(model),
+                lambda: self._new_ollama_provider(model, client),
             )
         settings = self._settings_loader()
         components = self._api_components(settings)
@@ -534,8 +638,8 @@ class AICapabilityService:
         deadline: float,
         cancelled: Callable[[], bool],
     ) -> dict[str, Any]:
-        if backend not in {"local", "api"}:
-            raise ValueError("AI backend must be local or api")
+        if backend not in {"ollama", "api"}:
+            raise ValueError("AI backend must be ollama or api")
         settings = self._settings_loader()
         if settings["ai"]["enabled"] is not True:
             raise AICapabilityError("disabled")
@@ -551,16 +655,35 @@ class AICapabilityService:
             density_default="balanced",
         )
 
-        if backend == "local":
-            components = self._local_components(settings)
-            fingerprint = components["expected"]
+        if backend == "ollama":
+            stored = self._ollama_components(settings, runtime=True)
+            if not stored["selected"]:
+                raise llm.ProviderError("config", "Choose an Ollama model first.")
+            if not stored["disclosure_current"]:
+                raise llm.ProviderError(
+                    "config",
+                    "The Ollama data disclosure is not current.",
+                )
+            components = self._ollama_inventory_components(settings)
+            fingerprint = stored["expected"]
             model = components["model"]
-            if fingerprint is None or model is None:
-                raise llm.ProviderError("config", "The selected local model is unavailable.")
+            client = stored["client"]
+            if components["upgrade_required"]:
+                raise llm.ProviderError(
+                    "config",
+                    "Upgrade the configured Ollama server.",
+                )
+            if not components["service_available"]:
+                raise llm.ProviderError(
+                    "offline",
+                    "The configured Ollama server is unavailable.",
+                )
+            if fingerprint is None or model is None or client is None:
+                raise llm.ProviderError("config", "The selected Ollama model is unavailable.")
             provider = self._provider_for_identity(
-                "local",
+                "ollama",
                 fingerprint,
-                lambda: self._ollama_provider_factory(model),
+                lambda: self._new_ollama_provider(model, client),
             )
         else:
             components = self._api_components(settings)
@@ -623,6 +746,7 @@ class AICapabilityService:
 
         with self._provider_lock:
             self._providers.clear()
+            self._ollama_clients.clear()
 
 
 __all__ = [

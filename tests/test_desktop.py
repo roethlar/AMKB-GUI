@@ -328,7 +328,7 @@ class DesktopSmokeTests(unittest.TestCase):
             mock.patch.object(credentials.KeyringCredentialStore, "get", side_effect=external_side_effect),
             mock.patch.object(credentials.KeyringCredentialStore, "set", side_effect=external_side_effect),
             mock.patch.object(credentials.KeyringCredentialStore, "delete", side_effect=external_side_effect),
-            mock.patch.object(store, "update_local_ai_settings", side_effect=external_side_effect),
+            mock.patch.object(store, "update_ollama_ai_settings", side_effect=external_side_effect),
             mock.patch.object(desktop.subprocess, "Popen", side_effect=external_side_effect),
             mock.patch.object(device.serial, "Serial", side_effect=external_side_effect),
         ):

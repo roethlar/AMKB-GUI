@@ -103,25 +103,56 @@
   counts, and focus restoration. Guards live in
   `tests/web/app_shell.test.js` plus the updated empty-state test in
   `tests/test_app.py`.
+- Backend Slice B1 is implemented on `codex/ollama-backend-correctness`: schema
+  v7 migrates the fixed-loopback v6 record, Ollama accepts one normalized
+  HTTP(S) origin, endpoint persistence makes no request, clients are cached by
+  origin, and runtime/routes/status/frontend use the atomic `ollama` contract.
+  The full automated verification entry point passed after guard proofs showed
+  the origin, migration, client-cache, no-request endpoint, and no-alias tests
+  fail when their production behavior is removed. No live Ollama request,
+  credentialed provider request, or keyboard write was used.
+- Backend Slice B2 is implemented on `codex/ollama-backend-correctness`.
+  Completion-capable server and Ollama Cloud inventory is selectable with an
+  explicit execution location; inventory metadata cannot redirect transport;
+  model selection, status polling, and generation do not rediscover inventory;
+  non-loopback and cloud data flow requires an explicit disclosure; and setup
+  identity binds the normalized endpoint, model identity, execution location,
+  and required disclosure. The full automated verification entry point passed.
+  Guard proofs showed the cloud-classification, non-probing status/generation,
+  non-network selection, location persistence, disclosure, and explicit-only
+  browser Refresh tests fail when their production behavior is removed. No
+  live Ollama request, credentialed provider request, or keyboard write was
+  used.
+- Backend Slice B3 is implemented in `a7daff3`. Ollama recipe generation,
+  local-animation generation, schema failures, quality failures, and
+  cancellation now make at most one model request per explicit action. Retry
+  prompts, retry seeds, retry limits, and the `generate_attempt` protocol were
+  removed while historical multi-attempt manifests remain supported. The
+  focused B3 suite passed 58 tests and the full automated verification entry
+  point passed.
+- On 2026-07-29 the owner directed merging the backend branch and the product
+  branch to `main`. The backend contract (B1-B3) and product Slices P2/P4 with
+  their hardware-verified follow-up fixes land together; backend Slice B4's
+  native build and executable smoke remain open, blocked only on the missing
+  staged FFmpeg sources noted under Next.
 
 ## Next
 
-- Implement backend Slice B1 on `codex/ollama-backend-correctness`, preserving a
-  green full-stack boundary for the schema, endpoint, route, and consumer
-  rename.
+- Close backend Slice B4 after a Windows native build and executable smoke
+  test. `python build.py --skip-sync` currently stops before packaging because
+  the pinned FFmpeg source archive and detached signature are not staged under
+  `build/ffmpeg/sources`; no executable was produced.
 - The owner assigned the product-experience plan to Claude for parallel work.
-  Claude may implement low-conflict visual/documentation work independently;
-  AI language and Settings integration wait for the backend contracts to land.
-- On `claude/product-experience-remediation`, low-conflict work (P2, P4) is
-  committed. Slices P1 and P3 start only after the completed backend branch
-  merges into the product branch; P5 screenshots and P6 versioning close out
-  after both plans, including the full two-viewport per-screen manual matrix
-  with an open document.
+  The backend contracts are now committed and merged into the product branch,
+  so Slices P1 and P3 (AI language, Settings integration) are unblocked; P5
+  screenshots and P6 versioning close out after both plans, including the
+  full two-viewport per-screen manual matrix with an open document.
 
 ## Blockers
 
 - Backend implementation has no unresolved product decision or approval
-  blocker. Product AI/Settings integration depends on backend completion.
+  blocker. Native smoke remains blocked only on the missing staged FFmpeg
+  sources described above.
 - Live Ollama Cloud prompts, keyboard writes, macOS Open Anyway, tag creation,
   release publication, and announcements remain separately gated actions.
 - This Windows host cannot validate SmartScreen because SmartScreen is disabled.

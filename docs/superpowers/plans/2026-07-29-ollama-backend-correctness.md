@@ -1,9 +1,9 @@
 # Ollama Backend Correctness Remediation
 
-**Status:** Approved for implementation by the owner on 2026-07-29. This plan
-is independently approvable from the product-experience plan, but it must be
-implemented first because the product plan consumes the backend names, routes,
-status projection, and disclosure behavior defined here.
+**Status:** Backend implementation completed through Slice B3 on 2026-07-29.
+Slice B4 remains open only for the native executable smoke check; the build
+host does not have the required pinned FFmpeg source archive and detached
+signature staged under `build/ffmpeg/sources`.
 
 ## Objective
 
@@ -369,6 +369,18 @@ For each new behavioral guard:
 
 Do not duplicate the verification command list here; the canonical entry point
 is `.agents/repo-guidance.md` under **Verification**.
+
+## Implementation Record
+
+- `80a9889` — configure the Ollama backend origin.
+- `246ac12` — support server and Ollama Cloud completion models.
+- `a7daff3` — remove automatic Ollama regeneration.
+- The focused B3 suite passed 58 tests, and the full automated verification
+  entry point passed after B3.
+- `python build.py --skip-sync` stopped before packaging because the pinned
+  FFmpeg source archive was not staged. No executable was produced, so
+  `--smoke-test` was not run.
+- No live Ollama Cloud prompt, provider credential, or keyboard write was used.
 
 ## Acceptance Criteria
 

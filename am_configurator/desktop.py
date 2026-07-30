@@ -763,7 +763,7 @@ def _run_ollama_recipe_smoke() -> None:
         targets=["keyframes", "spotlight_frames"],
     )
     if (
-        result.backend != "local"
+        result.backend != "ollama"
         or result.provider != "ollama"
         or result.model_id != "smoke:latest"
         or len(client.calls) != 1

@@ -10,7 +10,6 @@ from typing import Any, Callable, Protocol
 from . import ai_catalog, llm, procedural
 from .ollama_client import OllamaClient, OllamaError, OllamaModel
 from .recipe_inference import (
-    LOCAL_MAX_RETRIES,
     LOCAL_OUTPUT_TOKENS,
     MAX_LOCAL_RESPONSE_BYTES,
     MAX_RECIPE_PROMPT_CHARS,
@@ -1289,23 +1288,6 @@ class OllamaRecipeProvider:
         deadline: float,
         cancelled: Callable[[], bool],
     ) -> RecipeResult:
-        return self.generate_attempt(
-            request,
-            deadline,
-            cancelled,
-            attempt=0,
-            validation_reason=None,
-        )
-
-    def generate_attempt(
-        self,
-        request: RecipeRequest,
-        deadline: float,
-        cancelled: Callable[[], bool],
-        *,
-        attempt: int,
-        validation_reason: str | None,
-    ) -> RecipeResult:
         prompt, system_prompt, schema = _request_parts(request)
         _check_start(deadline, cancelled)
         try:
@@ -1317,8 +1299,6 @@ class OllamaRecipeProvider:
                 width=request.width,
                 height=request.height,
                 frame_count=request.frame_count,
-                attempt=attempt,
-                validation_reason=validation_reason,
             )
         except ValueError as error:
             raise llm.ProviderError("config", str(error)) from None
@@ -1343,7 +1323,7 @@ class OllamaRecipeProvider:
         recipe = _validated_recipe_text(_ollama_output_text(response))
         return RecipeResult(
             recipe=recipe,
-            backend="local",
+            backend="ollama",
             provider="ollama",
             model_id=self._model.model_id,
             usage=None,
@@ -1355,7 +1335,6 @@ __all__ = [
     "DeepSeekRecipeProvider",
     "GeminiRecipeProvider",
     "KimiRecipeProvider",
-    "LOCAL_MAX_RETRIES",
     "LOCAL_OUTPUT_TOKENS",
     "MAX_RECIPE_PROMPT_CHARS",
     "OllamaRecipeProvider",
