@@ -31,7 +31,11 @@ test("pure lighting state loads before the application adapter", () => {
   assert.match(server,/"\/library_state\.js":\s*"library_state\.js"/);
 });
 
-test("Studio is one Paint, Source, and Animate shell with local draft acceptance", () => {
+// Slice P3 renamed the visible tool labels to Paint / Import media / Effects /
+// AI while the internal tool keys and element ids stayed stable. This guard
+// keeps owning the stable keys; the visible labels are owned by
+// tests/web/lighting_flow.test.js.
+test("Studio is one Paint, Import media, and Effects shell with local draft acceptance", () => {
   for(const id of [
     "studio-paint-tab","studio-source-tab","studio-animate-tab",
     "studio-paint-panel","studio-source-panel","studio-animate-panel",
@@ -277,18 +281,23 @@ test("generation is one prompt, durable progress, animated review, and explicit 
   assert.match(js,/preview_asset_id/);
   assert.match(js,/recipe_asset_id/);
   assert.match(js,/mapped_result_asset_id/);
-  assert.match(review,/Animated exact-raster lighting preview/);
+  assert.match(review,/Animated lighting preview/);
   assert.match(js,/createReviewView\(\{assetUrls:state\.conceptAssetUrls/);
   assert.match(js,/renderReview\(\$\("#lighting-generate-content"\),view,applyReviewedLighting\)/);
   assert.match(js,/function renderGenerationStudio\(\)/);
-  assert.match(js,/saved failure does not disable this backend/);
+  assert.match(js,/This earlier failure does not turn anything off/);
   assert.match(js,/syncLightingJob\(null,\{renderPage:false\}\)/);
   assert.match(js,/type:"APPLY_REQUESTED"/);
   const applyStart=js.lastIndexOf("function applyReviewedLighting");
   const applyEnd=js.indexOf("async function loadAiConfig",applyStart);
   const apply=js.slice(applyStart,applyEnd);
   assert.equal((apply.match(/mutate\(/g)||[]).length,1);
-  assert.match(apply,/keyboard has not been written/);
+  // Slice P3 moved this sentence into the shared post-Apply feedback helper so
+  // every Apply says the same thing. The intent is unchanged: applying a
+  // generated result must state that the keyboard has not been written.
+  assert.match(apply,/lightingAppliedDetail\(/);
+  const detail=js.slice(js.indexOf("function lightingAppliedDetail"),js.indexOf("\nfunction ",js.indexOf("function lightingAppliedDetail")+10));
+  assert.match(detail,/Nothing has been written to the keyboard yet/);
 });
 
 test("inline generation tool omits backend identity and keeps the exact target destination", () => {
@@ -306,7 +315,7 @@ test("generation is inline with no detached dialog or Create route", () => {
   assert.doesNotMatch(html,/lighting-generate-dialog|lighting-generate-open/);
   assert.doesNotMatch(js,/openRenderedDialog|handleGenerationDialogClose|ROUTES\.CREATE/);
   assert.doesNotMatch(review,/openRenderedDialog|generation dialog/i);
-  assert.match(js,/You can switch to Library while the result continues banking locally/);
+  assert.match(js,/You can open Library while this finishes/);
   assert.match(js,/function revealGenerationStudio\(\)/);
   assert.match(js,/navigateTo\(ROUTES\.EDIT/);
   assert.match(js,/scrollIntoView/);

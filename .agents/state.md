@@ -130,18 +130,49 @@
   removed while historical multi-attempt manifests remain supported. The
   focused B3 suite passed 58 tests and the full automated verification entry
   point passed.
+- Owner UX finding for Slice P3 (2026-07-29): the lighting saving flow is
+  incomprehensible — "render, apply, then save?" with no indication whether
+  anything reached the keyboard. P3 must make the Preview → Apply to lighting
+  slot boundary uniform, follow every Apply with explicit feedback naming the
+  destination slot and document plus the next action (Write to <device> puts
+  it on the keyboard), and keep Save to Library visibly distinct as optional
+  archival. The hardware-write gate itself is correct and stays; the failure
+  was that nothing tells the user where their work went.
 - On 2026-07-29 the owner directed merging the backend branch and the product
   branch to `main`. The backend contract (B1-B3) and product Slices P2/P4 with
   their hardware-verified follow-up fixes land together; backend Slice B4's
   native build and executable smoke remain open, blocked only on the missing
   staged FFmpeg sources noted under Next.
 
+- Known intermittent (backend, pre-existing): under full-suite load,
+  `test_procedural_generation...test_local_cancellation_stops_without_retry_or_ready_artifacts`
+  occasionally fails with manifest status `interrupted` instead of
+  `cancelled` (observed once on 2026-07-29; 4/4 green in isolation and green
+  in adjacent full runs). Likely a cancellation-timing race in the B3
+  one-request path; owned by backend follow-up, not masked or retried away.
+
 ## Next
 
 - Close backend Slice B4 after a Windows native build and executable smoke
-  test. `python build.py --skip-sync` currently stops before packaging because
-  the pinned FFmpeg source archive and detached signature are not staged under
-  `build/ffmpeg/sources`; no executable was produced.
+  test. The staged-sources cause is resolved: `ffmpeg-8.1.2.tar.xz` and its
+  `.asc` are staged under `build/ffmpeg/sources`, the sha256 matches the pin,
+  and the signature verifies against the pinned release fingerprint using this
+  host's Git-for-Windows gpg (usable only through the `--msys2-bash` routing;
+  bare invocation mishandles `GNUPGHOME` as a POSIX path). B4 is now blocked
+  on two independent host gaps: no MinGW C toolchain (`cc` unavailable — the
+  FFmpeg runtime must compile from source by design) and no Inno Setup 6
+  (hard-required by `packaging/windows/build_installer.ps1`). The 0.1.64
+  Windows candidate was never built locally: `.github/workflows/desktop.yml`
+  provisions MSYS2 MINGW64 on GitHub-hosted runners and `docs/releases/
+  0.1.64.md` records Windows/Linux installers as CI-smoke-tested only.
+  Discovered tooling gap to fix or document: `build.py` passes no toolchain
+  arguments to `prepare_ffmpeg`, so the documented local
+  `python build.py --skip-sync` entry point can only succeed against a
+  pre-populated attested FFmpeg cache on Windows, never from a cold start.
+  Owner decision pending between: dispatching the Desktop installers workflow
+  and taking its Windows smoke as B4 evidence (outward-facing; needs a go);
+  provisioning this host (MSYS2 toolchain + Inno Setup, ~75 min compile); or
+  recording B4 as verified-in-CI-only with an explicit local-Windows gap.
 - The owner assigned the product-experience plan to Claude for parallel work.
   The backend contracts are now committed and merged into the product branch,
   so Slices P1 and P3 (AI language, Settings integration) are unblocked; P5

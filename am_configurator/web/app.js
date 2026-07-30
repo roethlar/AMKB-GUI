@@ -64,6 +64,9 @@ const state = {
   gifResample: "box",
   relicGifEdges: true,
   studioTool: "paint",
+  paintAdvancedOpen: false,
+  mediaAdvancedOpen: false,
+  effectsAdvancedOpen: false,
   sourceTransform: defaultSourceTransform("box"),
   sourcePreviewMode: "result",
   mediaComposition: null,
@@ -559,10 +562,52 @@ function geometryUnavailableNotice() {
   return `<div class="empty-state"><p class="eyebrow">${loading?"Loading device layout":"Device layout unavailable"}</p><h1>${loading?"Fetching the LED layout for this keyboard…":"The LED layout for this keyboard could not be loaded."}</h1><p>${loading?"The editor opens once the layout arrives.":"Connect the keyboard by USB and scan Devices, or read it again. Editing is held back deliberately: painting against a guessed square grid would author LED positions that do not exist on the device."}</p></div>`;
 }
 const LED_SPEEDS = [255,240,224,208,192,176,160,146,132,118,100,90,76,62,48,34];
+// Friendly presets for the normal path. Every value is one of the firmware
+// timing steps above, so a preset can never author an out-of-range duration;
+// the full step list stays available under Advanced.
+const LED_SPEED_PRESETS = [["Slow",192],["Medium",90],["Fast",48]];
+// Frame-count presets for the normal Effects path. The exact count stays
+// editable under Advanced; presets are clamped to the destination frame cap.
+const LED_LENGTH_PRESETS = [["Short",8],["Medium",16],["Long",32]];
 
 function firmwareLedSpeed(value) {
   const duration=Math.max(1,Number(value)||90);
   return LED_SPEEDS.reduce((best,speed)=>Math.abs(speed-duration)<Math.abs(best-duration)?speed:best,LED_SPEEDS[0]);
+}
+
+function ledSpeedPresetMarkup(id,current) {
+  const encoded=firmwareLedSpeed(current);
+  return `<div class="segmented compact speed-presets" role="group" aria-label="Animation speed" id="${id}">${LED_SPEED_PRESETS.map(
+    ([label,speed])=>`<button type="button" data-speed-preset="${speed}" aria-pressed="${String(speed===encoded)}" class="${speed===encoded?"active":""}">${label}</button>`,
+  ).join("")}</div>`;
+}
+
+function ledLengthPresetMarkup(id,current,cap,disabled) {
+  const counts=LED_LENGTH_PRESETS.map(([label,count])=>[label,Math.max(2,Math.min(cap,count))]);
+  return `<div class="segmented compact length-presets" role="group" aria-label="Animation length" id="${id}">${counts.map(
+    ([label,count])=>`<button type="button" data-length-preset="${count}" aria-pressed="${String(count===Number(current))}" class="${count===Number(current)?"active":""}" ${disabled?"disabled":""}>${label}</button>`,
+  ).join("")}</div>`;
+}
+
+// Every Apply lands in the open document only. One shared sentence names the
+// destination slot and lighting area, states that scope, and points at the one
+// action that reaches the keyboard, so no apply leaves the user guessing where
+// their work went.
+function writeActionLabel() {
+  const product=selectedDevice()?.product_id||(state.config?productId():"");
+  return product&&product!=="—"?`Write to ${product}`:"Write to keyboard";
+}
+
+function lightingSlotLabel(slot=state.ledSlot) {
+  return `Custom slot ${Number(slot)-4}`;
+}
+
+function lightingTargetLabel(target=state.ledTarget) {
+  return activeLedModel()?.targets.find(item=>item.key===target)?.label||String(target);
+}
+
+function lightingAppliedDetail(slot=state.ledSlot,target=state.ledTarget,extra="") {
+  return `${lightingSlotLabel(slot)} · ${lightingTargetLabel(target)} changed in this open document only. Nothing has been written to the keyboard yet — use the ${writeActionLabel()} button when you are ready.${extra?` ${extra}`:""}`;
 }
 
 // Null when this build has no LED geometry for the loaded product. Callers must
@@ -826,7 +871,7 @@ function renderLightingJobStrip() {
   if (!strip) {
     host.innerHTML=`<section id="lighting-job-strip" class="lighting-job-strip">
       <span class="job-state-mark" aria-hidden="true"></span>
-      <div class="job-strip-copy"><strong id="lighting-job-phase">Lighting job</strong><span id="lighting-job-detail">Preparing local workspace…</span></div>
+      <div class="job-strip-copy"><strong id="lighting-job-phase">Lighting</strong><span id="lighting-job-detail">Getting ready…</span></div>
       <progress id="lighting-job-progress" max="1" value="0" hidden></progress>
       <div class="job-strip-actions"><button id="lighting-job-view" type="button" class="button ghost">View</button><button id="lighting-job-cancel" type="button" class="button ghost">Cancel</button></div>
       <span id="lighting-job-phase-live" class="sr-only" aria-live="polite"></span>
@@ -835,17 +880,16 @@ function renderLightingJobStrip() {
     $("#lighting-job-view",host).addEventListener("click",revealGenerationStudio);
     $("#lighting-job-cancel",host).addEventListener("click",cancelLightingJob);
   }
-  const phase = job.phase ? job.phase.replaceAll("_", " ") : "Ready";
-  const phaseLabel = phase.charAt(0).toUpperCase() + phase.slice(1);
+  const phaseLabel = job.phase ? proceduralPhaseLabel(job.phase) : "Ready";
   if ($("#lighting-job-phase").textContent !== phaseLabel) {
     $("#lighting-job-phase").textContent = phaseLabel;
-    $("#lighting-job-phase-live").textContent = `Lighting job: ${phaseLabel}`;
+    $("#lighting-job-phase-live").textContent = `Lighting: ${phaseLabel}`;
   }
   const progress = job.progress;
   const hasProgress = progress && Number(progress.total) > 0;
   $("#lighting-job-detail").textContent = hasProgress
     ? `${progress.completed} of ${progress.total} complete`
-    : "Your work is saved locally as it completes.";
+    : "Your work is saved to Library as it finishes.";
   const progressNode = $("#lighting-job-progress");
   progressNode.hidden = !hasProgress;
   if (!progressNode.hidden) {
@@ -906,7 +950,7 @@ async function importLibraryProfiles(input) {
     }else{
       toast(
         imported===1?"Profile added to Library":"Profiles added to Library",
-        `${imported} exact JSON file${imported===1?" was":"s were"} banked.`,
+        `${imported} JSON file${imported===1?" was":"s were"} saved to Library.`,
         "success",
       );
     }
@@ -916,9 +960,12 @@ async function importLibraryProfiles(input) {
   }
 }
 
-async function saveMappingToLibrary() {
+// One Library save covers the whole portable profile — keymap layers and
+// macros alike — so Keymap and Macros offer the same explicitly labelled
+// action against the same endpoint.
+async function saveMappingToLibrary(buttonId="save-mapping-library") {
   if(!state.config)return;
-  const button=$("#save-mapping-library");
+  const button=$(`#${typeof buttonId==="string"?buttonId:"save-mapping-library"}`);
   if(button)button.disabled=true;
   try{
     const revision=await synchronizeOpenDocument();
@@ -933,9 +980,9 @@ async function saveMappingToLibrary() {
       }),
     });
     state.library.loaded=false;
-    toast("Mapping saved to Library",`${detail.name} · ${detail.item.profile.sections.length} sections`,"success");
+    toast("Saved to Library",`${detail.name} · ${detail.item.profile.sections.length} sections. Library keeps a reusable copy; the open document is unchanged.`,"success");
   }catch(error){
-    toast("Could not save mapping",error.message,"error");
+    toast("Could not save to Library",error.message,"error");
   }finally{
     if(button&&button.isConnected)button.disabled=false;
   }
@@ -999,7 +1046,7 @@ async function loadLibraryAsset(catalogId,assetId,{retry=false}={}) {
   state.library.assetErrors.delete(key);
   try{
     const response=await fetch(`/api/library/assets/${libraryCatalogPath(catalogId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
-    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load asset (${response.status})`);}
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||"This file could not be loaded from Library.");}
     const url=URL.createObjectURL(await response.blob());
     if(!lease.current(state.library.epoch)){URL.revokeObjectURL(url);return;}
     const previous=state.library.assetUrls.get(key);
@@ -1169,15 +1216,15 @@ async function loadLibrary({force=false}={}) {
 function libraryEmptyMarkup() {
   if(state.library.loading)return '<div class="library-empty"><div class="loader"></div><strong>Loading your Library…</strong></div>';
   if(state.library.error)return `<div class="library-empty"><strong>Library could not be loaded.</strong><p>${esc(state.library.error)}</p><button type="button" class="button ghost" data-library-retry>Try again</button></div>`;
-  if(!state.settings?.library?.current_root)return '<div class="library-empty"><strong>Choose a Library folder to bank profiles and lighting.</strong><p>Settings controls where imported files and generated assets are stored.</p><button type="button" class="button primary" data-library-settings>Open Settings</button></div>';
-  return '<div class="library-empty"><strong>Nothing here yet.</strong><p>Add a keyboard JSON file, save a mapping, or create lighting to bank it here.</p></div>';
+  if(!state.settings?.library?.current_root)return '<div class="library-empty"><strong>Choose a Library folder to save profiles and lighting.</strong><p>Settings controls where your saved files are kept.</p><button type="button" class="button primary" data-library-settings>Open Settings</button></div>';
+  return '<div class="library-empty"><strong>Nothing here yet.</strong><p>Add a keyboard JSON file, save a mapping, or create lighting to save it here.</p></div>';
 }
 
 function libraryKindLabel(kind) {
   return {
     generation_job:"Generated",
     keyboard_profile:"Keyboard profile",
-    media_source:"Media source",
+    media_source:"Imported media",
     lighting_composition:"Lighting",
   }[kind]||libraryStatusLabel(kind);
 }
@@ -1251,9 +1298,25 @@ function libraryCardMarkup(item) {
   </button>`;
 }
 
+// Manifest asset kinds are storage names; the card caption shows plain words.
+const LIBRARY_ASSET_LABELS = {
+  concept:"concept image",
+  selected_still:"chosen still",
+  preview:"preview",
+  preview_poster:"preview image",
+  preview_animation:"preview animation",
+  raster_animation:"lighting animation",
+  source_video:"imported video",
+  source:"imported media",
+};
+
+function libraryAssetLabel(kind) {
+  return LIBRARY_ASSET_LABELS[kind]||String(kind||"").replaceAll("_"," ");
+}
+
 function libraryMediaMarkup(catalogId,asset,index) {
   const url=state.library.assetUrls.get(`${catalogId}:${asset.asset_id}`);
-  const label=asset.kind.replaceAll("_"," ");
+  const label=libraryAssetLabel(asset.kind);
   const loadError=state.library.assetErrors.get(`${catalogId}:${asset.asset_id}`);
   if(!url&&loadError&&loadError!=="Retrying…")return `<div class="library-media-card failed"><strong>Could not load this ${esc(label)}.</strong><small>${esc(loadError)}</small><button type="button" class="button ghost" data-library-asset-retry="${esc(asset.asset_id)}" data-library-asset-item="${esc(catalogId)}">Retry</button></div>`;
   if(!url)return `<div class="library-media-card loading"><span class="library-card-placeholder">${loadError||"Loading…"}</span><small>${esc(label)}</small></div>`;
@@ -1383,7 +1446,7 @@ function requestLibraryProfileApply(catalogId) {
   }
   showLibraryConfirmation({
     title:"Apply profile sections?",
-    message:`${detail?.name||"This profile"} will replace only ${sections.map(libraryStatusLabel).join(", ")} in the open document. Destination identity and every unselected section stay unchanged. This creates one undo checkpoint and does not write the keyboard.`,
+    message:`${detail?.name||"This profile"} will replace only ${sections.map(libraryStatusLabel).join(", ")} in the open document. The keyboard this document targets and every unselected section stay unchanged. This creates one undo checkpoint and does not write the keyboard.`,
     label:"Apply sections",
     action:()=>applyLibraryProfile(catalogId),
   });
@@ -1472,7 +1535,7 @@ async function applyLibraryGenerated(catalogId) {
     ||!attempt?.mapped_result_asset_id
     ||libraryDetailCompatibility(catalogId,detail).status!=="exact"
   ){
-    return toast("Could not apply generated lighting","This saved result does not exactly match the open keyboard.","error");
+    return toast("Could not apply this lighting","It was made for a different keyboard, so nothing was changed. Open the matching keyboard profile and try again.","error");
   }
   const catalogEpoch=state.library.epoch;
   const lease=state.library.requests.begin("mutation",catalogEpoch);
@@ -1487,7 +1550,7 @@ async function applyLibraryGenerated(catalogId) {
     );
     if(!response.ok){
       const data=await response.json().catch(()=>({}));
-      throw new Error(data.error||`Could not load generated lighting (${response.status})`);
+      throw new Error(data.error||"The saved lighting could not be read from Library.");
     }
     const result=await response.json();
     if(
@@ -1495,7 +1558,7 @@ async function applyLibraryGenerated(catalogId) {
       ||state.config!==config
       ||JSON.stringify(config)!==configFingerprint
     )return;
-    if(!result?.tracks)throw new Error("The saved generated result is invalid.");
+    if(!result?.tracks)throw new Error("The saved lighting could not be read.");
     const pairsRelic=(target.targets||[]).includes("spotlight_frames");
     lease.release();
     state.library.mutatingCatalogId=null;
@@ -1516,7 +1579,7 @@ async function applyLibraryGenerated(catalogId) {
     );
   }catch(error){
     if(lease.current(state.library.epoch)){
-      toast("Could not apply generated lighting",error.message,"error");
+      toast("Could not apply this lighting",`${error.message} Nothing was changed.`,"error");
     }
   }finally{
     lease.release();
@@ -1647,8 +1710,8 @@ function openLibrarySource(catalogId) {
   const destination=currentMediaDestination();
   if(detail?.kind!=="media_source"||!source||!destination){
     return toast(
-      "Could not open source",
-      "Open a supported keyboard configuration and try again.",
+      "Could not open this media",
+      "Nothing was changed. Open a supported keyboard profile, then try again.",
       "error",
     );
   }
@@ -1676,7 +1739,7 @@ async function applyLibraryLighting(catalogId) {
   const detail=state.library.details.get(catalogId);
   const composition=detail?.item?.composition;
   if(detail?.kind!=="lighting_composition"||!composition){
-    return toast("Could not apply lighting","This saved lighting item is unavailable.","error");
+    return toast("Could not apply lighting","This saved lighting is unavailable, so nothing was changed. Refresh Library and try again.","error");
   }
   try{
     const destination=composition.destination;
@@ -1684,24 +1747,24 @@ async function applyLibraryLighting(catalogId) {
       detail.item.device?.family!==productFamily(productId())
       ||!activeLedModel()?.targets.some(candidate=>candidate.key===destination.target)
     ){
-      throw new Error("This rendered lighting does not match the open keyboard.");
+      throw new Error("This saved lighting was made for a different keyboard.");
     }
     for(const [track,metadata] of Object.entries(composition.tracks||{})){
       if(servedGeometry(productFamily(productId()),track)?.signature!==metadata.signature){
-        throw new Error(`The saved ${track} track does not match this keyboard.`);
+        throw new Error("This saved lighting does not match this keyboard's layout.");
       }
     }
     const response=await fetch(`/api/library/assets/${libraryCatalogPath(catalogId)}/${encodeURIComponent(composition.rendered_asset_id)}`,{headers:{"X-AM-Token":token}});
-    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load lighting (${response.status})`);}
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||"The saved lighting could not be read from Library.");}
     const result=await response.json();
-    if(!result?.tracks)throw new Error("The saved LED result is invalid.");
+    if(!result?.tracks)throw new Error("The saved lighting could not be read.");
     const pairsRelic=destination.target==="keyframes"&&Boolean(result.tracks.spotlight_frames);
     if(
       !Number.isSafeInteger(destination.lightness)
       ||destination.lightness<0
       ||destination.lightness>100
     ){
-      throw new Error("The saved lighting brightness is invalid.");
+      throw new Error("The saved brightness value is invalid.");
     }
     const candidate=clone(getPage(state.ledSlot));
     applyLedResultToPage(candidate,result,destination.target,pairsRelic);
@@ -1730,7 +1793,7 @@ async function applyLibraryLighting(catalogId) {
       "success",
     );
   }catch(error){
-    toast("Could not apply lighting",error.message,"error");
+    toast("Could not apply lighting",`${error.message} Nothing was changed.`,"error");
   }
 }
 
@@ -1786,7 +1849,7 @@ async function loadConceptAsset(jobId,assetId) {
   state.conceptAssetLoads.add(key);
   try{
     const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
-    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load concept (${response.status})`);}
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||"The lighting preview could not be loaded.");}
     const url=URL.createObjectURL(await response.blob());
     if(state.conceptManifest?.job_id!==jobId){URL.revokeObjectURL(url);return;}
     const previous=state.conceptAssetUrls.get(key);
@@ -1804,9 +1867,9 @@ async function loadMappedLightingResult(jobId,assetId) {
   state.mappedLightingResultLoads.add(key);
   try{
     const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
-    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load LED result (${response.status})`);}
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||"The generated lighting could not be loaded.");}
     const result=await response.json();
-    if(!result||typeof result!=="object"||!result.tracks)throw new Error("The saved LED result is invalid.");
+    if(!result||typeof result!=="object"||!result.tracks)throw new Error("The generated lighting could not be read.");
     if(state.conceptManifest?.job_id!==jobId)return;
     state.mappedLightingResults.set(key,result);
     refreshGenerationStudio();
@@ -1860,7 +1923,7 @@ async function cancelLightingJob() {
     await api(`/api/lighting/jobs/${encodeURIComponent(job.id)}/cancel`, {method: "POST", body: "{}"});
     await restoreLightingJob();
   } catch (error) {
-    toast("Could not cancel lighting job", error.message, "error");
+    toast("Could not cancel", `${error.message} The generation is still running; try Cancel again.`, "error");
     renderLightingJobStrip();
   }
 }
@@ -1935,7 +1998,7 @@ function renderKeymap() {
     <div class="screen-shell">
       <header class="screen-header">
         <div><p class="eyebrow">${esc(layout.name)}</p><h1>Keymap</h1><p class="description">Select a physical key, then choose what it should send.</p></div>
-        <div class="keymap-header-actions"><button id="toggle-technical-labels" type="button" class="button ghost" aria-pressed="${technical}">${technical?'Hide technical labels':'Show technical labels'}</button><button id="save-mapping-library" type="button" class="button ghost">Save mapping to Library</button><div class="segmented layer-tabs">${layers().map((_,i) => `<button class="${i===state.layer?'active':''}" data-layer="${i}" aria-label="Layer ${i+1}">${i+1}</button>`).join("")}</div></div>
+        <div class="keymap-header-actions"><button id="toggle-technical-labels" type="button" class="button ghost" aria-pressed="${technical}">${technical?'Hide technical labels':'Show technical labels'}</button><button id="save-mapping-library" type="button" class="button ghost" title="Keep a reusable copy of this profile in Library">Save to Library</button><div class="segmented layer-tabs">${layers().map((_,i) => `<button class="${i===state.layer?'active':''}" data-layer="${i}" aria-label="Layer ${i+1}">${i+1}</button>`).join("")}</div></div>
       </header>
       <div class="editor-grid">
         <section class="card"><div class="card-header"><strong>Layer ${state.layer+1}</strong><small>${layout.keys.length} physical keys</small></div><div class="card-body">
@@ -1953,7 +2016,7 @@ function renderKeymap() {
   $$("[data-layer]").forEach(button => button.addEventListener("click", () => { state.layer = Number(button.dataset.layer); renderKeymap(); restoreFocus(`[data-layer="${button.dataset.layer}"]`); }));
   $$(".keycap").forEach(button => button.addEventListener("click", () => { state.selected = Number(button.dataset.index); renderKeymap(); restoreFocus(`.keycap[data-index="${button.dataset.index}"]`); }));
   $("#toggle-technical-labels").addEventListener("click", () => { state.showTechnicalLabels = !state.showTechnicalLabels; renderKeymap(); restoreFocus("#toggle-technical-labels"); });
-  $("#save-mapping-library")?.addEventListener("click",saveMappingToLibrary);
+  $("#save-mapping-library")?.addEventListener("click",()=>saveMappingToLibrary("save-mapping-library"));
   wireKeyInspector();
 }
 
@@ -2115,7 +2178,7 @@ async function applyMacroText(mode) {
       current.layer_key=mode==="append"?[...(current.layer_key||[]),...generated.layer_key]:generated.layer_key;
       current.intvel_ms=next.intvel_ms;
     });
-    toast("Text converted",`${generated.characters} characters · ${generated.layer_key.length} deterministic events · ${delay}ms between keys`,"success");
+    toast("Text converted",`${generated.characters} characters · ${generated.layer_key.length} key events · ${delay}ms between keys`,"success");
   }catch(error){toast("Could not convert text",error.message,"error");}
 }
 
@@ -2129,7 +2192,7 @@ function renderMacros() {
   const missing=missingMacroTokens();
   const missingWarning=missing.length?`<div class="write-warning macro-warning"><strong>Macro assignments have no readable actions</strong><p>${missing.map(code=>esc(decodeCode(code))).join(", ")} ${missing.length===1?'is':'are'} assigned in the keymap, but the keyboard returned no matching macro definition. Loading cannot reconstruct those keystrokes; restore them from a saved JSON or recreate them before writing.</p></div>`:"";
   $("#screen").innerHTML = `<div class="screen-shell">
-    <header class="screen-header"><div><p class="eyebrow">Reusable key sequences</p><h1>Macros</h1><p class="description">Type text or record keys, then assign the macro to any key on the Keymap screen.</p></div><div class="header-controls"><button id="import-macros" class="button ghost">Import macros</button><button id="add-macro" class="button primary">+ New macro</button></div></header>
+    <header class="screen-header"><div><p class="eyebrow">Reusable key sequences</p><h1>Macros</h1><p class="description">Type text or record keys, then assign the macro to any key on the Keymap screen.</p></div><div class="header-controls"><button id="import-macros" class="button ghost">Import macros</button><button id="save-macros-library" type="button" class="button ghost" title="Keep a reusable copy of this profile, including its macros, in Library">Save to Library</button><button id="add-macro" class="button primary">+ New macro</button></div></header>
     ${missingWarning}
     <div class="macro-layout">
       <aside class="card macro-list"><div class="card-header"><strong>Macros in this profile</strong><small>${macros().length} ${macros().length===1?'macro':'macros'}</small></div><div class="macro-list-items">
@@ -2160,6 +2223,7 @@ function renderMacros() {
     </div></div>`;
   $("#add-macro").addEventListener("click", addMacro);
   $("#import-macros").addEventListener("click",()=>$("#macro-import-input").click());
+  $("#save-macros-library")?.addEventListener("click",()=>saveMappingToLibrary("save-macros-library"));
   $$("[data-macro]").forEach(button => button.addEventListener("click",()=>{state.macro=Number(button.dataset.macro);renderMacros();restoreFocus(`[data-macro="${button.dataset.macro}"]`);}));
   if (!current) return;
   $("#macro-advanced").addEventListener("toggle",event=>{state.macroAdvancedOpen=event.currentTarget.open;});
@@ -2313,7 +2377,15 @@ function replaceEdgeAnimation(mode) {
   }
   mutate(()=>{page.spotlight_frames={valid:1,frame_num:count,frame_data:frames};state.ledFrame=0;});
   const label=mode==="hold"?"Painted edge frame held":mode==="static"?"Static edge color created":"Edge pulse created";
-  toast(label,`${count} edge frames generated to match the key animation.`,"success");
+  toast(
+    label,
+    lightingAppliedDetail(
+      state.ledSlot,
+      "spotlight_frames",
+      `${count} edge frames were generated to match the key animation.`,
+    ),
+    "success",
+  );
 }
 
 function availableStudioTools() {
@@ -2431,16 +2503,16 @@ async function loadMediaCompositionSourceAsset() {
 
 function mediaCompositionStatusText(draft) {
   return draft?.status==="rendering"
-    ?"Rendering the server-authoritative LED preview…"
+    ?"Building the lighting preview…"
     :draft?.status==="ready"
-      ?"Preview ready. Apply changes only this open document."
+      ?"Preview ready. Apply to lighting slot changes only this open document."
       :draft?.status==="failed"
         ?draft.error
         :draft?.status==="applied"
-          ?"Applied to this slot. The banked source remains available for reframing."
+          ?`${lightingAppliedDetail()} The imported media stays in Library if you want to reframe it.`
           :draft
-            ?"Adjust framing, then render a preview."
-            :"Choose media to bank it in Library before composition opens.";
+            ?"Adjust the framing, then create a preview."
+            :"Import media to save it to Library and start framing.";
 }
 
 function updateSourceTransformView() {
@@ -2489,7 +2561,7 @@ function applySourceTransformPreset(mode) {
     );
     updateSourceTransformView();
   }catch(error){
-    toast("Could not change source framing",error.message,"error");
+    toast("Could not change the framing",`${error.message} Nothing was changed.`,"error");
   }
 }
 
@@ -2507,13 +2579,13 @@ async function importMedia(input) {
   const destination=currentMediaDestination();
   if(!destination){
     return toast(
-      "Destination unavailable",
-      "The selected keyboard target has no render geometry.",
+      "Nowhere to put this media",
+      "This app has no layout for the selected lighting area, so nothing was imported. Choose another lighting area and try again.",
       "error",
     );
   }
   const button=$("#import-media");
-  if(button){button.disabled=true;button.textContent="Banking…";}
+  if(button){button.disabled=true;button.textContent="Saving…";}
   try{
     const response=await fetch(`/api/library/import/media?name=${encodeURIComponent(file.name)}`,{
       method:"POST",
@@ -2524,10 +2596,10 @@ async function importMedia(input) {
       body:file,
     });
     const payload=await response.json().catch(()=>({}));
-    if(!response.ok)throw new Error(payload.error||`Could not import media (${response.status})`);
+    if(!response.ok)throw new Error(payload.error||"This file could not be saved to Library.");
     const detail=payload.item;
     const source=detail?.item?.source;
-    if(!detail?.catalog_id||!source)throw new Error("The banked media response is invalid.");
+    if(!detail?.catalog_id||!source)throw new Error("This file could not be saved to Library.");
     state.sourceTransform=validateSourceTransform({
       ...state.sourceTransform,
       sampling:state.gifResample,
@@ -2551,12 +2623,12 @@ async function importMedia(input) {
     void loadMediaCompositionSourceAsset();
     await renderMediaCompositionPreview();
     toast(
-      payload.deduplicated?"Source reopened":"Source added to Library",
+      payload.deduplicated?"Imported media reopened":"Imported media saved to Library",
       `${file.name} · ${source.frame_count} frame${source.frame_count===1?"":"s"}`,
       "success",
     );
   }catch(error){
-    toast("Could not import media",error.message,"error");
+    toast("Could not import media",`${error.message} Nothing was changed.`,"error");
   }finally{
     if(button?.isConnected){
       button.disabled=false;
@@ -2603,7 +2675,7 @@ async function renderMediaCompositionPreview() {
 function applyMediaCompositionDraft() {
   const draft=state.mediaComposition;
   if(!mediaDraftCanApply(draft)){
-    return toast("Preview required","Render this framing before applying it.","error");
+    return toast("Preview required","Nothing was changed. Create a preview of this framing before applying it.","error");
   }
   const pairsRelic=draft.destination.targets.includes("spotlight_frames")
     &&draft.destination.target==="keyframes";
@@ -2628,8 +2700,12 @@ function applyMediaCompositionDraft() {
     });
   });
   toast(
-    "Media applied",
-    "The selected slot changed through one undo checkpoint. Nothing was written to the keyboard.",
+    `Applied to ${lightingSlotLabel()}`,
+    lightingAppliedDetail(
+      state.ledSlot,
+      draft.destination.target,
+      "Save to Library keeps a reusable copy of this lighting; the imported media is already in Library.",
+    ),
     "success",
   );
 }
@@ -2639,8 +2715,8 @@ function cancelMediaComposition() {
   state.mediaComposition=reduceMediaDraft(state.mediaComposition,{type:"CANCELLED"});
   renderLightingEdit();
   toast(
-    "Composition cancelled",
-    "The open document was not changed. The imported source remains in Library.",
+    "Framing cancelled",
+    "The open document was not changed. The imported media stays in Library.",
     "success",
   );
 }
@@ -2786,7 +2862,7 @@ function previewLocalAnimation() {
     };
     if(effect.type==="move_zoom"){
       if(!state.mediaComposition||state.mediaComposition.status==="cancelled"){
-        throw new Error("Move & zoom requires one active imported still.");
+        throw new Error("Move & zoom needs an imported still image.");
       }
       draft.transforms=interpolateMoveZoom(effect);
       state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
@@ -2811,7 +2887,7 @@ function previewLocalAnimation() {
     requestAnimationFrame(()=>$("#animate-accept")?.focus({preventScroll:true}));
   }catch(error){
     state.localAnimationDraft=null;
-    toast("Could not preview animation",error.message,"error");
+    toast("Could not preview this effect",`${error.message} Nothing was changed.`,"error");
   }
 }
 
@@ -2826,14 +2902,14 @@ function applyLocalAnimationDraft() {
   const source=currentFrame();
   if(!localAnimationDraftMatches()||!source){
     cancelLocalAnimationDraft();
-    return toast("Animation draft expired","Preview the effect again for this destination.","error");
+    return toast("Preview expired","Nothing was changed. Preview the effect again for this lighting slot.","error");
   }
   if(JSON.stringify(source.frame_RGB)!==draft.sourceFingerprint){
     cancelLocalAnimationDraft();
-    return toast("Animation draft changed","The source frame changed. Preview the effect again.","error");
+    return toast("Preview out of date","The frame changed, so nothing was applied. Preview the effect again.","error");
   }
   if(!draft.frames.length){
-    return toast("Source composition required","Move & zoom is applied with an imported still in Source.","error");
+    return toast("Imported image required","Nothing was changed. Move & zoom is applied to an imported still image.","error");
   }
   const frames=clone(draft.frames);
   const duration=draft.effect.duration_ms;
@@ -2860,7 +2936,15 @@ function applyLocalAnimationDraft() {
       page,
     });
   });
-  toast("Animation applied",`${frames.length} deterministic frames replaced the selected track.`,"success");
+  toast(
+    `Applied to ${lightingSlotLabel(draft.slot)}`,
+    lightingAppliedDetail(
+      draft.slot,
+      draft.target,
+      `${frames.length} frames replaced the lighting there. Save to Library keeps a reusable copy.`,
+    ),
+    "success",
+  );
 }
 
 function animationParameterMarkup() {
@@ -2868,15 +2952,28 @@ function animationParameterMarkup() {
   if(type==="pulse")return `<div class="control-group"><label class="control-label" for="animate-minimum">Minimum brightness</label><div class="range-row"><input id="animate-minimum" type="range" min="0" max="100" value="${Math.round(state.localAnimationMinimum*100)}"><span class="range-value">${Math.round(state.localAnimationMinimum*100)}%</span></div></div>`;
   if(type==="hue_cycle")return `<div class="control-group"><label class="control-label" for="animate-turns">Color rotations</label><div class="range-row"><input id="animate-turns" type="range" min="0.125" max="4" step="0.125" value="${state.localAnimationTurns}"><span class="range-value">${state.localAnimationTurns}×</span></div></div>`;
   if(type==="sweep")return `<div class="control-group"><label class="control-label" for="animate-direction">Direction</label><select id="animate-direction" class="select-field"><option value="left_to_right" ${state.localAnimationDirection==="left_to_right"?"selected":""}>Left to right</option><option value="right_to_left" ${state.localAnimationDirection==="right_to_left"?"selected":""}>Right to left</option><option value="top_to_bottom" ${state.localAnimationDirection==="top_to_bottom"?"selected":""}>Top to bottom</option><option value="bottom_to_top" ${state.localAnimationDirection==="bottom_to_top"?"selected":""}>Bottom to top</option><option value="diagonal" ${state.localAnimationDirection==="diagonal"?"selected":""}>Diagonal</option></select><label class="control-label secondary-label" for="animate-width">Band width</label><div class="range-row"><input id="animate-width" type="range" min="0.05" max="2" step="0.05" value="${state.localAnimationSweepWidth}"><span class="range-value">${state.localAnimationSweepWidth.toFixed(2)}</span></div></div>`;
-  if(type==="shimmer")return `<div class="control-group"><label class="control-label" for="animate-depth">Shimmer depth</label><div class="range-row"><input id="animate-depth" type="range" min="0" max="100" value="${Math.round(state.localAnimationShimmerDepth*100)}"><span class="range-value">${Math.round(state.localAnimationShimmerDepth*100)}%</span></div><label class="control-label secondary-label" for="animate-seed">Pattern seed</label><input id="animate-seed" class="text-field" type="number" min="0" max="4294967295" step="1" value="${state.localAnimationSeed}"></div>`;
-  return `<div class="control-group"><span class="control-label">Move &amp; zoom</span><p class="control-help">Uses the current Source framing as the start and creates a gentle pan-and-zoom endpoint. Available only for an imported PNG or BMP.</p></div>`;
+  if(type==="shimmer")return `<div class="control-group"><label class="control-label" for="animate-depth">Shimmer depth</label><div class="range-row"><input id="animate-depth" type="range" min="0" max="100" value="${Math.round(state.localAnimationShimmerDepth*100)}"><span class="range-value">${Math.round(state.localAnimationShimmerDepth*100)}%</span></div></div>`;
+  return `<div class="control-group"><span class="control-label">Move &amp; zoom</span><p class="control-help">Starts from the current framing of your imported media and gently pans and zooms from there. Available only for an imported PNG or BMP.</p></div>`;
+}
+
+// Exact frame counts, the firmware timing steps, and the shimmer pattern seed
+// keep every value and behavior they had; they simply stop leading the normal
+// path. Nothing here is a duplicate control — each writes the same state the
+// friendly presets above write.
+function animationAdvancedMarkup(familyFrameCap,animationFrameCount,fixedEdgeFrameCount,keyFrameCount) {
+  const seed=state.localAnimationEffect==="shimmer"
+    ?`<label class="control-label secondary-label" for="animate-seed">Pattern seed</label><input id="animate-seed" class="text-field" type="number" min="0" max="4294967295" step="1" value="${state.localAnimationSeed}"><small class="control-help">The same seed rebuilds the same shimmer pattern.</small>`
+    :"";
+  return `<details id="effects-advanced" class="advanced-disclosure" ${state.effectsAdvancedOpen?"open":""}><summary>Advanced</summary>
+          <div class="control-group"><label class="control-label" for="animate-frame-count">Frames</label><input id="animate-frame-count" class="text-field" type="number" min="2" max="${familyFrameCap}" step="1" value="${animationFrameCount}" ${fixedEdgeFrameCount?"disabled":""}><small class="control-help">${fixedEdgeFrameCount?`Locked to the key animation’s ${keyFrameCount} frames.`:`Destination limit: ${familyFrameCap} frames.`}</small><label class="control-label secondary-label" for="animate-duration">Frame duration</label><select id="animate-duration" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===firmwareLedSpeed(state.localAnimationDuration)?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select>${seed}</div>
+        </details>`;
 }
 
 function animationDraftMarkup() {
   const draft=localAnimationDraftMatches()?state.localAnimationDraft:null;
   const count=draft?.frames.length||draft?.transforms.length||0;
-  if(!draft)return `<div class="animation-draft-empty">Preview builds a local draft. The document is not changed until you accept it.</div>`;
-  return `<div class="animation-draft-controls" aria-live="polite"><strong>Draft ready · ${count} frames</strong><input id="animate-draft-frame" type="range" min="0" max="${Math.max(0,count-1)}" value="${Math.min(state.localAnimationPreviewFrame,Math.max(0,count-1))}" aria-label="Preview draft frame"><small>Frame ${Math.min(state.localAnimationPreviewFrame+1,Math.max(1,count))} of ${count}</small></div>`;
+  if(!draft)return `<div class="animation-draft-empty">Preview shows the effect here. Nothing in your document changes until you apply it.</div>`;
+  return `<div class="animation-draft-controls" aria-live="polite"><strong>Preview ready · ${count} frames</strong><input id="animate-draft-frame" type="range" min="0" max="${Math.max(0,count-1)}" value="${Math.min(state.localAnimationPreviewFrame,Math.max(0,count-1))}" aria-label="Preview frame"><small>Frame ${Math.min(state.localAnimationPreviewFrame+1,Math.max(1,count))} of ${count}</small></div>`;
 }
 
 function showLocalAnimationDraftFrame(index) {
@@ -2907,6 +3004,17 @@ function wireStudioInspector() {
       setStudioTool(tabs[next].dataset.studioTool);
     });
   });
+  $("#media-advanced")?.addEventListener("toggle",event=>{state.mediaAdvancedOpen=event.currentTarget.open;});
+  $("#effects-advanced")?.addEventListener("toggle",event=>{state.effectsAdvancedOpen=event.currentTarget.open;});
+  $$("#animate-length-presets [data-length-preset]").forEach(button=>button.addEventListener("click",()=>{
+    if(button.disabled)return;
+    state.localAnimationFrameCount=Number(button.dataset.lengthPreset);
+    cancelLocalAnimationDraft();
+  }));
+  $$("#animate-speed-presets [data-speed-preset]").forEach(button=>button.addEventListener("click",()=>{
+    state.localAnimationDuration=Number(button.dataset.speedPreset);
+    cancelLocalAnimationDraft();
+  }));
   $("#animate-effect")?.addEventListener("change",event=>{state.localAnimationEffect=event.target.value;cancelLocalAnimationDraft();});
   $("#animate-frame-count")?.addEventListener("change",event=>{state.localAnimationFrameCount=Number(event.target.value);cancelLocalAnimationDraft();});
   $("#animate-duration")?.addEventListener("change",event=>{state.localAnimationDuration=Number(event.target.value);cancelLocalAnimationDraft();});
@@ -2939,7 +3047,7 @@ function wireStudioInspector() {
         scale_y:locked?state.sourceTransform.scale_x:state.sourceTransform.scale_y,
       });
       updateSourceTransformView();
-    }catch(error){toast("Could not change stretch mode",error.message,"error");}
+    }catch(error){toast("Could not change stretch mode",`${error.message} Nothing was changed.`,"error");}
   });
   $("#source-zoom")?.addEventListener("input",event=>{
     const target=Number(event.target.value)/100;
@@ -2953,7 +3061,7 @@ function wireStudioInspector() {
           :Math.max(0.01,Math.min(32,state.sourceTransform.scale_y*factor)),
       });
       updateSourceTransformView();
-    }catch(error){toast("Could not zoom source",error.message,"error");}
+    }catch(error){toast("Could not zoom the media",`${error.message} Nothing was changed.`,"error");}
   });
   $("#source-height")?.addEventListener("input",event=>{
     const target=Number(event.target.value)/100;
@@ -2964,7 +3072,7 @@ function wireStudioInspector() {
         scale_y:target,
       });
       updateSourceTransformView();
-    }catch(error){toast("Could not stretch source",error.message,"error");}
+    }catch(error){toast("Could not stretch the media",`${error.message} Nothing was changed.`,"error");}
   });
   const stage=$("#media-compositor-stage");
   if(stage&&mediaSourceSize()&&mediaDestinationSize()){
@@ -3121,7 +3229,7 @@ function renderLightingEdit() {
     return `<button class="pixel physical-pixel ${body?'body-led':''} ${groupClass}" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${item.index}" data-pixel-description="${esc(description+segmentDescription)}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;height:${item.h??10.7}%;--rotation:${item.rotation}deg;background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="${esc(description+segmentDescription)}, LED ${item.index}, ${esc(color)}" title="${esc(description+segmentDescription)} · LED ${item.index} · ${esc(color)}"><span>${esc(label)}</span><small>LED ${item.index}</small></button>`;
   }).join("")}</div>`:`<div class="pixel-grid ${gridClass}" role="grid" aria-label="LED paint grid" style="grid-template-columns:repeat(${columns},1fr)">${rasterCells}</div>`;
   const raster=model.keyRaster||(servedTarget?`${servedTarget.width}×${servedTarget.height}`:"");
-  const gifSize=state.ledTarget==="frames"?"40×5":state.ledTarget==="spotlight_frames"?"18×7 → 7 edge LEDs":`${raster} → ${mappedCount} mapped LEDs`;
+  const gifSize=state.ledTarget==="frames"?"the 40×5 display":state.ledTarget==="spotlight_frames"?"the 7 edge lights":`${mappedCount} keyboard lights`;
   const relicKeyTarget=model===LED_MODELS["80"]&&state.ledTarget==="keyframes";
   const pairsRelicGif=relicKeyTarget&&state.relicGifEdges;
   const edgeAutomation=model===LED_MODELS["80"]&&state.ledTarget==="spotlight_frames";
@@ -3129,8 +3237,8 @@ function renderLightingEdit() {
   const encodedSpeed=firmwareLedSpeed(page?.speed_ms??90);
   const gifButtonLabel="Add GIF, PNG, or BMP";
   const gifHelp=pairsRelicGif
-    ? "Banks the source, previews one framing across both Relic tracks, then applies only after confirmation."
-    : relicKeyTarget?"Banks the source and previews the key track while preserving and retiming the separate edge animation.":edgeAutomation?`Banks the source and previews it on the 7 edge LEDs at the key track’s ${keyFrameCount}-frame timing.`:`Banks the source, then previews every frame at ${gifSize} before Apply.`;
+    ? "Saves the media to Library, previews one framing across both the keys and the edge lights, then applies it only after you confirm."
+    : relicKeyTarget?"Saves the media to Library and previews it on the keys, keeping and retiming the separate edge animation.":edgeAutomation?`Saves the media to Library and previews it on the 7 edge lights, matched to the ${keyFrameCount} frames of the key animation.`:`Saves the media to Library, then previews every frame on ${gifSize} before you apply it.`;
   const relicGifOption=relicKeyTarget?`<label class="check-row"><input id="relic-gif-edges" type="checkbox" ${state.relicGifEdges?'checked':''}><span>Also derive edge lights from this GIF</span></label>`:"";
   const edgeTools=edgeAutomation?`<div class="control-group"><label class="control-label">Whole edge animation</label><div class="button-row"><button id="edge-static" class="button ghost">Static color</button><button id="edge-pulse" class="button ghost">Pulse color</button></div><button id="edge-hold" class="button ghost wide-button">Hold painted frame</button><small class="control-help">Generates ${keyFrameCount} edge frames automatically to match the key animation. “Hold” preserves the seven colors painted in the current frame.</small></div>`:"";
   const targetLabel=targets.find(t=>t.key===state.ledTarget)?.label||state.ledTarget;
@@ -3150,28 +3258,42 @@ function renderLightingEdit() {
         <div class="control-group"><label class="control-label" for="led-color">Paint color</label><input id="led-color" class="color-picker" type="color" value="${state.ledColor}"><input id="led-color-text" class="text-field" aria-label="Paint color hex value" value="${state.ledColor}"></div>
         <div class="control-group"><label class="control-label">Brush</label><div class="button-row"><button id="fill-led" class="button ghost">Fill all</button><button id="clear-led" class="button ghost">Clear</button></div></div>
         <div class="control-group"><label class="control-label" for="brightness">Brightness</label><div class="range-row"><input id="brightness" type="range" min="0" max="100" value="${Number(page?.lightness??100)}" aria-describedby="brightness-value"><span id="brightness-value" class="range-value">${Number(page?.lightness??100)}%</span></div></div>
-        <div class="control-group"><label class="control-label" for="speed">Frame duration</label><select id="speed" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===encodedSpeed?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select><small class="control-help">These are the timing steps exposed by Angry Miao firmware.</small></div>
+        <div class="control-group"><span class="control-label">Animation speed</span>${ledSpeedPresetMarkup("paint-speed-presets",page?.speed_ms??90)}<small class="control-help">How fast this slot plays back. Every preset is a timing step the keyboard firmware accepts.</small></div>
+        <details id="paint-advanced" class="advanced-disclosure" ${state.paintAdvancedOpen?"open":""}><summary>Advanced</summary>
+          <div class="control-group"><label class="control-label" for="speed">Frame duration</label><select id="speed" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===encodedSpeed?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select><small class="control-help">These are the timing steps exposed by Angry Miao firmware.</small></div>
+        </details>
       </div>`;
   const sourceBody=`<div id="studio-source-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-source-tab" ${state.studioTool==="source"?"":"hidden"}>
-        <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Imported media</h3><input id="media-input" type="file" hidden><div class="gif-import-row"><button id="import-media" class="button ghost">${gifButtonLabel}</button><select id="gif-resample" class="select-field" aria-label="Media sampling method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
-        <div class="control-group source-transform-controls" aria-disabled="${String(!sourceReady)}"><span class="control-label">Framing</span><div class="source-preset-grid"><button class="button ghost" data-source-preset="fit" ${sourceDisabled}>Fit</button><button class="button ghost" data-source-preset="fill" ${sourceDisabled}>Fill</button><button class="button ghost" data-source-preset="center" ${sourceDisabled}>Center</button><button class="button ghost" data-source-preset="reset" ${sourceDisabled}>Reset</button></div><label id="source-zoom-label" class="control-label secondary-label" for="source-zoom">${state.sourceTransform.aspect_locked?"Zoom":"Width"}</label><div class="range-row"><input id="source-zoom" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_x*100)}" ${sourceDisabled}><span id="source-zoom-value" class="range-value">${Math.round(state.sourceTransform.scale_x*100)}%</span></div><div id="source-height-control" ${state.sourceTransform.aspect_locked?"hidden":""}><label class="control-label secondary-label" for="source-height">Height</label><div class="range-row"><input id="source-height" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_y*100)}" ${sourceDisabled}><span id="source-height-value" class="range-value">${Math.round(state.sourceTransform.scale_y*100)}%</span></div></div><label class="check-row"><input id="source-stretch" type="checkbox" ${state.sourceTransform.aspect_locked?"":"checked"} ${sourceDisabled}><span>Stretch width and height independently</span></label><small class="control-help">${sourceReady?"Drag on the canvas to pan; use the wheel or sliders to resize.":"Import media to bank the source and open framing controls."}</small></div>
-        <div class="control-group"><span class="control-label">Canvas preview</span><div class="segmented source-preview-toggle" role="group" aria-label="Canvas preview"><button type="button" data-source-preview="result" aria-pressed="${String(state.sourcePreviewMode==="result")}" class="${state.sourcePreviewMode==="result"?"active":""}">LED result</button><button type="button" data-source-preview="source" aria-pressed="${String(state.sourcePreviewMode==="source")}" class="${state.sourcePreviewMode==="source"?"active":""}" ${sourceDisabled}>Source overlay</button></div></div>
+        <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Imported media</h3><input id="media-input" type="file" hidden><div class="gif-import-row"><button id="import-media" class="button ghost">${gifButtonLabel}</button></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
+        <div class="control-group source-transform-controls" aria-disabled="${String(!sourceReady)}"><span class="control-label">Framing</span><div class="source-preset-grid"><button class="button ghost" data-source-preset="fit" ${sourceDisabled}>Fit</button><button class="button ghost" data-source-preset="fill" ${sourceDisabled}>Fill</button><button class="button ghost" data-source-preset="center" ${sourceDisabled}>Center</button><button class="button ghost" data-source-preset="reset" ${sourceDisabled}>Reset</button></div><label id="source-zoom-label" class="control-label secondary-label" for="source-zoom">${state.sourceTransform.aspect_locked?"Zoom":"Width"}</label><div class="range-row"><input id="source-zoom" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_x*100)}" ${sourceDisabled}><span id="source-zoom-value" class="range-value">${Math.round(state.sourceTransform.scale_x*100)}%</span></div><small class="control-help">${sourceReady?"Drag on the canvas to pan; use the wheel or sliders to resize.":"Import media to save it to Library and open the framing controls."}</small></div>
+        <details id="media-advanced" class="advanced-disclosure" ${state.mediaAdvancedOpen?"open":""}><summary>Advanced</summary>
+          <div class="control-group"><label class="control-label" for="gif-resample">Sampling method</label><select id="gif-resample" class="select-field" aria-label="Media sampling method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select><small class="control-help">How the imported picture is resampled down to the lights on this keyboard.</small></div>
+          <div class="control-group"><span class="control-label">Independent axes</span><label class="check-row"><input id="source-stretch" type="checkbox" ${state.sourceTransform.aspect_locked?"":"checked"} ${sourceDisabled}><span>Stretch width and height independently</span></label><div id="source-height-control" ${state.sourceTransform.aspect_locked?"hidden":""}><label class="control-label secondary-label" for="source-height">Height</label><div class="range-row"><input id="source-height" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_y*100)}" ${sourceDisabled}><span id="source-height-value" class="range-value">${Math.round(state.sourceTransform.scale_y*100)}%</span></div></div></div>
+        </details>
+        <div class="control-group"><span class="control-label">Canvas preview</span><div class="segmented source-preview-toggle" role="group" aria-label="Canvas preview"><button type="button" data-source-preview="result" aria-pressed="${String(state.sourcePreviewMode==="result")}" class="${state.sourcePreviewMode==="result"?"active":""}">LED result</button><button type="button" data-source-preview="source" aria-pressed="${String(state.sourcePreviewMode==="source")}" class="${state.sourcePreviewMode==="source"?"active":""}" ${sourceDisabled}>Imported media</button></div></div>
         <div class="media-composition-status ${mediaDraft?.status==="failed"?"failed":""}" aria-live="polite">${esc(mediaStatus)}</div>
-        <div class="media-composition-actions"><button id="media-compose-preview" class="button ghost" ${sourceReady&&mediaDraft?.status!=="rendering"?"":"disabled"}>Render preview</button><button id="media-compose-apply" class="button primary" ${mediaDraftCanApply(mediaDraft)?"":"disabled"}>Apply</button><button id="media-compose-cancel" class="button ghost" ${mediaDraft?"":"disabled"}>Cancel</button></div>
+        <div class="media-composition-actions"><button id="media-compose-preview" class="button ghost" ${sourceReady&&mediaDraft?.status!=="rendering"?"":"disabled"}>Preview</button><button id="media-compose-apply" class="button primary" ${mediaDraftCanApply(mediaDraft)?"":"disabled"}>Apply to lighting slot</button><button id="media-compose-cancel" class="button ghost" ${mediaDraft?"":"disabled"}>Cancel</button></div>
       </div>`;
   const animateBody=`<div id="studio-animate-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-animate-tab" ${state.studioTool==="animate"?"":"hidden"}>
-        <div class="control-group"><label class="control-label" for="animate-effect">Animate this</label><select id="animate-effect" class="select-field"><option value="pulse" ${state.localAnimationEffect==="pulse"?"selected":""}>Pulse</option><option value="hue_cycle" ${state.localAnimationEffect==="hue_cycle"?"selected":""}>Hue cycle</option><option value="sweep" ${state.localAnimationEffect==="sweep"?"selected":""}>Sweep</option><option value="shimmer" ${state.localAnimationEffect==="shimmer"?"selected":""}>Shimmer</option><option value="move_zoom" ${state.localAnimationEffect==="move_zoom"?"selected":""} ${moveZoomReady?"":"disabled"}>Move &amp; zoom${moveZoomReady?"":" · still only"}</option></select><small class="control-help">Builds a deterministic local draft from the selected frame. No AI or network request is used.</small></div>
-        <div class="control-group"><label class="control-label" for="animate-frame-count">Frames</label><input id="animate-frame-count" class="text-field" type="number" min="2" max="${familyFrameCap}" step="1" value="${animationFrameCount}" ${fixedEdgeFrameCount?"disabled":""}><small class="control-help">${fixedEdgeFrameCount?`Locked to the key animation’s ${keyFrameCount} frames.`:`Destination limit: ${familyFrameCap} frames.`}</small><label class="control-label secondary-label" for="animate-duration">Frame duration</label><select id="animate-duration" class="select-field">${LED_SPEEDS.map(speed=>`<option value="${speed}" ${speed===firmwareLedSpeed(state.localAnimationDuration)?'selected':''}>${speed} ms · ${(1000/speed).toFixed(1)} fps</option>`).join("")}</select></div>
+        <div class="control-group"><label class="control-label" for="animate-effect">Animate this</label><select id="animate-effect" class="select-field"><option value="pulse" ${state.localAnimationEffect==="pulse"?"selected":""}>Pulse</option><option value="hue_cycle" ${state.localAnimationEffect==="hue_cycle"?"selected":""}>Hue cycle</option><option value="sweep" ${state.localAnimationEffect==="sweep"?"selected":""}>Sweep</option><option value="shimmer" ${state.localAnimationEffect==="shimmer"?"selected":""}>Shimmer</option><option value="move_zoom" ${state.localAnimationEffect==="move_zoom"?"selected":""} ${moveZoomReady?"":"disabled"}>Move &amp; zoom${moveZoomReady?"":" · still only"}</option></select><small class="control-help">Builds a preview from the selected frame on this computer. No AI or network request is used.</small></div>
+        <div class="control-group"><span class="control-label">Length</span>${ledLengthPresetMarkup("animate-length-presets",animationFrameCount,familyFrameCap,fixedEdgeFrameCount)}<small class="control-help">${fixedEdgeFrameCount?`Locked to the key animation’s ${keyFrameCount} frames.`:"Longer effects animate for longer. Set an exact count under Advanced."}</small></div>
+        <div class="control-group"><span class="control-label">Animation speed</span>${ledSpeedPresetMarkup("animate-speed-presets",state.localAnimationDuration)}<small class="control-help">Every preset is a timing step the keyboard firmware accepts.</small></div>
         ${animationParameterMarkup()}
+        ${animationAdvancedMarkup(familyFrameCap,animationFrameCount,fixedEdgeFrameCount,keyFrameCount)}
         ${animationDraftMarkup()}
-        <div class="animation-draft-actions"><button id="animate-preview" class="button ghost" ${frame&&!edgeAnimationUnavailable?"":"disabled"}>Preview draft</button><button id="animate-accept" class="button primary" ${animationDraft?.frames.length?"":"disabled"}>Accept</button><button id="animate-cancel" class="button ghost" ${animationDraft?"":"disabled"}>Cancel</button></div>
+        <div class="animation-draft-actions"><button id="animate-preview" class="button ghost" ${frame&&!edgeAnimationUnavailable?"":"disabled"}>Preview</button><button id="animate-accept" class="button primary" ${animationDraft?.frames.length?"":"disabled"}>Apply to lighting slot</button><button id="animate-cancel" class="button ghost" ${animationDraft?"":"disabled"}>Cancel</button></div>
       </div>`;
-  const generationTab=aiReady()?`<button id="studio-generate-tab" role="tab" aria-controls="studio-generate-panel" aria-selected="${String(state.studioTool==="generate")}" tabindex="${state.studioTool==="generate"?0:-1}" data-studio-tool="generate">Generate</button>`:"";
-  const generationPanel=aiReady()?`<section id="studio-generate-panel" class="studio-tool-panel lighting-generate-tool" role="tabpanel" aria-labelledby="studio-generate-tab" ${state.studioTool==="generate"?"":"hidden"}><div id="lighting-generate-tool" tabindex="-1"><div class="studio-panel-heading"><strong id="lighting-generate-title">Generate lighting</strong><small>Procedural recipe · exact ${esc(targetLabel)} destination</small></div><div id="lighting-generate-content" aria-live="polite"></div></div></section>`:"";
+  const generationTab=aiReady()?`<button id="studio-generate-tab" role="tab" aria-controls="studio-generate-panel" aria-selected="${String(state.studioTool==="generate")}" tabindex="${state.studioTool==="generate"?0:-1}" data-studio-tool="generate">AI</button>`:"";
+  // Mapped/stored counts are a Technical details fact, not normal canvas copy.
+  const canvasSubtitle=[
+    physicalLayout?"Layer 1 labels":"",
+    activeDraft||mediaPreviewColors?"Preview":"",
+  ].filter(Boolean).join(" · ")||"Editing this slot";
+  const generationPanel=aiReady()?`<section id="studio-generate-panel" class="studio-tool-panel lighting-generate-tool" role="tabpanel" aria-labelledby="studio-generate-tab" ${state.studioTool==="generate"?"":"hidden"}><div id="lighting-generate-tool" tabindex="-1"><div class="studio-panel-heading"><strong id="lighting-generate-title">Generate lighting with AI</strong><small>Lighting effect · ${esc(targetLabel)}</small></div><div id="lighting-generate-content" aria-live="polite"></div></div></section>`:"";
   $("#lighting-edit-content").innerHTML=`<div class="lighting-edit-shell"><div class="led-layout">
       <aside class="card frame-list" aria-label="${mediaPreviewFrames.length?'Media preview':'Animation'} frames"><div class="card-header"><strong>${mediaPreviewFrames.length?'Preview frames':'Frames'}</strong><small>${timelineFrames.length}</small></div><div class="frame-items">${timelineFrames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?(mediaPreviewFrames.length?'Previewing':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost" ${mediaPreviewFrames.length?'disabled':''}>+ Duplicate</button><button id="remove-frame" class="button ghost" ${timelineFrames.length<=1||mediaPreviewFrames.length?'disabled':''}>Delete</button></div></aside>
-      <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header led-canvas-heading"><div><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${mappedCount}${mappedCount===length?'':' mapped'} / ${length} stored${physicalLayout?' · Layer 1 labels':''}${activeDraft||mediaPreviewColors?' · Draft preview':''}</small></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost">Save lighting</button><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${activeDraft||mediaPreviewColors?'draft-preview':''}" role="region" aria-label="${activeDraft||mediaPreviewColors?'Preview the lighting draft':'Paint the selected animation frame'}"><div id="media-compositor-stage" class="media-compositor-stage" tabindex="${sourceReady&&state.studioTool==="source"?'0':'-1'}" style="--source-offset-x:${state.sourceTransform.offset_x};--source-offset-y:${state.sourceTransform.offset_y};--source-scale-x:${state.sourceTransform.scale_x};--source-scale-y:${state.sourceTransform.scale_y}">${state.studioTool==="source"&&mediaSourceUrl&&state.sourcePreviewMode==="source"?`<img class="media-source-overlay" src="${esc(mediaSourceUrl)}" alt="">`:""}${pixelCanvas}<div class="destination-overlay" aria-hidden="true"></div></div></div></section>
-      <aside class="card led-controls studio-inspector" aria-label="Lighting controls"><div class="studio-tool-tabs ${aiReady()?'with-generate':''}" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Source</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Animate</button>${generationTab}</div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}${generationPanel}</div></aside>
+      <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header led-canvas-heading"><div><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${canvasSubtitle}</small><details class="advanced-disclosure technical-details"><summary>Technical details</summary><p class="control-help">${mappedCount} of ${length} stored colors are mapped to lights on this keyboard${raster?` · ${esc(raster)} grid`:""}.</p></details></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost" title="Keep a reusable copy of this slot in Library. Separate from Apply, which only changes the open document.">Save to Library</button><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${activeDraft||mediaPreviewColors?'draft-preview':''}" role="region" aria-label="${activeDraft||mediaPreviewColors?'Preview of this lighting':'Paint the selected animation frame'}"><div id="media-compositor-stage" class="media-compositor-stage" tabindex="${sourceReady&&state.studioTool==="source"?'0':'-1'}" style="--source-offset-x:${state.sourceTransform.offset_x};--source-offset-y:${state.sourceTransform.offset_y};--source-scale-x:${state.sourceTransform.scale_x};--source-scale-y:${state.sourceTransform.scale_y}">${state.studioTool==="source"&&mediaSourceUrl&&state.sourcePreviewMode==="source"?`<img class="media-source-overlay" src="${esc(mediaSourceUrl)}" alt="">`:""}${pixelCanvas}<div class="destination-overlay" aria-hidden="true"></div></div></div></section>
+      <aside class="card led-controls studio-inspector" aria-label="Lighting controls"><div class="studio-tool-tabs ${aiReady()?'with-generate':''}" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Import media</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Effects</button>${generationTab}</div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}${generationPanel}</div></aside>
     </div></div>`;
   wireLedEditor(columns);
   wireStudioInspector();
@@ -3257,6 +3379,10 @@ function wireLedEditor(gridColumns) {
   $("#clear-led").addEventListener("click",()=>mutate(()=>{const track=ensureTrack();track.frame_data[state.ledFrame].frame_RGB.fill("#000000");}));
   $("#brightness").addEventListener("change",event=>mutate(()=>{getPage(state.ledSlot).lightness=Number(event.target.value);}));
   $("#speed").addEventListener("change",event=>mutate(()=>{getPage(state.ledSlot).speed_ms=Number(event.target.value);}));
+  $("#paint-advanced")?.addEventListener("toggle",event=>{state.paintAdvancedOpen=event.currentTarget.open;});
+  $$("#paint-speed-presets [data-speed-preset]").forEach(button=>button.addEventListener("click",()=>mutate(()=>{
+    getPage(state.ledSlot).speed_ms=Number(button.dataset.speedPreset);
+  })));
   $("#save-lighting-library").addEventListener("click",saveLightingToLibrary);
   $("#play-led").addEventListener("click",toggleLightingPlayback);
 }
@@ -3317,22 +3443,29 @@ function stopPlayback(rerender=true) {
 
 // ---- AI LED generation -----------------------------------------------------
 
-// Typed provider-error codes → actionable, user-facing copy (design §error map).
+// Typed provider-error codes → plain-language copy. Every message says what
+// failed, that nothing was saved or changed, and the next action. Raw exception
+// text is never surfaced here: it stays in local diagnostics and tests.
 const AI_ERROR_MESSAGES = {
-  config: "Generation isn’t ready. Repair the selected backend in Settings.",
-  auth: "The API provider rejected the credential. Check it in Settings.",
-  rate_limited: "The API provider is rate-limiting requests. Try again shortly.",
-  timeout: "Generation timed out. Try a simpler prompt and try again.",
-  offline: "The selected backend could not be reached.",
-  moderation: "The API provider declined this prompt. Try describing the effect differently.",
-  bad_response: "The selected model returned an invalid recipe. Try another prompt or model.",
-  unavailable: "The selected backend is temporarily unavailable.",
+  config: "AI setup isn’t finished, so nothing was generated. Finish setup in Settings, then try again.",
+  auth: "The AI service rejected your key, so nothing was generated. Update the key in Settings, then try again.",
+  rate_limited: "The AI service is busy right now, so nothing was generated. Wait a moment, then try again.",
+  timeout: "The AI service took too long, so nothing was generated. Try a shorter description, then try again.",
+  offline: "The AI service could not be reached, so nothing was generated. Check its setup in Settings, then try again.",
+  moderation: "The AI service declined this description, so nothing was generated. Describe the effect differently, then try again.",
+  bad_response: "The model sent back lighting this app could not use, so nothing was changed. Try another description or model, then try again.",
+  unavailable: "The AI service is temporarily unavailable, so nothing was generated. Try again shortly.",
 };
 
+const AI_ERROR_FALLBACK =
+  "Lighting could not be generated, so nothing was changed. Try again.";
+
 function aiErrorMessage(error) {
-  if (error?.status === 404) return "The generation job expired. Try again.";
+  if (error?.status === 404) {
+    return "That generation is no longer available, so nothing was changed. Start it again.";
+  }
   const code = error?.code;
-  let message = AI_ERROR_MESSAGES[code] || error?.message || "Generation failed. Try again.";
+  let message = AI_ERROR_MESSAGES[code] || AI_ERROR_FALLBACK;
   if (code === "rate_limited" && error?.retry_after) message += ` Retry after ${error.retry_after}s.`;
   return message;
 }
@@ -3729,9 +3862,9 @@ async function loadProceduralRecipe(jobId,assetId) {
   state.proceduralRecipeLoads.add(key);
   try{
     const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
-    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||`Could not load recipe (${response.status})`);}
+    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||"The lighting effect could not be loaded.");}
     const recipe=await response.json();
-    if(!recipe||typeof recipe!=="object"||!Array.isArray(recipe.layers))throw new Error("The saved recipe is invalid.");
+    if(!recipe||typeof recipe!=="object"||!Array.isArray(recipe.layers))throw new Error("The lighting effect could not be read.");
     if(state.conceptManifest?.job_id===jobId){state.proceduralRecipes.set(key,recipe);refreshGenerationStudio();}
   }catch(error){
     if(state.conceptManifest?.job_id===jobId){state.animationError=error.message;refreshGenerationStudio();}
@@ -3775,20 +3908,39 @@ function syncLightingJob(manifest,{renderPage=true}={}) {
 
 function proceduralPhaseLabel(phase) {
   return ({
-    accepted:"Queued locally",
-    recipe_about_to_start:"Preparing recipe generation",
-    recipe_generating:"Creating a procedural recipe",
-    quality_check:"Checking exact LED frames",
-    rendering:"Rendering exact LED frames",
-    banking:"Saving the result locally",
+    accepted:"Getting ready",
+    recipe_about_to_start:"Creating lighting",
+    recipe_generating:"Creating lighting",
+    quality_check:"Checking the result",
+    rendering:"Creating lighting",
+    banking:"Saving to Library",
     ready_for_review:"Ready for review",
-    cancelled_saved:"Cancelled; completed assets remain saved",
-  })[phase]||String(phase||"Working").replaceAll("_"," ");
+    cancelled_saved:"Cancelled. Anything already finished stays in Library.",
+  })[phase]||"Working";
 }
 
 function proceduralProgressLabel(phase, completed, total) {
-  const verb = ({rendering:"rendered",quality_check:"checked",banking:"prepared"})[phase]||"processed";
+  const verb = ({rendering:"created",quality_check:"checked",banking:"prepared"})[phase]||"processed";
   return `${completed} of ${total} frames ${verb}`;
+}
+
+// The AI panel names the model it will actually use. The backend choice is
+// resolved here, not in the prompt renderer, so the prompt stage stays free of
+// backend identity plumbing.
+function selectedAiModelLabel() {
+  const status=state.aiStatus;
+  if(status?.backend==="api"){
+    const apiState=status.api||{};
+    const projection=apiProviderSelection(apiState.provider,apiState.model_id);
+    const modelLabel=projection.models.find(model=>model.id===apiState.model_id)?.label||apiState.model_id;
+    return modelLabel
+      ?`Direct API · ${projection.providerLabel} · ${modelLabel}`
+      :"Direct API · no model selected";
+  }
+  const ollama=status?.ollama||{};
+  if(!ollama.model_id)return "Ollama · no model selected";
+  const location=ollama.model_location==="ollama_cloud"?"Ollama Cloud":"On this Ollama server";
+  return `Ollama · ${ollama.model_id} — ${location}`;
 }
 
 function generationStudioContext() {
@@ -3798,20 +3950,37 @@ function generationStudioContext() {
   const model=LED_MODELS[productFamily(target.family||target.product_id)]||activeLedModel();
   const targetLabel=model?.targets.find(item=>item.key===targetKey)?.label||targetKey;
   const destinationSlot=state.conceptDestination?.slot||state.ledSlot;
-  return {manifest,target,targetKey,targetLabel,destinationSlot,busy:state.conceptSubmitting||["in_progress","accepted","processing"].includes(state.lighting.activeJob?.status)};
+  return {manifest,target,targetKey,targetLabel,destinationSlot,modelLabel:selectedAiModelLabel(),busy:state.conceptSubmitting||["in_progress","accepted","processing"].includes(state.lighting.activeJob?.status)};
+}
+
+// Clearing a finished-but-failed attempt is a local state reset. It must never
+// start another model request: the backend contract is one request per explicit
+// Generate, and Cancel is not that action.
+function dismissGenerationPrompt() {
+  state.aiPrompt="";
+  state.conceptError="";
+  state.animationError="";
+  const job=state.lighting.activeJob;
+  if(job&&!["in_progress","accepted","processing"].includes(job.status)){
+    syncLightingJob(null,{renderPage:false});
+  }
+  renderGenerationStudio();
 }
 
 function renderPromptStage(context) {
-  const {manifest,targetLabel,destinationSlot,busy}=context;
+  const {manifest,targetLabel,destinationSlot,modelLabel,busy}=context;
   const stopped=latestProceduralAttempt(manifest)?.error_code;
+  const failed=Boolean(state.conceptError||state.animationError||state.documentSyncError||stopped);
   $("#lighting-generate-content").innerHTML=`<div class="concept-stage">
-    <div class="concept-prompt"><label class="control-label" for="effect-prompt">Describe the lighting</label><textarea id="effect-prompt" class="text-field" rows="5" maxlength="4000" placeholder="Dense violet aurora moving across the whole keyboard…" ${busy?'disabled':''}>${esc(state.aiPrompt)}</textarea></div>
     <p class="concept-destination">Custom ${destinationSlot-4} · ${esc(targetLabel)}</p>
-    <div class="concept-actions"><button id="generate-effect" type="button" class="button primary" ${busy||!state.aiPrompt.trim()||!aiReady()||!documentSynchronized()?'disabled':''}>Generate animation</button></div>
-    ${state.conceptError||state.animationError||state.documentSyncError||stopped?`<p class="ai-error" role="alert">${esc(state.conceptError||state.animationError||state.documentSyncError||(String(stopped).replaceAll("_"," ")+". The saved failure does not disable this backend; adjust the prompt or model and try again."))}</p>`:""}
+    <p class="concept-model">${esc(modelLabel)}</p>
+    <div class="concept-prompt"><label class="control-label" for="effect-prompt">Describe the lighting</label><textarea id="effect-prompt" class="text-field" rows="5" maxlength="4000" placeholder="Dense violet aurora moving across the whole keyboard…" ${busy?'disabled':''}>${esc(state.aiPrompt)}</textarea></div>
+    <div class="concept-actions"><button id="cancel-generation" type="button" class="button ghost">Cancel</button><button id="generate-effect" type="button" class="button primary" ${busy||!state.aiPrompt.trim()||!aiReady()||!documentSynchronized()?'disabled':''}>${failed?"Try again":"Generate lighting"}</button></div>
+    ${failed?`<p class="ai-error" role="alert">${esc(state.conceptError||state.animationError||state.documentSyncError||`${aiErrorMessage({code:stopped})} This earlier failure does not turn anything off — you can generate again.`)}</p>`:""}
   </div>`;
   $("#effect-prompt")?.addEventListener("input",event=>{state.aiPrompt=event.target.value;$("#generate-effect").disabled=!event.target.value.trim()||!aiReady()||!documentSynchronized();});
   $("#generate-effect")?.addEventListener("click",startProceduralGeneration);
+  $("#cancel-generation")?.addEventListener("click",dismissGenerationPrompt);
 }
 
 function renderProgressStage(context) {
@@ -3820,7 +3989,7 @@ function renderProgressStage(context) {
   const completed=Number(progress?.completed||0),total=Number(progress?.total||0);
   $("#lighting-generate-content").innerHTML=`<div class="concept-stage generation-progress">
     <div class="loader" aria-hidden="true"></div><h3>${esc(proceduralPhaseLabel(manifest?.phase||state.lighting.activeJob?.phase))}</h3>
-    <p>Your job is durable. You can switch to Library while the result continues banking locally.</p>
+    <p>You can open Library while this finishes. Closing the progress view does not cancel generation.</p>
     ${total?`<progress max="${total}" value="${Math.min(completed,total)}" aria-label="Generation progress"></progress><p>${proceduralProgressLabel(manifest?.phase||state.lighting.activeJob?.phase,completed,total)}</p>`:""}
     <div class="button-row"><button id="cancel-effect" type="button" class="button ghost">Cancel</button></div>
     ${state.conceptError?`<p class="ai-error" role="alert">${esc(state.conceptError)}</p>`:""}
@@ -3835,7 +4004,7 @@ function renderProceduralReview(context) {
   const quality=attempt?.quality||{};
   const decision=reduceLightingState(state.lighting,{type:"APPLY_REQUESTED"},{document:documentDescriptor(),destination:state.conceptDestination});
   const mappedResultLoaded=Boolean(attempt?.mapped_result_asset_id&&state.mappedLightingResults.has(`${manifest.job_id}:${attempt.mapped_result_asset_id}`));
-  const view=createReviewView({assetUrls:state.conceptAssetUrls,jobId:manifest.job_id,attempt,recipe,quality,frameCap:manifest?.target?.frame_cap,targetLabel:context.targetLabel,destinationSlot:context.destinationSlot,blockedReason:decision.blocked,mappedResultLoaded,errorMessage:state.animationError});
+  const view=createReviewView({assetUrls:state.conceptAssetUrls,jobId:manifest.job_id,attempt,recipe,quality,frameCap:manifest?.target?.frame_cap,targetLabel:context.targetLabel,destinationSlot:context.destinationSlot,blockedReason:decision.blocked,mappedResultLoaded,errorMessage:state.animationError,writeActionLabel:writeActionLabel()});
   renderReview($("#lighting-generate-content"),view,applyReviewedLighting);
 }
 
@@ -3897,7 +4066,7 @@ function applyReviewedLighting() {
   const decision=reduceLightingState(state.lighting,{type:"APPLY_REQUESTED"},{document:documentDescriptor(),destination});
   if(decision.blocked){state.animationError=reviewBlockedMessage(decision.blocked);renderGenerationStudio();return;}
   const result=state.mappedLightingResults.get(`${manifest.job_id}:${attempt.mapped_result_asset_id}`);
-  if(!result){state.animationError="The saved LED result is still loading.";renderGenerationStudio();return;}
+  if(!result){state.animationError="The generated lighting is still loading. Nothing was changed; try Apply again in a moment.";renderGenerationStudio();return;}
   const pairsRelicGif=(manifest.target?.targets||[]).includes("spotlight_frames");
   mutate(()=>{
     state.ledSlot=destination.slot;
@@ -3917,7 +4086,15 @@ function applyReviewedLighting() {
   persistLightingState();
   history.replaceState({},"",`${location.pathname}${location.search}${formatLightingHash(state.lighting.route)}`);
   render();
-  toast("Lighting applied",`${Number(result.source_frames||0)} frames added to Custom ${destination.slot-4}. The keyboard has not been written.`,"success");
+  toast(
+    `Applied to ${lightingSlotLabel(destination.slot)}`,
+    lightingAppliedDetail(
+      destination.slot,
+      destination.target,
+      `${Number(result.source_frames||0)} lighting frames arrived there. This effect is already saved to Library.`,
+    ),
+    "success",
+  );
 }
 
 // Device geometry is not an AI concern and must not wait on one. It decides
@@ -3946,7 +4123,7 @@ function refreshAiGate() {
 
 function aiReasonText(reason,status=state.aiStatus) {
   return ({
-    disabled:"AI features are off.",backend_unselected:"Choose a backend.",ollama_unavailable:"The configured Ollama server is unavailable.",upgrade_required:"Upgrade the configured Ollama server, then refresh its models.",model_missing:"Refresh and choose a model from the configured Ollama server.",model_unavailable:"The selected Ollama model is no longer available with the same identity. Refresh and choose it again.",setup_required:"Run the setup test for this backend.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_invalid:"The API credential is invalid.",credential_missing:"Save an API credential.",disclosure_required:status?.backend==="ollama"?"Accept the Ollama data disclosure.":"Accept the API data disclosure.",auth_invalid:"The API credential was rejected.",ready:"Ready.",
+    disabled:"AI features are off.",backend_unselected:"Choose Ollama or Direct API.",ollama_unavailable:"The configured Ollama server is unavailable.",upgrade_required:"Upgrade the configured Ollama server, then refresh its models.",model_missing:"Refresh and choose a model from the configured Ollama server.",model_unavailable:"The model was updated. Refresh, choose it again, then run Test setup.",setup_required:"Run Test setup for the selected service.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_invalid:"The API key is invalid.",credential_missing:"Save an API key.",disclosure_required:status?.backend==="ollama"?"Accept the Ollama data disclosure.":"Accept the Direct API data disclosure.",auth_invalid:"The API key was rejected.",ready:"Ready.",
   })[reason]||"Setup needs attention.";
 }
 
@@ -4023,7 +4200,7 @@ function populateApiProviderControls(apiState) {
   const label=projection.providerLabel;
   $("#settings-api-key-label").textContent=`${label} API key`;
   $("#settings-api-key").placeholder=`Enter ${label} key`;
-  $("#settings-api-disclosure-detail").textContent=`Your lighting prompt and the selected keyboard raster dimensions go to ${label}. Imported GIF, PNG, and BMP bytes, keymaps, macros, device paths, and Library files never leave this computer. API use may cost money under your provider account.`;
+  $("#settings-api-disclosure-detail").textContent=`Your lighting prompt and the selected keyboard's size go to ${label}. Imported GIF, PNG, and BMP files, keymaps, macros, device paths, and Library files never leave this computer. API use may cost money under your provider account.`;
   $("#settings-api-test").textContent=`Test ${label} setup`;
   return projection;
 }
@@ -4090,14 +4267,14 @@ function populateSettings() {
     else if(!ollamaAvailable)ollamaGuidance="Check the Ollama server URL, then refresh models.";
     else if(pickerProjection.selectionState==="none")ollamaGuidance="Choose one of the models reported by this Ollama server.";
     else if(pickerProjection.selectionState==="removed")ollamaGuidance="The selected model is no longer available. Refresh and choose another model.";
-    else if(pickerProjection.selectionState==="digest_changed")ollamaGuidance="The selected model name now has a different identity. Select it again, then rerun setup.";
+    else if(pickerProjection.selectionState==="digest_changed")ollamaGuidance="The model was updated. Select it again, then run Test setup.";
     else if(ollamaDisclosureRequired&&!ollama.disclosure_current)ollamaGuidance="Review and accept the Ollama data disclosure, then run Test setup.";
-    else if(!ollama.setup_tested)ollamaGuidance="Run Test setup to verify this model can create lighting recipes.";
+    else if(!ollama.setup_tested)ollamaGuidance="Run Test setup to check that this model can create lighting.";
     else ollamaGuidance="Ready.";
   }
   $("#settings-ollama-state").textContent=ollamaGuidance;
   const selectedLocation=ollama.model_location==="ollama_cloud"?"Ollama Cloud":"On this Ollama server";
-  const selectedSuffix=pickerProjection.selectionState==="removed"?" · no longer available":pickerProjection.selectionState==="digest_changed"?" · identity changed":pickerProjection.selectionState==="transient_failure"?" · refresh to check":"";
+  const selectedSuffix=pickerProjection.selectionState==="removed"?" · no longer available":pickerProjection.selectionState==="digest_changed"?" · updated":pickerProjection.selectionState==="transient_failure"?" · refresh to check":"";
   $("#settings-ollama-model").textContent=ollama.model_selected?`Selected: ${ollama.model_id} — ${selectedLocation}${selectedSuffix}`:"No Ollama model selected.";
   const picker=$("#settings-ollama-model-select");
   $("#settings-ollama-refresh").disabled=state.ollamaModels.loading;
@@ -4146,7 +4323,7 @@ async function selectAiBackend(backend) {
     state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend})});
     populateSettings();
     refreshAiGate();
-    setSettingsStatus(backend==="ollama"?"Ollama selected. Refresh models, choose one, then test its setup.":"API backend selected. Save a credential, accept the disclosure, and test its setup.");
+    setSettingsStatus(backend==="ollama"?"Ollama selected. Refresh models, choose one, then run Test setup.":"Direct API selected. Save a key, accept the disclosure, then run Test setup.");
   }catch(error){setSettingsStatus(error.message,"error");}
 }
 
@@ -4255,17 +4432,25 @@ async function clearOllamaModel() {
 }
 
 async function testAiBackend(backend) {
-  setSettingsStatus(backend==="ollama"?"Testing the selected model through Ollama…":"Testing the API setup…","working");
+  setSettingsStatus(backend==="ollama"?"Testing the selected model through Ollama…":"Testing the Direct API setup…","working");
   try{
     if(state.aiStatus?.backend!==backend)state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend})});
     if(backend==="ollama"){
       if(state.aiStatus?.ollama?.disclosure_required&&!state.aiStatus.ollama.disclosure_current){
-        if(!$("#settings-ollama-disclosure-ack").checked)throw new Error("Accept the Ollama data disclosure before testing.");
+        // A local setup gate is not a provider failure: report it directly so the
+        // typed-error mapper never has to fall back to raw exception text.
+        if(!$("#settings-ollama-disclosure-ack").checked){
+          setSettingsStatus("Nothing was tested. Accept the Ollama data disclosure, then run Test setup.","error");
+          return;
+        }
         state.aiStatus=await api("/api/settings/ollama/disclosure",{method:"POST",body:JSON.stringify({version:state.aiStatus.ollama.disclosure_version})});
       }
     }else{
       const selection=apiProviderSelection();
-      if(!selection.providerId||!selection.modelId||!selection.disclosureVersion)throw new Error("The selected API provider is unavailable.");
+      if(!selection.providerId||!selection.modelId||!selection.disclosureVersion){
+        setSettingsStatus("Nothing was tested. This provider is unavailable; choose another provider and model.","error");
+        return;
+      }
       if(state.aiStatus?.api?.provider!==selection.providerId||state.aiStatus?.api?.model_id!==selection.modelId){
         state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({provider:selection.providerId,model_id:selection.modelId})});
         state.settings=await api("/api/settings");
@@ -4273,13 +4458,16 @@ async function testAiBackend(backend) {
       const key=$("#settings-api-key").value.trim();
       if(key){state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:selection.providerId,key})});$("#settings-api-key").value="";}
       if(!state.aiStatus.api.disclosure_current){
-        if(!$("#settings-api-disclosure-ack").checked)throw new Error("Accept the API data disclosure before testing.");
+        if(!$("#settings-api-disclosure-ack").checked){
+          setSettingsStatus("Nothing was tested. Accept the Direct API data disclosure, then run Test setup.","error");
+          return;
+        }
         state.settings=await api("/api/settings/privacy",{method:"POST",body:JSON.stringify({provider:selection.providerId,version:selection.disclosureVersion})});
       }
     }
     state.aiStatus=await api("/api/ai/test",{method:"POST",body:JSON.stringify({backend})});
     await refreshSettingsData();
-    setSettingsStatus(backend==="ollama"?"Ollama setup passed. AI generation is ready.":"API setup passed. AI generation is ready.");
+    setSettingsStatus(backend==="ollama"?"Ollama setup passed. AI generation is ready.":"Direct API setup passed. AI generation is ready.");
   }catch(error){
     try{state.aiStatus=await api("/api/ai/status");populateSettings();refreshAiGate();}catch(refreshError){}
     setSettingsStatus(aiErrorMessage(error),"error");

@@ -946,10 +946,10 @@ def render_source_frame(
         or len(destination_size) != 2
         or any(type(value) is not int or value <= 0 for value in destination_size)
     ):
-        raise ValueError("The destination raster size is invalid.")
+        raise ValueError("The selected lighting area has an invalid size.")
     width, height = destination_size
     if width * height > MAX_RENDER_PIXELS:
-        raise ValueError("The destination raster is too large.")
+        raise ValueError("The selected lighting area is too large to render.")
     source = _composite_background(frame, checked.background)
     if (
         checked.offset_x == 0.0
@@ -963,7 +963,7 @@ def render_source_frame(
     rendered_width = max(1, round(source.width * base_scale * checked.scale_x))
     rendered_height = max(1, round(source.height * base_scale * checked.scale_y))
     if rendered_width * rendered_height > MAX_RENDER_PIXELS:
-        raise ValueError("The transformed source raster is too large.")
+        raise ValueError("Zoom out: this framing is too large to render.")
     rendered = source
     if rendered.size != (rendered_width, rendered_height):
         rendered = rendered.resize(

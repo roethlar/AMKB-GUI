@@ -128,5 +128,9 @@ test("panel control rows wrap instead of blowing out of fixed columns", () => {
   assert.match(css, /\.button-row > \* \{ min-width: 0; \}/);
   assert.match(css, /\.gif-import-row \{ display: grid; grid-template-columns: repeat\(auto-fit, minmax\(130px, 1fr\)\);/);
   assert.match(css, /\.gif-import-row > \* \{ min-width: 0; \}/);
+  for (const row of ["media-composition-actions", "animation-draft-actions"]) {
+    assert.match(css, new RegExp(`\\.${row} \\{ display: grid; grid-template-columns: repeat\\(auto-fit, minmax\\(110px, 1fr\\)\\);`));
+    assert.match(css, new RegExp(`\\.${row} > \\* \\{ min-width: 0; \\}`));
+  }
   assert.match(css, /\.search-field, \.text-field, \.select-field \{ width: 100%; min-width: 0; max-width: 100%;/);
 });

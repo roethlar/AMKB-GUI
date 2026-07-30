@@ -122,7 +122,7 @@
                 <div id="lighting-library-toolbar" class="library-toolbar">
                   <div class="library-filters" role="group" aria-label="Library filter">
                     <button type="button" class="active" data-library-filter="all" aria-pressed="true">All</button>
-                    <button type="button" data-library-filter="sources" aria-pressed="false">Sources</button>
+                    <button type="button" data-library-filter="sources" aria-pressed="false">Imported media</button>
                     <button type="button" data-library-filter="lighting" aria-pressed="false">Lighting</button>
                     <button type="button" data-library-filter="keymaps" aria-pressed="false">Keymaps</button>
                     <button type="button" data-library-filter="removed" aria-pressed="false">Removed</button>
@@ -149,7 +149,7 @@
 
           <section id="settings-screen" class="settings-screen screen-shell" hidden aria-labelledby="settings-title">
             <header class="screen-header settings-header">
-              <div><p class="eyebrow">Local preferences</p><h1 id="settings-title" tabindex="-1">Settings</h1><p class="description">Configure optional generation and local storage.</p></div>
+              <div><p class="eyebrow">Preferences</p><h1 id="settings-title" tabindex="-1">Settings</h1><p class="description">Set up optional AI generation and choose where your Library is kept.</p></div>
               <div class="settings-header-actions">
                 <button id="settings-save" type="button" class="button ghost">Save changes</button>
                 <button id="settings-done" type="button" class="button primary">Done</button>
@@ -169,7 +169,7 @@
                 <fieldset id="settings-ai-panels" class="settings-ai-panels">
                   <legend>Backend</legend>
                   <label class="check-row"><input id="settings-ai-ollama" type="radio" name="settings-ai-backend" value="ollama"><span><strong>Ollama</strong><small>Connect to Ollama on this computer or another server.</small></span></label>
-                  <label class="check-row"><input id="settings-ai-api" type="radio" name="settings-ai-backend" value="api"><span><strong>API</strong><small>Secondary option. Sends the prompt and raster dimensions to the selected curated provider.</small></span></label>
+                  <label class="check-row"><input id="settings-ai-api" type="radio" name="settings-ai-backend" value="api"><span><strong>Direct API</strong><small>Send your prompt and the keyboard size straight to an AI service you choose.</small></span></label>
                 </fieldset>
                 <div id="settings-ollama-panel" class="settings-backend-panel">
                   <div class="settings-section-heading"><div><h3>Ollama model</h3><p id="settings-ollama-state">Checking Ollama…</p></div><span id="settings-ollama-runtime" class="pill muted">Checking</span></div>
@@ -177,11 +177,12 @@
                     <label for="settings-ollama-base-url"><span class="control-label">Ollama server URL</span><input id="settings-ollama-base-url" class="text-field" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="http://127.0.0.1:11434"></label>
                     <button id="settings-ollama-save-url" type="button" class="button ghost">Save server</button>
                   </div>
+                  <p id="settings-ollama-url-help" class="control-help">Ollama on this computer is <code>http://127.0.0.1:11434</code>. For Ollama on another machine on your network, use its address — for example <code>http://192.168.1.20:11434</code>. Saving a server address does not contact it; use Refresh models or Test setup for that.</p>
                   <p id="settings-ollama-transport-warning" class="settings-key-state" hidden>This server uses unencrypted HTTP. Your lighting prompt and keyboard dimensions can be read in transit on the network.</p>
                   <div class="settings-local-picker">
                     <label for="settings-ollama-model-select"><span class="control-label">Available model</span><select id="settings-ollama-model-select" class="select-field"><option value="">Refresh to check models…</option></select></label>
                     <button id="settings-ollama-refresh" type="button" class="button ghost">Refresh models</button>
-                    <button id="settings-ollama-select" type="button" class="button ghost">Use selected model</button>
+                    <button id="settings-ollama-select" type="button" class="button ghost">Use model</button>
                   </div>
                   <p id="settings-ollama-model" class="settings-key-state">No Ollama model selected.</p>
                   <div id="settings-ollama-disclosure" class="settings-disclosure" hidden>
@@ -192,27 +193,27 @@
                 </div>
                 <div id="settings-api-panel" class="settings-backend-panel" hidden>
                   <div class="settings-rows">
-                    <label class="settings-row" for="settings-api-provider"><span><strong>Provider</strong><small>Curated API backend.</small></span><select id="settings-api-provider" class="select-field"><option value="">Loading providers…</option></select></label>
-                    <label class="settings-row" for="settings-api-model"><span><strong>Model</strong><small>Curated structured-recipe model.</small></span><select id="settings-api-model" class="select-field"><option value="">Loading models…</option></select></label>
+                    <label class="settings-row" for="settings-api-provider"><span><strong>Provider</strong><small>Choose which AI service to use.</small></span><select id="settings-api-provider" class="select-field"><option value="">Loading providers…</option></select></label>
+                    <label class="settings-row" for="settings-api-model"><span><strong>Model</strong><small>Choose the model that designs your lighting.</small></span><select id="settings-api-model" class="select-field"><option value="">Loading models…</option></select></label>
                   </div>
                   <div class="settings-key-row">
                     <div><label id="settings-api-key-label" class="control-label" for="settings-api-key">API key</label><input id="settings-api-key" class="text-field" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter provider key"><p id="settings-api-credential-state" class="settings-key-state">No credential is configured.</p></div>
                     <div class="button-row settings-key-actions"><button id="settings-api-save-key" type="button" class="button ghost">Save key</button><button id="settings-api-remove" type="button" class="button ghost">Remove</button></div>
                   </div>
-                  <label class="check-row"><input id="settings-api-disclosure-ack" type="checkbox"><span><strong id="settings-api-disclosure-title">Allow prompt data to leave this computer</strong><small id="settings-api-disclosure-detail">Your prompt and selected keyboard raster dimensions go to the selected provider. Imported media, keymaps, macros, device paths, and Library files do not. API use may cost money under your provider account.</small></span></label>
+                  <label class="check-row"><input id="settings-api-disclosure-ack" type="checkbox"><span><strong id="settings-api-disclosure-title">Allow prompt data to leave this computer</strong><small id="settings-api-disclosure-detail">Your prompt and the selected keyboard's size go to the provider you chose. Imported media, keymaps, macros, device paths, and Library files do not. API use may cost money under your provider account.</small></span></label>
                   <button id="settings-api-test" type="button" class="button primary">Test setup</button>
                 </div>
                 </div>
               </section>
 
               <section class="settings-section" aria-labelledby="settings-storage-title">
-                <div class="settings-section-heading"><div><h2 id="settings-storage-title">Library folder</h2><p>Every generated recipe and animation is banked here as it completes.</p></div></div>
+                <div class="settings-section-heading"><div><h2 id="settings-storage-title">Library folder</h2><p>Everything you save to Library is kept in this folder.</p></div></div>
                 <div class="settings-library-row">
                   <div><label class="control-label" for="settings-library-root">Folder path</label><input id="settings-library-root" class="text-field" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Choose a folder or enter an absolute path"></div>
                   <button id="settings-choose-library" type="button" class="button ghost">Choose folder…</button>
                   <button id="settings-reveal-library" type="button" class="button ghost" disabled>Reveal</button>
                 </div>
-                <p class="control-help">Changing this folder affects new generations only. Existing items remain available in Library.</p>
+                <p class="control-help">Changing this folder affects new saves only. Items you already saved stay available in Library.</p>
               </section>
 
               </div>

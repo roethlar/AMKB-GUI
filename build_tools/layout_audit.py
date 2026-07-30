@@ -38,6 +38,13 @@ AUDIT_JS = r"""
     if(r.width<=0||r.height<=0)continue;
     const cs=getComputedStyle(el);
     if(cs.position==='fixed')continue;
+    let scroller=el.parentElement, scrollable=false;
+    while(scroller){
+      const scs=getComputedStyle(scroller);
+      if(['auto','scroll'].includes(scs.overflowX)){scrollable=true;break;}
+      scroller=scroller.parentElement;
+    }
+    if(scrollable)continue;
     if(r.right>vw+2){
       const k='V:'+desc(el);
       if(!seen.has(k)){seen.add(k);out.push('VIEWPORT +'+Math.round(r.right-vw)+'px '+desc(el));}
