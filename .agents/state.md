@@ -2,6 +2,7 @@
 
 ## Now
 
+- Active review loop: see `.agents/review/index.md`.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
   prohibited in every runtime/build/package path, and dependencies without a

@@ -40,6 +40,7 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | cx-3 | LOW      | Stale refresh can fill inventory from the previous Ollama origin         | `[x]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
 | cx-4 | LOW      | layout_audit hardwires the Windows webview renderer                      | `[x]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
 | cx-5 | LOW      | Neon palette focus restore races async validation rerender               | `[x]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
+| cl-1 | HIGH     | Malformed retired-video manifest can abort Library scan and app startup  | `[ ]`  | —      | claude/claude-opus-5/high/standard |
 
 All three raised by the 2026-07-25 openreview codex pass over
 `65a70c9..94a847a` and admitted at intake after independent verification of
