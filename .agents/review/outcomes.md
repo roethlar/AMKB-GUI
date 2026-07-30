@@ -112,3 +112,15 @@
 
 - 2026-07-30 - codereview codex (gpt-5.6-sol @ high, standard, escalated: T1) over 0271213487979a50641d41e614a63f9f3ed38076..3830e8489ef10c0259ac6925bf1e0ecdf75bb0d3: verdict findings, capability_ok true; 5 admitted at intake (cx-1..cx-5, two MEDIUM three LOW), none declined. Verdict artifact: schema-enforced JSON via codex exec --output-schema.
 - 2026-07-30 - cx loop closed: all five findings fixed one-commit-each (cx-1 1bb4a21, cx-2 e3d46dd, cx-4 09de26b, cx-3 6636be7 + guard repair 63bc853, cx-5 b360d77) and verified by codex/gpt-5.6-sol@high per-finding dispatches with independent guard proofs (guard_confirmed=true on every accepted verdict). cx-3 round 1 reopened correctly: the guard was vacuous for the success path, and that round's worktree proof was blocked by a sandbox denial on .git/worktrees - later rounds carry a local-clone fallback. Environment notes: reviewer children's shell calls were intercepted by the ptk hook (recorded, not invalidating); ptk inline shaping mangled one verdict payload (PowerShell-Token-Killer#14), all verdicts read from the --output-last-message files.
+- 2026-07-30 — codereview claude (claude-cli 2.1.220;
+  `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `1448f9135956f31cee3f45dd8fcbaf8de066074a..e4e32f9a4a5f2797552a956a27735be5471d8949`:
+  verdict `findings`, `capability_ok=true`; three raised and all three admitted
+  after independent intake verification (`cl-1` HIGH, `cl-2` MEDIUM, `cl-3`
+  LOW), none declined. The CLI exited zero with a schema-enforced envelope,
+  exact pinned SHAs, and transcript model key `claude-opus-5`. Intake reproduced
+  both Library failures in isolated temporary roots and checked the plan finding
+  against the current workflow and packaging guard. Environment note: a Claude
+  hook rewrote one git command through `rtk`, which the launch allowlist denied;
+  the reviewer recovered with allowed git inspection and completed the
+  capability proof. The coder tree remained clean during the dispatch.

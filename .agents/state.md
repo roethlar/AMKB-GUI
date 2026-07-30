@@ -63,10 +63,11 @@
 
 ## Next
 
+- Resolve the active codereview loop one finding at a time, starting with
+  `cl-1`; no finding fix plan is approved.
 - Owner approval is pending for
   `docs/superpowers/plans/2026-07-30-github-actions-node24-upgrade.md`.
-  If approved, execute its guarded compatibility upgrade before Product Slice
-  P6.
+  `cl-3` must be resolved before that plan is implemented.
 - Product Slice P6 remains the next product implementation slice: resolve the
   Keymap Apply contract, complete the two-viewport manual matrix, set the
   distinct candidate version to `0.1.65`, run full/local native verification,
