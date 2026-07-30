@@ -46,10 +46,10 @@ _Last verified: 2026-07-28_
 
 - `build.py` no longer reserves or stamps local build numbers. Native artifacts
   use the canonical application version unchanged; existing older DMGs in
-  `dist/` do not affect it.
+  `dist/` do not affect it. <!-- lint: allow (owner ruled leave-it, 2026-07-29: dist/ is gitignored build output, exists only after native builds) -->
 - `packaging/macos/build_dmg.sh` cannot be re-run against an already finalized
-  bundle in `dist/`; FFmpeg finalization refuses the second pass. Use
-  `python build.py --skip-sync` for an end-to-end DMG check.
+  bundle in `dist/`; FFmpeg finalization refuses the second pass. <!-- lint: allow (owner ruled leave-it, 2026-07-29: dist/ is gitignored build output, exists only after native builds) -->
+  Use `python build.py --skip-sync` for an end-to-end DMG check.
 
 ## michael-mac (macOS arm64)
 
