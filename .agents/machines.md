@@ -35,6 +35,10 @@ last verified 2026-07-29._
   dependency-removal plan.
 - The supported Windows build does not require a compiler or Visual Studio
   Build Tools.
+- GitHub push authentication works on this host. The local Gitea server at
+  `q:3000` was reachable on 2026-07-30 but rejected push authentication; do not
+  treat that mirror as synchronized until credentials are repaired and the
+  push is verified.
 - SmartScreen is disabled: the machine-level `SmartScreenEnabled` value is
   `Off`, and the current-user `EnableWebContentEvaluation` value is `0`. This
   host cannot supply SmartScreen release evidence.
