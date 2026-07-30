@@ -4,7 +4,8 @@ Per-machine facts that do not belong in the portable `state.md`.
 
 ## netwatch-01 (Windows 11, x86-64)
 
-_Last verified: 2026-07-29_
+_Last verified locally: 2026-07-30; SSH reachability and suite timing were
+last verified 2026-07-29._
 
 - Reachable as `michael@netwatch-01` over SSH with key auth from `michael-mac`.
   Resolution is not always available; it failed until the owner brought the host
@@ -19,26 +20,24 @@ _Last verified: 2026-07-29_
   through the junction failed once while `F:` was not ready; the owner asked for
   `F:\dev` directly. This matters for the product too, because `library.py`
   preflight rejects a reparse-bearing Library root.
-- A working clone for Windows verification lives at `F:\dev\am-win-triage`, and
-  helper scripts from this session are in `C:\Users\michael\`. Both are
-  disposable; the owner has not yet said whether to remove them.
 - Windows verification must build the environment the way CI does,
   `uv sync --locked -p 3.12` with no extras. Adding `--extra desktop` hides the
   optional-dependency failures this host is used to catch.
 - The Windows suite is slower than macOS, about 102 s against 84 s, and was
   non-deterministic before the `st_ctime_ns` fix. It should now report identical
   counts across consecutive runs; variance is a signal, not noise.
-- The exact run-39 Windows candidate is
-  `C:\Users\michael\AM-Configurator-0.1.64-Windows-x64-Setup-run39.exe`.
-  Its SHA-256 is
-  `4966cf1a3fed94822e11fdbf4dca498a7e617beef995ee2435dec8cb2b131622`;
-  `Get-AuthenticodeSignature` reports `NotSigned` with no signer. It arrived by
-  SCP and therefore is not evidence for browser Mark-of-the-Web or SmartScreen.
-  It is precursor evidence only. Use the browser-downloaded Windows artifact
-  selected by the active release plan's live final-candidate checks, require its
-  candidate-manifest hash, then test normal per-user install, visible About
-  version `0.1.64`, `--native-policy-smoke`, and uninstall without disabling
-  or bypassing Defender or SmartScreen.
+- The current checkout has the pinned `ffmpeg-8.1.2.tar.xz` and detached
+  signature staged under `build/ffmpeg/sources`; the archive SHA-256 is
+  `464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c`,
+  matching `build_tools/ffmpeg_bundle.py`.
+- No MinGW `cc` or Inno Setup 6 compiler is available. Visual Studio Build
+  Tools 2026 is installed, but the attested FFmpeg recipe pins
+  `--target-os=mingw32`, so MSVC cannot substitute for MinGW. The owner's
+  2026-07-30 rulings prohibit installing a non-Microsoft toolchain on this host
+  and prohibit a local FFmpeg source compile.
+- SmartScreen is disabled: the machine-level `SmartScreenEnabled` value is
+  `Off`, and the current-user `EnableWebContentEvaluation` value is `0`. This
+  host cannot supply SmartScreen release evidence.
 
 ## michael-mac additions
 

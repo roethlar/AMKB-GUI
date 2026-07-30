@@ -2,7 +2,7 @@
 
 ## Scope
 
-`/Users/michael/Dev/am` is the standalone AM Configurator application. The
+This repository is the standalone AM Configurator application. The
 ignored `cyberboard-cli/` directory is reference material only: do not edit it, <!-- lint: allow (owner ruled leave-it, 2026-07-29: gitignored optional nested reference checkout of upstream GeneralD/cyberboard-cli) -->
 commit from it, or introduce a runtime/build dependency on it.
 
