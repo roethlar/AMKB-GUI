@@ -1574,7 +1574,7 @@ async function applyLibraryGenerated(catalogId) {
     navigateTo(ROUTES.EDIT);
     toast(
       "Generated lighting applied",
-      `The saved result changed Custom ${state.ledSlot-4} through one undo checkpoint. Nothing was written to the keyboard.`,
+      lightingAppliedDetail(state.ledSlot, state.ledTarget, "This effect stays saved in Library."),
       "success",
     );
   }catch(error){
@@ -1789,7 +1789,7 @@ async function applyLibraryLighting(catalogId) {
     navigateTo(ROUTES.EDIT);
     toast(
       "Saved lighting applied",
-      "The open document changed through one undo checkpoint. Nothing was written to the keyboard.",
+      lightingAppliedDetail(state.ledSlot, destination.target, "The Library copy is unchanged."),
       "success",
     );
   }catch(error){

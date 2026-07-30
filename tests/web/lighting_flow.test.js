@@ -138,6 +138,8 @@ test("every Apply names the slot, the document-only change, and the Write action
     "applyLocalAnimationDraft",
     "applyReviewedLighting",
     "replaceEdgeAnimation",
+    "applyLibraryGenerated",
+    "applyLibraryLighting",
   ]) assert.match(jsFunction(name), /lightingAppliedDetail\(/, `${name} must report where the work went`);
 
   // The imported-media status line repeats the same answer where it lingers.
