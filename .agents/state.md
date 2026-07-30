@@ -139,9 +139,25 @@
 ## Next
 
 - Close backend Slice B4 after a Windows native build and executable smoke
-  test. `python build.py --skip-sync` currently stops before packaging because
-  the pinned FFmpeg source archive and detached signature are not staged under
-  `build/ffmpeg/sources`; no executable was produced.
+  test. The staged-sources cause is resolved: `ffmpeg-8.1.2.tar.xz` and its
+  `.asc` are staged under `build/ffmpeg/sources`, the sha256 matches the pin,
+  and the signature verifies against the pinned release fingerprint using this
+  host's Git-for-Windows gpg (usable only through the `--msys2-bash` routing;
+  bare invocation mishandles `GNUPGHOME` as a POSIX path). B4 is now blocked
+  on two independent host gaps: no MinGW C toolchain (`cc` unavailable — the
+  FFmpeg runtime must compile from source by design) and no Inno Setup 6
+  (hard-required by `packaging/windows/build_installer.ps1`). The 0.1.64
+  Windows candidate was never built locally: `.github/workflows/desktop.yml`
+  provisions MSYS2 MINGW64 on GitHub-hosted runners and `docs/releases/
+  0.1.64.md` records Windows/Linux installers as CI-smoke-tested only.
+  Discovered tooling gap to fix or document: `build.py` passes no toolchain
+  arguments to `prepare_ffmpeg`, so the documented local
+  `python build.py --skip-sync` entry point can only succeed against a
+  pre-populated attested FFmpeg cache on Windows, never from a cold start.
+  Owner decision pending between: dispatching the Desktop installers workflow
+  and taking its Windows smoke as B4 evidence (outward-facing; needs a go);
+  provisioning this host (MSYS2 toolchain + Inno Setup, ~75 min compile); or
+  recording B4 as verified-in-CI-only with an explicit local-Windows gap.
 - The owner assigned the product-experience plan to Claude for parallel work.
   The backend contracts are now committed and merged into the product branch,
   so Slices P1 and P3 (AI language, Settings integration) are unblocked; P5
