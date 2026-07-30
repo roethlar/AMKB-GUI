@@ -277,11 +277,11 @@ test("generation is one prompt, durable progress, animated review, and explicit 
   assert.match(js,/preview_asset_id/);
   assert.match(js,/recipe_asset_id/);
   assert.match(js,/mapped_result_asset_id/);
-  assert.match(review,/Animated exact-raster lighting preview/);
+  assert.match(review,/Animated lighting preview/);
   assert.match(js,/createReviewView\(\{assetUrls:state\.conceptAssetUrls/);
   assert.match(js,/renderReview\(\$\("#lighting-generate-content"\),view,applyReviewedLighting\)/);
   assert.match(js,/function renderGenerationStudio\(\)/);
-  assert.match(js,/saved failure does not disable this backend/);
+  assert.match(js,/This earlier failure does not turn anything off/);
   assert.match(js,/syncLightingJob\(null,\{renderPage:false\}\)/);
   assert.match(js,/type:"APPLY_REQUESTED"/);
   const applyStart=js.lastIndexOf("function applyReviewedLighting");
@@ -306,7 +306,7 @@ test("generation is inline with no detached dialog or Create route", () => {
   assert.doesNotMatch(html,/lighting-generate-dialog|lighting-generate-open/);
   assert.doesNotMatch(js,/openRenderedDialog|handleGenerationDialogClose|ROUTES\.CREATE/);
   assert.doesNotMatch(review,/openRenderedDialog|generation dialog/i);
-  assert.match(js,/You can switch to Library while the result continues banking locally/);
+  assert.match(js,/You can open Library while this finishes/);
   assert.match(js,/function revealGenerationStudio\(\)/);
   assert.match(js,/navigateTo\(ROUTES\.EDIT/);
   assert.match(js,/scrollIntoView/);

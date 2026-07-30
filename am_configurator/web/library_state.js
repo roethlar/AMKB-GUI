@@ -346,7 +346,7 @@
       || Array.isArray(value.tracks)
       || Object.keys(value.tracks).length === 0
     ) {
-      throw new TypeError("The rendered LED result is invalid.");
+      throw new TypeError("The lighting preview could not be read.");
     }
     return clone(value);
   }
@@ -359,7 +359,7 @@
     effects = [],
   }) {
     if (typeof catalogId !== "string" || !catalogId.startsWith("item:")) {
-      throw new TypeError("The banked media catalog identity is invalid.");
+      throw new TypeError("The saved Library item is invalid.");
     }
     return deepFreeze({
       version: 1,
@@ -420,7 +420,7 @@
         ...state,
         status: "failed",
         mappedResult: null,
-        error: String(action.error || "The media preview failed."),
+        error: String(action.error || "The preview could not be created. Nothing was changed; adjust the framing and try again."),
       });
     }
     if (action.type === "TRANSFORM_CHANGED") {

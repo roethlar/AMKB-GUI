@@ -14,13 +14,15 @@
     "target-mismatch",
     "target-unsupported",
   ]);
+  // Plain-language blocks. Each says what failed, that nothing changed, and the
+  // next action the user can take.
   const BLOCKED_MESSAGES = Object.freeze({
-    "document-required": "Open a compatible lighting document before applying this result.",
-    "result-not-ready": "The saved LED result is not ready to apply yet.",
-    "family-mismatch": "This result was generated for a different keyboard family.",
-    "slot-unavailable": "The original custom lighting slot is not available in this document.",
-    "target-mismatch": "The selected lighting target no longer matches this result.",
-    "target-unsupported": "This document does not support every lighting target in this result.",
+    "document-required": "Nothing was changed. Open a matching keyboard profile, then apply this lighting.",
+    "result-not-ready": "This lighting is not ready to apply yet. Nothing was changed; try again in a moment.",
+    "family-mismatch": "This lighting was made for a different keyboard. Nothing was changed; open the matching profile to use it.",
+    "slot-unavailable": "The custom lighting slot it was made for is missing from this profile. Nothing was changed; open the matching profile.",
+    "target-mismatch": "The selected lighting area no longer matches this lighting. Nothing was changed; switch back to the original area.",
+    "target-unsupported": "This profile does not support every lighting area in this result. Nothing was changed; open the matching profile.",
   });
 
   function escapeHtml(value) {
@@ -41,7 +43,7 @@
 
   function reviewBlockedMessage(reason) {
     return BLOCKED_MESSAGES[reason]
-      || "This saved result cannot be applied to the current document.";
+      || "This saved lighting cannot be applied to the open profile. Nothing was changed.";
   }
 
   function createReviewView(options = {}) {
@@ -56,8 +58,8 @@
       : {};
     const layers = Array.isArray(recipe?.layers) ? recipe.layers : [];
     const summary = recipe
-      ? `${recipe.name || "Procedural effect"} · ${recipe.density || "balanced"} · ${layers.length} layer${layers.length === 1 ? "" : "s"}`
-      : "Loading saved recipe…";
+      ? `${recipe.name || "Lighting effect"} · ${recipe.density || "balanced"} · ${layers.length} layer${layers.length === 1 ? "" : "s"}`
+      : "Loading the lighting effect…";
     const frameValue = Number(quality.frame_count ?? options.frameCap ?? 0);
     const frameCount = Number.isFinite(frameValue) && frameValue >= 0 ? frameValue : 0;
     const slot = Number(options.destinationSlot);
@@ -69,14 +71,14 @@
       attempt.mapped_result_asset_id && options.mappedResultLoaded
     );
     const loadingMessage = attempt.mapped_result_asset_id && !mappedResultLoaded
-      ? "The saved LED result is still loading."
+      ? "The generated lighting is still loading. Nothing has changed yet."
       : !attempt.mapped_result_asset_id
-        ? "The saved LED result is unavailable."
+        ? "The generated lighting is unavailable, so nothing was changed. Generate it again."
         : "";
     return Object.freeze({
       previewUrl: assetUrl(options.assetUrls, options.jobId, attempt.preview_asset_id),
       summary,
-      detail: `${frameCount} exact frames · ${options.targetLabel || "Lighting"} · Custom ${customSlot}`,
+      detail: `${frameCount} lighting frames · ${options.targetLabel || "Lighting"} · Custom ${customSlot}`,
       blockedMessage,
       loadingMessage,
       errorMessage: typeof options.errorMessage === "string" ? options.errorMessage : "",
@@ -91,9 +93,9 @@
     const review = view || createReviewView();
     container.innerHTML = `<div class="review-stage">
       <div class="review-media">${review.previewUrl
-        ? `<img src="${escapeHtml(review.previewUrl)}" alt="Animated exact-raster lighting preview">`
+        ? `<img src="${escapeHtml(review.previewUrl)}" alt="Animated lighting preview">`
         : '<div class="library-card-placeholder">Loading animation…</div>'}</div>
-      <div class="review-copy"><p class="eyebrow">Saved locally</p><h3>${escapeHtml(review.summary)}</h3><p>${escapeHtml(review.detail)}</p>
+      <div class="review-copy"><p class="eyebrow">Saved to Library</p><h3>${escapeHtml(review.summary)}</h3><p>${escapeHtml(review.detail)}</p>
       ${review.blockedMessage ? `<p class="ai-error" role="alert">${escapeHtml(review.blockedMessage)}</p>` : ""}
       ${review.loadingMessage ? `<p class="ai-error" role="status">${escapeHtml(review.loadingMessage)}</p>` : ""}
       ${review.errorMessage ? `<p class="ai-error" role="alert">${escapeHtml(review.errorMessage)}</p>` : ""}

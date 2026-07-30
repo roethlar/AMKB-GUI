@@ -3122,7 +3122,7 @@ class _Handler(BaseHTTPRequestHandler):
         if source_catalog_id is None:
             if body["transform"] is not None:
                 raise ValueError(
-                    "A source transform requires one banked media source."
+                    "Framing requires one imported media item saved in Library."
                 )
             checked_transform = None
         else:

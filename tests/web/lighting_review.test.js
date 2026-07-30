@@ -90,7 +90,7 @@ test("ready reducer state renders the authenticated preview and applies exactly 
 
   assert.match(dom.innerHTML, /src="blob:authenticated-preview"/);
   assert.match(dom.innerHTML, /Violet aurora · dense · 2 layers/);
-  assert.match(dom.innerHTML, /200 exact frames · Keys · Custom 1/);
+  assert.match(dom.innerHTML, /200 lighting frames · Keys · Custom 1/);
   assert.equal(dom.button.disabled, false);
   dom.button.click();
   dom.button.disabled = false;
@@ -124,9 +124,9 @@ test("loading assets and every reducer block reason render without applying", ()
     renderReview(dom, view, () => { applies += 1; });
 
     assert.match(dom.innerHTML, /Loading animation/);
-    assert.match(dom.innerHTML, /Loading saved recipe/);
+    assert.match(dom.innerHTML, /Loading the lighting effect/);
     assert.ok(dom.innerHTML.includes(reviewBlockedMessage(reason)));
-    assert.match(dom.innerHTML, /saved LED result is still loading/);
+    assert.match(dom.innerHTML, /generated lighting is still loading/);
     assert.equal(dom.button.disabled, true);
     dom.button.click();
     assert.equal(applies, 0);
