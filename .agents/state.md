@@ -47,8 +47,8 @@
   `actions/checkout@v4`, `actions/upload-artifact@v4`, pinned
   `actions/download-artifact@v4.3.0`, and `astral-sh/setup-uv@v6` target Node
   20 and are being forced onto Node 24. These actions each have a live owner;
-  their major-version compatibility upgrade is unplanned follow-up work, not an
-  unused-dependency finding.
+  their major-version compatibility upgrade is specified in the pending draft
+  plan, not an unused-dependency finding.
 - Known intermittent (backend, pre-existing): under full-suite load,
   `test_procedural_generation...test_local_cancellation_stops_without_retry_or_ready_artifacts`
   has once reported manifest status `interrupted` instead of `cancelled`.
@@ -62,12 +62,15 @@
 
 ## Next
 
-- Execute Product Slice P6: resolve the Keymap Apply contract, complete the
-  two-viewport manual matrix, set the distinct candidate version to `0.1.65`,
-  run full/local native verification, and synchronize release pointers.
-- Decide and plan the GitHub Actions major-version upgrades before they become
-  a CI availability problem. Publishing a Release or announcement remains
-  later, separately gated work.
+- Owner approval is pending for
+  `docs/superpowers/plans/2026-07-30-github-actions-node24-upgrade.md`.
+  If approved, execute its guarded compatibility upgrade before Product Slice
+  P6.
+- Product Slice P6 remains the next product implementation slice: resolve the
+  Keymap Apply contract, complete the two-viewport manual matrix, set the
+  distinct candidate version to `0.1.65`, run full/local native verification,
+  and synchronize release pointers. Publishing a Release or announcement
+  remains later, separately gated work.
 
 ## Blockers
 
