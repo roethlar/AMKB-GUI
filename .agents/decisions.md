@@ -307,10 +307,10 @@ of the earlier Ollama-first decision below.
 
 ## 2026-07-22 — Ollama-first local model setup
 
-Status: superseded in part on 2026-07-29 by the configurable Ollama backend
-decision above. Fixed-loopback and cloud-exclusion wording below is historical;
-hidden-by-default AI, no model management, and explicit setup testing remain
-current.
+Supersession: the fixed-loopback and cloud-exclusion requirements were
+superseded on 2026-07-29 by the configurable Ollama backend decision above.
+Their wording below is historical; hidden-by-default AI, no model management,
+and explicit setup testing remain current.
 
 Status: approved by the owner on 2026-07-22. This supersedes the direct-GGUF
 onboarding and Ollama release-exclusion portions of the 2026-07-21 Optional AI
