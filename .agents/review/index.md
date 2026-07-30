@@ -35,11 +35,11 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | n567-8 | HIGH     | Successful Neon writes crash before persistence                        | `[x]`  | `neon-80-support` | codex/openreview  |
 | n567-9 | MEDIUM   | Device-reported macro byte capacity never reaches the editor           | `[x]`  | `neon-80-support` | codex/openreview  |
 | n567-10 | MEDIUM   | Neon keymap layout and assignment filtering were not integrated        | `[x]`  | `neon-80-support` | codex/openreview  |
-| cx-1 | MEDIUM   | Saved API credential immediately reported as absent; Remove disabled     | `[ ]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
-| cx-2 | MEDIUM   | Library Apply omits slot/document/Write-action feedback contract         | `[ ]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
-| cx-3 | LOW      | Stale refresh can fill inventory from the previous Ollama origin         | `[ ]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
-| cx-4 | LOW      | layout_audit hardwires the Windows webview renderer                      | `[ ]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
-| cx-5 | LOW      | Neon palette focus restore races async validation rerender               | `[ ]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
+| cx-1 | MEDIUM   | Saved API credential immediately reported as absent; Remove disabled     | `[x]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
+| cx-2 | MEDIUM   | Library Apply omits slot/document/Write-action feedback contract         | `[x]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
+| cx-3 | LOW      | Stale refresh can fill inventory from the previous Ollama origin         | `[x]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
+| cx-4 | LOW      | layout_audit hardwires the Windows webview renderer                      | `[x]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
+| cx-5 | LOW      | Neon palette focus restore races async validation rerender               | `[x]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
 
 All three raised by the 2026-07-25 openreview codex pass over
 `65a70c9..94a847a` and admitted at intake after independent verification of

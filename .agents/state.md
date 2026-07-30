@@ -2,8 +2,6 @@
 
 ## Now
 
-- Active review loop: see `.agents/review/index.md` (cx-1..cx-5 from the
-  2026-07-30 codex generation pass over the landed product+backend range).
 
 - Public-release qualification is stopped. The unpublished `0.1.64` candidate
   was rejected after product inspection found three release-blocking classes:
