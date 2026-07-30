@@ -131,9 +131,10 @@ class _Capability:
         self.validation_calls: list[str] = []
         self.closed = False
         self.status_value = _ready_status()
+        self.status_probes: list[bool] = []
 
     def status(self, *, probe=True):
-        del probe
+        self.status_probes.append(probe)
         return copy.deepcopy(self.status_value)
 
     def backend_setup_valid(self, backend):
@@ -517,6 +518,23 @@ class OptionalAIRouteTests(unittest.TestCase):
             )
             self.assertEqual("GET", method)
             self.assertGreater(timeout, 0)
+
+    def test_credential_save_returns_a_vault_probed_status(self) -> None:
+        # cx-1: status(probe=False) hardcodes api.configured False, so the
+        # response to a successful key save claimed no credential existed and
+        # the UI disabled Remove. The probed projection reads only the local
+        # vault, never a provider.
+        status, _response = self._request(
+            "POST",
+            "/api/settings/credential",
+            {"provider": "xai", "key": "sk-vault-probe-12345678"},
+        )
+        self.assertEqual(200, status)
+        self.assertTrue(self.capability.status_probes)
+        self.assertTrue(
+            self.capability.status_probes[-1],
+            "credential-save must return a vault-probed status",
+        )
 
     def test_invalid_credential_input_is_a_stable_non_secret_client_error(self) -> None:
         secret = "sk-route\nsecret"

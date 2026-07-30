@@ -2711,7 +2711,10 @@ class _Handler(BaseHTTPRequestHandler):
         )
         self.state.reconcile_lighting(force=True)
         capability = self.state.ai_services()
-        self._json(capability.status(probe=False))
+        # The response to a credential mutation must reflect the vault it just
+        # wrote; the probed projection reads only the local credential store,
+        # never a provider.
+        self._json(capability.status(probe=True))
 
     def _save_ollama_settings(self, body: dict[str, Any]) -> None:
         from . import store
