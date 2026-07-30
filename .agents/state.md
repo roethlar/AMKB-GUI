@@ -87,13 +87,19 @@
   the layout-audit bridge, author CB layout data from standard 75% row
   templates, and have the owner verify against the physical board (the
   cyberboard-cli reference checkout does not exist on this Windows host).
-- CB04_LAYOUT is now authored in `am_configurator/web/app.js` from the 81
-  matrix cells read off the connected CB04 (75% template, 1u = 6.1% of the
-  stage, right column at 93.9%), selected by `activeLayout` for family CB and
-  product CB04 only; other CyberBoard models keep the generic fallback. A
-  computed guard asserts both authored layouts keep every key on the board
-  with no duplicate matrix indices. The geometry awaits the owner's visual
-  confirmation against the physical keyboard.
+- CB04_LAYOUT is authored in `am_configurator/web/app.js` from the 81 matrix
+  cells read off the connected CB04, with geometry measured from the owner's
+  board photo after two rejected guesses: 16u wide, clustered F-row (Esc at
+  0u; clusters at 1.25u/5.5u/9.75u; Delete+Home at 14u/15u), up arrow at 14u
+  leaving the case notch empty at 15u, and 1.25u bottom-row modifiers with a
+  6.25u space. `.keyboard-stage.cyber` uses a 2.46:1 aspect because the shared
+  2.95:1 stage is sized for the wider Relic and stretches 75% keycaps.
+  Verified by extracting every rendered keycap's position from the live app
+  rather than by screenshot. Lesson recorded: geometry claims are verified
+  numerically from the DOM; screenshots on this host are unreliable because
+  the capture process is DPI-unaware and PrintWindow crops rather than scales
+  when the window is on a 200%-scaled display — capture at rect*2 and
+  downscale.
 - Product-experience implementation runs in parallel on
   `claude/product-experience-remediation`, a worktree branch based at the
   shared docs tip `0271213`. Slice P2 is implemented and guard-proven:
