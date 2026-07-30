@@ -49,7 +49,6 @@ const state = {
   lightingJobId: restoredLighting.jobId,
   layer: 0,
   selected: null,
-  pendingCode: null,
   showTechnicalLabels: false,
   advancedKeycodeOpen: false,
   keyAssignmentEpoch: 0,
@@ -1934,13 +1933,13 @@ function renderKeymap() {
               return `<button class="keycap ${keyClass(code)} ${state.selected===index?'selected':''}" data-index="${index}" style="left:${x}%;top:${y}%;width:${w}%;${height===null?'':`height:${height}%;`}transform:rotate(${rotation}deg)" title="${technical?`Matrix ${index} · ${esc(code)}`:esc(decodeCode(code))}">${esc(decodeCode(code))}${technical?`<span>${index}</span>`:''}</button>`;
             }).join("")}
           </div>
-          ${renderAssignmentPalette(state.pendingCode??current)}
+          ${renderAssignmentPalette(current)}
         </div></section>
         <aside class="card inspector">${renderKeyInspector(layer)}</aside>
       </div>
     </div>`;
-  $$("[data-layer]").forEach(button => button.addEventListener("click", () => { state.layer = Number(button.dataset.layer); state.pendingCode = null; renderKeymap(); restoreFocus(`[data-layer="${button.dataset.layer}"]`); }));
-  $$(".keycap").forEach(button => button.addEventListener("click", () => { state.selected = Number(button.dataset.index); state.pendingCode = null; renderKeymap(); restoreFocus(`.keycap[data-index="${button.dataset.index}"]`); }));
+  $$("[data-layer]").forEach(button => button.addEventListener("click", () => { state.layer = Number(button.dataset.layer); renderKeymap(); restoreFocus(`[data-layer="${button.dataset.layer}"]`); }));
+  $$(".keycap").forEach(button => button.addEventListener("click", () => { state.selected = Number(button.dataset.index); renderKeymap(); restoreFocus(`.keycap[data-index="${button.dataset.index}"]`); }));
   $("#toggle-technical-labels").addEventListener("click", () => { state.showTechnicalLabels = !state.showTechnicalLabels; renderKeymap(); restoreFocus("#toggle-technical-labels"); });
   $("#save-mapping-library")?.addEventListener("click",saveMappingToLibrary);
   wireKeyInspector();
@@ -1950,10 +1949,9 @@ function renderKeyInspector(layer) {
   if (state.selected === null) return `<div class="inspector-empty"><div><p class="eyebrow">Nothing selected</p><p>Click a key to see and change what it sends.</p></div></div>`;
   const current = layer[state.selected] || "#00000000";
   const technical = state.showTechnicalLabels;
-  const pending = state.pendingCode && state.pendingCode.toUpperCase() !== current.toUpperCase() ? state.pendingCode : null;
   return `<div class="card-header"><strong>Selected key</strong><small>Layer ${state.layer+1}${technical?` · Matrix ${state.selected}`:""}</small></div><div class="card-body">
     <div class="selected-code"><div><small class="control-caption">Currently sends</small><br><strong>${esc(decodeCode(current))}</strong>${technical?`<br><code>${esc(current)}</code>`:""}</div><span class="pill">${keyClass(current)||'key'}</span></div>
-    ${pending?`<div class="pending-assignment"><div><small class="control-caption">New assignment</small><br><strong>${esc(decodeCode(pending))}</strong></div><div class="button-row"><button id="apply-assignment" class="button primary">Apply</button><button id="clear-pending" class="button ghost">Cancel</button></div></div>`:`<p class="inspector-help">Pick a new assignment from the groups on the left, then apply it.</p>`}
+    <p class="inspector-help">Pick a new assignment from the groups below the keyboard. It is applied to this key immediately.</p>
     <details id="advanced-keycode" class="advanced-disclosure" ${state.advancedKeycodeOpen?"open":""}><summary>Advanced keycode</summary>
       <p class="inspector-help">${productFamily(productId())==="NEON"?"Choose a QMK-representable keyboard or macro assignment. Unsupported media, vendor, and raw codes are refused before they change this profile.":"Raw codes pass through to the keyboard firmware unchanged, so unusual assignments survive saving and reloading exactly."}</p>
       <div class="raw-row"><input id="raw-code" class="text-field" value="${esc(current)}" maxlength="9" aria-label="Raw keycode"><button id="apply-raw" class="button ghost">Apply</button></div>
@@ -1982,8 +1980,7 @@ async function assignSelected(code) {
 
 function wireKeyInspector() {
   $$(".palette-key").forEach(button => button.addEventListener("click", () => {
-    state.pendingCode = button.dataset.code;
-    renderKeymap();
+    assignSelected(button.dataset.code);
     restoreFocus(`.palette-key[data-code="${button.dataset.code}"]`);
   }));
   $("#key-search")?.addEventListener("input", event => {
@@ -1991,8 +1988,6 @@ function wireKeyInspector() {
     $$(".palette-key").forEach(button => button.hidden = query && !button.dataset.search.includes(query));
     $$(".assignment-section").forEach(section=>{section.hidden=Boolean(query)&&!section.querySelector(".palette-key:not([hidden])");});
   });
-  $("#apply-assignment")?.addEventListener("click", () => { const code = state.pendingCode; state.pendingCode = null; assignSelected(code); });
-  $("#clear-pending")?.addEventListener("click", () => { state.pendingCode = null; renderKeymap(); restoreFocus(".keycap.selected"); });
   $("#advanced-keycode")?.addEventListener("toggle", event => { state.advancedKeycodeOpen = event.currentTarget.open; });
   $("#apply-raw")?.addEventListener("click", () => assignSelected($("#raw-code").value.trim()));
   $("#raw-code")?.addEventListener("keydown", event => { if (event.key === "Enter") assignSelected(event.currentTarget.value.trim()); });

@@ -424,8 +424,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .advanced-disclosure summary { width: max-content; color: var(--muted); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; cursor: pointer; }
 .advanced-disclosure summary:hover { color: var(--text); }
 .advanced-disclosure > :not(summary) { margin-top: 10px; }
-.pending-assignment { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 12px; border: 1px solid var(--violet); border-radius: 10px; background: var(--violet-soft); }
-.pending-assignment .button-row { display: flex; gap: 6px; }
 .macro-capacity { display: grid; gap: 6px; color: var(--muted); }
 .assignment-panel { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); display: grid; gap: 16px; }
 .assignment-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }

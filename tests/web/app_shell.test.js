@@ -64,11 +64,12 @@ test("matrix numbers and raw keycodes stay hidden until requested", () => {
   assert.match(inspector, /technical\?` · Matrix \$\{state\.selected\}`:""/);
 });
 
-test("staged assignments apply through an explicit Apply action", () => {
-  assert.match(js, /state\.pendingCode = button\.dataset\.code/);
-  assert.match(js, /id="apply-assignment"/);
-  assert.match(js, /\$\("#apply-assignment"\)\?\.addEventListener\("click", \(\) => \{ const code = state\.pendingCode; state\.pendingCode = null; assignSelected\(code\); \}\)/);
-  assert.match(js, /id="clear-pending"/);
+test("palette picks apply to the selected key immediately", () => {
+  // A staged Apply proved unusable: the confirmation lived in the inspector,
+  // which sits below the whole palette in single-column layouts.
+  assert.match(js, /\$\$\("\.palette-key"\)\.forEach\(button => button\.addEventListener\("click", \(\) => \{\s*assignSelected\(button\.dataset\.code\);/);
+  assert.doesNotMatch(js, /pendingCode/);
+  assert.match(js, /applied to this key immediately/);
 });
 
 test("lossless raw assignment still round-trips", () => {
