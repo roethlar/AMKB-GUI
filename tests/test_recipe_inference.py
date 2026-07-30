@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import unittest
+import inspect
 from pathlib import Path
 
+from am_configurator import recipe_inference
 from am_configurator.recipe_inference import (
-    LOCAL_MAX_RETRIES,
     LOCAL_OUTPUT_TOKENS,
     build_ollama_recipe_payload,
 )
 
 
 class RecipeInferenceContractTests(unittest.TestCase):
-    def _payload(self, *, attempt: int, validation_reason: str | None):
+    def _payload(self):
         return build_ollama_recipe_payload(
             model_id="ornith:latest",
             prompt="  Blue stars over a dark field  ",
@@ -20,17 +21,11 @@ class RecipeInferenceContractTests(unittest.TestCase):
             width=18,
             height=7,
             frame_count=200,
-            attempt=attempt,
-            validation_reason=validation_reason,
         )
 
-    def test_payload_is_deterministic_and_retries_use_one_fresh_message_shape(self) -> None:
-        initial = self._payload(attempt=0, validation_reason=None)
-        repeated = self._payload(attempt=0, validation_reason=None)
-        retry = self._payload(
-            attempt=1,
-            validation_reason="peak brightness was too low /private/model.gguf",
-        )
+    def test_single_payload_is_deterministic_with_one_message_shape(self) -> None:
+        initial = self._payload()
+        repeated = self._payload()
 
         self.assertEqual(initial, repeated)
         self.assertEqual(
@@ -42,19 +37,22 @@ class RecipeInferenceContractTests(unittest.TestCase):
             ["system", "user"],
             [message["role"] for message in initial["messages"]],
         )
-        self.assertEqual(2, len(retry["messages"]))
-        self.assertNotEqual(initial["options"]["seed"], retry["options"]["seed"])
-        self.assertIn("Retry correction:", retry["messages"][1]["content"])
-        self.assertIn("peak brightness was too low", retry["messages"][1]["content"])
-        self.assertNotIn("/private/model.gguf", retry["messages"][1]["content"])
+        self.assertEqual(
+            "Blue stars over a dark field",
+            initial["messages"][1]["content"],
+        )
 
-    def test_invalid_attempt_or_retry_reason_is_rejected(self) -> None:
-        with self.assertRaises(ValueError):
-            self._payload(attempt=LOCAL_MAX_RETRIES + 1, validation_reason="invalid")
-        with self.assertRaises(ValueError):
-            self._payload(attempt=0, validation_reason="unexpected")
-        with self.assertRaises(ValueError):
-            self._payload(attempt=1, validation_reason=None)
+    def test_retry_protocol_has_no_definition_export_or_payload_surface(self) -> None:
+        source = inspect.getsource(recipe_inference)
+        for forbidden in (
+            "LOCAL_MAX_RETRIES",
+            "_retry_content",
+            "Retry correction:",
+            "validation_reason",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, source)
+        self.assertNotIn("attempt", inspect.signature(build_ollama_recipe_payload).parameters)
 
     def test_ollama_recipe_callers_do_not_redeclare_sampling_parameters(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -67,6 +65,8 @@ class RecipeInferenceContractTests(unittest.TestCase):
             self.assertNotIn('"temperature"', source)
             self.assertNotIn('"num_predict"', source)
             self.assertNotIn("7319 +", source)
+            self.assertNotIn("generate_attempt", source)
+            self.assertNotIn("validation_reason", source)
 
 
 if __name__ == "__main__":

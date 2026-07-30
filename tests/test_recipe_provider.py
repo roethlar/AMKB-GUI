@@ -1308,8 +1308,6 @@ class OllamaRecipeProviderTests(unittest.TestCase):
                 width=request.width,
                 height=request.height,
                 frame_count=request.frame_count,
-                attempt=0,
-                validation_reason=None,
             ),
             payload,
         )
@@ -1324,60 +1322,20 @@ class OllamaRecipeProviderTests(unittest.TestCase):
         self.assertEqual("ornith:latest", result.model_id)
         self.assertIsNone(result.usage)
 
-    def test_retry_changes_seed_adds_bounded_reason_and_rejects_bad_output(self) -> None:
-        client = _OllamaClient({"message": {"content": json.dumps(_recipe())}})
-        provider = OllamaRecipeProvider(self.model, client=client)
-        provider.generate(_request(), time.monotonic() + 10, lambda: False)
-        provider.generate_attempt(
-            _request(),
-            time.monotonic() + 10,
-            lambda: False,
-            attempt=1,
-            validation_reason="peak brightness was too low /private/model.gguf",
+    def test_retry_protocol_is_absent_and_bad_output_stops_after_one_call(self) -> None:
+        self.assertFalse(hasattr(OllamaRecipeProvider, "generate_attempt"))
+        client = _OllamaClient(
+            {"message": {"content": '{"private":"secret"}'}}
         )
-
-        first, second = (call[0] for call in client.calls)
-        request = _request()
-        common = {
-            "model_id": self.model.model_id,
-            "prompt": request.prompt,
-            "system_prompt": procedural.recipe_system_prompt(
-                request.width,
-                request.height,
-                request.frame_count,
-                density_default=request.density_default,
-            ),
-            "schema": procedural.recipe_schema(),
-            "width": request.width,
-            "height": request.height,
-            "frame_count": request.frame_count,
-        }
-        self.assertEqual(
-            build_ollama_recipe_payload(
-                **common, attempt=0, validation_reason=None
-            ),
-            first,
-        )
-        self.assertEqual(
-            build_ollama_recipe_payload(
-                **common,
-                attempt=1,
-                validation_reason="peak brightness was too low /private/model.gguf",
-            ),
-            second,
-        )
-        self.assertNotEqual(first["options"]["seed"], second["options"]["seed"])
-        self.assertIn("peak brightness was too low", second["messages"][1]["content"])
-        self.assertNotIn("/private/model.gguf", second["messages"][1]["content"])
-
         invalid = OllamaRecipeProvider(
             self.model,
-            client=_OllamaClient({"message": {"content": '{"private":"secret"}'}}),
+            client=client,
         )
         with self.assertRaises(llm.ProviderError) as captured:
             invalid.generate(_request(), time.monotonic() + 10, lambda: False)
         self.assertEqual("bad_response", captured.exception.code)
         self.assertNotIn("secret", str(captured.exception))
+        self.assertEqual(1, len(client.calls))
 
 
 if __name__ == "__main__":

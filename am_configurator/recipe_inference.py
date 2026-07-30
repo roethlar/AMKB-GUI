@@ -9,7 +9,6 @@ from typing import Any
 MAX_RECIPE_PROMPT_CHARS = 4000
 MAX_LOCAL_RESPONSE_BYTES = 1_000_000
 LOCAL_OUTPUT_TOKENS = 1536
-LOCAL_MAX_RETRIES = 2
 LOCAL_TEMPERATURE = 0.2
 
 
@@ -26,43 +25,13 @@ def _clean_prompt(prompt: object) -> str:
     return clean
 
 
-def _retry_content(
-    prompt: str,
-    attempt: int,
-    validation_reason: str | None,
-) -> str:
-    if type(attempt) is not int or not 0 <= attempt <= LOCAL_MAX_RETRIES:
-        raise ValueError("Local recipe attempt is invalid.")
-    if attempt == 0:
-        if validation_reason is not None:
-            raise ValueError("Initial recipe attempt is invalid.")
-        return prompt
-    if not isinstance(validation_reason, str) or not validation_reason.strip():
-        raise ValueError("Local recipe retry reason is missing.")
-    reason = "".join(
-        character
-        for character in validation_reason.strip()[:200]
-        if character.isalnum() or character in " .,:;_()-"
-    ).strip()
-    if not reason:
-        reason = "the recipe did not pass validation"
-    return (
-        prompt
-        + "\n\nRetry correction: the previous recipe failed because "
-        + f"{reason}. Return a different corrected recipe."
-    )
-
-
 def _seed(
     prompt: str,
     width: int,
     height: int,
     frame_count: int,
-    attempt: int,
 ) -> int:
-    material = (
-        f"{prompt}\0{width}\0{height}\0{frame_count}\0{attempt}"
-    ).encode("utf-8")
+    material = f"{prompt}\0{width}\0{height}\0{frame_count}".encode("utf-8")
     return int.from_bytes(hashlib.sha256(material).digest()[:4], "big") & 0x7FFF_FFFF
 
 
@@ -75,15 +44,8 @@ def build_ollama_recipe_payload(
     width: int,
     height: int,
     frame_count: int,
-    attempt: int,
-    validation_reason: str | None,
 ) -> dict[str, Any]:
-    """Build one production-equivalent Ollama recipe request.
-
-    Every attempt is a fresh system/user exchange. Retries vary only the
-    deterministic seed and the sanitized correction appended to the original
-    user prompt.
-    """
+    """Build the single production-equivalent Ollama recipe request."""
 
     if not isinstance(model_id, str) or not model_id:
         raise ValueError("Local recipe model is invalid.")
@@ -94,25 +56,23 @@ def build_ollama_recipe_payload(
     if any(type(value) is not int or value <= 0 for value in (width, height, frame_count)):
         raise ValueError("Local recipe dimensions are invalid.")
     clean_prompt = _clean_prompt(prompt)
-    user_content = _retry_content(clean_prompt, attempt, validation_reason)
     return {
         "model": model_id,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
+            {"role": "user", "content": clean_prompt},
         ],
         "stream": False,
         "format": schema,
         "options": {
             "temperature": LOCAL_TEMPERATURE,
-            "seed": _seed(clean_prompt, width, height, frame_count, attempt),
+            "seed": _seed(clean_prompt, width, height, frame_count),
             "num_predict": LOCAL_OUTPUT_TOKENS,
         },
     }
 
 
 __all__ = [
-    "LOCAL_MAX_RETRIES",
     "LOCAL_OUTPUT_TOKENS",
     "LOCAL_TEMPERATURE",
     "MAX_LOCAL_RESPONSE_BYTES",

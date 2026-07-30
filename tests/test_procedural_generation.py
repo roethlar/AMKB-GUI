@@ -70,17 +70,6 @@ class _Provider:
     def generate(self, request, deadline, cancelled):
         return self._result(0, None)
 
-    def generate_attempt(
-        self,
-        request,
-        deadline,
-        cancelled,
-        *,
-        attempt,
-        validation_reason,
-    ):
-        return self._result(attempt, validation_reason)
-
 
 class _BlockingProvider(_Provider):
     def __init__(self) -> None:
@@ -340,7 +329,7 @@ class ProceduralGenerationTests(unittest.TestCase):
             {asset["kind"] for asset in manifest["assets"]},
         )
 
-    def test_local_quality_failure_retries_twice_at_most_with_reason(self) -> None:
+    def test_local_quality_failure_makes_one_provider_request(self) -> None:
         provider = _Provider([_dim_recipe(), _dense_recipe()])
         coordinator = self._coordinator(provider)
 
@@ -350,30 +339,22 @@ class ProceduralGenerationTests(unittest.TestCase):
         )
         manifest = self.library.load_manifest(started["job_id"])
 
-        self.assertEqual("ready", manifest["status"])
-        self.assertEqual(2, len(manifest["procedural_attempts"]))
+        self.assertEqual("failed", manifest["status"])
+        self.assertEqual(1, len(manifest["procedural_attempts"]))
         self.assertEqual("failed", manifest["procedural_attempts"][0]["status"])
-        self.assertEqual("complete", manifest["procedural_attempts"][1]["status"])
-        self.assertEqual(0, provider.calls[0][0])
-        self.assertEqual(1, provider.calls[1][0])
-        self.assertIn("brightness", provider.calls[1][1])
+        self.assertEqual("quality_failed", manifest["procedural_attempts"][0]["error_code"])
+        self.assertEqual([(0, None)], provider.calls)
+        self.assertEqual("quality_failed", manifest["errors"][-1]["code"])
 
-    def test_real_ollama_provider_stops_after_two_corrected_retries(self) -> None:
-        class SequencedOllamaClient:
+    def test_real_ollama_schema_failure_makes_one_request(self) -> None:
+        class InvalidOllamaClient:
             def __init__(self) -> None:
-                self.responses = [
-                    {"message": {"content": "{}"}},
-                    {"message": {"content": json.dumps(_dim_recipe())}},
-                    {"message": {"content": json.dumps(_dim_recipe())}},
-                ]
                 self.calls: list[dict] = []
 
             def chat(self, payload, *, deadline, cancelled):
                 del deadline, cancelled
                 self.calls.append(copy.deepcopy(payload))
-                if len(self.calls) > len(self.responses):
-                    raise AssertionError("the coordinator made a fourth Ollama call")
-                return self.responses[len(self.calls) - 1]
+                return {"message": {"content": "{}"}}
 
         model = OllamaModel(
             model_id="ornith:latest",
@@ -382,7 +363,7 @@ class ProceduralGenerationTests(unittest.TestCase):
             parameter_size="9.0B",
             quantization="Q4_K_M",
         )
-        client = SequencedOllamaClient()
+        client = InvalidOllamaClient()
         provider = OllamaRecipeProvider(model, client=client)
 
         class Capability:
@@ -413,36 +394,21 @@ class ProceduralGenerationTests(unittest.TestCase):
         )
 
         started = coordinator.start_effect(
-            prompt="Exhaust the local correction budget",
+            prompt="Reject invalid Ollama output",
             target=TARGET,
         )
         manifest = self.library.load_manifest(started["job_id"])
 
-        self.assertEqual(3, len(client.calls))
-        seeds = [call["options"]["seed"] for call in client.calls]
-        self.assertEqual(3, len(set(seeds)))
-        prompts = [call["messages"][1]["content"] for call in client.calls]
-        self.assertNotIn("Retry correction:", prompts[0])
-        self.assertIn("recipe schema or semantic validation", prompts[1])
-        self.assertIn("brightness", prompts[2])
-        self.assertNotEqual(prompts[1], prompts[2])
+        self.assertEqual(1, len(client.calls))
 
         self.assertEqual("failed", manifest["status"])
         self.assertEqual("effect_failed", manifest["phase"])
-        self.assertEqual(3, len(manifest["procedural_attempts"]))
-        self.assertEqual(
-            ["bad_response", "quality_failed", "quality_failed"],
-            [attempt["error_code"] for attempt in manifest["procedural_attempts"]],
-        )
-        self.assertTrue(
-            all(
-                attempt["status"] == "failed"
-                for attempt in manifest["procedural_attempts"]
-            )
-        )
-        self.assertEqual("quality_failed", manifest["errors"][-1]["code"])
+        self.assertEqual(1, len(manifest["procedural_attempts"]))
+        self.assertEqual("failed", manifest["procedural_attempts"][0]["status"])
+        self.assertEqual("bad_response", manifest["procedural_attempts"][0]["error_code"])
+        self.assertEqual("bad_response", manifest["errors"][-1]["code"])
         self.assertFalse(gate.is_active)
-        replacement, _cancelled = gate.begin("after-retry-ceiling")
+        replacement, _cancelled = gate.begin("after-schema-failure")
         gate.finish(replacement)
 
     def test_disabled_capability_creates_no_library_or_provider_work(self) -> None:
