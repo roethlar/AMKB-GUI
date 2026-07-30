@@ -26,9 +26,14 @@ from .procedural import (
     validate_recipe,
     write_animation_artifacts,
 )
-from .ollama_client import OLLAMA_BASE_URL, OllamaClient, OllamaError, valid_model_id
+from .ollama_client import (
+    OLLAMA_BASE_URL,
+    OllamaClient,
+    OllamaError,
+    normalize_ollama_base_url,
+    valid_model_id,
+)
 from .recipe_inference import (
-    LOCAL_MAX_RETRIES,
     MAX_LOCAL_RESPONSE_BYTES,
     MAX_RECIPE_PROMPT_CHARS,
     build_ollama_recipe_payload,
@@ -54,15 +59,20 @@ class OllamaRecipeClient:
         connection_factory: Callable[..., Any] | None = None,
         timeout_seconds: float = 180,
     ) -> None:
-        if endpoint.rstrip("/") != DEFAULT_ENDPOINT:
-            raise ValueError("Ollama endpoint is fixed to the local service.")
+        try:
+            endpoint = normalize_ollama_base_url(endpoint)
+        except ValueError:
+            raise ValueError("Ollama endpoint is invalid.") from None
         if timeout_seconds <= 0 or timeout_seconds > 600:
             raise ValueError("Ollama timeout must be between 0 and 600 seconds.")
-        self.endpoint = DEFAULT_ENDPOINT
+        self.endpoint = endpoint
         self.client = (
-            OllamaClient()
+            OllamaClient(base_url=endpoint)
             if connection_factory is None
-            else OllamaClient(connection_factory=connection_factory)
+            else OllamaClient(
+                base_url=endpoint,
+                connection_factory=connection_factory,
+            )
         )
         self.timeout_seconds = float(timeout_seconds)
 
@@ -99,37 +109,28 @@ class OllamaRecipeClient:
             frame_count,
             density_default=density_default,
         )
-        last_error: RecipeError | None = None
         schema = recipe_schema()
-        for attempt in range(LOCAL_MAX_RETRIES + 1):
-            try:
-                payload = build_ollama_recipe_payload(
-                    model_id=model,
-                    prompt=clean_prompt,
-                    system_prompt=system_prompt,
-                    schema=schema,
-                    width=width,
-                    height=height,
-                    frame_count=frame_count,
-                    attempt=attempt,
-                    validation_reason=str(last_error) if last_error is not None else None,
-                )
-            except ValueError as exc:
-                raise RecipeError(str(exc)) from None
-            response = self._request(payload)
-            content = response.get("message", {}).get("content")
-            try:
-                if not isinstance(content, str) or len(content.encode()) > MAX_RESPONSE_BYTES:
-                    raise RecipeError("Ollama did not return a bounded recipe string.")
-                recipe = json.loads(content)
-                return validate_recipe(recipe)
-            except (json.JSONDecodeError, RecipeError) as exc:
-                last_error = (
-                    exc
-                    if isinstance(exc, RecipeError)
-                    else RecipeError("Ollama recipe was not JSON.")
-                )
-        raise last_error or RecipeError("Ollama did not return a usable recipe.")
+        try:
+            payload = build_ollama_recipe_payload(
+                model_id=model,
+                prompt=clean_prompt,
+                system_prompt=system_prompt,
+                schema=schema,
+                width=width,
+                height=height,
+                frame_count=frame_count,
+            )
+        except ValueError as exc:
+            raise RecipeError(str(exc)) from None
+        response = self._request(payload)
+        content = response.get("message", {}).get("content")
+        if not isinstance(content, str) or len(content.encode()) > MAX_RESPONSE_BYTES:
+            raise RecipeError("Ollama did not return a bounded recipe string.")
+        try:
+            recipe = json.loads(content)
+        except json.JSONDecodeError:
+            raise RecipeError("Ollama recipe was not JSON.") from None
+        return validate_recipe(recipe)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

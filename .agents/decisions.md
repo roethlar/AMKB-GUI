@@ -1,5 +1,31 @@
 # Repository Decisions
 
+## 2026-07-29 — Ollama is a configurable backend and generation never auto-retries
+
+Status: approved by the owner on 2026-07-29 while rejecting the current release
+candidate's AI and human-facing product behavior. This supersedes every earlier
+decision or plan statement that makes Ollama loopback-only, excludes Ollama
+Cloud inventory, or permits automatic local-model correction retries.
+
+- Ollama is one backend whose server URL is user-configurable.
+  `http://127.0.0.1:11434` remains the default, and users may configure another
+  HTTP(S) Ollama installation on the LAN.
+- Every structurally valid completion-capable model returned by that Ollama
+  server is eligible, including Ollama Cloud entries. Cloud execution is
+  clearly labelled and its prompt-routing implications are disclosed.
+- The application sends requests only to the configured Ollama origin and
+  fixed Ollama API paths. Inventory `remote_host` metadata never becomes an
+  application connection target.
+- The application never pulls, creates, updates, copies, removes, or otherwise
+  manages Ollama models.
+- One explicit Generate action makes exactly one model request. A schema,
+  semantic, quality, transport, timeout, or cancellation failure stops that job
+  without an automatic corrected generation. Another request requires another
+  explicit user action.
+- Shipped UI and README language is written for keyboard owners and gamers.
+  Internal terms such as durable jobs, banking, procedural recipes, raster
+  identities, and deterministic seeds do not appear in the normal user path.
+
 ## 2026-07-28 — The application has one canonical product version
 
 Status: approved by the owner on 2026-07-28 while correcting the public-release
@@ -255,6 +281,10 @@ Status: approved by the owner on 2026-07-25.
 
 ## 2026-07-22 — Ollama/API-only AI backends
 
+Supersession: the fixed-loopback and server-local-only eligibility implications
+are superseded on 2026-07-29 by the configurable Ollama backend decision above.
+The API-only and no-model-management portions remain current.
+
 Status: approved by the owner on 2026-07-22. This supersedes every product,
 plan, packaging, and release statement that retains direct GGUF selection or an
 application-managed llama.cpp runtime, including the advanced-fallback portion
@@ -276,6 +306,11 @@ of the earlier Ollama-first decision below.
   boundary remain unchanged.
 
 ## 2026-07-22 — Ollama-first local model setup
+
+Supersession: the fixed-loopback and cloud-exclusion requirements were
+superseded on 2026-07-29 by the configurable Ollama backend decision above.
+Their wording below is historical; hidden-by-default AI, no model management,
+and explicit setup testing remain current.
 
 Status: approved by the owner on 2026-07-22. This supersedes the direct-GGUF
 onboarding and Ollama release-exclusion portions of the 2026-07-21 Optional AI

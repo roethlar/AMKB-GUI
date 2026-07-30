@@ -112,6 +112,26 @@ V6_DEFAULTS = {
     "generation": {"loop_mode": "smooth"},
 }
 
+V7_DEFAULTS = {
+    "schema_version": 7,
+    "ai": {
+        "enabled": False,
+        "backend": None,
+        "ollama": {
+            "base_url": "http://127.0.0.1:11434",
+            "model_id": None,
+            "model_digest": None,
+            "model_location": None,
+            "setup_fingerprint": None,
+            "disclosure_version": None,
+            "disclosure_at": None,
+        },
+        "api": copy.deepcopy(V6_DEFAULTS["ai"]["api"]),
+    },
+    "library": {"current_root": None, "roots": []},
+    "generation": {"loop_mode": "smooth"},
+}
+
 
 def _v2_settings(*, key: str | None = None, root: Path | None = None) -> dict:
     keys = {} if key is None else {"xai": key}
@@ -299,7 +319,7 @@ class SettingsV6Tests(unittest.TestCase):
         settings, reason = store.load_settings_with_status(
             credential_store=self.vault
         )
-        self.assertEqual(V6_DEFAULTS, settings)
+        self.assertEqual(V7_DEFAULTS, settings)
         self.assertIsNone(reason)
         self.assertFalse(store.settings_path().exists())
 
@@ -326,7 +346,7 @@ class SettingsV6Tests(unittest.TestCase):
         )
 
         self.assertIsNone(reason)
-        self.assertEqual(6, settings["schema_version"])
+        self.assertEqual(7, settings["schema_version"])
         self.assertEqual("xai", settings["ai"]["api"]["selected_provider"])
         self.assertEqual(
             {
@@ -349,7 +369,7 @@ class SettingsV6Tests(unittest.TestCase):
         self.assertEqual(settings, json.loads(store.settings_path().read_text("utf-8")))
 
     def test_provider_credentials_are_isolated_and_environment_scoped(self) -> None:
-        store.save_settings(copy.deepcopy(V6_DEFAULTS), credential_store=self.vault)
+        store.save_settings(copy.deepcopy(V7_DEFAULTS), credential_store=self.vault)
         for provider in ai_catalog.API_PROVIDER_IDS:
             store.update_api_key(
                 {"provider": provider, "key": f"secret-{provider}"},
@@ -398,7 +418,7 @@ class SettingsV6Tests(unittest.TestCase):
         )
 
     def test_switching_provider_preserves_every_provider_record(self) -> None:
-        configured = copy.deepcopy(V6_DEFAULTS)
+        configured = copy.deepcopy(V7_DEFAULTS)
         configured["ai"]["api"]["providers"]["xai"].update(
             {
                 "setup_fingerprint": "a" * 64,
@@ -428,7 +448,7 @@ class SettingsV6Tests(unittest.TestCase):
         )
 
     def test_transient_read_errors_preserve_exact_settings_bytes(self) -> None:
-        original = self._write(copy.deepcopy(V6_DEFAULTS))
+        original = self._write(copy.deepcopy(V7_DEFAULTS))
         path = store.settings_path()
         real_read_text = Path.read_text
 
@@ -444,13 +464,13 @@ class SettingsV6Tests(unittest.TestCase):
                         credential_store=self.vault
                     )
 
-                self.assertEqual(V6_DEFAULTS, settings)
+                self.assertEqual(V7_DEFAULTS, settings)
                 self.assertEqual("settings_unavailable", reason)
                 self.assertEqual(original, path.read_bytes())
                 self.assertFalse(path.with_name(path.name + ".bad").exists())
 
     def test_updates_fail_closed_when_settings_cannot_be_read(self) -> None:
-        original = self._write(copy.deepcopy(V6_DEFAULTS))
+        original = self._write(copy.deepcopy(V7_DEFAULTS))
         path = store.settings_path()
         real_read_text = Path.read_text
 
@@ -473,7 +493,7 @@ class SettingsV6Tests(unittest.TestCase):
     def test_windows_settings_replace_retries_a_concurrent_reader(self) -> None:
         from am_configurator import atomic_io
 
-        self._write(copy.deepcopy(V6_DEFAULTS))
+        self._write(copy.deepcopy(V7_DEFAULTS))
         path = store.settings_path()
         real_replace = atomic_io.os.replace
         sharing_failures = 0
@@ -508,7 +528,7 @@ class SettingsV6Tests(unittest.TestCase):
         self.assertEqual("ping_pong", json.loads(path.read_text("utf-8"))["generation"]["loop_mode"])
 
     def test_settings_publication_fsyncs_its_parent_directory(self) -> None:
-        self._write(copy.deepcopy(V6_DEFAULTS))
+        self._write(copy.deepcopy(V7_DEFAULTS))
         path = store.settings_path()
 
         with patch("am_configurator.store.fsync_directory") as sync_directory:
@@ -548,7 +568,7 @@ class SettingsV6Tests(unittest.TestCase):
             credential_store=self.vault
         )
 
-        self.assertEqual(V6_DEFAULTS, settings)
+        self.assertEqual(V7_DEFAULTS, settings)
         self.assertEqual("settings_schema_unsupported", reason)
         self.assertEqual(original, path.read_bytes())
         self.assertFalse(path.with_name(path.name + ".bad").exists())
@@ -568,7 +588,7 @@ class SettingsV6Tests(unittest.TestCase):
         )
         self.assertIsNone(reason)
         self.assertEqual("sk-only-copy", self.vault.get("xai"))
-        self.assertEqual(6, settings["schema_version"])
+        self.assertEqual(7, settings["schema_version"])
         self.assertFalse(settings["ai"]["enabled"])
         self.assertIsNone(settings["ai"]["backend"])
         self.assertEqual(str(library.resolve()), settings["library"]["current_root"])
@@ -592,7 +612,7 @@ class SettingsV6Tests(unittest.TestCase):
             credential_store=self.vault
         )
 
-        self.assertEqual(V6_DEFAULTS, settings)
+        self.assertEqual(V7_DEFAULTS, settings)
         self.assertEqual("settings_migration_invalid", reason)
         self.assertEqual("sk-existing-vault", self.vault.get("xai"))
         self.assertEqual(original, store.settings_path().read_bytes())
@@ -625,7 +645,7 @@ class SettingsV6Tests(unittest.TestCase):
                     settings, reason = store.load_settings_with_status(
                         credential_store=self.vault
                     )
-                self.assertEqual(V6_DEFAULTS, settings)
+                self.assertEqual(V7_DEFAULTS, settings)
                 self.assertEqual("settings_migration_invalid", reason)
                 self.assertEqual(original, store.settings_path().read_bytes())
 
@@ -640,18 +660,14 @@ class SettingsV6Tests(unittest.TestCase):
         )
 
         self.assertIsNone(reason)
-        self.assertEqual(6, settings["schema_version"])
+        self.assertEqual(7, settings["schema_version"])
         self.assertEqual(
-            {
-                "model_id": None,
-                "model_digest": None,
-                "setup_fingerprint": None,
-            },
-            settings["ai"]["local"],
+            V7_DEFAULTS["ai"]["ollama"],
+            settings["ai"]["ollama"],
         )
         self.assertTrue(settings["ai"]["enabled"])
-        self.assertEqual("local", settings["ai"]["backend"])
-        self.assertEqual(6, json.loads(store.settings_path().read_text())["schema_version"])
+        self.assertEqual("ollama", settings["ai"]["backend"])
+        self.assertEqual(7, json.loads(store.settings_path().read_text())["schema_version"])
 
     def test_v4_gguf_selection_migrates_without_touching_model_file(self) -> None:
         model = self.directory / "owner-model.gguf"
@@ -687,13 +703,13 @@ class SettingsV6Tests(unittest.TestCase):
             )
 
         self.assertIsNone(reason)
-        self.assertEqual(6, settings["schema_version"])
+        self.assertEqual(7, settings["schema_version"])
         self.assertEqual(
-            {"model_id": None, "model_digest": None, "setup_fingerprint": None},
-            settings["ai"]["local"],
+            V7_DEFAULTS["ai"]["ollama"],
+            settings["ai"]["ollama"],
         )
         self.assertTrue(settings["ai"]["enabled"])
-        self.assertEqual("local", settings["ai"]["backend"])
+        self.assertEqual("ollama", settings["ai"]["backend"])
         self.assertEqual("ping_pong", settings["generation"]["loop_mode"])
         self.assertEqual(
             "2026-07-20-xai-v1",
@@ -706,22 +722,115 @@ class SettingsV6Tests(unittest.TestCase):
             (after.st_size, after.st_mtime_ns),
         )
 
-    def test_ollama_selection_is_strict_and_invalidates_local_setup(self) -> None:
-        updated = store.update_local_ai_settings(
+    def test_ollama_selection_is_strict_and_invalidates_setup(self) -> None:
+        updated = store.update_ollama_ai_settings(
             {
                 "model_id": "ornith:latest",
                 "model_digest": "b" * 64,
+                "model_location": "ollama_server",
             },
             credential_store=self.vault,
         )
-        self.assertEqual("ornith:latest", updated["ai"]["local"]["model_id"])
-        self.assertIsNone(updated["ai"]["local"]["setup_fingerprint"])
+        self.assertEqual("ornith:latest", updated["ai"]["ollama"]["model_id"])
+        self.assertEqual("ollama_server", updated["ai"]["ollama"]["model_location"])
+        self.assertIsNone(updated["ai"]["ollama"]["setup_fingerprint"])
 
         with self.assertRaises(ValueError):
-            store.update_local_ai_settings(
-                {"model_id": "cloud:cloud", "model_digest": None},
+            store.update_ollama_ai_settings(
+                {
+                    "model_id": "cloud:cloud",
+                    "model_digest": None,
+                    "model_location": "ollama_cloud",
+                },
                 credential_store=self.vault,
             )
+
+    def test_ollama_disclosure_is_required_only_for_remote_or_cloud_data_flow(self) -> None:
+        store.update_ollama_ai_settings(
+            {
+                "model_id": "ornith:latest",
+                "model_digest": "b" * 64,
+                "model_location": "ollama_server",
+            },
+            credential_store=self.vault,
+        )
+        with self.assertRaisesRegex(ValueError, "not required"):
+            store.acknowledge_ollama_disclosure(
+                {"version": store.OLLAMA_DISCLOSURE_VERSION},
+                credential_store=self.vault,
+            )
+
+        selected = store.update_ollama_ai_settings(
+            {
+                "model_id": "cloud:cloud",
+                "model_digest": "c" * 64,
+                "model_location": "ollama_cloud",
+            },
+            credential_store=self.vault,
+        )
+        self.assertIsNone(selected["ai"]["ollama"]["disclosure_version"])
+        with patch("am_configurator.store._now_iso", return_value="2026-07-29T20:00:00+00:00"):
+            acknowledged = store.acknowledge_ollama_disclosure(
+                {"version": store.OLLAMA_DISCLOSURE_VERSION},
+                credential_store=self.vault,
+            )
+        self.assertEqual(
+            store.OLLAMA_DISCLOSURE_VERSION,
+            acknowledged["ai"]["ollama"]["disclosure_version"],
+        )
+        self.assertEqual(
+            "2026-07-29T20:00:00+00:00",
+            acknowledged["ai"]["ollama"]["disclosure_at"],
+        )
+        self.assertIsNone(acknowledged["ai"]["ollama"]["setup_fingerprint"])
+
+        changed = store.update_ollama_ai_settings(
+            {
+                "model_id": "other:latest",
+                "model_digest": "d" * 64,
+                "model_location": "ollama_server",
+            },
+            credential_store=self.vault,
+        )
+        self.assertIsNone(changed["ai"]["ollama"]["disclosure_version"])
+        self.assertIsNone(changed["ai"]["ollama"]["disclosure_at"])
+
+    def test_ollama_origin_change_normalizes_and_resets_identity_without_network(self) -> None:
+        configured = copy.deepcopy(V7_DEFAULTS)
+        configured["ai"]["backend"] = "ollama"
+        configured["ai"]["ollama"].update(
+            {
+                "model_id": "ornith:latest",
+                "model_digest": "b" * 64,
+                "model_location": "ollama_server",
+                "setup_fingerprint": "c" * 64,
+                "disclosure_version": "ollama-v1",
+                "disclosure_at": "2026-07-29T12:00:00+00:00",
+            }
+        )
+        store.save_settings(configured, credential_store=self.vault)
+
+        with patch(
+            "am_configurator.ollama_client.OllamaClient.list_models",
+            side_effect=AssertionError("endpoint mutation contacted Ollama"),
+        ):
+            updated = store.update_ollama_ai_settings(
+                {"base_url": "HTTPS://OLLAMA.LAN:443/"},
+                credential_store=self.vault,
+            )
+
+        self.assertEqual(
+            {
+                "base_url": "https://ollama.lan",
+                "model_id": None,
+                "model_digest": None,
+                "model_location": None,
+                "setup_fingerprint": None,
+                "disclosure_version": None,
+                "disclosure_at": None,
+            },
+            updated["ai"]["ollama"],
+        )
 
     def test_unavailable_or_unverified_vault_preserves_the_only_v2_copy(self) -> None:
         original = self._write(_v2_settings(key="sk-only-copy"))
@@ -754,7 +863,7 @@ class SettingsV6Tests(unittest.TestCase):
         )
         self.assertIsNone(reason)
         self.assertEqual("sk-only-copy", self.vault.get("xai"))
-        self.assertEqual(6, settings["schema_version"])
+        self.assertEqual(7, settings["schema_version"])
         self.assertNotIn("sk-only-copy", store.settings_path().read_text("utf-8"))
 
     def test_invalid_legacy_credential_is_not_a_vault_outage(self) -> None:
@@ -845,7 +954,7 @@ class SettingsV6Tests(unittest.TestCase):
         self.assertEqual(original, store.settings_path().read_bytes())
 
     def test_strict_updates_never_persist_credentials_and_invalidate_setup(self) -> None:
-        configured = copy.deepcopy(V6_DEFAULTS)
+        configured = copy.deepcopy(V7_DEFAULTS)
         configured["ai"]["backend"] = "api"
         configured["ai"]["api"]["providers"]["xai"]["setup_fingerprint"] = "a" * 64
         store.save_settings(configured, credential_store=self.vault)
@@ -880,17 +989,17 @@ class SettingsV6Tests(unittest.TestCase):
         self.assertEqual("none", updated["generation"]["loop_mode"])
 
     def test_master_intent_can_be_saved_without_backend_readiness(self) -> None:
-        configured = copy.deepcopy(V6_DEFAULTS)
-        configured["ai"].update({"enabled": True, "backend": "local"})
+        configured = copy.deepcopy(V7_DEFAULTS)
+        configured["ai"].update({"enabled": True, "backend": "ollama"})
 
         saved = store.save_settings(configured, credential_store=self.vault)
 
         self.assertTrue(saved["ai"]["enabled"])
-        self.assertEqual("local", saved["ai"]["backend"])
-        self.assertIsNone(saved["ai"]["local"]["setup_fingerprint"])
+        self.assertEqual("ollama", saved["ai"]["backend"])
+        self.assertIsNone(saved["ai"]["ollama"]["setup_fingerprint"])
 
     def test_failed_key_update_restores_the_previous_vault_value(self) -> None:
-        configured = copy.deepcopy(V6_DEFAULTS)
+        configured = copy.deepcopy(V7_DEFAULTS)
         configured["ai"]["backend"] = "api"
         configured["ai"]["api"]["providers"]["xai"]["setup_fingerprint"] = "a" * 64
         store.save_settings(configured, credential_store=self.vault)
@@ -910,7 +1019,7 @@ class SettingsV6Tests(unittest.TestCase):
     def test_failed_provider_key_save_and_delete_restore_only_that_provider(
         self,
     ) -> None:
-        store.save_settings(copy.deepcopy(V6_DEFAULTS), credential_store=self.vault)
+        store.save_settings(copy.deepcopy(V7_DEFAULTS), credential_store=self.vault)
         self.vault.set("xai", "xai-untouched")
         self.vault.set("moonshot", "moonshot-existing")
         self.vault.set("deepseek", "deepseek-existing")
@@ -937,7 +1046,7 @@ class SettingsV6Tests(unittest.TestCase):
                 self.assertEqual(before, store.settings_path().read_bytes())
 
     def test_invalid_key_input_is_distinct_from_an_unavailable_vault(self) -> None:
-        store.save_settings(copy.deepcopy(V6_DEFAULTS), credential_store=self.vault)
+        store.save_settings(copy.deepcopy(V7_DEFAULTS), credential_store=self.vault)
         before = store.settings_path().read_bytes()
         invalid_values = (
             "sk-line\nbreak",
@@ -969,7 +1078,7 @@ class SettingsV6Tests(unittest.TestCase):
         )
 
     def test_malformed_stored_credential_is_reported_without_exposure(self) -> None:
-        store.save_settings(copy.deepcopy(V6_DEFAULTS), credential_store=self.vault)
+        store.save_settings(copy.deepcopy(V7_DEFAULTS), credential_store=self.vault)
         malformed = "sk-stored\nsecret"
         self.vault._values["xai"] = malformed
 
@@ -989,7 +1098,7 @@ class SettingsV6Tests(unittest.TestCase):
         self.assertNotIn(malformed, str(captured.exception))
 
     def test_environment_override_is_external_and_never_written(self) -> None:
-        store.save_settings(copy.deepcopy(V6_DEFAULTS), credential_store=self.vault)
+        store.save_settings(copy.deepcopy(V7_DEFAULTS), credential_store=self.vault)
         before = store.settings_path().read_bytes()
         os.environ["XAI_API_KEY"] = "sk-environment-only"
 

@@ -1783,6 +1783,17 @@ def _settings_view(*, credential_store=None) -> dict[str, Any]:
         "ai": {
             "enabled": settings["ai"]["enabled"],
             "backend": settings["ai"]["backend"],
+            "ollama": {
+                field: settings["ai"]["ollama"][field]
+                for field in (
+                    "base_url",
+                    "model_id",
+                    "model_digest",
+                    "model_location",
+                    "disclosure_version",
+                    "disclosure_at",
+                )
+            },
             "api": {
                 "selected_provider": api_settings["selected_provider"],
                 "providers": {
@@ -2401,6 +2412,8 @@ class _Handler(BaseHTTPRequestHandler):
     def _is_ai_path(path: str) -> bool:
         return path.startswith("/api/ai/") or path in {
             "/api/settings/ai",
+            "/api/settings/ollama",
+            "/api/settings/ollama/disclosure",
             "/api/settings/credential",
             "/api/settings/migration/discard-credential",
         }
@@ -2449,13 +2462,13 @@ class _Handler(BaseHTTPRequestHandler):
                         )
                     capability = self.state.ai_services()
                     self._json(capability.status())
-                elif path == "/api/ai/local/models":
+                elif path == "/api/ai/ollama/models":
                     if parsed.query:
                         raise ValueError(
-                            "The local model route does not accept query fields."
+                            "The Ollama model route does not accept query fields."
                         )
                     capability = self.state.ai_services()
-                    self._json(capability.discover_local_models())
+                    self._json(capability.discover_ollama_models())
                 elif path.startswith("/api/library/"):
                     self._library_get(path, parsed.query)
                 elif path.startswith("/api/lighting/"):
@@ -2543,16 +2556,20 @@ class _Handler(BaseHTTPRequestHandler):
                 self._save_settings_privacy(body)
             elif path == "/api/settings/ai":
                 self._save_ai_settings(body)
+            elif path == "/api/settings/ollama":
+                self._save_ollama_settings(body)
+            elif path == "/api/settings/ollama/disclosure":
+                self._save_ollama_disclosure(body)
             elif path == "/api/settings/credential":
                 self._save_ai_credential(body)
             elif path == "/api/settings/migration/discard-credential":
                 self._discard_legacy_ai_credential(body)
             elif path == "/api/ai/test":
                 self._test_ai_backend(body)
-            elif path == "/api/ai/local/select":
-                self._select_local_model(body)
-            elif path == "/api/ai/local/clear":
-                self._clear_local_model(body)
+            elif path == "/api/ai/ollama/select":
+                self._select_ollama_model(body)
+            elif path == "/api/ai/ollama/clear":
+                self._clear_ollama_model(body)
             elif path == "/api/native/choose-library":
                 self._native_choose_library(body)
             elif path == "/api/native/reveal-library":
@@ -2677,7 +2694,7 @@ class _Handler(BaseHTTPRequestHandler):
             body,
             credential_store=self.state._credential_store,
         )
-        self._json(capability.status())
+        self._json(capability.status(probe=False))
 
     def _save_ai_credential(self, body: dict[str, Any]) -> None:
         from . import store
@@ -2694,7 +2711,53 @@ class _Handler(BaseHTTPRequestHandler):
         )
         self.state.reconcile_lighting(force=True)
         capability = self.state.ai_services()
-        self._json(capability.status())
+        self._json(capability.status(probe=False))
+
+    def _save_ollama_settings(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(
+            body,
+            allowed={"base_url"},
+            required={"base_url"},
+        )
+        self._require_ai_idle()
+        settings = store.update_ollama_ai_settings(
+            body,
+            credential_store=self.state._credential_store,
+        )
+        self.state.ai_services().close()
+        ollama = settings["ai"]["ollama"]
+        self._json(
+            {
+                "ollama": {
+                    field: ollama[field]
+                    for field in (
+                        "base_url",
+                        "model_id",
+                        "model_digest",
+                        "model_location",
+                        "disclosure_version",
+                        "disclosure_at",
+                    )
+                }
+            }
+        )
+
+    def _save_ollama_disclosure(self, body: dict[str, Any]) -> None:
+        from . import store
+
+        self._strict_body(
+            body,
+            allowed={"version"},
+            required={"version"},
+        )
+        self._require_ai_idle()
+        store.acknowledge_ollama_disclosure(
+            body,
+            credential_store=self.state._credential_store,
+        )
+        self._json(self.state.ai_services().status(probe=False))
 
     def _discard_legacy_ai_credential(self, body: dict[str, Any]) -> None:
         from . import store
@@ -2724,53 +2787,42 @@ class _Handler(BaseHTTPRequestHandler):
             self.state._generation_gate.finish(token)
         self._json(status)
 
-    def _select_local_model(self, body: dict[str, Any]) -> None:
+    def _select_ollama_model(self, body: dict[str, Any]) -> None:
         from . import store
 
-        self._strict_body(body, allowed={"model_id"}, required={"model_id"})
-        self._require_ai_idle()
-        model_id = body["model_id"]
-        if not isinstance(model_id, str):
-            raise ValueError("The Ollama model name is invalid.")
-        capability = self.state.ai_services()
-        discovered = capability.discover_local_models()
-        if discovered.get("available") is not True:
-            self._json(
-                {"error": "The local Ollama service is unavailable."},
-                HTTPStatus.SERVICE_UNAVAILABLE,
-            )
-            return
-        match = next(
-            (
-                model
-                for model in discovered.get("models", [])
-                if isinstance(model, dict) and model.get("model_id") == model_id
-            ),
-            None,
+        self._strict_body(
+            body,
+            allowed={"model_id", "model_digest", "model_location"},
+            required={"model_id", "model_digest", "model_location"},
         )
-        if match is None:
-            raise ValueError("The selected Ollama model is not installed locally.")
-        store.update_local_ai_settings(
+        self._require_ai_idle()
+        capability = self.state.ai_services()
+        store.update_ollama_ai_settings(
             {
-                "model_id": match["model_id"],
-                "model_digest": match["digest"],
+                "model_id": body["model_id"],
+                "model_digest": body["model_digest"],
+                "model_location": body["model_location"],
             },
             credential_store=self.state._credential_store,
         )
         capability.close()
-        self._json(capability.status())
+        self._json(capability.status(probe=False))
 
-    def _clear_local_model(self, body: dict[str, Any]) -> None:
+    def _clear_ollama_model(self, body: dict[str, Any]) -> None:
         from . import store
 
         self._strict_body(body, allowed=set())
         self._require_ai_idle()
         capability = self.state.ai_services()
-        store.update_local_ai_settings(
-            {"model_id": None, "model_digest": None},
+        store.update_ollama_ai_settings(
+            {
+                "model_id": None,
+                "model_digest": None,
+                "model_location": None,
+            },
             credential_store=self.state._credential_store,
         )
-        self._json(capability.status())
+        self._json(capability.status(probe=False))
 
     def _synchronize_document(self, body: dict[str, Any]) -> None:
         self._strict_body(body, allowed={"config"}, required={"config"})

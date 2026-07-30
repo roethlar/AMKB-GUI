@@ -71,14 +71,18 @@ from am_configurator.library import (
 
 
 _DEFAULT_SETTINGS = {
-    "schema_version": 6,
+    "schema_version": 7,
     "ai": {
         "enabled": False,
         "backend": None,
-        "local": {
+        "ollama": {
+            "base_url": "http://127.0.0.1:11434",
             "model_id": None,
             "model_digest": None,
+            "model_location": None,
             "setup_fingerprint": None,
+            "disclosure_version": None,
+            "disclosure_at": None,
         },
         "api": {
             "selected_provider": "xai",
@@ -210,17 +214,61 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual("sk-existing", store.resolve_xai_key())
         self.assertFalse(path.with_name(path.name + ".bad").exists())
         saved = json.loads(path.read_text(encoding="utf-8"))
-        self.assertEqual(saved["schema_version"], 6)
+        self.assertEqual(saved["schema_version"], 7)
         self.assertNotIn("llm", saved)
         self.assertNotIn("sk-existing", path.read_text(encoding="utf-8"))
 
-    def test_v6_round_trip(self) -> None:
+    def test_v7_round_trip(self) -> None:
         payload = copy.deepcopy(_DEFAULT_SETTINGS)
-        payload["ai"]["backend"] = "local"
-        payload["ai"]["local"]["setup_fingerprint"] = "a" * 64
+        payload["ai"]["backend"] = "ollama"
+        payload["ai"]["ollama"]["setup_fingerprint"] = "a" * 64
         payload["generation"]["loop_mode"] = "ping_pong"
         store.save_settings(payload)
         self.assertEqual(store.load_settings(), payload)
+
+    def test_v6_migrates_exactly_to_v7_and_resets_ollama_setup_identity(self) -> None:
+        library_root = str((Path(self._tmp) / "library").resolve())
+        legacy = copy.deepcopy(_DEFAULT_SETTINGS)
+        legacy["schema_version"] = 6
+        legacy["ai"]["enabled"] = True
+        legacy["ai"]["backend"] = "local"
+        legacy["ai"]["local"] = {
+            "model_id": "ornith:latest",
+            "model_digest": "b" * 64,
+            "setup_fingerprint": "c" * 64,
+        }
+        del legacy["ai"]["ollama"]
+        legacy["ai"]["api"]["providers"]["xai"].update(
+            {
+                "setup_fingerprint": "d" * 64,
+                "disclosure_version": "xai-api-disclosure-v1",
+                "disclosure_at": "2026-07-29T12:00:00+00:00",
+            }
+        )
+        legacy["library"] = {
+            "current_root": library_root,
+            "roots": [library_root],
+        }
+        legacy["generation"]["loop_mode"] = "ping_pong"
+        path = store.settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(legacy), encoding="utf-8")
+
+        migrated = store.load_settings()
+        expected = copy.deepcopy(_DEFAULT_SETTINGS)
+        expected["ai"]["enabled"] = True
+        expected["ai"]["backend"] = "ollama"
+        expected["ai"]["ollama"].update(
+            {
+                "model_id": "ornith:latest",
+                "model_digest": "b" * 64,
+            }
+        )
+        expected["ai"]["api"] = copy.deepcopy(legacy["ai"]["api"])
+        expected["library"] = copy.deepcopy(legacy["library"])
+        expected["generation"]["loop_mode"] = "ping_pong"
+        self.assertEqual(expected, migrated)
+        self.assertEqual(expected, json.loads(path.read_text(encoding="utf-8")))
 
     def test_unknown_fields_rejected(self) -> None:
         with self.assertRaises(ValueError):
@@ -437,12 +485,21 @@ class DesktopServerTests(unittest.TestCase):
             metadata["project"]["gui-scripts"]["am-configurator"],
         )
 
-    def test_empty_state_copy_names_the_current_device_read_action(self) -> None:
+    def test_empty_state_connect_task_reaches_the_device_read_action(self) -> None:
         source = (ROOT / "am_configurator" / "web" / "index.html").read_text(
             encoding="utf-8"
         )
+        script = (ROOT / "am_configurator" / "web" / "app.js").read_text(
+            encoding="utf-8"
+        )
 
-        self.assertIn("Devices → Read keymap &amp; macros", source)
+        self.assertIn("Connect a keyboard", source)
+        self.assertIn('id="read-device"', source)
+        self.assertIn("Read keymap &amp; macros", source)
+        self.assertIn(
+            '$("#empty-connect").addEventListener("click",showDeviceDialog)',
+            script,
+        )
         self.assertNotIn("Device → Read", source)
 
     def test_version_lives_only_in_about(self) -> None:
@@ -2243,7 +2300,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
 
         status, data = self._request("GET", "/api/settings")
         self.assertEqual(status, 200)
-        self.assertEqual(data["schema_version"], 6)
+        self.assertEqual(data["schema_version"], 7)
         self.assertNotIn("llm", data)
         self.assertNotIn("candidate_count", data["generation"])
         # The raw key never returns to the browser, anywhere in the payload.

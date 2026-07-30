@@ -128,34 +128,39 @@ test("disabled first paint exposes no generation control outside Settings", () =
   assert.match(js,/return Boolean\(aiStudioAvailable\(state\.aiStatus\)\)/);
   assert.doesNotMatch(js,/ROUTES\.CREATE|openGenerationDialog|renderGenerationDialog/);
   const loader=js.slice(js.indexOf("async function loadAiConfig"),js.indexOf("function refreshAiGate"));
-  assert.match(loader,/shouldDiscoverLocalModels\(state\.lighting\.route,state\.aiStatus\)/);
-  assert.equal((loader.match(/\/api\/ai\/local\/models/g)||[]).length,1);
-  assert.doesNotMatch(loader,/Promise\.allSettled\(\[[^\]]*\/api\/ai\/local\/models/);
+  assert.doesNotMatch(loader,/\/api\/ai\/ollama\/models|shouldDiscoverOllamaModels/);
+  assert.equal((js.match(/\/api\/ai\/ollama\/models/g)||[]).length,1);
 });
 
-test("Settings exposes only installed Ollama models and the curated API", () => {
-  const local=html.indexOf('id="settings-ai-local"');
+test("Settings exposes Ollama server and cloud models plus the curated API", () => {
+  const ollama=html.indexOf('id="settings-ai-ollama"');
   const api=html.indexOf('id="settings-ai-api"');
-  assert.ok(local>=0&&local<api);
+  assert.ok(ollama>=0&&ollama<api);
   for(const id of [
-    "settings-ai-enabled","settings-ai-local","settings-ai-api","settings-local-state",
-    "settings-local-model","settings-local-model-select","settings-local-refresh",
-    "settings-local-select","settings-local-test","settings-local-clear",
+    "settings-ai-enabled","settings-ai-ollama","settings-ai-api","settings-ollama-state",
+    "settings-ollama-base-url","settings-ollama-save-url","settings-ollama-model",
+    "settings-ollama-model-select","settings-ollama-refresh",
+    "settings-ollama-select","settings-ollama-test","settings-ollama-clear",
+    "settings-ollama-transport-warning","settings-ollama-disclosure",
+    "settings-ollama-disclosure-ack","settings-ollama-disclosure-detail",
     "settings-api-provider","settings-api-model","settings-api-key","settings-api-credential-state",
     "settings-api-disclosure-ack","settings-api-test","settings-api-remove",
   ])assert.match(html,new RegExp(`id="${id}"`));
-  assert.match(html,/never downloads model weights/);
-  const localPanel=html.slice(html.indexOf('id="settings-local-panel"'),html.indexOf('id="settings-api-panel"'));
-  assert.match(localPanel,/Ollama/);
-  assert.doesNotMatch(localPanel,/GGUF|llama\.cpp|GPU backend|direct model/i);
+  assert.match(html,/never downloads, pulls, or removes models/);
+  const ollamaPanel=html.slice(html.indexOf('id="settings-ollama-panel"'),html.indexOf('id="settings-api-panel"'));
+  assert.match(ollamaPanel,/Ollama/);
+  assert.doesNotMatch(ollamaPanel,/GGUF|llama\.cpp|GPU backend|direct model/i);
   assert.doesNotMatch(html,/settings-gguf|settings-local-advanced/);
-  assert.match(js,/api\("\/api\/ai\/local\/models"/);
-  assert.match(js,/api\("\/api\/ai\/local\/select"/);
-  assert.match(js,/JSON\.stringify\(\{model_id/);
-  assert.match(js,/api\("\/api\/ai\/local\/clear"/);
+  assert.match(js,/api\("\/api\/ai\/ollama\/models"/);
+  assert.match(js,/api\("\/api\/ai\/ollama\/select"/);
+  assert.match(js,/JSON\.stringify\(\{model_id:model\.model_id,model_digest:model\.digest,model_location:model\.location\}\)/);
+  assert.match(js,/api\("\/api\/ai\/ollama\/clear"/);
   assert.match(js,/api\("\/api\/ai\/test"/);
-  assert.doesNotMatch(js,/\/api\/ai\/local\/gguf|settings-gguf|chooseAdvancedLocalModel/);
-  assert.doesNotMatch(server,/\/api\/ai\/local\/gguf|_select_advanced_local_model|_choose_local_model/);
+  assert.match(js,/api\(\"\/api\/settings\/ollama\/disclosure\"/);
+  assert.match(js,/On this Ollama server/);
+  assert.match(js,/Ollama Cloud/);
+  assert.doesNotMatch(js,/\/api\/ai\/ollama\/gguf|settings-gguf|chooseAdvancedLocalModel/);
+  assert.doesNotMatch(server,/\/api\/ai\/ollama\/gguf|_select_advanced_local_model|_choose_local_model/);
   assert.match(js,/model_id/);
   assert.match(css,/\.check-row\s*>\s*span\s*\{[^}]*display:\s*grid[^}]*gap:/);
   const effect=js.slice(js.indexOf("async function startProceduralGeneration"),js.indexOf("function applyReviewedLighting",js.indexOf("async function startProceduralGeneration")));
@@ -181,7 +186,7 @@ test("one master switch owns and hides every AI setup control", () => {
     html.indexOf('id="settings-ai-enabled"')<
     html.indexOf('id="settings-ai-details"') &&
     html.indexOf('id="settings-ai-details"')<
-    html.indexOf('id="settings-ai-local"')
+    html.indexOf('id="settings-ai-ollama"')
   );
   assert.doesNotMatch(html,/Enable after setup passes|Test &amp; enable/);
   assert.match(html,/Test setup/);
@@ -191,7 +196,7 @@ test("one master switch owns and hides every AI setup control", () => {
   const toggleAction=js.slice(js.indexOf("async function setAiEnabled"),js.indexOf("async function selectAiBackend"));
   assert.match(toggleAction,/api\("\/api\/settings\/ai"/);
   assert.match(toggleAction,/JSON\.stringify\(\{enabled,backend\}\)/);
-  const backendAction=js.slice(js.indexOf("async function selectAiBackend"),js.indexOf("async function refreshLocalModels"));
+  const backendAction=js.slice(js.indexOf("async function selectAiBackend"),js.indexOf("async function refreshOllamaModels"));
   assert.doesNotMatch(backendAction,/enabled\s*:/);
   const setupAction=js.slice(js.indexOf("async function testAiBackend"),js.indexOf("async function saveApiCredential"));
   assert.doesNotMatch(setupAction,/enabled\s*:\s*false/);
@@ -205,13 +210,13 @@ test("About is the only normal application-version surface", () => {
   assert.match(html,/id="about-button"[^>]*>About<\/button>/);
   assert.match(html,/id="about-dialog"[\s\S]*Version __AM_VERSION__[\s\S]*<\/dialog>/);
   assert.doesNotMatch(html,/id="app-version"|class="app-version"/);
-  assert.match(css,/\.about-link\s*\{[^}]*background:\s*transparent[^}]*font-size:\s*11px/);
+  assert.match(css,/\.about-link\s*\{[^}]*background:\s*transparent[^}]*font-size:\s*13px/);
 });
 
 test("Settings explains incompatible Ollama discovery without adding show", () => {
-  assert.match(js,/normalizeLocalModels\(await api\("\/api\/ai\/local\/models"\)\)/);
-  assert.match(js,/Ollama must be upgraded before local AI can discover installed models/);
-  assert.match(js,/Upgrade Ollama to use local AI/);
+  assert.match(js,/normalizeOllamaModels\(await api\("\/api\/ai\/ollama\/models"\)\)/);
+  assert.match(js,/configured Ollama server must be upgraded/);
+  assert.match(js,/Upgrade the configured Ollama server/);
   assert.doesNotMatch(js,/\/api\/show/);
 });
 
@@ -292,7 +297,7 @@ test("inline generation tool omits backend identity and keeps the exact target d
   assert.doesNotMatch(prompt,/===\s*"api"\s*\?\s*"API"\s*:\s*"Local"/);
   assert.match(prompt,/Custom \$\{destinationSlot-4\} · \$\{esc\(targetLabel\)\}/);
   const settings=html.slice(html.indexOf('id="settings-screen"'));
-  assert.match(settings,/settings-ai-local/);
+  assert.match(settings,/settings-ai-ollama/);
   assert.match(settings,/settings-ai-api/);
   assert.match(js,/manifest\?\.costs\?\.actual_incomplete/);
 });
@@ -431,7 +436,7 @@ test("manual Lighting layout, keyboard controls, narrow windows, and reduced mot
   assert.match(css,/@media\s*\(max-width:\s*720px\)/);
   assert.match(css,/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
   const medium=css.match(/@media\s*\(max-width:\s*1240px\)\s*\{[\s\S]*?\n\}/)?.[0]||"";
-  const zoomed=css.match(/@media\s*\(max-width:\s*820px\)\s*\{[\s\S]*?\n\}/)?.[0]||"";
+  const zoomed=css.match(/@media\s*\(max-width:\s*1120px\)\s*\{[\s\S]*?\n\}/)?.[0]||"";
   assert.match(medium,/grid-template-areas:\s*"canvas controls"\s*"frames frames"/);
   assert.match(medium,/overflow-x:\s*auto/);
   assert.match(zoomed,/\.topbar\s*\{[^}]*grid-template-columns:\s*1fr auto/);
@@ -439,11 +444,12 @@ test("manual Lighting layout, keyboard controls, narrow windows, and reduced mot
 });
 
 test("narrow Keymap releases the desktop keyboard minimum without page clipping", () => {
-  const start=css.indexOf("@media (max-width: 1120px)");
-  const end=css.indexOf("@media (max-width: 980px)",start);
-  const stacked=css.slice(start,end);
-  assert.match(stacked,/\.editor-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
-  assert.match(stacked,/\.editor-grid\s*>\s*\*\s*\{[^}]*min-width:\s*0/);
+  const mediumStart=css.indexOf("@media (max-width: 1240px)");
+  const medium=css.slice(mediumStart,css.indexOf("@media (max-width: 1120px)",mediumStart));
+  assert.match(medium,/\.editor-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(medium,/\.editor-grid\s*>\s*\*\s*\{[^}]*min-width:\s*0/);
+  const stackedStart=css.indexOf("@media (max-width: 1120px)");
+  const stacked=css.slice(stackedStart,css.indexOf("@media (max-width: 980px)",stackedStart));
   assert.match(stacked,/\.keyboard-stage\s*\{[^}]*min-height:\s*0/);
 });
 

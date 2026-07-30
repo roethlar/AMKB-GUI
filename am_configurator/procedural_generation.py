@@ -27,7 +27,6 @@ from .generation_admission import (
 from .library import GeneratedAssetLibrary, ManifestError
 from .llm import ProviderError, ProviderUsage
 from .recipe_provider import (
-    LOCAL_MAX_RETRIES,
     MAX_RECIPE_PROMPT_CHARS,
     RecipeRequest,
     RecipeResult,
@@ -242,17 +241,17 @@ class ProceduralGenerationCoordinator:
     @staticmethod
     def _model_record(status: dict[str, Any]) -> dict[str, str]:
         backend = status["backend"]
-        if backend == "local":
-            model_id = status["local"].get("model_id")
-            provider = status["local"].get("provider")
+        if backend == "ollama":
+            model_id = status["ollama"].get("model_id")
+            provider = status["ollama"].get("provider")
             if (
                 not isinstance(model_id, str)
                 or not model_id
                 or provider != "ollama"
             ):
-                raise GenerationValidationError("the selected local model is unavailable")
+                raise GenerationValidationError("the selected Ollama model is unavailable")
             return {
-                "backend": "local",
+                "backend": "ollama",
                 "provider": provider,
                 "model_id": model_id,
             }
@@ -564,8 +563,6 @@ class ProceduralGenerationCoordinator:
         models = manifest["models"]
         target = manifest["target"]
         backend = models["backend"]
-        max_attempt = LOCAL_MAX_RETRIES if backend == "local" else 0
-        retry_reason: str | None = None
         request = RecipeRequest(
             prompt=manifest["prompt"],
             width=target["raster"]["width"],
@@ -574,24 +571,15 @@ class ProceduralGenerationCoordinator:
             density_default="balanced",
         )
 
-        for index in range(max_attempt + 1):
-            if cancelled.is_set() and backend == "local":
+        for index in range(1):
+            if cancelled.is_set() and backend == "ollama":
                 self._finish_cancelled(job_id, None)
                 return
             attempt_id, operation = self._begin_attempt(job_id, index)
             try:
-                if index == 0:
-                    result = provider.generate(
-                        request, deadline, cancelled.is_set
-                    )
-                else:
-                    result = provider.generate_attempt(
-                        request,
-                        deadline,
-                        cancelled.is_set,
-                        attempt=index,
-                        validation_reason=retry_reason,
-                    )
+                result = provider.generate(
+                    request, deadline, cancelled.is_set
+                )
             except ProviderError as error:
                 self._fail_attempt(
                     job_id,
@@ -603,9 +591,6 @@ class ProceduralGenerationCoordinator:
                 if cancelled.is_set():
                     self._finish_cancelled(job_id, attempt_id)
                     return
-                if backend == "local" and error.code == "bad_response" and index < max_attempt:
-                    retry_reason = "recipe schema or semantic validation"
-                    continue
                 self._finish_job_failure(job_id, attempt_id, error.code, error)
                 return
             except Exception as error:
@@ -717,9 +702,6 @@ class ProceduralGenerationCoordinator:
                     quality=metrics,
                     recipe_asset_id=recipe_asset["asset_id"],
                 )
-                if backend == "local" and index < max_attempt and not cancelled.is_set():
-                    retry_reason = ", ".join(error.failures)
-                    continue
                 self._finish_job_failure(
                     job_id, attempt_id, "quality_failed", error
                 )
@@ -935,7 +917,7 @@ class ProceduralGenerationCoordinator:
             backend = manifest["models"].get("backend")
             phase = (
                 "retryable_local"
-                if backend == "local"
+                if backend == "ollama"
                 else "interrupted_api_no_replay"
             )
 
@@ -996,7 +978,7 @@ class ProceduralGenerationCoordinator:
             return {"job_id": job_id, "action": "adopted_banked_procedural"}
 
         backend = manifest["models"].get("backend")
-        phase = "retryable_local" if backend == "local" else "interrupted_api_no_replay"
+        phase = "retryable_ollama" if backend == "ollama" else "interrupted_api_no_replay"
         timestamp = _now_iso()
 
         def interrupt(current: dict) -> None:

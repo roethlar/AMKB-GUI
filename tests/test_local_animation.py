@@ -203,30 +203,24 @@ class OllamaRecipeClientTests(unittest.TestCase):
                 width=18,
                 height=7,
                 frame_count=200,
-                attempt=0,
-                validation_reason=None,
             ),
             observed["body"],
         )
         self.assertGreater(observed["timeout"], 0)
 
-    def test_semantic_retry_changes_seed_and_includes_the_validation_error(self) -> None:
+    def test_semantic_failure_stops_after_exactly_one_model_request(self) -> None:
         calls = []
 
         def respond(body):
             calls.append(body)
             recipe = _recipe()
-            if len(calls) == 1:
-                recipe["layers"][0]["phase"] = 2
+            recipe["layers"][0]["phase"] = 2
             return FakeResponse({"message": {"content": json.dumps(recipe)}})
 
-        result = OllamaRecipeClient(
-            connection_factory=fake_connection_factory(respond)
-        ).generate("blue stars", model="ornith:latest")
-        invalid_recipe = _recipe()
-        invalid_recipe["layers"][0]["phase"] = 2
-        with self.assertRaises(RecipeError) as invalid:
-            validate_recipe(invalid_recipe)
+        with self.assertRaises(RecipeError):
+            OllamaRecipeClient(
+                connection_factory=fake_connection_factory(respond)
+            ).generate("blue stars", model="ornith:latest")
         common = {
             "model_id": "ornith:latest",
             "prompt": "blue stars",
@@ -238,27 +232,25 @@ class OllamaRecipeClientTests(unittest.TestCase):
             "height": 7,
             "frame_count": 200,
         }
-        self.assertEqual("Blue shooting stars", result["name"])
-        self.assertEqual(2, len(calls))
-        self.assertEqual(
-            build_ollama_recipe_payload(
-                **common, attempt=0, validation_reason=None
-            ),
-            calls[0],
-        )
-        self.assertEqual(
-            build_ollama_recipe_payload(
-                **common, attempt=1, validation_reason=str(invalid.exception)
-            ),
-            calls[1],
-        )
-        self.assertNotEqual(calls[0]["options"]["seed"], calls[1]["options"]["seed"])
-        self.assertIn("Retry correction:", calls[1]["messages"][-1]["content"])
-        self.assertIn("phase", calls[1]["messages"][-1]["content"])
+        self.assertEqual(1, len(calls))
+        self.assertEqual(build_ollama_recipe_payload(**common), calls[0])
 
-    def test_transport_failure_is_typed_and_endpoint_is_fixed_to_loopback(self) -> None:
+    def test_transport_failure_is_typed_and_endpoint_accepts_normalized_lan_origin(self) -> None:
         with self.assertRaises(ValueError):
-            OllamaRecipeClient(endpoint="https://example.com")
+            OllamaRecipeClient(endpoint="ftp://ollama.lan")
+
+        observed = {}
+
+        def respond(_body):
+            return FakeResponse({"message": {"content": json.dumps(_recipe())}})
+
+        client = OllamaRecipeClient(
+            endpoint="HTTP://OLLAMA.LAN:12000/",
+            connection_factory=fake_connection_factory(respond, observed),
+        )
+        client.generate("blue pulse")
+        self.assertEqual("http://ollama.lan:12000", client.endpoint)
+        self.assertEqual(("ollama.lan", 12000), (observed["host"], observed["port"]))
 
         def offline(_host, _port, *, timeout):
             del timeout

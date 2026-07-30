@@ -17,7 +17,7 @@
       </div>
       <div class="top-actions">
         <button id="open-button" class="button ghost">Open</button>
-        <button id="merge-button" class="button ghost">Merge</button>
+        <button id="merge-button" class="button ghost" hidden title="Merge another JSON">Merge</button>
         <button id="save-button" class="button ghost">Save JSON</button>
         <button id="settings-button" class="button ghost">Settings</button>
         <button id="write-button" class="button danger" disabled>Write to keyboard</button>
@@ -69,9 +69,19 @@
         <div id="route-content">
           <section id="empty-state" class="empty-state" hidden>
             <div class="empty-orbit"><div></div><img src="/icon.png" alt=""></div>
-            <p class="eyebrow">Local keyboard studio</p>
-            <h1 id="empty-title">Open a configuration to begin.</h1>
-            <p id="empty-description">Connect by USB and choose <code>Devices → Read keymap &amp; macros</code>, or open an existing JSON to preserve every lighting page.</p>
+            <h1 id="empty-title">Set up your keyboard</h1>
+            <p id="empty-description">Start with your keyboard plugged in, or open a profile you saved earlier.</p>
+            <div class="empty-actions">
+              <button id="empty-connect" type="button" class="task-card">
+                <strong>Connect a keyboard</strong>
+                <span>Find your keyboard over USB and read its current setup. Reading never writes to the keyboard.</span>
+              </button>
+              <button id="empty-open" type="button" class="task-card">
+                <strong>Open a JSON profile</strong>
+                <span>Open a complete portable profile with keymaps, macros, and lighting.</span>
+              </button>
+            </div>
+            <p class="empty-note">Some keyboards cannot read their lighting back. Keep a complete JSON profile — or this computer's last verified snapshot — so existing lighting is preserved.</p>
           </section>
 
           <section id="screen" hidden></section>
@@ -158,19 +168,27 @@
                 <div id="settings-ai-details" hidden>
                 <fieldset id="settings-ai-panels" class="settings-ai-panels">
                   <legend>Backend</legend>
-                  <label class="check-row"><input id="settings-ai-local" type="radio" name="settings-ai-backend" value="local"><span><strong>Local</strong><small>Primary option. Uses a model already installed in Ollama on this computer.</small></span></label>
+                  <label class="check-row"><input id="settings-ai-ollama" type="radio" name="settings-ai-backend" value="ollama"><span><strong>Ollama</strong><small>Connect to Ollama on this computer or another server.</small></span></label>
                   <label class="check-row"><input id="settings-ai-api" type="radio" name="settings-ai-backend" value="api"><span><strong>API</strong><small>Secondary option. Sends the prompt and raster dimensions to the selected curated provider.</small></span></label>
                 </fieldset>
-                <div id="settings-local-panel" class="settings-backend-panel">
-                  <div class="settings-section-heading"><div><h3>Ollama model</h3><p id="settings-local-state">Checking Ollama…</p></div><span id="settings-local-runtime" class="pill muted">Checking</span></div>
-                  <div class="settings-local-picker">
-                    <label for="settings-local-model-select"><span class="control-label">Installed model</span><select id="settings-local-model-select" class="select-field"><option value="">Checking installed models…</option></select></label>
-                    <button id="settings-local-refresh" type="button" class="button ghost">Refresh models</button>
-                    <button id="settings-local-select" type="button" class="button ghost">Use selected model</button>
+                <div id="settings-ollama-panel" class="settings-backend-panel">
+                  <div class="settings-section-heading"><div><h3>Ollama model</h3><p id="settings-ollama-state">Checking Ollama…</p></div><span id="settings-ollama-runtime" class="pill muted">Checking</span></div>
+                  <div class="settings-library-row">
+                    <label for="settings-ollama-base-url"><span class="control-label">Ollama server URL</span><input id="settings-ollama-base-url" class="text-field" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="http://127.0.0.1:11434"></label>
+                    <button id="settings-ollama-save-url" type="button" class="button ghost">Save server</button>
                   </div>
-                  <p id="settings-local-model" class="settings-key-state">No Ollama model selected.</p>
-                  <div class="button-row settings-local-actions"><button id="settings-local-test" type="button" class="button primary">Test setup</button><button id="settings-local-clear" type="button" class="button ghost">Clear selection</button></div>
-                  <p class="control-help">AM Configurator only lists local models Ollama already has. It never downloads model weights, pulls models, or removes them.</p>
+                  <p id="settings-ollama-transport-warning" class="settings-key-state" hidden>This server uses unencrypted HTTP. Your lighting prompt and keyboard dimensions can be read in transit on the network.</p>
+                  <div class="settings-local-picker">
+                    <label for="settings-ollama-model-select"><span class="control-label">Available model</span><select id="settings-ollama-model-select" class="select-field"><option value="">Refresh to check models…</option></select></label>
+                    <button id="settings-ollama-refresh" type="button" class="button ghost">Refresh models</button>
+                    <button id="settings-ollama-select" type="button" class="button ghost">Use selected model</button>
+                  </div>
+                  <p id="settings-ollama-model" class="settings-key-state">No Ollama model selected.</p>
+                  <div id="settings-ollama-disclosure" class="settings-disclosure" hidden>
+                    <label class="check-row"><input id="settings-ollama-disclosure-ack" type="checkbox"><span><strong>I understand where Ollama sends this request</strong><small id="settings-ollama-disclosure-detail"></small></span></label>
+                  </div>
+                  <div class="button-row settings-local-actions"><button id="settings-ollama-test" type="button" class="button primary">Test setup</button><button id="settings-ollama-clear" type="button" class="button ghost">Clear selection</button></div>
+                  <p class="control-help">AM Configurator lists models reported by this Ollama server. It never downloads, pulls, or removes models.</p>
                 </div>
                 <div id="settings-api-panel" class="settings-backend-panel" hidden>
                   <div class="settings-rows">

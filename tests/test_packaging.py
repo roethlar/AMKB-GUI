@@ -971,6 +971,47 @@ class ReleaseInfoTests(unittest.TestCase):
         for forbidden_artifact in ('".gguf"', '"llama-cli"', '"llama-server"'):
             self.assertIn(forbidden_artifact, smoke)
 
+    def test_active_ollama_contract_has_no_local_backend_alias(self) -> None:
+        active_sources = {
+            name: (ROOT / "am_configurator" / name).read_text("utf-8")
+            for name in (
+                "ai_capability.py",
+                "desktop.py",
+                "procedural_generation.py",
+                "recipe_provider.py",
+                "server.py",
+                "web/app.js",
+                "web/index.html",
+                "web/lighting_state.js",
+            )
+        }
+        combined = "\n".join(active_sources.values())
+        for forbidden in (
+            "/api/ai/local/",
+            "discover_local_models",
+            "_local_components",
+            'backend == "local"',
+            'backend != "local"',
+            '"backend": "local"',
+            '["ai"]["local"]',
+            '["local"]',
+            'value="local"',
+            'id="settings-ai-local"',
+            'id="settings-local-panel"',
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, combined)
+
+        store_source = (ROOT / "am_configurator" / "store.py").read_text("utf-8")
+        active_store = store_source[store_source.index("def update_ai_settings(") :]
+        for forbidden in (
+            "update_local_ai_settings",
+            '["ai"]["local"]',
+            '"backend": "local"',
+        ):
+            with self.subTest(store_forbidden=forbidden):
+                self.assertNotIn(forbidden, active_store)
+
     def test_application_forbids_managed_llama_processes_and_credentials(self) -> None:
         executable_modules = (
             "ai_capability.py",
