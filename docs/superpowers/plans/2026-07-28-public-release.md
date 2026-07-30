@@ -11,6 +11,11 @@ the canonical `origin` follow `.agents/push-policy.md` and are pre-authorized;
 hardware writes, tags, release publication, and Reddit posting retain their
 explicit action-time gates.
 
+The 2026-07-30 procedural-only decision and dependency-removal plan supersede
+every video-generation, FFmpeg packaging, provenance, smoke, and release
+instruction in this plan. A future candidate must use the current dependency
+contract; the rejected candidate must not be resumed.
+
 Implementation status: slices 0–7 and the local pre-publication gates completed
 on 2026-07-28. Four `main` candidates have been rejected by exact-artifact
 inspection: `97ed7a2` exposed a macOS tab strip, `6cffe01` exposed an obsolete
@@ -57,9 +62,8 @@ The release must:
   establish a trusted publisher or SmartScreen reputation and would imply more
   assurance than it provides.
 - Keep the current deterministic macOS ad-hoc signing step
-  (`codesign --sign -`) so bundle integrity and the FFmpeg provenance
-  relationship remain verifiable. Never call it Developer ID signing or
-  notarization.
+  (`codesign --sign -`) so bundle integrity remains verifiable. Never call it
+  Developer ID signing or notarization.
 - Leave the Windows installer Authenticode-unsigned. Never describe it as
   signed, trusted, or SmartScreen-approved.
 - Do not tell users to disable Gatekeeper, SmartScreen, Defender, antivirus, or
@@ -128,8 +132,8 @@ the 2026-07-28 planning baseline.
   plan.
 - The native packaging path already verifies the macOS ad-hoc signature,
   mounted DMG smoke, Windows install/launch/uninstall, Linux AppImage launch,
-  bundled licenses/notices, pinned FFmpeg source/signature, and package
-  allowlists.
+  bundled licenses/notices, and package allowlists. Retired media-runtime
+  provenance is no longer a release requirement and must not return.
 
 ## Authority and supersession
 

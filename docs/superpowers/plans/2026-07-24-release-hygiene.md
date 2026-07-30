@@ -10,6 +10,12 @@ R2 `a72e31f`, R3 `42b4b92`, R4 `2d50393`. Each guard was proven red before its
 fix. Closure evidence is in the per-slice sections below and summarized in
 `.agents/state.md`.
 
+Historical supersession note (2026-07-30): all FFmpeg-specific packaging,
+license, smoke, and regression instructions below were closed by removal under
+the procedural-only decision. They are retained only as implementation history
+and must not be replayed. Current packaging authority is
+`docs/superpowers/plans/2026-07-30-ffmpeg-removal-and-dependency-audit.md`.
+
 Code signing and notarization are explicitly out of scope: both require paid
 developer accounts (Apple Developer Program, Authenticode certificate) that are
 not available, and the README already discloses the unsigned state. Governance

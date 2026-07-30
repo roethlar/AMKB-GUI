@@ -9,8 +9,9 @@
   `.agents/decisions.md`.
 - The audited removal work is specified in
   `docs/superpowers/plans/2026-07-30-ffmpeg-removal-and-dependency-audit.md`.
-  The owner approved implementation on 2026-07-30. Slices R1-R4 are
-  complete: procedural generation is the only AI generation path; historical
+  The owner approved implementation on 2026-07-30. Slices R1-R4 and the R6
+  record synchronization are complete: procedural generation is the only AI
+  generation path; historical
   video execution and recovery are retired; and the obsolete media runtime,
   build/package machinery, native smoke, CI toolchains, fixtures, and tests are
   gone. Model qualification now delegates to the production Ollama recipe
@@ -19,6 +20,12 @@
   imports, orphan package modules, JavaScript package metadata, and retired
   locked packages. Legacy video manifests are reported as unsupported and left
   untouched.
+- R5's ungated verification is complete. A fresh Python 3.12 base environment
+  with no desktop/build extras passed 638 tests (5 skipped), 125 browser tests,
+  syntax/compile checks, and package builds. A separate fresh environment
+  resolved all locked desktop/build extras. Inno Setup 6 is absent, so the
+  canonical Windows installer and installed-executable proof did not run; no
+  push was authorized, so cross-platform Desktop artifact proof did not run.
 - Public-release qualification is stopped. The unpublished `0.1.64` candidate
   was rejected after product inspection found three release-blocking classes:
   Ollama Cloud inventory was deliberately hidden, one Ollama Generate action
@@ -57,9 +64,12 @@
 
 ## Next
 
-- Execute Slice R5: run the complete gates in fresh base and desktop/build
-  environments, inspect a local Windows application bundle, and determine
-  whether the separately gated Inno Setup installer proof can proceed.
+- Owner action required to continue Slice R5: explicitly approve installing
+  Inno Setup 6 on this host. That approval would authorize only the host
+  prerequisite and canonical local Windows installer/smoke proof, not a push,
+  tag, Release, announcement, credential use, or hardware write.
+- After the local installer proof passes, obtain separate push authorization
+  before running the cross-platform Desktop CI and artifact inspections.
 - Product Slice P6 and release qualification remain paused until the
   dependency-removal plan closes. Publishing a Release or announcement remains
   later, separately gated work.

@@ -1,10 +1,10 @@
 # FFmpeg Removal and Dependency Ownership Audit
 
-**Status:** Approved and in progress. The owner approved implementation on
-2026-07-30. AI is procedural-only, FFmpeg must be removed entirely, and
-dependencies without a live supported responsibility must not remain.
-Installing Inno Setup 6 on the Windows verification host is a separate host
-mutation and remains owner-gated.
+**Status:** Approved and in progress. R1-R4 and the R6 record synchronization
+are complete; R5's automated clean-environment proof is complete. The canonical
+Windows installer proof remains blocked on the separately owner-gated Inno
+Setup 6 installation, and cross-platform artifact proof remains blocked on an
+authorized push. The owner approved implementation on 2026-07-30.
 
 ## Authority and supersession
 
@@ -464,6 +464,21 @@ artifact, inspect its contents, and run the platform smoke where a qualified
 host is available. Absence of a qualified host is recorded explicitly and does
 not become an invented pass.
 
+### Verification progress record
+
+The ungated R5 work completed on 2026-07-30. A fresh Python 3.12 base
+environment installed only the project and its runtime graph, then passed 638
+Python tests (5 skipped), 125 browser tests, every JavaScript syntax check,
+Python byte-compilation, and wheel/sdist builds. A separate fresh environment
+resolved the locked desktop and build extras.
+
+Inno Setup 6 is absent on `netwatch-01` and was not installed. Therefore the
+canonical `python build.py --skip-sync` installer build, installed-executable
+smoke, and installed-tree inspection remain blocked on the explicit host
+mutation gate. No push was authorized, so cross-platform Desktop CI and
+downloaded-artifact inspection remain unperformed rather than recorded as
+passes.
+
 ## Slice R6 — Close records and obsolete blockers
 
 After all production slices pass:
@@ -486,6 +501,16 @@ After all production slices pass:
 7. Close any tracker item whose entire scope was the retired FFmpeg/B4 path.
 8. Commit the closure records with the final implementation slice; do not leave
    landed work and stale paperwork separated.
+
+### Record synchronization
+
+R6 repository records were synchronized on 2026-07-30 in the commit containing
+this record. The README, current state, machine facts, superseding decision,
+historical plan pointers, active public-release plan, and historical design now
+agree on the procedural-only dependency contract and the Inno-only Windows
+packaging prerequisite. `THIRD_PARTY_NOTICES` was audited and already required
+no further change. No repository tracker item exists for the retired B4/media
+path. This plan remains open only for the two gated R5 proofs recorded above.
 
 ## Completion criteria
 

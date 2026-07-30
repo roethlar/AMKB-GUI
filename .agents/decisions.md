@@ -406,6 +406,12 @@ Status: approved by the owner on 2026-07-21.
 
 ## 2026-07-20 — Video-first Lighting Studio generation
 
+Supersession: closed by deletion under the 2026-07-30 procedural-only decision
+at the top of this file. Every video-generation, video-recovery, media-runtime,
+and associated build instruction below is historical and must not be executed.
+Only foundations independently retained by later decisions—such as the durable
+Library and explicit Apply boundary—remain current.
+
 Status: approved by the owner on 2026-07-20.
 
 - Replace the narrow inline AI controls with a durable Concepts → Animate →

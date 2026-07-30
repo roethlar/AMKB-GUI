@@ -210,6 +210,9 @@ versioned DMG on macOS, an Inno Setup installer on Windows, or an AppImage on
 Linux. Local and GitHub builds use the same product version; workflow run
 numbers and commit IDs are diagnostic metadata only.
 
+Windows installer packaging requires Inno Setup 6. It does not require Visual
+Studio Build Tools, a C/C++ compiler, or a separate native media toolchain.
+
 The automated verification entry point is:
 
 ```sh

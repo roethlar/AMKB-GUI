@@ -20,14 +20,11 @@ Before removal, an owner-authorized live xAI check completed through Grok 4.5
 interpretation, Imagine still generation, image decode, and mapping; no key was
 persisted and no video or hardware request was made.
 
-The owner subsequently approved a video-first Lighting Studio with durable
-local asset banking. Its product decisions are recorded in
-`.agents/decisions.md`, and its implementation plan is
-`docs/superpowers/plans/2026-07-20-video-first-lighting-studio.md`. That plan
-supersedes this design's MP4/FFmpeg non-goal, zero-runtime-dependency goal,
-16-render primary path, partial-discard behavior, ephemeral job model, inline
-AI panel, and `previous_plan` follow-up. This document remains only as the
-historical record of the removed path.
+The owner later approved and implemented a video-first Lighting Studio, then
+superseded and removed its video/runtime path on 2026-07-30. Current AI produces
+only strict procedural LED recipes that the application renders locally. The
+canonical product contract is in `.agents/decisions.md`; this document remains
+only as the historical record of the earlier removed paths.
 
 ## Context
 
