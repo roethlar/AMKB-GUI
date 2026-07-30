@@ -9,6 +9,11 @@ description = "Standalone Angry Miao keyboard configurator"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+# The project's own MIT license plus every preserved third-party notice must
+# travel inside the wheel (dist-info/licenses/), not only the sdist. The
+# CyberBoard protocol layer derives from MIT-licensed cyberboard-cli, whose
+# copyright notice MIT requires in every copy.
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES", "licenses/cyberboard-cli-LICENSE.txt"]
 dependencies = [
   "hidapi>=0.14.0",
   "keyring==25.7.0",
@@ -56,6 +61,7 @@ include = [
   "/LICENSE",
   "/README.md",
   "/THIRD_PARTY_NOTICES",
+  "/licenses/",
   "/pyproject.toml",
   "/uv.lock",
 ]

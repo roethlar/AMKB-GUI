@@ -1,6 +1,10 @@
 AM Configurator incorporates protocol implementation work adapted from
-cyberboard-cli by GeneralD, used under the MIT License. The applicable license
-text is included in LICENSE.
+cyberboard-cli by GeneralD (https://github.com/GeneralD/cyberboard-cli), used
+under the MIT License. The adapted work informs the CyberBoard keymap and LED
+frame protocol handling, principally in am_configurator/device_mapping.py,
+am_configurator/device.py, and am_configurator/writer.py. GeneralD's original
+copyright notice and the full MIT license text are preserved in
+licenses/cyberboard-cli-LICENSE.txt.
 
 The AM Neon 80 axial LED payload ordering in am_configurator/device_mapping.py
 is derived from src/804/axialDefinitionsData.ts in AngryMiao/neon80_driver,

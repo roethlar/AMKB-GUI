@@ -685,7 +685,7 @@ class ReleaseInfoTests(unittest.TestCase):
         expected = {
             "keymap.png": (1600, 1000),
             "macros.png": (1600, 1000),
-            "led-studio.png": (1600, 1000),
+            "lighting.png": (1600, 1000),
         }
         for filename, dimensions in expected.items():
             with self.subTest(filename=filename):
@@ -706,6 +706,17 @@ class ReleaseInfoTests(unittest.TestCase):
         # the Linux AppImage carrying derived code with no notice at all.
         self.assertIn('(str(project / "LICENSE"), ".")', spec)
         self.assertIn('(str(project / "THIRD_PARTY_NOTICES"), ".")', spec)
+        # GeneralD's full MIT text and copyright are preserved as a bundled
+        # file; native distributions must carry it, not only the repository.
+        self.assertIn(
+            '(str(project / "licenses" / "cyberboard-cli-LICENSE.txt"), "licenses")',
+            spec,
+        )
+        upstream = ROOT / "licenses" / "cyberboard-cli-LICENSE.txt"
+        self.assertTrue(upstream.is_file())
+        upstream_text = " ".join(upstream.read_text("utf-8").split())
+        self.assertIn("Copyright (c) 2026 GeneralD", upstream_text)
+        self.assertIn("MIT License", upstream_text)
 
         self.assertTrue((ROOT / "LICENSE").is_file())
         # Both notices are hard-wrapped prose; compare on collapsed whitespace so
@@ -714,6 +725,9 @@ class ReleaseInfoTests(unittest.TestCase):
         licence = " ".join((ROOT / "LICENSE").read_text("utf-8").split())
         self.assertIn("cyberboard-cli", notices)
         self.assertIn("MIT License", licence)
+        # The project's own license carries the project's copyright, not the
+        # upstream's; GeneralD's notice is preserved in the bundled file above.
+        self.assertIn("Copyright (c) 2026 Michael Coelho", licence)
         # FFmpeg's separate LGPL obligation must not regress alongside it.
         self.assertIn("GNU Lesser General Public License", notices)
         # The Neon's axial LED payload ordering is derived from the Apache-2.0
@@ -753,6 +767,7 @@ class ReleaseInfoTests(unittest.TestCase):
             "/tests/",
             "/LICENSE",
             "/THIRD_PARTY_NOTICES",
+            "/licenses/",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, include)

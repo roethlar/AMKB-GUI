@@ -68,6 +68,7 @@ a = Analysis(
         # only displays it during setup, so it has to ship as bundle data too.
         (str(project / "LICENSE"), "."),
         (str(project / "THIRD_PARTY_NOTICES"), "."),
+        (str(project / "licenses" / "cyberboard-cli-LICENSE.txt"), "licenses"),
     ],
     hiddenimports=hidden_imports,
     hookspath=[],
