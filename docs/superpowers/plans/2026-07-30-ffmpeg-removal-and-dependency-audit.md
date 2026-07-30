@@ -1,10 +1,8 @@
 # FFmpeg Removal and Dependency Ownership Audit
 
-**Status:** Approved and in progress. R1-R4 and the R6 record synchronization
-are complete; R5's automated clean-environment proof is complete. The canonical
-Windows installer proof remains blocked on the separately owner-gated Inno
-Setup 6 installation, and cross-platform artifact proof remains blocked on an
-authorized push. The owner approved implementation on 2026-07-30.
+**Status:** Approved and in progress. R1-R4, the local R5 proof, and the R6
+record synchronization are complete. Only cross-platform artifact proof remains
+blocked on an authorized push. The owner approved implementation on 2026-07-30.
 
 ## Authority and supersession
 
@@ -466,18 +464,34 @@ not become an invented pass.
 
 ### Verification progress record
 
-The ungated R5 work completed on 2026-07-30. A fresh Python 3.12 base
-environment installed only the project and its runtime graph, then passed 638
+The R5 work completed locally on 2026-07-30. A fresh Python 3.12 base
+environment installed only the project and its runtime graph, then passed 639
 Python tests (5 skipped), 125 browser tests, every JavaScript syntax check,
 Python byte-compilation, and wheel/sdist builds. A separate fresh environment
-resolved the locked desktop and build extras.
+resolved the locked desktop/build environment.
 
-Inno Setup 6 is absent on `netwatch-01` and was not installed. Therefore the
-canonical `python build.py --skip-sync` installer build, installed-executable
-smoke, and installed-tree inspection remain blocked on the explicit host
-mutation gate. No push was authorized, so cross-platform Desktop CI and
-downloaded-artifact inspection remain unperformed rather than recorded as
-passes.
+After the separate owner approval, Winget installed signed Inno Setup 6.7.3 in
+its official current-user location. The canonical script had recognized only
+the machine-wide location, so the same R5 slice added official machine/user
+scope discovery; its regression test was proved red against the old script and
+green after the fix.
+
+From the fresh desktop/build environment, `python build.py --skip-sync`
+completed PyInstaller, Inno compilation, silent install, installed-executable
+smoke, and silent uninstall without invoking any watched compiler, Visual
+Studio, FFmpeg, GnuPG, MSYS2, MinGW, or GNU Make process. The resulting
+`AM-Configurator-0.1.64-Windows-x64-Setup.exe` is 17,442,570 bytes with SHA-256
+`c4756eefc41b14933a714f35ae4eb66a1b7e0237b135beb03b806914cef3711e` and reports
+product version `0.1.64`. It is intentionally unsigned under the existing
+no-self-signed-certificate policy.
+
+A second controlled install contained 180 files totaling 50,508,374 bytes,
+including the expected third-party notice and license. Recursive path/content
+inspection of both installer and installed tree found no retired runtime,
+adapter, fixture, or generic hook reference. Its smoke and uninstall both
+returned zero and the install directory was removed. No push was authorized, so
+cross-platform Desktop CI and downloaded-artifact inspection remain unperformed
+rather than recorded as passes.
 
 ## Slice R6 — Close records and obsolete blockers
 
@@ -510,7 +524,8 @@ historical plan pointers, active public-release plan, and historical design now
 agree on the procedural-only dependency contract and the Inno-only Windows
 packaging prerequisite. `THIRD_PARTY_NOTICES` was audited and already required
 no further change. No repository tracker item exists for the retired B4/media
-path. This plan remains open only for the two gated R5 proofs recorded above.
+path. This plan remains open only for the push-gated cross-platform R5 proof
+recorded above.
 
 ## Completion criteria
 

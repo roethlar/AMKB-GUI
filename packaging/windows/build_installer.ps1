@@ -8,9 +8,15 @@ try {
     $version = (& uv run --frozen python build_tools/release_info.py version).Trim()
     $artifactName = (& uv run --frozen python build_tools/release_info.py artifact windows).Trim()
     $outputBase = [System.IO.Path]::GetFileNameWithoutExtension($artifactName)
-    $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
-    if (-not (Test-Path $iscc)) {
-        throw "Inno Setup compiler not found at $iscc"
+    $isccCandidates = @(
+        Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+        Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"
+    )
+    $iscc = $isccCandidates |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+        Select-Object -First 1
+    if (-not $iscc) {
+        throw "Inno Setup compiler not found. Checked: $($isccCandidates -join ', ')"
     }
 
     & $iscc "/DMyAppVersion=$version" "/DMySourceDir=$sourceDir" "/DMyOutputDir=$outputDir" "/DMyOutputBaseFilename=$outputBase" "packaging\windows\AMConfigurator.iss"

@@ -1190,6 +1190,16 @@ class ReleaseInfoTests(unittest.TestCase):
             script,
         )
 
+    def test_windows_installer_accepts_official_inno_install_scopes(self) -> None:
+        script = (ROOT / "packaging" / "windows" / "build_installer.ps1").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("${env:ProgramFiles(x86)}", script)
+        self.assertIn("$env:LOCALAPPDATA", script)
+        self.assertIn('"Programs\\Inno Setup 6\\ISCC.exe"', script)
+        self.assertIn("Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }", script)
+
     def test_the_udev_install_command_elevates_the_write_not_the_reader(self) -> None:
         """`sudo app > /etc/...` cannot work, however natural it looks.
 

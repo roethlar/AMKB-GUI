@@ -20,12 +20,13 @@
   imports, orphan package modules, JavaScript package metadata, and retired
   locked packages. Legacy video manifests are reported as unsupported and left
   untouched.
-- R5's ungated verification is complete. A fresh Python 3.12 base environment
-  with no desktop/build extras passed 638 tests (5 skipped), 125 browser tests,
+- R5's local verification is complete. A fresh Python 3.12 base environment
+  with no desktop/build extras passed 639 tests (5 skipped), 125 browser tests,
   syntax/compile checks, and package builds. A separate fresh environment
-  resolved all locked desktop/build extras. Inno Setup 6 is absent, so the
-  canonical Windows installer and installed-executable proof did not run; no
-  push was authorized, so cross-platform Desktop artifact proof did not run.
+  resolved all locked desktop/build extras and passed the canonical Windows
+  installer build, installed-executable smoke, recursive artifact audit, and
+  uninstall. No push was authorized, so cross-platform Desktop artifact proof
+  did not run.
 - Public-release qualification is stopped. The unpublished `0.1.64` candidate
   was rejected after product inspection found three release-blocking classes:
   Ollama Cloud inventory was deliberately hidden, one Ollama Generate action
@@ -64,21 +65,18 @@
 
 ## Next
 
-- Owner action required to continue Slice R5: explicitly approve installing
-  Inno Setup 6 on this host. That approval would authorize only the host
-  prerequisite and canonical local Windows installer/smoke proof, not a push,
-  tag, Release, announcement, credential use, or hardware write.
-- After the local installer proof passes, obtain separate push authorization
-  before running the cross-platform Desktop CI and artifact inspections.
+- Owner action required to finish Slice R5: explicitly authorize pushing the
+  landed dependency-removal commits to the canonical remote so cross-platform
+  Desktop CI and downloaded-artifact inspection can run. This does not authorize
+  a tag, Release, announcement, hardware write, or unrelated external action.
 - Product Slice P6 and release qualification remain paused until the
   dependency-removal plan closes. Publishing a Release or announcement remains
   later, separately gated work.
 
 ## Blockers
 
-- Final local Windows installer proof requires Inno Setup 6. Installing it is a
-  separate owner-gated host mutation; it does not block the source-removal and
-  automated-audit slices.
+- Cross-platform Desktop artifact proof remains blocked until the owner
+  explicitly authorizes a push.
 - This host cannot supply SmartScreen release evidence; see
   `.agents/machines.md`. Do not ask the owner to repeat the check elsewhere;
   record it as unverified or use an independently available host.

@@ -23,13 +23,18 @@ last verified 2026-07-29._
 - Windows verification must build the environment the way CI does,
   `uv sync --locked -p 3.12` with no extras. Adding `--extra desktop` hides the
   optional-dependency failures this host is used to catch.
-- A fresh Python 3.12 base environment passed 638 tests (5 skipped) in 96.422
+- A fresh Python 3.12 base environment passed 639 tests (5 skipped) in 97.061
   seconds on 2026-07-30. A separate fresh desktop/build environment resolved all
-  locked Windows packages.
-- Inno Setup 6 is not installed. Installing it remains a separate owner-gated
-  host mutation and is the only missing local prerequisite for the canonical
-  Windows installer proof. The supported Windows build does not require a
-  compiler or Visual Studio Build Tools.
+  locked Windows packages and passed the canonical installer build.
+- Winget-installed Inno Setup 6.7.3 is at
+  `C:\Users\michael\AppData\Local\Programs\Inno Setup 6\ISCC.exe`; its
+  Authenticode signature is valid. The Windows packager accepts both official
+  machine-wide and current-user locations. The canonical installer,
+  installed-executable smoke, recursive installed-tree audit, and uninstall all
+  passed on 2026-07-30; exact artifact evidence is canonical in the active
+  dependency-removal plan.
+- The supported Windows build does not require a compiler or Visual Studio
+  Build Tools.
 - SmartScreen is disabled: the machine-level `SmartScreenEnabled` value is
   `Off`, and the current-user `EnableWebContentEvaluation` value is `0`. This
   host cannot supply SmartScreen release evidence.
