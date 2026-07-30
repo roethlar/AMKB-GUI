@@ -158,6 +158,18 @@
   in adjacent full runs). Likely a cancellation-timing race in the B3
   one-request path; owned by backend follow-up, not masked or retried away.
 
+- In flight at handoff (2026-07-30, `main` at `31f5700`, working tree clean,
+  CI and Desktop installers both green): the owner asked for a GitHub release
+  and an r/AngryMiao announcement, and ruled that publishing a release in
+  order to test it is backwards — a testable build must come first. Slices
+  P1-P5 are landed and verified; P6 (bump to `0.1.65`, closing matrix,
+  reconcile the two recorded plan deviations) is the only plan slice left and
+  has not been started. The Reddit announcement is drafted but deliberately
+  uncommitted, held outside the repo in the session scratchpad as
+  `reddit_draft.md`; it needs a resolving download link before posting and
+  should be re-drafted from this record if lost. No tag, Release, or
+  announcement has been created.
+
 ## Next
 
 - Close backend Slice B4 after a Windows native build and executable smoke
@@ -176,10 +188,31 @@
   arguments to `prepare_ffmpeg`, so the documented local
   `python build.py --skip-sync` entry point can only succeed against a
   pre-populated attested FFmpeg cache on Windows, never from a cold start.
-  Owner decision pending between: dispatching the Desktop installers workflow
-  and taking its Windows smoke as B4 evidence (outward-facing; needs a go);
-  provisioning this host (MSYS2 toolchain + Inno Setup, ~75 min compile); or
-  recording B4 as verified-in-CI-only with an explicit local-Windows gap.
+  Owner rulings 2026-07-30, both firm: no MSYS2 or other non-Microsoft
+  toolchain may be installed on this host, and no local FFmpeg source compile.
+  Correction to an earlier note: the "75 minutes" was `BUILD_TIMEOUT_SECONDS`,
+  a ceiling, never a measured duration. Those rulings make a from-scratch
+  local Windows build impossible as the recipe stands, because
+  `build_tools/ffmpeg_bundle.py` pins `--target-os=mingw32` in
+  `_CONFIGURE_ARGS` and rejects any deviation ("configure recipe does not
+  match the LGPL-only recipe"), so MSVC cannot drive it without changing an
+  attested recipe; PyInstaller then hard-fails without the built binary
+  ("verified bundled FFmpeg runtime is unavailable"). Visual Studio Build
+  Tools 2026 IS installed on this host and does not help for that reason.
+  Unblocked path discovered and not yet acted on: the Desktop installers
+  workflow already publishes per-platform installers as private workflow
+  artifacts — run 30555801269 (`31f5700`, success) holds
+  `AM-Configurator-0.1.64-Windows-x64-Installer` (~19 MB, unexpired) plus the
+  macOS and Linux equivalents. `gh run download` fetches the Windows installer
+  for local testing with no install, no compile, and nothing published; a
+  Release is a separate, later, owner-gated step. Note the artifacts still
+  carry `0.1.64`, so the P6 bump to `0.1.65` should land before the candidate
+  intended for release.
+- Proposed first action next session: `gh run download 30555801269 -n
+  AM-Configurator-0.1.64-Windows-x64-Installer` so the owner can install and
+  test a real Windows build locally, since that needs no toolchain, no
+  compile, and publishes nothing. Then Slice P6 (`0.1.65`), then a rebuilt
+  candidate, then the owner-gated Release and announcement in that order.
 - The owner assigned the product-experience plan to Claude for parallel work.
   The backend contracts are now committed and merged into the product branch,
   so Slices P1 and P3 (AI language, Settings integration) are unblocked; P5
@@ -189,8 +222,10 @@
 ## Blockers
 
 - Backend implementation has no unresolved product decision or approval
-  blocker. Native smoke remains blocked only on the missing staged FFmpeg
-  sources described above.
+  blocker. A from-scratch local Windows build is blocked by the owner's
+  2026-07-30 toolchain rulings against the pinned mingw32 FFmpeg recipe, as
+  recorded under Next; downloading the existing CI installer artifact is the
+  open path and needs no ruling about toolchains.
 - Live Ollama Cloud prompts, keyboard writes, macOS Open Anyway, tag creation,
   release publication, and announcements remain separately gated actions.
 - This Windows host cannot validate SmartScreen because SmartScreen is disabled.
