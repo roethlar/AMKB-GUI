@@ -20,13 +20,11 @@
   imports, orphan package modules, JavaScript package metadata, and retired
   locked packages. Legacy video manifests are reported as unsupported and left
   untouched.
-- R5's local verification is complete. A fresh Python 3.12 base environment
-  with no desktop/build extras passed 639 tests (5 skipped), 125 browser tests,
-  syntax/compile checks, and package builds. A separate fresh environment
-  resolved all locked desktop/build extras and passed the canonical Windows
-  installer build, installed-executable smoke, recursive artifact audit, and
-  uninstall. No push was authorized, so cross-platform Desktop artifact proof
-  did not run.
+- R5's local verification is complete in fresh base and desktop/build
+  environments, including the canonical Windows installer build,
+  installed-executable smoke, recursive artifact audit, and uninstall. Exact
+  commands, results, and artifact evidence live in the active dependency-removal
+  plan. Cross-platform Desktop artifact proof remains pending.
 - Public-release qualification is stopped. The unpublished `0.1.64` candidate
   was rejected after product inspection found three release-blocking classes:
   Ollama Cloud inventory was deliberately hidden, one Ollama Generate action
@@ -48,10 +46,6 @@
   owner-tested immediate-assignment behavior. After the dependency-removal plan
   closes, P6 owns the candidate version change and remaining release-plan
   status/pointer synchronization.
-- As of `b6874a7`, CI run `30556709461` and Desktop installers run
-  `30556709994` both pass. The latter has an unexpired private
-  `AM-Configurator-0.1.64-Windows-x64-Installer` artifact for precursor local
-  testing; it is not the distinct `0.1.65` candidate required for release.
 - Known intermittent (backend, pre-existing): under full-suite load,
   `test_procedural_generation...test_local_cancellation_stops_without_retry_or_ready_artifacts`
   has once reported manifest status `interrupted` instead of `cancelled`.
@@ -65,18 +59,15 @@
 
 ## Next
 
-- Owner action required to finish Slice R5: explicitly authorize pushing the
-  landed dependency-removal commits to the canonical remote so cross-platform
-  Desktop CI and downloaded-artifact inspection can run. This does not authorize
-  a tag, Release, announcement, hardware write, or unrelated external action.
+- Complete Slice R5's cross-platform Desktop CI and downloaded-artifact
+  inspection under `.agents/push-policy.md`, then close the dependency-removal
+  plan.
 - Product Slice P6 and release qualification remain paused until the
   dependency-removal plan closes. Publishing a Release or announcement remains
   later, separately gated work.
 
 ## Blockers
 
-- Cross-platform Desktop artifact proof remains blocked until the owner
-  explicitly authorizes a push.
 - This host cannot supply SmartScreen release evidence; see
   `.agents/machines.md`. Do not ask the owner to repeat the check elsewhere;
   record it as unverified or use an independently available host.
