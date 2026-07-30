@@ -130,6 +130,14 @@
   removed while historical multi-attempt manifests remain supported. The
   focused B3 suite passed 58 tests and the full automated verification entry
   point passed.
+- Owner UX finding for Slice P3 (2026-07-29): the lighting saving flow is
+  incomprehensible — "render, apply, then save?" with no indication whether
+  anything reached the keyboard. P3 must make the Preview → Apply to lighting
+  slot boundary uniform, follow every Apply with explicit feedback naming the
+  destination slot and document plus the next action (Write to <device> puts
+  it on the keyboard), and keep Save to Library visibly distinct as optional
+  archival. The hardware-write gate itself is correct and stays; the failure
+  was that nothing tells the user where their work went.
 - On 2026-07-29 the owner directed merging the backend branch and the product
   branch to `main`. The backend contract (B1-B3) and product Slices P2/P4 with
   their hardware-verified follow-up fixes land together; backend Slice B4's
