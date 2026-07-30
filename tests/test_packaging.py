@@ -686,6 +686,10 @@ class ReleaseInfoTests(unittest.TestCase):
             "keymap.png": (1600, 1000),
             "macros.png": (1600, 1000),
             "lighting.png": (1600, 1000),
+            "board-cyberboard.png": (1600, 1000),
+            "board-relic80.png": (1600, 1000),
+            "board-afa.png": (1600, 1000),
+            "board-neon80.png": (1600, 1000),
         }
         for filename, dimensions in expected.items():
             with self.subTest(filename=filename):

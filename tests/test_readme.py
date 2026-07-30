@@ -39,6 +39,12 @@ CAPABILITY_ORDER = (
     "### Optional AI",
 )
 
+GALLERY = (
+    "docs/images/board-cyberboard.png",
+    "docs/images/board-relic80.png",
+    "docs/images/board-afa.png",
+    "docs/images/board-neon80.png",
+)
 SCREENSHOTS = (
     "docs/images/keymap.png",
     "docs/images/lighting.png",
@@ -191,12 +197,34 @@ class ReadmeStructureTest(unittest.TestCase):
                     readme.index(image),
                     readme.index("\n## What you can do\n"),
                 )
-        # Exactly three screenshots, each with alt text a screen reader can use.
+        # Exactly three markdown screenshots, each with alt text a screen
+        # reader can use. The per-board gallery uses HTML <img> and is checked
+        # separately, so it does not inflate this count.
         alts = re.findall(r"!\[([^\]]*)\]\(docs/images/[^)]+\)", readme)
         self.assertEqual(len(SCREENSHOTS), len(alts))
         for alt in alts:
             with self.subTest(alt=alt):
                 self.assertGreaterEqual(len(alt.split()), 8, alt)
+
+    def test_every_supported_board_appears_in_the_keyboard_gallery(self) -> None:
+        # The owner asked for a screenshot of each connected keyboard; the
+        # gallery must show all four supported boards, in the supported-
+        # keyboards section (before the quick start), each with alt text.
+        readme = readme_text()
+        section = readme.index("\n## Supported keyboards")
+        quick_start = readme.index("\n## Five-minute quick start\n")
+        for image in GALLERY:
+            with self.subTest(image=image):
+                self.assertEqual(1, readme.count(image))
+                position = readme.index(image)
+                self.assertLess(section, position)
+                self.assertLess(position, quick_start)
+                self.assertTrue((ROOT / image).is_file(), image)
+                alt = re.search(
+                    rf'<img src="{re.escape(image)}" alt="([^"]*)"', readme
+                )
+                self.assertIsNotNone(alt, image)
+                self.assertGreaterEqual(len(alt.group(1).split()), 6, alt)
 
     def test_developer_instructions_stay_collapsed(self) -> None:
         developers = readme_text().split("\n## For developers\n", 1)[1]

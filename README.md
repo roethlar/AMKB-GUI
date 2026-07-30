@@ -45,6 +45,19 @@ Release notes: [AM Configurator 0.1.64](docs/releases/0.1.64.md).
 | AM AFA / AFA 2 | `ALICE` | Up to 7 layers and 32 macros | Alice key lights and centre body lights |
 | AM Neon 80 | `NEON80` | 87-key physical layout, four keymap layers, and 16 macros | 89 axial LEDs, a 46×5 head matrix, and side lights derived from it |
 
+Each board draws on its own physical layout in the Keymap screen:
+
+<table>
+<tr>
+<td align="center" width="50%"><strong>CyberBoard</strong><br><img src="docs/images/board-cyberboard.png" alt="The Keymap screen showing the CyberBoard 75 percent layout"></td>
+<td align="center" width="50%"><strong>AM Relic 80</strong><br><img src="docs/images/board-relic80.png" alt="The Keymap screen showing the AM Relic 80 layout with its right-hand navigation column"></td>
+</tr>
+<tr>
+<td align="center" width="50%"><strong>AM AFA</strong><br><img src="docs/images/board-afa.png" alt="The Keymap screen showing the split ergonomic AM AFA layout"></td>
+<td align="center" width="50%"><strong>AM Neon 80</strong><br><img src="docs/images/board-neon80.png" alt="The Keymap screen showing the AM Neon 80 layout"></td>
+</tr>
+</table>
+
 The app runs on macOS (Apple silicon), Windows 11 x64, and Linux x86-64. On
 Linux the AM Neon 80 also needs a one-time permission rule — see
 [AM Neon 80 on Linux](docs/neon-80-linux.md).
