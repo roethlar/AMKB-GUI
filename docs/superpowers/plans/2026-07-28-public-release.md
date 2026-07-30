@@ -14,7 +14,10 @@ explicit action-time gates.
 The 2026-07-30 procedural-only decision and dependency-removal plan supersede
 every video-generation, FFmpeg packaging, provenance, smoke, and release
 instruction in this plan. A future candidate must use the current dependency
-contract; the rejected candidate must not be resumed.
+contract; the rejected candidate must not be resumed. Dependency removal
+completed on 2026-07-30. Product-experience Slice P6 now owns the distinct
+`0.1.65` candidate; the private `0.1.64` artifacts built for dependency proof
+are not release candidates and must not be published.
 
 Implementation status: slices 0–7 and the local pre-publication gates completed
 on 2026-07-28. Four `main` candidates have been rejected by exact-artifact

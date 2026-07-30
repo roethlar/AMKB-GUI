@@ -31,7 +31,7 @@ last verified 2026-07-29._
   Authenticode signature is valid. The Windows packager accepts both official
   machine-wide and current-user locations. The canonical installer,
   installed-executable smoke, recursive installed-tree audit, and uninstall all
-  passed on 2026-07-30; exact artifact evidence is canonical in the active
+  passed on 2026-07-30; exact artifact evidence is canonical in the completed
   dependency-removal plan.
 - The supported Windows build does not require a compiler or Visual Studio
   Build Tools.

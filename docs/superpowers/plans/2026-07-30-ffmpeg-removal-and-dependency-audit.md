@@ -1,8 +1,8 @@
 # FFmpeg Removal and Dependency Ownership Audit
 
-**Status:** Approved and in progress. R1-R4, the local R5 proof, and the R6
-record synchronization are complete. Only cross-platform artifact proof remains
-blocked on an authorized push. The owner approved implementation on 2026-07-30.
+**Status:** Implemented on 2026-07-30. Slices R1-R6 and all local and
+cross-platform verification are complete. The owner approved implementation on
+2026-07-30.
 
 ## Authority and supersession
 
@@ -489,9 +489,32 @@ A second controlled install contained 180 files totaling 50,508,374 bytes,
 including the expected third-party notice and license. Recursive path/content
 inspection of both installer and installed tree found no retired runtime,
 adapter, fixture, or generic hook reference. Its smoke and uninstall both
-returned zero and the install directory was removed. No push was authorized, so
-cross-platform Desktop CI and downloaded-artifact inspection remain unperformed
-rather than recorded as passes.
+returned zero and the install directory was removed.
+
+Cross-platform proof completed at synchronized source commit `6e00e32`.
+CI run `30587012578` passed Linux on Python 3.11, the default Linux job, macOS,
+and Windows. Desktop installer run `30587012588` passed native build, policy
+smoke, installer build, installer smoke, metadata, and provenance jobs for
+macOS arm64, Windows x64, and Linux x86-64.
+
+The private artifacts were downloaded and matched their source-bound manifest:
+
+- Linux AppImage: 211,667,448 bytes,
+  SHA-256 `c2d7d0d69f31693650e60fab35520aee3eaf49df3ee45482d9f64b7eb4cc36cd`;
+- Windows installer: 17,890,308 bytes,
+  SHA-256 `f9b79fa1cb6e28dbbca058f88f14feaacb871bddb3f82dc945c36cc031943db8`;
+- macOS DMG: 22,483,676 bytes,
+  SHA-256 `456e7e2fec10f51ec913f3a54f0d7d8b5226033c4080acfcc5a4c9198a507d4d`.
+
+GitHub provenance verification passed for all three installers,
+`release-manifest.json`, and `SHA256SUMS.txt`. Native CI smoke passed on each
+artifact's own platform. A controlled install of the exact downloaded Windows
+artifact contained 223 files totaling 49,483,901 bytes, carried all required
+licenses/notices, returned zero from application smoke and uninstall, and left
+no install directory. Recursive downloaded/installed path and content scans
+found no retired FFmpeg runtime, adapter, fixture, or generic hook reference.
+These `0.1.64` files are verification artifacts only; they do not revive or
+replace the rejected release candidate and must not be published.
 
 ## Slice R6 — Close records and obsolete blockers
 
@@ -524,8 +547,20 @@ historical plan pointers, active public-release plan, and historical design now
 agree on the procedural-only dependency contract and the Inno-only Windows
 packaging prerequisite. `THIRD_PARTY_NOTICES` was audited and already required
 no further change. No repository tracker item exists for the retired B4/media
-path. This plan remains open only for the push-gated cross-platform R5 proof
-recorded above.
+path.
+
+Implementation landed as R1 `735ed40`, R2 `f870b6a`, R3 `657f5b6`, R4
+`09af897`, preliminary R6 synchronization `2446f4b`, and the R5 installer
+discovery fix `da1f083`; final cross-platform evidence and closure live in the
+commit containing this record.
+
+The final workflow runs exposed a separate maintenance finding: current
+`actions/checkout@v4`, `actions/upload-artifact@v4`, pinned
+`actions/download-artifact@v4.3.0`, and `astral-sh/setup-uv@v6` releases target
+deprecated Node 20 and are being forced onto Node 24 by GitHub. Each action has
+a live workflow responsibility and is not an unused dependency, but the action
+versions require a separately planned compatibility upgrade before they become
+a CI availability problem.
 
 ## Completion criteria
 

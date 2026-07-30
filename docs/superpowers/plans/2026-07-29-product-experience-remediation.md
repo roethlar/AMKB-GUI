@@ -1,10 +1,9 @@
 # Product Experience and User Documentation Remediation
 
 **Status:** Owner-approved. Slices P1-P5 and their follow-up fixes were landed
-on `main` by 2026-07-30. Slice P6 remains open and is paused until
-`docs/superpowers/plans/2026-07-30-ffmpeg-removal-and-dependency-audit.md`
-closes, so the next candidate is built and qualified without the retired
-AI-video/FFmpeg path.
+on `main` by 2026-07-30. The dependency-removal plan completed on 2026-07-30,
+so Slice P6 is now the next implementation slice. It must build and qualify the
+next candidate without the retired AI-video/FFmpeg path.
 
 ## Objective
 

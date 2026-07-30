@@ -9,22 +9,20 @@
   `.agents/decisions.md`.
 - The audited removal work is specified in
   `docs/superpowers/plans/2026-07-30-ffmpeg-removal-and-dependency-audit.md`.
-  The owner approved implementation on 2026-07-30. Slices R1-R4 and the R6
-  record synchronization are complete: procedural generation is the only AI
-  generation path; historical
-  video execution and recovery are retired; and the obsolete media runtime,
-  build/package machinery, native smoke, CI toolchains, fixtures, and tests are
-  gone. Model qualification now delegates to the production Ollama recipe
-  provider; the duplicate shipped developer adapter is gone; and a
-  standard-library guard now rejects ownerless Python dependencies, undeclared
-  imports, orphan package modules, JavaScript package metadata, and retired
-  locked packages. Legacy video manifests are reported as unsupported and left
-  untouched.
-- R5's local verification is complete in fresh base and desktop/build
-  environments, including the canonical Windows installer build,
-  installed-executable smoke, recursive artifact audit, and uninstall. Exact
-  commands, results, and artifact evidence live in the active dependency-removal
-  plan. Cross-platform Desktop artifact proof remains pending.
+  The owner approved implementation on 2026-07-30, and Slices R1-R6 are
+  complete. Procedural generation is the only AI generation path; historical
+  video execution/recovery and the obsolete media runtime, build/package
+  machinery, CI toolchains, fixtures, and tests are gone. Model qualification
+  uses the production Ollama recipe provider, and guards reject ownerless
+  dependencies, undeclared imports, orphan package modules, JavaScript package
+  metadata, and retired locked packages. Legacy video manifests are reported
+  as unsupported and left untouched.
+- Local clean-environment/Windows installer proof and final-head Linux, macOS,
+  and Windows CI/installer proof all pass. Downloaded artifacts matched their
+  manifest and provenance, and recursive inspection found no retired runtime
+  reference. Exact evidence lives in the completed dependency-removal plan.
+  Its private `0.1.64` artifacts are verification-only and must not be
+  published.
 - Public-release qualification is stopped. The unpublished `0.1.64` candidate
   was rejected after product inspection found three release-blocking classes:
   Ollama Cloud inventory was deliberately hidden, one Ollama Generate action
@@ -43,9 +41,14 @@
   still reports `0.1.64`, and `0.1.65` appears only in the product plan.
 - P6 must complete the full two-viewport per-screen manual matrix with an open
   document and reconcile the Keymap plan's explicit Apply wording with the
-  owner-tested immediate-assignment behavior. After the dependency-removal plan
-  closes, P6 owns the candidate version change and remaining release-plan
-  status/pointer synchronization.
+  owner-tested immediate-assignment behavior. P6 now owns the candidate version
+  change and remaining release-plan status/pointer synchronization.
+- Current GitHub workflows pass but emit deprecation warnings because
+  `actions/checkout@v4`, `actions/upload-artifact@v4`, pinned
+  `actions/download-artifact@v4.3.0`, and `astral-sh/setup-uv@v6` target Node
+  20 and are being forced onto Node 24. These actions each have a live owner;
+  their major-version compatibility upgrade is unplanned follow-up work, not an
+  unused-dependency finding.
 - Known intermittent (backend, pre-existing): under full-suite load,
   `test_procedural_generation...test_local_cancellation_stops_without_retry_or_ready_artifacts`
   has once reported manifest status `interrupted` instead of `cancelled`.
@@ -59,11 +62,11 @@
 
 ## Next
 
-- Complete Slice R5's cross-platform Desktop CI and downloaded-artifact
-  inspection under `.agents/push-policy.md`, then close the dependency-removal
-  plan.
-- Product Slice P6 and release qualification remain paused until the
-  dependency-removal plan closes. Publishing a Release or announcement remains
+- Execute Product Slice P6: resolve the Keymap Apply contract, complete the
+  two-viewport manual matrix, set the distinct candidate version to `0.1.65`,
+  run full/local native verification, and synchronize release pointers.
+- Decide and plan the GitHub Actions major-version upgrades before they become
+  a CI availability problem. Publishing a Release or announcement remains
   later, separately gated work.
 
 ## Blockers
