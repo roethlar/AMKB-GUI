@@ -167,3 +167,16 @@
   direction the paid review was not rerun. The recovery defect is recorded at
   PowerShell-Token-Killer#16; this failed pass admits no findings and must not
   be represented as a clean review.
+- 2026-07-31 — codereview claude (job `fable-review`; claude-cli 2.1.220;
+  `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `6a06f3beb93cb1887b85ed7f0da1171d12ad8c31..c01357e90e38b71c9af0303522c104226a68888b`:
+  verdict `findings`, `capability_ok=true`, exact pinned SHAs, exit 0, and no
+  stderr. One LOW candidate was admitted as `cl-6`: the implementation keeps
+  the CyberBoard switch layout and 40×5 display correctly separated, but the
+  new dual-map model lacked a guard on that target gate. The focused guard was
+  proven red against the predicted 83-for-200 regression and green after
+  restoration; the full repository gate passes. The reviewer's hook-rewritten
+  `rtk git` spelling and two temporary-file Grep attempts were denied, but it
+  recovered with allowed repository reads, git inspection, and all 127 web
+  tests. The paid result was persisted locally before parsing and was not
+  rerun or reformatted.

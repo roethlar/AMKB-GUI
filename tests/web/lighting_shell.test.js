@@ -508,6 +508,14 @@ test("CyberBoard switch lighting shares the photographed Keymap geometry", () =>
   );
   assert.match(
     js,
+    /const columns=state\.ledTarget==="frames"\?40:/,
+  );
+  assert.match(
+    js,
+    /const physicalLayout=state\.ledTarget==="keyframes"\s*\?model\.physicalLayout\s*:state\.ledTarget==="axial"\s*\?projectVialLedLayout\(device,servedTarget\)\s*:null;/,
+  );
+  assert.match(
+    js,
     /class="pixel-grid physical afa-led-board \$\{esc\(model\.physicalClass\|\|""\)\}"/,
   );
   assert.match(
