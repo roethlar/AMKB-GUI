@@ -471,13 +471,37 @@ Completion record (2026-07-31):
   40×5 top display remains rectangular.
 - Supporting CyberBoard geometry landed at `c01357e`, its target-split guard
   at `0b6778f`, and the owner-waiver review closure at `86e378d`. The P6
-  version, pointer, compact-key-label, guard, and completion changes are the
-  commit containing this record.
+  version, pointer, compact-key-label, guard, and completion changes landed at
+  exact commit `4a3c6ebadcc5d0fc1730c06b853af8e28c686ca5`.
+- That commit was pushed to canonical `origin/main`. Exact-head
+  [CI run 30666353202](https://github.com/roethlar/AMKB-GUI/actions/runs/30666353202)
+  (run 57, attempt 1) passed Windows, Linux, the Python 3.11 floor, and macOS.
+  Exact-head
+  [Desktop run 30666353162](https://github.com/roethlar/AMKB-GUI/actions/runs/30666353162)
+  (run 68, attempt 1) passed native installer smoke on all three platforms,
+  candidate metadata, and release provenance.
+- The downloaded manifest names source commit `4a3c6eb`, repository
+  `roethlar/AMKB-GUI`, and exactly these three `0.1.65` artifacts:
+  - Linux AppImage: 211,671,544 bytes, SHA-256
+    `f5b8d028e45c5f04a5d1f7e82ed174846cdbc4eed7c56dd6ca106d7a6a698398`;
+  - Windows installer: 17,890,591 bytes, SHA-256
+    `5a0e09f992505a0ea83adb03b21f76edc7a1492382b90f94fcbeb160beb6670a`;
+  - macOS DMG: 22,484,503 bytes, SHA-256
+    `5d32825bf205de1e208259a35e3be796c0e1596ef4246064bc3a2e824d60790c`.
+- Regenerating `release-manifest.json` and `SHA256SUMS.txt` from the downloaded
+  installers with the repository tool produced byte-identical files. File
+  format magic is PE, ELF, and UDIF; GitHub attestation verification
+  passed for all three installers and both metadata files. The Windows
+  installer reports product version `0.1.65` and is unsigned as required.
+- A controlled install of that exact downloaded Windows artifact contained
+  223 files totaling 49,483,978 bytes, included the required third-party
+  notice, and had zero retired-runtime path or content hits. Installed frozen
+  smoke and silent uninstall returned zero, and no install directory remained.
 - No FFmpeg path, live cloud prompt, provider request or credential, keyboard
-  write, tag, push, Release, or announcement was used. Exact-head CI and
-  macOS/Linux native artifacts have not yet run for P6; this Windows host
-  cannot supply SmartScreen evidence. Those checks and every outward or
-  hardware action retain their existing gates.
+  write, tag, Release, or announcement was used. The ordinary `main` push was
+  the only outward action. This host still cannot supply SmartScreen evidence;
+  macOS Open Anyway, hardware checks, publication, and announcement retain
+  their separate gates.
 
 ## Guard-Proof and Verification Procedure
 

@@ -54,8 +54,12 @@
   identity pointers, marked the rejected `0.1.64` release packet historical,
   and reconciled the Keymap plan with owner-tested immediate palette
   assignment. Its full gate, two-viewport 36-state native WebView2 matrix, and
-  local Windows installer/frozen smoke all pass. The exact local installer
-  evidence and remaining platform/action gates are canonical in the completed
+  local Windows installer/frozen smoke all pass. Exact P6 commit `4a3c6eb`
+  also passed all four CI jobs plus Windows, macOS, and Linux native artifact,
+  metadata, and provenance jobs. Downloaded hashes and attestations, regenerated
+  metadata, and controlled exact downloaded Windows
+  install/audit/smoke/uninstall all pass.
+  Detailed evidence and remaining action gates are canonical in the completed
   product-experience plan.
 - CyberBoard switch lighting now projects the canonical 81-key CB04 Keymap
   geometry through the firmware LED map instead of rendering a uniform 15×6
@@ -103,17 +107,19 @@
   Neither the production path nor its test changed after B3; as of `b6874a7`,
   five fresh isolated runs pass. Treat it as an unresolved load-only release
   risk, not as a reason to mask or retry the test.
-- The owner requested a GitHub release and an r/AngryMiao announcement, but
-  ruled that a testable build comes first. Announcement copy has no durable
+- The owner requested a GitHub release and an r/AngryMiao announcement and
+  ruled that a testable build comes first. Exact P6 CI and three-platform
+  artifacts now satisfy that prerequisite. Announcement copy has no durable
   repository copy and must be redrafted from repository records. No tag,
   Release, or announcement exists.
 
 ## Next
 
-- Push the verified P6 head only on the owner's explicit go, then qualify its
-  exact CI and three-platform native artifacts under a current `0.1.65`
-  release record. Tagging, release publication, hardware writes, live provider
-  use, and announcement remain separately gated actions.
+- Draft and obtain approval for a current `0.1.65` release plan before any
+  publication work. It must select a final candidate whose source SHA still
+  matches live `main` after later record changes. Tagging, release publication,
+  hardware writes, live provider use, macOS Open Anyway, and announcement
+  remain separately gated actions.
 - Separately, the accepted `cl-2` review recorded a pre-existing read-only
   `get()` / `resolve_asset()` retired-job exposure as a candidate requiring an
   owner scope decision; it is not approved implementation work.

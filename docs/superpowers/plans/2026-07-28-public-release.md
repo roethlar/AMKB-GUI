@@ -4,9 +4,10 @@ Status: historical release-candidate record; not executable. The owner approved
 the original plan on 2026-07-28, but its unpublished `0.1.64` candidate was
 subsequently rejected. All remaining `0.1.64` publication instructions below
 are historical evidence and must not be executed. Product-experience Slice P6
-established and locally qualified the distinct `0.1.65` candidate on
-2026-07-31. A current `0.1.65` qualification plan or record must govern any
-next release work and retain every explicit action-time gate.
+established and qualified the distinct `0.1.65` candidate on 2026-07-31,
+including exact-head CI and three-platform native artifacts. Its completion
+record owns that evidence. A current `0.1.65` release plan must govern any
+publication work and retain every explicit action-time gate.
 
 Permanent constraints established through the original plan remain current:
 every application launch starts on Keymap, every installer remains unsigned,
@@ -20,9 +21,10 @@ The 2026-07-30 procedural-only decision and dependency-removal plan supersede
 every video-generation, FFmpeg packaging, provenance, smoke, and release
 instruction in this plan. A future candidate must use the current dependency
 contract; the rejected candidate must not be resumed. Dependency removal
-completed on 2026-07-30, and Product-experience Slice P6 completed local
-`0.1.65` qualification on 2026-07-31. The private `0.1.64` artifacts built for
-dependency proof are not release candidates and must not be published.
+completed on 2026-07-30, and Product-experience Slice P6 completed local and
+exact-artifact `0.1.65` qualification on 2026-07-31. The private `0.1.64`
+artifacts built for dependency proof are not release candidates and must not be
+published.
 
 Historical implementation status: slices 0–7 and the original local
 pre-publication gates completed on 2026-07-28. Four `main` candidates were
@@ -30,11 +32,11 @@ rejected by exact-artifact inspection: `97ed7a2` exposed a macOS tab strip,
 `6cffe01` exposed an obsolete
 Library filter, and both `dd891e3` and `f64aa97` exposed packaged macOS media
 picker filters that disabled valid source images. The media picker now delegates
-format authority to the existing bounded, signature-sniffing import endpoint,
-and its clean local native candidate passes its gates. The final GitHub
-candidate is selected only from a successful push run whose `headSha` matches
-the live canonical `main`. Exact-artifact platform, hardware, publication, and
-announcement gates remain pending.
+format authority to the existing bounded, signature-sniffing import endpoint.
+The later P6 exact-artifact evidence is canonical in the product-experience
+plan. A final GitHub release candidate is selected only from a successful push
+run whose `headSha` matches the live canonical `main`; hardware, publication,
+and announcement gates remain pending.
 
 ## Objective
 

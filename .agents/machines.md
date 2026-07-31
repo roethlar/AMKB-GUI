@@ -4,7 +4,7 @@ Per-machine facts that do not belong in the portable `state.md`.
 
 ## netwatch-01 (Windows 11, x86-64)
 
-_Last verified locally: 2026-07-30; SSH reachability and suite timing were
+_Last verified locally: 2026-07-31; SSH reachability and suite timing were
 last verified 2026-07-29._
 
 - Reachable as `michael@netwatch-01` over SSH with key auth from `michael-mac`.
@@ -31,8 +31,10 @@ last verified 2026-07-29._
   Authenticode signature is valid. The Windows packager accepts both official
   machine-wide and current-user locations. The canonical installer,
   installed-executable smoke, recursive installed-tree audit, and uninstall all
-  passed on 2026-07-30; exact artifact evidence is canonical in the completed
-  dependency-removal plan.
+  passed during dependency removal on 2026-07-30. The exact downloaded
+  `0.1.65` artifact repeated install, recursive audit, frozen smoke, and clean
+  uninstall on 2026-07-31; its evidence is canonical in the completed
+  product-experience plan.
 - The supported Windows build does not require a compiler or Visual Studio
   Build Tools.
 - GitHub and local Gitea push authentication work on this host. On 2026-07-30,
