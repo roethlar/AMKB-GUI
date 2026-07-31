@@ -33,7 +33,9 @@ The retired-video check introduced by the reviewed range raises an exception
 outside the exception type handled by the per-directory fault-isolation path.
 
 ## Approach
-Not started. A fix requires an approved finding-specific plan.
+The draft implementation plan is
+`docs/superpowers/plans/2026-07-30-cl-1-malformed-retired-video-manifest-isolation.md`.
+Implementation approval remains pending.
 
 ## Files changed
 —
