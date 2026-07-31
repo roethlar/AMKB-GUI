@@ -6,8 +6,10 @@ subsequently rejected. All remaining `0.1.64` publication instructions below
 are historical evidence and must not be executed. Product-experience Slice P6
 established and qualified the distinct `0.1.65` candidate on 2026-07-31,
 including exact-head CI and three-platform native artifacts. Its completion
-record owns that evidence. A current `0.1.65` release plan must govern any
-publication work and retain every explicit action-time gate.
+record owns that evidence. The draft successor at
+`docs/superpowers/plans/2026-07-31-public-release-0.1.65.md` must be
+owner-approved before it governs publication work; every explicit action-time
+gate remains separate.
 
 Permanent constraints established through the original plan remain current:
 every application launch starts on Keymap, every installer remains unsigned,

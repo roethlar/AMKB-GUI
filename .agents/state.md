@@ -115,11 +115,11 @@
 
 ## Next
 
-- Draft and obtain approval for a current `0.1.65` release plan before any
-  publication work. It must select a final candidate whose source SHA still
-  matches live `main` after later record changes. Tagging, release publication,
-  hardware writes, live provider use, macOS Open Anyway, and announcement
-  remain separately gated actions.
+- The current `0.1.65` release plan is drafted at
+  `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md` and awaits owner
+  approval. No release-packet implementation begins until approval is recorded.
+  Tagging, release publication, hardware writes, live provider use, macOS Open
+  Anyway, and announcement remain separately gated actions.
 - Separately, the accepted `cl-2` review recorded a pre-existing read-only
   `get()` / `resolve_asset()` retired-job exposure as a candidate requiring an
   owner scope decision; it is not approved implementation work.
