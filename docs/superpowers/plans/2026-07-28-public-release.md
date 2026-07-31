@@ -1,27 +1,33 @@
 # Public Release
 
-Status: approved by the owner on 2026-07-28, with the unconditional requirement
-that every application launch starts on Keymap. The owner also settled two
-permanent product constraints: every installer remains unsigned, and the
-application has one canonical version everywhere. This plan sets that version
-to **0.1.64** and publishes it as the repository's normal public GitHub Release.
-Unsigned status is a concise install-time fact, not a beta label, release title,
-application banner, or substitute product identity. Ordinary verified pushes to
-the canonical `origin` follow `.agents/push-policy.md` and are pre-authorized;
-hardware writes, tags, release publication, and Reddit posting retain their
-explicit action-time gates.
+Status: historical release-candidate record; not executable. The owner approved
+the original plan on 2026-07-28, but its unpublished `0.1.64` candidate was
+subsequently rejected. All remaining `0.1.64` publication instructions below
+are historical evidence and must not be executed. Product-experience Slice P6
+established and locally qualified the distinct `0.1.65` candidate on
+2026-07-31. A current `0.1.65` qualification plan or record must govern any
+next release work and retain every explicit action-time gate.
+
+Permanent constraints established through the original plan remain current:
+every application launch starts on Keymap, every installer remains unsigned,
+and the application has one canonical version everywhere. Unsigned status is a
+concise install-time fact, not a beta label, release title, application banner,
+or substitute product identity. Ordinary verified pushes to the canonical
+`origin` follow `.agents/push-policy.md`; hardware writes, tags, release
+publication, and Reddit posting retain their explicit action-time gates.
 
 The 2026-07-30 procedural-only decision and dependency-removal plan supersede
 every video-generation, FFmpeg packaging, provenance, smoke, and release
 instruction in this plan. A future candidate must use the current dependency
 contract; the rejected candidate must not be resumed. Dependency removal
-completed on 2026-07-30. Product-experience Slice P6 now owns the distinct
-`0.1.65` candidate; the private `0.1.64` artifacts built for dependency proof
-are not release candidates and must not be published.
+completed on 2026-07-30, and Product-experience Slice P6 completed local
+`0.1.65` qualification on 2026-07-31. The private `0.1.64` artifacts built for
+dependency proof are not release candidates and must not be published.
 
-Implementation status: slices 0–7 and the local pre-publication gates completed
-on 2026-07-28. Four `main` candidates have been rejected by exact-artifact
-inspection: `97ed7a2` exposed a macOS tab strip, `6cffe01` exposed an obsolete
+Historical implementation status: slices 0–7 and the original local
+pre-publication gates completed on 2026-07-28. Four `main` candidates were
+rejected by exact-artifact inspection: `97ed7a2` exposed a macOS tab strip,
+`6cffe01` exposed an obsolete
 Library filter, and both `dd891e3` and `f64aa97` exposed packaged macOS media
 picker filters that disabled valid source images. The media picker now delegates
 format authority to the existing bounded, signature-sniffing import endpoint,

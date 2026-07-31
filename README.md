@@ -34,7 +34,7 @@ app the first time you open it. Follow the narrow per-application steps in
 [Installing AM Configurator](docs/installing.md); never turn off an operating
 system's security checks globally.
 
-Release notes: [AM Configurator 0.1.64](docs/releases/0.1.64.md).
+Release notes are published with each GitHub Release.
 
 ## Supported keyboards and operating systems
 

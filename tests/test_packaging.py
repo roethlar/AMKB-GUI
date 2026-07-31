@@ -49,13 +49,13 @@ _SDIST_FORBIDDEN = (
 
 
 class ReleaseManifestTests(unittest.TestCase):
-    VERSION = "0.1.64"
+    VERSION = "0.1.65"
     COMMIT = "0123456789abcdef0123456789abcdef01234567"
     REPOSITORY = "roethlar/AMKB-GUI"
     FILENAMES = (
-        "AM-Configurator-0.1.64-macOS-arm64.dmg",
-        "AM-Configurator-0.1.64-Windows-x64-Setup.exe",
-        "AM-Configurator-0.1.64-Linux-x86_64.AppImage",
+        "AM-Configurator-0.1.65-macOS-arm64.dmg",
+        "AM-Configurator-0.1.65-Windows-x64-Setup.exe",
+        "AM-Configurator-0.1.65-Linux-x86_64.AppImage",
     )
 
     def _write_candidates(self, root: Path) -> dict[str, bytes]:
@@ -361,19 +361,19 @@ class ReleaseInfoTests(unittest.TestCase):
 
     def test_release_names_use_project_version_and_normalized_architecture(self) -> None:
         self.assertEqual(__version__, project_version(ROOT))
-        self.assertEqual("0.1.64", project_version(ROOT))
+        self.assertEqual("0.1.65", project_version(ROOT))
         self.assertEqual("x86_64", normalize_arch("AMD64"))
         self.assertEqual("aarch64", normalize_arch("arm64"))
         self.assertEqual(
-            "AM-Configurator-0.1.64-macOS-arm64.dmg",
+            "AM-Configurator-0.1.65-macOS-arm64.dmg",
             artifact_filename("macos", "arm64", root=ROOT),
         )
         self.assertEqual(
-            "AM-Configurator-0.1.64-Windows-x64-Setup.exe",
+            "AM-Configurator-0.1.65-Windows-x64-Setup.exe",
             artifact_filename("windows", "AMD64", root=ROOT),
         )
         self.assertEqual(
-            "AM-Configurator-0.1.64-Linux-x86_64.AppImage",
+            "AM-Configurator-0.1.65-Linux-x86_64.AppImage",
             artifact_filename("linux", "x86_64", root=ROOT),
         )
 
@@ -391,7 +391,7 @@ class ReleaseInfoTests(unittest.TestCase):
             "am_configurator/_version.py",
             project["tool"]["hatch"]["version"]["path"],
         )
-        self.assertEqual("0.1.64", __version__)
+        self.assertEqual("0.1.65", __version__)
         installer_job = workflow.split("  candidate-metadata:\n", 1)[0]
         self.assertNotIn("github.run_number", installer_job)
         self.assertEqual(1, workflow.count("github.run_number"))
@@ -402,6 +402,40 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertNotIn("--build-number", build_script)
         self.assertNotIn("--build-number", readme)
         self.assertFalse((ROOT / ".am-configurator-build-number").exists())
+
+    def test_active_release_docs_and_plan_pointers_use_distinct_candidate(self) -> None:
+        for path in (
+            ROOT / "docs" / "installing.md",
+            ROOT / "docs" / "neon-80-linux.md",
+        ):
+            with self.subTest(path=path.relative_to(ROOT)):
+                text = path.read_text(encoding="utf-8")
+                self.assertIn("AM-Configurator-0.1.65", text)
+                self.assertNotIn("AM-Configurator-0.1.64", text)
+
+        decisions = (ROOT / ".agents" / "decisions.md").read_text(encoding="utf-8")
+        backend_plan = (
+            ROOT
+            / "docs"
+            / "superpowers"
+            / "plans"
+            / "2026-07-29-ollama-backend-correctness.md"
+        ).read_text(encoding="utf-8")
+        release_plan = (
+            ROOT
+            / "docs"
+            / "superpowers"
+            / "plans"
+            / "2026-07-28-public-release.md"
+        ).read_text(encoding="utf-8")
+        release_preamble = release_plan.split("## Objective", 1)[0]
+
+        self.assertIn("current product/release version is `0.1.65`", decisions)
+        self.assertIn("rejected unpublished `0.1.64` candidate", decisions)
+        self.assertIn("distinct `0.1.65` candidate", backend_plan)
+        self.assertIn("status: historical", release_preamble.casefold())
+        self.assertIn("`0.1.65` candidate", release_preamble)
+        self.assertIn("remaining `0.1.64` publication instructions", release_preamble)
 
     def test_desktop_workflow_publishes_native_installers(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
@@ -1357,7 +1391,7 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, public_docs.casefold())
 
-    def test_release_packet_is_normal_0_1_64_with_honest_claim_boundaries(
+    def test_rejected_0_1_64_packet_is_historical_and_not_the_readme_target(
         self,
     ) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
@@ -1371,6 +1405,7 @@ class ReleaseInfoTests(unittest.TestCase):
         collapsed = " ".join(packet.split())
 
         for text in (release, reddit):
+            self.assertIn("Rejected unpublished 0.1.64 candidate", text)
             self.assertIn("AM Configurator 0.1.64", text)
             self.assertNotRegex(text.casefold(), r"\b(?:beta|prerelease)\b")
             self.assertNotIn("unsigned by design", text.casefold())
@@ -1391,7 +1426,8 @@ class ReleaseInfoTests(unittest.TestCase):
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected.casefold(), collapsed.casefold())
-        self.assertIn("docs/releases/0.1.64.md", readme)
+        self.assertNotIn("docs/releases/0.1.64.md", readme)
+        self.assertIn("Release notes are published with each GitHub Release.", readme)
         self.assertIn("docs/installing.md", release)
         self.assertIn(
             "https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.64",
@@ -1437,7 +1473,7 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(operation=operation):
                 self.assertIn(operation, form)
         self.assertIn("AM Neon 80", form)
-        self.assertIn("0.1.64", form)
+        self.assertIn("0.1.65", form)
         self.assertIn("Remove API keys", form)
         self.assertIn("sanitized", form)
         self.assertIn("blank_issues_enabled: false", config)

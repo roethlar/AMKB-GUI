@@ -47,16 +47,16 @@
   manual base/head proof and accepted the slice. The original `cl-1` through
   `cl-3` review set is closed; the two record-drift findings raised by the A1
   implementation review are also closed below.
-- Backend Slices B1-B3 and product Slices P1-P5, including their follow-up
+- Backend Slices B1-B3 and product Slices P1-P6, including their follow-up
   fixes, are landed on `main`. Backend Slice B4 is superseded by the
   procedural-only/FFmpeg-prohibited ruling and must not be executed. Product
-  Slice P6 is in progress in the working tree. Its uncommitted changes set the
-  candidate identity to `0.1.65`, update packaging guards and public identity
-  pointers, label the rejected `0.1.64` release/announcement drafts as
-  historical, and reconcile the Keymap plan with the owner-tested immediate
-  palette-assignment behavior. P6 still owes its remaining active-plan pointer
-  synchronization, full two-viewport per-screen manual matrix with an open
-  document, local native/frozen verification, and commit.
+  Slice P6 established `0.1.65`, synchronized active packaging and product
+  identity pointers, marked the rejected `0.1.64` release packet historical,
+  and reconciled the Keymap plan with owner-tested immediate palette
+  assignment. Its full gate, two-viewport 36-state native WebView2 matrix, and
+  local Windows installer/frozen smoke all pass. The exact local installer
+  evidence and remaining platform/action gates are canonical in the completed
+  product-experience plan.
 - CyberBoard switch lighting now projects the canonical 81-key CB04 Keymap
   geometry through the firmware LED map instead of rendering a uniform 15×6
   raster. The function-row gaps, wide keys, three-segment spacebar, and arrow
@@ -110,10 +110,10 @@
 
 ## Next
 
-- Finish Product Slice P6: synchronize the remaining active `0.1.65` plan
-  pointers, complete the two-viewport manual matrix, run full/local native and
-  frozen-executable verification, and commit the slice. Publishing a Release
-  or announcement remains later, separately gated work.
+- Push the verified P6 head only on the owner's explicit go, then qualify its
+  exact CI and three-platform native artifacts under a current `0.1.65`
+  release record. Tagging, release publication, hardware writes, live provider
+  use, and announcement remain separately gated actions.
 - Separately, the accepted `cl-2` review recorded a pre-existing read-only
   `get()` / `resolve_asset()` retired-job exposure as a candidate requiring an
   owner scope decision; it is not approved implementation work.

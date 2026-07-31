@@ -21,10 +21,10 @@ coherent backend contract:
 - one explicit Generate action makes exactly one model request; and
 - the application never manages Ollama models.
 
-The rejected unpublished `0.1.64` candidate remains unpublishable. Completing
-this plan does not resume release qualification or authorize a live cloud
-prompt, provider credential use, keyboard write, tag, Release, publication, or
-announcement.
+The rejected unpublished `0.1.64` candidate remains unpublishable. Product
+Slice P6 established the distinct `0.1.65` candidate on 2026-07-31. Completing
+this plan does not authorize a live cloud prompt, provider credential use,
+keyboard write, tag, Release, publication, or announcement.
 
 ## Current Baseline
 
@@ -381,5 +381,7 @@ This plan is complete only when:
 - every slice is committed independently with guard proof;
 - no live cloud prompt, credentialed provider request, or keyboard write occurs.
 
-The product-experience plan and the FFmpeg-removal plan own their separate
-remaining work. No release candidate is built until both are complete.
+The product-experience and FFmpeg-removal plans are complete. This backend plan
+has no remaining implementation work. Any `0.1.65` release qualification must
+use a current plan and retain its exact-artifact and action-time gates; the
+historical `0.1.64` release plan is not executable.

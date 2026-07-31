@@ -59,12 +59,16 @@ Cloud inventory, or permits automatic local-model correction retries.
 ## 2026-07-28 — The application has one canonical product version
 
 Status: approved by the owner on 2026-07-28 while correcting the public-release
-plan.
+plan; updated by owner-approved Product Slice P6 on 2026-07-31 after the
+unpublished `0.1.64` candidate was rejected.
 
-- The current product/release version is `0.1.64`.
-- `0.1.64` is the first non-regressive canonical version after native builds
-  had already displayed `0.1.63`. The workflow-derived `0.1.34` identifier is
-  historical build evidence only and must not become a later public release.
+- The current product/release version is `0.1.65`.
+- The rejected unpublished `0.1.64` candidate is historical and must not be
+  reused or published.
+- `0.1.64` was the first non-regressive canonical identifier after native
+  builds had already displayed `0.1.63`. Its rejection does not revive the
+  workflow-derived `0.1.34` identifier, which remains historical build evidence
+  and must not become a later public release.
 - `am_configurator/_version.py` is the canonical source. Source metadata, UI,
   local and CI builds, package metadata, native bundles/installers, filenames,
   manifests, tags, releases, and announcement copy must all report that exact

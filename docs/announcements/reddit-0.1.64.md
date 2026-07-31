@@ -1,5 +1,8 @@
 # Reddit draft
 
+> **Rejected unpublished 0.1.64 candidate.** This historical draft was never
+> posted and must not be reused for the `0.1.65` candidate.
+
 ## Title
 
 [Release] AM Configurator 0.1.64 — open-source Neon 80 keymaps, macros, and Lighting Studio

@@ -1,9 +1,10 @@
 # Product Experience and User Documentation Remediation
 
-**Status:** Owner-approved. Slices P1-P5 and their follow-up fixes were landed
-on `main` by 2026-07-30. The dependency-removal plan completed on 2026-07-30,
-so Slice P6 is now the next implementation slice. It must build and qualify the
-next candidate without the retired AI-video/FFmpeg path.
+**Status:** Complete. Slices P1-P6 and their follow-up fixes landed on `main`
+by 2026-07-31. Slice P6 established and locally qualified the distinct
+`0.1.65` candidate without the retired AI-video/FFmpeg path. Push-time CI,
+cross-platform exact-artifact qualification, hardware checks, and publication
+remain separate gates; the historical `0.1.64` release plan is not executable.
 
 ## Objective
 
@@ -76,7 +77,7 @@ The implementation at the plan base has these user-facing problems:
 - Do not remove raw keycode editing, matrix labels, macro event editing,
   firmware timing, sampling, stretch, seed, diagnostic counts, or other expert
   capability; move it behind Advanced disclosure.
-- Do not make Apply and Save to Library the same action.
+- Do not make Lighting/profile Apply and Save to Library the same action.
 - Do not expose credentials, serials, filesystem paths, raw exceptions, or
   diagnostic payloads in normal UI or screenshots.
 - Do not add a live cloud prompt, provider qualification, or keyboard write to
@@ -154,12 +155,16 @@ The normal inspector contains:
 
 - selected physical key;
 - current assignment in plain language;
-- searchable assignment groups;
-- Apply.
+- searchable assignment groups; and
+- a clear explanation that choosing from the palette changes the selected key
+  immediately.
 
 Move raw keycode editing and firmware passthrough explanation into collapsed
 **Advanced keycode**. Hide matrix/LED numbers by default and expose them through
-**Show technical labels**. Preserve lossless raw-code round trips.
+**Show technical labels**. Preserve lossless raw-code round trips. The Advanced
+raw-code field keeps its explicit **Apply** action; do not reintroduce a staged
+palette Apply action, which owner testing found unreachable in single-column
+layouts.
 
 ### Macros
 
@@ -312,6 +317,7 @@ Required guards:
 - empty state exposes Connect a keyboard and Open a JSON profile;
 - Merge is contextual;
 - raw keycodes and technical labels are hidden until requested;
+- palette choices apply to the selected key immediately;
 - lossless raw assignment still round-trips;
 - Type text and Record keys remain normal Macro actions;
 - event-level editing remains complete under Advanced;
@@ -431,9 +437,47 @@ Commit:
 docs: close product experience remediation
 ```
 
-Building the new exact candidate follows this slice. Tagging, publication,
-announcements, live cloud qualification, macOS Open Anyway, and hardware writes
-retain separate action-time gates.
+The local candidate build and qualification close this slice. Tagging,
+publication, announcements, live cloud qualification, macOS Open Anyway, and
+hardware writes retain separate action-time gates.
+
+Completion record (2026-07-31):
+
+- The canonical version and active packaging, installation, issue-template,
+  and product-identity pointers resolve to `0.1.65`. The rejected unpublished
+  `0.1.64` release and announcement drafts are explicitly historical and are
+  no longer linked as current release notes.
+- The new active-pointer, historical-packet, and compact-key-label guards each
+  passed, failed for the predicted reason with its behavior temporarily
+  reverted, and passed again after restoration.
+- The full repository gate passed: 646 Python tests with 5 expected skips,
+  127 web tests, Python compilation, JavaScript syntax checks, and the
+  `0.1.65` source distribution and wheel build.
+- From a Visual Studio Build Tools 2026 Developer PowerShell,
+  `python build.py --skip-sync` completed in about 14 seconds. PyInstaller,
+  Inno Setup, silent install, installed smoke, and uninstall all passed. The
+  direct frozen bundle also passed `--smoke-test`.
+- The local Windows installer is
+  `AM-Configurator-0.1.65-Windows-x64-Setup.exe`, 17,442,806 bytes, SHA-256
+  `02B88C45D9CD52A5D080F29EC9275BBE6D1DFE40BA2CDFAF740BC67F3C334FC9`.
+- The native WebView2 matrix covered 18 states at both 1000×680 and 1280×800
+  with device scale factor 1: Keymap normal/technical, Macros
+  normal/Advanced, all Switch LED and top-display editor modes, Library
+  empty/error, Settings model-missing, About, device-empty,
+  incompatible-profile, write-confirmation, and empty-document states. All
+  36 captures were inspected; automated DOM layout audits reported zero
+  failures, no horizontal overflow, and no clipped toolbar controls. The
+  CyberBoard switch LEDs match the canonical physical key geometry while its
+  40×5 top display remains rectangular.
+- Supporting CyberBoard geometry landed at `c01357e`, its target-split guard
+  at `0b6778f`, and the owner-waiver review closure at `86e378d`. The P6
+  version, pointer, compact-key-label, guard, and completion changes are the
+  commit containing this record.
+- No FFmpeg path, live cloud prompt, provider request or credential, keyboard
+  write, tag, push, Release, or announcement was used. Exact-head CI and
+  macOS/Linux native artifacts have not yet run for P6; this Windows host
+  cannot supply SmartScreen evidence. Those checks and every outward or
+  hardware action retain their existing gates.
 
 ## Guard-Proof and Verification Procedure
 
@@ -463,7 +507,7 @@ This plan is complete only when:
 - all expert controls remain complete under labelled disclosure;
 - errors explain failure, saved/changed state, and next action;
 - Ollama/Direct API setup and execution labels are unambiguous;
-- Apply and Save to Library remain distinct;
+- Lighting/profile Apply and Save to Library remain distinct;
 - keyboard navigation, focus, contrast, minimum-size, and viewport checks pass;
 - README supplies a direct download and five-minute start;
 - screenshots match the verified interface and contain no sensitive data;

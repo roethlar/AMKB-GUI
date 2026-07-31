@@ -121,6 +121,11 @@ test("the keyboard board can never outgrow its card", () => {
   assert.match(css, /\.keyboard-stage \{[^}]*min-height: 260px; max-width: 100%;/);
 });
 
+test("key labels override native button padding at the compact board width", () => {
+  // Native button padding clips Pause, Home, and Delete on AM21 at 1280x800.
+  assert.match(css, /\.keycap \{[^}]*padding: 2px;/);
+});
+
 test("panel control rows wrap instead of blowing out of fixed columns", () => {
   // Grid children default to min-width:auto, so a 1fr/1fr row overflows a
   // ~210px tool column as soon as a label's min-content exceeds its track.
