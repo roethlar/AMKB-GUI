@@ -2220,6 +2220,195 @@ class LibraryRemovalTests(unittest.TestCase):
             {"status": "ready", "phase": "ready"},
         )
 
+    @staticmethod
+    def _snapshot_files(directory: Path) -> dict[str, bytes]:
+        return {
+            path.relative_to(directory).as_posix(): path.read_bytes()
+            for path in sorted(directory.rglob("*"))
+            if path.is_file()
+        }
+
+    def _write_retired_manifest(
+        self,
+        directory: Path,
+        job_id: str,
+        *,
+        raw_schema_one: bool = False,
+    ) -> dict[str, bytes]:
+        manifest_path = directory / "manifest.json"
+        if raw_schema_one:
+            manifest = {
+                "schema_version": 1,
+                "job_id": job_id,
+            }
+        else:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["pipeline"] = "legacy_video"
+            manifest["loop_mode"] = "smooth"
+            manifest["models"] = {"video": "retired-model"}
+        manifest_path.write_text(
+            json.dumps(manifest, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        video_directory = directory / "video"
+        video_directory.mkdir()
+        sentinel = video_directory / "historical.mp4"
+        sentinel.write_bytes(b"historical-user-bytes")
+        return self._snapshot_files(directory)
+
+    def _retired_job(
+        self,
+        *,
+        removed: bool,
+        raw_schema_one: bool = False,
+    ) -> dict:
+        job = self._job(
+            "raw schema one" if raw_schema_one else "retired video"
+        )
+        catalog_id = f"job:{job['job_id']}"
+        live_directory = self.root / "jobs" / job["job_id"]
+        removed_directory = (
+            self.root / ".trash" / "jobs" / job["job_id"]
+        )
+        if removed:
+            self.catalog.remove(catalog_id)
+        directory = removed_directory if removed else live_directory
+        opposite = live_directory if removed else removed_directory
+        return {
+            "catalog_id": catalog_id,
+            "directory": directory,
+            "opposite": opposite,
+            "snapshot": self._write_retired_manifest(
+                directory,
+                job["job_id"],
+                raw_schema_one=raw_schema_one,
+            ),
+        }
+
+    def test_removed_retired_video_job_is_reported_unsupported_and_untouched(
+        self,
+    ) -> None:
+        retired = [
+            self._retired_job(removed=True),
+            self._retired_job(removed=True, raw_schema_one=True),
+        ]
+        message = (
+            "This retired video job is unsupported and was left unchanged."
+        )
+        expected_errors = {
+            fixture["catalog_id"]: {
+                "catalog_id": fixture["catalog_id"],
+                "namespace": "job",
+                "code": "unsupported_video_job",
+                "message": message,
+            }
+            for fixture in retired
+        }
+
+        for response_name, result in (
+            ("scan", self.catalog.scan()),
+            (
+                "removed_page",
+                self.catalog.page(page=1, limit=10, removed=True),
+            ),
+        ):
+            item_ids = {item["catalog_id"] for item in result["items"]}
+            errors = {
+                error["catalog_id"]: error
+                for error in result["errors"]
+                if error["catalog_id"] in expected_errors
+            }
+            for fixture in retired:
+                catalog_id = fixture["catalog_id"]
+                with self.subTest(
+                    response=response_name,
+                    catalog_id=catalog_id,
+                ):
+                    self.assertNotIn(catalog_id, item_ids)
+                    self.assertEqual(
+                        expected_errors[catalog_id],
+                        errors.get(catalog_id),
+                    )
+            self.assertNotIn(str(self.root), json.dumps(result))
+
+        for fixture in retired:
+            self.assertTrue(fixture["directory"].is_dir())
+            self.assertFalse(fixture["opposite"].exists())
+            self.assertEqual(
+                fixture["snapshot"],
+                self._snapshot_files(fixture["directory"]),
+            )
+
+    def test_retired_video_catalog_mutations_fail_without_touching_files(
+        self,
+    ) -> None:
+        message = (
+            "This retired video job is unsupported and was left unchanged."
+        )
+        operations = (
+            ("remove", False, self.catalog.remove),
+            ("restore", True, self.catalog.restore),
+            ("delete_forever", True, self.catalog.delete_forever),
+        )
+
+        for operation_name, removed, operation in operations:
+            with self.subTest(operation=operation_name):
+                fixture = self._retired_job(removed=removed)
+                with self.assertRaises(LibraryItemStateError) as caught:
+                    operation(fixture["catalog_id"])
+                self.assertEqual(message, str(caught.exception))
+                self.assertTrue(fixture["directory"].is_dir())
+                self.assertFalse(fixture["opposite"].exists())
+                self.assertEqual(
+                    fixture["snapshot"],
+                    self._snapshot_files(fixture["directory"]),
+                )
+
+        real_job_lock = library_module._job_lock
+        for operation_name, removed, operation in operations:
+            with self.subTest(operation=f"{operation_name}_after_lookup"):
+                job = self._job(f"{operation_name} transition")
+                catalog_id = f"job:{job['job_id']}"
+                live_directory = self.root / "jobs" / job["job_id"]
+                removed_directory = (
+                    self.root / ".trash" / "jobs" / job["job_id"]
+                )
+                if removed:
+                    self.catalog.remove(catalog_id)
+                directory = (
+                    removed_directory if removed else live_directory
+                )
+                opposite = (
+                    live_directory if removed else removed_directory
+                )
+                snapshots: list[dict[str, bytes]] = []
+
+                @contextlib.contextmanager
+                def retire_before_lock(root: Path):
+                    snapshots.append(
+                        self._write_retired_manifest(
+                            directory,
+                            job["job_id"],
+                        )
+                    )
+                    with real_job_lock(root):
+                        yield
+
+                with patch(
+                    "am_configurator.library._job_lock",
+                    retire_before_lock,
+                ):
+                    with self.assertRaises(LibraryItemStateError) as caught:
+                        operation(catalog_id)
+                self.assertEqual(message, str(caught.exception))
+                self.assertEqual(1, len(snapshots))
+                self.assertTrue(directory.is_dir())
+                self.assertFalse(opposite.exists())
+                self.assertEqual(
+                    snapshots[0],
+                    self._snapshot_files(directory),
+                )
+
     def test_remove_restore_and_delete_forever_target_only_one_owned_item(self) -> None:
         target = self._media("target.png", b"target")
         sibling = self._media("sibling.png", b"sibling")

@@ -35,6 +35,11 @@
   against the existing candidate. No tag, Release, announcement, macOS Open
   Anyway action, live cloud prompt, provider credential use, or
   release-candidate hardware write followed the rejection.
+- Review finding `cl-2` is implemented and locally verified: live and removed
+  retired-video jobs share one unsupported classification, and remove, restore,
+  and permanent deletion reject them both before and after lock acquisition
+  without changing stored bytes. The implementation slice awaits its required
+  pinned `claude-opus-5` codereview.
 - Backend Slices B1-B3 and product Slices P1-P5, including their follow-up
   fixes, are landed on `main`. Backend Slice B4 is superseded by the
   procedural-only/FFmpeg-prohibited ruling and must not be executed. Product
@@ -63,10 +68,10 @@
 
 ## Next
 
-- Resolve the active codereview loop one finding at a time. `cl-1` is verified;
-  `cl-2` is next. Its fix is drafted in
-  `docs/superpowers/plans/2026-07-30-cl-2-retired-video-catalog-isolation.md`;
-  implementation approval is pending.
+- Commit the verified `cl-2` implementation slice, then run its required
+  per-slice `claude-opus-5` codereview against the implementation commit and
+  its parent. Close the finding records only after an accepted verdict; `cl-3`
+  remains next and untouched.
 - Owner approval is pending for
   `docs/superpowers/plans/2026-07-30-github-actions-node24-upgrade.md`.
   `cl-3` must be resolved before that plan is implemented.

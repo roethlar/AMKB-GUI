@@ -1,7 +1,7 @@
 # cl-2: Removed retired-video jobs bypass unsupported classification
 
 **Severity**: MEDIUM — a retired video job in Library trash is exposed as an ordinary item and can be restored or permanently deleted despite the range's unsupported-and-untouched contract.
-**Status**: Open
+**Status**: In progress
 **Branch**: —
 **Commit**: —
 
@@ -33,27 +33,45 @@ scan. The removed-job scan and its mutation boundaries still use the normal
 manifest path.
 
 ## Approach
-The draft implementation plan is
-`docs/superpowers/plans/2026-07-30-cl-2-retired-video-catalog-isolation.md`.
-Implementation approval remains pending.
+`_is_retired_video_manifest` and `_read_job_manifest` now provide one raw,
+ownership-aware retired-job boundary before current-schema validation. Live
+and removed scans project `_UnsupportedVideoJobError` as the same pathless
+`unsupported_video_job` result. Catalog lookup forwards an explicit rejection
+flag, and both the initial and lock-held reads for remove, restore, and
+permanent deletion enable it, preventing either rename or deletion even when a
+manifest becomes retired after lookup.
 
 ## Files changed
-—
+- `am_configurator/library.py:297` — central retired-video classification,
+  scan projection, and mutation rejection.
+- `tests/test_library.py:2223` — retired-job fixtures plus removed-scan and
+  six-case mutation guards.
+- `docs/superpowers/plans/2026-07-30-cl-2-retired-video-catalog-isolation.md:1`
+  — approved scope, transition cases, and implementation status.
+- `.agents/review/findings/cl-2.md:1` — implementation and guard evidence.
+- `.agents/review/index.md:33` — active-review status.
+- `.agents/state.md:1` — current implementation and next-action pointer.
 
 ## Guard proof
-Prospective guard: place a valid retired-video job in Library trash, assert the
-removed scan reports it as unsupported, and assert restore and permanent
-deletion fail while all bytes remain unchanged. The eventual fix must be
-red-proven by reverting it.
+- `tests.test_library.LibraryRemovalTests.test_removed_retired_video_job_is_reported_unsupported_and_untouched`
+  — failed before the fix because a validator-compatible retired job was
+  catalogued and a minimal schema-v1 job was reported corrupt. It passed after
+  implementation, failed again with only `library.py` restored to the parent
+  content, and passed again after restoring the fix.
+- `tests.test_library.LibraryRemovalTests.test_retired_video_catalog_mutations_fail_without_touching_files`
+  — failed before the fix because remove, restore, and permanent deletion all
+  executed, both for initially retired jobs and for jobs changed to retired
+  between lookup and lock acquisition. It passed after implementation, failed
+  again with only `library.py` restored to the parent content, and passed again
+  after restoring the fix.
+- Focused guards: 2/2 pass. `tests.test_library`: 60 pass, 2 platform skips.
+  Full Python suite: 642 pass, 5 platform skips. Compileall, 125 web tests,
+  every recorded JavaScript syntax check, and `uv build` pass.
 
 ## Coder dispute (if any)
 
 ## Known gaps
-The approved decision explicitly prohibits automatic deletion; the approved
-removal plan and current module contract additionally require scanned retired
-video manifests to be reported as unsupported and left untouched. The eventual
-fix plan should state the intended response for explicit user deletion rather
-than relying on an implicit catalog omission.
+None within `cl-2`; `cl-3` and product Slice P6 remain outside this finding.
 
 ## Reviewer comments
 Raised by: Reviewer: claude / claude-opus-5 / high / standard (inline,

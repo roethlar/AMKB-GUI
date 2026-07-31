@@ -1,7 +1,7 @@
 # cl-2 Retired-Video Catalog Isolation Plan
 
-**Status:** Drafted on 2026-07-30. The owner authorized plan preparation;
-implementation approval remains pending.
+**Status:** Implementation slice C2 completed and locally verified on
+2026-07-30. The required per-slice `claude-opus-5` review remains pending.
 
 ## Objective
 
@@ -144,6 +144,11 @@ Use a fresh retired fixture for each subtest:
 - removed retired job + `catalog.restore`;
 - removed retired job + `catalog.delete_forever`.
 
+Repeat all three mutation cases with a procedural manifest at the initial
+lookup, then rewrite it to a retired manifest immediately before `_job_lock`
+acquires the ownership lock. These transition cases prove the lock-held
+recheck is load-bearing rather than merely present.
+
 For every operation, assert:
 
 - `LibraryItemStateError` is raised with the fixed retired-video
@@ -153,8 +158,9 @@ For every operation, assert:
 - the recursive relative-file inventory is unchanged; and
 - every captured file remains byte-identical.
 
-Run this test before production changes. All three subtests must fail because
-the current code performs the rename or recursive deletion. Destruction in this
+Run this test before production changes. All six subtests must fail because
+the current code performs the rename or recursive deletion both for initially
+retired manifests and for manifests retired after lookup. Destruction in this
 red proof is confined to each test's temporary root.
 
 ### C2.4 Add one canonical retired-aware job-manifest reader
@@ -255,7 +261,8 @@ Required proof:
    its pre-fix content while leaving both tests present.
 6. Run both commands:
    - the removed-scan test must fail because the job is catalogued;
-   - the mutation test must fail for remove, restore, and permanent deletion.
+   - the mutation test must fail for remove, restore, and permanent deletion,
+     including every after-lookup/lock-transition case.
 7. Restore the final `library.py`.
 8. Run both commands and require success.
 9. Record all red/green results in `.agents/review/findings/cl-2.md`.

@@ -297,6 +297,9 @@ _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS = {
 _JOB_LOCK_TIMEOUT_SECONDS = 10.0
 _JOB_LOCK_RETRY_SECONDS = 0.1
 _JOB_LOCKED_MESSAGE = "The generated job is locked by another process."
+_RETIRED_VIDEO_JOB_MESSAGE = (
+    "This retired video job is unsupported and was left unchanged."
+)
 
 
 class LibraryError(RuntimeError):
@@ -309,6 +312,13 @@ class LibraryRootError(LibraryError):
 
 class LibraryItemStateError(LibraryError):
     """A Library mutation conflicts with the item's current owned state."""
+
+
+class _UnsupportedVideoJobError(LibraryItemStateError):
+    """A retired video job cannot be handled by supported Library paths."""
+
+    def __init__(self) -> None:
+        super().__init__(_RETIRED_VIDEO_JOB_MESSAGE)
 
 
 class LibraryItemActiveError(LibraryItemStateError):
@@ -1326,14 +1336,37 @@ def _read_manifest_value(path: Path) -> object:
         raise ManifestError("This job manifest could not be read.") from exc
 
 
-def _read_manifest(path: Path, job_id: str) -> dict:
+def _is_retired_video_manifest(value: object) -> bool:
+    return isinstance(value, dict) and (
+        value.get("schema_version") == 1
+        or value.get("pipeline") == "legacy_video"
+    )
+
+
+def _read_job_manifest(
+    path: Path,
+    job_id: str,
+    *,
+    reject_retired_video: bool = False,
+) -> dict:
     try:
+        value = _read_manifest_value(path)
+        if reject_retired_video and _is_retired_video_manifest(value):
+            if _canonical_uuid(value.get("job_id"), "job ID") != job_id:
+                raise ManifestError(
+                    "The job manifest does not own this directory."
+                )
+            raise _UnsupportedVideoJobError()
         return _validate_manifest(
-            _read_manifest_value(path),
+            value,
             expected_job_id=job_id,
         )
     except RecursionError as exc:
         raise ManifestError("This job manifest could not be read.") from exc
+
+
+def _read_manifest(path: Path, job_id: str) -> dict:
+    return _read_job_manifest(path, job_id)
 
 
 def _read_asset_intent(path: Path) -> dict:
@@ -1854,33 +1887,20 @@ class GeneratedAssetLibrary:
                 try:
                     if _is_linklike(entry) or not entry.is_dir():
                         raise ManifestError("This job manifest could not be read.")
-                    manifest_path = entry / "manifest.json"
-                    value = _read_manifest_value(manifest_path)
-                    if (
-                        isinstance(value, dict)
-                        and (
-                            value.get("schema_version") == 1
-                            or value.get("pipeline") == "legacy_video"
-                        )
-                    ):
-                        if _canonical_uuid(value.get("job_id"), "job ID") != job_id:
-                            raise ManifestError(
-                                "The job manifest does not own this directory."
-                            )
-                        errors.append(
-                            {
-                                "job_id": job_id,
-                                "code": "unsupported_video_job",
-                                "message": "This retired video job is unsupported and was left unchanged.",
-                            }
-                        )
-                        continue
-                    try:
-                        manifest = _validate_manifest(value, expected_job_id=job_id)
-                    except RecursionError as exc:
-                        raise ManifestError(
-                            "This job manifest could not be read."
-                        ) from exc
+                    manifest = _read_job_manifest(
+                        entry / "manifest.json",
+                        job_id,
+                        reject_retired_video=True,
+                    )
+                except _UnsupportedVideoJobError:
+                    errors.append(
+                        {
+                            "job_id": job_id,
+                            "code": "unsupported_video_job",
+                            "message": _RETIRED_VIDEO_JOB_MESSAGE,
+                        }
+                    )
+                    continue
                 except (ManifestError, InvalidIdentifierError):
                     errors.append(
                         {"job_id": job_id, "code": "corrupt_manifest", "message": "This job manifest could not be read."}
@@ -3204,9 +3224,15 @@ class LibraryCatalog:
         namespace: str,
         directory: Path,
         identifier: str,
+        *,
+        reject_retired_video: bool = False,
     ) -> dict:
         if namespace == "job":
-            return _read_manifest(directory / "manifest.json", identifier)
+            return _read_job_manifest(
+                directory / "manifest.json",
+                identifier,
+                reject_retired_video=reject_retired_video,
+            )
         return _read_saved_manifest(directory / "manifest.json", identifier)
 
     @staticmethod
@@ -3296,8 +3322,19 @@ class LibraryCatalog:
                         namespace,
                         entry,
                         identifier,
+                        reject_retired_video=True,
                     )
-                except ManifestError:
+                except _UnsupportedVideoJobError:
+                    errors.append(
+                        {
+                            "catalog_id": catalog_id,
+                            "namespace": namespace,
+                            "code": "unsupported_video_job",
+                            "message": _RETIRED_VIDEO_JOB_MESSAGE,
+                        }
+                    )
+                    continue
+                except (ManifestError, InvalidIdentifierError):
                     errors.append(
                         {
                             "catalog_id": catalog_id,
@@ -3480,6 +3517,7 @@ class LibraryCatalog:
         identifier: str,
         *,
         removed: bool,
+        reject_retired_video: bool = False,
     ) -> list[tuple[Path, Path, dict]]:
         locations: list[tuple[Path, Path, dict]] = []
         for root in self._roots_for_namespace(namespace):
@@ -3507,6 +3545,7 @@ class LibraryCatalog:
                 namespace,
                 candidate,
                 identifier,
+                reject_retired_video=reject_retired_video,
             )
             locations.append((root, candidate, manifest))
         return locations
@@ -3516,6 +3555,7 @@ class LibraryCatalog:
         catalog_id: str,
         *,
         removed: bool | None,
+        reject_retired_video: bool = False,
     ) -> tuple[str, str, Path, Path, dict, bool]:
         namespace, identifier = _parse_catalog_id(catalog_id)
         states = (False, True) if removed is None else (removed,)
@@ -3526,6 +3566,7 @@ class LibraryCatalog:
                 namespace,
                 identifier,
                 removed=state,
+                reject_retired_video=reject_retired_video,
             )
         ]
         if not locations:
@@ -3631,6 +3672,7 @@ class LibraryCatalog:
             ) = self._single_location(
                 canonical_catalog_id,
                 removed=source_removed,
+                reject_retired_video=True,
             )
         except ManifestError:
             opposite = self._find_locations(
@@ -3670,6 +3712,7 @@ class LibraryCatalog:
             ) = self._single_location(
                 canonical_catalog_id,
                 removed=source_removed,
+                reject_retired_video=True,
             )
             if locked_root != root or locked_source != source:
                 raise LibraryItemStateError(
@@ -3771,6 +3814,7 @@ class LibraryCatalog:
             ) = self._single_location(
                 canonical_catalog_id,
                 removed=True,
+                reject_retired_video=True,
             )
         except ManifestError:
             if self._find_locations(
@@ -3797,6 +3841,7 @@ class LibraryCatalog:
             ) = self._single_location(
                 canonical_catalog_id,
                 removed=True,
+                reject_retired_video=True,
             )
             if locked_root != root or locked_directory != directory:
                 raise LibraryItemStateError(
