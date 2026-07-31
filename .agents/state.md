@@ -65,6 +65,11 @@
   verification passed. Its required `claude-opus-5` implementation review
   reported no workflow or test defect; A2 remote workflow, artifact,
   provenance, and Windows installation acceptance remains outstanding.
+- Review finding `cl-4` is verified at
+  `c443f03605e93e0f288a6d9e0f8ff5d5d1b4d487`: the canonical state now names
+  the exact landed A1 commit and A2 acceptance instead of retired refs and a
+  settled approval gate. A pinned `claude-opus-5` review independently
+  reproduced the manual base/head proof and focused dependency guard.
 - Known intermittent (backend, pre-existing): under full-suite load,
   `test_procedural_generation...test_local_cancellation_stops_without_retry_or_ready_artifacts`
   has once reported manifest status `interrupted` instead of `cancelled`.
@@ -78,10 +83,9 @@
 
 ## Next
 
-- Finish the active Node 24 record-drift loop: obtain the `cl-4` repair
-  verdict, then correct and verify `cl-5`. After both close, push the exact A1
-  and record commits to both remotes and execute the plan's A2 remote
-  acceptance against that pinned head.
+- Finish the active Node 24 record-drift loop by correcting and verifying
+  `cl-5`. After it closes, push the exact A1 and record commits to both remotes
+  and execute the plan's A2 remote acceptance against that pinned head.
 - The accepted `cl-2` review recorded a separate pre-existing read-only
   `get()` / `resolve_asset()` retired-job exposure as a candidate requiring an
   owner scope decision.
