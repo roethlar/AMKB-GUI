@@ -1,7 +1,8 @@
 # GitHub Actions Node 24 Compatibility Upgrade Plan
 
 **Status:** Drafted on 2026-07-30. The owner authorized plan preparation;
-implementation approval remains pending.
+the current provenance ref was corrected to its immutable commit on
+2026-07-30. A1 implementation approval remains pending.
 
 ## Objective
 
@@ -29,8 +30,9 @@ GitHub check annotations on the Desktop run identify these Node 20 targets:
 - `astral-sh/setup-uv@v6`;
 - `actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093`
   (`v4.3.0`);
-- the `actions/attest-build-provenance@v2.4.0` composite's pinned
-  `predicate` and `actions/attest@v2.4.0` children.
+- `actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be`
+  (`v2.4.0`), whose composite uses pinned `predicate` and
+  `actions/attest@v2.4.0` children.
 
 GitHub currently forces those actions onto Node 24, so the workflows pass but
 depend on a compatibility bridge that GitHub may remove.
@@ -52,7 +54,7 @@ Use exactly these replacements:
 | `actions/upload-artifact` | `v4` | `v7` | `v7.0.1`, commit `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` |
 | `actions/download-artifact` | pinned `v4.3.0` | `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` | `v8.0.1` |
 | `astral-sh/setup-uv` | `v6` | `c771a70e6277c0a99b617c7a806ffedaca235ff9` | `v9.0.0` |
-| `actions/attest-build-provenance` | pinned `v2.4.0` | `0f67c3f4856b2e3261c31976d6725780e5e4c373` | `v4.1.1` |
+| `actions/attest-build-provenance` | `e8998f949152b193b063cb0ec769d69d929409be` | `0f67c3f4856b2e3261c31976d6725780e5e4c373` | `v4.1.1` |
 
 At implementation time, re-resolve each release tag through the GitHub API and
 confirm it still maps to the reviewed commit above. A mismatch is a roadblock:

@@ -69,10 +69,12 @@
 
 ## Next
 
-- `cl-3` is the next admitted finding. Its documentation-only plan correction
-  remains unapproved. The accepted `cl-2` review also recorded a separate
-  pre-existing read-only `get()` / `resolve_asset()` retired-job exposure as a
-  candidate requiring an owner scope decision.
+- `cl-3` is corrected and locally verified as a documentation-only slice. The
+  Node 24 plan now names the exact retired provenance-action commit, so its
+  future absence guard is non-vacuous. Commit this finding-specific slice and
+  run its required pinned `claude-opus-5` review. The accepted `cl-2` review
+  also recorded a separate pre-existing read-only `get()` / `resolve_asset()`
+  retired-job exposure as a candidate requiring an owner scope decision.
 - Owner approval is pending for
   `docs/superpowers/plans/2026-07-30-github-actions-node24-upgrade.md`.
   `cl-3` must be resolved before that plan is implemented.

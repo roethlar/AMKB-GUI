@@ -1,7 +1,7 @@
 # cl-3: Node 24 plan names a nonexistent retired workflow ref
 
 **Severity**: LOW — one planned regression assertion is vacuous and the cold-implementation record misstates the current provenance-action ref, although the surrounding exact-multiset guard would still fail before the upgrade.
-**Status**: Open
+**Status**: In progress
 **Branch**: —
 **Commit**: —
 
@@ -28,24 +28,33 @@ The plan uses a release label where its executable guard requires the exact
 immutable ref present in the workflow.
 
 ## Approach
-Not started. Correcting the pending plan requires owner approval of the
-finding-specific documentation change or inclusion in the plan-approval pass.
+The plan now records the exact immutable provenance-action commit currently
+used by all four Desktop attest steps, while retaining `v2.4.0` only as release
+provenance. That makes the planned retired-ref absence assertion fail against
+the old workflow as intended and leaves the existing no-floating-ref assertion
+as the sole owner of the separate pinning rule.
 
 ## Files changed
-—
+- `docs/superpowers/plans/2026-07-30-github-actions-node24-upgrade.md:3`
+  — corrected current evidence and the replacement table to the exact retired
+  commit.
+- `.agents/review/findings/cl-3.md:1` — implementation and proof record.
+- `.agents/review/index.md:1` — active-review status.
+- `.agents/state.md:1` — current slice and next-action pointer.
 
 ## Guard proof
-Prospective proof: after correcting the plan, implement the exact retired-commit
-assertion first and show it fails against the current workflow, then update the
-workflow and show it passes. Keep the existing no-floating-ref assertion as the
-single owner of that separate rule.
+Manual plan proof: the exact retired commit appears in all four current
+Desktop attest steps, so the planned absence assertion will fail before the
+workflow upgrade. `v2.4.0` appears only in comments, and
+`tests/test_packaging.py:466` independently rejects floating
+`actions/attest-build-provenance@v...` workflow refs. The packaging test module
+passes unchanged: 50 tests passed with 2 platform skips.
 
 ## Coder dispute (if any)
 
 ## Known gaps
-The plan is unapproved and changes no runtime behavior. Its exact target
-multiset would still make the overall new test fail on the old workflow, so the
-defect is limited to one dead assertion and inaccurate implementation guidance.
+The A1 workflow implementation remains unapproved and changes no runtime
+behavior in this slice.
 
 ## Reviewer comments
 Raised by: Reviewer: claude / claude-opus-5 / high / standard (inline,

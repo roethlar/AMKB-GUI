@@ -42,7 +42,7 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | cx-5 | LOW      | Neon palette focus restore races async validation rerender               | `[x]`  | —      | codex/gpt-5.6-sol/high/standard esc:T1 |
 | cl-1 | HIGH     | Malformed retired-video manifest can abort Library scan and app startup  | `[x]`  | —      | claude/claude-opus-5/xhigh/frontier esc:T2 |
 | cl-2 | MEDIUM   | Trashed retired-video job remains restorable and permanently deletable   | `[x]`  | —      | claude/claude-opus-5/high/standard |
-| cl-3 | LOW      | Node 24 plan's retired provenance-action assertion is vacuous            | `[ ]`  | —      | claude/claude-opus-5/high/standard |
+| cl-3 | LOW      | Node 24 plan's retired provenance-action assertion is vacuous            | `[~]`  | —      | claude/claude-opus-5/high/standard |
 
 All three raised by the 2026-07-25 openreview codex pass over
 `65a70c9..94a847a` and admitted at intake after independent verification of
