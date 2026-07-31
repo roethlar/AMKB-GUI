@@ -1,7 +1,7 @@
 # cl-1 Malformed Retired-Video Manifest Isolation Plan
 
-**Status:** Drafted on 2026-07-30. The owner authorized plan preparation;
-implementation approval remains pending.
+**Status:** Approved and implemented on 2026-07-30. Local verification is
+complete; per-finding reviewer acceptance remains pending.
 
 ## Objective
 

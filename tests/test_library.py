@@ -230,6 +230,54 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         self.assertEqual(before_manifest, manifest_path.read_bytes())
         self.assertEqual(before_sentinel, sentinel.read_bytes())
 
+    def test_malformed_retired_video_manifest_is_isolated_during_scan_reconcile_and_startup(
+        self,
+    ) -> None:
+        healthy = self._create_job()
+        malformed_id = str(uuid.uuid4())
+        malformed_dir = self._job_dir(malformed_id)
+        malformed_dir.mkdir(parents=True)
+        manifest_path = malformed_dir / "manifest.json"
+        manifest_path.write_bytes(b'{"schema_version": 1}\n')
+        video_dir = malformed_dir / "video"
+        video_dir.mkdir()
+        sentinel = video_dir / "historical.mp4"
+        sentinel.write_bytes(b"historical-user-bytes")
+        before_manifest = manifest_path.read_bytes()
+        before_sentinel = sentinel.read_bytes()
+
+        scan = self.library.scan()
+        self.assertEqual(
+            [healthy["job_id"]],
+            [manifest["job_id"] for manifest in scan["jobs"]],
+        )
+        report = self.library.reconcile()
+
+        for result in (scan, report):
+            self.assertEqual(1, len(result["errors"]))
+            error = result["errors"][0]
+            self.assertEqual(
+                {
+                    "job_id": malformed_id,
+                    "code": "corrupt_manifest",
+                    "message": "This job manifest could not be read.",
+                },
+                error,
+            )
+            self.assertNotIn(str(malformed_dir), json.dumps(result))
+
+        server, _state = create_server(
+            credential_store=MemoryCredentialStore(),
+            lighting_library=self.library,
+        )
+        try:
+            self.assertIsNotNone(_state)
+        finally:
+            server.server_close()
+
+        self.assertEqual(before_manifest, manifest_path.read_bytes())
+        self.assertEqual(before_sentinel, sentinel.read_bytes())
+
     def test_procedural_manifest_accepts_only_new_local_artifact_kinds(self) -> None:
         job = self._create_job(
             models={

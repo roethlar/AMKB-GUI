@@ -1,9 +1,9 @@
 # cl-1: Malformed retired-video manifests escape Library fault isolation
 
 **Severity**: HIGH — one malformed historical manifest can abort Library scans and startup reconciliation, hiding healthy jobs and preventing the application from launching.
-**Status**: Open
+**Status**: In progress
 **Branch**: —
-**Commit**: —
+**Commit**: pending
 
 ## Evidence
 `am_configurator/library.py:1866` canonicalizes a retired manifest's `job_id`.
@@ -33,25 +33,39 @@ The retired-video check introduced by the reviewed range raises an exception
 outside the exception type handled by the per-directory fault-isolation path.
 
 ## Approach
-The draft implementation plan is
-`docs/superpowers/plans/2026-07-30-cl-1-malformed-retired-video-manifest-isolation.md`.
-Implementation approval remains pending.
+`GeneratedAssetLibrary._scan_internal` now isolates
+`InvalidIdentifierError` beside `ManifestError` at the existing per-directory
+corrupt-manifest boundary. This preserves direct caller ID validation while
+projecting malformed manifest-owned IDs through the established pathless
+`corrupt_manifest` response. A focused regression test exercises scan,
+reconciliation, application startup, healthy-job visibility, and byte
+preservation.
 
 ## Files changed
-—
+- `am_configurator/library.py:1884` — isolate invalid manifest-owned UUIDs at
+  the generated-job scan boundary.
+- `tests/test_library.py:233` — guard malformed retired manifests across scan,
+  reconcile, and startup without touching their bytes.
+- `docs/superpowers/plans/2026-07-30-cl-1-malformed-retired-video-manifest-isolation.md`
+  — record the approved implementation and verification contract.
+- `.agents/review/findings/cl-1.md`, `.agents/review/index.md`, and
+  `.agents/state.md` — record the active finding slice.
 
 ## Guard proof
-Prospective guard: add a malformed retired manifest beside a healthy job,
-assert `scan()` and `reconcile()` return a pathless per-item error while
-preserving the healthy job, and assert the retired directory remains
-byte-identical. The eventual fix must be red-proven by reverting it.
+- `tests.test_library.GeneratedAssetLibraryTests.test_malformed_retired_video_manifest_is_isolated_during_scan_reconcile_and_startup`
+  passes with the tuple handler.
+- Replacing that handler temporarily with `except ManifestError:` makes the
+  focused test fail at `scan()` with uncaught `InvalidIdentifierError`.
+- Restoring the tuple handler makes the same focused test pass.
+- `tests.test_library`: 58 passed, 2 expected platform skips.
+- Complete gate: 640 Python tests passed with 5 expected platform skips; 125
+  web tests passed; compile, JavaScript syntax, and `uv build` passed.
 
 ## Coder dispute (if any)
 
 ## Known gaps
-The intake reproduction exercised `scan()` and `reconcile()` directly. The
-startup consequence is established by the unguarded caller chain but has not
-yet been exercised through `create_server`.
+`cl-2` remains deliberately out of scope: trash scanning, restore, and
+permanent deletion behavior is unchanged.
 
 ## Reviewer comments
 Raised by: Reviewer: claude / claude-opus-5 / high / standard (inline,

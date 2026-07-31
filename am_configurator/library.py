@@ -1881,7 +1881,7 @@ class GeneratedAssetLibrary:
                         raise ManifestError(
                             "This job manifest could not be read."
                         ) from exc
-                except ManifestError:
+                except (ManifestError, InvalidIdentifierError):
                     errors.append(
                         {"job_id": job_id, "code": "corrupt_manifest", "message": "This job manifest could not be read."}
                     )
