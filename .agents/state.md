@@ -119,6 +119,9 @@
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md` and awaits owner
   approval. No release-packet implementation begins until approval is recorded,
   and its R65-G1 readiness gate must pass before an exact candidate is frozen.
+  One owner-requested `claude-fable-5` openreview judged the exact plan range
+  `best_approach` with no findings; `.agents/review/outcomes.md` records the
+  returned-envelope deviation and no-resubmission handling.
   Tagging, release publication, hardware writes, live provider use, macOS Open
   Anyway, and announcement remain separately gated actions.
 - Separately, the accepted `cl-2` review recorded a pre-existing read-only

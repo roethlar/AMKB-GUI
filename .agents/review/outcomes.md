@@ -185,3 +185,20 @@
   second paid Claude verification call and accepted the deterministic
   red/green mutation proof plus the full repository gate as closure evidence.
   No additional reviewer request was made.
+- 2026-07-31 — openreview claude (job `fable-review`; claude-cli 2.1.220;
+  `claude-fable-5` @ `max`, owner-selected one-shot, frontier grade not
+  pre-recorded) over
+  `0c91a6d62485cf8e49efad70f7188a3d37f18de6..031e5ffc5eda1214970f4bbe676683fc590ebe3e`:
+  substantive verdict `best_approach`, `capability_ok=true`, exact pinned SHAs,
+  exit 0, transcript model key `claude-fable-5`, and no findings. The reviewer
+  independently judged the successor-plan structure, exact identity contract,
+  and R65-G1 pre-freeze readiness gate to be the approach it would take. It
+  reported one non-blocking wording nit: `4a3c6eb` is the P6 closure-record
+  commit rather than an implementation commit, although the exact-head
+  qualification claim remains true. The schema-enforced payload violated the
+  playbook's semantic contract by putting a three-file changed-path inventory
+  in `material_changes` while returning `best_approach`; those entries did not
+  request changes, and the comparison explicitly endorsed the reviewed state.
+  Per the owner's standing direction, the usable judgment was recorded with
+  that deviation instead of discarded or resubmitted. Exactly one Claude
+  review request was made. Raw output was persisted locally before parsing.
