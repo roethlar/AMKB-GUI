@@ -2,6 +2,7 @@
 
 ## Now
 
+- Active review loop: see `.agents/review/index.md`.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
   prohibited in every runtime/build/package path, and dependencies without a
@@ -74,6 +75,9 @@
 
 ## Next
 
+- Resolve the two admitted Node 24 record-drift findings one at a time,
+  starting with `cl-4`; A2 remote acceptance remains blocked until the loop
+  closes.
 - Owner approval is pending for
   `docs/superpowers/plans/2026-07-30-github-actions-node24-upgrade.md`.
   Its prerequisite `cl-3` correction is verified, so the plan is ready for an

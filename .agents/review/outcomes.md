@@ -134,3 +134,16 @@
   removed its disposable worktree, and left the coder tree clean. Hook-rewritten
   git and one Grep call were denied and recovered through allowed operations;
   recorded as environment notes, not invalidation.
+- 2026-07-31 — codereview claude (claude-cli 2.1.220;
+  `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `43eae714b80322b5424efaced46a1826dfd67753..7586bf7daab187a158a5c929cafcb80f9af97d10`:
+  verdict `findings`, `capability_ok=true`; two raised and both admitted after
+  independent intake verification (`cl-4` MEDIUM, `cl-5` LOW), none declined.
+  No workflow or test defect was reported; both findings are durable-record
+  drift left after A1 landed. The CLI exited zero with a schema-enforced
+  envelope, exact pinned SHAs, and transcript model key `claude-opus-5`.
+  Environment note: the repository hook rewrote the reviewer's first git
+  command through `rtk`, and an attempted upstream WebFetch was outside the
+  launch allowlist; both were denied. The reviewer recovered with allowed
+  repository reads and git inspection, completed the capability proof, and
+  left the coder tree clean.
