@@ -45,8 +45,9 @@
   `72a1e41889243819f4c27036693f150b15b95859`: the Node 24 plan now names
   the exact retired provenance-action commit, making its future absence guard
   non-vacuous. A pinned `claude-opus-5` review independently reproduced the
-  manual base/head proof and accepted the slice. All admitted findings in the
-  active Claude review set are now closed.
+  manual base/head proof and accepted the slice. The original `cl-1` through
+  `cl-3` review set is closed; the active loop now owns the two record-drift
+  findings raised by the A1 implementation review.
 - Backend Slices B1-B3 and product Slices P1-P5, including their follow-up
   fixes, are landed on `main`. Backend Slice B4 is superseded by the
   procedural-only/FFmpeg-prohibited ruling and must not be executed. Product
@@ -56,12 +57,14 @@
   document and reconcile the Keymap plan's explicit Apply wording with the
   owner-tested immediate-assignment behavior. P6 now owns the candidate version
   change and remaining release-plan status/pointer synchronization.
-- Current GitHub workflows pass but emit deprecation warnings because
-  `actions/checkout@v4`, `actions/upload-artifact@v4`, pinned
-  `actions/download-artifact@v4.3.0`, and `astral-sh/setup-uv@v6` target Node
-  20 and are being forced onto Node 24. These actions each have a live owner;
-  their major-version compatibility upgrade is specified in the pending draft
-  plan, not an unused-dependency finding.
+- GitHub Actions Node 24 Slice A1 landed at
+  `7586bf7daab187a158a5c929cafcb80f9af97d10`: checkout/upload use their
+  reviewed v7 major refs, download/provenance/setup-uv use their reviewed
+  immutable releases, and `prune-cache: true` preserves the existing cache
+  contract. The new exact dependency guard is red/green proven, and full local
+  verification passed. Its required `claude-opus-5` implementation review
+  reported no workflow or test defect; A2 remote workflow, artifact,
+  provenance, and Windows installation acceptance remains outstanding.
 - Known intermittent (backend, pre-existing): under full-suite load,
   `test_procedural_generation...test_local_cancellation_stops_without_retry_or_ready_artifacts`
   has once reported manifest status `interrupted` instead of `cancelled`.
@@ -75,13 +78,10 @@
 
 ## Next
 
-- Resolve the two admitted Node 24 record-drift findings one at a time,
-  starting with `cl-4`; A2 remote acceptance remains blocked until the loop
-  closes.
-- Owner approval is pending for
-  `docs/superpowers/plans/2026-07-30-github-actions-node24-upgrade.md`.
-  Its prerequisite `cl-3` correction is verified, so the plan is ready for an
-  owner implementation decision.
+- Finish the active Node 24 record-drift loop: obtain the `cl-4` repair
+  verdict, then correct and verify `cl-5`. After both close, push the exact A1
+  and record commits to both remotes and execute the plan's A2 remote
+  acceptance against that pinned head.
 - The accepted `cl-2` review recorded a separate pre-existing read-only
   `get()` / `resolve_asset()` retired-job exposure as a candidate requiring an
   owner scope decision.

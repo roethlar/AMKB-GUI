@@ -1,7 +1,7 @@
 # cl-4: Repository state still reports the Node 24 upgrade as unlanded
 
 **Severity**: MEDIUM — the canonical cold-start record sends a new session back to an already-completed approval and implementation step instead of the required remote acceptance.
-**Status**: Open
+**Status**: In progress
 **Branch**: —
 **Commit**: —
 
@@ -38,11 +38,12 @@ record-drift findings close.
 - `.agents/review/index.md` — review-loop status.
 
 ## Guard proof
-Manual record proof: at the reviewed head, the retired refs named by
-`.agents/state.md` are absent from both workflows and the Node 24 guard passes,
-so the state assertion is demonstrably false. After the repair, the state
-record must name the exact A1 commit, preserve A2 as outstanding, and contain
-no claim that A1 approval is pending.
+Manual record proof: the base state names four retired refs and an open A1
+approval gate, while those refs are absent from both workflows at the A1 head.
+The repaired state names exact A1 commit
+`7586bf7daab187a158a5c929cafcb80f9af97d10`, preserves A2 as outstanding, and
+contains no claim that A1 approval remains pending. The focused Node 24
+dependency guard passes unchanged.
 
 ## Coder dispute (if any)
 
