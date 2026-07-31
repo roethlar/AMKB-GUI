@@ -147,3 +147,12 @@
   launch allowlist; both were denied. The reviewer recovered with allowed
   repository reads and git inspection, completed the capability proof, and
   left the coder tree clean.
+- 2026-07-31 — A1 record-drift loop closed: `cl-4` repair
+  `c443f03605e93e0f288a6d9e0f8ff5d5d1b4d487` and `cl-5` repair
+  `227019705bacfe89862a24bbbe4349176b487818` were each accepted by
+  claude/claude-opus-5/high/standard against their pinned parents, with
+  `guard_confirmed=true` and `capability_ok=true`. Both reviewers independently
+  reproduced the false base record and corrected head record, ran the focused
+  Node 24 guard (`cl-5` ran all 51 packaging tests), removed their disposable
+  worktrees, and left the shared tree clean. Hook-rewritten `rtk git` spellings
+  were denied and recovered through permitted operations.

@@ -1,9 +1,9 @@
 # cl-5: Node 24 plan still reports A1 approval as pending
 
 **Severity**: LOW — the approved implementation plan falsely presents its completed A1 gate as open, which can trigger a redundant approval request or an incorrect governance escalation.
-**Status**: In progress
+**Status**: Verified
 **Branch**: —
-**Commit**: —
+**Commit**: `227019705bacfe89862a24bbbe4349176b487818`
 
 ## Evidence
 At reviewed head `7586bf7daab187a158a5c929cafcb80f9af97d10`,
@@ -63,3 +63,18 @@ claude-cli 2.1.220; capability_ok=true; verdict=findings;
   authorization and landing status false.
 - The review transcript reports the exact requested `claude-opus-5` model;
   the denied upstream WebFetch was not needed to establish this finding.
+
+Verified by: Reviewer: claude / claude-opus-5 / high / standard (inline,
+session-only); claude-cli 2.1.220; reviewed
+`227019705bacfe89862a24bbbe4349176b487818`; base
+`bc4a807dee61dd28072961f3957feb35725c987b`; guard_confirmed=true;
+capability_ok=true; verdict=accepted; 2026-07-31T04:12:42Z.
+
+- Independently proved the base plan kept an open A1 approval gate even though
+  `7586bf7` was already its ancestor and contains the complete A1.1/A1.2 set.
+- Confirmed the repaired Status names exact A1 commit `7586bf7`, contains no
+  pending-A1-approval claim, and keeps A2 acceptance outstanding.
+- Ran all 51 packaging tests successfully in a disposable worktree, removed
+  that worktree, and left the shared tree clean.
+- Two hook-rewritten `rtk git` spellings were denied; permitted repository
+  reads, direct git operations, and the packaging suite completed the proof.

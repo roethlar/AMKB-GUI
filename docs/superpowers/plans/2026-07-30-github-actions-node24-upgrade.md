@@ -5,9 +5,9 @@ as `7586bf7daab187a158a5c929cafcb80f9af97d10` on 2026-07-31 after the
 prerequisite provenance-ref correction at
 `72a1e41889243819f4c27036693f150b15b95859`. Full local verification and the
 required `claude-opus-5` implementation review are complete; that review found
-no workflow or test defect and raised two record-drift follow-ups. A2 remote
-workflow, artifact, provenance, and Windows installation acceptance remains
-pending.
+no workflow or test defect, and both of its record-drift follow-ups are closed.
+A2 remote workflow, artifact, provenance, and Windows installation acceptance
+remains pending.
 
 ## Objective
 

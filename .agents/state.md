@@ -2,7 +2,6 @@
 
 ## Now
 
-- Active review loop: see `.agents/review/index.md`.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
   prohibited in every runtime/build/package path, and dependencies without a
@@ -46,8 +45,8 @@
   the exact retired provenance-action commit, making its future absence guard
   non-vacuous. A pinned `claude-opus-5` review independently reproduced the
   manual base/head proof and accepted the slice. The original `cl-1` through
-  `cl-3` review set is closed; the active loop now owns the two record-drift
-  findings raised by the A1 implementation review.
+  `cl-3` review set is closed; the two record-drift findings raised by the A1
+  implementation review are also closed below.
 - Backend Slices B1-B3 and product Slices P1-P5, including their follow-up
   fixes, are landed on `main`. Backend Slice B4 is superseded by the
   procedural-only/FFmpeg-prohibited ruling and must not be executed. Product
@@ -70,6 +69,12 @@
   the exact landed A1 commit and A2 acceptance instead of retired refs and a
   settled approval gate. A pinned `claude-opus-5` review independently
   reproduced the manual base/head proof and focused dependency guard.
+- Review finding `cl-5` is verified at
+  `227019705bacfe89862a24bbbe4349176b487818`: the Node 24 plan now names exact
+  A1 commit `7586bf7daab187a158a5c929cafcb80f9af97d10` and pending A2 acceptance
+  instead of a settled approval gate. A pinned `claude-opus-5` review
+  independently reproduced the manual base/head proof and passed all 51
+  packaging tests. The A1 review loop is closed.
 - Known intermittent (backend, pre-existing): under full-suite load,
   `test_procedural_generation...test_local_cancellation_stops_without_retry_or_ready_artifacts`
   has once reported manifest status `interrupted` instead of `cancelled`.
@@ -83,9 +88,9 @@
 
 ## Next
 
-- Obtain the `cl-5` repair verdict. After it closes, push the exact A1 and
-  record commits to both remotes and execute the plan's A2 remote acceptance
-  against that pinned head.
+- Execute the approved A2 remote acceptance against exact A1 commit
+  `7586bf7daab187a158a5c929cafcb80f9af97d10`, then synchronize the accepted
+  run evidence and the reviewed record commits to both remotes.
 - The accepted `cl-2` review recorded a separate pre-existing read-only
   `get()` / `resolve_asset()` retired-job exposure as a candidate requiring an
   owner scope decision.
