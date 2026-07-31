@@ -33,7 +33,9 @@ scan. The removed-job scan and its mutation boundaries still use the normal
 manifest path.
 
 ## Approach
-Not started. A fix requires an approved finding-specific plan.
+The draft implementation plan is
+`docs/superpowers/plans/2026-07-30-cl-2-retired-video-catalog-isolation.md`.
+Implementation approval remains pending.
 
 ## Files changed
 —

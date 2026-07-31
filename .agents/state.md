@@ -64,7 +64,9 @@
 ## Next
 
 - Resolve the active codereview loop one finding at a time. `cl-1` is verified;
-  `cl-2` is next and has no approved fix plan.
+  `cl-2` is next. Its fix is drafted in
+  `docs/superpowers/plans/2026-07-30-cl-2-retired-video-catalog-isolation.md`;
+  implementation approval is pending.
 - Owner approval is pending for
   `docs/superpowers/plans/2026-07-30-github-actions-node24-upgrade.md`.
   `cl-3` must be resolved before that plan is implemented.
