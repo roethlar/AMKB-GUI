@@ -56,14 +56,13 @@
   document and reconcile the Keymap plan's explicit Apply wording with the
   owner-tested immediate-assignment behavior. P6 now owns the candidate version
   change and remaining release-plan status/pointer synchronization.
-- GitHub Actions Node 24 Slice A1 landed at
-  `7586bf7daab187a158a5c929cafcb80f9af97d10`: checkout/upload use their
-  reviewed v7 major refs, download/provenance/setup-uv use their reviewed
-  immutable releases, and `prune-cache: true` preserves the existing cache
-  contract. The new exact dependency guard is red/green proven, and full local
-  verification passed. Its required `claude-opus-5` implementation review
-  reported no workflow or test defect; A2 remote workflow, artifact,
-  provenance, and Windows installation acceptance remains outstanding.
+- The GitHub Actions Node 24 upgrade is complete. Slice A1 landed at
+  `7586bf7daab187a158a5c929cafcb80f9af97d10`; its exact dependency guard,
+  full local verification, and required `claude-opus-5` review passed. Exact
+  implementation-commit CI and Desktop runs then passed without Node 20 or
+  action-runtime warnings, and artifact, SLSA provenance, and qualified Windows
+  install/smoke/uninstall acceptance all passed. Exact evidence lives in
+  `docs/superpowers/plans/2026-07-30-github-actions-node24-upgrade.md`.
 - Review finding `cl-4` is verified at
   `c443f03605e93e0f288a6d9e0f8ff5d5d1b4d487`: the canonical state now names
   the exact landed A1 commit and A2 acceptance instead of retired refs and a
@@ -71,10 +70,10 @@
   reproduced the manual base/head proof and focused dependency guard.
 - Review finding `cl-5` is verified at
   `227019705bacfe89862a24bbbe4349176b487818`: the Node 24 plan now names exact
-  A1 commit `7586bf7daab187a158a5c929cafcb80f9af97d10` and pending A2 acceptance
-  instead of a settled approval gate. A pinned `claude-opus-5` review
+  A1 commit `7586bf7daab187a158a5c929cafcb80f9af97d10` and the A1/A2 qualification
+  sequence instead of a settled approval gate. A pinned `claude-opus-5` review
   independently reproduced the manual base/head proof and passed all 51
-  packaging tests. The A1 review loop is closed.
+  packaging tests. The A1 review loop is closed, and A2 has since completed.
 - Known intermittent (backend, pre-existing): under full-suite load,
   `test_procedural_generation...test_local_cancellation_stops_without_retry_or_ready_artifacts`
   has once reported manifest status `interrupted` instead of `cancelled`.
@@ -88,17 +87,14 @@
 
 ## Next
 
-- Execute the approved A2 remote acceptance against exact A1 commit
-  `7586bf7daab187a158a5c929cafcb80f9af97d10`, then synchronize the accepted
-  run evidence and the reviewed record commits to both remotes.
-- The accepted `cl-2` review recorded a separate pre-existing read-only
-  `get()` / `resolve_asset()` retired-job exposure as a candidate requiring an
-  owner scope decision.
-- Product Slice P6 remains the next product implementation slice: resolve the
+- Product Slice P6 is the sole next implementation slice: resolve the
   Keymap Apply contract, complete the two-viewport manual matrix, set the
   distinct candidate version to `0.1.65`, run full/local native verification,
   and synchronize release pointers. Publishing a Release or announcement
   remains later, separately gated work.
+- Separately, the accepted `cl-2` review recorded a pre-existing read-only
+  `get()` / `resolve_asset()` retired-job exposure as a candidate requiring an
+  owner scope decision; it is not approved implementation work.
 
 ## Blockers
 

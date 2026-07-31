@@ -1,13 +1,13 @@
 # GitHub Actions Node 24 Compatibility Upgrade Plan
 
-**Status:** The owner approved A1 and its defined A2 qualification. A1 landed
-as `7586bf7daab187a158a5c929cafcb80f9af97d10` on 2026-07-31 after the
+**Status:** Implemented. A1 landed as
+`7586bf7daab187a158a5c929cafcb80f9af97d10` on 2026-07-31 after the
 prerequisite provenance-ref correction at
 `72a1e41889243819f4c27036693f150b15b95859`. Full local verification and the
-required `claude-opus-5` implementation review are complete; that review found
-no workflow or test defect, and both of its record-drift follow-ups are closed.
-A2 remote workflow, artifact, provenance, and Windows installation acceptance
-remains pending.
+required `claude-opus-5` implementation review completed with no workflow or
+test defect, both record-drift follow-ups closed, and A2 qualified the exact A1
+commit across remote workflows, artifacts, provenance, and Windows
+installation acceptance.
 
 ## Objective
 
@@ -229,6 +229,61 @@ docs: close GitHub Actions runtime upgrade
 
 The closure commit is documentation-only and does not require a second native
 artifact qualification.
+
+## A2 acceptance evidence (completed 2026-07-31)
+
+- Exact implementation commit:
+  `7586bf7daab187a158a5c929cafcb80f9af97d10`.
+- CI run
+  [`30603622836`](https://github.com/roethlar/AMKB-GUI/actions/runs/30603622836)
+  passed Linux Python 3.11, default Linux, macOS, and Windows.
+- Desktop installers run
+  [`30603622828`](https://github.com/roethlar/AMKB-GUI/actions/runs/30603622828)
+  passed native Linux, Windows, and macOS builds, candidate metadata, and
+  release provenance.
+- Both runs were push-triggered against the exact implementation commit. All
+  nine check-runs were queried directly and contained no Node 20,
+  deprecated-action, or other action-runtime warning. The three CI annotations
+  were duplicate cache-key reservation warnings; the corresponding Desktop
+  jobs successfully saved the same Linux, Windows, and macOS Python 3.12 cache
+  keys, and the CI-only Linux Python 3.11 cache also saved successfully.
+- The exercised dependency contract was exactly `actions/checkout@v7`,
+  `actions/upload-artifact@v7`,
+  `actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`,
+  `astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9`,
+  and
+  `actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373`;
+  no reviewed ref was substituted.
+- The downloaded wrapper contained exactly the three installers,
+  `release-manifest.json`, and `SHA256SUMS.txt`. The manifest bound them to
+  source commit `7586bf7daab187a158a5c929cafcb80f9af97d10` and Desktop
+  run `30603622828`. Recomputed SHA-256 digests matched both metadata files:
+  Linux
+  `6142ec0a14b9cb47ad56c6bff6ff651f64760c2438bacde5fa9e74adb578c7f4`,
+  Windows
+  `f8c1a5925c9783f849038284d9784a7cca86497a4d15a4b4744e8aa636490ffe`,
+  macOS
+  `d20a13acac87af6c7fbcc78f0f4f3421431f22406d86903506a7d36084daff54`,
+  manifest
+  `4edb115df665f87533a411a59e635de83ea9f3be591c998195ef4fa15ca7595b`,
+  and checksums
+  `99a750edad2edfa7a45bd3ad849de47c2ce75dcbbdb469e791df80685e9a4f6d`.
+- Structured `gh attestation verify --repo roethlar/AMKB-GUI` passed for all
+  five subjects. Each result carried SLSA provenance v1, the exact source and
+  workflow SHA, Desktop invocation
+  `https://github.com/roethlar/AMKB-GUI/actions/runs/30603622828/attempts/1`,
+  and matching subject digests.
+- On the qualified Windows host, the exact downloaded installer registered
+  product version `0.1.64` in a custom directory beneath the controlled audit
+  root. Its bundled `LICENSE` and `THIRD_PARTY_NOTICES` matched the repository
+  files after normalizing Windows and Unix line endings.
+  `AM Configurator.exe --smoke-test` exited zero with
+  `Desktop smoke test passed (Windows).` The silent uninstaller exited zero,
+  removed the custom directory and uninstall-registry entry, and left the
+  pre-existing default installation path untouched.
+- The controlled audit directory was validated as an immediate child of the
+  system temporary directory and removed. No tag, Release, announcement,
+  application version, dependency, hardware, or provider state changed.
 
 ## Completion criteria
 
