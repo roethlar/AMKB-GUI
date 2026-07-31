@@ -2,7 +2,6 @@
 
 ## Now
 
-- Active review loop: see `.agents/review/index.md`.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
   prohibited in every runtime/build/package path, and dependencies without a
@@ -41,6 +40,12 @@
   permanent deletion reject them both before and after lock acquisition
   without changing stored bytes. A pinned `claude-opus-5` review independently
   reproduced both red/green guards and accepted the slice.
+- Review finding `cl-3` is verified at
+  `72a1e41889243819f4c27036693f150b15b95859`: the Node 24 plan now names
+  the exact retired provenance-action commit, making its future absence guard
+  non-vacuous. A pinned `claude-opus-5` review independently reproduced the
+  manual base/head proof and accepted the slice. All admitted findings in the
+  active Claude review set are now closed.
 - Backend Slices B1-B3 and product Slices P1-P5, including their follow-up
   fixes, are landed on `main`. Backend Slice B4 is superseded by the
   procedural-only/FFmpeg-prohibited ruling and must not be executed. Product
@@ -69,15 +74,13 @@
 
 ## Next
 
-- `cl-3` is corrected and locally verified as a documentation-only slice. The
-  Node 24 plan now names the exact retired provenance-action commit, so its
-  future absence guard is non-vacuous. Commit this finding-specific slice and
-  run its required pinned `claude-opus-5` review. The accepted `cl-2` review
-  also recorded a separate pre-existing read-only `get()` / `resolve_asset()`
-  retired-job exposure as a candidate requiring an owner scope decision.
 - Owner approval is pending for
   `docs/superpowers/plans/2026-07-30-github-actions-node24-upgrade.md`.
-  `cl-3` must be resolved before that plan is implemented.
+  Its prerequisite `cl-3` correction is verified, so the plan is ready for an
+  owner implementation decision.
+- The accepted `cl-2` review recorded a separate pre-existing read-only
+  `get()` / `resolve_asset()` retired-job exposure as a candidate requiring an
+  owner scope decision.
 - Product Slice P6 remains the next product implementation slice: resolve the
   Keymap Apply contract, complete the two-viewport manual matrix, set the
   distinct candidate version to `0.1.65`, run full/local native verification,

@@ -1,8 +1,9 @@
 # GitHub Actions Node 24 Compatibility Upgrade Plan
 
 **Status:** Drafted on 2026-07-30. The owner authorized plan preparation;
-the current provenance ref was corrected to its immutable commit on
-2026-07-30. A1 implementation approval remains pending.
+the current provenance ref correction landed as
+`72a1e41889243819f4c27036693f150b15b95859` and passed its required
+`claude-opus-5` review. A1 implementation approval remains pending.
 
 ## Objective
 

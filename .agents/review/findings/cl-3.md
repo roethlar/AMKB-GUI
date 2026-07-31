@@ -1,9 +1,9 @@
 # cl-3: Node 24 plan names a nonexistent retired workflow ref
 
 **Severity**: LOW — one planned regression assertion is vacuous and the cold-implementation record misstates the current provenance-action ref, although the surrounding exact-multiset guard would still fail before the upgrade.
-**Status**: In progress
+**Status**: Verified
 **Branch**: —
-**Commit**: —
+**Commit**: `72a1e41889243819f4c27036693f150b15b95859`
 
 ## Evidence
 `docs/superpowers/plans/2026-07-30-github-actions-node24-upgrade.md:32`
@@ -62,3 +62,23 @@ session-only) — generation pass over
 `1448f9135956f31cee3f45dd8fcbaf8de066074a..e4e32f9a4a5f2797552a956a27735be5471d8949`;
 claude-cli 2.1.220; capability_ok=true; verdict=findings;
 2026-07-30T23:54:36Z.
+
+Verified by: Reviewer: claude / claude-opus-5 / high / standard (inline,
+session-only); claude-cli 2.1.220; reviewed
+`72a1e41889243819f4c27036693f150b15b95859`; base
+`faf41cfcc926ef494258faeb70a8f83b75790247`; guard_confirmed=true;
+capability_ok=true; verdict=accepted; 2026-07-31T03:19:10Z.
+
+- Independently confirmed the current Desktop workflow has four exact
+  `e8998f949152b193b063cb0ec769d69d929409be` provenance uses, no floating
+  provenance ref, and an existing test that forbids one.
+- Restored the base plan in a disposable worktree and confirmed its
+  `@v2.4.0` retired-ref instruction matched no workflow use. Restored the head
+  plan and confirmed both current-evidence locations name the exact commit
+  while A1 remains unapproved.
+- The focused packaging module passed 50 tests with 2 platform skips. No
+  adjacent documentation regression was found.
+- Environment note: one piped git command and one hook-rewritten `rtk git`
+  spelling were denied. Permitted repository reads, direct git operations, and
+  the focused verification succeeded in the same review; the shared worktree
+  remained clean and the disposable worktree was removed.
