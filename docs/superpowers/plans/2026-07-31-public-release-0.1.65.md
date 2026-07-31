@@ -1,12 +1,11 @@
 # AM Configurator 0.1.65 Public Release
 
-**Status:** Draft awaiting owner approval. No implementation slice, live
-provider request, macOS Open Anyway action, hardware write, tag, GitHub Release,
-or announcement is authorized by this draft. Plan approval authorizes only the
-pre-publication preparation and read-only qualification described below. It
-does not authorize freezing an exact candidate until Gate R65-G1 proves every
-required post-freeze check is runnable; every named action-time gate remains
-separate.
+**Status:** Owner-approved on 2026-07-31. Approval authorizes the
+pre-publication preparation, read-only qualification, and ordinary canonical
+`origin` pushes described below. It does not authorize freezing an exact
+candidate until Gate R65-G1 proves every required post-freeze check is runnable.
+Live provider requests, macOS Open Anyway, hardware writes, tag or GitHub
+Release creation, and announcement posting remain separate action-time gates.
 
 ## Objective
 
@@ -161,6 +160,8 @@ changes or release preparation until the owner approves this plan.
 
 ### Slice R65-0 — Approve and activate this plan
 
+**Status:** Complete on 2026-07-31.
+
 Files:
 
 - this plan;
@@ -168,7 +169,7 @@ Files:
 - `.agents/state.md`;
 - historical release-plan successor pointer.
 
-After owner approval:
+Completion record:
 
 1. Change this plan's status to owner-approved with the date.
 2. Record the approved `0.1.65` release scope and action boundaries in

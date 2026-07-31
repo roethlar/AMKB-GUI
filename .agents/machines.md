@@ -44,6 +44,28 @@ last verified 2026-07-29._
   `Off`, and the current-user `EnableWebContentEvaluation` value is `0`. This
   host cannot supply SmartScreen release evidence.
 
+## nagatha (macOS; owner-available)
+
+_Availability reported by the owner on 2026-07-31; exact OS, architecture,
+checkout, and tool state are not yet independently revalidated._
+
+- The owner identified `nagatha` at `michael@10.1.10.41` as an available macOS
+  host and may either run the macOS checks directly or permit them over SSH.
+- At the time of the report, the owner was using `nagatha` while RDP-connected
+  to the current Windows session.
+- Revalidate the host before release qualification. Availability does not
+  authorize macOS Open Anyway or a keyboard write.
+
+## gabrielle (Linux; owner-available)
+
+_Availability reported by the owner on 2026-07-31; exact distribution,
+architecture, checkout, and tool state are not yet independently revalidated._
+
+- The owner identified `michael@gabrielle` as an available Linux host for
+  release qualification over SSH.
+- Revalidate the host and its build/test tools before relying on it as release
+  evidence.
+
 ## michael-mac additions
 
 _Last verified: 2026-07-28_

@@ -1,5 +1,18 @@
 # Repository Decisions
 
+## 2026-07-31 — The 0.1.65 public-release plan governs release work
+
+Status: approved by the owner on 2026-07-31 after one owner-requested
+`claude-fable-5` approach review judged it `best_approach` with no findings.
+
+- `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md` is the governing
+  plan for preparing, qualifying, and publishing the `0.1.65` public release.
+- Approval authorizes release-packet work, read-only qualification, and ordinary
+  canonical-`origin` pushes after the plan's prerequisites pass. Gate R65-G1
+  must pass before an exact candidate is frozen.
+- Every action-time authorization named by the plan remains pending. Plan
+  approval is not authority for those actions.
+
 ## 2026-07-30 — Review data is substantive and reruns are owner-gated
 
 Status: approved by the owner on 2026-07-30.

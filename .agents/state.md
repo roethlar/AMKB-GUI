@@ -115,10 +115,11 @@
 
 ## Next
 
-- The current `0.1.65` release plan is drafted at
-  `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md` and awaits owner
-  approval. No release-packet implementation begins until approval is recorded,
-  and its R65-G1 readiness gate must pass before an exact candidate is frozen.
+- The current `0.1.65` release plan is recorded at
+  `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md` and was approved
+  by the owner on 2026-07-31. R65-0 approval bookkeeping is complete; R65-1's
+  fresh release packet is next. The plan's R65-G1 readiness gate must pass
+  before an exact candidate is frozen.
   One owner-requested `claude-fable-5` openreview judged the exact plan range
   `best_approach` with no findings; `.agents/review/outcomes.md` records the
   returned-envelope deviation and no-resubmission handling.
