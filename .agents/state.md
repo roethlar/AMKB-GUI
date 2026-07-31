@@ -83,9 +83,9 @@
 
 ## Next
 
-- Finish the active Node 24 record-drift loop by correcting and verifying
-  `cl-5`. After it closes, push the exact A1 and record commits to both remotes
-  and execute the plan's A2 remote acceptance against that pinned head.
+- Obtain the `cl-5` repair verdict. After it closes, push the exact A1 and
+  record commits to both remotes and execute the plan's A2 remote acceptance
+  against that pinned head.
 - The accepted `cl-2` review recorded a separate pre-existing read-only
   `get()` / `resolve_asset()` retired-job exposure as a candidate requiring an
   owner scope decision.

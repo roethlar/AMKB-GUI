@@ -1,7 +1,7 @@
 # cl-5: Node 24 plan still reports A1 approval as pending
 
 **Severity**: LOW — the approved implementation plan falsely presents its completed A1 gate as open, which can trigger a redundant approval request or an incorrect governance escalation.
-**Status**: Open
+**Status**: In progress
 **Branch**: —
 **Commit**: —
 
@@ -37,11 +37,12 @@ remain reserved for the A2 closure record.
 - `.agents/state.md` — next-action pointer after the finding closes.
 
 ## Guard proof
-Manual record proof: the pre-repair Status block says approval is pending while
-`git show 7586bf7` contains the plan's complete A1.1/A1.2 file set. After the
-repair, the Status block must name the exact A1 commit and must not claim that
-A1 approval is pending; it must not claim A2 acceptance before the remote proof
-exists.
+Manual record proof: the base Status block says approval is pending while
+`git show 7586bf7` contains the plan's complete A1.1/A1.2 file set. The
+repaired Status block names exact A1 commit
+`7586bf7daab187a158a5c929cafcb80f9af97d10`, contains no pending-A1-approval
+claim, and keeps A2 acceptance pending because no remote proof has been
+recorded.
 
 ## Coder dispute (if any)
 

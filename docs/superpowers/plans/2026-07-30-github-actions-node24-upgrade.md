@@ -1,9 +1,13 @@
 # GitHub Actions Node 24 Compatibility Upgrade Plan
 
-**Status:** Drafted on 2026-07-30. The owner authorized plan preparation;
-the current provenance ref correction landed as
-`72a1e41889243819f4c27036693f150b15b95859` and passed its required
-`claude-opus-5` review. A1 implementation approval remains pending.
+**Status:** The owner approved A1 and its defined A2 qualification. A1 landed
+as `7586bf7daab187a158a5c929cafcb80f9af97d10` on 2026-07-31 after the
+prerequisite provenance-ref correction at
+`72a1e41889243819f4c27036693f150b15b95859`. Full local verification and the
+required `claude-opus-5` implementation review are complete; that review found
+no workflow or test defect and raised two record-drift follow-ups. A2 remote
+workflow, artifact, provenance, and Windows installation acceptance remains
+pending.
 
 ## Objective
 
