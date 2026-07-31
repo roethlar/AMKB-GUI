@@ -753,6 +753,35 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                 process.join(timeout=5)
         self.assertEqual(14, self.library.load_manifest(job_id)["progress"]["completed"])
 
+    def test_job_lookup_validates_manifest_while_holding_job_lock(self) -> None:
+        manifest = self._create_job()
+        job_id = manifest["job_id"]
+        real_job_lock = library_module._job_lock
+        real_read_manifest = library_module._read_manifest
+        lock_depth = 0
+
+        @contextlib.contextmanager
+        def tracked_job_lock(directory: Path):
+            nonlocal lock_depth
+            with real_job_lock(directory):
+                lock_depth += 1
+                try:
+                    yield
+                finally:
+                    lock_depth -= 1
+
+        def locked_read_manifest(path: Path, expected_job_id: str) -> dict:
+            self.assertGreater(lock_depth, 0, "job lookup read the manifest before locking")
+            return real_read_manifest(path, expected_job_id)
+
+        with (
+            patch.object(library_module, "_job_lock", tracked_job_lock),
+            patch.object(library_module, "_read_manifest", locked_read_manifest),
+        ):
+            loaded = self.library.load_manifest(job_id)
+
+        self.assertEqual(job_id, loaded["job_id"])
+
     def test_posix_job_lock_uses_a_nonblocking_monotonic_budget(self) -> None:
         if os.name == "nt":
             self.skipTest("POSIX flock is not available on Windows")
@@ -1666,6 +1695,35 @@ class SavedItemLibraryTests(unittest.TestCase):
                     },
                 )
         self.assertEqual([], list((self.base / "failed" / "items").iterdir()))
+
+    def test_saved_item_lookup_validates_manifest_while_holding_job_lock(self) -> None:
+        item = self._create_media()
+        item_id = item["item_id"]
+        real_job_lock = library_module._job_lock
+        real_read_manifest = library_module._read_saved_manifest
+        lock_depth = 0
+
+        @contextlib.contextmanager
+        def tracked_job_lock(directory: Path):
+            nonlocal lock_depth
+            with real_job_lock(directory):
+                lock_depth += 1
+                try:
+                    yield
+                finally:
+                    lock_depth -= 1
+
+        def locked_read_manifest(path: Path, expected_item_id: str) -> dict:
+            self.assertGreater(lock_depth, 0, "saved-item lookup read the manifest before locking")
+            return real_read_manifest(path, expected_item_id)
+
+        with (
+            patch.object(library_module, "_job_lock", tracked_job_lock),
+            patch.object(library_module, "_read_saved_manifest", locked_read_manifest),
+        ):
+            loaded = self.library.load_manifest(item_id)
+
+        self.assertEqual(item_id, loaded["item_id"])
 
     def test_saved_manifest_is_exact_discriminated_and_corruption_is_isolated(self) -> None:
         valid = self._create_media()

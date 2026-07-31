@@ -1619,8 +1619,12 @@ class GeneratedAssetLibrary:
                 canonical_jobs = jobs.resolve(strict=True)
                 canonical_candidate = candidate.resolve(strict=True)
                 canonical_candidate.relative_to(canonical_jobs)
-                _read_manifest(candidate / "manifest.json", canonical_id)
-            except (OSError, RuntimeError, ValueError, ManifestError):
+            except (OSError, RuntimeError, ValueError):
+                continue
+            try:
+                with _job_lock(candidate):
+                    _read_manifest(candidate / "manifest.json", canonical_id)
+            except ManifestError:
                 continue
             return candidate
         raise ManifestError("The generated job was not found.")
@@ -2923,8 +2927,12 @@ class SavedItemLibrary:
                 relative = canonical_candidate.relative_to(canonical_items)
                 if relative.parts != (canonical_id,):
                     continue
-                _read_saved_manifest(candidate / "manifest.json", canonical_id)
-            except (OSError, RuntimeError, ValueError, ManifestError):
+            except (OSError, RuntimeError, ValueError):
+                continue
+            try:
+                with _job_lock(candidate):
+                    _read_saved_manifest(candidate / "manifest.json", canonical_id)
+            except ManifestError:
                 continue
             return candidate
         raise ManifestError("The saved item was not found.")
