@@ -1,9 +1,9 @@
 # cl-1: Malformed retired-video manifests escape Library fault isolation
 
 **Severity**: HIGH — one malformed historical manifest can abort Library scans and startup reconciliation, hiding healthy jobs and preventing the application from launching.
-**Status**: In progress
+**Status**: Verified
 **Branch**: —
-**Commit**: pending
+**Commit**: `36338cbc91520436bbc97fabf3761106bd538f0a`
 
 ## Evidence
 `am_configurator/library.py:1866` canonicalizes a retired manifest's `job_id`.
@@ -78,3 +78,32 @@ Intake correction: the review described the canonicalization call as preceding
 the `try`; it is inside that `try`, but the handler catches only
 `ManifestError`. The sibling exception still escapes, so the finding is
 admitted on the reproduced failure.
+
+Reviewer: claude / claude-opus-5 / xhigh / frontier
+escalated: T2
+
+claude-cli 2.1.220; reviewed
+`36338cbc91520436bbc97fabf3761106bd538f0a` against
+`6f7865e8bc9cf6f8b77d2b7f0eb1c1a9b530c67b`;
+`guard_confirmed=true`; `capability_ok=true`; verdict `accepted`;
+2026-07-31T00:39:43Z.
+
+- The root correction is the precise generated-job per-directory boundary at
+  `am_configurator/library.py:1884`; direct caller ID validation remains
+  unchanged.
+- In a disposable detached worktree, restoring only `library.py` from the base
+  made the focused test fail with the predicted escaping
+  `InvalidIdentifierError`; restoring the reviewed file made it pass.
+- The reviewer confirmed the malformed directory never enters reconciliation's
+  scanned set, so the pathless error projection and byte-preservation claim
+  hold.
+- The reviewer independently reran the full Python gate: 640 tests passed with
+  5 expected platform skips.
+- Non-blocking test-quality notes: the `create_server` return-value assertion is
+  redundant because the load-bearing coverage is that construction does not
+  raise, and the explicit absolute-path assertion supplements an already
+  fixed-shape error-dict assertion.
+- Environment note: repository hooks rewrote one git command through `rtk`,
+  and one Grep invocation was denied. The reviewer recovered through allowed
+  git and Read operations, completed both capability and guard proofs, removed
+  `F:/dev/_cl1-verify-wt`, and left the coder tree clean.

@@ -124,3 +124,13 @@
   hook rewrote one git command through `rtk`, which the launch allowlist denied;
   the reviewer recovered with allowed git inspection and completed the
   capability proof. The coder tree remained clean during the dispatch.
+- 2026-07-31 — `cl-1` closed: implementation commit
+  `36338cbc91520436bbc97fabf3761106bd538f0a` accepted by
+  claude/claude-opus-5/xhigh/frontier (`escalated: T2`) against parent
+  `6f7865e8bc9cf6f8b77d2b7f0eb1c1a9b530c67b`;
+  `guard_confirmed=true`, `capability_ok=true`. The reviewer independently
+  proved the focused guard red with the base `library.py` and green with the
+  reviewed file, reran 640 Python tests successfully with 5 expected skips,
+  removed its disposable worktree, and left the coder tree clean. Hook-rewritten
+  git and one Grep call were denied and recovered through allowed operations;
+  recorded as environment notes, not invalidation.

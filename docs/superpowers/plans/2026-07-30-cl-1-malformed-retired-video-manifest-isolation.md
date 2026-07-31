@@ -1,7 +1,7 @@
 # cl-1 Malformed Retired-Video Manifest Isolation Plan
 
-**Status:** Approved and implemented on 2026-07-30. Local verification is
-complete; per-finding reviewer acceptance remains pending.
+**Status:** Approved and implemented on 2026-07-30. Local verification
+completed and the per-finding frontier review accepted the fix on 2026-07-31.
 
 ## Objective
 

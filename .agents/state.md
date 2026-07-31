@@ -63,10 +63,8 @@
 
 ## Next
 
-- Resolve the active codereview loop one finding at a time, starting with
-  `cl-1`. Its approved fix is implemented and locally verified from
-  `docs/superpowers/plans/2026-07-30-cl-1-malformed-retired-video-manifest-isolation.md`;
-  per-finding `claude-opus-5` reviewer acceptance is pending.
+- Resolve the active codereview loop one finding at a time. `cl-1` is verified;
+  `cl-2` is next and has no approved fix plan.
 - Owner approval is pending for
   `docs/superpowers/plans/2026-07-30-github-actions-node24-upgrade.md`.
   `cl-3` must be resolved before that plan is implemented.
