@@ -50,12 +50,23 @@
 - Backend Slices B1-B3 and product Slices P1-P5, including their follow-up
   fixes, are landed on `main`. Backend Slice B4 is superseded by the
   procedural-only/FFmpeg-prohibited ruling and must not be executed. Product
-  Slice P6 remains open and has not started: `am_configurator/_version.py`
-  still reports `0.1.64`, and `0.1.65` appears only in the product plan.
-- P6 must complete the full two-viewport per-screen manual matrix with an open
-  document and reconcile the Keymap plan's explicit Apply wording with the
-  owner-tested immediate-assignment behavior. P6 now owns the candidate version
-  change and remaining release-plan status/pointer synchronization.
+  Slice P6 is in progress in the working tree. Its uncommitted changes set the
+  candidate identity to `0.1.65`, update packaging guards and public identity
+  pointers, label the rejected `0.1.64` release/announcement drafts as
+  historical, and reconcile the Keymap plan with the owner-tested immediate
+  palette-assignment behavior. P6 still owes its remaining active-plan pointer
+  synchronization, full two-viewport per-screen manual matrix with an open
+  document, local native/frozen verification, and commit.
+- Windows CI on `791ca06d9012235f9f6af842275e568004bbe418` exposed a pre-existing
+  manifest-lookup race: lookup read a manifest before taking the per-object
+  lock, so Windows sharing contention could be misreported as a missing job.
+  Repair `2e92b62ac0736376a37045b88c8ba043dab8b9dc` locks generated-job and
+  saved-item manifest validation. Both deterministic guards were red before
+  the repair and green after it; all 645 Python tests, 125 web tests, package
+  checks, and 300 Windows stress iterations pass. Its one required
+  `claude-opus-5` review completed but the verdict envelope was lost after the
+  outer MCP caller timed out; `.agents/review/outcomes.md` records the failed
+  pass, and the owner ruled out a paid rerun.
 - The GitHub Actions Node 24 upgrade is complete. Slice A1 landed at
   `7586bf7daab187a158a5c929cafcb80f9af97d10`; its exact dependency guard,
   full local verification, and required `claude-opus-5` review passed. Exact
@@ -87,11 +98,10 @@
 
 ## Next
 
-- Product Slice P6 is the sole next implementation slice: resolve the
-  Keymap Apply contract, complete the two-viewport manual matrix, set the
-  distinct candidate version to `0.1.65`, run full/local native verification,
-  and synchronize release pointers. Publishing a Release or announcement
-  remains later, separately gated work.
+- Finish Product Slice P6: synchronize the remaining active `0.1.65` plan
+  pointers, complete the two-viewport manual matrix, run full/local native and
+  frozen-executable verification, and commit the slice. Publishing a Release
+  or announcement remains later, separately gated work.
 - Separately, the accepted `cl-2` review recorded a pre-existing read-only
   `get()` / `resolve_asset()` retired-job exposure as a candidate requiring an
   owner scope decision; it is not approved implementation work.

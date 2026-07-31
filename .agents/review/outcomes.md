@@ -156,3 +156,14 @@
   Node 24 guard (`cl-5` ran all 51 packaging tests), removed their disposable
   worktrees, and left the shared tree clean. Hook-rewritten `rtk git` spellings
   were denied and recovered through permitted operations.
+- 2026-07-31 — codereview claude (`claude-opus-5` @ `high`, standard) over
+  `791ca06d9012235f9f6af842275e568004bbe418..2e92b62ac0736376a37045b88c8ba043dab8b9dc`:
+  infrastructure failure, not a verdict. The single `fable-review` dispatch
+  used explicit model and effort flags and a 900-second PTK execution budget,
+  but the outer MCP caller disconnected at 300 seconds. PTK kept the child
+  alive; it later completed with exit code 0, but the schema-enforced envelope
+  and its `ptk_output` handle were no longer discoverable. Capability proof,
+  clean/findings verdict, and finding data are therefore unknown. Per owner
+  direction the paid review was not rerun. The recovery defect is recorded at
+  PowerShell-Token-Killer#16; this failed pass admits no findings and must not
+  be represented as a clean review.
