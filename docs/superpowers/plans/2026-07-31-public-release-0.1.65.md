@@ -254,6 +254,10 @@ Completion record (2026-07-31):
 
 ### Gate R65-G1 — Prove post-freeze checks are runnable
 
+**Status:** In progress. Host/tool preflight passed on 2026-07-31; the Neon
+connection and SmartScreen disposition remain unresolved, so candidate freeze
+is still prohibited.
+
 Do not begin R65-2 merely because the release packet and automated gate pass.
 A frozen SHA is useful only when every release-blocking exact-candidate check
 has a verified execution path. Do not create a candidate that must wait for a
@@ -302,6 +306,23 @@ docs: record 0.1.65 candidate readiness
 If any required execution path is absent or any pre-freeze ruling is declined,
 stop before R65-2. If a recorded readiness fact becomes false after freeze,
 reject the candidate instead of leaving `main` indefinitely frozen.
+
+Partial readiness record (2026-07-31):
+
+- The current session is local on `netwatch-01`; local Windows tooling and the
+  disabled SmartScreen state were reverified without SSHing back into the same
+  host.
+- `nagatha` is reachable over SSH as an owner-operated arm64 macOS 26.6 host.
+  Gatekeeper is enabled, exact-artifact hash/DMG/signature tools and a writable
+  temporary path are available, and the owner can perform later GUI steps.
+- `gabrielle` is reachable over SSH as an x86-64 Arch Linux host with GitHub
+  CLI, SHA-256, file inspection, FUSE, and writable temporary storage available
+  for the exact AppImage path.
+- No Open Anyway action, security-setting change, application launch, provider
+  request, credential use, or hardware interaction occurred during preflight.
+- G1 cannot close until the owner connects the Neon for the non-writing
+  identity/read/export preflight and either supplies a normal SmartScreen-on
+  Windows host or makes the plan's cold unverified-evidence ruling.
 
 ### Slice R65-2 — Freeze the final source candidate
 

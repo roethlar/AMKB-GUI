@@ -122,6 +122,11 @@
   R65-G1 host, operator, restore-source, and action-path readiness is next and
   must pass before an exact candidate is frozen. The Neon is not currently
   connected; the owner will connect it before G1's non-writing device preflight.
+  Host/tool preflight is otherwise complete: use this local `netwatch-01`
+  session for Windows, `nagatha` for macOS, and `gabrielle` for Linux. G1 remains
+  open on the Neon connection plus either an independent SmartScreen-on Windows
+  host or the required cold owner ruling that this evidence will remain
+  unverified.
   One owner-requested `claude-fable-5` openreview judged the exact plan range
   `best_approach` with no findings; `.agents/review/outcomes.md` records the
   returned-envelope deviation and no-resubmission handling.

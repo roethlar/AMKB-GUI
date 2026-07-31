@@ -44,27 +44,46 @@ last verified 2026-07-29._
   `Off`, and the current-user `EnableWebContentEvaluation` value is `0`. This
   host cannot supply SmartScreen release evidence.
 
-## nagatha (macOS; owner-available)
+## nagatha (macOS arm64)
 
-_Availability reported by the owner on 2026-07-31; exact OS, architecture,
-checkout, and tool state are not yet independently revalidated._
+_Last verified over SSH: 2026-07-31. The owner was the active console user and
+was RDP-connected from this host to the current `netwatch-01` session._
 
-- The owner identified `nagatha` at `michael@10.1.10.41` as an available macOS
-  host and may either run the macOS checks directly or permit them over SSH.
-- At the time of the report, the owner was using `nagatha` while RDP-connected
-  to the current Windows session.
-- Revalidate the host before release qualification. Availability does not
-  authorize macOS Open Anyway or a keyboard write.
+- Reachable as `michael@10.1.10.41`; hostname `nagatha.local`, macOS 26.6,
+  Darwin 25.6.0, arm64. Gatekeeper assessments are enabled.
+- Exact-artifact qualification tools are available: `hdiutil`, `codesign`,
+  `spctl`, `xattr`, `shasum`, `curl`, `file`, `open`, and `ditto`. The temporary
+  directory is writable and the data volume had about 273 GB free.
+- GitHub CLI, `uv`, and Node are not on `PATH`. Attestation may be verified on
+  `netwatch-01` before transfer and bound to the macOS bytes by matching the
+  SHA-256 again on `nagatha`; do not install tools merely to duplicate that
+  proof.
+- A clean checkout exists at `/Users/michael/dev/AMKB-GUI` with canonical
+  `origin`, but it was still at cached head `9dc81c5` and had no project venv.
+  Do not use it as current-source evidence without a deliberate synchronization
+  and environment-preparation step. Exact downloaded-artifact checks do not
+  depend on that checkout.
+- The owner may either operate the GUI directly or permit SSH-driven command
+  checks. Availability does not authorize macOS Open Anyway or a keyboard
+  write.
 
-## gabrielle (Linux; owner-available)
+## gabrielle (Linux x86-64)
 
-_Availability reported by the owner on 2026-07-31; exact distribution,
-architecture, checkout, and tool state are not yet independently revalidated._
+_Last verified over SSH: 2026-07-31._
 
-- The owner identified `michael@gabrielle` as an available Linux host for
-  release qualification over SSH.
-- Revalidate the host and its build/test tools before relying on it as release
-  evidence.
+- Reachable as `michael@gabrielle`; Arch Linux, kernel 7.1.5-arch1-1, x86-64.
+  The home filesystem had about 1.7 TB free and the temporary directory is
+  writable.
+- Available qualification tools include Git 2.55.0, Python 3.14.6, Node
+  26.5.0, GitHub CLI 2.96.0, `curl`, `file`, `sha256sum`, FUSE, and
+  `fusermount3` 3.18.2. `uv` is not installed and is not needed for the planned
+  exact-AppImage inspection.
+- The user has active local graphical sessions, although an ordinary SSH shell
+  has no `DISPLAY` or `WAYLAND_DISPLAY`. R65-4 requires command-line AppImage
+  inspection and the workflow's native smoke result, not a Linux GUI or
+  physical-keyboard test.
+- No repository checkout was found in the three known project locations. The
+  exact downloaded-artifact path does not require one.
 
 ## michael-mac additions
 
