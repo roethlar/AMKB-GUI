@@ -1,7 +1,9 @@
 # cl-2 Retired-Video Catalog Isolation Plan
 
-**Status:** Implementation slice C2 completed and locally verified on
-2026-07-30. The required per-slice `claude-opus-5` review remains pending.
+**Status:** Completed and accepted on 2026-07-30. The implementation is commit
+`d77ca6e61a84c4bc01deb5fc3f3367ab8325022b`; its pinned
+`claude-opus-5` per-slice review independently reproduced both red/green guards
+and returned `accepted`.
 
 ## Objective
 

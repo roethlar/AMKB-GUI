@@ -1,5 +1,15 @@
 # Repository Decisions
 
+## 2026-07-30 — Review data is substantive and reruns are owner-gated
+
+Status: approved by the owner on 2026-07-30.
+
+- Use a completed review's substantive data regardless of presentation or
+  envelope formatting; formatting alone never justifies discarding a review.
+- Do not re-prompt, resubmit, or rerun a review without explicit owner
+  approval. If required result data is genuinely unavailable, stop and ask.
+- An approval to retry authorizes only the specifically approved retry count.
+
 ## 2026-07-30 — AI is procedural-only and FFmpeg is prohibited
 
 Status: approved by the owner on 2026-07-30. This supersedes every earlier

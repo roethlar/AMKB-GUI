@@ -1,9 +1,9 @@
 # cl-2: Removed retired-video jobs bypass unsupported classification
 
 **Severity**: MEDIUM — a retired video job in Library trash is exposed as an ordinary item and can be restored or permanently deleted despite the range's unsupported-and-untouched contract.
-**Status**: In progress
+**Status**: Verified
 **Branch**: —
-**Commit**: —
+**Commit**: `d77ca6e61a84c4bc01deb5fc3f3367ab8325022b`
 
 ## Evidence
 `am_configurator/library.py:3229-3326` scans removed jobs through
@@ -71,7 +71,13 @@ manifest becomes retired after lookup.
 ## Coder dispute (if any)
 
 ## Known gaps
-None within `cl-2`; `cl-3` and product Slice P6 remain outside this finding.
+The accepted reviewer observed that the pre-existing read-only
+`LibraryCatalog.get()` and `resolve_asset()` paths do not request retired-video
+rejection and can resolve a known retired job directly even though scans omit
+it. That behavior is unchanged from the base, does not enable a `cl-2`
+mutation, and is not part of this finding's accepted range. It remains a
+separate candidate for owner-approved scope; `cl-3` and product Slice P6 also
+remain outside this finding.
 
 ## Reviewer comments
 Raised by: Reviewer: claude / claude-opus-5 / high / standard (inline,
@@ -79,3 +85,26 @@ session-only) — generation pass over
 `1448f9135956f31cee3f45dd8fcbaf8de066074a..e4e32f9a4a5f2797552a956a27735be5471d8949`;
 claude-cli 2.1.220; capability_ok=true; verdict=findings;
 2026-07-30T23:54:36Z.
+
+Verified by: Reviewer: claude / claude-opus-5 / high / standard (inline,
+session-only); claude-cli 2.1.220; reviewed
+`d77ca6e61a84c4bc01deb5fc3f3367ab8325022b`; base
+`e6890911c61c7a4b24d561f22819afd19899b430`; guard_confirmed=true;
+capability_ok=true; verdict=accepted; 2026-07-31T02:57:44Z.
+
+- Independently restored the base production file while retaining the head
+  tests: the removed-scan guard failed in four subtests and the mutation guard
+  failed in all six required initial/after-lookup cases.
+- Restored the head production file: both focused guards passed. The full
+  Python suite also passed 642 tests with 5 platform skips.
+- Confirmed the shared classifier, ownership-before-rejection rule, exception
+  propagation, scan projections, and both initial and lock-held mutation
+  lookups. No regression was found in the touched surface.
+- Environment notes: a hook-rewritten compound `rtk git` command, one Grep
+  path spelling, and an attempted write-only diagnostic probe were denied.
+  Direct allowed git/read commands and the required verification commands
+  succeeded; the reviewer remained read-only and removed its disposable
+  worktree.
+- The first completed review response was lost when the caller interrupted its
+  MCP delivery. The owner explicitly authorized exactly one replacement run;
+  this is that replacement verdict.
