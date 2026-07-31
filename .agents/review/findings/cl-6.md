@@ -1,9 +1,9 @@
 # cl-6: CyberBoard display target separation lacks a regression guard
 
 **Severity**: LOW — current behavior is correct, but broadening the new physical-layout selection can silently replace the 200-pixel top display with the 83-LED switch layout while the existing suite stays green.
-**Status**: In progress
+**Status**: Verified
 **Branch**: —
-**Commit**: pending
+**Commit**: `0b6778f28482a664047df4ee0d830f9da1524a6f`
 
 ## Evidence
 At reviewed head `c01357e90e38b71c9af0303522c104226a68888b`,
@@ -56,8 +56,8 @@ The full repository gate then passed: 646 Python tests with 5 expected skips,
 ## Coder dispute (if any)
 
 ## Known gaps
-The admitted fix has not yet received its separately owner-gated per-finding
-Claude verification verdict.
+The owner explicitly waived a second paid Claude verification call after
+reviewing the deterministic mutation proof and full-gate result.
 
 ## Reviewer comments
 Raised by: Reviewer: claude / claude-opus-5 / high / standard (inline,
@@ -74,3 +74,7 @@ claude-cli 2.1.220; capability_ok=true; verdict=findings;
 - Ran all 127 web tests successfully. A hook-rewritten `rtk git` spelling and
   two Grep attempts against temporary files were denied, but allowed repository
   reads, git inspection, and the test command completed the capability proof.
+
+Owner ruling: per-finding paid verification skipped on 2026-07-31. The owner
+accepted the recorded red/green mutation proof and full repository gate as the
+closure evidence; no second Claude request was made.

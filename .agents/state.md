@@ -65,10 +65,10 @@
   the owner accepted the corrected native view, and the full gate passes with
   646 Python tests, 127 web tests, compile/syntax checks, and the `0.1.65`
   source/wheel build.
-- Active review loop: see `.agents/review/index.md`. `cl-6` guards the
-  CyberBoard target split so the 83-LED switch layout cannot replace the 200-cell
-  top display. Its focused mutation proof and full gate pass; the fix awaits its
-  separately owner-gated per-finding Claude verdict.
+- CyberBoard review finding `cl-6` closed at `0b6778f28482a664047df4ee0d830f9da1524a6f`:
+  the target-split guard fails when the 83-LED switch layout replaces the
+  200-cell display and passes with the repair. The owner explicitly waived a
+  second paid Claude call after the full gate passed.
 - Windows CI on `791ca06d9012235f9f6af842275e568004bbe418` exposed a pre-existing
   manifest-lookup race: lookup read a manifest before taking the per-object
   lock, so Windows sharing contention could be misreported as a missing job.

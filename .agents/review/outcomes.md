@@ -180,3 +180,8 @@
   recovered with allowed repository reads, git inspection, and all 127 web
   tests. The paid result was persisted locally before parsing and was not
   rerun or reformatted.
+- 2026-07-31 — `cl-6` closed at repair commit
+  `0b6778f28482a664047df4ee0d830f9da1524a6f`. The owner explicitly skipped a
+  second paid Claude verification call and accepted the deterministic
+  red/green mutation proof plus the full repository gate as closure evidence.
+  No additional reviewer request was made.
