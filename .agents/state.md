@@ -57,6 +57,14 @@
   palette-assignment behavior. P6 still owes its remaining active-plan pointer
   synchronization, full two-viewport per-screen manual matrix with an open
   document, local native/frozen verification, and commit.
+- CyberBoard switch lighting now projects the canonical 81-key CB04 Keymap
+  geometry through the firmware LED map instead of rendering a uniform 15×6
+  raster. The function-row gaps, wide keys, three-segment spacebar, and arrow
+  notch share the Keymap footprint and 2.46:1 stage; the 40×5 top display stays
+  rectangular. The geometry guard was red before the repair and green after;
+  the owner accepted the corrected native view, and the full gate passes with
+  646 Python tests, 127 web tests, compile/syntax checks, and the `0.1.65`
+  source/wheel build.
 - Windows CI on `791ca06d9012235f9f6af842275e568004bbe418` exposed a pre-existing
   manifest-lookup race: lookup read a manifest before taking the per-object
   lock, so Windows sharing contention could be misreported as a missing job.

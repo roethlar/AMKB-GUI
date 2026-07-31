@@ -491,6 +491,20 @@ const AFA_LED_LAYOUT = AFA_LAYOUT.map(([keyIndex,x,y,w=4.8,rotation=0], position
   {index:73,keyIndex:null,x:45.5,y:80.2,w:4.2,rotation:0,label:"C4"},
 ]);
 
+// CyberBoard 75% geometry authored from the CB04 matrix occupancy read off
+// the device (81 keys) and corrected against the owner's board photo:
+// clustered F-row with a Delete+Home pair top right, the up arrow flush in
+// the right column, and the two post-space keys widened toward the arrow
+// notch. 1u = 6.1% of the stage, right column at 93.9%.
+const CB04_LAYOUT = [
+  [0,0,0,6.25],[1,7.8125,0,6.25],[2,14.0625,0,6.25],[3,20.3125,0,6.25],[4,26.5625,0,6.25],[5,34.375,0,6.25],[6,40.625,0,6.25],[7,46.875,0,6.25],[8,53.125,0,6.25],[9,60.9375,0,6.25],[10,67.1875,0,6.25],[11,73.4375,0,6.25],[12,79.6875,0,6.25],[13,87.5,0,6.25],[14,93.75,0,6.25],
+  [25,0,18,6.25],[26,6.25,18,6.25],[27,12.5,18,6.25],[28,18.75,18,6.25],[29,25,18,6.25],[30,31.25,18,6.25],[31,37.5,18,6.25],[32,43.75,18,6.25],[33,50,18,6.25],[34,56.25,18,6.25],[35,62.5,18,6.25],[36,68.75,18,6.25],[37,75,18,6.25],[38,81.25,18,12.5],[39,93.75,18,6.25],
+  [50,0,34,9.375],[51,9.375,34,6.25],[52,15.625,34,6.25],[53,21.875,34,6.25],[54,28.125,34,6.25],[55,34.375,34,6.25],[56,40.625,34,6.25],[57,46.875,34,6.25],[58,53.125,34,6.25],[59,59.375,34,6.25],[60,65.625,34,6.25],[61,71.875,34,6.25],[62,78.125,34,6.25],[63,84.375,34,9.375],[64,93.75,34,6.25],
+  [75,0,50,10.9375],[76,10.9375,50,6.25],[77,17.1875,50,6.25],[78,23.4375,50,6.25],[79,29.6875,50,6.25],[80,35.9375,50,6.25],[81,42.1875,50,6.25],[82,48.4375,50,6.25],[83,54.6875,50,6.25],[84,60.9375,50,6.25],[85,67.1875,50,6.25],[86,73.4375,50,6.25],[88,79.6875,50,14.0625],[89,93.75,50,6.25],
+  [100,0,66,14.0625],[102,14.0625,66,6.25],[103,20.3125,66,6.25],[104,26.5625,66,6.25],[105,32.8125,66,6.25],[106,39.0625,66,6.25],[107,45.3125,66,6.25],[108,51.5625,66,6.25],[109,57.8125,66,6.25],[110,64.0625,66,6.25],[111,70.3125,66,6.25],[112,76.5625,66,10.9375],[113,87.5,66,6.25],
+  [125,0,82,7.8125],[126,7.8125,82,7.8125],[127,15.625,82,7.8125],[131,23.4375,82,39.0625],[135,62.5,82,7.8125],[136,70.3125,82,7.8125],[137,81.25,82,6.25],[138,87.5,82,6.25],[139,93.75,82,6.25],
+];
+
 // Angry Miao's image-converter rasters. Values are firmware LED indexes;
 // -1 cells are physical gaps. The 90-color storage shape is not interchangeable
 // between models even when the wire frame length is the same.
@@ -505,6 +519,14 @@ const CB_LED_MAP = [
 // CyberBoard profile JSON stores its 40×5 display row-first: index=y*40+x.
 // Keep the editor grid in that same order so its preview matches the keyboard.
 const CB_DISPLAY_MAP = Array.from({length:200},(_,index)=>index);
+const CB_LED_LAYOUT=projectVialLedLayout(
+  {
+    key_layout:CB04_LAYOUT.map(([index,x,y,width=4.8,rotation=0])=>({
+      index,x,y,width:Math.min(width,100-x),height:12.2,rotation,
+    })),
+  },
+  {width:15,height:6,count:83,map:CB_LED_MAP},
+);
 const AFA_LED_MAP = [
   0,1,2,3,4,5,6,20,7,8,9,10,11,12,-1,13,
   14,15,-1,16,17,18,19,34,35,21,22,23,24,25,26,27,
@@ -531,7 +553,7 @@ const RELIC_LED_LAYOUT=projectVialLedLayout(
 
 const LED_MODELS = {
   CB: {
-    name:"CyberBoard", keyMap:CB_LED_MAP, displayMap:CB_DISPLAY_MAP, keyColumns:15, keyRaster:"15×6",
+    name:"CyberBoard", keyMap:CB_LED_MAP, displayMap:CB_DISPLAY_MAP, keyColumns:15, keyRaster:"15×6", physicalLayout:CB_LED_LAYOUT, physicalClass:"cyber",
     targets:DEVICE_TARGETS.CB,
   },
   ALICE: {
@@ -734,20 +756,6 @@ function renderAssignmentPalette(current) {
     </div>
   </section>`;
 }
-
-// CyberBoard 75% geometry authored from the CB04 matrix occupancy read off
-// the device (81 keys) and corrected against the owner's board photo:
-// clustered F-row with a Delete+Home pair top right, the up arrow flush in
-// the right column, and the two post-space keys widened toward the arrow
-// notch. 1u = 6.1% of the stage, right column at 93.9%.
-const CB04_LAYOUT = [
-  [0,0,0,6.25],[1,7.8125,0,6.25],[2,14.0625,0,6.25],[3,20.3125,0,6.25],[4,26.5625,0,6.25],[5,34.375,0,6.25],[6,40.625,0,6.25],[7,46.875,0,6.25],[8,53.125,0,6.25],[9,60.9375,0,6.25],[10,67.1875,0,6.25],[11,73.4375,0,6.25],[12,79.6875,0,6.25],[13,87.5,0,6.25],[14,93.75,0,6.25],
-  [25,0,18,6.25],[26,6.25,18,6.25],[27,12.5,18,6.25],[28,18.75,18,6.25],[29,25,18,6.25],[30,31.25,18,6.25],[31,37.5,18,6.25],[32,43.75,18,6.25],[33,50,18,6.25],[34,56.25,18,6.25],[35,62.5,18,6.25],[36,68.75,18,6.25],[37,75,18,6.25],[38,81.25,18,12.5],[39,93.75,18,6.25],
-  [50,0,34,9.375],[51,9.375,34,6.25],[52,15.625,34,6.25],[53,21.875,34,6.25],[54,28.125,34,6.25],[55,34.375,34,6.25],[56,40.625,34,6.25],[57,46.875,34,6.25],[58,53.125,34,6.25],[59,59.375,34,6.25],[60,65.625,34,6.25],[61,71.875,34,6.25],[62,78.125,34,6.25],[63,84.375,34,9.375],[64,93.75,34,6.25],
-  [75,0,50,10.9375],[76,10.9375,50,6.25],[77,17.1875,50,6.25],[78,23.4375,50,6.25],[79,29.6875,50,6.25],[80,35.9375,50,6.25],[81,42.1875,50,6.25],[82,48.4375,50,6.25],[83,54.6875,50,6.25],[84,60.9375,50,6.25],[85,67.1875,50,6.25],[86,73.4375,50,6.25],[88,79.6875,50,14.0625],[89,93.75,50,6.25],
-  [100,0,66,14.0625],[102,14.0625,66,6.25],[103,20.3125,66,6.25],[104,26.5625,66,6.25],[105,32.8125,66,6.25],[106,39.0625,66,6.25],[107,45.3125,66,6.25],[108,51.5625,66,6.25],[109,57.8125,66,6.25],[110,64.0625,66,6.25],[111,70.3125,66,6.25],[112,76.5625,66,10.9375],[113,87.5,66,6.25],
-  [125,0,82,7.8125],[126,7.8125,82,7.8125],[127,15.625,82,7.8125],[131,23.4375,82,39.0625],[135,62.5,82,7.8125],[136,70.3125,82,7.8125],[137,81.25,82,6.25],[138,87.5,82,6.25],[139,93.75,82,6.25],
-];
 
 function activeLayout() {
   const family=productFamily(productId());
@@ -3219,7 +3227,7 @@ function renderLightingEdit() {
     const color=safeRgbColor(displayFrame?.frame_RGB[index]);
     return `<button class="pixel" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${index}" style="background:${safeRgbColor(color)};--pixel-color:${safeRgbColor(color)}" aria-label="LED ${index}, ${esc(color)}" title="LED ${index} · ${esc(color)}"></button>`;
   }).join("");
-  const pixelCanvas=!displayFrame?`<div class="event-empty"><button id="first-frame" class="button primary">Create first frame</button></div>`:physicalLayout?`<div class="pixel-grid physical afa-led-board" role="grid" aria-label="LED paint grid">${physicalLayout.map((item,position)=>{
+  const pixelCanvas=!displayFrame?`<div class="event-empty"><button id="first-frame" class="button primary">Create first frame</button></div>`:physicalLayout?`<div class="pixel-grid physical afa-led-board ${esc(model.physicalClass||"")}" role="grid" aria-label="LED paint grid">${physicalLayout.map((item,position)=>{
     const color=safeRgbColor(displayFrame.frame_RGB[item.index]);
     const body=item.keyIndex===null;
     const keyLabel=body?item.label:decodeCode(keyLabels[item.keyIndex]||"#00000000");

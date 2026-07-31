@@ -497,6 +497,71 @@ test("Relic per-key lighting uses the sized Keymap geometry and segments its spa
   );
 });
 
+test("CyberBoard switch lighting shares the photographed Keymap geometry", () => {
+  assert.match(
+    js,
+    /const CB_LED_LAYOUT=projectVialLedLayout\([\s\S]*key_layout:CB04_LAYOUT\.map[\s\S]*width:15,height:6,count:83,map:CB_LED_MAP/,
+  );
+  assert.match(
+    js,
+    /CB:\s*\{[^}]*physicalLayout:CB_LED_LAYOUT[^}]*physicalClass:"cyber"/,
+  );
+  assert.match(
+    js,
+    /class="pixel-grid physical afa-led-board \$\{esc\(model\.physicalClass\|\|""\)\}"/,
+  );
+  assert.match(
+    css,
+    /\.pixel-grid\.physical\.cyber\s*\{[^}]*aspect-ratio:\s*2\.46\s*\/\s*1/,
+  );
+
+  const constants=js.slice(
+    js.indexOf("const CB04_LAYOUT"),
+    js.indexOf("const AFA_LED_MAP",js.indexOf("const CB04_LAYOUT")),
+  );
+  const context={projectVialLedLayout};
+  vm.runInNewContext(
+    `${constants}\nglobalThis.result={keymap:CB04_LAYOUT,layout:CB_LED_LAYOUT,display:CB_DISPLAY_MAP};`,
+    context,
+  );
+  const {keymap,layout,display}=context.result;
+  const led=index=>layout.find(item=>item.index===index);
+
+  assert.equal(keymap.length,81);
+  assert.equal(layout.length,83);
+  assert.deepEqual(
+    [0,1,5,9,13,14].map(index=>[led(index).x,led(index).w]),
+    [[0,6.25],[7.8125,6.25],[34.375,6.25],[60.9375,6.25],[87.5,6.25],[93.75,6.25]],
+  );
+  assert.deepEqual(
+    [28,58,60,72,73].map(index=>[
+      led(index).keyIndex,
+      led(index).x,
+      led(index).w,
+    ]),
+    [
+      [38,81.25,12.5],
+      [88,79.6875,14.0625],
+      [100,0,14.0625],
+      [112,76.5625,10.9375],
+      [113,87.5,6.25],
+    ],
+  );
+  assert.deepEqual(
+    layout.filter(item=>item.keyIndex===131).map(
+      item=>[item.index,item.groupPosition,item.groupCount,item.showLabel],
+    ),
+    [[79,0,3,false],[80,1,3,true],[81,2,3,false]],
+  );
+  assert.deepEqual(
+    [87,88,89].map(index=>[led(index).keyIndex,led(index).x]),
+    [[137,81.25],[138,87.5],[139,93.75]],
+  );
+  assert.equal(display.length,200);
+  assert.equal(display[0],0);
+  assert.equal(display[199],199);
+});
+
 test("Neon keymap wiring uses the validated layout and assignment gate", () => {
   const layout = js.slice(js.indexOf("function activeLayout"), js.indexOf("function keyClass"));
   const palette = js.slice(js.indexOf("function renderAssignmentPalette"), js.indexOf("function activeLayout"));
