@@ -117,7 +117,8 @@
 
 - The current `0.1.65` release plan is drafted at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md` and awaits owner
-  approval. No release-packet implementation begins until approval is recorded.
+  approval. No release-packet implementation begins until approval is recorded,
+  and its R65-G1 readiness gate must pass before an exact candidate is frozen.
   Tagging, release publication, hardware writes, live provider use, macOS Open
   Anyway, and announcement remain separately gated actions.
 - Separately, the accepted `cl-2` review recorded a pre-existing read-only

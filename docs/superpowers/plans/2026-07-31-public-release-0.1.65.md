@@ -3,8 +3,10 @@
 **Status:** Draft awaiting owner approval. No implementation slice, live
 provider request, macOS Open Anyway action, hardware write, tag, GitHub Release,
 or announcement is authorized by this draft. Plan approval authorizes only the
-pre-publication preparation and read-only qualification described below; every
-named action-time gate remains separate.
+pre-publication preparation and read-only qualification described below. It
+does not authorize freezing an exact candidate until Gate R65-G1 proves every
+required post-freeze check is runnable; every named action-time gate remains
+separate.
 
 ## Objective
 
@@ -48,8 +50,10 @@ Re-verify these facts at execution time.
 
 - Canonical source version is `0.1.65` in
   `am_configurator/_version.py`.
-- Local `main` and canonical `origin/main` are
-  `0c91a6d62485cf8e49efad70f7188a3d37f18de6` with a clean worktree.
+- Canonical `origin/main` is
+  `0c91a6d62485cf8e49efad70f7188a3d37f18de6`. Local `main` contains this
+  unpushed draft and is ahead of that baseline; reconcile the exact refs at
+  execution time.
 - CI run `30667102177` and Desktop installers run `30667101983` passed for
   `0c91a6d` after the P6 qualification record landed.
 - P6 implementation commit `4a3c6ebadcc5d0fc1730c06b853af8e28c686ca5`
@@ -223,11 +227,63 @@ Commit:
 docs: prepare 0.1.65 release packet
 ```
 
+### Gate R65-G1 — Prove post-freeze checks are runnable
+
+Do not begin R65-2 merely because the release packet and automated gate pass.
+A frozen SHA is useful only when every release-blocking exact-candidate check
+has a verified execution path. Do not create a candidate that must wait for a
+known-missing host, operator, restore source, owner ruling, or action authority.
+
+Resolve and record all of the following before candidate freeze:
+
+1. Revalidate `michael-mac`, `netwatch-01`, and the required Linux environment.
+   Confirm the tools, download paths, isolated test roots, and human operators
+   needed by R65-3 through R65-6 are available for one scheduled qualification
+   window.
+2. Identify and verify an independent normal Windows host whose SmartScreen is
+   already enabled. If none is available, obtain the cold owner ruling required
+   by R65-4 before freeze; `netwatch-01` is not evidence and changing its
+   security settings is not a fallback.
+3. Confirm `michael-mac` can preserve normal quarantine/Gatekeeper state and
+   execute the download, hash, attestation, DMG, native-smoke, and UI paths.
+   Confirm the owner will be reachable for the separate exact-artifact Open
+   Anyway gate. Do not treat this readiness check as that authorization.
+4. Non-destructively preflight the Neon 80 path: the intended keyboard and
+   direct connection are available, competing HID owners can be closed, the
+   current keymap/macros can be read and exported, and the complete desired
+   configuration plus LED restore source exists with private hashes. Confirm
+   the owner will be reachable for the fresh single-write gate immediately
+   before R65-6. That fresh authorization cannot be granted by this gate.
+5. Confirm an operator can run the exact-artifact UI/privacy matrix with
+   isolated application-data and Library roots and without touching a real
+   user Library.
+6. Record that live provider requests remain skipped and are not a release
+   prerequisite. Do not create a provider-authorization blocker when the
+   release claims remain within the fixed experimental boundary.
+7. Present unresolved owner rulings one at a time. Silence, plan approval, a
+   readiness statement, or a historical authorization never satisfies an
+   action-time gate.
+8. Record the sanitized readiness result in this plan and `.agents/state.md`,
+   update `.agents/machines.md` only when a capability fact changed, and commit
+   it before R65-2. Keep device identities, private paths, configuration bytes,
+   and credentials out of the repository.
+
+Commit:
+
+```text
+docs: record 0.1.65 candidate readiness
+```
+
+If any required execution path is absent or any pre-freeze ruling is declined,
+stop before R65-2. If a recorded readiness fact becomes false after freeze,
+reject the candidate instead of leaving `main` indefinitely frozen.
+
 ### Slice R65-2 — Freeze the final source candidate
 
 Preconditions:
 
-- R65-0 and R65-1 are committed;
+- R65-0, R65-1, and the R65-G1 readiness record are committed;
+- every R65-G1 readiness fact remains true;
 - no approved implementation work remains;
 - `main` and canonical `origin/main` are reconciled;
 - worktree and index are clean;
@@ -428,7 +484,7 @@ downgrade the gate or the release claim.
 
 ### Slice R65-7 — Freeze release copy and request publication approval
 
-After R65-2 through R65-6 pass without moving `main`:
+After R65-G1 and R65-2 through R65-6 pass without moving `main`:
 
 1. Render the final Release body from committed
    `docs/releases/0.1.65.md`. Do not edit source merely to inject hashes already
@@ -571,6 +627,8 @@ Do not promise future platform signing.
 This plan is complete only when:
 
 - owner approval is recorded in this plan and `.agents/decisions.md`;
+- R65-G1 proves and records that every required post-freeze qualification path
+  is runnable before the candidate is frozen;
 - every preparation slice is independently committed and final source is
   frozen at one canonical `main` SHA;
 - canonical local verification and exact-head CI pass;
