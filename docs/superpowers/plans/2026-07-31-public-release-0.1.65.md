@@ -185,6 +185,8 @@ docs: approve 0.1.65 release plan
 
 ### Slice R65-1 — Build the current release packet
 
+**Status:** Complete on 2026-07-31.
+
 Files:
 
 - new `docs/releases/0.1.65.md`;
@@ -227,6 +229,28 @@ Commit:
 ```text
 docs: prepare 0.1.65 release packet
 ```
+
+Completion record (2026-07-31):
+
+- Fresh `docs/releases/0.1.65.md` and unposted
+  `docs/announcements/reddit-0.1.65.md` were written from current product,
+  qualification, and decision records rather than copied from the rejected
+  packet. The copy leads with manual configuration, keeps optional AI within
+  the experimental claim boundary, and names exactly the five release assets.
+- `README.md`, `docs/installing.md`, and the bug-report template already carried
+  the current identity and required public guidance, so no correction was
+  needed on those surfaces.
+- The focused current-packet guard failed first because the `0.1.65` release
+  notes were absent, then passed with the new packet. It also proves the three
+  installer names agree with the installation guide, the README does not point
+  at historical notes, the rejected packet retains its banner, and prohibited
+  retired-generation terms do not enter current marketing copy.
+- The complete automated gate passed: 647 Python tests with 5 expected skips,
+  127 web tests, Python compilation, all required JavaScript syntax checks, and
+  `0.1.65` source-distribution and wheel builds.
+- No provider request, credential use, hardware interaction, macOS Open Anyway,
+  tag, Release, or announcement action occurred. The Reddit copy remains a
+  repository draft only.
 
 ### Gate R65-G1 — Prove post-freeze checks are runnable
 

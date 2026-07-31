@@ -115,11 +115,13 @@
 
 ## Next
 
-- The current `0.1.65` release plan is recorded at
-  `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md` and was approved
-  by the owner on 2026-07-31. R65-0 approval bookkeeping is complete; R65-1's
-  fresh release packet is next. The plan's R65-G1 readiness gate must pass
-  before an exact candidate is frozen.
+- The approved `0.1.65` release plan is recorded at
+  `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`. R65-0 and R65-1
+  are complete: fresh release notes, an explicitly unposted Reddit draft, and a
+  red-proven current-packet guard pass with the full 647-Python/127-web gate.
+  R65-G1 host, operator, restore-source, and action-path readiness is next and
+  must pass before an exact candidate is frozen. The Neon is not currently
+  connected; the owner will connect it before G1's non-writing device preflight.
   One owner-requested `claude-fable-5` openreview judged the exact plan range
   `best_approach` with no findings; `.agents/review/outcomes.md` records the
   returned-envelope deviation and no-resubmission handling.
