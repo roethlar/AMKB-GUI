@@ -6,10 +6,12 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tomllib
 import unittest
+from collections import Counter
 from pathlib import Path
 from subprocess import CalledProcessError
 from tempfile import TemporaryDirectory
@@ -268,7 +270,7 @@ class ReleaseManifestTests(unittest.TestCase):
         self.assertIn("github.event_name == 'push'", metadata_job)
         self.assertIn("github.ref == 'refs/heads/main'", metadata_job)
         self.assertIn(
-            "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
+            "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
             metadata_job,
         )
         self.assertIn("merge-multiple: true", metadata_job)
@@ -429,6 +431,80 @@ class ReleaseInfoTests(unittest.TestCase):
                 with self.subTest(path=path):
                     self.assertTrue((ROOT / path).is_file())
 
+    def test_workflow_actions_match_the_reviewed_node24_contract(self) -> None:
+        workflows = {
+            path.name: path.read_text(encoding="utf-8")
+            for path in (
+                ROOT / ".github" / "workflows" / "ci.yml",
+                ROOT / ".github" / "workflows" / "desktop.yml",
+            )
+        }
+        uses_refs = [
+            re.sub(r"\s+#.*$", "", match.group(1)).strip()
+            for workflow in workflows.values()
+            for match in re.finditer(
+                r"^\s*(?:-\s*)?uses:\s*(.+?)\s*$",
+                workflow,
+                flags=re.MULTILINE,
+            )
+        ]
+        action_refs = Counter(ref for ref in uses_refs if not ref.startswith("./"))
+        expected_refs = Counter(
+            {
+                "actions/checkout@v7": 4,
+                (
+                    "astral-sh/setup-uv@"
+                    "c771a70e6277c0a99b617c7a806ffedaca235ff9"
+                ): 2,
+                "actions/upload-artifact@v7": 2,
+                (
+                    "actions/download-artifact@"
+                    "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+                ): 2,
+                (
+                    "actions/attest-build-provenance@"
+                    "0f67c3f4856b2e3261c31976d6725780e5e4c373"
+                ): 4,
+            }
+        )
+
+        self.assertEqual(expected_refs, action_refs)
+
+        retired_refs = (
+            "actions/checkout@v4",
+            "actions/upload-artifact@v4",
+            "astral-sh/setup-uv@v6",
+            (
+                "actions/download-artifact@"
+                "d3f86a106a0bac45b974a628896c90dbdf5c8093"
+            ),
+            (
+                "actions/attest-build-provenance@"
+                "e8998f949152b193b063cb0ec769d69d929409be"
+            ),
+        )
+        combined_workflows = "\n".join(workflows.values())
+        for retired_ref in retired_refs:
+            with self.subTest(retired_ref=retired_ref):
+                self.assertNotIn(retired_ref, combined_workflows)
+
+        for name, workflow in workflows.items():
+            setup_steps = [
+                block
+                for block in re.split(r"(?m)(?=^      - )", workflow)
+                if "uses: astral-sh/setup-uv@" in block
+            ]
+            with self.subTest(workflow=name):
+                self.assertEqual(1, len(setup_steps))
+                self.assertRegex(
+                    setup_steps[0],
+                    (
+                        r"(?m)^        with:\n"
+                        r"(?:          .*\n)*"
+                        r"          prune-cache: true$"
+                    ),
+                )
+
     def test_release_tags_do_not_rebuild_a_different_version(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
             encoding="utf-8"
@@ -447,7 +523,7 @@ class ReleaseInfoTests(unittest.TestCase):
         unprivileged, provenance = workflow.split("  provenance:\n", 1)
         pinned_action = (
             "actions/attest-build-provenance@"
-            "e8998f949152b193b063cb0ec769d69d929409be"
+            "0f67c3f4856b2e3261c31976d6725780e5e4c373"
         )
 
         self.assertNotIn("id-token: write", unprivileged)
