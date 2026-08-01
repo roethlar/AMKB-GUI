@@ -71,6 +71,12 @@ _Last verified over SSH: 2026-07-31._
   asset. This VM's approved release role is the independent default-SmartScreen
   observation for the exact x64 candidate downloaded normally through Edge;
   `netwatch-01` remains the x64 install, audit, smoke, and uninstall host.
+- The pre-release x64 warning path was observed successfully on 2026-07-31:
+  an Edge-downloaded Actions artifact retained Internet-zone metadata,
+  SmartScreen first blocked the unknown publisher, **More info** exposed
+  **Run anyway**, the installer opened, and the x64 application launched under
+  emulation. Repeat the same observation with the final exact candidate; this
+  preflight does not substitute for R65-4.
 
 ## nagatha (macOS arm64)
 

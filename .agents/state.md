@@ -124,8 +124,11 @@
   connected; the owner will connect it before G1's non-writing device preflight.
   Host/tool preflight is otherwise complete: use this local `netwatch-01`
   session for Windows x64, `win-arm-vm` for the independent default-SmartScreen
-  observation, `nagatha` for macOS, and `gabrielle` for Linux. G1 remains open
-  only on the Neon connection and non-writing identity/read/export preflight.
+  observation, `nagatha` for macOS, and `gabrielle` for Linux. The pre-release
+  x64 SmartScreen warning/More info/Run anyway/install/launch path passed on the
+  VM with Internet-zone metadata preserved; the final exact candidate must
+  repeat it. G1 remains open only on the Neon connection and non-writing
+  identity/read/export preflight.
   `.agents/machines.md` owns the Windows ARM exploratory-build evidence and its
   explicit-native-Python requirement; ARM64 is not part of the `0.1.65` public
   asset set.

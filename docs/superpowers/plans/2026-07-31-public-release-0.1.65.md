@@ -254,9 +254,9 @@ Completion record (2026-07-31):
 
 ### Gate R65-G1 — Prove post-freeze checks are runnable
 
-**Status:** In progress. Host/tool and independent default-SmartScreen-host
-preflight passed on 2026-07-31; the Neon connection remains unresolved, so
-candidate freeze is still prohibited.
+**Status:** In progress. Host/tool and independent SmartScreen-path preflight
+passed on 2026-07-31; the Neon connection remains unresolved, so candidate
+freeze is still prohibited.
 
 Do not begin R65-2 merely because the release packet and automated gate pass.
 A frozen SHA is useful only when every release-blocking exact-candidate check
@@ -326,10 +326,18 @@ Partial readiness record (2026-07-31):
   ARM64 CPython is selected explicitly and `hidapi` is compiled with Visual C++.
   Its install/smoke/uninstall path passed, but ARM64 is not a `0.1.65` public
   asset and the exploratory bytes are not release evidence.
-- No Open Anyway action, security-setting change, GUI application launch,
-  provider request, credential use, or hardware interaction occurred during
-  preflight. Automated exploratory ARM64 frozen-smoke paths ran without device
-  access.
+- The owner downloaded x64 artifact `8810968202` from successful Desktop run
+  `30677373584` at `5867fa8` normally through Edge. The ZIP retained Internet
+  zone 3 metadata. SmartScreen displayed **Windows protected your PC**, named
+  an unrecognized app, exposed the expected unknown-publisher and **Run anyway**
+  path under **More info**, then allowed the installer and x64 application to
+  launch. The installed x64 binary remained `NotSigned` and its frozen smoke
+  passed under Windows ARM emulation. This is preflight evidence only; R65-4
+  repeats the observation on the final exact candidate.
+- No macOS Open Anyway action, security-setting change, provider request,
+  credential use, or hardware interaction occurred during preflight. The owner
+  used only the per-application SmartScreen **Run anyway** path; automated
+  exploratory ARM64 and installed-x64 frozen smokes ran without device access.
 - G1 cannot close until the owner connects the Neon for the non-writing
   identity/read/export preflight.
 
