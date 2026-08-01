@@ -60,6 +60,8 @@ release-record tests must remain green.
 
 ## Known gaps
 Implementation remains blocked on owner approval of the repair plan.
+Qualified review candidates `cl-8` and `cl-9` remain queued for their own
+one-at-a-time intake, records, fixes, and verdicts after `cl-7` closes.
 
 ## Reviewer comments
 Raised by: Reviewer: claude / claude-opus-5 / high / standard (inline,
