@@ -3,7 +3,7 @@
 **Severity**: HIGH — the planned frozen WebView2 audit would throw on its first
 synthetic pointerdown, leaving no dependency-free way to prove the required
 Windows-first drag behavior.
-**Status**: In progress
+**Status**: Verified
 **Branch**: —
 **Commit**: `bfc84cc4a664a0c28f92949ae9844e0799319407`
 
@@ -106,3 +106,28 @@ capability_ok=true; verdict=reopened; exit 0; no stderr;
   cancel, and lost capture sufficient; the reviewer did not treat this as a
   defect.
 - No review was retried or resubmitted.
+
+Accepted by: Reviewer: claude / claude-fable-5 / xhigh / frontier
+(inline, session-only; job `fable-review`; escalated: T2,T5 (ceiling)) —
+claude-cli 2.1.220; reviewed
+`fe546eb61a3259f59673343d72b0a95a8d555038`; base
+`bfc84cc4a664a0c28f92949ae9844e0799319407`; guard_confirmed=true;
+capability_ok=true; verdict=accepted; exit 0; no stderr;
+2026-08-01T09:30:49Z.
+
+- Independently reproduced the base's admitted-without-record contradiction
+  from pinned git-show, grep, and tree evidence.
+- Confirmed the reviewed state consistently keeps `cl-7` as the sole admitted
+  finding while preserving `cl-8` and `cl-9` as cold-actionable qualified
+  candidates queued for their own intake, records, fixes, and verdicts.
+- Full-tree search found no current-state claim contradicting that queued
+  status; the remaining admitted wording is only the historical reopen quote.
+- The repair range touches four files, all within `cl-7`'s declared five-file
+  boundary; both in-range commits are independently in bounds.
+- Confirmed the pinned Commit field and escalated index provenance are
+  accurate incidental record changes.
+- A disposable worktree at the reviewed SHA passed `git diff --check` and all
+  68 focused packaging and README tests with two expected skips. It was
+  removed and pruned, and the shared tree remained unchanged.
+- Exactly one `claude-fable-5` invocation was made; it was not retried or
+  resubmitted.

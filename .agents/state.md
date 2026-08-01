@@ -16,8 +16,8 @@
 - The proposed Windows-first correction is recorded in
   `docs/superpowers/plans/2026-08-01-imported-media-framing-repair.md`. It has
   not been owner-approved, so no shipped code or test change is authorized.
-- Active documentation review loop: admitted `cl-7` is in progress; qualified
-  candidates `cl-8` and `cl-9` remain queued for one-at-a-time intake. See
+- Active documentation review loop: `cl-7` is verified; qualified candidate
+  `cl-8` is next for one-at-a-time intake, followed by `cl-9`. See
   `.agents/review/index.md`.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
