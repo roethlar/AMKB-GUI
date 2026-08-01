@@ -138,12 +138,12 @@
   five-file metadata/provenance checks passed. R65-3 then rejected the complete
   candidate because its extracted Linux Qt WebEngine/Multimedia libraries
   contain FFmpeg decoder/demuxer implementation code. No candidate is active.
-  The next release action is an owner-approved corrective slice that removes
-  that transitive Linux runtime and adds an extracted-AppImage regression
-  guard, followed by a fresh R65-2 candidate. The proposed GTK/WebKitGTK
-  correction is cold-specified in
-  `docs/superpowers/plans/2026-08-01-linux-transitive-ffmpeg-removal.md` and
-  awaits the owner's single implementation decision.
+  The owner approved corrective implementation slice LXF-1 on 2026-08-01. It
+  removes that transitive Linux runtime, replaces the Linux Qt backend with
+  GTK/WebKitGTK, and adds an extracted-AppImage regression guard before a
+  fresh R65-2 candidate. The approved correction is cold-specified in
+  `docs/superpowers/plans/2026-08-01-linux-transitive-ffmpeg-removal.md` and is
+  now the active implementation work.
   `.agents/machines.md` owns the Windows ARM exploratory-build evidence and its
   explicit-native-Python requirement; ARM64 is not part of the `0.1.65` public
   asset set.
@@ -159,7 +159,8 @@
 ## Blockers
 
 - Linux packaging currently bundles FFmpeg implementation code transitively
-  through Qt WebEngine/Multimedia, violating the settled product contract. A
-  corrective implementation plan and fresh candidate are required.
+  through Qt WebEngine/Multimedia, violating the settled product contract.
+  Approved corrective slice LXF-1 must land and qualify before a fresh
+  candidate can be frozen.
 - Live Ollama Cloud prompts, keyboard writes, macOS Open Anyway, tag creation,
   release publication, and announcements remain separately gated actions.

@@ -1,9 +1,8 @@
 # Linux Transitive FFmpeg Removal
 
-**Status:** Drafted on 2026-08-01. No implementation is authorized. One owner
-decision is pending: retain the Linux x86-64 release by replacing the Qt
-WebEngine backend with GTK/WebKitGTK, or remove Linux from `0.1.65`. The
-recommended and fully specified path below retains Linux.
+**Status:** Approved by the owner on 2026-08-01. Implementation slice LXF-1 is
+authorized to retain the Linux x86-64 release by replacing the Qt WebEngine
+backend with GTK/WebKitGTK; implementation has not yet landed.
 
 ## Objective
 
