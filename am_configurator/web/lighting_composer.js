@@ -466,11 +466,24 @@
 
     function keyDown(event) {
       const step = event?.shiftKey ? 0.1 : 0.025;
+      const geometry = getGeometry();
+      const primaryIndex = Number.isSafeInteger(geometry?.primaryIndex)
+        && geometry.primaryIndex >= 0
+        && geometry.primaryIndex < (geometry.destinationSizes?.length || 0)
+        ?geometry.primaryIndex
+        :0;
+      const primary = geometry?.destinationSizes?.[primaryIndex];
+      const xStep = Number.isFinite(primary?.width) && primary.width > 0
+        ?Math.max(step, 1 / primary.width)
+        :step;
+      const yStep = Number.isFinite(primary?.height) && primary.height > 0
+        ?Math.max(step, 1 / primary.height)
+        :step;
       const pan = {
-        ArrowLeft: [-step, 0],
-        ArrowRight: [step, 0],
-        ArrowUp: [0, -step],
-        ArrowDown: [0, step],
+        ArrowLeft: [-xStep, 0],
+        ArrowRight: [xStep, 0],
+        ArrowUp: [0, -yStep],
+        ArrowDown: [0, yStep],
       }[event?.key];
       if (pan) {
         return mutate(event, (transform, geometry) => panSourceTransform(

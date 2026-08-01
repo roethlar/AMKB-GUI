@@ -142,6 +142,7 @@ function sourceInputHarness(options = {}) {
     getGeometry: () => ({
       sourceSize: {width: 40, height: 5},
       destinationSizes: [{width: 40, height: 5}],
+      primaryIndex: 0,
     }),
     getBounds: () => stage.getBoundingClientRect(),
     commit: next => {
@@ -378,8 +379,19 @@ test("wheel and keyboard framing activate source view and share canonical reduce
   assert.equal(keyboard.current().scale_y, wheel.current().scale_y);
   keyboard.stage.dispatch("keydown", {key: "ArrowRight"});
   assert.equal(keyboard.current().offset_x, 0.025);
+  const beforeKeyboardBox = resolveSourceGeometry(
+    {width: 40, height: 5},
+    [{width: 40, height: 5}],
+    keyboard.current(),
+  ).boxes[0];
   keyboard.stage.dispatch("keydown", {key: "ArrowDown", shiftKey: true});
-  assert.equal(keyboard.current().offset_y, 0.1);
+  assert.equal(keyboard.current().offset_y, 0.2);
+  const afterKeyboardBox = resolveSourceGeometry(
+    {width: 40, height: 5},
+    [{width: 40, height: 5}],
+    keyboard.current(),
+  ).boxes[0];
+  assert.notEqual(afterKeyboardBox.top, beforeKeyboardBox.top);
 
   const before = keyboard.commits.length;
   const ignored = keyboard.stage.dispatch("keydown", {key: "Enter"});

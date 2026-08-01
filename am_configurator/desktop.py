@@ -1018,7 +1018,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--native-policy-dir",
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--media-framing-audit",
+        metavar="RESULT.json",
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args(argv)
+    if args.media_framing_audit:
+        if (
+            args.config
+            or args.debug
+            or args.print_udev_rule
+            or args.smoke_test
+            or args.native_policy_smoke
+            or args.native_policy_probe
+            or args.native_policy_dir
+        ):
+            parser.error("media framing audit cannot be combined with other modes")
+        from .media_framing_audit import run_media_framing_audit
+
+        return run_media_framing_audit(Path(args.media_framing_audit))
     if args.print_udev_rule:
         return _print_udev_rule()
     if args.smoke_test:

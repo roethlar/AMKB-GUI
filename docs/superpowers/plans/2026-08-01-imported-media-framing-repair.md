@@ -378,6 +378,50 @@ Requirements:
    before recursive cleanup and leave provider keys, user Library roots,
    profiles, firmware identifiers, and screenshots out of the result.
 
+Implementation record, 2026-08-01:
+
+- One pathless fixture builder now emits asymmetric 20x5 GIF, PNG, and BMP
+  bytes with exact expected sentinel pixels and non-black counts. Python proves
+  the decoded frames before the same expectations are injected into the native
+  workflow; the GIF proof covers its complete normalized output sequence.
+- The normal desktop entry point accepts only the explicit
+  `--media-framing-audit RESULT.json` form and rejects configuration paths and
+  every other smoke/probe mode. The audit uses a private temporary data root,
+  private Library root, synthetic blank CB04 document, in-memory credentials,
+  offline device discovery, cleared provider variables, verified exact-root
+  cleanup, and one bounded pathless JSON result.
+- The real DOM workflow now covers raw import, saved-source byte retrieval,
+  pointer capture's `NotFoundError` path, immediate pointer/keyboard/slider
+  geometry, stale Preview rejection, browser/backend transform equality, exact
+  mapped pixels, single Apply, Undo/dirty state, Save to Library, Library
+  apply/remove/undo/restore/permanent-delete confirmation, and Cancel.
+- Audit-driven support fixes keep a Library ownership mutation busy through its
+  forced refresh, keep Undo disabled until that refresh is ready, retry bounded
+  Windows sharing contention around directory moves and tree deletion, make a
+  keyboard pan move by at least one primary-destination raster cell, and remove
+  reduced-motion transitions without creating zero-duration geometry updates.
+- Before implementation the native audit module, CLI dispatch, and end-to-end
+  workflow did not exist. The native-window activation guard separately failed
+  with the helper absent and passed after the audit began activating the real
+  PyWebView window and waiting for `document.hasFocus()` before visual focus
+  assertions.
+- Focused verification passed 319 Python tests with five expected platform
+  skips, the complete web test suite, and both changed JavaScript syntax checks.
+  `python build.py --skip-sync` passed the native-tree audit and built the
+  Windows installer; frozen `--smoke-test` passed.
+- Source and exact rebuilt frozen WebView2 audits each passed GIF, PNG, and BMP
+  at 1000x680 and 1280x800 with no console errors or layout findings. A visual
+  focus audit must run as a normal visible native window; an explicitly hidden
+  Windows launch cannot own top-level focus and now fails the explicit
+  `webview_focus_timeout` precondition instead of mislabeling product focus CSS.
+- The canonical full command chain reached its final `uv build`, which emitted
+  valid `0.1.65` source and wheel archives containing the audit module; every
+  earlier guarded test, compile, and syntax command had exited zero. PTK lost
+  its worker transport immediately after the two archives were written, so the
+  outer wrapper did not return its final exit envelope and the completed run
+  was not resubmitted. No dependency, lockfile, FFmpeg/libav, provider,
+  hardware, tag, Release, security-setting, or announcement path changed or ran.
+
 Focused verification:
 
 ```text
@@ -388,7 +432,9 @@ node --test tests/web/*.test.js
 Then run the new native audit directly on `netwatch-01` in Windows WebView2 at
 both required sizes. Build through `python build.py --skip-sync`, run frozen
 `--smoke-test`, and repeat the native audit from the frozen executable. Do not
-use PyInstaller directly.
+use PyInstaller directly. Launch each visual audit as a normal visible native
+window and wait for its process; `-WindowStyle Hidden` invalidates the focus
+precondition and is not a valid audit invocation.
 
 Proposed commit:
 

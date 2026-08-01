@@ -37,6 +37,19 @@
   proofs pass. Its single required `fable-review` run used `claude-fable-5` at
   `xhigh` over exact implementation commit `041c26f` and returned clean with
   no findings. No dependency or prohibited path changed.
+- IMF-3 is implemented and locally verified. Pathless asymmetric GIF/PNG/BMP
+  fixtures now drive one isolated native PyWebView audit through import,
+  framing, exact Preview pixels, Apply/Undo, the complete Library ownership
+  workflow, and Cancel. Source and exact rebuilt frozen WebView2 audits pass at
+  1000x680 and 1280x800 with no console or layout findings; the Windows build,
+  native-tree audit, installer build, and frozen smoke pass. The visual audit
+  activates its real native window before asserting focus; a deliberately
+  hidden launch fails the explicit focus precondition and is not valid evidence.
+  The canonical full command chain reached and produced both valid `uv build`
+  archives after every guarded test/compile/syntax stage returned zero, but PTK
+  lost its outer transport immediately after artifact creation and no duplicate
+  run was submitted. Its exact implementation commit, one required Fable
+  review, and normal push are next. No dependency or prohibited path changed.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
   prohibited in every runtime/build/package path, and dependencies without a
@@ -151,11 +164,11 @@
 - The approved `0.1.65` release plan is recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`. It records both
   rejected candidates and remains paused before a new R65-2 freeze.
-- Continue the approved repair with IMF-3: add the anonymous GIF/PNG/BMP
-  end-to-end workflow and dependency-free native audit, then run source and
-  frozen WebView2 checks locally on `netwatch-01` at 1000x680 and 1280x800.
-  Commit it as one slice and run its one `fable-review` job with
-  `claude-fable-5` at `xhigh` before exact-artifact WKWebView regression testing
+- Commit the verified IMF-3 slice, then run exactly one `fable-review` job with
+  `claude-fable-5` at `xhigh` over its exact parent/head range. Use the returned
+  substance regardless of envelope formatting and do not retry or resubmit it
+  without explicit owner approval. Close any admitted finding as a new commit,
+  push normally, then continue to exact-artifact WKWebView regression testing
   on `nagatha`.
 - After the repair and exact-head workflows pass, restart R65-2 on a clean
   reconciled `main`. The replacement candidate must repeat all release gates;

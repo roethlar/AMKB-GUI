@@ -1619,7 +1619,6 @@ async function runLibraryOwnershipMutation(catalogId,{method="POST",suffix="",su
     }
     success(result);
     lease.release();
-    state.library.mutatingCatalogId=null;
     state.library.selectedCatalogId=null;
     state.library.loaded=false;
     await loadLibrary({force:true});
@@ -1842,7 +1841,7 @@ function renderLibrary() {
   const notice=$("#library-notice");
   if(state.library.undoRemoval){
     notice.hidden=false;
-    notice.innerHTML=`<span><strong>${esc(state.library.undoRemoval.name)}</strong> was removed.</span><button type="button" class="button ghost" data-library-undo-remove>Undo</button>`;
+    notice.innerHTML=`<span><strong>${esc(state.library.undoRemoval.name)}</strong> was removed.</span><button type="button" class="button ghost" data-library-undo-remove ${state.library.mutatingCatalogId||state.library.loading?"disabled":""}>Undo</button>`;
     $("[data-library-undo-remove]",notice).addEventListener("click",undoLibraryRemoval);
   }else{
     notice.hidden=true;

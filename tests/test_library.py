@@ -970,6 +970,35 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         self.assertEqual(3, replace.call_count)
         self.assertEqual(2, len(sleeps))
 
+        sleeps.clear()
+        with (
+            patch.object(atomic_io.os, "rename", side_effect=error) as rename,
+            self.assertRaises(PermissionError),
+        ):
+            atomic_io.move_path(
+                "source",
+                "destination",
+                windows=True,
+                attempts=3,
+                sleep=sleeps.append,
+            )
+        self.assertEqual(3, rename.call_count)
+        self.assertEqual(2, len(sleeps))
+
+        sleeps.clear()
+        with (
+            patch.object(atomic_io.shutil, "rmtree", side_effect=error) as remove,
+            self.assertRaises(PermissionError),
+        ):
+            atomic_io.remove_tree(
+                "target",
+                windows=True,
+                attempts=3,
+                sleep=sleeps.append,
+            )
+        self.assertEqual(3, remove.call_count)
+        self.assertEqual(2, len(sleeps))
+
     def test_asset_banking_rejects_replaced_kind_directory_symlink(self) -> None:
         job = self._create_job()
         job_dir = self._job_dir(job["job_id"])
@@ -2518,6 +2547,77 @@ class LibraryRemovalTests(unittest.TestCase):
         self.assertTrue(sibling_live.is_dir())
         with self.assertRaises(ManifestError):
             self.catalog.get(catalog_id)
+
+    def test_restore_retries_bounded_windows_reader_contention(self) -> None:
+        from am_configurator import atomic_io
+
+        target = self._media("reader-contention.png", b"owned")
+        catalog_id = f"item:{target['item_id']}"
+        self.catalog.remove(catalog_id)
+        real_rename = atomic_io.os.rename
+        sharing_failures = 0
+
+        def rename_with_open_reader(source, destination):
+            nonlocal sharing_failures
+            if sharing_failures == 0:
+                sharing_failures += 1
+                error = PermissionError(errno.EACCES, "simulated sharing violation")
+                error.winerror = 32
+                raise error
+            return real_rename(source, destination)
+
+        def windows_move(source, destination):
+            return atomic_io.move_path(
+                source,
+                destination,
+                windows=True,
+                sleep=lambda _seconds: None,
+            )
+
+        with (
+            patch.object(atomic_io.os, "rename", rename_with_open_reader),
+            patch("am_configurator.library.move_path", windows_move),
+        ):
+            restored = self.catalog.restore(catalog_id)
+
+        self.assertEqual(1, sharing_failures)
+        self.assertFalse(restored["removed"])
+        self.assertTrue((self.root / "items" / target["item_id"]).is_dir())
+
+    def test_delete_retries_bounded_windows_reader_contention(self) -> None:
+        from am_configurator import atomic_io
+
+        target = self._media("delete-contention.png", b"owned")
+        catalog_id = f"item:{target['item_id']}"
+        self.catalog.remove(catalog_id)
+        real_rmtree = atomic_io.shutil.rmtree
+        sharing_failures = 0
+
+        def remove_with_open_reader(path):
+            nonlocal sharing_failures
+            if sharing_failures == 0:
+                sharing_failures += 1
+                error = PermissionError(errno.EACCES, "simulated sharing violation")
+                error.winerror = 32
+                raise error
+            return real_rmtree(path)
+
+        def windows_remove(path):
+            return atomic_io.remove_tree(
+                path,
+                windows=True,
+                sleep=lambda _seconds: None,
+            )
+
+        with (
+            patch.object(atomic_io.shutil, "rmtree", remove_with_open_reader),
+            patch("am_configurator.library.remove_tree", windows_remove),
+        ):
+            deleted = self.catalog.delete_forever(catalog_id)
+
+        self.assertEqual(1, sharing_failures)
+        self.assertEqual({"catalog_id": catalog_id, "deleted": True}, deleted)
+        self.assertFalse((self.root / ".trash" / "items" / target["item_id"]).exists())
 
     def test_remove_and_restore_keep_historical_jobs_in_their_own_root(self) -> None:
         historical_root = self.base / "historical"

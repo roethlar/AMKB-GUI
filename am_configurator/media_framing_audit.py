@@ -1,0 +1,1185 @@
+"""Isolated native-WebView proof for the imported-media framing workflow."""
+
+from __future__ import annotations
+
+import base64
+from contextlib import contextmanager
+from dataclasses import dataclass
+from io import BytesIO
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import tempfile
+import threading
+import time
+from typing import Any, Iterator, Mapping
+
+
+AUDIT_VIEWPORTS = ((1000, 680), (1280, 800))
+AUDIT_TRANSFORM = {
+    "version": 1,
+    "offset_x": 0.0,
+    "offset_y": 0.0,
+    "scale_x": 1.5,
+    "scale_y": 1.5,
+    "aspect_locked": True,
+    "sampling": "box",
+    "background": "#000000",
+}
+REQUIRED_CASE_CHECKS = [
+    "raw_import",
+    "saved_source_retrieval",
+    "pointer_not_found_capture",
+    "pointer_feedback",
+    "keyboard_feedback",
+    "slider_feedback",
+    "overlay_geometry",
+    "stale_preview_guard",
+    "canonical_backend_equality",
+    "sentinel_pixels",
+    "single_apply",
+    "undo_dirty_state",
+    "save_to_library",
+    "library_apply",
+    "library_remove_undo",
+    "library_restore",
+    "library_permanent_delete",
+    "cancel",
+    "focus_visible",
+    "layout_contained",
+]
+MAX_REPORT_BYTES = 32_768
+_MAX_REPORT_TEXT = 200
+_AUDIT_ROOT_PREFIX = "am-media-framing-audit-"
+_RESULT_SLOT = "__amMediaFramingAuditResult"
+
+
+class MediaFramingAuditError(RuntimeError):
+    """A bounded, non-sensitive native-audit failure."""
+
+
+@dataclass(frozen=True)
+class ExpectedFrame:
+    sentinels: tuple[tuple[int, str], ...]
+    non_black: int
+
+
+@dataclass(frozen=True)
+class MediaFixture:
+    format: str
+    name: str
+    mime_type: str
+    payload: bytes
+    source_frame_count: int
+    expected_frames: tuple[ExpectedFrame, ...]
+
+
+_FRAME_ZERO = ExpectedFrame(
+    sentinels=((6, "#FF0000"), (101, "#00FF00"), (193, "#0000FF")),
+    non_black=15,
+)
+_FRAME_ONE = ExpectedFrame(
+    sentinels=((6, "#00FFFF"), (101, "#FF00FF"), (193, "#FFFF00")),
+    non_black=15,
+)
+
+
+def _fixture_frame(colors: tuple[tuple[int, int, int], ...]):
+    from PIL import Image
+
+    image = Image.new("RGB", (20, 5), (0, 0, 0))
+    for point, color in zip(((5, 1), (10, 2), (14, 3)), colors, strict=True):
+        image.putpixel(point, color)
+    return image
+
+
+def build_media_fixtures() -> tuple[MediaFixture, ...]:
+    """Build pathless asymmetric fixtures with exact destination sentinels."""
+
+    first = _fixture_frame(((255, 0, 0), (0, 255, 0), (0, 0, 255)))
+    second = _fixture_frame(((0, 255, 255), (255, 0, 255), (255, 255, 0)))
+    fixtures: list[MediaFixture] = []
+    for format_name, mime_type in (
+        ("GIF", "image/gif"),
+        ("PNG", "image/png"),
+        ("BMP", "image/bmp"),
+    ):
+        output = BytesIO()
+        if format_name == "GIF":
+            first.save(
+                output,
+                format="GIF",
+                save_all=True,
+                append_images=[second],
+                duration=[80, 120],
+                loop=0,
+                disposal=2,
+                optimize=False,
+            )
+            source_frame_count = 2
+            expected = (
+                _FRAME_ZERO,
+                _FRAME_ZERO,
+                _FRAME_ZERO,
+                _FRAME_ONE,
+                _FRAME_ONE,
+                _FRAME_ONE,
+            )
+        else:
+            first.save(output, format=format_name)
+            source_frame_count = 1
+            expected = (_FRAME_ZERO,)
+        extension = format_name.casefold()
+        fixtures.append(
+            MediaFixture(
+                format=extension,
+                name=f"audit.{extension}",
+                mime_type=mime_type,
+                payload=output.getvalue(),
+                source_frame_count=source_frame_count,
+                expected_frames=expected,
+            )
+        )
+    return tuple(fixtures)
+
+
+def _is_linklike(path: Path) -> bool:
+    junction = getattr(path, "is_junction", None)
+    return path.is_symlink() or bool(junction and junction())
+
+
+def cleanup_audit_root(
+    root: Path,
+    *,
+    expected_root: Path,
+    expected_parent: Path,
+    expected_children: tuple[Path, Path],
+) -> None:
+    """Remove only the exact private root and its two verified data roots."""
+
+    try:
+        candidate = Path(root)
+        canonical_parent = candidate.parent.resolve(strict=True)
+        canonical_root = candidate.resolve(strict=True)
+        if (
+            not candidate.is_absolute()
+            or candidate.name.startswith(_AUDIT_ROOT_PREFIX) is False
+            or canonical_parent != Path(expected_parent)
+            or canonical_root != Path(expected_root)
+            or _is_linklike(candidate)
+        ):
+            raise MediaFramingAuditError("audit_cleanup_root_mismatch")
+        expected_names = ("data", "library")
+        if len(expected_children) != len(expected_names):
+            raise MediaFramingAuditError("audit_cleanup_children_mismatch")
+        for name, expected in zip(expected_names, expected_children, strict=True):
+            child = candidate / name
+            canonical_child = child.resolve(strict=True)
+            if (
+                canonical_child != Path(expected)
+                or canonical_child.parent != canonical_root
+                or not child.is_dir()
+                or _is_linklike(child)
+            ):
+                raise MediaFramingAuditError("audit_cleanup_child_mismatch")
+    except MediaFramingAuditError:
+        raise
+    except (OSError, RuntimeError, ValueError):
+        raise MediaFramingAuditError("audit_cleanup_verification_failed") from None
+    shutil.rmtree(canonical_root)
+    if candidate.exists() or candidate.is_symlink():
+        raise MediaFramingAuditError("audit_cleanup_incomplete")
+
+
+def _bounded_text_list(value: object, label: str) -> list[str]:
+    if not isinstance(value, list) or len(value) > 20:
+        raise MediaFramingAuditError(f"invalid_{label}")
+    for item in value:
+        if (
+            not isinstance(item, str)
+            or not item
+            or len(item) > _MAX_REPORT_TEXT
+            or re.fullmatch(r"[a-z0-9_:-]+", item) is None
+        ):
+            raise MediaFramingAuditError(f"invalid_{label}")
+    return value
+
+
+def validate_audit_report(report: object) -> dict:
+    """Accept only the bounded pathless result schema written by this audit."""
+
+    if not isinstance(report, dict) or set(report) != {
+        "schema_version",
+        "status",
+        "failure",
+        "viewports",
+    }:
+        raise MediaFramingAuditError("invalid_report")
+    if report["schema_version"] != 1 or report["status"] not in {"passed", "failed"}:
+        raise MediaFramingAuditError("invalid_report")
+    failure = report["failure"]
+    if report["status"] == "passed":
+        if failure is not None:
+            raise MediaFramingAuditError("invalid_failure")
+    elif (
+        not isinstance(failure, str)
+        or re.fullmatch(r"[a-z0-9_:-]{1,200}", failure) is None
+    ):
+        raise MediaFramingAuditError("invalid_failure")
+    viewports = report["viewports"]
+    if not isinstance(viewports, list) or len(viewports) > len(AUDIT_VIEWPORTS):
+        raise MediaFramingAuditError("invalid_viewports")
+    if report["status"] == "passed" and len(viewports) != len(AUDIT_VIEWPORTS):
+        raise MediaFramingAuditError("incomplete_viewports")
+    for index, viewport in enumerate(viewports):
+        if not isinstance(viewport, dict) or set(viewport) != {
+            "width",
+            "height",
+            "cases",
+            "layout_findings",
+            "console_errors",
+        }:
+            raise MediaFramingAuditError("invalid_viewport")
+        if (viewport["width"], viewport["height"]) != AUDIT_VIEWPORTS[index]:
+            raise MediaFramingAuditError("invalid_viewport_size")
+        cases = viewport["cases"]
+        if not isinstance(cases, list) or len(cases) > 3:
+            raise MediaFramingAuditError("invalid_cases")
+        if report["status"] == "passed" and len(cases) != 3:
+            raise MediaFramingAuditError("incomplete_cases")
+        for case_index, case in enumerate(cases):
+            if not isinstance(case, dict) or set(case) != {"format", "checks"}:
+                raise MediaFramingAuditError("invalid_case")
+            if case["format"] != ("gif", "png", "bmp")[case_index]:
+                raise MediaFramingAuditError("invalid_case_format")
+            if case["checks"] != REQUIRED_CASE_CHECKS:
+                raise MediaFramingAuditError("invalid_case_checks")
+        findings = _bounded_text_list(viewport["layout_findings"], "layout_findings")
+        console_errors = _bounded_text_list(viewport["console_errors"], "console_errors")
+        if report["status"] == "passed" and (findings or console_errors):
+            raise MediaFramingAuditError("failed_checks_in_passed_report")
+    encoded = json.dumps(
+        report,
+        allow_nan=False,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    if len(encoded) > MAX_REPORT_BYTES:
+        raise MediaFramingAuditError("report_too_large")
+    return report
+
+
+def write_audit_report(output: Path, report: object) -> None:
+    """Atomically write one validated JSON result outside the audit root."""
+
+    checked = validate_audit_report(report)
+    destination = Path(output).expanduser()
+    if destination.suffix.casefold() != ".json":
+        raise MediaFramingAuditError("audit_output_must_be_json")
+    try:
+        parent = destination.parent.resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise MediaFramingAuditError("audit_output_parent_unavailable") from None
+    destination = parent / destination.name
+    payload = (
+        json.dumps(checked, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    if len(payload) > MAX_REPORT_BYTES:
+        raise MediaFramingAuditError("report_too_large")
+    temporary: Path | None = None
+    try:
+        descriptor, raw_temporary = tempfile.mkstemp(
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            dir=parent,
+        )
+        temporary = Path(raw_temporary)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, destination)
+        temporary = None
+    except OSError:
+        raise MediaFramingAuditError("audit_output_write_failed") from None
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+
+
+def _fixture_payload(fixtures: tuple[MediaFixture, ...]) -> list[dict[str, object]]:
+    return [
+        {
+            "format": case.format,
+            "name": case.name,
+            "mime_type": case.mime_type,
+            "payload": base64.b64encode(case.payload).decode("ascii"),
+            "expected_frames": [
+                {
+                    "sentinels": [list(sentinel) for sentinel in frame.sentinels],
+                    "non_black": frame.non_black,
+                }
+                for frame in case.expected_frames
+            ],
+        }
+        for case in fixtures
+    ]
+
+
+_AUDIT_SCRIPT = r"""
+(() => {
+  const resultSlot = "__RESULT_SLOT__";
+  const requiredChecks = __REQUIRED_CHECKS__;
+  const consoleErrors = [];
+  const originalConsoleError = console.error.bind(console);
+  console.error = (...args) => {
+    if (consoleErrors.length < 20) consoleErrors.push("console_error");
+    originalConsoleError(...args);
+  };
+  window.addEventListener("error", () => {
+    if (consoleErrors.length < 20) consoleErrors.push("window_error");
+  });
+  window.addEventListener("unhandledrejection", () => {
+    if (consoleErrors.length < 20) consoleErrors.push("unhandled_rejection");
+  });
+
+  class AuditFailure extends Error {
+    constructor(code) {
+      super(code);
+      this.auditCode = code;
+    }
+  }
+  const requireAudit = (condition, code) => {
+    if (!condition) throw new AuditFailure(code);
+  };
+  const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+  async function waitFor(check, code, timeout = 20000) {
+    const deadline = performance.now() + timeout;
+    while (performance.now() < deadline) {
+      try {
+        const value = await check();
+        if (value) return value;
+      } catch (_) {}
+      await delay(25);
+    }
+    throw new AuditFailure(code);
+  }
+  const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+  const pageFingerprint = () => JSON.stringify(getPage(state.ledSlot));
+  const canonicalLightingValue = value => {
+    if (typeof value === "string" && /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value)) {
+      return value.toUpperCase();
+    }
+    if (Array.isArray(value)) return value.map(canonicalLightingValue);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.keys(value).sort().map(key => [key, canonicalLightingValue(value[key])]),
+      );
+    }
+    return value;
+  };
+  const lightingFingerprint = page => JSON.stringify(canonicalLightingValue(page));
+  const overlayStyle = overlay => [
+    overlay.style.getPropertyValue("--source-left"),
+    overlay.style.getPropertyValue("--source-top"),
+    overlay.style.getPropertyValue("--source-width"),
+    overlay.style.getPropertyValue("--source-height"),
+  ].join("|");
+  const bytesEqual = (left, right) => {
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+      if (left[index] !== right[index]) return false;
+    }
+    return true;
+  };
+
+  async function catalogItems(filter) {
+    const query = libraryCatalogQuery({filter, page: 1, limit: 100});
+    const result = await api(`/api/library/items?${query}`);
+    return result.items || [];
+  }
+
+  async function selectLibraryFilter(filter) {
+    const button = [...document.querySelectorAll("[data-library-filter]")]
+      .find(candidate => candidate.dataset.libraryFilter === filter);
+    requireAudit(button, "library_filter_missing");
+    button.click();
+    await waitFor(
+      () => state.library.filter === filter && state.library.loaded && !state.library.loading,
+      "library_filter_timeout",
+    );
+  }
+
+  async function openLibraryItemById(catalogId) {
+    await waitFor(() => {
+      if (
+        state.library.selectedCatalogId === catalogId
+        && state.library.details.has(catalogId)
+        && document.querySelector("#library-detail-title")
+      ) return true;
+      const card = [...document.querySelectorAll("[data-library-item]")]
+        .find(candidate => candidate.dataset.libraryItem === catalogId);
+      if (!card) return false;
+      card.click();
+      return true;
+    }, "library_item_missing");
+    await waitFor(
+      () => state.library.selectedCatalogId === catalogId
+        && state.library.details.has(catalogId)
+        && document.querySelector("#library-detail-title"),
+      "library_detail_timeout",
+    );
+  }
+
+  function overlayGeometryFinding() {
+    const stage = document.querySelector("#media-compositor-stage");
+    const viewport = stage?.querySelector(".media-source-viewport");
+    const overlay = stage?.querySelector(".media-source-overlay");
+    const plane = stage?.querySelector(".media-compositor-plane");
+    const context = mediaGeometryContext();
+    if (!stage || !viewport || !overlay || !plane || !context) return "overlay_geometry_missing";
+    const primary = context.destinationSizes[context.primaryIndex];
+    const box = resolveSourceGeometry(
+      context.sourceSize,
+      context.destinationSizes,
+      state.sourceTransform,
+    ).boxes[context.primaryIndex];
+    const viewportRect = viewport.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    const planeRect = plane.getBoundingClientRect();
+    const close = (left, right) => Math.abs(left - right) <= 1.25;
+    const expectedLeft = viewportRect.left + box.left / primary.width * viewportRect.width;
+    const expectedTop = viewportRect.top + box.top / primary.height * viewportRect.height;
+    const expectedWidth = box.rendered_width / primary.width * viewportRect.width;
+    const expectedHeight = box.rendered_height / primary.height * viewportRect.height;
+    if (getComputedStyle(viewport).overflow !== "hidden") return "overlay_viewport_not_clipped";
+    if (!close(viewportRect.left, planeRect.left) || !close(viewportRect.top, planeRect.top)) {
+      return "overlay_viewport_origin_mismatch";
+    }
+    if (!close(viewportRect.width, planeRect.width) || !close(viewportRect.height, planeRect.height)) {
+      return "overlay_viewport_size_mismatch";
+    }
+    if (!close(overlayRect.left, expectedLeft)) return "overlay_left_mismatch";
+    if (!close(overlayRect.top, expectedTop)) return "overlay_top_mismatch";
+    if (!close(overlayRect.width, expectedWidth) || !close(overlayRect.height, expectedHeight)) {
+      return "overlay_size_mismatch";
+    }
+    return null;
+  }
+
+  function layoutFindings() {
+    const findings = [];
+    const seen = new Set();
+    const viewportWidth = document.documentElement.clientWidth;
+    for (const element of document.querySelectorAll("body *")) {
+      if (!(element instanceof HTMLElement)) continue;
+      if (element.closest("[hidden]")) continue;
+      if (element.closest("dialog") && !element.closest("dialog").open) continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      const style = getComputedStyle(element);
+      if (style.position === "fixed") continue;
+      let ancestor = element.parentElement;
+      let scrollable = false;
+      while (ancestor) {
+        const ancestorStyle = getComputedStyle(ancestor);
+        if (["auto", "scroll"].includes(ancestorStyle.overflowX)) {
+          scrollable = true;
+          break;
+        }
+        ancestor = ancestor.parentElement;
+      }
+      if (!scrollable && rect.right > viewportWidth + 2) {
+        if (!seen.has("viewport_escape")) findings.push("viewport_escape");
+        seen.add("viewport_escape");
+      }
+    }
+    const boxes = document.querySelectorAll(
+      ".card,.lighting-context,.studio-tool-panel,.led-controls,.frame-list,.studio-inspector,.library-toolbar",
+    );
+    for (const box of boxes) {
+      if (box.closest("[hidden]")) continue;
+      const boxRect = box.getBoundingClientRect();
+      if (boxRect.width <= 0 || boxRect.height <= 0) continue;
+      if (["auto", "scroll", "hidden", "clip"].includes(getComputedStyle(box).overflowX)) continue;
+      for (const descendant of box.querySelectorAll("*")) {
+        if (!(descendant instanceof HTMLElement) || descendant.closest("[hidden]")) continue;
+        let ancestor = descendant.parentElement;
+        let contained = false;
+        while (ancestor && ancestor !== box) {
+          if (["auto", "scroll", "hidden", "clip"].includes(getComputedStyle(ancestor).overflowX)) {
+            contained = true;
+            break;
+          }
+          ancestor = ancestor.parentElement;
+        }
+        const rect = descendant.getBoundingClientRect();
+        if (!contained && rect.width > 0 && rect.height > 0 && rect.right > boxRect.right + 2) {
+          if (!seen.has("container_escape")) findings.push("container_escape");
+          seen.add("container_escape");
+        }
+      }
+    }
+    return findings.slice(0, 20);
+  }
+
+  async function prepareStudio() {
+    document.querySelector('[data-route="lighting/edit"]')?.click();
+    await waitFor(
+      () => state.config && state.lighting.route === ROUTES.EDIT
+        && document.querySelector('[data-lighting-target="frames"]'),
+      "lighting_route_timeout",
+    );
+    if (state.ledTarget !== "frames") {
+      document.querySelector('[data-lighting-target="frames"]')?.click();
+    }
+    await waitFor(
+      () => state.ledTarget === "frames" && document.querySelector("#studio-source-tab"),
+      "display_target_timeout",
+    );
+    document.querySelector("#studio-source-tab").click();
+    await waitFor(
+      () => state.studioTool === "source" && document.querySelector("#media-input"),
+      "source_tool_timeout",
+    );
+  }
+
+  async function runCase(fixture, width, height) {
+    window.__mediaFramingAuditStep = "prepare_studio";
+    await prepareStudio();
+    const baselinePage = pageFingerprint();
+    const baselineUndo = state.undo.length;
+    const input = document.querySelector("#media-input");
+    const raw = Uint8Array.from(atob(fixture.payload), character => character.charCodeAt(0));
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(
+      [raw],
+      `audit-${width}x${height}.${fixture.format}`,
+      {type: fixture.mime_type, lastModified: 0},
+    ));
+    input.files = transfer.files;
+    window.__mediaFramingAuditStep = "raw_import";
+    input.dispatchEvent(new Event("change", {bubbles: true}));
+    await waitFor(
+      () => state.mediaComposition?.source?.mime_type === fixture.mime_type
+        && state.mediaComposition.status === "ready",
+      "raw_import_timeout",
+      30000,
+    );
+    requireAudit(pageFingerprint() === baselinePage, "import_changed_document");
+
+    window.__mediaFramingAuditStep = "saved_source_retrieval";
+    const sourceImage = await waitFor(() => {
+      const image = document.querySelector(".media-source-overlay");
+      return image?.complete && image.naturalWidth === 20 && image.naturalHeight === 5
+        ? image
+        : false;
+    }, "saved_source_image_timeout");
+    requireAudit(sourceImage.src.startsWith("blob:"), "saved_source_blob_missing");
+    const draftForSource = state.mediaComposition;
+    const sourceResponse = await fetch(
+      `/api/library/assets/${libraryCatalogPath(draftForSource.catalogId)}/${encodeURIComponent(draftForSource.source.asset_id)}`,
+      {headers: {"X-AM-Token": token}},
+    );
+    requireAudit(sourceResponse.ok, "saved_source_fetch_failed");
+    const retrieved = new Uint8Array(await sourceResponse.arrayBuffer());
+    requireAudit(bytesEqual(raw, retrieved), "saved_source_bytes_mismatch");
+
+    window.__mediaFramingAuditStep = "pointer_input";
+    const stage = document.querySelector("#media-compositor-stage");
+    const plane = stage?.querySelector(".media-compositor-plane");
+    const overlay = stage?.querySelector(".media-source-overlay");
+    requireAudit(stage && plane && overlay, "framing_stage_missing");
+    const beforePointer = overlayStyle(overlay);
+    const beforePointerTransform = JSON.stringify(state.sourceTransform);
+    const hadOwnCapture = Object.prototype.hasOwnProperty.call(stage, "setPointerCapture");
+    const nativeCapture = stage.setPointerCapture;
+    requireAudit(typeof nativeCapture === "function", "pointer_capture_unavailable");
+    let notFoundObserved = false;
+    stage.setPointerCapture = function (pointerId) {
+      try {
+        return nativeCapture.call(this, pointerId);
+      } catch (error) {
+        if (error?.name === "NotFoundError") notFoundObserved = true;
+        throw error;
+      }
+    };
+    const bounds = plane.getBoundingClientRect();
+    const pointerId = 9417;
+    const startX = bounds.left + bounds.width / 2;
+    const startY = bounds.top + bounds.height / 2;
+    const deltaY = Math.max(8, Math.min(40, bounds.height * 0.4));
+    stage.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      pointerId,
+      pointerType: "mouse",
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: startX,
+      clientY: startY,
+    }));
+    requireAudit(stage.classList.contains("dragging"), "drag_state_missing");
+    requireAudit(document.activeElement === stage, "stage_focus_missing");
+    stage.dispatchEvent(new PointerEvent("pointermove", {
+      bubbles: true,
+      cancelable: true,
+      pointerId,
+      pointerType: "mouse",
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: startX,
+      clientY: startY + deltaY,
+    }));
+    requireAudit(
+      JSON.stringify(state.sourceTransform) !== beforePointerTransform,
+      "pointer_state_missing",
+    );
+    requireAudit(
+      overlayStyle(overlay) !== beforePointer,
+      "pointer_overlay_missing",
+    );
+    stage.dispatchEvent(new PointerEvent("pointerup", {
+      bubbles: true,
+      cancelable: true,
+      pointerId,
+      pointerType: "mouse",
+      isPrimary: true,
+      button: 0,
+      buttons: 0,
+      clientX: startX,
+      clientY: startY + deltaY,
+    }));
+    if (hadOwnCapture) stage.setPointerCapture = nativeCapture;
+    else delete stage.setPointerCapture;
+    requireAudit(notFoundObserved, "not_found_capture_path_missing");
+    requireAudit(!stage.classList.contains("dragging"), "drag_state_not_released");
+
+    window.__mediaFramingAuditStep = "keyboard_input";
+    const beforeKeyboard = overlayStyle(overlay);
+    const beforeKeyboardTransform = JSON.stringify(state.sourceTransform);
+    stage.dispatchEvent(new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "ArrowUp",
+    }));
+    requireAudit(
+      JSON.stringify(state.sourceTransform) !== beforeKeyboardTransform,
+      "keyboard_state_missing",
+    );
+    requireAudit(overlayStyle(overlay) !== beforeKeyboard, "keyboard_feedback_missing");
+    const focusStyle = getComputedStyle(stage);
+    requireAudit(
+      document.activeElement === stage
+        && (stage.matches(":focus-visible") || focusStyle.boxShadow !== "none"),
+      "focus_not_visible",
+    );
+
+    window.__mediaFramingAuditStep = "slider_input";
+    document.querySelector('[data-source-preset="fill"]').click();
+    const slider = document.querySelector("#source-zoom");
+    const beforeSlider = overlayStyle(overlay);
+    slider.value = "150";
+    slider.dispatchEvent(new Event("input", {bubbles: true}));
+    requireAudit(
+      overlayStyle(overlay) !== beforeSlider
+        && state.sourceTransform.scale_x === 1.5
+        && state.sourceTransform.scale_y === 1.5
+        && state.sourceTransform.offset_x === 0
+        && state.sourceTransform.offset_y === 0,
+      "slider_feedback_missing",
+    );
+    const overlayFinding = overlayGeometryFinding();
+    requireAudit(!overlayFinding, overlayFinding || "overlay_geometry_mismatch");
+    requireAudit(layoutFindings().length === 0, "layout_escape");
+
+    window.__mediaFramingAuditStep = "stale_preview";
+    const browserTransform = canonicalizeSourceTransform(
+      state.sourceTransform,
+      {width: 20, height: 5},
+      mediaDestinationSizes(),
+    );
+    requireAudit(sameJson(browserTransform, state.sourceTransform), "browser_transform_not_canonical");
+    requireAudit(state.mediaComposition.status !== "ready", "preview_not_invalidated");
+    requireAudit(document.querySelector("#media-compose-apply").disabled, "stale_apply_enabled");
+    const stalePage = pageFingerprint();
+    const staleUndo = state.undo.length;
+    applyMediaCompositionDraft();
+    requireAudit(
+      pageFingerprint() === stalePage && state.undo.length === staleUndo,
+      "stale_apply_mutated_document",
+    );
+
+    window.__mediaFramingAuditStep = "preview";
+    document.querySelector("#media-compose-preview").click();
+    await waitFor(
+      () => state.mediaComposition?.status === "ready"
+        && !document.querySelector("#media-compose-apply")?.disabled,
+      "preview_timeout",
+      30000,
+    );
+    requireAudit(
+      sameJson(browserTransform, state.mediaComposition.transform),
+      "backend_transform_mismatch",
+    );
+    const mappedFrames = state.mediaComposition.mappedResult?.tracks?.frames?.frames;
+    requireAudit(
+      Array.isArray(mappedFrames) && mappedFrames.length === fixture.expected_frames.length,
+      "mapped_frames_mismatch",
+    );
+    fixture.expected_frames.forEach((expected, frameIndex) => {
+      const colors = mappedFrames[frameIndex];
+      requireAudit(Array.isArray(colors) && colors.length === 200, "mapped_pixel_count_mismatch");
+      const nonBlack = colors.filter(color => String(color).toLowerCase() !== "#000000").length;
+      requireAudit(nonBlack === expected.non_black, "mapped_non_black_mismatch");
+      for (const [pixel, color] of expected.sentinels) {
+        requireAudit(
+          String(colors[pixel]).toLowerCase() === String(color).toLowerCase(),
+          "mapped_sentinel_mismatch",
+        );
+      }
+    });
+
+    window.__mediaFramingAuditStep = "apply_and_save";
+    const beforeLighting = new Set(
+      (await catalogItems("lighting")).map(item => item.catalog_id),
+    );
+    const originalApply = applyLedResultToPage;
+    let mediaApplyCalls = 0;
+    applyLedResultToPage = (...args) => {
+      mediaApplyCalls += 1;
+      return originalApply(...args);
+    };
+    document.querySelector("#media-compose-apply").click();
+    await waitFor(() => state.mediaComposition?.status === "applied", "media_apply_timeout");
+    const appliedPage = pageFingerprint();
+    const appliedLighting = lightingFingerprint(JSON.parse(appliedPage));
+    requireAudit(
+      appliedPage !== baselinePage
+        && state.undo.length === baselineUndo + 1
+        && state.dirty
+        && document.querySelector("#dirty-dot").classList.contains("visible")
+        && mediaApplyCalls === 1,
+      "media_apply_count_mismatch",
+    );
+    applyMediaCompositionDraft();
+    requireAudit(
+      pageFingerprint() === appliedPage
+        && state.undo.length === baselineUndo + 1
+        && mediaApplyCalls === 1,
+      "media_apply_repeated",
+    );
+    applyLedResultToPage = originalApply;
+
+    document.querySelector("#save-lighting-library").click();
+    const savedLighting = await waitFor(async () => {
+      const items = await catalogItems("lighting");
+      return items.find(item => !beforeLighting.has(item.catalog_id)) || false;
+    }, "save_to_library_timeout", 30000);
+    const lightingId = savedLighting.catalog_id;
+
+    document.querySelector("#undo-button").click();
+    await waitFor(() => pageFingerprint() === baselinePage, "media_undo_timeout");
+    requireAudit(
+      state.undo.length === baselineUndo
+        && state.dirty === document.querySelector("#dirty-dot").classList.contains("visible"),
+      "undo_dirty_state_mismatch",
+    );
+
+    window.__mediaFramingAuditStep = "library_workflow";
+    document.querySelector("#lighting-library-tab").click();
+    await waitFor(
+      () => state.lighting.route === ROUTES.LIBRARY && state.library.loaded,
+      "library_route_timeout",
+    );
+    await selectLibraryFilter("lighting");
+    await openLibraryItemById(lightingId);
+    await waitFor(
+      () => {
+        const button = document.querySelector("[data-library-apply-lighting]");
+        return button && !button.disabled ? button : false;
+      },
+      "library_apply_unavailable",
+      30000,
+    );
+    document.querySelector("[data-library-apply-lighting]").click();
+    await waitFor(
+      () => state.lighting.route === ROUTES.EDIT
+        && lightingFingerprint(getPage(state.ledSlot)) === appliedLighting,
+      "library_apply_timeout",
+      30000,
+    );
+
+    document.querySelector("#lighting-library-tab").click();
+    await waitFor(() => state.lighting.route === ROUTES.LIBRARY, "library_return_timeout");
+    await selectLibraryFilter("lighting");
+    await openLibraryItemById(lightingId);
+    document.querySelector("[data-library-remove]").click();
+    await waitFor(
+      () => {
+        const undo = document.querySelector("[data-library-undo-remove]");
+        return state.library.undoRemoval?.catalogId === lightingId && undo && !undo.disabled
+          ?undo
+          :false;
+      },
+      "library_remove_timeout",
+      30000,
+    );
+    document.querySelector("[data-library-undo-remove]").click();
+    await waitFor(async () => {
+      const items = await catalogItems("lighting");
+      return !state.library.undoRemoval
+        && !state.library.mutatingCatalogId
+        && !state.library.loading
+        && items.some(item => item.catalog_id === lightingId);
+    }, "library_remove_undo_timeout", 30000);
+
+    await selectLibraryFilter("lighting");
+    await openLibraryItemById(lightingId);
+    document.querySelector("[data-library-remove]").click();
+    await waitFor(
+      () => state.library.undoRemoval?.catalogId === lightingId
+        && !state.library.mutatingCatalogId
+        && !state.library.loading,
+      "library_second_remove_timeout",
+      30000,
+    );
+    await selectLibraryFilter("removed");
+    await openLibraryItemById(lightingId);
+    const restoreButton = await waitFor(() => {
+      const button = document.querySelector("[data-library-restore]");
+      return button && !button.disabled ? button : false;
+    }, "library_restore_unavailable", 30000);
+    restoreButton.click();
+    await waitFor(async () => {
+      const items = await catalogItems("lighting");
+      return !state.library.mutatingCatalogId
+        && !state.library.loading
+        && items.some(item => item.catalog_id === lightingId);
+    }, "library_restore_timeout", 30000);
+
+    await selectLibraryFilter("lighting");
+    await openLibraryItemById(lightingId);
+    document.querySelector("[data-library-remove]").click();
+    await waitFor(
+      () => state.library.undoRemoval?.catalogId === lightingId
+        && !state.library.mutatingCatalogId
+        && !state.library.loading,
+      "library_third_remove_timeout",
+      30000,
+    );
+    await selectLibraryFilter("removed");
+    await openLibraryItemById(lightingId);
+    const deleteButton = await waitFor(() => {
+      const button = document.querySelector("[data-library-delete]");
+      return button && !button.disabled ? button : false;
+    }, "library_delete_unavailable", 30000);
+    deleteButton.click();
+    requireAudit(document.querySelector("#library-confirm-dialog").open, "delete_confirmation_missing");
+    document.querySelector("#library-confirm-action").click();
+    await waitFor(async () => {
+      const live = await catalogItems("lighting");
+      const removed = await catalogItems("removed");
+      return !state.library.mutatingCatalogId
+        && !state.library.loading
+        && !live.some(item => item.catalog_id === lightingId)
+        && !removed.some(item => item.catalog_id === lightingId);
+    }, "library_delete_timeout", 30000);
+
+    window.__mediaFramingAuditStep = "cancel";
+    document.querySelector('[data-route="lighting/edit"]')?.click();
+    await waitFor(() => state.lighting.route === ROUTES.EDIT, "edit_return_timeout");
+    document.querySelector("#undo-button").click();
+    await waitFor(() => pageFingerprint() === baselinePage, "library_apply_undo_timeout");
+    document.querySelector("#studio-source-tab").click();
+    await waitFor(() => document.querySelector("#media-compose-cancel"), "cancel_button_missing");
+    document.querySelector("#media-compose-cancel").click();
+    requireAudit(
+      state.mediaComposition?.status === "cancelled" && pageFingerprint() === baselinePage,
+      "cancel_changed_document",
+    );
+    requireAudit(consoleErrors.length === 0, "console_errors_present");
+
+    return {format: fixture.format, checks: requiredChecks};
+  }
+
+  window.__runMediaFramingAudit = async (fixtures, width, height) => {
+    const cases = [];
+    for (const fixture of fixtures) {
+      cases.push(await runCase(fixture, width, height));
+    }
+    const findings = layoutFindings();
+    requireAudit(findings.length === 0, "layout_escape");
+    requireAudit(consoleErrors.length === 0, "console_errors_present");
+    return {
+      width,
+      height,
+      cases,
+      layout_findings: findings,
+      console_errors: consoleErrors.slice(),
+    };
+  };
+  window.__mediaFramingAuditFailure = error => ({
+    failure: /^[a-z0-9_:-]{1,200}$/.test(String(error?.auditCode || ""))
+      ? String(error.auditCode)
+      : `workflow_${/^[a-z0-9_:-]{1,180}$/.test(String(window.__mediaFramingAuditStep || ""))
+        ? String(window.__mediaFramingAuditStep)
+        : "failed"}`,
+  });
+  window[resultSlot] = null;
+})()
+"""
+
+
+def _audit_script() -> str:
+    return (
+        _AUDIT_SCRIPT.replace("__RESULT_SLOT__", _RESULT_SLOT)
+        .replace(
+            "__REQUIRED_CHECKS__",
+            json.dumps(REQUIRED_CASE_CHECKS, ensure_ascii=True, separators=(",", ":")),
+        )
+    )
+
+
+def _poll_async_result(window: Any, kickoff: str, *, timeout: float) -> dict:
+    window.evaluate_js(f"window.{_RESULT_SLOT}=undefined;{kickoff}")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        raw = window.evaluate_js(
+            f"window.{_RESULT_SLOT}===undefined?null:JSON.stringify(window.{_RESULT_SLOT})"
+        )
+        if raw:
+            try:
+                result = json.loads(raw)
+            except (TypeError, json.JSONDecodeError):
+                raise MediaFramingAuditError("invalid_webview_result") from None
+            if not isinstance(result, dict):
+                raise MediaFramingAuditError("invalid_webview_result")
+            failure = result.get("failure")
+            if isinstance(failure, str) and re.fullmatch(r"[a-z0-9_:-]{1,200}", failure):
+                raise MediaFramingAuditError(failure)
+            return result
+        time.sleep(0.05)
+    raise MediaFramingAuditError("webview_audit_timeout")
+
+
+def _activate_webview_window(window: Any, *, timeout: float = 5) -> None:
+    """Show and activate the native window before inspecting focus styling."""
+
+    window.show()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if window.evaluate_js("document.hasFocus()"):
+            return
+        time.sleep(0.05)
+    raise MediaFramingAuditError("webview_focus_timeout")
+
+
+def _run_webview_workflow(window: Any, fixtures: list[dict[str, object]]) -> list[dict]:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        ready = window.evaluate_js(
+            "Boolean(window.LibraryState&&window.LightingComposer&&"
+            "typeof state==='object'&&state.config&&"
+            "document.querySelector('[data-route=\"lighting/edit\"]'))"
+        )
+        if ready:
+            break
+        time.sleep(0.05)
+    else:
+        raise MediaFramingAuditError("webview_boot_timeout")
+    window.evaluate_js(_audit_script())
+    encoded_fixtures = json.dumps(
+        fixtures,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    results: list[dict] = []
+    for width, height in AUDIT_VIEWPORTS:
+        window.resize(width, height)
+        time.sleep(0.4)
+        _activate_webview_window(window)
+        kickoff = (
+            f"void window.__runMediaFramingAudit({encoded_fixtures},{width},{height})"
+            f".then(value=>{{window.{_RESULT_SLOT}=value;}})"
+            f".catch(error=>{{window.{_RESULT_SLOT}=window.__mediaFramingAuditFailure(error);}});"
+        )
+        results.append(_poll_async_result(window, kickoff, timeout=180))
+    return results
+
+
+@contextmanager
+def _isolated_environment(data_root: Path) -> Iterator[None]:
+    from .ai_catalog import PROVIDER_ENVIRONMENT_VARIABLES
+
+    names = ("AM_CONFIGURATOR_DATA_DIR", *PROVIDER_ENVIRONMENT_VARIABLES.values())
+    previous = {name: os.environ.get(name) for name in names}
+    os.environ["AM_CONFIGURATOR_DATA_DIR"] = str(data_root)
+    for name in PROVIDER_ENVIRONMENT_VARIABLES.values():
+        os.environ.pop(name, None)
+    try:
+        yield
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def _native_audit_report() -> dict:
+    try:
+        import webview
+    except ModuleNotFoundError as exc:
+        if exc.name == "webview":
+            raise MediaFramingAuditError("webview_unavailable") from None
+        raise
+
+    from .credentials import MemoryCredentialStore
+    from .desktop import (
+        _OfflineOllamaInventory,
+        _disable_macos_automatic_window_tabbing,
+        _native_webview_policy,
+        _native_webview_start_options,
+        _offline_device_discovery,
+    )
+    from .library import GeneratedAssetLibrary
+    from .server import blank_config, create_server
+
+    temporary_parent = Path(tempfile.gettempdir()).resolve(strict=True)
+    root = Path(tempfile.mkdtemp(prefix=_AUDIT_ROOT_PREFIX, dir=temporary_parent))
+    expected_root = root.resolve(strict=True)
+    data_root = root / "data"
+    library_root = root / "library"
+    data_root.mkdir()
+    library_root.mkdir()
+    expected_children = (
+        data_root.resolve(strict=True),
+        library_root.resolve(strict=True),
+    )
+    document_path = root / "document.json"
+    document = blank_config("CB04", [["#00000000"] * 200 for _ in range(7)], [])
+    document_path.write_text(
+        json.dumps(document, ensure_ascii=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    server = None
+    server_thread = None
+    result_holder: dict[str, object] = {}
+    prior_downloads = webview.settings.get("ALLOW_DOWNLOADS")
+    had_download_setting = "ALLOW_DOWNLOADS" in webview.settings
+    try:
+        with _isolated_environment(data_root):
+            library = GeneratedAssetLibrary(library_root, minimum_free_bytes=1)
+            server, url = create_server(
+                [str(document_path)],
+                lighting_library=library,
+                ollama_client=_OfflineOllamaInventory(),
+                credential_store=MemoryCredentialStore(),
+                device_discovery=_offline_device_discovery,
+            )
+            server_thread = threading.Thread(
+                target=server.serve_forever,
+                kwargs={"poll_interval": 0.05},
+                name="am-media-framing-audit-api",
+                daemon=True,
+            )
+            server_thread.start()
+            _disable_macos_automatic_window_tabbing()
+            webview.settings["ALLOW_DOWNLOADS"] = False
+            window = webview.create_window(
+                "AM Configurator media framing audit",
+                url,
+                width=AUDIT_VIEWPORTS[0][0],
+                height=AUDIT_VIEWPORTS[0][1],
+                min_size=AUDIT_VIEWPORTS[0],
+                background_color="#0d0d0f",
+                text_select=False,
+                zoomable=False,
+            )
+
+            def execute() -> None:
+                try:
+                    result_holder["viewports"] = _run_webview_workflow(
+                        window,
+                        _fixture_payload(build_media_fixtures()),
+                    )
+                except Exception as exc:  # noqa: BLE001 - marshal to the GUI owner
+                    result_holder["error"] = exc
+                finally:
+                    window.destroy()
+
+            _backend, renderer, _expected = _native_webview_policy()
+            with _native_webview_start_options() as start_options:
+                webview.start(
+                    func=execute,
+                    gui=renderer,
+                    debug=False,
+                    **start_options,
+                )
+            error = result_holder.get("error")
+            if isinstance(error, MediaFramingAuditError):
+                raise error
+            if error is not None:
+                raise MediaFramingAuditError("webview_workflow_failed")
+            report = {
+                "schema_version": 1,
+                "status": "passed",
+                "failure": None,
+                "viewports": result_holder.get("viewports"),
+            }
+            return validate_audit_report(report)
+    finally:
+        if server is not None:
+            server.shutdown()
+            server.server_close()
+        if server_thread is not None:
+            server_thread.join(timeout=2)
+        if had_download_setting:
+            webview.settings["ALLOW_DOWNLOADS"] = prior_downloads
+        else:
+            webview.settings.pop("ALLOW_DOWNLOADS", None)
+        cleanup_audit_root(
+            root,
+            expected_root=expected_root,
+            expected_parent=temporary_parent,
+            expected_children=expected_children,
+        )
+
+
+def run_media_framing_audit(output: Path) -> int:
+    """Run both native viewports and emit one bounded sanitized JSON result."""
+
+    try:
+        report = _native_audit_report()
+    except Exception as exc:  # noqa: BLE001 - never persist runtime or host details
+        failure = (
+            str(exc)
+            if isinstance(exc, MediaFramingAuditError)
+            and re.fullmatch(r"[a-z0-9_:-]{1,200}", str(exc)) is not None
+            else "audit_failed"
+        )
+        failed = {
+            "schema_version": 1,
+            "status": "failed",
+            "failure": failure,
+            "viewports": [],
+        }
+        try:
+            write_audit_report(output, failed)
+        except MediaFramingAuditError:
+            return 2
+        return 1
+    try:
+        write_audit_report(output, report)
+    except MediaFramingAuditError:
+        return 2
+    return 0

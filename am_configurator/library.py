@@ -49,7 +49,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Callable, Mapping
 
-from .atomic_io import replace_file
+from .atomic_io import move_path, remove_tree, replace_file
 
 if os.name == "nt":
     import msvcrt
@@ -3755,7 +3755,7 @@ class LibraryCatalog:
                     "The Library item destination is already occupied."
                 )
             try:
-                os.rename(source, destination)
+                move_path(source, destination)
                 _fsync_directory(source.parent)
                 _fsync_directory(destination.parent)
                 _fsync_directory(root)
@@ -3858,7 +3858,7 @@ class LibraryCatalog:
             if _tree_contains_linklike(directory):
                 raise ManifestError("The trashed Library item contains an unsafe link.")
             try:
-                shutil.rmtree(directory)
+                remove_tree(directory)
                 _fsync_directory(directory.parent)
                 _fsync_directory(root)
             except OSError as exc:

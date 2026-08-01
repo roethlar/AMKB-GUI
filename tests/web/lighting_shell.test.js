@@ -106,6 +106,14 @@ test("imported media framing keeps one exact live overlay outside the LED grid",
   assert.match(css,/\.media-compositor-stage\.dragging \{[^}]*cursor: grabbing/);
   assert.match(css,/\.media-compositor-stage:focus-visible/);
   assert.match(css,/@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(
+    css,
+    /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?transition: none !important;/,
+  );
+  assert.doesNotMatch(
+    css,
+    /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?transition-duration:/,
+  );
 });
 
 test("media import banks before composition and applies only an accepted preview", () => {
@@ -434,6 +442,19 @@ test("Library removal is reversible and permanent deletion is confirmed", () => 
   assert.match(js,/data-library-restore/);
   assert.match(js,/data-library-delete/);
   assert.match(js,/createLibraryRequestEpochs/);
+  const ownershipMutation=js.slice(
+    js.indexOf("async function runLibraryOwnershipMutation"),
+    js.indexOf("async function removeLibraryItem"),
+  );
+  assert.ok(
+    ownershipMutation.indexOf("await loadLibrary({force:true})")
+      <ownershipMutation.indexOf("state.library.mutatingCatalogId=null"),
+    "ownership must remain busy until its forced Library refresh completes",
+  );
+  assert.match(
+    js,
+    /data-library-undo-remove[^>]*\$\{state\.library\.mutatingCatalogId\|\|state\.library\.loading\?"disabled":""\}/,
+  );
   const confirmStart=js.indexOf('$("#library-confirm-action").addEventListener');
   assert.ok(confirmStart>=0);
   const confirmEnd=js.indexOf('\n$("#library-confirm-dialog")',confirmStart);
