@@ -25,9 +25,10 @@ Status: approved by the owner on 2026-07-30.
 
 ## 2026-07-30 — AI is procedural-only and FFmpeg is prohibited
 
-Status: approved by the owner on 2026-07-30. This supersedes every earlier
-decision or plan statement that retains AI video generation, AI-video recovery,
-an FFmpeg runtime, or an FFmpeg build path.
+Status: approved by the owner on 2026-07-30 and clarified by the owner on
+2026-08-01. This supersedes every earlier decision or plan statement that
+retains AI video generation, AI-video recovery, an FFmpeg runtime, or an
+FFmpeg build path.
 
 - AI produces only a strict procedural LED recipe. The application validates
   and renders that recipe locally into exact-target LED frames.
@@ -36,6 +37,13 @@ an FFmpeg runtime, or an FFmpeg build path.
 - FFmpeg is not a runtime, build, test, CI, packaging, recovery, or optional
   dependency. The project never builds FFmpeg from source and never substitutes
   a prebuilt FFmpeg binary.
+- An incidental textual reference to the FFmpeg name inside a required,
+  non-FFmpeg native library is not itself an FFmpeg dependency or
+  implementation. Native qualification distinguishes those references from
+  FFmpeg/libav libraries, packages, plugins, paths, linked symbols, embedded
+  decoder/demuxer implementations, and source fingerprints, all of which
+  remain prohibited. This distinction is structural, never a per-file
+  allowlist.
 - Historical video-generation jobs are not resumable. Removing their execution
   path must not delete user files automatically.
 - Every direct dependency and bundled build tool must own a live supported

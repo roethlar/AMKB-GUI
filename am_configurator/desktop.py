@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import importlib.util
 import json
 import os
@@ -13,7 +14,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlsplit
@@ -40,6 +41,24 @@ _NATIVE_POLICY_VERIFY_KEYS = (
     "settings_provider_catalog_only",
 )
 _NATIVE_POLICY_TIMEOUT_SECONDS = 45
+
+
+@contextmanager
+def _native_webview_start_options() -> Iterator[dict[str, object]]:
+    """Keep browser storage isolated while retaining GTK Web Storage APIs."""
+    if platform.system() != "Linux":
+        yield {"private_mode": True}
+        return
+    frozen_root = getattr(sys, "_MEIPASS", None)
+    prior_cwd = Path.cwd() if frozen_root is not None else None
+    if frozen_root is not None:
+        os.chdir(Path(frozen_root).resolve(strict=True))
+    try:
+        with tempfile.TemporaryDirectory(prefix="am-webview-storage-") as storage:
+            yield {"private_mode": False, "storage_path": storage}
+    finally:
+        if prior_cwd is not None:
+            os.chdir(prior_cwd)
 
 
 def _safe_native_failure_name(value: object, fallback: str) -> str:
@@ -499,13 +518,14 @@ def _run_native_policy_probe(phase: str, raw_root: str | Path) -> int:
                 window.destroy()
 
     try:
-        webview.start(
-            inspect_policy,
-            args=(),
-            gui=renderer_choice,
-            debug=False,
-            private_mode=True,
-        )
+        with _native_webview_start_options() as start_options:
+            webview.start(
+                inspect_policy,
+                args=(),
+                gui=renderer_choice,
+                debug=False,
+                **start_options,
+            )
     except Exception as exc:
         if not (root / f"{phase}.json").exists():
             failure = _safe_native_failure_name(type(exc).__name__, "Exception")
@@ -922,7 +942,8 @@ def run_desktop(config_paths: list[str] | None = None, *, debug: bool = False) -
     window.events.closed += stop_server
     _backend, renderer, _expected_renderer = _native_webview_policy()
     try:
-        webview.start(gui=renderer, debug=debug, private_mode=True)
+        with _native_webview_start_options() as start_options:
+            webview.start(gui=renderer, debug=debug, **start_options)
     finally:
         stop_server()
     return 0

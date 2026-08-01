@@ -413,11 +413,15 @@ class DesktopWindowTests(unittest.TestCase):
             created["kwargs"] = kwargs
             return window
 
+        def start(**kwargs):
+            created["start_kwargs"] = kwargs
+            created["storage_existed"] = Path(kwargs["storage_path"]).is_dir()
+
         fake_webview = types.SimpleNamespace(
             FileDialog=types.SimpleNamespace(FOLDER=20),
             settings={},
             create_window=create_window,
-            start=lambda **kwargs: None,
+            start=start,
         )
 
         class _Server:
@@ -438,6 +442,7 @@ class DesktopWindowTests(unittest.TestCase):
             mock.patch.dict(sys.modules, {"webview": fake_webview}),
             mock.patch.object(desktop, "create_server", return_value=(fake_server, "http://local")),
             mock.patch.object(desktop, "_disable_macos_automatic_window_tabbing") as disable_tabbing,
+            mock.patch.object(desktop.platform, "system", return_value="Linux"),
         ):
             self.assertEqual(desktop.run_desktop(debug=True), 0)
 
@@ -450,6 +455,9 @@ class DesktopWindowTests(unittest.TestCase):
         self.assertIs(fake_server.state.desktop_bridge, bridge)
         self.assertTrue(created["shutdown"])
         self.assertTrue(created["server_close"])
+        self.assertFalse(created["start_kwargs"]["private_mode"])
+        self.assertTrue(created["storage_existed"])
+        self.assertFalse(Path(created["start_kwargs"]["storage_path"]).exists())
 
 
 class DesktopNativePolicyTests(unittest.TestCase):
@@ -632,10 +640,11 @@ class DesktopNativePolicyTests(unittest.TestCase):
         )
         self.assertNotIn("/private/path", json.dumps(result))
 
-    def test_native_probe_uses_private_mode_and_the_selected_renderer(self) -> None:
+    def test_linux_native_probe_uses_isolated_storage_and_selected_renderer(self) -> None:
         payload = {name: True for name in desktop._NATIVE_POLICY_VERIFY_KEYS}
         payload["csp"] = "default-src 'self'; script-src 'self'"
         created: dict = {}
+        original_cwd = Path.cwd()
 
         class _Window:
             events = types.SimpleNamespace(
@@ -659,6 +668,8 @@ class DesktopNativePolicyTests(unittest.TestCase):
 
         def start(func, args, **kwargs):
             created["start"] = kwargs
+            created["storage_existed"] = Path(kwargs["storage_path"]).is_dir()
+            created["cwd"] = Path.cwd()
             func(*args)
 
         def create_window(*args, **kwargs):
@@ -673,6 +684,8 @@ class DesktopNativePolicyTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as raw_root:
             root = Path(raw_root)
+            bundle_root = root / "bundle"
+            bundle_root.mkdir()
             (root / "probe.json").write_text(
                 json.dumps({"url": "http://127.0.0.1:43111/?token=test-token"}),
                 encoding="utf-8",
@@ -682,6 +695,12 @@ class DesktopNativePolicyTests(unittest.TestCase):
                 mock.patch.object(desktop.platform, "system", return_value="Linux"),
                 mock.patch.object(desktop.importlib.util, "find_spec", return_value=object()),
                 mock.patch.object(desktop.importlib, "import_module", return_value=object()),
+                mock.patch.object(
+                    desktop.sys,
+                    "_MEIPASS",
+                    str(bundle_root),
+                    create=True,
+                ),
             ):
                 self.assertEqual(desktop._run_native_policy_probe("verify", root), 0)
 
@@ -689,7 +708,11 @@ class DesktopNativePolicyTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual("gtk", created["start"]["gui"])
-        self.assertTrue(created["start"]["private_mode"])
+        self.assertFalse(created["start"]["private_mode"])
+        self.assertTrue(created["storage_existed"])
+        self.assertFalse(Path(created["start"]["storage_path"]).exists())
+        self.assertEqual(bundle_root, created["cwd"])
+        self.assertEqual(original_cwd, Path.cwd())
         self.assertTrue(fake_webview.settings["ALLOW_DOWNLOADS"])
         self.assertNotIn("js_api", created["window_kwargs"])
         self.assertTrue(created["destroyed"])

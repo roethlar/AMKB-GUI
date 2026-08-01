@@ -20,7 +20,11 @@ class AuditFinding:
 
 
 _CONTENT_MARKERS = (
-    (b"ff" + b"mpeg", "retired-media-tool"),
+    (b"ff" + b"mpegaudiodecoder", "embedded-media-decoder"),
+    (b"ff" + b"mpeg_audio_decoder", "embedded-media-decoder"),
+    (b"ff" + b"mpegdemuxer", "embedded-media-demuxer"),
+    (b"ff" + b"mpeg_demuxer", "embedded-media-demuxer"),
+    (b"third_party/" + b"ff" + b"mpeg/", "embedded-media-source"),
     (b"libavcodec", "libav-codec"),
     (b"libavformat", "libav-format"),
     (b"libavutil", "libav-utility"),
@@ -29,7 +33,12 @@ _CONTENT_MARKERS = (
     (b"process_video_frames", "retired-video-adapter"),
     (b"tiny-motion.mp4", "retired-video-fixture"),
 )
-_PATH_MARKERS = _CONTENT_MARKERS + (
+_PATH_MARKERS = (
+    (b"ff" + b"mpeg", "retired-media-tool"),
+    (b"libgstlibav", "gstreamer-libav-plugin"),
+    (b"gst-libav", "gstreamer-libav-plugin"),
+    (b"gstreamer1.0-libav", "gstreamer-libav-plugin"),
+    *_CONTENT_MARKERS,
     (b"pyqt6", "qt-binding"),
     (b"qtwebengine", "qt-webengine"),
     (b"qt6webengine", "qt-webengine"),

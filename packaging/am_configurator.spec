@@ -65,6 +65,7 @@ elif sys.platform.startswith("linux"):
             "gi.repository.GLib",
             "gi.repository.WebKit2",
             "gi.repository.Soup",
+            "gi.repository.JavaScriptCore",
             "keyring.backends.SecretService",
         )
     )

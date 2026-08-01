@@ -37,7 +37,6 @@ class NativeTreeAuditTests(unittest.TestCase):
 
     def test_mixed_case_content_markers_fail(self) -> None:
         markers = {
-            "retired-media-tool": b"fF" + b"MpEg",
             "libav-codec": b"LiBaVcOdEc",
             "libav-format": b"LIBAVFORMAT",
             "libav-utility": b"libavutil",
@@ -59,6 +58,55 @@ class NativeTreeAuditTests(unittest.TestCase):
                 finding.category
                 for finding in findings
                 if finding.location == "content"
+            },
+        )
+
+    def test_incidental_media_tool_name_in_required_library_passes(self) -> None:
+        media_name = b"fF" + b"MpEg"
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "libgstpbutils-1.0.so.0").write_bytes(
+                b"video/x-" + media_name + b"-compatibility-name"
+            )
+
+            self.assertEqual([], audit_tree(root))
+
+    def test_embedded_media_implementations_fail(self) -> None:
+        markers = {
+            "embedded-media-decoder": b"fF" + b"MpEgAudioDecoder",
+            "embedded-media-demuxer": b"FF" + b"MPEGDemuxer",
+            "embedded-media-source": b"third_party/" + b"ff" + b"mpeg/source",
+        }
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for index, marker in enumerate(markers.values()):
+                (root / f"embedded-{index}.bin").write_bytes(marker)
+
+            findings = audit_tree(root)
+
+        self.assertEqual(
+            set(markers),
+            {
+                finding.category
+                for finding in findings
+                if finding.location == "content"
+            },
+        )
+
+    def test_gstreamer_libav_plugin_path_fails(self) -> None:
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            plugin = root / "gstreamer-1.0" / "libgstlibav.so"
+            plugin.parent.mkdir()
+            plugin.write_bytes(b"ordinary plugin data")
+
+            findings = audit_tree(root)
+
+        self.assertIn(
+            ("gstreamer-1.0/libgstlibav.so", "path", "gstreamer-libav-plugin"),
+            {
+                (finding.relative_path, finding.location, finding.category)
+                for finding in findings
             },
         )
 

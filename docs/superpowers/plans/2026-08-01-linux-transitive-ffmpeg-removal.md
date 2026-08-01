@@ -1,8 +1,12 @@
 # Linux Transitive FFmpeg Removal
 
-**Status:** Approved by the owner on 2026-08-01. Implementation slice LXF-1 is
-authorized to retain the Linux x86-64 release by replacing the Qt WebEngine
-backend with GTK/WebKitGTK; implementation has not yet landed.
+**Status:** Approved by the owner on 2026-08-01. Initial implementation slice
+LXF-1 landed at `aea6b254ea1610ba9cd9d6b937d792ec802ab09b`; Linux qualification
+reopened it after the custom dynamic-GI hooks did not execute. The owner then
+clarified that incidental FFmpeg-name references in a required non-FFmpeg
+library are permitted, while every actual FFmpeg/libav implementation,
+library, package, plugin, and path remains prohibited. The corrective commit
+must be new; do not rewrite the initial landing.
 
 ## Objective
 
@@ -52,6 +56,15 @@ pyproject desktop extra
 The existing guards reject named FFmpeg packages and app-owned source paths,
 but they do not inspect third-party native-library bytes. The previous
 cross-platform proof therefore did not exercise the failure mode.
+
+Post-landing qualification found two additional gaps. PyInstaller requires
+pre-safe-import registration for dynamic WebKit2, Soup, and JavaScriptCore GI
+namespaces; without it, the hook files exist but do not execute. Once those
+namespaces were collected, stock WebKitGTK directly required
+`libgstpbutils-1.0.so.0`. That non-FFmpeg library contains three incidental
+FFmpeg-name references and no libav marker. The owner-approved clarification
+requires structural implementation detection instead of treating the name
+alone in arbitrary binary content as prohibited code.
 
 ## Qualified replacement
 
@@ -171,13 +184,18 @@ Add a standard-library-only `build_tools` CLI that recursively audits a supplied
 native tree without following symlinks. It must stream regular-file bytes with
 marker-length overlap so a marker split across chunks is still detected.
 
-Reject case-insensitive path or content hits for:
+Reject case-insensitive path hits for the retired FFmpeg name and GStreamer
+libav plugin, and reject content hits for:
 
-- the retired FFmpeg name (construct the source literal in split pieces so the
-  audit does not match itself);
+- embedded FFmpeg decoder, demuxer, and source fingerprints (construct source
+  literals in split pieces so the audit does not match itself);
 - `libavcodec`, `libavformat`, `libavutil`, `libswscale`, and `libswresample`;
 - retired app adapters such as `process_video_frames`; and
 - the retired MP4 fixture name.
+
+An incidental FFmpeg-name reference inside a required non-FFmpeg library is
+not a finding by itself. Do not implement this as a filename allowlist: the
+same path and implementation checks apply uniformly to every file.
 
 Also reject any PyQt6/Qt WebEngine/Qt Multimedia path in the Linux bundle. Do
 not use generic PEM header strings as a credential heuristic: third-party TLS
@@ -246,7 +264,8 @@ On a fresh exact commit on `gabrielle`:
 4. extract the AppImage and run the new audit;
 5. require GTK/WebKit notices/licenses and the existing project/upstream
    notices and udev rule;
-6. require zero Qt, FFmpeg, or libav path/content hits; and
+6. require zero Qt or actual FFmpeg/libav implementation, library, plugin, or
+   path hits under the clarified structural audit; and
 7. record that no physical keyboard test occurred.
 
 Require the exact implementation push's CI and Desktop workflows to pass on
@@ -256,8 +275,9 @@ Do not rely only on the workflow step that produced it.
 
 ## Commit and release sequence
 
-1. Commit LXF-1 only after the focused red/green proof and canonical local gate
-   pass.
+1. Commit the LXF-1 qualification correction only after the focused red/green
+   proof, canonical local gate, and Linux native proof pass. Use a new commit;
+   never amend or rewrite `aea6b25`.
 2. Push normally to canonical `origin`; no tag or Release.
 3. Qualify the exact implementation push's CI/Desktop Linux artifact as above.
 4. Commit sanitized completion/state records only after qualification passes.
@@ -266,9 +286,9 @@ Do not rely only on the workflow step that produced it.
 
 ## Failure policy
 
-- If GTK/WebKitGTK cannot produce a functional frozen AppImage without bundled
-  FFmpeg/libav or Qt, stop. Do not weaken the audit, add a binary allowlist, or
-  relabel the dependency.
+- If GTK/WebKitGTK cannot produce a functional frozen AppImage without an
+  actual bundled FFmpeg/libav implementation, library, plugin, or Qt, stop. Do
+  not add a binary allowlist or relabel a dependency.
 - If keeping Linux would require an FFmpeg-bearing browser engine, request a
   new owner decision to remove Linux from the release; do not change the
   three-platform contract silently.

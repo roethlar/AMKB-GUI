@@ -661,6 +661,7 @@ class ReleaseInfoTests(unittest.TestCase):
             "gi.repository.GLib",
             "gi.repository.WebKit2",
             "gi.repository.Soup",
+            "gi.repository.JavaScriptCore",
         ):
             with self.subTest(hidden_import=hidden_import):
                 self.assertIn(f'"{hidden_import}"', spec)
@@ -670,16 +671,38 @@ class ReleaseInfoTests(unittest.TestCase):
             spec,
         )
         hook_contracts = {
-            "hook-gi.repository.WebKit2.py": '("WebKit2", "4.1")',
-            "hook-gi.repository.Soup.py": '("Soup", "3.0")',
+            "hook-gi.repository.WebKit2.py": (
+                '("WebKit2", "4.1")',
+                '("JavaScriptCore", "4.1")',
+            ),
+            "hook-gi.repository.Soup.py": ('("Soup", "3.0")',),
+            "hook-gi.repository.JavaScriptCore.py": (
+                '("JavaScriptCore", "4.1")',
+            ),
         }
-        for filename, contract in hook_contracts.items():
+        for filename, contracts in hook_contracts.items():
             with self.subTest(hook=filename):
                 hook = ROOT / "packaging" / "hooks" / filename
                 self.assertTrue(hook.is_file())
                 source = hook.read_text("utf-8")
                 self.assertIn("get_gi_typelibs", source)
-                self.assertIn(contract, source)
+                for contract in contracts:
+                    self.assertIn(contract, source)
+
+        webkit_hook = (
+            ROOT / "packaging" / "hooks" / "hook-gi.repository.WebKit2.py"
+        ).read_text("utf-8")
+        self.assertIn("prepare_webkitgtk_bundle", webkit_hook)
+        self.assertIn('CONF["workpath"]', webkit_hook)
+
+        pre_safe_hooks = ROOT / "packaging" / "hooks" / "pre_safe_import_module"
+        for namespace in ("WebKit2", "Soup", "JavaScriptCore"):
+            with self.subTest(pre_safe_hook=namespace):
+                hook = pre_safe_hooks / f"hook-gi.repository.{namespace}.py"
+                self.assertTrue(hook.is_file())
+                source = hook.read_text("utf-8")
+                self.assertIn("def pre_safe_import_module(api):", source)
+                self.assertIn("api.add_runtime_module(api.module_name)", source)
 
     def test_linux_bundle_carries_native_backend_licenses(self) -> None:
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text("utf-8")
