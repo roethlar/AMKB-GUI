@@ -2,9 +2,9 @@
 
 **Severity**: MEDIUM — maximum-scale framing can produce an offset that the
 unchanged browser and backend schema reject, breaking Preview or persistence.
-**Status**: In progress
+**Status**: Verified
 **Branch**: —
-**Commit**: pending
+**Commit**: `f5a0c268ace741ef9b8461bfdc1de90220f83124`
 
 ## Evidence
 At reviewed head `8b411abfab7cb5966d4c7e4ff413f14a4cc5fc57`,
@@ -74,3 +74,29 @@ claude-cli 2.1.220; capability_ok=true; verdict=findings; exit 0; no stderr;
 - The outer PTK caller timed out at 300 seconds, but the original child stayed
   alive and its persisted schema-enforced result completed after 8 minutes
   21 seconds. No review was rerun or resubmitted.
+
+Accepted by: Reviewer: claude / claude-opus-5 / high / standard (inline,
+session-only; job `fable-review`) — claude-cli 2.1.220; reviewed
+`f5a0c268ace741ef9b8461bfdc1de90220f83124`; base
+`32dccffd073da838a3503d9c3b5a81fe77f3cd6d`; guard_confirmed=true;
+capability_ok=true; verdict=accepted; exit 0; no stderr;
+2026-08-01T09:37:18Z.
+
+- Independently reproduced the base's scale-32 limit of 15.5 and confirmed
+  the corrected contract yields `min(8, 15.5) = 8` on both axes.
+- Confirmed both unchanged validators still pair maximum offset 8 with maximum
+  scale 32 and are absent from the documentation-only diff.
+- Confirmed per-target capping remains compatible with smallest-limit
+  multi-target intersection and preserves maximum-overlap behavior.
+- Confirmed the shared vector is cold-implementable and requires both
+  runtimes to return only version-1-valid offsets.
+- The single commit touches exactly the declared five files, and its index,
+  outcomes, and state records agree.
+- A disposable worktree passed `git diff --check` and all 68 focused packaging
+  and README tests with two expected skips, then was removed without changing
+  the shared tree.
+- Non-blocking, pre-existing observation: the sentence below the review index
+  table about three 2026-07-25 findings does not describe every row above it.
+  The reviewer did not treat that as a defect of this slice.
+- Exactly one `claude-opus-5` invocation was made; it was not retried or
+  resubmitted.
