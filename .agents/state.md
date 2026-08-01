@@ -9,20 +9,20 @@
   `.agents/decisions.md`.
 - The audited removal work is specified in
   `docs/superpowers/plans/2026-07-30-ffmpeg-removal-and-dependency-audit.md`.
-  The owner approved implementation on 2026-07-30, and Slices R1-R6 are
-  complete. Procedural generation is the only AI generation path; historical
-  video execution/recovery and the obsolete media runtime, build/package
-  machinery, CI toolchains, fixtures, and tests are gone. Model qualification
-  uses the production Ollama recipe provider, and guards reject ownerless
-  dependencies, undeclared imports, orphan package modules, JavaScript package
-  metadata, and retired locked packages. Legacy video manifests are reported
-  as unsupported and left untouched.
-- Local clean-environment/Windows installer proof and final-head Linux, macOS,
-  and Windows CI/installer proof all pass. Downloaded artifacts matched their
-  manifest and provenance, and recursive inspection found no retired runtime
-  reference. Exact evidence lives in the completed dependency-removal plan.
-  Its private `0.1.64` artifacts are verification-only and must not be
-  published.
+  The owner approved implementation on 2026-07-30, and the app-owned R1-R6
+  removal is landed. Procedural generation is the only AI generation path;
+  historical video execution/recovery and the obsolete app-owned media
+  runtime, build/package machinery, CI toolchains, fixtures, and tests are
+  gone. The plan's native-artifact completion claim is reopened: exact `0.1.65`
+  Linux AppImage inspection on 2026-08-01 found FFmpeg code transitively
+  bundled by Qt WebEngine/Multimedia. Existing dependency guards prove named
+  packages and source paths only; they do not cover third-party native-library
+  strings. Legacy video manifests remain unsupported and untouched.
+- The historical `0.1.64` clean-environment, CI, manifest, provenance, and
+  platform results remain evidence for the app-owned removal, but their Linux
+  absence conclusion is superseded because the scan did not inspect extracted
+  vendor-library strings. Those private artifacts remain verification-only and
+  must not be published.
 - Public-release qualification is stopped. The unpublished `0.1.64` candidate
   was rejected after product inspection found three release-blocking classes:
   Ollama Cloud inventory was deliberately hidden, one Ollama Generate action
@@ -132,8 +132,15 @@
   profile on `nagatha`; that profile contains the LED restore tracks and matches
   the documented recovery hash. Private paths, hashes, macros, firmware UID,
   and configuration bytes remain outside the repository. The simultaneously
-  connected AFA A2 was not opened, and no keyboard write occurred. R65-2 final
-  candidate preflight is next.
+  connected AFA A2 was not opened, and no keyboard write occurred. Candidate
+  attempt 1 froze `2685a9832e0982d8b52ea45a4becd8a75eb48d01`; exact CI run
+  `30683516281` and Desktop run `30683516302` attempt 1 passed, and the
+  five-file metadata/provenance checks passed. R65-3 then rejected the complete
+  candidate because its extracted Linux Qt WebEngine/Multimedia libraries
+  contain FFmpeg decoder/demuxer implementation code. No candidate is active.
+  The next release action is an owner-approved corrective slice that removes
+  that transitive Linux runtime and adds an extracted-AppImage regression
+  guard, followed by a fresh R65-2 candidate.
   `.agents/machines.md` owns the Windows ARM exploratory-build evidence and its
   explicit-native-Python requirement; ARM64 is not part of the `0.1.65` public
   asset set.
@@ -148,5 +155,8 @@
 
 ## Blockers
 
+- Linux packaging currently bundles FFmpeg implementation code transitively
+  through Qt WebEngine/Multimedia, violating the settled product contract. A
+  corrective implementation plan and fresh candidate are required.
 - Live Ollama Cloud prompts, keyboard writes, macOS Open Anyway, tag creation,
   release publication, and announcements remain separately gated actions.

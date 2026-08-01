@@ -1,8 +1,10 @@
 # FFmpeg Removal and Dependency Ownership Audit
 
-**Status:** Implemented on 2026-07-30. Slices R1-R6 and all local and
-cross-platform verification are complete. The owner approved implementation on
-2026-07-30.
+**Status:** Slices R1-R6 landed on 2026-07-30 under the owner's implementation
+approval, but the cross-platform absence proof is reopened. An exact-candidate
+audit on 2026-08-01 found FFmpeg implementation code transitively bundled in
+the Linux Qt WebEngine/Multimedia libraries. The app-owned runtime and build
+removal remains landed; native-artifact completion is not established.
 
 ## Authority and supersession
 
@@ -515,6 +517,20 @@ no install directory. Recursive downloaded/installed path and content scans
 found no retired FFmpeg runtime, adapter, fixture, or generic hook reference.
 These `0.1.64` files are verification artifacts only; they do not revive or
 replace the rejected release candidate and must not be published.
+
+### Post-completion correction — 2026-08-01
+
+The earlier Linux artifact conclusion above is superseded. R65-3 extraction of
+exact `0.1.65` Desktop run `30683516302` found active FFmpeg decoder/demuxer
+implementation strings and source paths in bundled Qt libraries, principally
+`libQt6WebEngineCore.so.6` and `libQt6Multimedia.so.6`. The earlier scan proved
+the app-owned FFmpeg paths and named packages were gone, but did not search
+extracted third-party native-library strings and therefore could not prove the
+unconditional artifact claim.
+
+Do not close this plan's native-artifact criterion again until the Linux
+desktop backend/dependency graph no longer bundles FFmpeg code and an automated
+guard extracts the produced AppImage and detects this exact transitive case.
 
 ## Slice R6 — Close records and obsolete blockers
 

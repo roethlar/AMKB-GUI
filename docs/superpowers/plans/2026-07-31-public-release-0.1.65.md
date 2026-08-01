@@ -1,11 +1,12 @@
 # AM Configurator 0.1.65 Public Release
 
-**Status:** Owner-approved on 2026-07-31. Approval authorizes the
-pre-publication preparation, read-only qualification, and ordinary canonical
-`origin` pushes described below. It does not authorize freezing an exact
-candidate until Gate R65-G1 proves every required post-freeze check is runnable.
-Live provider requests, macOS Open Anyway, hardware writes, tag or GitHub
-Release creation, and announcement posting remain separate action-time gates.
+**Status:** Owner-approved on 2026-07-31. Candidate attempt 1 at `2685a98` was
+rejected during R65-3 on 2026-08-01 because the exact Linux AppImage bundled
+FFmpeg implementation code through Qt WebEngine/Multimedia. No candidate is
+active. Approval authorizes the pre-publication preparation, read-only
+qualification, and ordinary canonical `origin` pushes described below. Live
+provider requests, macOS Open Anyway, hardware writes, tag or GitHub Release
+creation, and announcement posting remain separate action-time gates.
 
 ## Objective
 
@@ -423,6 +424,29 @@ Use the frozen SHA only.
     recovery source.
 
 Any mismatch rejects the candidate. Do not create a tag or Release.
+
+#### Candidate attempt 1 — rejected 2026-08-01
+
+- R65-2 froze `2685a9832e0982d8b52ea45a4becd8a75eb48d01` after the
+  clean-environment gate, dependency/package audit, and Windows x64, macOS
+  arm64, and Linux x86-64 native preflights passed. `actionlint` was not
+  installed and was skipped as required.
+- Exact push runs `30683516281` (CI) and `30683516302` attempt 1 (Desktop)
+  passed every required job. The five-file set, sizes and hashes, byte-identical
+  regenerated metadata, PE/ELF/UDIF magic, and source-bound SLSA attestations
+  all passed; the Desktop artifacts expire on 2026-08-31.
+- Recursive extraction of the exact Linux AppImage found FFmpeg decoder,
+  demuxer, source-path, and stub strings in bundled
+  `libQt6WebEngineCore.so.6` and `libQt6Multimedia.so.6`, including
+  `FFmpegAudioDecoder`, `FFmpegDemuxer`, and `QT_INSTANT_LOAD_FFMPEG_STUBS`.
+  This violates the unconditional runtime/build/package prohibition in
+  `.agents/decisions.md`, so the complete candidate is rejected.
+- R65-4 through R65-9 did not complete. Structural checks of the exact macOS
+  DMG passed before rejection; the partial controlled Windows install was
+  successfully uninstalled and left no directory. No normal-browser
+  Gatekeeper or SmartScreen observation, Open Anyway action, UI/privacy gate,
+  hardware write, live provider request, tag, Release, or announcement
+  occurred.
 
 ### Slice R65-4 — Exact-artifact platform qualification
 
