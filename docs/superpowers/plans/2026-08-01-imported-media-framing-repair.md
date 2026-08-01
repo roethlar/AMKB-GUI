@@ -81,11 +81,12 @@ For source size `(Sw, Sh)`, destination size `(Dw, Dh)`, and transform scales
 values:
 
 ```text
+MAX_OFFSET = 8  # unchanged version-1 transform-schema bound
 base = max(Dw / Sw, Dh / Sh)
 Rw = max(1, floor(Sw * base * sx + 0.5))
 Rh = max(1, floor(Sh * base * sy + 0.5))
-max_x = abs(Rw - Dw) / (2 * Dw)
-max_y = abs(Rh - Dh) / (2 * Dh)
+max_x = min(MAX_OFFSET, abs(Rw - Dw) / (2 * Dw))
+max_y = min(MAX_OFFSET, abs(Rh - Dh) / (2 * Dh))
 offset_x = clamp(offset_x, -max_x, max_x)
 offset_y = clamp(offset_y, -max_y, max_y)
 left = floor((Dw - Rw) / 2 + offset_x * Dw + 0.5)
@@ -93,9 +94,10 @@ top = floor((Dh - Rh) / 2 + offset_y * Dh + 0.5)
 ```
 
 This keeps the maximum possible source overlap for the selected scale on each
-axis: a smaller rendered source remains fully inside the destination, while a
-larger rendered source continues to cover the destination. A same-size 40x5
-source therefore has zero legal pan and cannot be dragged off its 40x5 target.
+axis without producing a transform outside the unchanged version-1 schema: a
+smaller rendered source remains fully inside the destination, while a larger
+rendered source continues to cover the destination. A same-size 40x5 source
+therefore has zero legal pan and cannot be dragged off its 40x5 target.
 
 When one composition targets more than one raster, compute the per-target
 limits and use their intersection: the smallest `max_x` and `max_y`. The
@@ -213,7 +215,10 @@ Requirements:
    transform.
 7. Cover same-size 40x5, extreme aspect ratios, independent axes, minimum and
    maximum supported scales, odd raster dimensions, multi-target intersection,
-   and Move & zoom frames in the shared vectors.
+   and Move & zoom frames in the shared vectors. Include a same-size source and
+   destination at scale 32: its raw per-axis overlap limit is 15.5, but both
+   runtimes must cap the canonical limit at exactly 8 and keep every returned
+   offset within the version-1 schema range of ±8.
 8. Prove that every canonical box has maximum possible overlap and that the
    rejected 40x5 pan becomes zero rather than an almost-black output.
 

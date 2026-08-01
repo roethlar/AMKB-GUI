@@ -207,12 +207,12 @@
   `c2f6fcedb98e33d7406eace3c3af4ed53d59ffb7..8b411abfab7cb5966d4c7e4ff413f14a4cc5fc57`:
   verdict `findings`, `capability_ok=true`, exact pinned SHAs, exit 0, and
   no stderr. Direct source verification qualified all three candidates.
-  `cl-7` HIGH (synthetic WebView2 pointer capture) was admitted first;
-  `cl-8` MEDIUM (geometry bounds can exceed the version-1 ±8 schema) and
-  `cl-9` LOW (the volatile `nagatha` address is duplicated outside
-  `.agents/machines.md`) remain queued for their one-at-a-time intake,
-  finding records, fixes, and verdicts. The outer PTK caller timed out at
-  300 seconds, but
+  `cl-7` HIGH (synthetic WebView2 pointer capture) was admitted and verified
+  first. `cl-8` MEDIUM (geometry bounds can exceed the version-1 ±8 schema)
+  is now admitted for its own correction and verdict. `cl-9` LOW (the
+  volatile `nagatha` address is duplicated outside `.agents/machines.md`)
+  remains queued for its one-at-a-time intake, finding record, fix, and
+  verdict. The outer PTK caller timed out at 300 seconds, but
   the original child remained alive and its persisted schema-enforced result
   completed after 8 minutes 21 seconds with transcript model key
   `claude-opus-5`. The data was recovered from that same invocation; no
