@@ -686,6 +686,7 @@ class DesktopNativePolicyTests(unittest.TestCase):
             root = Path(raw_root)
             bundle_root = root / "bundle"
             bundle_root.mkdir()
+            canonical_bundle_root = bundle_root.resolve()
             (root / "probe.json").write_text(
                 json.dumps({"url": "http://127.0.0.1:43111/?token=test-token"}),
                 encoding="utf-8",
@@ -711,7 +712,7 @@ class DesktopNativePolicyTests(unittest.TestCase):
         self.assertFalse(created["start"]["private_mode"])
         self.assertTrue(created["storage_existed"])
         self.assertFalse(Path(created["start"]["storage_path"]).exists())
-        self.assertEqual(bundle_root, created["cwd"])
+        self.assertEqual(canonical_bundle_root, created["cwd"])
         self.assertEqual(original_cwd, Path.cwd())
         self.assertTrue(fake_webview.settings["ALLOW_DOWNLOADS"])
         self.assertNotIn("js_api", created["window_kwargs"])
