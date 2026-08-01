@@ -296,6 +296,17 @@ class DependencyOwnershipTests(unittest.TestCase):
         optional = project.get("project", {}).get("optional-dependencies", {})
         if not isinstance(optional, dict):
             self.fail("[project.optional-dependencies] is not a table.")
+        desktop_requirements = optional.get("desktop")
+        if not isinstance(desktop_requirements, list):
+            self.fail("[project.optional-dependencies].desktop is not an array.")
+        self.assertIn(
+            "pywebview[gtk]>=6.2.1; sys_platform == 'linux'",
+            desktop_requirements,
+        )
+        self.assertNotIn(
+            "pywebview[qt]>=6.2.1; sys_platform == 'linux'",
+            desktop_requirements,
+        )
         declared = _requirement_names(
             project.get("project", {}).get("dependencies")
         )
@@ -323,6 +334,36 @@ class DependencyOwnershipTests(unittest.TestCase):
         self.assertFalse(
             retired,
             "uv.lock contains retired media-tool packages: " + ", ".join(retired),
+        )
+        self.assertFalse(
+            {
+                "pyqt6",
+                "pyqt6-qt6",
+                "pyqt6-webengine",
+                "pyqt6-webengine-qt6",
+            }
+            & locked,
+            "uv.lock contains the retired Linux Qt closure.",
+        )
+        qtpy_edges = []
+        for package in packages:
+            if not isinstance(package, dict):
+                continue
+            for dependency in package.get("dependencies", []):
+                if (
+                    isinstance(dependency, dict)
+                    and _canonical_distribution(dependency.get("name", ""))
+                    == "qtpy"
+                ):
+                    qtpy_edges.append(dependency)
+        self.assertEqual(
+            [{"name": "qtpy", "marker": "sys_platform == 'openbsd6'"}],
+            qtpy_edges,
+            "QtPy must remain unreachable from every supported platform graph.",
+        )
+        self.assertTrue(
+            {"pycairo", "pygobject"} <= locked,
+            "uv.lock does not contain the Linux GTK binding closure.",
         )
 
     def test_every_top_level_module_is_imported_or_an_entry_point(self) -> None:

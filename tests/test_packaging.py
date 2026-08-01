@@ -318,7 +318,9 @@ class ReleaseInfoTests(unittest.TestCase):
             self.assertEqual("uv", commands[0][0])
             self.assertIn("sync", commands[0])
             self.assertIn("pyinstaller", commands[1])
-            self.assertTrue(commands[2][-1].endswith("build_dmg.sh"))
+            self.assertTrue(commands[2][1].endswith("native_tree_audit.py"))
+            self.assertTrue(commands[2][2].endswith("AM Configurator.app"))
+            self.assertTrue(commands[3][-1].endswith("build_dmg.sh"))
 
     def test_failed_build_does_not_mutate_canonical_version(self) -> None:
         with TemporaryDirectory() as temporary:
@@ -619,6 +621,23 @@ class ReleaseInfoTests(unittest.TestCase):
         )
 
         for package in (
+            "gcc",
+            "pkg-config",
+            "libcairo2-dev",
+            "libgirepository-2.0-dev",
+            "gir1.2-gtk-3.0",
+            "gir1.2-webkit2-4.1",
+            "libwebkit2gtk-4.1-dev",
+            "xauth",
+            "xvfb",
+        ):
+            with self.subTest(package=package):
+                self.assertIn(package, workflow)
+        prerequisite_step = workflow.split(
+            "- name: Install native build prerequisites (Linux)", 1
+        )[1].split("- name: Install desktop build environment", 1)[0]
+        self.assertIn("--no-install-recommends", prerequisite_step)
+        for forbidden in (
             "libegl1",
             "libxcb-cursor0",
             "libxcb-icccm4",
@@ -626,9 +645,87 @@ class ReleaseInfoTests(unittest.TestCase):
             "libxcb-shape0",
             "libxcb-xkb1",
             "libxkbcommon-x11-0",
+            "gstreamer1.0-libav",
         ):
-            with self.subTest(package=package):
-                self.assertIn(package, workflow)
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, prerequisite_step)
+
+    def test_linux_bundle_uses_gtk_and_repository_gi_hooks(self) -> None:
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text("utf-8")
+
+        for hidden_import in (
+            "webview.platforms.gtk",
+            "gi.repository.Gtk",
+            "gi.repository.Gdk",
+            "gi.repository.Gio",
+            "gi.repository.GLib",
+            "gi.repository.WebKit2",
+            "gi.repository.Soup",
+        ):
+            with self.subTest(hidden_import=hidden_import):
+                self.assertIn(f'"{hidden_import}"', spec)
+        self.assertNotIn('"webview.platforms.qt"', spec)
+        self.assertIn(
+            'hookspath=[str(project / "packaging" / "hooks")]',
+            spec,
+        )
+        hook_contracts = {
+            "hook-gi.repository.WebKit2.py": '("WebKit2", "4.1")',
+            "hook-gi.repository.Soup.py": '("Soup", "3.0")',
+        }
+        for filename, contract in hook_contracts.items():
+            with self.subTest(hook=filename):
+                hook = ROOT / "packaging" / "hooks" / filename
+                self.assertTrue(hook.is_file())
+                source = hook.read_text("utf-8")
+                self.assertIn("get_gi_typelibs", source)
+                self.assertIn(contract, source)
+
+    def test_linux_bundle_carries_native_backend_licenses(self) -> None:
+        spec = (ROOT / "packaging" / "am_configurator.spec").read_text("utf-8")
+        notices = (ROOT / "THIRD_PARTY_NOTICES").read_text("utf-8").casefold()
+
+        for component in ("gtk", "webkitgtk", "libsoup"):
+            with self.subTest(component=component):
+                self.assertIn(component, notices)
+                self.assertIn(
+                    f'required_linux_license(\n                "{component}"',
+                    spec,
+                )
+        self.assertIn('f"licenses/linux-native/{component}"', spec)
+        for required_source in (
+            "/usr/share/common-licenses/LGPL-2.1",
+            "/usr/share/common-licenses/LGPL-2",
+            "/usr/share/licenses/webkit2gtk-4.1/LICENSE",
+            "/usr/share/doc/libwebkit2gtk-4.1-0/copyright",
+        ):
+            with self.subTest(required_source=required_source):
+                self.assertIn(required_source, spec)
+
+    def test_native_tree_audit_is_wired_into_every_packaging_path(self) -> None:
+        build_script = (ROOT / "build.py").read_text("utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            "utf-8"
+        )
+        appimage = (ROOT / "packaging" / "linux" / "build_appimage.sh").read_text(
+            "utf-8"
+        )
+
+        audit_command = "build_tools/native_tree_audit.py"
+        self.assertIn(audit_command, build_script)
+        self.assertEqual(1, workflow.count(audit_command))
+        self.assertLess(
+            workflow.index("Build native application"),
+            workflow.index("Audit frozen native tree"),
+        )
+        self.assertLess(
+            workflow.index("Audit frozen native tree"),
+            workflow.index("Verify native webview policy (macos)"),
+        )
+        self.assertIn('audit_root="$(mktemp -d ', appimage)
+        self.assertIn("--appimage-extract", appimage)
+        self.assertIn(audit_command, appimage)
+        self.assertLess(appimage.index(audit_command), appimage.index("--smoke-test"))
 
     def test_desktop_workflow_has_no_retired_media_build_toolchain(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(

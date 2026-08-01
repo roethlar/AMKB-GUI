@@ -13,3 +13,13 @@ Copyright (c) Angry Miao, licensed under the Apache License, Version 2.0
 fact that file records — which payload index lights which physical LED — with
 its CSS pixel coordinates reduced to grid positions. No source code from that
 project is copied or distributed here.
+
+Linux native distributions use GTK 3, WebKitGTK 4.1, and libsoup 3 as the
+PyWebView window and web-content backend. GTK is licensed under the GNU Lesser
+General Public License version 2.1 or later; libsoup is licensed under the GNU
+Lesser General Public License version 2.0 or later; WebKitGTK contains
+components under multiple free-software licenses. The exact license material
+installed by the Linux build host is preserved in the distribution under
+licenses/linux-native. Upstream source and license information is available
+from https://gitlab.gnome.org/GNOME/gtk, https://webkitgtk.org, and
+https://gitlab.gnome.org/GNOME/libsoup.

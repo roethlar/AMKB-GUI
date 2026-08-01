@@ -25,7 +25,7 @@ from .server import create_server
 _NATIVE_WEBVIEW_POLICIES = {
     "Darwin": ("webview.platforms.cocoa", None, "wkwebview"),
     "Windows": ("webview.platforms.winforms", None, "edgechromium"),
-    "Linux": ("webview.platforms.qt", "qt", "qtwebengine"),
+    "Linux": ("webview.platforms.gtk", "gtk", "gtkwebkit2"),
 }
 _NATIVE_POLICY_PHASES = ("seed", "verify")
 _NATIVE_POLICY_MARKER = "am-native-private-probe"

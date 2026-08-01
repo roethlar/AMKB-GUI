@@ -24,7 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 desktop = [
   "pywebview>=6.2.1",
-  "pywebview[qt]>=6.2.1; sys_platform == 'linux'",
+  "pywebview[gtk]>=6.2.1; sys_platform == 'linux'",
 ]
 build = ["pyinstaller>=6.21.0"]
 

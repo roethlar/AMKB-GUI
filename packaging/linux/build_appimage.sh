@@ -54,6 +54,42 @@ output_path="$project_root/dist/$artifact_name"
 rm -f "$output_path"
 ARCH="$arch" APPIMAGE_EXTRACT_AND_RUN=1 "$tool_path" "$app_dir" "$output_path"
 chmod +x "$output_path"
+
+audit_parent="${TMPDIR:-/tmp}"
+audit_parent="$(cd "$audit_parent" && pwd -P)"
+audit_root="$(mktemp -d "$audit_parent/am-configurator-appimage-audit.XXXXXX")"
+audit_root="$(cd "$audit_root" && pwd -P)"
+case "$audit_root" in
+  "$audit_parent"/am-configurator-appimage-audit.*) ;;
+  *)
+    echo "Refusing unsafe AppImage audit directory." >&2
+    exit 1
+    ;;
+esac
+cleanup_audit_root() {
+  case "${audit_root:-}" in
+    "$audit_parent"/am-configurator-appimage-audit.*)
+      if [[ -d "$audit_root" && ! -L "$audit_root" ]]; then
+        rm -rf -- "$audit_root"
+      fi
+      ;;
+  esac
+}
+trap cleanup_audit_root EXIT
+(
+  cd "$audit_root"
+  "$output_path" --appimage-extract >/dev/null
+)
+extracted_tree="$audit_root/squashfs-root"
+if [[ ! -d "$extracted_tree" || -L "$extracted_tree" ]]; then
+  echo "Extracted AppImage tree was not created safely." >&2
+  exit 1
+fi
+uv run --frozen python build_tools/native_tree_audit.py "$extracted_tree"
+cleanup_audit_root
+audit_root=""
+trap - EXIT
+
 APPIMAGE_EXTRACT_AND_RUN=1 "$output_path" --smoke-test
 
 echo "$output_path"

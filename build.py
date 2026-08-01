@@ -44,6 +44,11 @@ def _packager_command(target: str, root: Path) -> list[str]:
     ]
 
 
+def _native_tree_path(target: str, root: Path) -> Path:
+    bundle_name = "AM Configurator.app" if target == "macos" else "AM Configurator"
+    return root / "dist" / bundle_name
+
+
 def _run(command: list[str], cwd: Path) -> None:
     print("+", subprocess.list2cmdline(command), flush=True)
     try:
@@ -84,6 +89,14 @@ def build_installer(
             "--noconfirm",
             "--clean",
             "packaging/am_configurator.spec",
+        ],
+        root,
+    )
+    runner(
+        [
+            sys.executable,
+            str(root / "build_tools/native_tree_audit.py"),
+            str(_native_tree_path(target, root)),
         ],
         root,
     )

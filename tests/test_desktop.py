@@ -453,6 +453,13 @@ class DesktopWindowTests(unittest.TestCase):
 
 
 class DesktopNativePolicyTests(unittest.TestCase):
+    def test_linux_policy_requires_gtk_webkit(self) -> None:
+        with mock.patch.object(desktop.platform, "system", return_value="Linux"):
+            self.assertEqual(
+                ("webview.platforms.gtk", "gtk", "gtkwebkit2"),
+                desktop._native_webview_policy(),
+            )
+
     def test_probe_script_checks_the_real_browser_policy_surface(self) -> None:
         script = desktop._native_policy_probe_script("verify")
 
@@ -659,7 +666,7 @@ class DesktopNativePolicyTests(unittest.TestCase):
             return window
 
         fake_webview = types.SimpleNamespace(
-            renderer="qtwebengine",
+            renderer="gtkwebkit2",
             settings={},
             create_window=create_window,
             start=start,
@@ -681,7 +688,7 @@ class DesktopNativePolicyTests(unittest.TestCase):
             result = json.loads((root / "verify.json").read_text(encoding="utf-8"))
 
         self.assertTrue(result["ok"])
-        self.assertEqual("qt", created["start"]["gui"])
+        self.assertEqual("gtk", created["start"]["gui"])
         self.assertTrue(created["start"]["private_mode"])
         self.assertTrue(fake_webview.settings["ALLOW_DOWNLOADS"])
         self.assertNotIn("js_api", created["window_kwargs"])
