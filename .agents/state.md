@@ -13,10 +13,16 @@
   item, write hardware, use a provider, create a tag/Release, or post an
   announcement. The macOS app/DMG and controlled local test data were cleaned
   up; GitHub Actions retains the rejected artifacts through 2026-08-31.
-- The proposed Windows-first correction is recorded in
-  `docs/superpowers/plans/2026-08-01-imported-media-framing-repair.md`. Its
-  `cl-7` through `cl-9` documentation review loop is closed. The plan has not
-  been owner-approved, so no shipped code or test change is authorized.
+- The owner approved the Windows-first imported-media correction recorded in
+  `docs/superpowers/plans/2026-08-01-imported-media-framing-repair.md` on
+  2026-08-01. IMF-1 is implemented and locally verified in this slice: Python
+  and the browser share exact canonical geometry vectors, normal and Move &
+  zoom renders intersect every requested target's limits, the backend returns
+  the exact canonical state it used, and the browser adopts it atomically. The
+  rejected same-size 40x5 pan now clamps to zero and retains the complete
+  source raster. Its focused and complete CI-equivalent gates pass; canonical
+  evidence is in the repair plan. No dependency or prohibited path changed.
+  The required one-time Fable review and normal push are next.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
   prohibited in every runtime/build/package path, and dependencies without a
@@ -131,13 +137,11 @@
 - The approved `0.1.65` release plan is recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`. It records both
   rejected candidates and remains paused before a new R65-2 freeze.
-- The next action is owner review and approval of
-  `docs/superpowers/plans/2026-08-01-imported-media-framing-repair.md`. Until
-  approval, only its documentation/review record may land; no implementation
-  slice may start.
-- After approval, execute IMF-1 through IMF-3 one commit at a time. Verify each
-  slice, run exactly one `fable-review` job with `claude-fable-5` at `xhigh`,
-  use the result without formatting-based resubmission, and push normally.
+- Run exactly one `fable-review` job over the committed IMF-1 slice with
+  `claude-fable-5` at `xhigh`, use its returned substance regardless of
+  formatting, record the result, and push normally. Do not retry or resubmit
+  without explicit owner approval. After any admitted finding is fixed and
+  reviewed under the plan, continue with IMF-2 and IMF-3 one commit at a time.
   Functional source and frozen WebView2 testing runs locally on `netwatch-01`
   at 1000x680 and 1280x800 before exact-artifact WKWebView regression testing
   on `nagatha`.
@@ -155,8 +159,7 @@
 
 ## Blockers
 
-- Shipped repair work is blocked on explicit owner approval of the imported-
-  media framing repair plan. R65-2 is blocked until that repair is complete and
+- R65-2 is blocked until the approved imported-media repair is complete and
   exact-head verification passes. Live provider requests, keyboard writes,
   macOS Open Anyway, tag creation, release publication, and announcements
   remain separately gated actions for their later slices.

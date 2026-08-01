@@ -251,6 +251,21 @@
     return clone(value);
   }
 
+  function validateResolvedTransforms(value, effects) {
+    if (!Array.isArray(value)) {
+      throw new TypeError("The resolved media transforms are invalid.");
+    }
+    const moveZoom = effects.filter(effect => effect?.type === "move_zoom");
+    const expected = moveZoom.length === 1
+      && Number.isSafeInteger(moveZoom[0].frame_count)
+      ? moveZoom[0].frame_count
+      : 0;
+    if (moveZoom.length > 1 || value.length !== expected) {
+      throw new TypeError("The resolved media transforms are invalid.");
+    }
+    return value.map(validateTransform);
+  }
+
   function nextMediaRenderEpoch(previous, now = Date.now()) {
     if (
       !Number.isSafeInteger(previous)
@@ -371,6 +386,7 @@
       status: "draft",
       epoch: 0,
       mappedResult: null,
+      resolvedTransforms: [],
       error: "",
     });
   }
@@ -381,6 +397,7 @@
       ...changes,
       status: "draft",
       mappedResult: null,
+      resolvedTransforms: [],
       error: "",
     });
   }
@@ -402,15 +419,23 @@
         status: "rendering",
         epoch: action.epoch,
         mappedResult: null,
+        resolvedTransforms: [],
         error: "",
       });
     }
     if (action.type === "RENDER_SUCCEEDED") {
       if (state.status !== "rendering" || action.epoch !== state.epoch) return state;
+      const effects = validateEffects(action.effects);
       return deepFreeze({
         ...state,
         status: "ready",
+        transform: validateTransform(action.transform),
+        effects,
         mappedResult: validateMappedResult(action.mappedResult),
+        resolvedTransforms: validateResolvedTransforms(
+          action.resolvedTransforms,
+          effects,
+        ),
         error: "",
       });
     }
@@ -420,6 +445,7 @@
         ...state,
         status: "failed",
         mappedResult: null,
+        resolvedTransforms: [],
         error: String(action.error || "The preview could not be created. Nothing was changed; adjust the framing and try again."),
       });
     }
@@ -443,6 +469,7 @@
         ...state,
         status: "cancelled",
         mappedResult: null,
+        resolvedTransforms: [],
         error: "",
       });
     }

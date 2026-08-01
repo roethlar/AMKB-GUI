@@ -3092,9 +3092,85 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual(7, rendered["epoch"])
         self.assertEqual(transform, rendered["transform"])
+        self.assertEqual([], rendered["resolved_transforms"])
         self.assertEqual(
             1,
             rendered["mapped_result"]["tracks"]["frames"]["frame_count"],
+        )
+
+        rejected_pan = {
+            **transform,
+            "offset_x": 8.0,
+            "offset_y": -8.0,
+        }
+        status, constrained = self._request(
+            "POST",
+            f"/api/library/items/{png_detail['catalog_id']}/render",
+            {
+                "product_id": "CB04",
+                "targets": ["frames"],
+                "transform": rejected_pan,
+                "epoch": 8,
+            },
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(
+            {**rejected_pan, "offset_x": 0.0, "offset_y": -1.5},
+            constrained["transform"],
+        )
+        self.assertEqual([], constrained["resolved_transforms"])
+
+        move_zoom = {
+            "version": 1,
+            "type": "move_zoom",
+            "frame_count": 3,
+            "duration_ms": 90,
+            "parameters": {
+                "start_transform": transform,
+                "end_transform": {
+                    **transform,
+                    "offset_x": 8.0,
+                    "offset_y": -8.0,
+                    "scale_x": 2.0,
+                    "scale_y": 2.0,
+                },
+            },
+        }
+        status, animated = self._request(
+            "POST",
+            f"/api/library/items/{png_detail['catalog_id']}/render",
+            {
+                "product_id": "CB04",
+                "targets": ["frames", "keyframes"],
+                "transform": transform,
+                "effects": [move_zoom],
+                "epoch": 9,
+            },
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(
+            [
+                transform,
+                {
+                    **transform,
+                    "offset_x": 0.25,
+                    "offset_y": -5 / 12,
+                    "scale_x": 1.5,
+                    "scale_y": 1.5,
+                },
+                {
+                    **transform,
+                    "offset_x": 0.5,
+                    "offset_y": -0.75,
+                    "scale_x": 2.0,
+                    "scale_y": 2.0,
+                },
+            ],
+            animated["resolved_transforms"],
+        )
+        self.assertEqual(
+            {"frames", "keyframes"},
+            set(animated["mapped_result"]["tracks"]),
         )
         item_id = png_detail["item"]["item_id"]
         item_dir = self.root / "items" / item_id

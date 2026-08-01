@@ -11,7 +11,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeOllamaModels, ollamaEndpointDataFlow, ollamaModelRefreshFailed, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectOllamaModelPicker, reduceLightingState, routeAvailability, safeRgbColor} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
-const {defaultSourceTransform, interpolateMoveZoom, normalizedPointer, panSourceTransform, presetSourceTransform, renderColorEffect, scaleSourceTransform, validateEffectSpec, validateSourceTransform} = LightingComposer;
+const {canonicalizeSourceTransform, defaultSourceTransform, interpolateMoveZoom, normalizedPointer, panSourceTransform, presetSourceTransform, renderColorEffect, scaleSourceTransform, validateEffectSpec, validateSourceTransform} = LightingComposer;
 const {
   compatibleProfileSections,
   createLibraryRequestEpochs,
@@ -2430,6 +2430,31 @@ function mediaDestinationSize() {
     :null;
 }
 
+function mediaDestinationSizes(destination=state.mediaComposition?.destination) {
+  if(!destination)return null;
+  const family=productFamily(destination.productId);
+  const sizes=destination.targets.map(target=>{
+    const geometry=servedGeometry(family,target);
+    const width=Number(geometry?.width);
+    const height=Number(geometry?.height);
+    return Number.isSafeInteger(width)&&width>0&&Number.isSafeInteger(height)&&height>0
+      ?{width,height}
+      :null;
+  });
+  return sizes.every(Boolean)?sizes:null;
+}
+
+function mediaGeometryContext(draft=state.mediaComposition) {
+  if(!draft||draft.status==="cancelled")return null;
+  const sourceSize={width:Number(draft.source?.width),height:Number(draft.source?.height)};
+  const destinationSizes=mediaDestinationSizes(draft.destination);
+  return Number.isSafeInteger(sourceSize.width)&&sourceSize.width>0
+    &&Number.isSafeInteger(sourceSize.height)&&sourceSize.height>0
+    &&destinationSizes
+    ?{sourceSize,destinationSizes}
+    :null;
+}
+
 function stillMediaCompositionActive() {
   const source=state.mediaComposition?.status==="cancelled"
     ?null
@@ -2447,12 +2472,15 @@ function mediaCompositionTargets() {
 
 function currentMediaDestination() {
   const target=state.ledTarget;
-  const geometry=servedGeometry(productFamily(productId()),target);
-  if(!geometry)return null;
+  const family=productFamily(productId());
+  const targets=mediaCompositionTargets();
+  const geometries=targets.map(name=>servedGeometry(family,name));
+  if(geometries.some(geometry=>!geometry))return null;
+  const geometry=geometries[targets.indexOf(target)];
   return {
     productId:productId(),
     target,
-    targets:mediaCompositionTargets(),
+    targets,
     width:Number(geometry.width),
     height:Number(geometry.height),
   };
@@ -2465,15 +2493,37 @@ function refreshMediaCompositionDestination() {
     &&state.mediaComposition
     &&state.mediaComposition.status!=="cancelled"
   ){
-    state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
+    let draft=reduceMediaDraft(state.mediaComposition,{
       type:"DESTINATION_CHANGED",
       destination,
     });
+    const context=mediaGeometryContext(draft);
+    if(context){
+      const canonical=canonicalizeSourceTransform(
+        state.sourceTransform,
+        context.sourceSize,
+        context.destinationSizes,
+      );
+      state.sourceTransform=canonical;
+      draft=reduceMediaDraft(draft,{
+        type:"TRANSFORM_CHANGED",
+        transform:canonical,
+      });
+    }
+    state.mediaComposition=draft;
   }
 }
 
 function updateMediaCompositionTransform(transform) {
-  const checked=validateSourceTransform(transform);
+  let checked=validateSourceTransform(transform);
+  const context=mediaGeometryContext();
+  if(context){
+    checked=canonicalizeSourceTransform(
+      checked,
+      context.sourceSize,
+      context.destinationSizes,
+    );
+  }
   state.sourceTransform=checked;
   if(state.mediaComposition&&state.mediaComposition.status!=="cancelled"){
     let draft=state.mediaComposition;
@@ -2563,11 +2613,11 @@ function updateSourceTransformView() {
 
 function applySourceTransformPreset(mode) {
   const source=mediaSourceSize();
-  const destination=mediaDestinationSize();
-  if(!source||!destination)return;
+  const destinations=mediaDestinationSizes();
+  if(!source||!destinations)return;
   try{
     updateMediaCompositionTransform(
-      presetSourceTransform(mode,source,destination,state.sourceTransform),
+      presetSourceTransform(mode,source,destinations,state.sourceTransform),
     );
     updateSourceTransformView();
   }catch(error){
@@ -2610,10 +2660,12 @@ async function importMedia(input) {
     const detail=payload.item;
     const source=detail?.item?.source;
     if(!detail?.catalog_id||!source)throw new Error("This file could not be saved to Library.");
-    state.sourceTransform=validateSourceTransform({
+    const destinationSizes=mediaDestinationSizes(destination);
+    if(!destinationSizes)throw new Error("The selected lighting area has no geometry.");
+    state.sourceTransform=canonicalizeSourceTransform({
       ...state.sourceTransform,
       sampling:state.gifResample,
-    });
+    },{width:Number(source.width),height:Number(source.height)},destinationSizes);
     state.mediaComposition=createMediaDraft({
       catalogId:detail.catalog_id,
       source:{
@@ -2669,8 +2721,12 @@ async function renderMediaCompositionPreview() {
     state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
       type:"RENDER_SUCCEEDED",
       epoch,
+      transform:result.transform,
+      effects:result.effects,
+      resolvedTransforms:result.resolved_transforms,
       mappedResult:result.mapped_result,
     });
+    state.sourceTransform=state.mediaComposition.transform;
   }catch(error){
     if(state.mediaComposition?.catalogId!==draft.catalogId)return;
     state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
@@ -2819,17 +2875,23 @@ function currentLocalAnimationSpec() {
     seed:state.localAnimationSeed,
   };
   else{
-    const start=validateSourceTransform(state.sourceTransform);
+    const context=mediaGeometryContext();
+    if(!context)throw new Error("Move & zoom needs imported-media geometry.");
+    const start=canonicalizeSourceTransform(
+      state.sourceTransform,
+      context.sourceSize,
+      context.destinationSizes,
+    );
     const nextScale=Math.min(32,start.scale_x*1.18);
     parameters={
       start_transform:start,
-      end_transform:validateSourceTransform({
+      end_transform:canonicalizeSourceTransform({
         ...start,
         offset_x:Math.min(8,start.offset_x+0.08),
         offset_y:Math.min(8,start.offset_y+0.05),
         scale_x:nextScale,
         scale_y:start.aspect_locked?nextScale:Math.min(32,start.scale_y*1.18),
-      }),
+      },context.sourceSize,context.destinationSizes),
     };
   }
   return validateEffectSpec({
@@ -2874,7 +2936,13 @@ function previewLocalAnimation() {
       if(!state.mediaComposition||state.mediaComposition.status==="cancelled"){
         throw new Error("Move & zoom needs an imported still image.");
       }
-      draft.transforms=interpolateMoveZoom(effect);
+      const context=mediaGeometryContext();
+      if(!context)throw new Error("Move & zoom needs imported-media geometry.");
+      draft.transforms=interpolateMoveZoom(
+        effect,
+        context.sourceSize,
+        context.destinationSizes,
+      );
       state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
         type:"EFFECTS_CHANGED",
         effects:[effect],
@@ -3095,9 +3163,14 @@ function wireStudioInspector() {
     stage.addEventListener("pointermove",event=>{
       if(!pointer||state.studioTool!=="source")return;
       const next=normalizedPointer(event,stage.getBoundingClientRect());
-      updateMediaCompositionTransform(
-        panSourceTransform(state.sourceTransform,next.x-pointer.x,next.y-pointer.y),
-      );
+      const context=mediaGeometryContext();
+      updateMediaCompositionTransform(panSourceTransform(
+        state.sourceTransform,
+        next.x-pointer.x,
+        next.y-pointer.y,
+        context?.sourceSize,
+        context?.destinationSizes,
+      ));
       pointer=next;
       updateSourceTransformView();
     });
@@ -3107,9 +3180,14 @@ function wireStudioInspector() {
     stage.addEventListener("wheel",event=>{
       if(state.studioTool!=="source")return;
       event.preventDefault();
-      updateMediaCompositionTransform(
-        scaleSourceTransform(state.sourceTransform,event.deltaY<0?1.08:1/1.08,"both"),
-      );
+      const context=mediaGeometryContext();
+      updateMediaCompositionTransform(scaleSourceTransform(
+        state.sourceTransform,
+        event.deltaY<0?1.08:1/1.08,
+        "both",
+        context?.sourceSize,
+        context?.destinationSizes,
+      ));
       updateSourceTransformView();
     },{passive:false});
     stage.addEventListener("keydown",event=>{
@@ -3123,15 +3201,25 @@ function wireStudioInspector() {
       }[event.key];
       if(pan){
         event.preventDefault();
-        updateMediaCompositionTransform(
-          panSourceTransform(state.sourceTransform,pan[0],pan[1]),
-        );
+        const context=mediaGeometryContext();
+        updateMediaCompositionTransform(panSourceTransform(
+          state.sourceTransform,
+          pan[0],
+          pan[1],
+          context?.sourceSize,
+          context?.destinationSizes,
+        ));
         updateSourceTransformView();
       }else if(["+","=","-","_"].includes(event.key)){
         event.preventDefault();
-        updateMediaCompositionTransform(
-          scaleSourceTransform(state.sourceTransform,["-","_"].includes(event.key)?1/1.08:1.08,"both"),
-        );
+        const context=mediaGeometryContext();
+        updateMediaCompositionTransform(scaleSourceTransform(
+          state.sourceTransform,
+          ["-","_"].includes(event.key)?1/1.08:1.08,
+          "both",
+          context?.sourceSize,
+          context?.destinationSizes,
+        ));
         updateSourceTransformView();
       }
     });

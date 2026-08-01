@@ -145,6 +145,99 @@
     return {width: value.width, height: value.height};
   }
 
+  function validateDestinationSizes(value) {
+    const values = Array.isArray(value) ? value : [value];
+    if (values.length === 0) {
+      throw new TypeError("At least one destination size is required.");
+    }
+    return values.map((size, index) => validateSize(
+      size,
+      `Destination ${index + 1}`,
+    ));
+  }
+
+  function roundGeometry(value) {
+    return Math.floor(value + 0.5);
+  }
+
+  function resolveSourceGeometry(sourceSize, destinationSizes, transform) {
+    const source = validateSize(sourceSize, "Source");
+    const destinations = validateDestinationSizes(destinationSizes);
+    const checked = validateSourceTransform(transform);
+    const dimensions = [];
+    const limits = [];
+    for (const destination of destinations) {
+      const baseScale = Math.max(
+        destination.width / source.width,
+        destination.height / source.height,
+      );
+      const renderedWidth = Math.max(
+        1,
+        roundGeometry(source.width * baseScale * checked.scale_x),
+      );
+      const renderedHeight = Math.max(
+        1,
+        roundGeometry(source.height * baseScale * checked.scale_y),
+      );
+      dimensions.push(Object.freeze({renderedWidth, renderedHeight}));
+      limits.push(Object.freeze({
+        maxX: Math.min(
+          MAX_OFFSET,
+          Math.abs(renderedWidth - destination.width) / (2 * destination.width),
+        ),
+        maxY: Math.min(
+          MAX_OFFSET,
+          Math.abs(renderedHeight - destination.height) / (2 * destination.height),
+        ),
+      }));
+    }
+    const maxX = Math.min(...limits.map(limit => limit.maxX));
+    const maxY = Math.min(...limits.map(limit => limit.maxY));
+    const canonical = Object.freeze(validateSourceTransform({
+      ...checked,
+      offset_x: clamp(checked.offset_x, -maxX, maxX),
+      offset_y: clamp(checked.offset_y, -maxY, maxY),
+    }));
+    const boxes = Object.freeze(destinations.map((destination, index) => {
+      const {renderedWidth, renderedHeight} = dimensions[index];
+      return Object.freeze({
+        rendered_width: renderedWidth,
+        rendered_height: renderedHeight,
+        left: roundGeometry(
+          (destination.width - renderedWidth) / 2
+            + canonical.offset_x * destination.width,
+        ),
+        top: roundGeometry(
+          (destination.height - renderedHeight) / 2
+            + canonical.offset_y * destination.height,
+        ),
+      });
+    }));
+    return Object.freeze({
+      transform: canonical,
+      limits: Object.freeze({max_x: maxX, max_y: maxY}),
+      boxes,
+    });
+  }
+
+  function canonicalizeSourceTransform(transform, sourceSize, destinationSizes) {
+    return resolveSourceGeometry(
+      sourceSize,
+      destinationSizes,
+      transform,
+    ).transform;
+  }
+
+  function canonicalizeWhenSized(transform, sourceSize, destinationSizes) {
+    if (sourceSize === undefined && destinationSizes === undefined) {
+      return validateSourceTransform(transform);
+    }
+    if (sourceSize === undefined || destinationSizes === undefined) {
+      throw new TypeError("Source transform geometry is incomplete.");
+    }
+    return canonicalizeSourceTransform(transform, sourceSize, destinationSizes);
+  }
+
   function normalizedPointer(point, bounds) {
     if (!point || typeof point !== "object" || Array.isArray(point)) {
       throw new TypeError("The pointer is invalid.");
@@ -164,11 +257,12 @@
   function presetSourceTransform(
     mode,
     sourceSize,
-    destinationSize,
+    destinationSizes,
     current = defaultSourceTransform(),
   ) {
     const source = validateSize(sourceSize, "Source");
-    const destination = validateSize(destinationSize, "Destination");
+    const destinations = validateDestinationSizes(destinationSizes);
+    const destination = destinations[0];
     const checked = validateSourceTransform(current);
     if (!["fit", "fill", "center", "reset"].includes(mode)) {
       throw new RangeError("The source transform preset is unsupported.");
@@ -190,19 +284,25 @@
         destination.height / source.height,
       );
     }
-    return validateSourceTransform({
+    return canonicalizeSourceTransform({
       ...checked,
       offset_x: 0,
       offset_y: 0,
       scale_x: scale,
       scale_y: scale,
       aspect_locked: true,
-    });
+    }, source, destinations);
   }
 
-  function panSourceTransform(value, deltaX, deltaY) {
+  function panSourceTransform(
+    value,
+    deltaX,
+    deltaY,
+    sourceSize = undefined,
+    destinationSizes = undefined,
+  ) {
     const checked = validateSourceTransform(value);
-    return validateSourceTransform({
+    return canonicalizeWhenSized({
       ...checked,
       offset_x: clamp(
         checked.offset_x + finiteNumber(deltaX, "delta_x"),
@@ -214,10 +314,16 @@
         -MAX_OFFSET,
         MAX_OFFSET,
       ),
-    });
+    }, sourceSize, destinationSizes);
   }
 
-  function scaleSourceTransform(value, factor, axis = "both") {
+  function scaleSourceTransform(
+    value,
+    factor,
+    axis = "both",
+    sourceSize = undefined,
+    destinationSizes = undefined,
+  ) {
     const checked = validateSourceTransform(value);
     const multiplier = boundedNumber(factor, MIN_SCALE, MAX_SCALE, "scale factor");
     if (!["both", "x", "y"].includes(axis)) {
@@ -229,12 +335,12 @@
     const scaleY = axis === "x"
       ? checked.scale_y
       : clamp(checked.scale_y * multiplier, MIN_SCALE, MAX_SCALE);
-    return validateSourceTransform({
+    return canonicalizeWhenSized({
       ...checked,
       scale_x: scaleX,
       scale_y: scaleY,
       aspect_locked: axis === "both" ? checked.aspect_locked : false,
-    });
+    }, sourceSize, destinationSizes);
   }
 
   function exactParameters(value, fields, label) {
@@ -530,7 +636,11 @@
     return output;
   }
 
-  function interpolateMoveZoom(effect) {
+  function interpolateMoveZoom(
+    effect,
+    sourceSize = undefined,
+    destinationSizes = undefined,
+  ) {
     const checked = validateEffectSpec(effect, {
       frameLimit: effect?.frame_count,
       stillSource: true,
@@ -543,24 +653,26 @@
     const result = [];
     for (let index = 0; index < checked.frame_count; index += 1) {
       const progress = index / (checked.frame_count - 1);
-      result.push(validateSourceTransform({
+      result.push(canonicalizeWhenSized({
         ...start,
         offset_x: start.offset_x + (end.offset_x - start.offset_x) * progress,
         offset_y: start.offset_y + (end.offset_y - start.offset_y) * progress,
         scale_x: start.scale_x + (end.scale_x - start.scale_x) * progress,
         scale_y: start.scale_y + (end.scale_y - start.scale_y) * progress,
-      }));
+      }, sourceSize, destinationSizes));
     }
     return result;
   }
 
   return Object.freeze({
+    canonicalizeSourceTransform,
     defaultSourceTransform,
     interpolateMoveZoom,
     normalizedPointer,
     panSourceTransform,
     presetSourceTransform,
     renderColorEffect,
+    resolveSourceGeometry,
     scaleSourceTransform,
     validateEffectSpec,
     validateSourceTransform,

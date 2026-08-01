@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import tempfile
 import threading
 import unittest
@@ -218,6 +219,85 @@ class SourceTransformTests(unittest.TestCase):
                 for red, green, blue in rendered.getdata()
             ],
         )
+
+    def test_shared_geometry_vectors_are_canonical_and_maximally_overlapping(
+        self,
+    ) -> None:
+        vectors = json.loads(
+            (Path(__file__).parent / "fixtures" / "media_geometry_vectors.json")
+            .read_text(encoding="utf-8")
+        )
+        self.assertEqual(1, vectors["version"])
+        for vector in vectors["vectors"]:
+            with self.subTest(vector=vector["name"]):
+                before = json.dumps(vector, sort_keys=True)
+                source = (vector["source"]["width"], vector["source"]["height"])
+                destinations = [
+                    (destination["width"], destination["height"])
+                    for destination in vector["destinations"]
+                ]
+                resolved = media_composition.resolve_source_geometry(
+                    source,
+                    destinations,
+                    vector["transform"],
+                )
+                self.assertEqual(vector["expected"], resolved.to_dict())
+                self.assertEqual(before, json.dumps(vector, sort_keys=True))
+                for destination, box in zip(
+                    vector["destinations"],
+                    resolved.boxes,
+                    strict=True,
+                ):
+                    overlap_x = max(
+                        0,
+                        min(destination["width"], box.left + box.rendered_width)
+                        - max(0, box.left),
+                    )
+                    overlap_y = max(
+                        0,
+                        min(destination["height"], box.top + box.rendered_height)
+                        - max(0, box.top),
+                    )
+                    self.assertEqual(
+                        min(destination["width"], box.rendered_width),
+                        overlap_x,
+                    )
+                    self.assertEqual(
+                        min(destination["height"], box.rendered_height),
+                        overlap_y,
+                    )
+
+        move_zoom = vectors["move_zoom"]
+        self.assertEqual(
+            move_zoom["expected_transforms"],
+            media_composition.interpolate_move_zoom(
+                move_zoom["effect"],
+                source_size=(
+                    move_zoom["source"]["width"],
+                    move_zoom["source"]["height"],
+                ),
+                destination_sizes=[
+                    (destination["width"], destination["height"])
+                    for destination in move_zoom["destinations"]
+                ],
+            ),
+        )
+
+    def test_same_size_40x5_pan_cannot_render_off_canvas(self) -> None:
+        from PIL import Image
+
+        source = Image.new("RGB", (40, 5), (255, 0, 0))
+        rendered = media_composition.render_source_frame(
+            source,
+            (40, 5),
+            self._transform(offset_x=8.0, offset_y=-8.0),
+        )
+        pixels = (
+            rendered.get_flattened_data()
+            if hasattr(rendered, "get_flattened_data")
+            else rendered.getdata()
+        )
+        self.assertEqual([(255, 0, 0)] * 200, list(pixels))
 
 
 class LocalAnimationEffectTests(unittest.TestCase):

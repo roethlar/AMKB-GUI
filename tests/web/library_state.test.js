@@ -69,10 +69,15 @@ test("a banked media draft stays immutable across render epochs", () => {
   const ready = reduceMediaDraft(rendering, {
     type: "RENDER_SUCCEEDED",
     epoch: 4,
+    transform: transform({offset_x: 0.25}),
+    effects: [],
+    resolvedTransforms: [],
     mappedResult: {tracks: {axial: {frame_count: 1, frames: [["#000000"]]}}},
   });
   assert.equal(ready.status, "ready");
   assert.equal(mediaDraftCanApply(ready), true);
+  assert.deepEqual(ready.transform, transform({offset_x: 0.25}));
+  assert.deepEqual(ready.resolvedTransforms, []);
   assert.equal(JSON.stringify(ready.source), before);
 });
 
@@ -128,6 +133,9 @@ test("transform and effect changes invalidate an accepted preview", () => {
   draft = reduceMediaDraft(draft, {
     type: "RENDER_SUCCEEDED",
     epoch: 1,
+    transform: transform(),
+    effects: [],
+    resolvedTransforms: [],
     mappedResult: {tracks: {frames: {frame_count: 1, frames: [["#000000"]]}}},
   });
   assert.equal(mediaDraftCanApply(draft), true);
@@ -149,6 +157,55 @@ test("transform and effect changes invalidate an accepted preview", () => {
   });
   assert.equal(effected.effects.length, 1);
   assert.equal(mediaDraftCanApply(effected), false);
+});
+
+test("a render result atomically adopts canonical Move & zoom state", () => {
+  let draft = createMediaDraft({
+    catalogId: "item:11111111-1111-4111-8111-111111111111",
+    source: {
+      asset_id: "22222222-2222-4222-8222-222222222222",
+      mime_type: "image/png",
+      width: 40,
+      height: 5,
+      frame_count: 1,
+      duration_ms: 0,
+    },
+    destination: {
+      productId: "CB04",
+      target: "frames",
+      targets: ["frames"],
+      width: 40,
+      height: 5,
+    },
+    transform: transform({offset_x: 8}),
+  });
+  const effect = {
+    version: 1,
+    type: "move_zoom",
+    frame_count: 2,
+    duration_ms: 90,
+    parameters: {
+      start_transform: transform(),
+      end_transform: transform({offset_x: 8, scale_x: 2, scale_y: 2}),
+    },
+  };
+  const resolvedTransforms = [
+    transform(),
+    transform({offset_x: 0.5, scale_x: 2, scale_y: 2}),
+  ];
+  draft = reduceMediaDraft(draft, {type: "RENDER_REQUESTED", epoch: 7});
+  draft = reduceMediaDraft(draft, {
+    type: "RENDER_SUCCEEDED",
+    epoch: 7,
+    transform: transform(),
+    effects: [effect],
+    resolvedTransforms,
+    mappedResult: {tracks: {frames: {frame_count: 2, frames: [[], []]}}},
+  });
+  assert.deepEqual(draft.transform, transform());
+  assert.deepEqual(draft.effects, [effect]);
+  assert.deepEqual(draft.resolvedTransforms, resolvedTransforms);
+  assert.equal(Object.isFrozen(draft.resolvedTransforms), true);
 });
 
 test("render epochs are process-safe and strictly increase across reopened drafts", () => {

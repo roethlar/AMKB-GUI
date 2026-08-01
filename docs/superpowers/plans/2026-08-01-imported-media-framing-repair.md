@@ -1,8 +1,8 @@
 # Imported Media Framing Repair
 
-**Status:** Drafted on 2026-08-01 after release candidate attempt 2 failed
-R65-5. Owner approval is required before any shipped code or test changes begin.
-No implementation slice in this plan is currently authorized.
+**Status:** Owner-approved on 2026-08-01 after release candidate attempt 2
+failed R65-5. IMF-1 is implemented and locally verified; its required one-time
+review and push are pending. IMF-2 and IMF-3 remain sequential follow-up work.
 
 ## Objective
 
@@ -221,6 +221,25 @@ Requirements:
    offset within the version-1 schema range of ±8.
 8. Prove that every canonical box has maximum possible overlap and that the
    rejected 40x5 pan becomes zero rather than an almost-black output.
+
+Implementation record, 2026-08-01:
+
+- The shared JSON corpus covers the required 40x5, extreme-ratio,
+  independent-axis, minimum/maximum-scale, odd-raster, multi-target, scale-32,
+  and Move & zoom cases. Before the implementation, Python and Node both
+  lacked the shared resolver and the rejected 40x5 transform rendered all 200
+  output pixels black. After the implementation, both runtimes match every
+  vector exactly and the same render retains all 200 red source pixels.
+- The endpoint non-vacuity check failed when its response was temporarily put
+  back on the old unchecked-transform behavior, then passed after restoring
+  the backend canonical transform and resolved Move & zoom array.
+- Focused verification passed 171 Python tests with one expected platform
+  skip, six compositor tests, and both required JavaScript syntax checks.
+- The complete CI-equivalent local gate passed 664 Python tests with five
+  expected platform skips, 129 web tests, all compile/syntax checks, and both
+  `0.1.65` source and wheel builds. No dependency, lockfile, FFmpeg/libav,
+  provider, hardware, tag, Release, security-setting, or announcement path
+  changed or ran.
 
 Focused verification:
 

@@ -739,6 +739,20 @@ def validate_gif_targets(
     return model, requested
 
 
+def media_target_sizes(
+    product_id: str,
+    targets: Sequence[str],
+) -> tuple[str, list[str], tuple[tuple[int, int], ...]]:
+    """Resolve every requested imported-media destination raster."""
+
+    model, requested = validate_gif_targets(product_id, targets)
+    return (
+        model,
+        requested,
+        tuple(tuple(_LAYOUTS[model][target]["size"]) for target in requested),
+    )
+
+
 def firmware_led_speed(duration_ms: int) -> int:
     """Return the nearest timing step exposed by the firmware."""
 
@@ -927,6 +941,7 @@ def compose_media_frames_to_led_tracks(
 
     from .media_composition import (
         MAX_MEDIA_FRAMES,
+        canonicalize_source_transform,
         render_source_frame,
         validate_source_transform,
     )
@@ -934,7 +949,7 @@ def compose_media_frames_to_led_tracks(
     if work_check is not None:
         work_check()
     checked = validate_source_transform(transform)
-    model, requested = validate_gif_targets(product_id, targets)
+    model, requested, destination_sizes = media_target_sizes(product_id, targets)
     frame_limit = family_spec(model).frame_cap
     frames = list(images)
     if not frames:
@@ -942,6 +957,14 @@ def compose_media_frames_to_led_tracks(
     if len(frames) > MAX_MEDIA_FRAMES:
         raise ValueError("The imported media frame limit was exceeded.")
     raw_durations = list(durations_ms)[:MAX_MEDIA_FRAMES]
+    source_sizes = {tuple(frame.size) for frame in frames}
+    if len(source_sizes) != 1:
+        raise ValueError("Imported media frames must share one source size.")
+    checked = canonicalize_source_transform(
+        checked,
+        next(iter(source_sizes)),
+        destination_sizes,
+    )
 
     if (
         checked.offset_x == 0.0
@@ -1035,6 +1058,83 @@ def compose_media_frames_to_led_tracks(
         "timing_resampled": timing_resampled,
         "model": model,
     }
+
+
+def compose_media_transform_sequence_to_led_tracks(
+    image: Any,
+    durations_ms: Sequence[int],
+    targets: list[str] | tuple[str, ...],
+    transforms: Sequence[Mapping[str, object]],
+    product_id: str = "CB_XX",
+    *,
+    work_check: Callable[[], None] | None = None,
+    progress: Callable[[int, int], None] | None = None,
+) -> dict[str, Any]:
+    """Render one still through canonical transforms and map every target."""
+
+    from .media_composition import (
+        canonicalize_source_transform,
+        render_source_frame,
+        validate_source_transform,
+    )
+
+    if work_check is not None:
+        work_check()
+    model, requested, destination_sizes = media_target_sizes(product_id, targets)
+    frame_limit = family_spec(model).frame_cap
+    raw_transforms = list(transforms)
+    if not raw_transforms or len(raw_transforms) > frame_limit:
+        raise ValueError("The imported media transform frame limit was exceeded.")
+    source_size = tuple(image.size)
+    checked = [
+        canonicalize_source_transform(
+            validate_source_transform(transform),
+            source_size,
+            destination_sizes,
+        )
+        for transform in raw_transforms
+    ]
+    sampling = checked[0].sampling
+    if any(transform.sampling != sampling for transform in checked[1:]):
+        raise ValueError("Move & zoom transforms must share one sampling mode.")
+    durations = list(durations_ms)
+    if len(durations) != len(checked):
+        raise ValueError("Move & zoom timing must match its transform frames.")
+
+    groups: dict[tuple[int, int], list[str]] = {}
+    for target, size in zip(requested, destination_sizes, strict=True):
+        groups.setdefault(size, []).append(target)
+
+    combined: dict[str, Any] | None = None
+    for group_index, (size, group_targets) in enumerate(groups.items()):
+        if work_check is not None:
+            work_check()
+        rendered_frames = []
+        for transform in checked:
+            if work_check is not None:
+                work_check()
+            rendered_frames.append(render_source_frame(image, size, transform))
+        mapped = frames_to_led_tracks(
+            rendered_frames,
+            durations,
+            group_targets,
+            sampling,
+            product_id,
+            work_check=work_check,
+            progress=progress if group_index == 0 else None,
+            frame_limit=frame_limit,
+            source_frame_limit=frame_limit,
+        )
+        if combined is None:
+            combined = mapped
+        else:
+            combined["tracks"].update(mapped["tracks"])
+    assert combined is not None
+    combined["tracks"] = {
+        target: combined["tracks"][target]
+        for target in requested
+    }
+    return combined
 
 
 def validate_mapped_result(

@@ -10,6 +10,7 @@ const modulePath = path.join(
   "../../am_configurator/web/lighting_composer.js",
 );
 const {
+  resolveSourceGeometry,
   defaultSourceTransform,
   interpolateMoveZoom,
   normalizedPointer,
@@ -20,6 +21,11 @@ const {
   validateEffectSpec,
   validateSourceTransform,
 } = require(modulePath);
+
+const geometryVectors = JSON.parse(fs.readFileSync(path.join(
+  __dirname,
+  "../fixtures/media_geometry_vectors.json",
+), "utf8"));
 
 function transform(changes = {}) {
   return {
@@ -117,6 +123,67 @@ test("Fit, Fill, Center, pan, zoom, and stretch reduce to normalized transforms"
       aspect_locked: false,
       sampling: "nearest",
     }),
+  );
+
+  const sameSize = {width: 40, height: 5};
+  assert.deepEqual(
+    panSourceTransform(
+      transform({offset_x: 0.5, offset_y: -0.5}),
+      7.5,
+      -7.5,
+      sameSize,
+      [sameSize],
+    ),
+    transform(),
+  );
+  assert.deepEqual(
+    scaleSourceTransform(
+      transform({offset_x: 0.5, offset_y: -0.5, scale_x: 2, scale_y: 2}),
+      0.5,
+      "both",
+      sameSize,
+      [sameSize],
+    ),
+    transform(),
+  );
+});
+
+test("browser and backend share exact canonical geometry vectors", () => {
+  assert.equal(geometryVectors.version, 1);
+  for (const vector of geometryVectors.vectors) {
+    const before = JSON.stringify(vector);
+    const resolved = resolveSourceGeometry(
+      vector.source,
+      vector.destinations,
+      vector.transform,
+    );
+    assert.deepEqual(resolved, vector.expected, vector.name);
+    assert.equal(JSON.stringify(vector), before, vector.name);
+    vector.destinations.forEach((destination, index) => {
+      const box = resolved.boxes[index];
+      const overlapX = Math.max(
+        0,
+        Math.min(destination.width, box.left + box.rendered_width)
+          - Math.max(0, box.left),
+      );
+      const overlapY = Math.max(
+        0,
+        Math.min(destination.height, box.top + box.rendered_height)
+          - Math.max(0, box.top),
+      );
+      assert.equal(overlapX, Math.min(destination.width, box.rendered_width));
+      assert.equal(overlapY, Math.min(destination.height, box.rendered_height));
+    });
+  }
+
+  const moveZoom = geometryVectors.move_zoom;
+  assert.deepEqual(
+    interpolateMoveZoom(
+      moveZoom.effect,
+      moveZoom.source,
+      moveZoom.destinations,
+    ),
+    moveZoom.expected_transforms,
   );
 });
 

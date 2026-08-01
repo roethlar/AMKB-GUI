@@ -97,6 +97,44 @@ class SourceTransform:
         }
 
 
+@dataclass(frozen=True)
+class SourceRasterBox:
+    """Exact rendered source box for one destination raster."""
+
+    rendered_width: int
+    rendered_height: int
+    left: int
+    top: int
+
+    def to_dict(self) -> dict[str, int]:
+        return {
+            "rendered_width": self.rendered_width,
+            "rendered_height": self.rendered_height,
+            "left": self.left,
+            "top": self.top,
+        }
+
+
+@dataclass(frozen=True)
+class ResolvedSourceGeometry:
+    """One canonical transform and its immutable per-destination boxes."""
+
+    transform: SourceTransform
+    max_offset_x: float
+    max_offset_y: float
+    boxes: tuple[SourceRasterBox, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "transform": self.transform.to_dict(),
+            "limits": {
+                "max_x": self.max_offset_x,
+                "max_y": self.max_offset_y,
+            },
+            "boxes": [box.to_dict() for box in self.boxes],
+        }
+
+
 class MediaRenderSuperseded(RuntimeError):
     """A newer editor epoch replaced this transient render."""
 
@@ -422,6 +460,137 @@ def validate_source_transform(value: object) -> SourceTransform:
         sampling=sampling,
         background=background.upper(),
     )
+
+
+def _validated_geometry_size(
+    value: object,
+    label: str,
+) -> tuple[int, int]:
+    if (
+        not isinstance(value, (list, tuple))
+        or len(value) != 2
+        or any(type(dimension) is not int or dimension <= 0 for dimension in value)
+    ):
+        raise ValueError(f"{label} size is invalid.")
+    return int(value[0]), int(value[1])
+
+
+def _round_geometry(value: float) -> int:
+    """Apply the framing contract's explicit floor(value + 0.5) rule."""
+
+    return math.floor(value + 0.5)
+
+
+def resolve_source_geometry(
+    source_size: tuple[int, int] | list[int],
+    destination_sizes: Sequence[tuple[int, int] | list[int]],
+    transform: SourceTransform | Mapping[str, object],
+) -> ResolvedSourceGeometry:
+    """Resolve one maximum-overlap transform across every destination."""
+
+    source_width, source_height = _validated_geometry_size(
+        source_size,
+        "Source",
+    )
+    if (
+        not isinstance(destination_sizes, Sequence)
+        or isinstance(destination_sizes, (str, bytes))
+        or not destination_sizes
+    ):
+        raise ValueError("At least one destination size is required.")
+    destinations = tuple(
+        _validated_geometry_size(size, f"Destination {index}")
+        for index, size in enumerate(destination_sizes, 1)
+    )
+    checked = (
+        transform
+        if isinstance(transform, SourceTransform)
+        else validate_source_transform(transform)
+    )
+
+    dimensions: list[tuple[int, int]] = []
+    limits: list[tuple[float, float]] = []
+    for destination_width, destination_height in destinations:
+        base_scale = max(
+            destination_width / source_width,
+            destination_height / source_height,
+        )
+        rendered_width = max(
+            1,
+            _round_geometry(source_width * base_scale * checked.scale_x),
+        )
+        rendered_height = max(
+            1,
+            _round_geometry(source_height * base_scale * checked.scale_y),
+        )
+        dimensions.append((rendered_width, rendered_height))
+        limits.append(
+            (
+                min(
+                    MAX_TRANSFORM_OFFSET,
+                    abs(rendered_width - destination_width)
+                    / (2 * destination_width),
+                ),
+                min(
+                    MAX_TRANSFORM_OFFSET,
+                    abs(rendered_height - destination_height)
+                    / (2 * destination_height),
+                ),
+            )
+        )
+
+    max_offset_x = min(limit[0] for limit in limits)
+    max_offset_y = min(limit[1] for limit in limits)
+    offset_x = min(max_offset_x, max(-max_offset_x, checked.offset_x))
+    offset_y = min(max_offset_y, max(-max_offset_y, checked.offset_y))
+    canonical = SourceTransform(
+        version=checked.version,
+        offset_x=0.0 if offset_x == 0.0 else offset_x,
+        offset_y=0.0 if offset_y == 0.0 else offset_y,
+        scale_x=checked.scale_x,
+        scale_y=checked.scale_y,
+        aspect_locked=checked.aspect_locked,
+        sampling=checked.sampling,
+        background=checked.background,
+    )
+    boxes = tuple(
+        SourceRasterBox(
+            rendered_width=rendered_width,
+            rendered_height=rendered_height,
+            left=_round_geometry(
+                (destination_width - rendered_width) / 2
+                + canonical.offset_x * destination_width
+            ),
+            top=_round_geometry(
+                (destination_height - rendered_height) / 2
+                + canonical.offset_y * destination_height
+            ),
+        )
+        for (
+            (destination_width, destination_height),
+            (rendered_width, rendered_height),
+        ) in zip(destinations, dimensions, strict=True)
+    )
+    return ResolvedSourceGeometry(
+        transform=canonical,
+        max_offset_x=max_offset_x,
+        max_offset_y=max_offset_y,
+        boxes=boxes,
+    )
+
+
+def canonicalize_source_transform(
+    transform: SourceTransform | Mapping[str, object],
+    source_size: tuple[int, int] | list[int],
+    destination_sizes: Sequence[tuple[int, int] | list[int]],
+) -> SourceTransform:
+    """Return the geometry-safe copy of a valid version-1 transform."""
+
+    return resolve_source_geometry(
+        source_size,
+        destination_sizes,
+        transform,
+    ).transform
 
 
 def _bounded_number(
@@ -842,7 +1011,12 @@ def render_color_effect(
     return output
 
 
-def interpolate_move_zoom(effect: object) -> list[dict[str, object]]:
+def interpolate_move_zoom(
+    effect: object,
+    *,
+    source_size: tuple[int, int] | list[int] | None = None,
+    destination_sizes: Sequence[tuple[int, int] | list[int]] | None = None,
+) -> list[dict[str, object]]:
     """Expand a validated Move & zoom effect into exact transform keyframes."""
 
     raw_frame_count = (
@@ -868,25 +1042,34 @@ def interpolate_move_zoom(effect: object) -> list[dict[str, object]]:
     result: list[dict[str, object]] = []
     for index in range(frame_count):
         progress = index / (frame_count - 1)
-        result.append(
-            validate_source_transform(
-                {
-                    **start,
-                    "offset_x": float(start["offset_x"])
-                    + (float(end["offset_x"]) - float(start["offset_x"]))
-                    * progress,
-                    "offset_y": float(start["offset_y"])
-                    + (float(end["offset_y"]) - float(start["offset_y"]))
-                    * progress,
-                    "scale_x": float(start["scale_x"])
-                    + (float(end["scale_x"]) - float(start["scale_x"]))
-                    * progress,
-                    "scale_y": float(start["scale_y"])
-                    + (float(end["scale_y"]) - float(start["scale_y"]))
-                    * progress,
-                }
-            ).to_dict()
+        interpolated = validate_source_transform(
+            {
+                **start,
+                "offset_x": float(start["offset_x"])
+                + (float(end["offset_x"]) - float(start["offset_x"]))
+                * progress,
+                "offset_y": float(start["offset_y"])
+                + (float(end["offset_y"]) - float(start["offset_y"]))
+                * progress,
+                "scale_x": float(start["scale_x"])
+                + (float(end["scale_x"]) - float(start["scale_x"]))
+                * progress,
+                "scale_y": float(start["scale_y"])
+                + (float(end["scale_y"]) - float(start["scale_y"]))
+                * progress,
+            }
         )
+        if (source_size is None) != (destination_sizes is None):
+            raise ValueError(
+                "Move & zoom geometry requires source and destination sizes."
+            )
+        if source_size is not None and destination_sizes is not None:
+            interpolated = canonicalize_source_transform(
+                interpolated,
+                source_size,
+                destination_sizes,
+            )
+        result.append(interpolated.to_dict())
     return result
 
 
@@ -951,6 +1134,12 @@ def render_source_frame(
     if width * height > MAX_RENDER_PIXELS:
         raise ValueError("The selected lighting area is too large to render.")
     source = _composite_background(frame, checked.background)
+    geometry = resolve_source_geometry(
+        (source.width, source.height),
+        [destination_size],
+        checked,
+    )
+    checked = geometry.transform
     if (
         checked.offset_x == 0.0
         and checked.offset_y == 0.0
@@ -959,9 +1148,9 @@ def render_source_frame(
     ):
         return _legacy_center_crop(source, destination_size, checked.sampling)
 
-    base_scale = max(width / source.width, height / source.height)
-    rendered_width = max(1, round(source.width * base_scale * checked.scale_x))
-    rendered_height = max(1, round(source.height * base_scale * checked.scale_y))
+    box = geometry.boxes[0]
+    rendered_width = box.rendered_width
+    rendered_height = box.rendered_height
     if rendered_width * rendered_height > MAX_RENDER_PIXELS:
         raise ValueError("Zoom out: this framing is too large to render.")
     rendered = source
@@ -974,9 +1163,7 @@ def render_source_frame(
         int(checked.background[index : index + 2], 16) for index in (1, 3, 5)
     )
     output = Image.new("RGB", destination_size, background)
-    left = round((width - rendered_width) / 2 + checked.offset_x * width)
-    top = round((height - rendered_height) / 2 + checked.offset_y * height)
-    output.paste(rendered, (left, top))
+    output.paste(rendered, (box.left, box.top))
     return output
 
 
@@ -1107,6 +1294,15 @@ class MediaRenderCoordinator:
             frame_limit = device_mapping.family_spec(
                 device_mapping.led_model(product_id)
             ).frame_cap
+            _model, resolved_targets, destination_sizes = (
+                device_mapping.media_target_sizes(product_id, targets)
+            )
+            source_size = (decoded.width, decoded.height)
+            canonical_transform = canonicalize_source_transform(
+                checked_transform,
+                source_size,
+                destination_sizes,
+            )
             checked_effects = [
                 validate_effect_spec(
                     effect,
@@ -1129,37 +1325,26 @@ class MediaRenderCoordinator:
                     raise ValueError(
                         "Move & zoom must be the first media composition effect."
                     )
-                transforms = interpolate_move_zoom(move_effects[0])
-                raster, resolved_targets = device_mapping.generation_spec(
-                    product_id,
-                    list(targets),
-                    len(transforms),
+                transforms = interpolate_move_zoom(
+                    move_effects[0],
+                    source_size=source_size,
+                    destination_sizes=destination_sizes,
                 )
-                rendered_frames = [
-                    render_source_frame(
-                        decoded.frames[0],
-                        (raster.width, raster.height),
-                        frame_transform,
-                    )
-                    for frame_transform in transforms
-                ]
-                mapped = device_mapping.frames_to_led_tracks(
-                    rendered_frames,
-                    [int(move_effects[0]["duration_ms"])] * len(rendered_frames),
+                mapped = device_mapping.compose_media_transform_sequence_to_led_tracks(
+                    decoded.frames[0],
+                    [int(move_effects[0]["duration_ms"])] * len(transforms),
                     resolved_targets,
-                    "nearest",
+                    transforms,
                     product_id,
                     work_check=check,
                     progress=progress,
-                    frame_limit=frame_limit,
-                    source_frame_limit=frame_limit,
                 )
             else:
                 mapped = device_mapping.compose_media_frames_to_led_tracks(
                     decoded.frames,
                     decoded.durations_ms,
-                    list(targets),
-                    checked_transform.to_dict(),
+                    resolved_targets,
+                    canonical_transform.to_dict(),
                     product_id,
                     work_check=check,
                     progress=progress,
@@ -1216,8 +1401,9 @@ class MediaRenderCoordinator:
             return {
                 "catalog_id": catalog_id,
                 "epoch": epoch,
-                "transform": checked_transform.to_dict(),
+                "transform": canonical_transform.to_dict(),
                 "effects": checked_effects,
+                "resolved_transforms": transforms if move_effects else [],
                 "mapped_result": mapped,
             }
         finally:
@@ -1233,11 +1419,15 @@ __all__ = [
     "MAX_MEDIA_FRAMES",
     "MediaRenderCoordinator",
     "MediaRenderSuperseded",
+    "ResolvedSourceGeometry",
+    "SourceRasterBox",
     "SourceTransform",
+    "canonicalize_source_transform",
     "decode_media",
     "interpolate_move_zoom",
     "render_color_effect",
     "render_source_frame",
+    "resolve_source_geometry",
     "validate_effect_spec",
     "validate_source_transform",
 ]
