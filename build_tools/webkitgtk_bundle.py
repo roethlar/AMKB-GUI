@@ -8,7 +8,8 @@ import re
 import shutil
 
 
-_RELOCATED_RUNTIME = b"/proc/self/cwd/wk"
+# Ubuntu WebKitGTK prefixes this value with /usr; /../ also resolves directly.
+_RELOCATED_RUNTIME = b"/../proc/self/cwd/wk"
 _REQUIRED_PROCESSES = (
     "WebKitWebProcess",
     "WebKitNetworkProcess",

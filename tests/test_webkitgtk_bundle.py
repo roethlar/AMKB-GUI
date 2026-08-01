@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import posixpath
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -38,8 +39,20 @@ class WebKitGtkBundleTests(unittest.TestCase):
 
             patched = workpath / "webkitgtk-relocated" / library.name
             patched_bytes = patched.read_bytes()
-            self.assertIn(b"/proc/self/cwd/wk\0", patched_bytes)
-            self.assertIn(b"/proc/self/cwd/wk/injected-bundle/\0", patched_bytes)
+            relocated_runtime = "/../proc/self/cwd/wk"
+            self.assertEqual(
+                "/proc/self/cwd/wk",
+                posixpath.normpath(relocated_runtime),
+            )
+            self.assertEqual(
+                "/proc/self/cwd/wk",
+                posixpath.normpath("/usr" + relocated_runtime),
+            )
+            self.assertIn(relocated_runtime.encode() + b"\0", patched_bytes)
+            self.assertIn(
+                relocated_runtime.encode() + b"/injected-bundle/\0",
+                patched_bytes,
+            )
             self.assertNotIn(old_base, patched_bytes)
             self.assertIn((str(patched), "."), bundled)
             self.assertNotIn((str(library), "."), bundled)
