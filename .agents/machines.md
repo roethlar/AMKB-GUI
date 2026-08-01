@@ -80,11 +80,13 @@ _Last verified over SSH: 2026-07-31._
 
 ## nagatha (macOS arm64)
 
-_Last verified over SSH: 2026-07-31. The owner was the active console user and
+_Last verified over SSH: 2026-08-01. The owner was the active console user and
 was RDP-connected from this host to the current `netwatch-01` session._
 
-- Reachable as `michael@10.1.10.41`; hostname `nagatha.local`, macOS 26.6,
-  Darwin 25.6.0, arm64. Gatekeeper assessments are enabled.
+- Reachable as `michael@10.1.10.247`; hostname `nagatha.local`, macOS 26.6,
+  Darwin 25.6.0, arm64. Its Ed25519 host key matches the trusted former
+  `10.1.10.41` entry; `HostKeyAlias=10.1.10.41` verifies that identity without
+  accepting a different key. Gatekeeper assessments are enabled.
 - Exact-artifact qualification tools are available: `hdiutil`, `codesign`,
   `spctl`, `xattr`, `shasum`, `curl`, `file`, `open`, and `ditto`. The temporary
   directory is writable and the data volume had about 273 GB free.

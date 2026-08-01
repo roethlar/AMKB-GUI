@@ -1,12 +1,14 @@
 # AM Configurator 0.1.65 Public Release
 
 **Status:** Owner-approved on 2026-07-31. Candidate attempt 1 at `2685a98` was
-rejected during R65-3 on 2026-08-01 because the exact Linux AppImage bundled
-FFmpeg implementation code through Qt WebEngine/Multimedia. No candidate is
-active. Approval authorizes the pre-publication preparation, read-only
-qualification, and ordinary canonical `origin` pushes described below. Live
-provider requests, macOS Open Anyway, hardware writes, tag or GitHub Release
-creation, and announcement posting remain separate action-time gates.
+rejected during R65-3 because its Linux AppImage bundled FFmpeg implementation
+code. Candidate attempt 2 at `c2f6fce` passed R65-3 and R65-4, then was rejected
+during R65-5 on 2026-08-01 because imported-media framing could change without
+visible feedback and render almost entirely off canvas. No candidate is active.
+Repair implementation requires separate owner approval of
+`2026-08-01-imported-media-framing-repair.md`. Live provider requests, macOS
+Open Anyway, hardware writes, tag or GitHub Release creation, and announcement
+posting remain separate action-time gates.
 
 ## Objective
 
@@ -33,6 +35,9 @@ qualification.
   P6 implementation and exact-artifact prerequisite evidence at `4a3c6eb`.
 - `docs/superpowers/plans/2026-07-30-ffmpeg-removal-and-dependency-audit.md`
   owns dependency and retired-runtime absence proof.
+- `docs/superpowers/plans/2026-08-01-imported-media-framing-repair.md` records
+  the candidate-attempt-2 defect and proposed correction. Its status controls
+  whether repair implementation is authorized.
 - `docs/neon-80-hardware-verification.md` owns historical physical Neon 80
   evidence. A new exact-candidate result appends to it; it never rewrites the
   historical N10 record.
@@ -51,11 +56,12 @@ Re-verify these facts at execution time.
 - Canonical source version is `0.1.65` in
   `am_configurator/_version.py`.
 - Canonical `origin/main` is
-  `0c91a6d62485cf8e49efad70f7188a3d37f18de6`. Local `main` contains this
-  unpushed draft and is ahead of that baseline; reconcile the exact refs at
+  `c2f6fcedb98e33d7406eace3c3af4ed53d59ffb7`; local `main` matched it when
+  candidate attempt 2 was rejected. Reconcile the exact refs again at
   execution time.
-- CI run `30667102177` and Desktop installers run `30667101983` passed for
-  `0c91a6d` after the P6 qualification record landed.
+- CI run `30687960889` and Desktop installers run `30687960898` attempt 1
+  passed for `c2f6fce`. Their artifacts belong to rejected candidate attempt 2
+  and must not be published.
 - P6 implementation commit `4a3c6ebadcc5d0fc1730c06b853af8e28c686ca5`
   passed exact-head CI and three-platform artifact qualification. That proves
   the release pipeline and product implementation, but it is not the final
@@ -447,6 +453,38 @@ Any mismatch rejects the candidate. Do not create a tag or Release.
   Gatekeeper or SmartScreen observation, Open Anyway action, UI/privacy gate,
   hardware write, live provider request, tag, Release, or announcement
   occurred.
+
+#### Candidate attempt 2 — rejected 2026-08-01
+
+- R65-2 froze `c2f6fcedb98e33d7406eace3c3af4ed53d59ffb7` after the
+  Linux GTK/WebKitGTK correction and exact-head preflights passed. Exact push
+  runs `30687960889` (CI) and `30687960898` attempt 1 (Desktop) passed every
+  required job.
+- R65-3 passed. The exact Linux, Windows, and macOS installer SHA-256 values
+  were respectively
+  `a70dd68f59dcbdf528af4cb773cfbba22b9bc4e051be64af76b541d4ad5ff11b`,
+  `49d8a5c503addf996c23cea8a49036327f9d86a9c8e13fdc16e486e3f59843a1`,
+  and `60eb58fc3bc321fa66ad163e600bf5c2febd21ff10c2219ebc8625c49661c773`.
+  The five-file set, regenerated metadata, sizes, hashes, file magic,
+  attestations, structural native audits, notices/licenses, and Linux udev
+  checks passed. The artifacts expire on 2026-08-31.
+- R65-4 passed for the exact Windows x64, macOS arm64, and Linux x86-64
+  artifacts, including the required native smoke and platform trust-state
+  observations. Those results remain evidence for the rejected bytes only and
+  must be repeated for a replacement candidate.
+- R65-5 failed while framing a 40x5 imported animation for the CyberBoard 40x5
+  display. Pointer dragging showed no source movement but changed hidden pan
+  state; later keyboard panning and Preview rendered the source almost entirely
+  black/off canvas. The owner explicitly rejected the behavior.
+- R65-6 through R65-9 did not begin. Apply was not used, no keyboard write or
+  provider request occurred, and no tag, Release, or announcement was created.
+  The macOS application was closed, its DMG was ejected, and the controlled
+  downloaded/test data was removed. GitHub Actions remains the recovery source
+  until artifact expiry.
+- The proposed correction is isolated in
+  `2026-08-01-imported-media-framing-repair.md`. Candidate qualification may
+  restart only after that plan is owner-approved, implemented, verified,
+  reviewed, and pushed.
 
 ### Slice R65-4 — Exact-artifact platform qualification
 

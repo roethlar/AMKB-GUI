@@ -2,6 +2,20 @@
 
 ## Now
 
+- Public-release candidate attempt 2 at
+  `c2f6fcedb98e33d7406eace3c3af4ed53d59ffb7` is rejected. Exact CI run
+  `30687960889` and Desktop run `30687960898` attempt 1 passed; R65-3 and R65-4
+  passed for their three-platform bytes. R65-5 then failed because imported
+  media could be panned with no visible feedback and Preview could render it
+  almost entirely off canvas. No candidate is active. Canonical evidence and
+  artifact hashes are in the current public-release plan.
+- The failed R65-5 check did not Apply, change a document or Library lighting
+  item, write hardware, use a provider, create a tag/Release, or post an
+  announcement. The macOS app/DMG and controlled local test data were cleaned
+  up; GitHub Actions retains the rejected artifacts through 2026-08-31.
+- The proposed Windows-first correction is recorded in
+  `docs/superpowers/plans/2026-08-01-imported-media-framing-repair.md`. It has
+  not been owner-approved, so no shipped code or test change is authorized.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
   prohibited in every runtime/build/package path, and dependencies without a
@@ -25,11 +39,8 @@
   vendor-library strings. Those private artifacts remain verification-only and
   must not be published.
 - Public-release qualification is stopped. The unpublished `0.1.64` candidate
-  was rejected after product inspection found three release-blocking classes:
-  Ollama Cloud inventory was deliberately hidden, one Ollama Generate action
-  could run three complete model requests before failing, and normal UI/README
-  paths exposed implementation-led language and controls instead of a clear
-  gamer-facing product.
+  and both unpublished `0.1.65` candidate attempts remain permanently rejected;
+  none may be reused or published.
 - Approved release work remains historical context in
   `docs/superpowers/plans/2026-07-28-public-release.md`; it must not resume
   against the existing candidate. No tag, Release, announcement, macOS Open
@@ -117,43 +128,24 @@
 ## Next
 
 - The approved `0.1.65` release plan is recorded at
-  `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`. R65-0 and R65-1
-  are complete: fresh release notes, an explicitly unposted Reddit draft, and a
-  red-proven current-packet guard pass with the full 647-Python/127-web gate.
-  R65-G1 host, operator, restore-source, and action-path readiness completed on
-  2026-08-01. Use this local `netwatch-01`
-  session for Windows x64, `win-arm-vm` for the independent default-SmartScreen
-  observation, `nagatha` for macOS, and `gabrielle` for Linux. The pre-release
-  x64 SmartScreen warning/More info/Run anyway/install/launch path passed on the
-  VM with Internet-zone metadata preserved; the final exact candidate must
-  repeat it. A directly connected Neon passed the non-writing production
-  identity/read/export path: `NEON80`, definition `AM Neon 80`, Vial protocol 5,
-  four 90-key layers, four populated macros within the device-reported 16-slot
-  capacity. The valid private export's keymap/macros match the complete desired
-  profile on `nagatha`; that profile contains the LED restore tracks and matches
-  the documented recovery hash. Private paths, hashes, macros, firmware UID,
-  and configuration bytes remain outside the repository. The simultaneously
-  connected AFA A2 was not opened, and no keyboard write occurred. Candidate
-  attempt 1 froze `2685a9832e0982d8b52ea45a4becd8a75eb48d01`; exact CI run
-  `30683516281` and Desktop run `30683516302` attempt 1 passed, and the
-  five-file metadata/provenance checks passed. R65-3 then rejected the complete
-  candidate because its extracted Linux Qt WebEngine/Multimedia libraries
-  contain FFmpeg decoder/demuxer implementation code. No candidate is active.
-  Corrective slice LXF-1 is complete: the transitive Qt media runtime is gone,
-  the standalone GTK/WebKitGTK AppImage passes exact-head CI, provenance,
-  independent extraction/audit, native-policy, bundled-helper, license, and
-  udev checks, and no physical keyboard test occurred. Canonical evidence is in
-  `docs/superpowers/plans/2026-08-01-linux-transitive-ffmpeg-removal.md`.
-  No approved implementation work remains. The next action is public-release
-  Slice R65-2: audit the resulting clean `main`, run maintained-host native
-  preflights, push normally, and freeze a completely new candidate SHA.
-  `.agents/machines.md` owns the Windows ARM exploratory-build evidence and its
-  explicit-native-Python requirement; ARM64 is not part of the `0.1.65` public
-  asset set.
-  One owner-requested `claude-fable-5` openreview judged the exact plan range
-  `best_approach` with no findings; `.agents/review/outcomes.md` records the
-  returned-envelope deviation and no-resubmission handling.
-  Tagging, release publication, hardware writes, live provider use, macOS Open
+  `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`. It records both
+  rejected candidates and remains paused before a new R65-2 freeze.
+- The next action is owner review and approval of
+  `docs/superpowers/plans/2026-08-01-imported-media-framing-repair.md`. Until
+  approval, only its documentation/review record may land; no implementation
+  slice may start.
+- After approval, execute IMF-1 through IMF-3 one commit at a time. Verify each
+  slice, run exactly one `fable-review` job with `claude-opus-5`, use the result
+  without formatting-based resubmission, and push normally. Functional source
+  and frozen WebView2 testing runs locally on `netwatch-01` at 1000x680 and
+  1280x800 before exact-artifact WKWebView regression testing on `nagatha`.
+- After the repair and exact-head workflows pass, restart R65-2 on a clean
+  reconciled `main`. The replacement candidate must repeat all release gates;
+  attempt-2 platform evidence cannot be mixed with new bytes.
+- `.agents/machines.md` owns host details. `nagatha` is now
+  `michael@10.1.10.247`; `win-arm-vm` remains SmartScreen observation only and
+  Windows ARM64 remains outside the `0.1.65` public asset set.
+- Tagging, release publication, hardware writes, live provider use, macOS Open
   Anyway, and announcement remain separately gated actions.
 - Separately, the accepted `cl-2` review recorded a pre-existing read-only
   `get()` / `resolve_asset()` retired-job exposure as a candidate requiring an
@@ -161,6 +153,8 @@
 
 ## Blockers
 
-- No implementation blocker remains before R65-2. Live Ollama Cloud prompts,
-  keyboard writes, macOS Open Anyway, tag creation, release publication, and
-  announcements remain separately gated actions for their later slices.
+- Shipped repair work is blocked on explicit owner approval of the imported-
+  media framing repair plan. R65-2 is blocked until that repair is complete and
+  exact-head verification passes. Live provider requests, keyboard writes,
+  macOS Open Anyway, tag creation, release publication, and announcements
+  remain separately gated actions for their later slices.
