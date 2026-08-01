@@ -16,9 +16,8 @@
 - The proposed Windows-first correction is recorded in
   `docs/superpowers/plans/2026-08-01-imported-media-framing-repair.md`. It has
   not been owner-approved, so no shipped code or test change is authorized.
-- Active documentation review loop: `cl-7` and `cl-8` are verified; qualified
-  candidate `cl-9` is next for one-at-a-time intake. See
-  `.agents/review/index.md`.
+- Active documentation review loop: `cl-7` and `cl-8` are verified; admitted
+  `cl-9` is in progress. See `.agents/review/index.md`.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
   prohibited in every runtime/build/package path, and dependencies without a
@@ -145,9 +144,9 @@
 - After the repair and exact-head workflows pass, restart R65-2 on a clean
   reconciled `main`. The replacement candidate must repeat all release gates;
   attempt-2 platform evidence cannot be mixed with new bytes.
-- `.agents/machines.md` owns host details. `nagatha` is now
-  `michael@10.1.10.247`; `win-arm-vm` remains SmartScreen observation only and
-  Windows ARM64 remains outside the `0.1.65` public asset set.
+- `.agents/machines.md` owns all host details, including the current connection
+  information for `nagatha`. `win-arm-vm` remains SmartScreen observation only
+  and Windows ARM64 remains outside the `0.1.65` public asset set.
 - Tagging, release publication, hardware writes, live provider use, macOS Open
   Anyway, and announcement remain separately gated actions.
 - Separately, the accepted `cl-2` review recorded a pre-existing read-only
