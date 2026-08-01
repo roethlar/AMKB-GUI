@@ -1,12 +1,14 @@
 # Linux Transitive FFmpeg Removal
 
-**Status:** Approved by the owner on 2026-08-01. Initial implementation slice
-LXF-1 landed at `aea6b254ea1610ba9cd9d6b937d792ec802ab09b`; Linux qualification
-reopened it after the custom dynamic-GI hooks did not execute. The owner then
-clarified that incidental FFmpeg-name references in a required non-FFmpeg
-library are permitted, while every actual FFmpeg/libav implementation,
-library, package, plugin, and path remains prohibited. The corrective commit
-must be new; do not rewrite the initial landing.
+**Status:** Complete on 2026-08-01 at
+`289f76e17e475c19aae38d46f1e334981eecd563`. Initial implementation slice
+LXF-1 landed at `aea6b254ea1610ba9cd9d6b937d792ec802ab09b`; qualification then
+closed the dynamic-GI, standalone-helper, Ubuntu prerequisite, macOS path, and
+Ubuntu WebKit helper-relocation gaps in new commits without rewriting the
+initial landing. The owner clarified that incidental FFmpeg-name references
+in a required non-FFmpeg library are permitted, while every actual
+FFmpeg/libav implementation, library, package, plugin, and path remains
+prohibited.
 
 ## Objective
 
@@ -274,6 +276,47 @@ Require the exact implementation push's CI and Desktop workflows to pass on
 all maintained platforms. Download the exact Linux artifact, match its
 manifest, hash, and attestation, extract it independently, and rerun the audit.
 Do not rely only on the workflow step that produced it.
+
+## Completion record — 2026-08-01
+
+- The preserved rejected Qt tree fails the structural native audit with 1,750
+  findings, including decoder/demuxer implementation markers. The final GTK
+  tree and extracted AppImage pass the same audit; no path or implementation,
+  library, package, plugin, retired adapter, or retired fixture finding remains.
+- `b89dcb91b7a118ce95be20b2041e0c45e2273fc1` completed the standalone Linux
+  WebKitGTK bundle. Follow-up commits `0775f722bb6a85d048912a6bc59b02c26e72cd5a`
+  and `56eca76d171fda552d2b9f58892756f24f20f1e0` corrected the Ubuntu build
+  prerequisite and a canonical macOS temporary-path assertion.
+- Ubuntu 24.04 qualification reproduced the remaining abrupt WebKit failure:
+  WebKit prepended `/usr` to the relocated helper directory and attempted to
+  spawn `/usr/proc/self/cwd/wk/WebKitNetworkProcess`. The regression guard was
+  red with the direct `/proc` relocation and green after commit `289f76e`
+  made the fixed-length path normalize to `/proc/self/cwd/wk` both directly
+  and with the Ubuntu prefix.
+- The final local stop-on-error verification chain reached `uv build` and
+  produced both `0.1.65` distributions after the tests, compilation, and web
+  checks. PTK lost its return envelope after those final artifacts were
+  written; the focused WebKit bundle tests were independently green, and the
+  authoritative exact-head CI below passed the complete gate.
+- A fresh Ubuntu 24.04 user-namespace build of the final source tree passed the
+  PyInstaller-tree audit, real `gtkwebkit2` native-policy smoke, extracted
+  AppImage audit, packaged smoke, and `--print-udev-rule` check. No physical
+  keyboard was opened or written.
+- Exact-head CI run `30687684345` passed Windows, macOS, default Linux, and
+  Python 3.11 Linux. Desktop run `30687684350` passed all three installer jobs,
+  candidate metadata, and release provenance.
+- The downloaded workflow AppImage is 103,696,888 bytes with SHA-256
+  `d124eba855e6ef98d27afb464d1b1ead74a0e64272542d27d78b895162d775ca`.
+  Its manifest names source `289f76e17e475c19aae38d46f1e334981eecd563`
+  and run `30687684350`; the size, checksum file, and GitHub attestations match.
+- Independent extraction on `gabrielle` passed the native audit and carried
+  the project, upstream, GTK, Soup, and WebKitGTK notices/licenses plus the
+  udev rule. A real AppImage native-policy smoke observed both
+  `WebKitWebProcess` and `WebKitNetworkProcess` executing from the AppImage's
+  bundled `usr/lib/am-configurator/_internal/wk/` tree.
+- LXF-1 is closed. No candidate is active; the next release action is a fresh
+  public-release R65-2 freeze. Candidate attempt 1 remains permanently
+  rejected and must not be reused.
 
 ## Commit and release sequence
 

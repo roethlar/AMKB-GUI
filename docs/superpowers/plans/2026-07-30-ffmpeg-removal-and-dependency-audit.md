@@ -1,10 +1,11 @@
 # FFmpeg Removal and Dependency Ownership Audit
 
-**Status:** Slices R1-R6 landed on 2026-07-30 under the owner's implementation
-approval, but the cross-platform absence proof is reopened. An exact-candidate
-audit on 2026-08-01 found FFmpeg implementation code transitively bundled in
-the Linux Qt WebEngine/Multimedia libraries. The app-owned runtime and build
-removal remains landed; native-artifact completion is not established.
+**Status:** Complete. Slices R1-R6 landed on 2026-07-30 under the owner's
+implementation approval. An exact-candidate audit on 2026-08-01 reopened the
+cross-platform absence proof after finding FFmpeg implementation code in the
+Linux Qt WebEngine/Multimedia libraries; corrective plan
+`2026-08-01-linux-transitive-ffmpeg-removal.md` replaced that backend and
+re-established native-artifact completion on 2026-08-01.
 
 ## Authority and supersession
 
@@ -93,7 +94,7 @@ standard library rather than vendor SDKs or a web framework.
 | Inno Setup 6 | Windows installer compiler | keep, build-only |
 | `codesign`, `hdiutil`, `ditto` | macOS app/DMG packaging | keep, operating-system tools |
 | pinned `appimagetool` | Linux AppImage packaging | keep, build-only |
-| Linux X11/Qt runtime libraries | headless pywebview/Qt native smoke | keep |
+| Linux GTK/WebKitGTK headers and Xvfb | pywebview/GTK native build and policy smoke | keep, build/platform prerequisites |
 
 After FFmpeg removal, a normal Windows installer build requires Python 3.12,
 uv, the locked desktop/build extras, PyInstaller, and Inno Setup. It does not
@@ -528,12 +529,13 @@ the app-owned FFmpeg paths and named packages were gone, but did not search
 extracted third-party native-library strings and therefore could not prove the
 unconditional artifact claim.
 
-Do not close this plan's native-artifact criterion again until the Linux
-desktop backend/dependency graph no longer bundles FFmpeg code and an automated
-guard extracts the produced AppImage and detects this exact transitive case.
-The proposed corrective implementation is specified in
-`docs/superpowers/plans/2026-08-01-linux-transitive-ffmpeg-removal.md`; its draft
-status authorizes no code change.
+The corrective implementation and qualification are complete. Linux now uses
+GTK/WebKitGTK without the Qt WebEngine/Multimedia closure, and the automated
+guard audits both the PyInstaller tree and extracted AppImage for the exact
+transitive implementation case that reopened this proof. The canonical
+implementation, red/green, CI, artifact, attestation, license, and runtime
+evidence is recorded once in
+`docs/superpowers/plans/2026-08-01-linux-transitive-ffmpeg-removal.md`.
 
 ## Slice R6 — Close records and obsolete blockers
 

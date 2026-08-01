@@ -103,7 +103,7 @@ was RDP-connected from this host to the current `netwatch-01` session._
 
 ## gabrielle (Linux x86-64)
 
-_Last verified over SSH: 2026-07-31._
+_Last verified over SSH: 2026-08-01._
 
 - Reachable as `michael@gabrielle`; Arch Linux, kernel 7.1.5-arch1-1, x86-64.
   The home filesystem had about 1.7 TB free and the temporary directory is
@@ -112,12 +112,14 @@ _Last verified over SSH: 2026-07-31._
   26.5.0, GitHub CLI 2.96.0, `curl`, `file`, `sha256sum`, FUSE, and
   `fusermount3` 3.18.2. `uv` is not installed and is not needed for the planned
   exact-AppImage inspection.
-- The user has active local graphical sessions, although an ordinary SSH shell
-  has no `DISPLAY` or `WAYLAND_DISPLAY`. R65-4 requires command-line AppImage
-  inspection and the workflow's native smoke result, not a Linux GUI or
-  physical-keyboard test.
-- No repository checkout was found in the three known project locations. The
-  exact downloaded-artifact path does not require one.
+- An ordinary SSH shell has no `DISPLAY` or `WAYLAND_DISPLAY`. Unprivileged
+  user namespaces, subordinate IDs, `unshare`, and `bwrap` are available; a
+  disposable Ubuntu 24.04 rootfs can run Xvfb and the exact AppImage without
+  changing host packages. This path passed the real GTK/WebKit native-policy
+  smoke and exposed helper executable origins for inspection.
+- Qualification checkouts and Ubuntu rootfs paths are transient and are not
+  durable machine facts. Exact downloaded-artifact checks must create or
+  verify their own isolated working root; no physical-keyboard test is needed.
 
 ## michael-mac additions
 

@@ -13,11 +13,12 @@
   removal is landed. Procedural generation is the only AI generation path;
   historical video execution/recovery and the obsolete app-owned media
   runtime, build/package machinery, CI toolchains, fixtures, and tests are
-  gone. The plan's native-artifact completion claim is reopened: exact `0.1.65`
-  Linux AppImage inspection on 2026-08-01 found FFmpeg code transitively
-  bundled by Qt WebEngine/Multimedia. Existing dependency guards prove named
-  packages and source paths only; they do not cover third-party native-library
-  strings. Legacy video manifests remain unsupported and untouched.
+  gone. The native-artifact criterion was reopened when exact `0.1.65` Linux
+  extraction found FFmpeg code in Qt WebEngine/Multimedia, then re-established
+  by the completed LXF-1 correction: Linux now uses GTK/WebKitGTK and both the
+  PyInstaller tree and extracted AppImage are guarded by structural native
+  audits. Canonical completion evidence lives in the LXF-1 plan. Legacy video
+  manifests remain unsupported and untouched.
 - The historical `0.1.64` clean-environment, CI, manifest, provenance, and
   platform results remain evidence for the app-owned removal, but their Linux
   absence conclusion is superseded because the scan did not inspect extracted
@@ -138,12 +139,14 @@
   five-file metadata/provenance checks passed. R65-3 then rejected the complete
   candidate because its extracted Linux Qt WebEngine/Multimedia libraries
   contain FFmpeg decoder/demuxer implementation code. No candidate is active.
-  The owner approved corrective implementation slice LXF-1 on 2026-08-01. It
-  removes that transitive Linux runtime, replaces the Linux Qt backend with
-  GTK/WebKitGTK, and adds an extracted-AppImage regression guard before a
-  fresh R65-2 candidate. The approved correction is cold-specified in
-  `docs/superpowers/plans/2026-08-01-linux-transitive-ffmpeg-removal.md` and is
-  now the active implementation work.
+  Corrective slice LXF-1 is complete: the transitive Qt media runtime is gone,
+  the standalone GTK/WebKitGTK AppImage passes exact-head CI, provenance,
+  independent extraction/audit, native-policy, bundled-helper, license, and
+  udev checks, and no physical keyboard test occurred. Canonical evidence is in
+  `docs/superpowers/plans/2026-08-01-linux-transitive-ffmpeg-removal.md`.
+  No approved implementation work remains. The next action is public-release
+  Slice R65-2: audit the resulting clean `main`, run maintained-host native
+  preflights, push normally, and freeze a completely new candidate SHA.
   `.agents/machines.md` owns the Windows ARM exploratory-build evidence and its
   explicit-native-Python requirement; ARM64 is not part of the `0.1.65` public
   asset set.
@@ -158,9 +161,6 @@
 
 ## Blockers
 
-- Linux packaging currently bundles FFmpeg implementation code transitively
-  through Qt WebEngine/Multimedia, violating the settled product contract.
-  Approved corrective slice LXF-1 must land and qualify before a fresh
-  candidate can be frozen.
-- Live Ollama Cloud prompts, keyboard writes, macOS Open Anyway, tag creation,
-  release publication, and announcements remain separately gated actions.
+- No implementation blocker remains before R65-2. Live Ollama Cloud prompts,
+  keyboard writes, macOS Open Anyway, tag creation, release publication, and
+  announcements remain separately gated actions for their later slices.
