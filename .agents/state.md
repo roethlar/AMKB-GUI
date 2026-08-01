@@ -25,6 +25,17 @@
   evidence is in the repair plan. Its single required `fable-review` run used
   `claude-fable-5` at `xhigh` over exact implementation commit `4a9e6b8` and
   returned clean with no findings. No dependency or prohibited path changed.
+- IMF-2 is implemented and locally verified in the next approved slice. The
+  source overlay remains mounted for an active media draft and now uses the
+  primary destination's exact resolved raster box; only that viewport clips,
+  leaving the LED grid and destination border intact. Pointer, wheel, keyboard,
+  preset, zoom, stretch, and sampling changes reveal source view before one
+  canonical commit path invalidates Preview and updates controls/status
+  synchronously. Primary-pointer sessions are ID-scoped and stage-scoped,
+  release on up/cancel/lost capture, and continue without error when synthetic
+  capture raises `NotFoundError`. Its focused 134-web/181-Python gate and red
+  proofs pass. The required one-time Fable review and normal push are next; no
+  dependency or prohibited path changed.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
   prohibited in every runtime/build/package path, and dependencies without a
@@ -139,12 +150,12 @@
 - The approved `0.1.65` release plan is recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`. It records both
   rejected candidates and remains paused before a new R65-2 freeze.
-- Continue the approved repair with IMF-2, then IMF-3, one commit and one
-  `fable-review` run with `claude-fable-5` at `xhigh` per slice. IMF-2 adds the
-  faithful live source overlay and robust pointer, wheel, keyboard, preset,
-  zoom, and stretch wiring. Functional source and frozen WebView2 testing runs
-  locally on `netwatch-01` at 1000x680 and 1280x800 before exact-artifact
-  WKWebView regression testing on `nagatha`.
+- Commit the verified IMF-2 slice, then run exactly one `fable-review` job with
+  `claude-fable-5` at `xhigh` over its exact parent/head range, use the returned
+  substance, and do not retry or resubmit without explicit owner approval.
+  After any admitted finding closes, continue with IMF-3. Functional source
+  and frozen WebView2 testing runs locally on `netwatch-01` at 1000x680 and
+  1280x800 before exact-artifact WKWebView regression testing on `nagatha`.
 - After the repair and exact-head workflows pass, restart R65-2 on a clean
   reconciled `main`. The replacement candidate must repeat all release gates;
   attempt-2 platform evidence cannot be mixed with new bytes.

@@ -58,6 +58,56 @@ test("Studio is one Paint, Import media, and Effects shell with local draft acce
   assert.match(css,/\.animation-draft-controls/);
 });
 
+test("imported media framing keeps one exact live overlay outside the LED grid", () => {
+  assert.match(js,/function commitSourceTransform\(reducer\)/);
+  const commitStart=js.indexOf("function commitSourceTransform");
+  const commitEnd=js.indexOf("function ",commitStart+10);
+  const commit=js.slice(commitStart,commitEnd);
+  assert.match(commit,/activateSourceTransformView\(\)/);
+  assert.match(commit,/updateMediaCompositionTransform/);
+  assert.ok(
+    commit.indexOf("activateSourceTransformView()")
+      <commit.indexOf("updateMediaCompositionTransform"),
+    "source mode must become visible before the transform changes",
+  );
+  assert.match(js,/wireSourceTransformStage\(stage,/);
+  assert.match(js,/class="media-compositor-plane"/);
+  assert.match(js,/class="media-source-viewport"/);
+  assert.match(js,/class="media-source-overlay"/);
+  assert.match(js,/resolveSourceGeometry\(/);
+  assert.match(js,/box\.left\/primary\.width/);
+  assert.match(js,/box\.top\/primary\.height/);
+  assert.match(js,/box\.rendered_width\/primary\.width/);
+  assert.match(js,/box\.rendered_height\/primary\.height/);
+  const canvasMarkup=js.slice(
+    js.indexOf('<section class="card led-canvas-card"'),
+    js.indexOf('<aside class="card led-controls'),
+  );
+  const viewportIndex=canvasMarkup.indexOf("media-source-viewport");
+  const pixelsIndex=canvasMarkup.indexOf("${pixelCanvas}");
+  const destinationIndex=canvasMarkup.indexOf("destination-overlay");
+  assert.ok(viewportIndex>=0&&viewportIndex<pixelsIndex);
+  assert.ok(pixelsIndex>=0&&pixelsIndex<destinationIndex);
+  assert.doesNotMatch(canvasMarkup,/sourcePreviewMode[^\n]*media-source-overlay/);
+  const previewStart=js.indexOf("async function renderMediaCompositionPreview");
+  const previewEnd=js.indexOf("\nfunction ",previewStart+10);
+  const preview=js.slice(previewStart,previewEnd);
+  assert.match(preview,/if\(completed===current\)return;/);
+  assert.ok(
+    preview.indexOf("if(completed===current)return;")
+      <preview.indexOf('state.sourcePreviewMode="result"'),
+    "only the accepted current preview may switch back to LED result mode",
+  );
+
+  assert.match(css,/\.media-source-viewport \{[^}]*overflow: hidden/);
+  assert.match(css,/\.media-source-overlay \{[^}]*left: var\(--source-left\)[^}]*top: var\(--source-top\)[^}]*width: var\(--source-width\)[^}]*height: var\(--source-height\)/);
+  assert.doesNotMatch(css,/\.media-source-overlay \{[^}]*(?:object-fit: cover|transform: translate)/);
+  assert.match(css,/\.media-compositor-stage\.source-visible \.media-source-viewport/);
+  assert.match(css,/\.media-compositor-stage\.dragging \{[^}]*cursor: grabbing/);
+  assert.match(css,/\.media-compositor-stage:focus-visible/);
+  assert.match(css,/@media \(prefers-reduced-motion: reduce\)/);
+});
+
 test("media import banks before composition and applies only an accepted preview", () => {
   // WKWebView owns HTML file inputs and can leave valid GIF/PNG/BMP files
   // disabled when an accept filter is present. The bounded import endpoint

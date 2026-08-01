@@ -539,10 +539,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .led-canvas-actions { display: flex; align-items: center; gap: 7px; }
 .led-canvas-actions .button { min-height: 30px; padding: 5px 9px; }
 .media-compositor-stage { position: relative; display: grid; width: 100%; min-width: 0; place-items: center; outline: none; touch-action: none; }
+.media-compositor-stage.source-ready { cursor: grab; }
+.media-compositor-stage.dragging { cursor: grabbing; }
 .media-compositor-stage:focus-visible { border-radius: 12px; box-shadow: 0 0 0 2px var(--violet); }
-.media-source-overlay { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .78; pointer-events: none; transform: translate(calc(var(--source-offset-x) * 100%), calc(var(--source-offset-y) * 100%)) scale(var(--source-scale-x), var(--source-scale-y)); transform-origin: center; }
-.media-source-overlay ~ .pixel-grid { position: relative; z-index: 2; opacity: .26; }
-.destination-overlay { position: absolute; z-index: 8; inset: -8px; border: 1px dashed rgba(255,255,255,.23); border-radius: 12px; pointer-events: none; }
+.media-compositor-plane, .media-compositor-stage > .pixel-grid, .media-compositor-stage > .event-empty, .destination-overlay { grid-area: 1 / 1; }
+.media-compositor-plane { position: relative; align-self: center; justify-self: center; width: 100%; max-width: 850px; min-width: 0; aspect-ratio: var(--destination-width) / var(--destination-height); pointer-events: none; }
+.media-source-viewport { position: absolute; z-index: 1; inset: 0; overflow: hidden; visibility: hidden; opacity: 0; pointer-events: none; transition: opacity .14s ease-out; }
+.media-compositor-stage.source-visible .media-source-viewport { visibility: visible; opacity: 1; }
+.media-source-overlay { position: absolute; z-index: 1; left: var(--source-left); top: var(--source-top); width: var(--source-width); height: var(--source-height); max-width: none; opacity: .78; pointer-events: none; }
+.media-compositor-stage.source-visible > .pixel-grid { position: relative; z-index: 2; opacity: .26; }
+.destination-overlay { position: relative; z-index: 8; align-self: center; justify-self: center; width: 100%; max-width: 850px; min-width: 0; aspect-ratio: var(--destination-width) / var(--destination-height); border: 1px dashed rgba(255,255,255,.23); border-radius: 12px; pointer-events: none; }
+.media-compositor-stage.dragging .destination-overlay { border-style: solid; border-color: var(--violet-2); }
 .draft-preview .destination-overlay { border-color: var(--violet-2); box-shadow: 0 0 0 1px rgba(131,88,255,.16), 0 0 28px rgba(131,88,255,.12); }
 .pixel[aria-disabled="true"] { cursor: default; }
 .pixel[aria-disabled="true"]:hover { transform: none; }

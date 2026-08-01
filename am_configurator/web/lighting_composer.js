@@ -343,6 +343,167 @@
     }, sourceSize, destinationSizes);
   }
 
+  function wireSourceTransformStage(stage, options = {}) {
+    if (
+      !stage
+      || typeof stage.addEventListener !== "function"
+      || typeof stage.removeEventListener !== "function"
+    ) {
+      throw new TypeError("A source transform stage is required.");
+    }
+    const {
+      isActive,
+      activate,
+      getTransform,
+      getGeometry,
+      commit,
+      getBounds = () => stage.getBoundingClientRect(),
+    } = options;
+    for (const [name, callback] of Object.entries({
+      isActive,
+      activate,
+      getTransform,
+      getGeometry,
+      commit,
+      getBounds,
+    })) {
+      if (typeof callback !== "function") {
+        throw new TypeError(`The source transform ${name} callback is required.`);
+      }
+    }
+
+    let session = null;
+    const setDragging = value => stage.classList?.toggle("dragging", value);
+    const removeSessionListeners = () => {
+      stage.removeEventListener("pointermove", pointerMove);
+      stage.removeEventListener("pointerup", releasePointer);
+      stage.removeEventListener("pointercancel", releasePointer);
+      stage.removeEventListener("lostpointercapture", releasePointer);
+    };
+    const finishSession = () => {
+      session = null;
+      removeSessionListeners();
+      setDragging(false);
+    };
+    const mutate = (event, reducer) => {
+      if (!isActive()) return false;
+      const geometry = getGeometry();
+      if (!geometry?.sourceSize || !geometry?.destinationSizes) return false;
+      activate();
+      commit(reducer(getTransform(), geometry));
+      event.preventDefault?.();
+      return true;
+    };
+
+    function releasePointer(event) {
+      if (!session || (
+        event?.pointerId !== undefined
+        && event.pointerId !== session.pointerId
+      )) return false;
+      finishSession();
+      return true;
+    }
+
+    function pointerMove(event) {
+      if (!session || event.pointerId !== session.pointerId || !isActive()) {
+        return false;
+      }
+      const next = normalizedPointer(event, getBounds());
+      const previous = session.point;
+      const changed = mutate(event, (transform, geometry) => panSourceTransform(
+        transform,
+        next.x - previous.x,
+        next.y - previous.y,
+        geometry.sourceSize,
+        geometry.destinationSizes,
+      ));
+      if (changed) session.point = next;
+      return changed;
+    }
+
+    function pointerDown(event) {
+      if (
+        session
+        || !isActive()
+        || event?.isPrimary === false
+        || event?.button !== 0
+        || !Number.isInteger(event?.pointerId)
+      ) return false;
+      const geometry = getGeometry();
+      if (!geometry?.sourceSize || !geometry?.destinationSizes) return false;
+      const point = normalizedPointer(event, getBounds());
+      activate();
+      event.preventDefault?.();
+      stage.focus?.({preventScroll: true});
+      session = {pointerId: event.pointerId, point};
+      stage.addEventListener("pointermove", pointerMove);
+      stage.addEventListener("pointerup", releasePointer);
+      stage.addEventListener("pointercancel", releasePointer);
+      stage.addEventListener("lostpointercapture", releasePointer);
+      setDragging(true);
+      try {
+        stage.setPointerCapture?.(event.pointerId);
+      } catch (error) {
+        if (error?.name !== "NotFoundError") {
+          finishSession();
+          throw error;
+        }
+      }
+      return true;
+    }
+
+    function wheel(event) {
+      const delta = Number(event?.deltaY);
+      if (!Number.isFinite(delta) || delta === 0) return false;
+      return mutate(event, (transform, geometry) => scaleSourceTransform(
+        transform,
+        delta < 0 ? 1.08 : 1 / 1.08,
+        "both",
+        geometry.sourceSize,
+        geometry.destinationSizes,
+      ));
+    }
+
+    function keyDown(event) {
+      const step = event?.shiftKey ? 0.1 : 0.025;
+      const pan = {
+        ArrowLeft: [-step, 0],
+        ArrowRight: [step, 0],
+        ArrowUp: [0, -step],
+        ArrowDown: [0, step],
+      }[event?.key];
+      if (pan) {
+        return mutate(event, (transform, geometry) => panSourceTransform(
+          transform,
+          pan[0],
+          pan[1],
+          geometry.sourceSize,
+          geometry.destinationSizes,
+        ));
+      }
+      if (!["+", "=", "-", "_"].includes(event?.key)) return false;
+      return mutate(event, (transform, geometry) => scaleSourceTransform(
+        transform,
+        ["-", "_"].includes(event.key) ? 1 / 1.08 : 1.08,
+        "both",
+        geometry.sourceSize,
+        geometry.destinationSizes,
+      ));
+    }
+
+    stage.addEventListener("pointerdown", pointerDown);
+    stage.addEventListener("wheel", wheel, {passive: false});
+    stage.addEventListener("keydown", keyDown);
+    return Object.freeze({
+      teardown() {
+        finishSession();
+        stage.removeEventListener("pointerdown", pointerDown);
+        stage.removeEventListener("wheel", wheel);
+        stage.removeEventListener("keydown", keyDown);
+      },
+    });
+  }
+
   function exactParameters(value, fields, label) {
     const expected = new Set(fields);
     if (!hasExactFields(value, expected)) {
@@ -676,5 +837,6 @@
     scaleSourceTransform,
     validateEffectSpec,
     validateSourceTransform,
+    wireSourceTransformStage,
   });
 });

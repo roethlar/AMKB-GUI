@@ -20,6 +20,7 @@ const {
   scaleSourceTransform,
   validateEffectSpec,
   validateSourceTransform,
+  wireSourceTransformStage,
 } = require(modulePath);
 
 const geometryVectors = JSON.parse(fs.readFileSync(path.join(
@@ -49,6 +50,115 @@ function effect(type, parameters, changes = {}) {
     duration_ms: 90,
     parameters,
     ...changes,
+  };
+}
+
+class FakeClassList {
+  constructor() {
+    this.values = new Set();
+  }
+
+  toggle(name, force) {
+    if (force === undefined ? !this.values.has(name) : force) this.values.add(name);
+    else this.values.delete(name);
+  }
+
+  contains(name) {
+    return this.values.has(name);
+  }
+}
+
+class FakeStage {
+  constructor({captureError = null} = {}) {
+    this.bounds = {left: 0, top: 0, width: 400, height: 100};
+    this.captureError = captureError;
+    this.captures = [];
+    this.classList = new FakeClassList();
+    this.focusCalls = [];
+    this.listeners = new Map();
+  }
+
+  addEventListener(type, listener) {
+    if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+    this.listeners.get(type).add(listener);
+  }
+
+  removeEventListener(type, listener) {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  dispatch(type, changes = {}) {
+    const event = {
+      type,
+      pointerId: 7,
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: 100,
+      clientY: 50,
+      deltaY: 0,
+      key: "",
+      shiftKey: false,
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+      ...changes,
+    };
+    for (const listener of [...(this.listeners.get(type) || [])]) listener(event);
+    return event;
+  }
+
+  focus(options) {
+    this.focusCalls.push(options);
+  }
+
+  getBoundingClientRect() {
+    return this.bounds;
+  }
+
+  listenerCount(type) {
+    return this.listeners.get(type)?.size || 0;
+  }
+
+  setPointerCapture(pointerId) {
+    this.captures.push(pointerId);
+    if (this.captureError) throw this.captureError;
+  }
+}
+
+function sourceInputHarness(options = {}) {
+  const stage = new FakeStage(options);
+  const commits = [];
+  let active = true;
+  let previewMode = "result";
+  let current = transform({scale_x: 2, scale_y: 2});
+  const controller = wireSourceTransformStage(stage, {
+    isActive: () => active,
+    activate: () => {
+      previewMode = "source";
+    },
+    getTransform: () => current,
+    getGeometry: () => ({
+      sourceSize: {width: 40, height: 5},
+      destinationSizes: [{width: 40, height: 5}],
+    }),
+    getBounds: () => stage.getBoundingClientRect(),
+    commit: next => {
+      assert.equal(previewMode, "source", "source view must activate before mutation");
+      current = next;
+      commits.push(next);
+    },
+  });
+  return {
+    stage,
+    commits,
+    controller,
+    current: () => current,
+    previewMode: () => previewMode,
+    setActive(value) {
+      active = value;
+    },
   };
 }
 
@@ -185,6 +295,103 @@ test("browser and backend share exact canonical geometry vectors", () => {
     ),
     moveZoom.expected_transforms,
   );
+});
+
+test("a NotFoundError capture miss still completes one pointer-ID-scoped drag", () => {
+  const captureError = Object.assign(new Error("synthetic pointer"), {
+    name: "NotFoundError",
+  });
+  const harness = sourceInputHarness({captureError});
+  const {stage} = harness;
+
+  const secondary = stage.dispatch("pointerdown", {pointerId: 5, isPrimary: false});
+  const rightButton = stage.dispatch("pointerdown", {pointerId: 6, button: 2});
+  assert.equal(secondary.defaultPrevented, false);
+  assert.equal(rightButton.defaultPrevented, false);
+  assert.equal(stage.classList.contains("dragging"), false);
+  let pointerDown;
+  assert.doesNotThrow(() => {
+    pointerDown = stage.dispatch("pointerdown");
+  });
+  assert.equal(pointerDown.defaultPrevented, true);
+  assert.equal(harness.previewMode(), "source");
+  assert.equal(stage.classList.contains("dragging"), true);
+  assert.deepEqual(stage.captures, [7]);
+  assert.deepEqual(stage.focusCalls, [{preventScroll: true}]);
+  for (const type of ["pointermove", "pointerup", "pointercancel", "lostpointercapture"]) {
+    assert.equal(stage.listenerCount(type), 1, `${type} must be stage-scoped during the session`);
+  }
+
+  stage.dispatch("pointermove", {pointerId: 8, clientX: 150, clientY: 75});
+  assert.equal(harness.commits.length, 0, "another pointer cannot move the source");
+  const move = stage.dispatch("pointermove", {clientX: 150, clientY: 75});
+  assert.equal(move.defaultPrevented, true);
+  assert.equal(harness.commits.length, 1);
+  assert.equal(harness.current().offset_x, 0.125);
+  assert.equal(harness.current().offset_y, 0.25);
+
+  stage.dispatch("pointerup", {pointerId: 8});
+  assert.equal(stage.classList.contains("dragging"), true);
+  stage.dispatch("pointerup");
+  assert.equal(stage.classList.contains("dragging"), false);
+  for (const type of ["pointermove", "pointerup", "pointercancel", "lostpointercapture"]) {
+    assert.equal(stage.listenerCount(type), 0, `${type} must be released with the session`);
+  }
+  stage.dispatch("pointermove", {clientX: 200, clientY: 80});
+  assert.equal(harness.commits.length, 1);
+  harness.controller.teardown();
+});
+
+test("pointer cancel, lost capture, teardown, and real capture failures release cleanly", () => {
+  const harness = sourceInputHarness();
+  const {stage} = harness;
+  for (const releaseType of ["pointercancel", "lostpointercapture", "pointerup"]) {
+    stage.dispatch("pointerdown");
+    assert.equal(stage.classList.contains("dragging"), true);
+    stage.dispatch(releaseType);
+    assert.equal(stage.classList.contains("dragging"), false);
+    assert.equal(stage.listenerCount("pointermove"), 0);
+  }
+  harness.controller.teardown();
+  assert.equal(stage.listenerCount("pointerdown"), 0);
+  assert.equal(stage.listenerCount("wheel"), 0);
+  assert.equal(stage.listenerCount("keydown"), 0);
+
+  const denied = Object.assign(new Error("capture denied"), {name: "SecurityError"});
+  const failed = sourceInputHarness({captureError: denied});
+  assert.throws(() => failed.stage.dispatch("pointerdown"), /capture denied/);
+  assert.equal(failed.stage.classList.contains("dragging"), false);
+  assert.equal(failed.stage.listenerCount("pointermove"), 0);
+  failed.controller.teardown();
+});
+
+test("wheel and keyboard framing activate source view and share canonical reducers", () => {
+  const wheel = sourceInputHarness();
+  const wheelEvent = wheel.stage.dispatch("wheel", {deltaY: -1});
+  assert.equal(wheelEvent.defaultPrevented, true);
+  assert.equal(wheel.previewMode(), "source");
+
+  const keyboard = sourceInputHarness();
+  const zoomEvent = keyboard.stage.dispatch("keydown", {key: "+"});
+  assert.equal(zoomEvent.defaultPrevented, true);
+  assert.equal(keyboard.current().scale_x, wheel.current().scale_x);
+  assert.equal(keyboard.current().scale_y, wheel.current().scale_y);
+  keyboard.stage.dispatch("keydown", {key: "ArrowRight"});
+  assert.equal(keyboard.current().offset_x, 0.025);
+  keyboard.stage.dispatch("keydown", {key: "ArrowDown", shiftKey: true});
+  assert.equal(keyboard.current().offset_y, 0.1);
+
+  const before = keyboard.commits.length;
+  const ignored = keyboard.stage.dispatch("keydown", {key: "Enter"});
+  assert.equal(ignored.defaultPrevented, false);
+  keyboard.setActive(false);
+  keyboard.stage.dispatch("wheel", {deltaY: 1});
+  keyboard.stage.dispatch("keydown", {key: "ArrowLeft"});
+  keyboard.stage.dispatch("pointerdown");
+  assert.equal(keyboard.commits.length, before);
+  assert.equal(keyboard.stage.classList.contains("dragging"), false);
+  wheel.controller.teardown();
+  keyboard.controller.teardown();
 });
 
 test("Pulse, Hue cycle, Sweep, and Shimmer are deterministic bounded local reducers", () => {

@@ -11,7 +11,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeOllamaModels, ollamaEndpointDataFlow, ollamaModelRefreshFailed, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectOllamaModelPicker, reduceLightingState, routeAvailability, safeRgbColor} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
-const {canonicalizeSourceTransform, defaultSourceTransform, interpolateMoveZoom, normalizedPointer, panSourceTransform, presetSourceTransform, renderColorEffect, scaleSourceTransform, validateEffectSpec, validateSourceTransform} = LightingComposer;
+const {canonicalizeSourceTransform, defaultSourceTransform, interpolateMoveZoom, presetSourceTransform, renderColorEffect, resolveSourceGeometry, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
 const {
   compatibleProfileSections,
   createLibraryRequestEpochs,
@@ -27,6 +27,7 @@ const {
 } = LibraryState;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
+let activeSourceTransformController = null;
 
 function restoredLightingState() {
   let saved = {};
@@ -1740,6 +1741,7 @@ function openLibrarySource(catalogId) {
     transform:state.sourceTransform,
   });
   state.studioTool="source";
+  state.sourcePreviewMode="source";
   navigateTo(ROUTES.EDIT);
   void loadMediaCompositionSourceAsset();
   void renderMediaCompositionPreview();
@@ -2448,10 +2450,14 @@ function mediaGeometryContext(draft=state.mediaComposition) {
   if(!draft||draft.status==="cancelled")return null;
   const sourceSize={width:Number(draft.source?.width),height:Number(draft.source?.height)};
   const destinationSizes=mediaDestinationSizes(draft.destination);
+  const primaryIndex=Array.isArray(draft.destination?.targets)
+    ?draft.destination.targets.indexOf(draft.destination.target)
+    :-1;
   return Number.isSafeInteger(sourceSize.width)&&sourceSize.width>0
     &&Number.isSafeInteger(sourceSize.height)&&sourceSize.height>0
     &&destinationSizes
-    ?{sourceSize,destinationSizes}
+    &&primaryIndex>=0
+    ?{sourceSize,destinationSizes,primaryIndex}
     :null;
 }
 
@@ -2499,6 +2505,7 @@ function refreshMediaCompositionDestination() {
     });
     const context=mediaGeometryContext(draft);
     if(context){
+      state.sourcePreviewMode="source";
       const canonical=canonicalizeSourceTransform(
         state.sourceTransform,
         context.sourceSize,
@@ -2579,10 +2586,43 @@ function updateSourceTransformView() {
   const stage=$("#media-compositor-stage");
   if(!stage)return;
   const transform=state.sourceTransform;
-  stage.style.setProperty("--source-offset-x",String(transform.offset_x));
-  stage.style.setProperty("--source-offset-y",String(transform.offset_y));
-  stage.style.setProperty("--source-scale-x",String(transform.scale_x));
-  stage.style.setProperty("--source-scale-y",String(transform.scale_y));
+  const context=mediaGeometryContext();
+  const sourceOverlay=stage.querySelector(".media-source-overlay");
+  const sourceViewport=stage.querySelector(".media-source-viewport");
+  const plane=stage.querySelector(".media-compositor-plane");
+  const sourceVisible=Boolean(
+    context
+    &&sourceOverlay
+    &&state.studioTool==="source"
+    &&state.sourcePreviewMode==="source"
+  );
+  stage.classList.toggle(
+    "source-ready",
+    Boolean(context&&sourceOverlay&&state.studioTool==="source"),
+  );
+  stage.classList.toggle("source-visible",sourceVisible);
+  sourceViewport?.setAttribute("aria-hidden",String(!sourceVisible));
+  if(context&&plane){
+    const primary=context.destinationSizes[context.primaryIndex];
+    stage.style.setProperty("--destination-width",String(primary.width));
+    stage.style.setProperty("--destination-height",String(primary.height));
+    if(sourceOverlay){
+      const box=resolveSourceGeometry(
+        context.sourceSize,
+        context.destinationSizes,
+        transform,
+      ).boxes[context.primaryIndex];
+      sourceOverlay.style.setProperty("--source-left",`${box.left/primary.width*100}%`);
+      sourceOverlay.style.setProperty("--source-top",`${box.top/primary.height*100}%`);
+      sourceOverlay.style.setProperty("--source-width",`${box.rendered_width/primary.width*100}%`);
+      sourceOverlay.style.setProperty("--source-height",`${box.rendered_height/primary.height*100}%`);
+    }
+  }
+  $$("[data-source-preview]").forEach(button=>{
+    const selected=button.dataset.sourcePreview===state.sourcePreviewMode;
+    button.classList.toggle("active",selected);
+    button.setAttribute("aria-pressed",String(selected));
+  });
   const zoom=$("#source-zoom");
   if(zoom)zoom.value=String(Math.round(transform.scale_x*100));
   const zoomLabel=$("#source-zoom-label");
@@ -2611,15 +2651,33 @@ function updateSourceTransformView() {
   if(cancel)cancel.disabled=!draft;
 }
 
+function activateSourceTransformView() {
+  state.sourcePreviewMode="source";
+  updateSourceTransformView();
+}
+
+function commitSourceTransform(reducer) {
+  const context=mediaGeometryContext();
+  if(!context||typeof reducer!=="function")return null;
+  activateSourceTransformView();
+  const checked=updateMediaCompositionTransform(
+    reducer(state.sourceTransform,context),
+  );
+  updateSourceTransformView();
+  return checked;
+}
+
 function applySourceTransformPreset(mode) {
   const source=mediaSourceSize();
   const destinations=mediaDestinationSizes();
   if(!source||!destinations)return;
   try{
-    updateMediaCompositionTransform(
-      presetSourceTransform(mode,source,destinations,state.sourceTransform),
-    );
-    updateSourceTransformView();
+    commitSourceTransform(transform=>presetSourceTransform(
+      mode,
+      source,
+      destinations,
+      transform,
+    ));
   }catch(error){
     toast("Could not change the framing",`${error.message} Nothing was changed.`,"error");
   }
@@ -2681,6 +2739,7 @@ async function importMedia(input) {
     });
     state.library.loaded=false;
     state.studioTool="source";
+    state.sourcePreviewMode="source";
     renderLightingEdit();
     void loadMediaCompositionSourceAsset();
     await renderMediaCompositionPreview();
@@ -2718,7 +2777,8 @@ async function renderMediaCompositionPreview() {
       epoch,
     })});
     if(state.mediaComposition?.catalogId!==draft.catalogId)return;
-    state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
+    const current=state.mediaComposition;
+    const completed=reduceMediaDraft(current,{
       type:"RENDER_SUCCEEDED",
       epoch,
       transform:result.transform,
@@ -2726,7 +2786,10 @@ async function renderMediaCompositionPreview() {
       resolvedTransforms:result.resolved_transforms,
       mappedResult:result.mapped_result,
     });
-    state.sourceTransform=state.mediaComposition.transform;
+    if(completed===current)return;
+    state.mediaComposition=completed;
+    state.sourceTransform=completed.transform;
+    state.sourcePreviewMode="result";
   }catch(error){
     if(state.mediaComposition?.catalogId!==draft.catalogId)return;
     state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
@@ -3072,6 +3135,8 @@ function showLocalAnimationDraftFrame(index) {
 }
 
 function wireStudioInspector() {
+  activeSourceTransformController?.teardown();
+  activeSourceTransformController=null;
   const tabs=$$("[data-studio-tool]");
   tabs.forEach((tab,index)=>{
     tab.addEventListener("click",()=>setStudioTool(tab.dataset.studioTool));
@@ -3113,121 +3178,62 @@ function wireStudioInspector() {
   $$("[data-source-preview]").forEach(button=>button.addEventListener("click",()=>{
     if(button.disabled)return;
     state.sourcePreviewMode=button.dataset.sourcePreview;
-    renderLightingEdit();
+    updateSourceTransformView();
   }));
   $$("[data-source-preset]").forEach(button=>button.addEventListener("click",()=>applySourceTransformPreset(button.dataset.sourcePreset)));
   $("#source-stretch")?.addEventListener("change",event=>{
     const locked=!event.target.checked;
     try{
-      updateMediaCompositionTransform({
-        ...state.sourceTransform,
+      commitSourceTransform(transform=>({
+        ...transform,
         aspect_locked:locked,
-        scale_y:locked?state.sourceTransform.scale_x:state.sourceTransform.scale_y,
-      });
-      updateSourceTransformView();
+        scale_y:locked?transform.scale_x:transform.scale_y,
+      }));
     }catch(error){toast("Could not change stretch mode",`${error.message} Nothing was changed.`,"error");}
   });
   $("#source-zoom")?.addEventListener("input",event=>{
     const target=Number(event.target.value)/100;
-    const factor=target/state.sourceTransform.scale_x;
     try{
-      updateMediaCompositionTransform({
-        ...state.sourceTransform,
-        scale_x:target,
-        scale_y:state.sourceTransform.aspect_locked
-          ?target
-          :Math.max(0.01,Math.min(32,state.sourceTransform.scale_y*factor)),
+      commitSourceTransform(transform=>{
+        const factor=target/transform.scale_x;
+        return {
+          ...transform,
+          scale_x:target,
+          scale_y:transform.aspect_locked
+            ?target
+            :Math.max(0.01,Math.min(32,transform.scale_y*factor)),
+        };
       });
-      updateSourceTransformView();
     }catch(error){toast("Could not zoom the media",`${error.message} Nothing was changed.`,"error");}
   });
   $("#source-height")?.addEventListener("input",event=>{
     const target=Number(event.target.value)/100;
     try{
-      updateMediaCompositionTransform({
-        ...state.sourceTransform,
+      commitSourceTransform(transform=>({
+        ...transform,
         aspect_locked:false,
         scale_y:target,
-      });
-      updateSourceTransformView();
+      }));
     }catch(error){toast("Could not stretch the media",`${error.message} Nothing was changed.`,"error");}
   });
   const stage=$("#media-compositor-stage");
-  if(stage&&mediaSourceSize()&&mediaDestinationSize()){
-    let pointer=null;
-    stage.addEventListener("pointerdown",event=>{
-      if(state.studioTool!=="source")return;
-      pointer=normalizedPointer(event,stage.getBoundingClientRect());
-      stage.setPointerCapture?.(event.pointerId);
-    });
-    stage.addEventListener("pointermove",event=>{
-      if(!pointer||state.studioTool!=="source")return;
-      const next=normalizedPointer(event,stage.getBoundingClientRect());
-      const context=mediaGeometryContext();
-      updateMediaCompositionTransform(panSourceTransform(
-        state.sourceTransform,
-        next.x-pointer.x,
-        next.y-pointer.y,
-        context?.sourceSize,
-        context?.destinationSizes,
-      ));
-      pointer=next;
-      updateSourceTransformView();
-    });
-    const release=()=>{pointer=null;};
-    stage.addEventListener("pointerup",release);
-    stage.addEventListener("pointercancel",release);
-    stage.addEventListener("wheel",event=>{
-      if(state.studioTool!=="source")return;
-      event.preventDefault();
-      const context=mediaGeometryContext();
-      updateMediaCompositionTransform(scaleSourceTransform(
-        state.sourceTransform,
-        event.deltaY<0?1.08:1/1.08,
-        "both",
-        context?.sourceSize,
-        context?.destinationSizes,
-      ));
-      updateSourceTransformView();
-    },{passive:false});
-    stage.addEventListener("keydown",event=>{
-      if(state.studioTool!=="source")return;
-      const step=event.shiftKey?0.1:0.025;
-      const pan={
-        ArrowLeft:[-step,0],
-        ArrowRight:[step,0],
-        ArrowUp:[0,-step],
-        ArrowDown:[0,step],
-      }[event.key];
-      if(pan){
-        event.preventDefault();
-        const context=mediaGeometryContext();
-        updateMediaCompositionTransform(panSourceTransform(
-          state.sourceTransform,
-          pan[0],
-          pan[1],
-          context?.sourceSize,
-          context?.destinationSizes,
-        ));
-        updateSourceTransformView();
-      }else if(["+","=","-","_"].includes(event.key)){
-        event.preventDefault();
-        const context=mediaGeometryContext();
-        updateMediaCompositionTransform(scaleSourceTransform(
-          state.sourceTransform,
-          ["-","_"].includes(event.key)?1/1.08:1.08,
-          "both",
-          context?.sourceSize,
-          context?.destinationSizes,
-        ));
-        updateSourceTransformView();
-      }
+  const plane=stage?.querySelector(".media-compositor-plane");
+  if(stage&&plane&&stage.querySelector(".media-source-overlay")&&mediaGeometryContext()){
+    activeSourceTransformController=wireSourceTransformStage(stage,{
+      isActive:()=>state.studioTool==="source",
+      activate:activateSourceTransformView,
+      getTransform:()=>state.sourceTransform,
+      getGeometry:()=>mediaGeometryContext(),
+      getBounds:()=>plane.getBoundingClientRect(),
+      commit:transform=>commitSourceTransform(()=>transform),
     });
   }
   updateSourceTransformView();
 }
 
 function renderLightingEdit() {
+  activeSourceTransformController?.teardown();
+  activeSourceTransformController=null;
   if (!pageData().length) {
     $("#lighting-edit-content").innerHTML=`<div class="empty-state lighting-edit-empty"><p class="eyebrow">Key-only export</p><h1>No LED pages loaded.</h1><p>Merge the matching lighting JSON to preserve your existing effects, or create three blank custom slots.</p><div class="header-controls"><button id="merge-led" class="button ghost large">Merge lighting JSON</button><button id="create-led" class="button primary large">Create blank slots</button></div></div>`;
     $("#merge-led").addEventListener("click",()=>$("#merge-input").click());
@@ -3340,10 +3346,14 @@ function renderLightingEdit() {
   const relicGifOption=relicKeyTarget?`<label class="check-row"><input id="relic-gif-edges" type="checkbox" ${state.relicGifEdges?'checked':''}><span>Also derive edge lights from this GIF</span></label>`:"";
   const edgeTools=edgeAutomation?`<div class="control-group"><label class="control-label">Whole edge animation</label><div class="button-row"><button id="edge-static" class="button ghost">Static color</button><button id="edge-pulse" class="button ghost">Pulse color</button></div><button id="edge-hold" class="button ghost wide-button">Hold painted frame</button><small class="control-help">Generates ${keyFrameCount} edge frames automatically to match the key animation. “Hold” preserves the seven colors painted in the current frame.</small></div>`:"";
   const targetLabel=targets.find(t=>t.key===state.ledTarget)?.label||state.ledTarget;
-  const sourceReady=Boolean(mediaSourceSize()&&mediaDestinationSize());
-  const sourceDisabled=sourceReady?"":"disabled";
   const mediaDraft=state.mediaComposition?.status==="cancelled"?null:state.mediaComposition;
   const mediaSourceUrl=mediaCompositionSourceUrl();
+  const primaryDestination=mediaDestinationSize();
+  const sourceReady=Boolean(mediaSourceUrl&&mediaSourceSize()&&primaryDestination);
+  const sourceVisible=sourceReady
+    &&state.studioTool==="source"
+    &&state.sourcePreviewMode==="source";
+  const sourceDisabled=sourceReady?"":"disabled";
   const mediaStatus=mediaCompositionStatusText(mediaDraft);
   const familyFrameCap=Math.min(256,activeFamilySpec().frameCap||256);
   const fixedEdgeFrameCount=edgeAutomation&&keyFrameCount>=2;
@@ -3390,7 +3400,7 @@ function renderLightingEdit() {
   const generationPanel=aiReady()?`<section id="studio-generate-panel" class="studio-tool-panel lighting-generate-tool" role="tabpanel" aria-labelledby="studio-generate-tab" ${state.studioTool==="generate"?"":"hidden"}><div id="lighting-generate-tool" tabindex="-1"><div class="studio-panel-heading"><strong id="lighting-generate-title">Generate lighting with AI</strong><small>Lighting effect · ${esc(targetLabel)}</small></div><div id="lighting-generate-content" aria-live="polite"></div></div></section>`:"";
   $("#lighting-edit-content").innerHTML=`<div class="lighting-edit-shell"><div class="led-layout">
       <aside class="card frame-list" aria-label="${mediaPreviewFrames.length?'Media preview':'Animation'} frames"><div class="card-header"><strong>${mediaPreviewFrames.length?'Preview frames':'Frames'}</strong><small>${timelineFrames.length}</small></div><div class="frame-items">${timelineFrames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?(mediaPreviewFrames.length?'Previewing':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost" ${mediaPreviewFrames.length?'disabled':''}>+ Duplicate</button><button id="remove-frame" class="button ghost" ${timelineFrames.length<=1||mediaPreviewFrames.length?'disabled':''}>Delete</button></div></aside>
-      <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header led-canvas-heading"><div><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${canvasSubtitle}</small><details class="advanced-disclosure technical-details"><summary>Technical details</summary><p class="control-help">${mappedCount} of ${length} stored colors are mapped to lights on this keyboard${raster?` · ${esc(raster)} grid`:""}.</p></details></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost" title="Keep a reusable copy of this slot in Library. Separate from Apply, which only changes the open document.">Save to Library</button><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${activeDraft||mediaPreviewColors?'draft-preview':''}" role="region" aria-label="${activeDraft||mediaPreviewColors?'Preview of this lighting':'Paint the selected animation frame'}"><div id="media-compositor-stage" class="media-compositor-stage" tabindex="${sourceReady&&state.studioTool==="source"?'0':'-1'}" style="--source-offset-x:${state.sourceTransform.offset_x};--source-offset-y:${state.sourceTransform.offset_y};--source-scale-x:${state.sourceTransform.scale_x};--source-scale-y:${state.sourceTransform.scale_y}">${state.studioTool==="source"&&mediaSourceUrl&&state.sourcePreviewMode==="source"?`<img class="media-source-overlay" src="${esc(mediaSourceUrl)}" alt="">`:""}${pixelCanvas}<div class="destination-overlay" aria-hidden="true"></div></div></div></section>
+      <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header led-canvas-heading"><div><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${canvasSubtitle}</small><details class="advanced-disclosure technical-details"><summary>Technical details</summary><p class="control-help">${mappedCount} of ${length} stored colors are mapped to lights on this keyboard${raster?` · ${esc(raster)} grid`:""}.</p></details></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost" title="Keep a reusable copy of this slot in Library. Separate from Apply, which only changes the open document.">Save to Library</button><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${activeDraft||mediaPreviewColors?'draft-preview':''}" role="region" aria-label="${activeDraft||mediaPreviewColors?'Preview of this lighting':'Paint the selected animation frame'}"><div id="media-compositor-stage" class="media-compositor-stage ${sourceReady&&state.studioTool==="source"?'source-ready':''} ${sourceVisible?'source-visible':''}" tabindex="${sourceReady&&state.studioTool==="source"?'0':'-1'}" aria-label="Imported media framing canvas" style="--destination-width:${primaryDestination?.width||1};--destination-height:${primaryDestination?.height||1}"><div class="media-compositor-plane" aria-hidden="true">${mediaDraft?`<div class="media-source-viewport" aria-hidden="${String(!sourceVisible)}">${mediaSourceUrl?`<img class="media-source-overlay" src="${esc(mediaSourceUrl)}" alt="">`:""}</div>`:""}</div>${pixelCanvas}<div class="destination-overlay" aria-hidden="true"></div></div></div></section>
       <aside class="card led-controls studio-inspector" aria-label="Lighting controls"><div class="studio-tool-tabs ${aiReady()?'with-generate':''}" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Import media</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Effects</button>${generationTab}</div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}${generationPanel}</div></aside>
     </div></div>`;
   wireLedEditor(columns);
@@ -3417,7 +3427,7 @@ function wireLedEditor(gridColumns) {
   $("#import-media").addEventListener("click",()=>$("#media-input").click());
   $("#gif-resample").addEventListener("change",event=>{
     state.gifResample=event.target.value;
-    updateMediaCompositionTransform({...state.sourceTransform,sampling:state.gifResample});
+    commitSourceTransform(transform=>({...transform,sampling:state.gifResample}));
   });
   $("#relic-gif-edges")?.addEventListener("change",event=>{
     state.relicGifEdges=event.target.checked;

@@ -2,8 +2,9 @@
 
 **Status:** Owner-approved on 2026-08-01 after release candidate attempt 2
 failed R65-5. IMF-1 is implemented, locally verified, and clean-reviewed at
-`4a9e6b89233e9549a4b9b05ca14613a2f2115eb6`. IMF-2 and IMF-3 remain
-sequential follow-up work.
+`4a9e6b89233e9549a4b9b05ca14613a2f2115eb6`. IMF-2 is implemented and
+locally verified; its required one-time review and push are pending. IMF-3
+remains the sequential follow-up.
 
 ## Objective
 
@@ -292,6 +293,33 @@ Requirements:
    release its listeners, and produce no console error.
 7. Add markup/style guards for the overlay box, focus visibility, dragging
    cursor/state, reduced motion, and the two release-blocking viewports.
+
+Implementation record, 2026-08-01:
+
+- One dependency-free stage controller now owns primary-pointer identity,
+  stage-scoped move/up/cancel/lost-capture listeners, wheel and keyboard
+  equivalence, focus, dragging state, and teardown. A synthetic
+  `NotFoundError` from pointer capture continues the same session; every other
+  capture error cleans up and remains visible to the caller.
+- Every framing input uses one source-transform commit path that reveals the
+  imported-media view before mutation, canonicalizes and invalidates the
+  accepted Preview, then synchronously updates the exact overlay box, numeric
+  controls, status, and Apply availability. Only an accepted current render
+  switches back to LED-result mode; a stale render cannot hide newer framing.
+- The imported source viewport remains mounted for an active media draft. It
+  is destination-sized and is the only clipping boundary; its image uses the
+  primary target's resolved `left`, `top`, rendered width, and rendered height.
+  The LED grid and destination border remain sibling layers outside that
+  viewport.
+- Before implementation, five new Node guards failed because the stage
+  controller, live overlay markup, exact CSS geometry, and release-viewport
+  constraints were absent. After implementation all pass. Separately removing
+  the stale-render acceptance check made the shell guard fail; restoring it
+  returned the guard to green.
+- Focused verification passed 134 web tests, 181 Python app/packaging tests
+  with three expected platform skips, and both required JavaScript syntax
+  checks. No dependency, lockfile, FFmpeg/libav, provider, hardware, tag,
+  Release, security-setting, or announcement path changed or ran.
 
 Focused verification:
 

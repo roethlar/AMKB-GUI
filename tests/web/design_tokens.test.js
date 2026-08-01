@@ -121,6 +121,20 @@ test("the keyboard board can never outgrow its card", () => {
   assert.match(css, /\.keyboard-stage \{[^}]*min-height: 260px; max-width: 100%;/);
 });
 
+test("the media framing plane stays bounded at 1280x800 and 1000x680", () => {
+  assert.ok(1280 > 1240, "1280x800 exercises the bounded three-column layout");
+  assert.ok(1000 <= 1120 && 1000 > 980, "1000x680 exercises the compact two-column layout");
+  assert.match(css, /\.led-layout > \* \{ min-width: 0; \}/);
+  assert.match(css, /\.media-compositor-plane \{[^}]*width: 100%;[^}]*max-width: 850px;[^}]*min-width: 0;[^}]*aspect-ratio: var\(--destination-width\) \/ var\(--destination-height\)/);
+  assert.match(css, /\.media-compositor-stage \{[^}]*width: 100%;[^}]*min-width: 0;/);
+  assert.match(
+    mediaBlock("1240px"),
+    /\.led-layout \{ grid-template-columns: minmax\(0, 1fr\) 240px;/,
+  );
+  assert.match(css, /\.studio-inspector-body \{[^}]*overflow: auto/);
+  assert.match(css, /\.main-content \{[^}]*overflow: auto/);
+});
+
 test("key labels override native button padding at the compact board width", () => {
   // Native button padding clips Pause, Home, and Delete on AM21 at 1280x800.
   assert.match(css, /\.keycap \{[^}]*padding: 2px;/);
