@@ -2,9 +2,9 @@
 
 **Status:** Owner-approved on 2026-08-01 after release candidate attempt 2
 failed R65-5. IMF-1 is implemented, locally verified, and clean-reviewed at
-`4a9e6b89233e9549a4b9b05ca14613a2f2115eb6`. IMF-2 is implemented and
-locally verified; its required one-time review and push are pending. IMF-3
-remains the sequential follow-up.
+`4a9e6b89233e9549a4b9b05ca14613a2f2115eb6`. IMF-2 is implemented, locally
+verified, and clean-reviewed at `041c26fe2c069b1a237464aedd8fb150c1cb89c1`.
+IMF-3 remains the sequential follow-up.
 
 ## Objective
 
@@ -320,6 +320,12 @@ Implementation record, 2026-08-01:
   with three expected platform skips, and both required JavaScript syntax
   checks. No dependency, lockfile, FFmpeg/libav, provider, hardware, tag,
   Release, security-setting, or announcement path changed or ran.
+- The required one-time `fable-review` change review used
+  `claude-fable-5` at `xhigh` over exact range
+  `042f55003c9e56e14ce023cc201bb0d62fd89c98..041c26fe2c069b1a237464aedd8fb150c1cb89c1`.
+  It returned schema-valid `clean`, `capability_ok=true`, exact pinned SHAs,
+  no findings, exit 0, and no stderr. The first result was persisted and used;
+  no retry, reformat, replacement, or resubmission occurred.
 
 Focused verification:
 
@@ -330,10 +336,10 @@ node --check am_configurator/web/app.js
 uv run --frozen python -m unittest tests.test_app tests.test_packaging -v
 ```
 
-Proposed commit:
+Landed implementation commit:
 
 ```text
-fix: show imported media framing as it changes
+041c26fe2c069b1a237464aedd8fb150c1cb89c1 — fix: show imported media framing as it changes
 ```
 
 ### Slice IMF-3 - End-to-end pixel and native-webview proof

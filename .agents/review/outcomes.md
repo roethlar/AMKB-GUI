@@ -236,3 +236,13 @@
   resubmitted. A hook-rewritten `rtk git` spelling and two inspection forms
   were denied, but the reviewer recovered through allowed repository reads
   and git inspection and completed the capability proof.
+- 2026-08-01 — codereview claude (job `fable-review`; claude-cli 2.1.220;
+  `claude-fable-5` @ `xhigh`, standard, inline/session-only) over
+  `042f55003c9e56e14ce023cc201bb0d62fd89c98..041c26fe2c069b1a237464aedd8fb150c1cb89c1`:
+  verdict `clean`, `capability_ok=true`, exact pinned SHAs, no findings, exit
+  0, and no stderr. The schema-enforced first result was persisted locally and
+  used as returned; it was not discarded, reformatted, retried, replaced, or
+  resubmitted. A hook-rewritten `rtk git` spelling, one temporary-file read,
+  and one temporary-file Grep were denied, but the reviewer recovered through
+  allowed repository reads and git inspection and completed the capability
+  proof.
