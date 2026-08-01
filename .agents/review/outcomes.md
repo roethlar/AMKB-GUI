@@ -202,3 +202,18 @@
   Per the owner's standing direction, the usable judgment was recorded with
   that deviation instead of discarded or resubmitted. Exactly one Claude
   review request was made. Raw output was persisted locally before parsing.
+- 2026-08-01 — codereview claude (job `fable-review`; claude-cli 2.1.220;
+  `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `c2f6fcedb98e33d7406eace3c3af4ed53d59ffb7..8b411abfab7cb5966d4c7e4ff413f14a4cc5fc57`:
+  verdict `findings`, `capability_ok=true`, exact pinned SHAs, exit 0, and
+  no stderr. All three candidates were admitted after direct source/intake
+  verification: `cl-7` HIGH (synthetic WebView2 pointer capture),
+  `cl-8` MEDIUM (geometry bounds can exceed the version-1 ±8 schema), and
+  `cl-9` LOW (the volatile `nagatha` address is duplicated outside
+  `.agents/machines.md`). The outer PTK caller timed out at 300 seconds, but
+  the original child remained alive and its persisted schema-enforced result
+  completed after 8 minutes 21 seconds with transcript model key
+  `claude-opus-5`. The data was recovered from that same invocation; no
+  review was discarded, reformatted, rerun, or resubmitted. Hook-rewritten
+  `rtk git` and several Grep/rg forms were denied, but allowed repository
+  reads and git inspection completed the capability proof.

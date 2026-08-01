@@ -131,9 +131,16 @@ never remain hidden from the UI.
 - The overlay uses the calculated `left`, `top`, `Rw`, and `Rh` relative to the
   primary destination. It does not use `object-fit: cover` as a transform
   substitute. Preview remains the authoritative resampled LED result.
-- Primary-pointer capture is tied to one pointer ID and ends on pointer up,
-  cancel, lost capture, or loss of the pressed button. Unrelated pointer moves
-  do not mutate framing.
+- A primary-pointer session is tied to one pointer ID and uses stage-scoped
+  move/up/cancel/lost-capture listeners installed at pointer down. Attempt
+  pointer capture for a real active pointer, but treat only
+  `DOMException: NotFoundError` as a non-fatal no-capture result: a synthetic
+  native-audit event has no UA-tracked pointer ID. The same stage-scoped
+  session must still complete and clean itself up; do not add a document-global
+  mouse fallback. Unrelated pointer moves do not mutate framing.
+- Do not gate framing on `event.isTrusted`. The native audit intentionally
+  dispatches untrusted PointerEvents through the same shipped handlers; real
+  pointer capture remains the ordinary user path.
 - Pointer down prevents native image/text drag, focuses the stage, and exposes
   a visible dragging state. Arrow keys and `+`/`-` retain equivalent accessible
   operation. Non-framing keys and inactive tools do nothing.
@@ -240,14 +247,18 @@ Requirements:
 3. Centralize pointer, wheel, keyboard, preset, zoom, and stretch mutations so
    they all activate source view, canonicalize, invalidate Preview, update
    controls, update overlay geometry, and update status through one path.
-4. Implement primary-pointer capture and all release cases from the framing
-   contract. Do not depend on a document-global mouse fallback.
+4. Implement the stage-scoped primary-pointer session and all release cases
+   from the framing contract. Wrap `setPointerCapture` narrowly: continue only
+   for `NotFoundError`, and do not hide other capture failures. Do not depend on
+   a document-global mouse fallback.
 5. Keep LED-result mode useful for inspecting the last accepted backend
    Preview, but never let a framing action mutate state invisibly in that mode.
 6. Add dependency-free Node tests with fake event targets that dispatch the
    actual event sequence and assert capture, pointer-ID isolation, release,
    keyboard/wheel equivalence, visible-mode activation, canonical state, and
-   synchronous view updates.
+   synchronous view updates. One fake target must throw `NotFoundError` from
+   `setPointerCapture`; the same untrusted drag must still update framing,
+   release its listeners, and produce no console error.
 7. Add markup/style guards for the overlay box, focus visibility, dragging
    cursor/state, reduced motion, and the two release-blocking viewports.
 
@@ -285,9 +296,10 @@ Requirements:
    roots, synthetic CB04 data, disabled device discovery, and cleared provider
    credential variables. It must never scan or write a physical keyboard.
 5. Drive the real DOM in the platform renderer: inject each anonymous media
-   fixture, dispatch a complete primary-pointer drag plus keyboard and slider
-   operations, inspect the live overlay box before Preview, invoke Preview,
-   and assert the exact mapped sentinel pixels and workflow state.
+   fixture, dispatch an untrusted primary-pointer sequence whose capture call
+   takes the specified `NotFoundError` path, then dispatch keyboard and slider
+   operations. Inspect the live overlay box before Preview, invoke Preview, and
+   assert the exact mapped sentinel pixels and workflow state.
 6. Run the native audit at 1000x680 and 1280x800. Assert no viewport/container
    escape, no console error, visible focus, immediate drag feedback, and
    browser/backend canonical-transform equality.
