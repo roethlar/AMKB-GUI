@@ -51,7 +51,12 @@
   lost its outer transport immediately after artifact creation and no duplicate
   run was submitted. Its single required `fable-review` used `claude-fable-5`
   at `xhigh` over exact implementation commit `25c58d5` and returned clean with
-  no findings. No dependency or prohibited path changed.
+  no findings. Post-repair qualification then passed: the controlled current
+  Windows package install, recursive prohibited-native-code audit, frozen
+  smoke, and uninstall were clean, with no install directory left; exact-head
+  CI run `30699525122` and Desktop run `30699525134` attempt 1 passed every
+  required job at `875437ab432462d0c88ee73733d1d84e65261cfe`. No dependency or
+  prohibited path changed.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
   prohibited in every runtime/build/package path, and dependencies without a
@@ -166,15 +171,11 @@
 - The approved `0.1.65` release plan is recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`. It records both
   rejected candidates and remains paused before a new R65-2 freeze.
-- Complete post-repair qualification in the canonical plan sequence: controlled
-  install/audit/uninstall of the current Windows package, exact-head CI and
-  Desktop installer workflows, and sanitized evidence recording. Only then
-  restart R65-2 on a clean reconciled `main`; exact-artifact WKWebView and
-  Gatekeeper regression testing on `nagatha` remains in the later candidate
-  qualification sequence.
-- After the repair and exact-head workflows pass, restart R65-2 on a clean
-  reconciled `main`. The replacement candidate must repeat all release gates;
-  attempt-2 platform evidence cannot be mixed with new bytes.
+- Post-repair qualification is complete. Restart R65-2 on a clean reconciled
+  `main`; the replacement candidate must repeat every release gate and cannot
+  mix attempt-2 evidence with new bytes. Exact-artifact WKWebView and Gatekeeper
+  regression testing on `nagatha` remains in the later candidate qualification
+  sequence.
 - `.agents/machines.md` owns all host details, including the current connection
   information for `nagatha`. `win-arm-vm` remains SmartScreen observation only
   and Windows ARM64 remains outside the `0.1.65` public asset set.
@@ -186,7 +187,6 @@
 
 ## Blockers
 
-- R65-2 is blocked until the approved imported-media repair is complete and
-  exact-head verification passes. Live provider requests, keyboard writes,
-  macOS Open Anyway, tag creation, release publication, and announcements
-  remain separately gated actions for their later slices.
+- No technical blocker remains to restarting R65-2. Live provider requests,
+  keyboard writes, macOS Open Anyway, tag creation, release publication, and
+  announcements remain separately gated actions for their later slices.

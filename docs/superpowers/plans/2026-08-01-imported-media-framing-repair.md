@@ -5,7 +5,8 @@ failed R65-5. IMF-1, IMF-2, and IMF-3 are implemented, locally verified, and
 clean-reviewed at `4a9e6b89233e9549a4b9b05ca14613a2f2115eb6`,
 `041c26fe2c069b1a237464aedd8fb150c1cb89c1`, and
 `25c58d5abed2e1dd8f289be350cbbb85a1f9187c`, respectively. Post-repair
-qualification remains.
+qualification completed on 2026-08-01 at exact head
+`875437ab432462d0c88ee73733d1d84e65261cfe`; public-release R65-2 is next.
 
 ## Objective
 
@@ -494,6 +495,34 @@ After all approved repair slices and any admitted review findings land:
 
 R65-6 hardware authorization remains pending until the new candidate has
 passed R65-5. Publication and announcement gates remain later and separate.
+
+Post-repair qualification record, 2026-08-01:
+
+- The complete CI-shaped gate, source and exact rebuilt frozen Windows
+  WebView2 audits at 1000x680 and 1280x800, Windows native-tree audit,
+  installer build, and frozen smoke passed as recorded under IMF-3. Both valid
+  `0.1.65` distribution archives were created after every guarded command
+  returned zero; PTK then lost its outer transport and the command was not
+  duplicated.
+- A separate controlled per-user install of the current Windows package passed.
+  `AM-Configurator-0.1.65-Windows-x64-Setup.exe` was 17,472,197 bytes with
+  SHA-256
+  `8c85f08af7d48b3ac4f92461512d46ad015f382a6c89919a002656871479487e`
+  and Authenticode status `NotSigned`. The installed tree contained 180 files
+  totaling 50,544,592 bytes and one required third-party notice. Its recursive
+  prohibited-native-code audit and frozen smoke returned zero; silent uninstall
+  returned zero and left no install directory.
+- Exact-head push run
+  [30699525122](https://github.com/roethlar/AMKB-GUI/actions/runs/30699525122)
+  attempt 1 passed Windows, primary Linux, Python 3.11 Linux, and macOS CI.
+  Exact-head push run
+  [30699525134](https://github.com/roethlar/AMKB-GUI/actions/runs/30699525134)
+  attempt 1 passed Windows x64, macOS, and Linux x86-64 installers, candidate
+  metadata, and release provenance. Both runs used branch `main` and exact SHA
+  `875437ab432462d0c88ee73733d1d84e65261cfe`.
+- No dependency or lockfile changed. No FFmpeg/libav path, provider request,
+  credential use, hardware write, security-setting change, tag, Release,
+  publication, or announcement occurred.
 
 ## Completion criteria
 
