@@ -227,3 +227,12 @@
   Their actual Opus provenance is retained in the finding records; neither
   review was discarded, replaced, rerun, or resubmitted. All remaining repair
   slices use the owner-directed Fable pair.
+- 2026-08-01 — codereview claude (job `fable-review`; claude-cli 2.1.220;
+  `claude-fable-5` @ `xhigh`, standard, inline/session-only) over
+  `6bf41b9a0a04b03e84cfbc5ea16794d7eb5fe4b3..4a9e6b89233e9549a4b9b05ca14613a2f2115eb6`:
+  verdict `clean`, `capability_ok=true`, exact pinned SHAs, no findings, exit
+  0, and no stderr. The schema-enforced first result was persisted locally and
+  used as returned; it was not discarded, reformatted, retried, replaced, or
+  resubmitted. A hook-rewritten `rtk git` spelling and two inspection forms
+  were denied, but the reviewer recovered through allowed repository reads
+  and git inspection and completed the capability proof.

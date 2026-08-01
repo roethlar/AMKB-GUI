@@ -15,14 +15,16 @@
   up; GitHub Actions retains the rejected artifacts through 2026-08-31.
 - The owner approved the Windows-first imported-media correction recorded in
   `docs/superpowers/plans/2026-08-01-imported-media-framing-repair.md` on
-  2026-08-01. IMF-1 is implemented and locally verified in this slice: Python
+  2026-08-01. IMF-1 is implemented, locally verified, and clean-reviewed:
+  Python
   and the browser share exact canonical geometry vectors, normal and Move &
   zoom renders intersect every requested target's limits, the backend returns
   the exact canonical state it used, and the browser adopts it atomically. The
   rejected same-size 40x5 pan now clamps to zero and retains the complete
   source raster. Its focused and complete CI-equivalent gates pass; canonical
-  evidence is in the repair plan. No dependency or prohibited path changed.
-  The required one-time Fable review and normal push are next.
+  evidence is in the repair plan. Its single required `fable-review` run used
+  `claude-fable-5` at `xhigh` over exact implementation commit `4a9e6b8` and
+  returned clean with no findings. No dependency or prohibited path changed.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
   prohibited in every runtime/build/package path, and dependencies without a
@@ -137,14 +139,12 @@
 - The approved `0.1.65` release plan is recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`. It records both
   rejected candidates and remains paused before a new R65-2 freeze.
-- Run exactly one `fable-review` job over the committed IMF-1 slice with
-  `claude-fable-5` at `xhigh`, use its returned substance regardless of
-  formatting, record the result, and push normally. Do not retry or resubmit
-  without explicit owner approval. After any admitted finding is fixed and
-  reviewed under the plan, continue with IMF-2 and IMF-3 one commit at a time.
-  Functional source and frozen WebView2 testing runs locally on `netwatch-01`
-  at 1000x680 and 1280x800 before exact-artifact WKWebView regression testing
-  on `nagatha`.
+- Continue the approved repair with IMF-2, then IMF-3, one commit and one
+  `fable-review` run with `claude-fable-5` at `xhigh` per slice. IMF-2 adds the
+  faithful live source overlay and robust pointer, wheel, keyboard, preset,
+  zoom, and stretch wiring. Functional source and frozen WebView2 testing runs
+  locally on `netwatch-01` at 1000x680 and 1280x800 before exact-artifact
+  WKWebView regression testing on `nagatha`.
 - After the repair and exact-head workflows pass, restart R65-2 on a clean
   reconciled `main`. The replacement candidate must repeat all release gates;
   attempt-2 platform evidence cannot be mixed with new bytes.

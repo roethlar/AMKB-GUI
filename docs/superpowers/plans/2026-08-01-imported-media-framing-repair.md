@@ -1,8 +1,9 @@
 # Imported Media Framing Repair
 
 **Status:** Owner-approved on 2026-08-01 after release candidate attempt 2
-failed R65-5. IMF-1 is implemented and locally verified; its required one-time
-review and push are pending. IMF-2 and IMF-3 remain sequential follow-up work.
+failed R65-5. IMF-1 is implemented, locally verified, and clean-reviewed at
+`4a9e6b89233e9549a4b9b05ca14613a2f2115eb6`. IMF-2 and IMF-3 remain
+sequential follow-up work.
 
 ## Objective
 
@@ -240,6 +241,12 @@ Implementation record, 2026-08-01:
   `0.1.65` source and wheel builds. No dependency, lockfile, FFmpeg/libav,
   provider, hardware, tag, Release, security-setting, or announcement path
   changed or ran.
+- The required one-time `fable-review` change review used
+  `claude-fable-5` at `xhigh` over exact range
+  `6bf41b9a0a04b03e84cfbc5ea16794d7eb5fe4b3..4a9e6b89233e9549a4b9b05ca14613a2f2115eb6`.
+  It returned schema-valid `clean`, `capability_ok=true`, exact pinned SHAs,
+  no findings, exit 0, and no stderr. The first result was persisted and used;
+  no retry, reformat, replacement, or resubmission occurred.
 
 Focused verification:
 
@@ -250,10 +257,10 @@ node --check am_configurator/web/lighting_composer.js
 node --check am_configurator/web/app.js
 ```
 
-Proposed commit:
+Landed implementation commit:
 
 ```text
-fix: bound imported media framing geometry
+4a9e6b89233e9549a4b9b05ca14613a2f2115eb6 — fix: bound imported media framing geometry
 ```
 
 ### Slice IMF-2 - Faithful live preview and robust input wiring
