@@ -246,3 +246,12 @@
   and one temporary-file Grep were denied, but the reviewer recovered through
   allowed repository reads and git inspection and completed the capability
   proof.
+- 2026-08-01 — codereview claude (job `fable-review`; claude-cli 2.1.220;
+  `claude-fable-5` @ `xhigh`, standard, inline/session-only) over
+  `a96aa35979e896c6077a61b6894ac8c8e9296ab7..25c58d5abed2e1dd8f289be350cbbb85a1f9187c`:
+  verdict `clean`, `capability_ok=true`, exact pinned SHAs, no findings, exit
+  0, and no stderr. The schema-enforced first result was persisted locally and
+  used as returned; it was not discarded, reformatted, retried, replaced, or
+  resubmitted. Two hook-rewritten `rtk git` forms and one Grep form were denied,
+  but the reviewer recovered through allowed repository reads and git
+  inspection and completed the capability proof.

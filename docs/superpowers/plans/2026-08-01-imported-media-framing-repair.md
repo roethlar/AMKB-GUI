@@ -1,10 +1,11 @@
 # Imported Media Framing Repair
 
 **Status:** Owner-approved on 2026-08-01 after release candidate attempt 2
-failed R65-5. IMF-1 is implemented, locally verified, and clean-reviewed at
-`4a9e6b89233e9549a4b9b05ca14613a2f2115eb6`. IMF-2 is implemented, locally
-verified, and clean-reviewed at `041c26fe2c069b1a237464aedd8fb150c1cb89c1`.
-IMF-3 remains the sequential follow-up.
+failed R65-5. IMF-1, IMF-2, and IMF-3 are implemented, locally verified, and
+clean-reviewed at `4a9e6b89233e9549a4b9b05ca14613a2f2115eb6`,
+`041c26fe2c069b1a237464aedd8fb150c1cb89c1`, and
+`25c58d5abed2e1dd8f289be350cbbb85a1f9187c`, respectively. Post-repair
+qualification remains.
 
 ## Objective
 
@@ -421,6 +422,12 @@ Implementation record, 2026-08-01:
   outer wrapper did not return its final exit envelope and the completed run
   was not resubmitted. No dependency, lockfile, FFmpeg/libav, provider,
   hardware, tag, Release, security-setting, or announcement path changed or ran.
+- The required one-time `fable-review` change review used
+  `claude-fable-5` at `xhigh` over exact range
+  `a96aa35979e896c6077a61b6894ac8c8e9296ab7..25c58d5abed2e1dd8f289be350cbbb85a1f9187c`.
+  It returned schema-valid `clean`, `capability_ok=true`, exact pinned SHAs,
+  no findings, exit 0, and no stderr. The first result was persisted and used;
+  no retry, reformat, replacement, or resubmission occurred.
 
 Focused verification:
 
@@ -436,10 +443,10 @@ use PyInstaller directly. Launch each visual audit as a normal visible native
 window and wait for its process; `-WindowStyle Hidden` invalidates the focus
 precondition and is not a valid audit invocation.
 
-Proposed commit:
+Landed implementation commit:
 
 ```text
-test: prove imported media framing end to end
+25c58d5abed2e1dd8f289be350cbbb85a1f9187c — test: prove imported media framing end to end
 ```
 
 ## Red/green proof
