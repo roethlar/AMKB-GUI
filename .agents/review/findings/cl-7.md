@@ -5,7 +5,7 @@ synthetic pointerdown, leaving no dependency-free way to prove the required
 Windows-first drag behavior.
 **Status**: In progress
 **Branch**: —
-**Commit**: pending
+**Commit**: `bfc84cc4a664a0c28f92949ae9844e0799319407`
 
 ## Evidence
 At reviewed head `8b411abfab7cb5966d4c7e4ff413f14a4cc5fc57`,
@@ -76,3 +76,31 @@ claude-cli 2.1.220; capability_ok=true; verdict=findings; exit 0; no stderr;
 - The outer PTK caller timed out at 300 seconds, but the original child stayed
   alive and its persisted schema-enforced result completed after 8 minutes
   21 seconds. No review was rerun or resubmitted.
+
+Reopened by: Reviewer: claude / claude-opus-5 / xhigh / frontier
+(inline, session-only; job `fable-review`; escalated: T2) — claude-cli
+2.1.220; reviewed `bfc84cc4a664a0c28f92949ae9844e0799319407`; base
+`8b411abfab7cb5966d4c7e4ff413f14a4cc5fc57`; guard_confirmed=true;
+capability_ok=true; verdict=reopened; exit 0; no stderr;
+2026-08-01T09:16:30Z.
+
+- The pointer-capture correction itself is valid and closes `cl-7`: the
+  reviewer independently reproduced the base contradiction and confirmed all
+  six required elements of the corrected contract.
+- The declared five-file set is exact and `git diff --check` passes.
+- A disposable worktree at the reviewed SHA passed all 68 focused packaging
+  and README tests with two expected skips, then was removed and pruned.
+- Reopen reason: `.agents/review/outcomes.md` and `.agents/state.md` call
+  `cl-8` and `cl-9` admitted, but the reviewed index has no row or finding
+  record for either. A cold session could therefore lose both after `cl-7`
+  closes. Repair by registering them or by keeping them queued as candidates
+  until their one-at-a-time intake.
+- Non-blocking observation: `dispatchEvent()` reports an event-listener
+  exception rather than rethrowing it to the caller, but the clean-console
+  assertion and drag-session behavior still fail, so the finding and severity
+  stand.
+- Non-blocking observation: the corrected contract omits the base's explicit
+  pressed-button-loss release case. Successful capture makes pointer up,
+  cancel, and lost capture sufficient; the reviewer did not treat this as a
+  defect.
+- No review was retried or resubmitted.

@@ -46,7 +46,7 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | cl-4 | MEDIUM   | Canonical state sends cold sessions back to completed A1 work             | `[x]`  | —      | claude/claude-opus-5/high/standard |
 | cl-5 | LOW      | Node 24 plan still presents landed A1 as awaiting approval                 | `[x]`  | —      | claude/claude-opus-5/high/standard |
 | cl-6 | LOW      | CyberBoard display/switch target split lacks a regression guard            | `[x]`  | —      | claude/claude-opus-5/high/standard |
-| cl-7 | HIGH     | Synthetic WebView2 drag throws when mandatory capture sees an untracked ID | `[~]`  | —      | claude/claude-opus-5/high/standard |
+| cl-7 | HIGH     | Synthetic WebView2 drag throws when mandatory capture sees an untracked ID | `[~]`  | —      | claude/claude-opus-5/xhigh/frontier esc:T2 |
 
 All three raised by the 2026-07-25 openreview codex pass over
 `65a70c9..94a847a` and admitted at intake after independent verification of
