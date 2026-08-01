@@ -44,6 +44,34 @@ last verified 2026-07-29._
   `Off`, and the current-user `EnableWebContentEvaluation` value is `0`. This
   host cannot supply SmartScreen release evidence.
 
+## win-arm-vm (Windows 11, ARM64)
+
+_Last verified over SSH: 2026-07-31._
+
+- Reachable as `michael@10.1.10.211`; hostname `WIN-RRRKRP63HA6`, Windows 11
+  Pro 24H2 build 26100, ARM64. The clean VM has no SmartScreen-disabling user,
+  machine, or policy value. Defender is running with real-time protection and
+  PUA protection enabled. Preserve that default protection state for the
+  exact-candidate Edge-download observation; do not change security settings.
+- Installed build tools are native ARM64 Git 2.55.0 and `uv` 0.11.32, Inno
+  Setup 6.7.3, Visual Studio Build Tools 2022 17.14 with the ARM64 C++ tools,
+  and Windows 11 SDK 10.0.26100.0. The C++ workload is required because
+  `hidapi` 0.15.0 has no Windows ARM64 wheel and must build locally.
+- A clean canonical checkout at `C:\Users\michael\dev\AMKB-GUI` matched
+  `9f482b3ce949ea013d2f3167bf6072c02f1c8cba` during preflight. An explicitly
+  selected native ARM64 CPython 3.14.6 environment produced an ARM64 app,
+  Python runtime, HID extension, and Pillow extension. The installer completed
+  silent install, frozen smoke, uninstall, and direct frozen smoke with no
+  leftover smoke directory.
+- The first default `uv` environment selected x64 CPython under emulation.
+  Because artifact naming reads the host architecture, that x64 bundle was
+  misleadingly named `arm64`. A Windows ARM build must explicitly select the
+  aarch64 Python environment and verify PE headers; do not use the first build.
+- The exploratory ARM64 installer is not a `0.1.65` release candidate or public
+  asset. This VM's approved release role is the independent default-SmartScreen
+  observation for the exact x64 candidate downloaded normally through Edge;
+  `netwatch-01` remains the x64 install, audit, smoke, and uninstall host.
+
 ## nagatha (macOS arm64)
 
 _Last verified over SSH: 2026-07-31. The owner was the active console user and

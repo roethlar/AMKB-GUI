@@ -123,10 +123,12 @@
   must pass before an exact candidate is frozen. The Neon is not currently
   connected; the owner will connect it before G1's non-writing device preflight.
   Host/tool preflight is otherwise complete: use this local `netwatch-01`
-  session for Windows, `nagatha` for macOS, and `gabrielle` for Linux. G1 remains
-  open on the Neon connection plus either an independent SmartScreen-on Windows
-  host or the required cold owner ruling that this evidence will remain
-  unverified.
+  session for Windows x64, `win-arm-vm` for the independent default-SmartScreen
+  observation, `nagatha` for macOS, and `gabrielle` for Linux. G1 remains open
+  only on the Neon connection and non-writing identity/read/export preflight.
+  `.agents/machines.md` owns the Windows ARM exploratory-build evidence and its
+  explicit-native-Python requirement; ARM64 is not part of the `0.1.65` public
+  asset set.
   One owner-requested `claude-fable-5` openreview judged the exact plan range
   `best_approach` with no findings; `.agents/review/outcomes.md` records the
   returned-envelope deviation and no-resubmission handling.
@@ -138,8 +140,7 @@
 
 ## Blockers
 
-- This host cannot supply SmartScreen release evidence; see
-  `.agents/machines.md`. Do not ask the owner to repeat the check elsewhere;
-  record it as unverified or use an independently available host.
+- The Neon is disconnected. G1 cannot close until the owner connects it for the
+  non-writing identity/read/export preflight; no hardware write is authorized.
 - Live Ollama Cloud prompts, keyboard writes, macOS Open Anyway, tag creation,
   release publication, and announcements remain separately gated actions.

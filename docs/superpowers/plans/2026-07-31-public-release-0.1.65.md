@@ -254,9 +254,9 @@ Completion record (2026-07-31):
 
 ### Gate R65-G1 — Prove post-freeze checks are runnable
 
-**Status:** In progress. Host/tool preflight passed on 2026-07-31; the Neon
-connection and SmartScreen disposition remain unresolved, so candidate freeze
-is still prohibited.
+**Status:** In progress. Host/tool and independent default-SmartScreen-host
+preflight passed on 2026-07-31; the Neon connection remains unresolved, so
+candidate freeze is still prohibited.
 
 Do not begin R65-2 merely because the release packet and automated gate pass.
 A frozen SHA is useful only when every release-blocking exact-candidate check
@@ -318,11 +318,20 @@ Partial readiness record (2026-07-31):
 - `gabrielle` is reachable over SSH as an x86-64 Arch Linux host with GitHub
   CLI, SHA-256, file inspection, FUSE, and writable temporary storage available
   for the exact AppImage path.
-- No Open Anyway action, security-setting change, application launch, provider
-  request, credential use, or hardware interaction occurred during preflight.
+- `win-arm-vm` is reachable over SSH as a clean Windows 11 24H2 ARM64 VM with
+  no SmartScreen-disabling override or policy and active Defender protection.
+  It is ready to observe the exact x64 candidate's normal Edge-download warning
+  path under Windows x64 emulation without changing security settings.
+- The same VM proved an exploratory native ARM64 installer can be built when
+  ARM64 CPython is selected explicitly and `hidapi` is compiled with Visual C++.
+  Its install/smoke/uninstall path passed, but ARM64 is not a `0.1.65` public
+  asset and the exploratory bytes are not release evidence.
+- No Open Anyway action, security-setting change, GUI application launch,
+  provider request, credential use, or hardware interaction occurred during
+  preflight. Automated exploratory ARM64 frozen-smoke paths ran without device
+  access.
 - G1 cannot close until the owner connects the Neon for the non-writing
-  identity/read/export preflight and either supplies a normal SmartScreen-on
-  Windows host or makes the plan's cold unverified-evidence ruling.
+  identity/read/export preflight.
 
 ### Slice R65-2 — Freeze the final source candidate
 
@@ -423,8 +432,10 @@ On `netwatch-01`:
    install directory.
 4. Do not change SmartScreen, Defender, or antivirus settings. Because this
    host has SmartScreen disabled, it cannot prove the documented warning flow.
-   Obtain that observation only from an independently available normal Windows
-   host whose protection is already enabled.
+   Obtain that observation on `win-arm-vm`, preserving its default protection
+   state and downloading the exact x64 candidate normally through Edge so the
+   file receives Mark-of-the-Web. Do not substitute the local exploratory ARM64
+   build or an SCP transfer.
 5. If no such host is available, Windows publication remains blocked pending a
    cold owner ruling. Do not infer, simulate, or silently waive SmartScreen
    evidence.
