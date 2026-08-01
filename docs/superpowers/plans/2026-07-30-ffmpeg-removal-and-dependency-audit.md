@@ -531,6 +531,9 @@ unconditional artifact claim.
 Do not close this plan's native-artifact criterion again until the Linux
 desktop backend/dependency graph no longer bundles FFmpeg code and an automated
 guard extracts the produced AppImage and detects this exact transitive case.
+The proposed corrective implementation is specified in
+`docs/superpowers/plans/2026-08-01-linux-transitive-ffmpeg-removal.md`; its draft
+status authorizes no code change.
 
 ## Slice R6 — Close records and obsolete blockers
 

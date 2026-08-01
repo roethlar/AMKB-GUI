@@ -140,7 +140,10 @@
   contain FFmpeg decoder/demuxer implementation code. No candidate is active.
   The next release action is an owner-approved corrective slice that removes
   that transitive Linux runtime and adds an extracted-AppImage regression
-  guard, followed by a fresh R65-2 candidate.
+  guard, followed by a fresh R65-2 candidate. The proposed GTK/WebKitGTK
+  correction is cold-specified in
+  `docs/superpowers/plans/2026-08-01-linux-transitive-ffmpeg-removal.md` and
+  awaits the owner's single implementation decision.
   `.agents/machines.md` owns the Windows ARM exploratory-build evidence and its
   explicit-native-Python requirement; ARM64 is not part of the `0.1.65` public
   asset set.
