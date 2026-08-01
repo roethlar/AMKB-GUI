@@ -2,17 +2,22 @@
 
 ## Now
 
-- Public-release candidate attempt 2 at
-  `c2f6fcedb98e33d7406eace3c3af4ed53d59ffb7` is rejected. Exact CI run
-  `30687960889` and Desktop run `30687960898` attempt 1 passed; R65-3 and R65-4
-  passed for their three-platform bytes. R65-5 then failed because imported
-  media could be panned with no visible feedback and Preview could render it
-  almost entirely off canvas. No candidate is active. Canonical evidence and
-  artifact hashes are in the current public-release plan.
-- The failed R65-5 check did not Apply, change a document or Library lighting
-  item, write hardware, use a provider, create a tag/Release, or post an
-  announcement. The macOS app/DMG and controlled local test data were cleaned
-  up; GitHub Actions retains the rejected artifacts through 2026-08-31.
+- Public-release candidate attempt 3 at
+  `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
+  `30699706921` and Desktop run `30699706913` attempt 1 passed, and the owner
+  accepted exact-candidate macOS qualification including the substantive
+  native WKWebView media workflow. R65-6 then failed before a write: starting
+  preview playback on Per-key and switching to Head matrix while it remained
+  active rendered incorrect Head matrix lighting instead of its saved
+  animation. No candidate is active. Canonical sanitized evidence is in the
+  current public-release plan; screenshots and the native audit remain
+  controlled machine-local evidence.
+- The proposed Neon write gate was canceled before invocation because the
+  loaded portable profile did not contain the owner's current saved lighting.
+  No Write action, typed confirmation, physical unlock, hardware write,
+  provider request, credential lookup, tag/Release, or announcement occurred.
+  Candidate-attempt-3 artifacts are rejected bytes and must not be published or
+  reused.
 - The owner approved the Windows-first imported-media correction recorded in
   `docs/superpowers/plans/2026-08-01-imported-media-framing-repair.md` on
   2026-08-01. IMF-1 is implemented, locally verified, and clean-reviewed:
@@ -80,8 +85,8 @@
   vendor-library strings. Those private artifacts remain verification-only and
   must not be published.
 - Public-release qualification is stopped. The unpublished `0.1.64` candidate
-  and both unpublished `0.1.65` candidate attempts remain permanently rejected;
-  none may be reused or published.
+  and all three unpublished `0.1.65` candidate attempts remain permanently
+  rejected; none may be reused or published.
 - Approved release work remains historical context in
   `docs/superpowers/plans/2026-07-28-public-release.md`; it must not resume
   against the existing candidate. No tag, Release, announcement, macOS Open
@@ -169,13 +174,13 @@
 ## Next
 
 - The approved `0.1.65` release plan is recorded at
-  `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`. It records both
-  rejected candidates and remains paused before a new R65-2 freeze.
-- Post-repair qualification is complete. Restart R65-2 on a clean reconciled
-  `main`; the replacement candidate must repeat every release gate and cannot
-  mix attempt-2 evidence with new bytes. Exact-artifact WKWebView and Gatekeeper
-  regression testing on `nagatha` remains in the later candidate qualification
-  sequence.
+  `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`. It records all
+  three rejected candidates and is paused before repair planning.
+- Draft and obtain owner approval for a narrow repair plan covering preview
+  playback isolation across Lighting target changes. Do not restart R65-2
+  until the correction is implemented, guarded, verified, reviewed as
+  required, and pushed. A replacement candidate must repeat every release gate
+  and cannot mix evidence from any rejected attempt with new bytes.
 - `.agents/machines.md` owns all host details, including the current connection
   information for `nagatha`. `win-arm-vm` remains SmartScreen observation only
   and Windows ARM64 remains outside the `0.1.65` public asset set.
@@ -187,6 +192,7 @@
 
 ## Blockers
 
-- No technical blocker remains to restarting R65-2. Live provider requests,
+- The R65-6 cross-target preview defect requires a separately approved repair
+  plan and implementation before R65-2 can restart. Live provider requests,
   keyboard writes, macOS Open Anyway, tag creation, release publication, and
   announcements remain separately gated actions for their later slices.

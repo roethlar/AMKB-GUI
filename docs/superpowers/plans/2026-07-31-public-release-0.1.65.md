@@ -1,14 +1,13 @@
 # AM Configurator 0.1.65 Public Release
 
-**Status:** Owner-approved on 2026-07-31. Candidate attempt 1 at `2685a98` was
-rejected during R65-3 because its Linux AppImage bundled FFmpeg implementation
-code. Candidate attempt 2 at `c2f6fce` passed R65-3 and R65-4, then was rejected
-during R65-5 on 2026-08-01 because imported-media framing could change without
-visible feedback and render almost entirely off canvas. No candidate is active.
-Repair implementation requires separate owner approval of
-`2026-08-01-imported-media-framing-repair.md`. Live provider requests, macOS
-Open Anyway, hardware writes, tag or GitHub Release creation, and announcement
-posting remain separate action-time gates.
+**Status:** Owner-approved on 2026-07-31. Candidate attempts 1 at `2685a98`, 2
+at `c2f6fce`, and 3 at `09232fb` were rejected during exact-candidate
+qualification. Attempt 3 was rejected during R65-6 on 2026-08-01 because
+switching from Per-key to Head matrix while preview playback remained active
+rendered incorrect Head matrix lighting. No candidate is active. A correction
+requires a separately approved repair plan before R65-2 can restart. Live
+provider requests, macOS Open Anyway, hardware writes, tag or GitHub Release
+creation, and announcement posting remain separate action-time gates.
 
 ## Objective
 
@@ -56,11 +55,11 @@ Re-verify these facts at execution time.
 - Canonical source version is `0.1.65` in
   `am_configurator/_version.py`.
 - Canonical `origin/main` is
-  `c2f6fcedb98e33d7406eace3c3af4ed53d59ffb7`; local `main` matched it when
-  candidate attempt 2 was rejected. Reconcile the exact refs again at
+  `09232fb695a1a8b1ebc470ac470509ebbace3eb2`; local `main` matched it when
+  candidate attempt 3 was rejected. Reconcile the exact refs again at
   execution time.
-- CI run `30687960889` and Desktop installers run `30687960898` attempt 1
-  passed for `c2f6fce`. Their artifacts belong to rejected candidate attempt 2
+- CI run `30699706921` and Desktop installers run `30699706913` attempt 1
+  passed for `09232fb`. Their artifacts belong to rejected candidate attempt 3
   and must not be published.
 - P6 implementation commit `4a3c6ebadcc5d0fc1730c06b853af8e28c686ca5`
   passed exact-head CI and three-platform artifact qualification. That proves
@@ -485,6 +484,33 @@ Any mismatch rejects the candidate. Do not create a tag or Release.
   `2026-08-01-imported-media-framing-repair.md`. Candidate qualification may
   restart only after that plan is owner-approved, implemented, verified,
   reviewed, and pushed.
+
+#### Candidate attempt 3 — rejected 2026-08-01
+
+- R65-2 froze `09232fb695a1a8b1ebc470ac470509ebbace3eb2` after the
+  imported-media framing correction was implemented, verified, reviewed, and
+  qualified. Exact push runs `30699706921` (CI) and `30699706913` (Desktop
+  installers) attempt 1 passed.
+- R65-5 passed for the exact macOS candidate. The owner accepted the macOS
+  qualification, including the substantive native WKWebView media workflow;
+  its controlled machine-local audit found no console, provider, credential,
+  hardware-write, or layout failure.
+- R65-6 failed before the write. With preview playback started on Per-key,
+  switching to Head matrix while playback remained active rendered an
+  incorrect sparse/dark Head matrix pattern instead of its saved animation.
+  Owner-provided normal and failing screenshots are retained as controlled
+  machine-local evidence. This is a reproducible target-transition visual
+  mapping failure and rejects the complete candidate under the R65-6 failure
+  rule.
+- The initially loaded portable profile also did not contain the owner's
+  current saved lighting, so it was not a valid restoration source and its
+  proposed write gate was canceled.
+- No Write action, typed device confirmation, physical unlock, hardware write,
+  live provider request, tag, Release, or announcement occurred. Attempt 3 is
+  permanently rejected and its artifacts must not be published or reused.
+- Candidate qualification may restart only after a separately approved repair
+  plan corrects the cross-target preview behavior and the repair is
+  implemented, guarded, verified, reviewed as required, and pushed.
 
 ### Slice R65-4 — Exact-artifact platform qualification
 
