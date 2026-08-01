@@ -210,12 +210,19 @@
   `cl-7` HIGH (synthetic WebView2 pointer capture) was admitted and verified
   first. `cl-8` MEDIUM (geometry bounds can exceed the version-1 ±8 schema)
   was then admitted and independently verified. `cl-9` LOW (the volatile
-  `nagatha` address is duplicated outside `.agents/machines.md`) is now
-  admitted for its own correction and verdict. The outer PTK caller timed out
-  at 300 seconds, but
+  `nagatha` address is duplicated outside `.agents/machines.md`) was admitted
+  last and independently verified. The outer PTK caller timed out at 300
+  seconds, but
   the original child remained alive and its persisted schema-enforced result
   completed after 8 minutes 21 seconds with transcript model key
   `claude-opus-5`. The data was recovered from that same invocation; no
   review was discarded, reformatted, rerun, or resubmitted. Hook-rewritten
   `rtk git` and several Grep/rg forms were denied, but allowed repository
   reads and git inspection completed the capability proof.
+- 2026-08-01 — owner salvage ruling: the `cl-8` and `cl-9` verification
+  requests were mistakenly dispatched to `claude-opus-5` at `high` after the
+  owner had directed Fable. Both completed once with schema-valid `accepted`
+  verdicts, exact pins, independent guards, exit 0, and no stderr. The owner
+  directed that those completed reviews be salvaged. Their actual Opus
+  provenance is retained in the finding records; neither review was discarded,
+  replaced, rerun, or resubmitted.

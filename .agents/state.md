@@ -14,10 +14,9 @@
   announcement. The macOS app/DMG and controlled local test data were cleaned
   up; GitHub Actions retains the rejected artifacts through 2026-08-31.
 - The proposed Windows-first correction is recorded in
-  `docs/superpowers/plans/2026-08-01-imported-media-framing-repair.md`. It has
-  not been owner-approved, so no shipped code or test change is authorized.
-- Active documentation review loop: `cl-7` and `cl-8` are verified; admitted
-  `cl-9` is in progress. See `.agents/review/index.md`.
+  `docs/superpowers/plans/2026-08-01-imported-media-framing-repair.md`. Its
+  `cl-7` through `cl-9` documentation review loop is closed. The plan has not
+  been owner-approved, so no shipped code or test change is authorized.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
   prohibited in every runtime/build/package path, and dependencies without a
