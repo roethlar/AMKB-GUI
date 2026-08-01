@@ -254,9 +254,10 @@ Completion record (2026-07-31):
 
 ### Gate R65-G1 — Prove post-freeze checks are runnable
 
-**Status:** In progress. Host/tool and independent SmartScreen-path preflight
-passed on 2026-07-31; the Neon connection remains unresolved, so candidate
-freeze is still prohibited.
+**Status:** Complete on 2026-08-01. Every required post-freeze execution path
+has a verified host, tool, operator, restore source, and action boundary. This
+readiness result permits R65-2; it authorizes no hardware write, macOS Open
+Anyway action, live provider request, tag, Release, or announcement.
 
 Do not begin R65-2 merely because the release packet and automated gate pass.
 A frozen SHA is useful only when every release-blocking exact-candidate check
@@ -307,7 +308,7 @@ If any required execution path is absent or any pre-freeze ruling is declined,
 stop before R65-2. If a recorded readiness fact becomes false after freeze,
 reject the candidate instead of leaving `main` indefinitely frozen.
 
-Partial readiness record (2026-07-31):
+Readiness record (2026-07-31 through 2026-08-01):
 
 - The current session is local on `netwatch-01`; local Windows tooling and the
   disabled SmartScreen state were reverified without SSHing back into the same
@@ -334,12 +335,27 @@ Partial readiness record (2026-07-31):
   launch. The installed x64 binary remained `NotSigned` and its frozen smoke
   passed under Windows ARM emulation. This is preflight evidence only; R65-4
   repeats the observation on the final exact candidate.
-- No macOS Open Anyway action, security-setting change, provider request,
-  credential use, or hardware interaction occurred during preflight. The owner
-  used only the per-application SmartScreen **Run anyway** path; automated
-  exploratory ARM64 and installed-x64 frozen smokes ran without device access.
-- G1 cannot close until the owner connects the Neon for the non-writing
-  identity/read/export preflight.
+- On 2026-08-01 the production shallow scan found one unambiguous Vial/raw-HID
+  candidate while the Neon 80 and AFA A2 were both connected. Only that
+  candidate was opened. The deep gate identified `NEON80`, definition
+  `AM Neon 80`, Vial protocol 5, and the validated 87-key projected layout.
+  Windows PnP evidence bound it to a healthy local USB bus with no RDP, VM, or
+  virtual-device marker. No competing HID application was running.
+- The Neon read returned four 90-key layers, four populated macros, the
+  device-reported 16-slot/6677-byte macro capacity, and no identity error. An
+  importable keymap/macro profile was exported and validated with zero errors
+  or warnings. Its lighting fields are synthetic placeholders because Neon
+  exposes no LED read-back; it is not represented as a lighting backup.
+- The current device keymap and macros exactly match the known complete desired
+  profile on `nagatha`. That profile matches the previously documented recovery
+  hash and contains nonempty authored LED tracks. The readback export and
+  restore-profile hashes are recorded in a private machine-local manifest;
+  paths, hash values, macro content, serial, firmware UID, and configuration
+  bytes remain outside the repository.
+- The AFA A2 was not opened. No keyboard write, macOS Open Anyway action,
+  security-setting change, provider request, or credential use occurred. The
+  owner remains reachable for the separate fresh single-write and Open Anyway
+  gates when R65-4 and R65-6 reach those action points.
 
 ### Slice R65-2 — Freeze the final source candidate
 

@@ -119,16 +119,21 @@
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`. R65-0 and R65-1
   are complete: fresh release notes, an explicitly unposted Reddit draft, and a
   red-proven current-packet guard pass with the full 647-Python/127-web gate.
-  R65-G1 host, operator, restore-source, and action-path readiness is next and
-  must pass before an exact candidate is frozen. The Neon is not currently
-  connected; the owner will connect it before G1's non-writing device preflight.
-  Host/tool preflight is otherwise complete: use this local `netwatch-01`
+  R65-G1 host, operator, restore-source, and action-path readiness completed on
+  2026-08-01. Use this local `netwatch-01`
   session for Windows x64, `win-arm-vm` for the independent default-SmartScreen
   observation, `nagatha` for macOS, and `gabrielle` for Linux. The pre-release
   x64 SmartScreen warning/More info/Run anyway/install/launch path passed on the
   VM with Internet-zone metadata preserved; the final exact candidate must
-  repeat it. G1 remains open only on the Neon connection and non-writing
-  identity/read/export preflight.
+  repeat it. A directly connected Neon passed the non-writing production
+  identity/read/export path: `NEON80`, definition `AM Neon 80`, Vial protocol 5,
+  four 90-key layers, four populated macros within the device-reported 16-slot
+  capacity. The valid private export's keymap/macros match the complete desired
+  profile on `nagatha`; that profile contains the LED restore tracks and matches
+  the documented recovery hash. Private paths, hashes, macros, firmware UID,
+  and configuration bytes remain outside the repository. The simultaneously
+  connected AFA A2 was not opened, and no keyboard write occurred. R65-2 final
+  candidate preflight is next.
   `.agents/machines.md` owns the Windows ARM exploratory-build evidence and its
   explicit-native-Python requirement; ARM64 is not part of the `0.1.65` public
   asset set.
@@ -143,7 +148,5 @@
 
 ## Blockers
 
-- The Neon is disconnected. G1 cannot close until the owner connects it for the
-  non-writing identity/read/export preflight; no hardware write is authorized.
 - Live Ollama Cloud prompts, keyboard writes, macOS Open Anyway, tag creation,
   release publication, and announcements remain separately gated actions.
