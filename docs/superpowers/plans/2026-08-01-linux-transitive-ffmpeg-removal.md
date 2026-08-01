@@ -167,7 +167,9 @@ the Ubuntu packages needed to build PyGObject/pycairo and run GTK 3/WebKit2 4.1
 under Xvfb, including:
 
 - `gcc` and `pkg-config`;
-- `libcairo2-dev` and `libgirepository-2.0-dev`;
+- `libcairo2-dev` and `libgirepository1.0-dev` (the latter supplies the
+  `gobject-introspection-1.0` build contract required by pinned PyGObject
+  3.50.0 on Ubuntu 24.04);
 - `gir1.2-gtk-3.0`;
 - `gir1.2-webkit2-4.1` and `libwebkit2gtk-4.1-dev`;
 - `xauth`; and

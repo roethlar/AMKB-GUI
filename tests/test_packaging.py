@@ -624,7 +624,7 @@ class ReleaseInfoTests(unittest.TestCase):
             "gcc",
             "pkg-config",
             "libcairo2-dev",
-            "libgirepository-2.0-dev",
+            "libgirepository1.0-dev",
             "gir1.2-gtk-3.0",
             "gir1.2-webkit2-4.1",
             "libwebkit2gtk-4.1-dev",
@@ -646,6 +646,7 @@ class ReleaseInfoTests(unittest.TestCase):
             "libxcb-xkb1",
             "libxkbcommon-x11-0",
             "gstreamer1.0-libav",
+            "libgirepository-2.0-dev",
         ):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, prerequisite_step)
