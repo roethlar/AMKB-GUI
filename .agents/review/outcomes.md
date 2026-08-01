@@ -221,8 +221,9 @@
   reads and git inspection completed the capability proof.
 - 2026-08-01 — owner salvage ruling: the `cl-8` and `cl-9` verification
   requests were mistakenly dispatched to `claude-opus-5` at `high` after the
-  owner had directed Fable. Both completed once with schema-valid `accepted`
-  verdicts, exact pins, independent guards, exit 0, and no stderr. The owner
-  directed that those completed reviews be salvaged. Their actual Opus
-  provenance is retained in the finding records; neither review was discarded,
-  replaced, rerun, or resubmitted.
+  owner had directed `claude-fable-5` at `xhigh`. Both completed once with
+  schema-valid `accepted` verdicts, exact pins, independent guards, exit 0,
+  and no stderr. The owner directed that those completed reviews be salvaged.
+  Their actual Opus provenance is retained in the finding records; neither
+  review was discarded, replaced, rerun, or resubmitted. All remaining repair
+  slices use the owner-directed Fable pair.

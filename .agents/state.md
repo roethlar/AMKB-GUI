@@ -136,10 +136,11 @@
   approval, only its documentation/review record may land; no implementation
   slice may start.
 - After approval, execute IMF-1 through IMF-3 one commit at a time. Verify each
-  slice, run exactly one `fable-review` job with `claude-opus-5`, use the result
-  without formatting-based resubmission, and push normally. Functional source
-  and frozen WebView2 testing runs locally on `netwatch-01` at 1000x680 and
-  1280x800 before exact-artifact WKWebView regression testing on `nagatha`.
+  slice, run exactly one `fable-review` job with `claude-fable-5` at `xhigh`,
+  use the result without formatting-based resubmission, and push normally.
+  Functional source and frozen WebView2 testing runs locally on `netwatch-01`
+  at 1000x680 and 1280x800 before exact-artifact WKWebView regression testing
+  on `nagatha`.
 - After the repair and exact-head workflows pass, restart R65-2 on a clean
   reconciled `main`. The replacement candidate must repeat all release gates;
   attempt-2 platform evidence cannot be mixed with new bytes.

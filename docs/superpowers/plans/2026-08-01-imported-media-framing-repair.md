@@ -184,9 +184,9 @@ Out of scope:
 
 Each slice receives one independent commit after its red/green proof and
 relevant automated verification pass. Run exactly one `fable-review` job with
-model `claude-opus-5` over that committed slice, use its substantive result
-regardless of envelope formatting, and do not rerun or resubmit it without
-explicit owner approval. Push verified work normally to canonical `origin`.
+model `claude-fable-5` at `xhigh` over that committed slice, use its substantive
+result regardless of envelope formatting, and do not rerun or resubmit it
+without explicit owner approval. Push verified work normally to canonical `origin`.
 A review finding fixed under this approved scope lands as a new commit; never
 amend or rewrite the reviewed commit.
 
@@ -387,7 +387,7 @@ passed R65-5. Publication and announcement gates remain later and separate.
 This repair is complete only when:
 
 - all three slices and every admitted finding are independently committed,
-  verified, reviewed once with `claude-opus-5`, and pushed;
+  verified, reviewed once with `claude-fable-5` at `xhigh`, and pushed;
 - browser and Python share passing exact geometry vectors;
 - the backend cannot produce an off-canvas result from an ordinary canonical
   framing operation;
