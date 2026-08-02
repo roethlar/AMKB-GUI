@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import sys
 import tempfile
 import threading
 import time
@@ -2297,10 +2298,19 @@ def _poll_async_result(window: Any, kickoff: str, *, timeout: float) -> dict:
     raise MediaFramingAuditError("webview_audit_timeout")
 
 
+def _activate_host_application() -> None:
+    if sys.platform != "darwin":
+        return
+    from AppKit import NSApplication
+
+    NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+
+
 def _activate_webview_window(window: Any, *, timeout: float = 5) -> None:
     """Show and activate the native window before inspecting focus styling."""
 
     window.show()
+    _activate_host_application()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if window.run_js("document.hasFocus()"):
