@@ -1233,6 +1233,8 @@ pass. macOS build, DMG verification, strict signature, native-tree audit, smoke,
 and 157-entry bundle manifest equality pass. Its schema-v2 audit remains open
 only because SSH activation and an Accessibility click cannot give WKWebView
 document focus; the owner must click the rebuilt DMG window once during launch.
+Exact shipped-product head `dbf1b2b` passes CI run `30768142979` and Desktop
+installers run `30768142977` on every job.
 
 Commit:
 

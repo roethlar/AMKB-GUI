@@ -233,6 +233,9 @@
   Accessibility click both leave WKWebView without document focus, so one real
   owner click in the rebuilt DMG window is required. No further Claude review
   is authorized.
+  Exact shipped-product head `dbf1b2b` passes CI run `30768142979` on all four
+  test jobs and Desktop installers run `30768142977` on Windows, macOS, Linux,
+  candidate metadata, and release provenance.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -436,9 +439,8 @@
 
 ## Next
 
-- Push the two repaired findings and their current records, then require
-  exact-head CI/Desktop jobs. Launch the rebuilt macOS DMG audit for the owner's
-  one real focus click, close both findings after it passes, then open the rebuilt
+- Launch the rebuilt macOS DMG audit for the owner's one real focus click, close
+  both findings after it passes, then open the rebuilt
   Windows app for the owner's final visible acceptance pass. No further external
   review is authorized. External
   review is not automatic; use it only on explicit owner request or a concrete
