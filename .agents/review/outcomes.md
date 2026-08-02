@@ -397,3 +397,17 @@
   reads and git/node/uv commands completed capability proof. The transcript
   model key was `claude-opus-5`; immutable result SHA-256 is
   `ACC149E2EA3562B2E11166CFB94827A4E3D1AF7C60FACA0E6CDCC3E4C3DD012C`.
+- 2026-08-02 — codereview claude (job `fable-review`; claude-cli 2.1.220;
+  `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `6851df5624488c5aa1fa3444af096da0a020f8e9..246da643e95dbc2fc390507264e228cc75051292`:
+  verdict `findings`, `capability_ok=true`, exact pinned SHAs, one MEDIUM
+  candidate, exit 0, and no stderr. Direct pinned-source verification admitted
+  it as `cl-17`: live effect parameters replace the accepted Board frame set
+  and repaint the Board, but the partial projection never repaints already
+  mounted timeline LED thumbnails. The persisted schema-enforced first result
+  completed after 14 minutes 2 seconds and was used as returned; it was not
+  discarded, retried, re-emitted, replaced, reformatted, or resubmitted. One
+  hook-rewritten `rtk git` command was denied, but allowed repository reads,
+  git inspection, and a complete 170-test browser run established capability.
+  The transcript model key was `claude-opus-5`; immutable result SHA-256 is
+  `EEA7624B5F9E18FCF9FB2AACE00ECF103B6D9353D8A6D6F8E4F19B1206CD5CB6`.

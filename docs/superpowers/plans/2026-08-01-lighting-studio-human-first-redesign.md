@@ -875,6 +875,17 @@ feat: make media framing live and truthful
 
 ### Slice LSR-6 — Immediate Effects workflow
 
+Implementation commit `246da643e95dbc2fc390507264e228cc75051292` is pushed,
+non-vacuously mutation-proven, and passes the complete local
+694-Python/170-browser/compile/syntax/build gate. Exact-head CI run
+`30745662566` and Desktop installers run `30745662565` passed all nine jobs.
+Its one generation `fable-review` used explicit `claude-opus-5` at `high` over
+exact pins and returned one admitted MEDIUM finding, `cl-17`: partial live
+effect repaint changes Board and Apply arrays but leaves timeline LED
+miniatures on the prior accepted frame set. The first substantive result was
+used as returned without retry or resubmission. LSR-6 remains open pending the
+isolated repair and per-finding verification.
+
 Files:
 
 - `am_configurator/web/lighting_workspace.js`;

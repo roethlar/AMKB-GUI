@@ -17,16 +17,21 @@
   capability confirmed. Exact final CI run `30743864174` and Desktop
   installers run `30743864148` passed every job. Canonical evidence is in the
   redesign plan and `.agents/review/findings/cl-14.md` through `cl-16.md`.
-- LSR-6 implementation is landed in the commit containing this record and is
-  non-vacuously mutation-proven. The complete local gate passes 694 Python
-  tests with 5 skips, 170 browser tests, compile/syntax checks, and both package
-  builds. An isolated 1000x680 native WebView2 audit confirmed all five Effects
-  cards, immediate exact Hue-cycle output, the 13px helper floor, enabled
-  Apply/Cancel boundaries, 200 physical Board pixels, reduced-motion
-  representative-frame behavior, and document-preserving Cancel. The native
-  screenshot was occluded and is not accepted as visual evidence. Exact-head
-  CI, Desktop installers, and the one required `fable-review` remain pending;
-  LSR-6 is not closed.
+- LSR-6 implementation `246da643e95dbc2fc390507264e228cc75051292` is
+  pushed and non-vacuously mutation-proven. Its complete local gate passes 694
+  Python tests with 5 skips, 170 browser tests, compile/syntax checks, and both
+  package builds. Exact-head CI run `30745662566` passed all four jobs and
+  Desktop installers run `30745662565` passed all five. An isolated 1000x680
+  native WebView2 audit confirmed all five Effects cards, immediate exact
+  Hue-cycle output, the 13px helper floor, enabled Apply/Cancel boundaries, 200
+  physical Board pixels, reduced-motion representative-frame behavior, and
+  document-preserving Cancel; its occluded screenshot is not accepted as visual
+  evidence. The one required generation `fable-review` used explicit
+  `claude-opus-5` at `high` over exact pins and returned one admitted MEDIUM
+  finding, `cl-17`: live parameter changes leave timeline LED thumbnails
+  showing the prior accepted frame set. The first result was used as returned
+  without retry or resubmission. LSR-6 remains open; the active review loop is
+  recorded in `.agents/review/index.md`.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -232,11 +237,8 @@
 
 ## Next
 
-- Push and qualify the exact LSR-6 implementation head, then run its one
-  required `fable-review` using explicit `claude-opus-5` at `high` over the
-  exact landed range. Use the first substantive result as returned and do not
-  retry, replace, or resubmit it without explicit owner approval. Do not
-  restart R65-2 until
+- Repair, guard, verify, commit, push, and independently verify `cl-17` as one
+  isolated finding slice. Do not restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new
