@@ -18,8 +18,11 @@
   media work when Source loses the workspace, and rejects stale work before
   any render-start mutation. Its focused guards and native delayed-render race
   are mutation-proven; the complete 694-Python/158-browser/compile/syntax/build
-  gate and all six native format/viewport cases pass. Per-finding review is
-  still required before `cl-14` closes.
+  gate and all six native format/viewport cases pass. Its single per-finding
+  review attempt produced no verdict: PTK's outer 300-second transport ceiling
+  killed the still-running Claude child before it wrote result or stderr
+  artifacts. No review was retried or resubmitted; a replacement requires
+  explicit owner approval before `cl-14` can close.
 - Active review loop: see `.agents/review/index.md`.
 
 - Public-release candidate attempt 3 at
@@ -226,9 +229,11 @@
 
 ## Next
 
-- Commit, push, and independently verify the guard-proven `cl-14` repair, then
-  repair `cl-15` and `cl-16` one finding and one commit at a time. LSR-5 cannot
-  close until all three are accepted and exact repair-head CI is green. Do
+- Obtain an owner ruling on one replacement `cl-14` verification using the
+  background-wrapper pattern; do not resubmit without it. After `cl-14` is
+  accepted, repair `cl-15` and `cl-16` one finding and one commit at a time.
+  LSR-5 cannot close until all three are accepted and exact repair-head CI is
+  green. Do
   not restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat

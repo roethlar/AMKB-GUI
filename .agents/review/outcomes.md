@@ -346,3 +346,17 @@
   Grep were denied; the reviewer recovered through allowed repository reads and
   git inspection and completed the capability proof. The transcript model key
   was `claude-opus-5`.
+- 2026-08-02 — codereview claude (job `fable-review`; claude-cli 2.1.220;
+  `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `ff7576a3912940829bf282c7e15d654017307358..1a8632b6b1b2dc4926f848235d10dadd4066e6e5`:
+  infrastructure failure, not a verdict. Exactly one verification invocation
+  started at 2026-08-02T09:40:16Z with the exact pins and explicit model and
+  effort. Although PTK was given a 1,900-second budget, its outer MCP tool call
+  ended at the 300-second transport ceiling and worker teardown terminated the
+  still-running Claude child. The child had created and later lost its detached
+  worktree, but no result or stderr artifact was written; the status artifact
+  remains stale at `running`. Verdict, guard confirmation, and capability proof
+  are therefore unknown. Nothing was discarded, retried, re-emitted, replaced,
+  reformatted, or resubmitted. A replacement review requires explicit owner
+  approval and must run through the background-wrapper pattern so the outer PTK
+  ceiling cannot terminate it.
