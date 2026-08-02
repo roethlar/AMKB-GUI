@@ -2,7 +2,8 @@
 
 ## Now
 - LSR-1 is closed. Implementation `1ee73a81182c8f401b1942776d3df7c005541f33` and admitted review repair `95795845b6eeabd1c572b82244fef26a975183dd` are fully guard-proven, pass the 677-Python/144-browser/compile/syntax/build gate, and are pushed. The required `claude-opus-5` generation review and T2 per-finding verification used exact ranges once each; `cl-10` returned accepted with guard and capability confirmed. Canonical evidence is in the redesign plan and `.agents/review/findings/cl-10.md`.
-- LSR-2 is closed. Implementation `65c9fbfc22c2b24c3b868218512b00039756e6e1` and admitted repairs `9015d422d97d3be0ba9aa04a0ebeeec81c934335` (`cl-11`) and `3865c1008a9798f4d882b2f81c445e7fc2e3261f` (`cl-12`) are committed, pushed, mutation-proven, and pass the complete 688-Python/144-browser/compile/syntax/build gate. The single generation review and both per-finding verifications used `fable-review`, explicit `claude-opus-5` at `high`, exact ranges, and the first substantive result once; both findings returned accepted with guard and capability confirmed. LSR-3 is next.
+- LSR-2 is closed. Implementation `65c9fbfc22c2b24c3b868218512b00039756e6e1` and admitted repairs `9015d422d97d3be0ba9aa04a0ebeeec81c934335` (`cl-11`) and `3865c1008a9798f4d882b2f81c445e7fc2e3261f` (`cl-12`) are committed, pushed, mutation-proven, and pass the complete 688-Python/144-browser/compile/syntax/build gate. The single generation review and both per-finding verifications used `fable-review`, explicit `claude-opus-5` at `high`, exact ranges, and the first substantive result once; both findings returned accepted with guard and capability confirmed.
+- LSR-3 is closed. Implementation `92949d92ca6751073ce47fa2b5182c01ed247009` is pushed, mutation-proven, and passes the complete 690-Python/149-browser/compile/syntax/build gate plus the isolated two-viewport native WebView2 destination-transition audit. Exact-head CI run `30735969449` and Desktop installers run `30735969440` passed every platform, metadata, and provenance job. Its one required `fable-review` used explicit `claude-opus-5` at `high` over `b5d46d9402df4d47429b17aaf50326d1307024d8..92949d92ca6751073ce47fa2b5182c01ed247009`; the first substantive result returned clean with exact pins, `capability_ok=true`, no findings, exit 0, and no stderr. LSR-4 is next.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -208,9 +209,10 @@
 
 ## Next
 
-- Implement LSR-3 destination-bound playback isolation under the approved
-  redesign plan. Preserve document arrays and Apply semantics while moving all
-  timers and stale work behind reducer-owned destination sessions. Do
+- Implement LSR-4 human-first shell and synchronized panes under the approved
+  redesign plan. Keep Source and physical Board separate, move playback to one
+  horizontal timeline, preserve canonical Board arrays and existing tools, and
+  remove the old source/result toggle and blended source plane. Do
   not restart R65-2 until LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new
@@ -229,7 +231,7 @@
 
 ## Blockers
 
-- No blocker prevents the LSR-2 finding repairs. R65-2 is blocked on completion
+- No blocker prevents LSR-4 implementation. R65-2 is blocked on completion
   and owner acceptance of the complete redesign. Live provider requests,
   keyboard writes, macOS Open Anyway, tag creation, release publication, and
   announcements remain separately gated actions for their later slices.

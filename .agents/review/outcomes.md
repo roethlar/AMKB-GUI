@@ -321,3 +321,13 @@
   independently confirmed the restoration. Exactly one verification invocation
   was made; it was not retried, re-emitted, replaced, reformatted, or
   resubmitted. The transcript model key was `claude-opus-5`.
+- 2026-08-02 — codereview claude (job `fable-review`; claude-cli 2.1.220;
+  `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `b5d46d9402df4d47429b17aaf50326d1307024d8..92949d92ca6751073ce47fa2b5182c01ed247009`:
+  verdict `clean`, `capability_ok=true`, exact pinned SHAs, no findings, exit
+  0, and no stderr. The persisted first substantive result completed after 12
+  minutes 35 seconds and was used exactly as returned; it was not discarded,
+  retried, re-emitted, replaced, reformatted, or resubmitted. One hook-rewritten
+  `rtk git log` form was denied, but the reviewer completed its repo inspection
+  and capability proof through allowed commands. The transcript model key was
+  `claude-opus-5`.

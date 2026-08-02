@@ -726,6 +726,21 @@ feat: render exact live media frames
 
 ### Slice LSR-3 — Destination-bound playback isolation
 
+Completed 2026-08-02. Implementation commit
+`92949d92ca6751073ce47fa2b5182c01ed247009` is pushed, mutation-proven, and
+passes the complete 690-Python/149-browser/compile/syntax/build gate. The
+isolated native WebView2 audit passed at 1000×680 and 1280×800 across
+GIF/PNG/BMP, including CyberBoard switch-to-display and Neon
+Per-key-to-Head transitions, with exact destination colors, unchanged document
+data, and no console or layout finding. Exact-head CI run `30735969449` and
+Desktop installers run `30735969440` passed on every platform, including
+metadata and provenance. The one required `fable-review` used
+`claude-opus-5` at `high` over exact range
+`b5d46d9402df4d47429b17aaf50326d1307024d8..92949d92ca6751073ce47fa2b5182c01ed247009`;
+its first substantive result returned `clean`, `capability_ok=true`, exact
+pins, no findings, exit 0, and no stderr. It was not retried, re-emitted,
+replaced, reformatted, or resubmitted. LSR-3 is closed; LSR-4 is next.
+
 Files:
 
 - `am_configurator/web/lighting_workspace.js`;
