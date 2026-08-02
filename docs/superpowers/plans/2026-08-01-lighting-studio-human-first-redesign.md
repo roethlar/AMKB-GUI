@@ -640,7 +640,7 @@ parent/head and returned one admitted HIGH finding, `cl-10`. Repair commit
 spelling, passed the non-vacuous red/green proof and full 677-Python/144-browser
 gate, and was pushed. Its T2 per-finding verification used `claude-opus-5` at
 `xhigh` over the exact repair range and returned `accepted` with
-`guard_confirmed=true` and `capability_ok=true`. LSR-1 is closed; LSR-2 is next.
+`guard_confirmed=true` and `capability_ok=true`. LSR-1 is closed.
 
 Files:
 
@@ -674,6 +674,19 @@ refactor: centralize lighting workspace state
 ```
 
 ### Slice LSR-2 — Exact selected-frame media renderer
+
+Completed 2026-08-02. Implementation commit
+`65c9fbfc22c2b24c3b868218512b00039756e6e1` passed the complete
+685-Python/144-browser gate, selected/full parity and invalidation mutation
+proofs, and was pushed. Its single required `fable-review` used
+`claude-opus-5` at `high` over exact parent/head and returned two admitted
+findings. `cl-11` repair `9015d422d97d3be0ba9aa04a0ebeeec81c934335`
+keeps sessionless renders outside the explicit preview LRU; `cl-12` repair
+`3865c1008a9798f4d882b2f81c445e7fc2e3261f` restores decode-time
+supersession. Both repairs are non-vacuously mutation-proven, pushed, pass the
+complete 688-Python/144-browser gate, and each received one exact-range
+`claude-opus-5` high/standard `accepted` verdict with `guard_confirmed=true`
+and `capability_ok=true`. LSR-2 is closed; LSR-3 is next.
 
 Files:
 

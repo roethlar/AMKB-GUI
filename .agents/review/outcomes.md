@@ -305,3 +305,19 @@
   removed and pruned without changing the shared tree. Exactly one verification
   invocation was made; it was not retried, re-emitted, replaced, reformatted,
   or resubmitted. The transcript model key was `claude-opus-5`.
+- 2026-08-02 — `cl-12` per-finding verification through codereview claude (job
+  `fable-review`; claude-cli 2.1.220; `claude-opus-5` @ `high`, standard,
+  inline/session-only) over
+  `1d5b992e2f4cbd742a4434ef966c88d6fa8dddd2..3865c1008a9798f4d882b2f81c445e7fc2e3261f`:
+  verdict `accepted`, `guard_confirmed=true`, `capability_ok=true`, exact pins,
+  exit 0, and no stderr. A disposable worktree independently proved the guard
+  green, restored the production module from the base and showed epoch 1
+  received no decoder check and completed decode, then restored the repair and
+  returned green. All 688 Python, 246 affected, and 144 browser tests plus
+  compile, syntax, and package gates passed. An auxiliary probe briefly wrote
+  one line to the shared test file because a relative .NET path resolved against
+  the repo; the reviewer detected and reverted it immediately, redid the proof
+  in the disposable worktree, and left the shared tree clean. This session
+  independently confirmed the restoration. Exactly one verification invocation
+  was made; it was not retried, re-emitted, replaced, reformatted, or
+  resubmitted. The transcript model key was `claude-opus-5`.

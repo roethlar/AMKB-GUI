@@ -2,7 +2,7 @@
 
 ## Now
 - LSR-1 is closed. Implementation `1ee73a81182c8f401b1942776d3df7c005541f33` and admitted review repair `95795845b6eeabd1c572b82244fef26a975183dd` are fully guard-proven, pass the 677-Python/144-browser/compile/syntax/build gate, and are pushed. The required `claude-opus-5` generation review and T2 per-finding verification used exact ranges once each; `cl-10` returned accepted with guard and capability confirmed. Canonical evidence is in the redesign plan and `.agents/review/findings/cl-10.md`.
-- LSR-2 implementation `65c9fbfc22c2b24c3b868218512b00039756e6e1` is committed, pushed, and passed the 685-Python/144-browser/compile/syntax/build gate plus selected/full parity and Library-removal mutation proofs. Its single required `claude-opus-5` generation review over exact parent `4bdb75f802dec338821ea827d397a7ebc091d8bd` returned two independently reproduced findings. `cl-11` MEDIUM is closed: repair `9015d422d97d3be0ba9aa04a0ebeeec81c934335` received one accepted Opus verdict. `cl-12` LOW is repaired and mutation-proven locally: stale sessionless work now receives a destination epoch check during decode; 246 affected tests and the complete 688-Python/144-browser/compile/syntax/build gate pass. Commit, push, and obtain its one per-finding verdict before closing LSR-2.
+- LSR-2 is closed. Implementation `65c9fbfc22c2b24c3b868218512b00039756e6e1` and admitted repairs `9015d422d97d3be0ba9aa04a0ebeeec81c934335` (`cl-11`) and `3865c1008a9798f4d882b2f81c445e7fc2e3261f` (`cl-12`) are committed, pushed, mutation-proven, and pass the complete 688-Python/144-browser/compile/syntax/build gate. The single generation review and both per-finding verifications used `fable-review`, explicit `claude-opus-5` at `high`, exact ranges, and the first substantive result once; both findings returned accepted with guard and capability confirmed. LSR-3 is next.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -208,9 +208,9 @@
 
 ## Next
 
-- Commit and push the isolated, fully verified `cl-12` repair, then obtain its
-  one exact-range per-finding verdict. If accepted, close LSR-2 and begin LSR-3.
-  Do
+- Implement LSR-3 destination-bound playback isolation under the approved
+  redesign plan. Preserve document arrays and Apply semantics while moving all
+  timers and stale work behind reducer-owned destination sessions. Do
   not restart R65-2 until LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new
