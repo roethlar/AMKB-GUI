@@ -1218,7 +1218,12 @@ dependency files are identical. No external review was dispatched under the
 review-economy rule. Exact shipped-product head `f5cc91c` passes CI run
 `30766621303` on all four test jobs and Desktop installers run `30766621302` on
 all three platforms, candidate metadata, and release provenance. Only the
-owner's final visible Windows acceptance pass remains open.
+owner's final visible Windows acceptance pass remains open. The one required
+material-range `fable-review` then admitted `cl-23` (the app-native round-trip
+check can pass before reopen) and `cl-24` (Close retains the review destination
+instead of restoring editor context). That qualification is reopened until both
+repairs are independently mutation-proven and the affected platform gates are
+repeated. No per-finding or documentation review will be run.
 
 Commit:
 

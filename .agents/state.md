@@ -203,10 +203,15 @@
   `30766621302` passes Windows, macOS, Linux, candidate metadata, and release
   provenance. Only the owner's final visible Windows acceptance pass remains
   before LSR-10 can close.
-- Active final LSR-10 material review: one `fable-review` generation pass with
-  literal `claude-opus-5` at `high` over pinned range `ca8d7b8..b9b481a`.
-  The first substantive result is final; no retry, replacement, or re-review is
-  authorized for formatting, minor repairs, or documentation changes.
+- The one final LSR-10 material `fable-review` used literal `claude-opus-5` at
+  `high` over pinned range `ca8d7b8..b9b481a`, returned two findings, and was
+  preserved and used unchanged with no retry or re-review. Both independently
+  reproduce and are admitted: `cl-23` (MEDIUM) finds the app-native round-trip
+  native check can pass before reopen; `cl-24` (LOW) finds Close retains the
+  review destination instead of the user's pre-review destination. The prior
+  platform qualification and visible Windows build are reopened until both
+  repairs are mutation-proven and the affected gates are repeated. Canonical
+  records are `.agents/review/findings/cl-23.md` and `cl-24.md`.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -410,8 +415,11 @@
 
 ## Next
 
-- Open the current qualified Windows build for the owner's one final visible
-  acceptance pass, then record and close LSR-10 if accepted. External
+- Repair `cl-23` and `cl-24` one commit each, prove each guard red then green,
+  repeat the complete gate and three-platform source/frozen qualification, push,
+  and require exact-head CI/Desktop jobs. Then open the rebuilt Windows app for
+  the owner's final visible acceptance pass. No further external review is
+  authorized. External
   review is not automatic; use it only on explicit owner request or a concrete
   material risk that local guards and CI cannot resolve. A replacement release
   candidate must repeat every release gate and cannot mix evidence from any

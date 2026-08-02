@@ -492,3 +492,19 @@
   reformatting, or resubmission. Transcript model key `claude-opus-5`;
   immutable result SHA-256
   `F42B8D99734D590EE668B8A0A42BF8A2BFB2652E45970DF46D3C6CBCEFE1854C`.
+- 2026-08-02 — LSR-10 codereview claude (job `fable-review`; claude-cli
+  2.1.220; `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `ca8d7b8fe64af8ad698659999ef0c8a92f395e88..b9b481ad9c1d7c9a854757c266eb6f4f40e1b2ac`:
+  verdict `findings`, `capability_ok=true`, exact pinned SHAs, one MEDIUM and
+  one LOW candidate, exit 0, and no stderr. Direct pinned-source verification
+  admitted both: `cl-23` because app-native round-trip assertions are already
+  satisfied before `readFiles()` and cannot detect swallowed import failure;
+  `cl-24` because Close retains a supported review destination instead of the
+  user's pre-review destination. The persisted schema-enforced first result
+  completed after 15 minutes 40 seconds and was used unchanged without retry,
+  re-emission, replacement, reformatting, or resubmission. Four non-terminal
+  permission denials affected only rewritten or unavailable inspection forms;
+  allowed repository reads and git inspection completed capability proof.
+  Transcript model key: `claude-opus-5`; immutable result SHA-256:
+  `2123611826335EE75E75F5085301E5B0474B0D46EC4E5159712C17A28FC398C0`.
+  This was the only review invocation; per-finding external review is waived.
