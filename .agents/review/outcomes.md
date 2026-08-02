@@ -365,3 +365,18 @@
   commands completed the capability proof. The transcript model key was
   `claude-opus-5`; the immutable result SHA-256 is
   `01C3136D8DD4F8F20175DC32ED2A05E0533A2C03BC777E1C5C4E288C22CC70BF`.
+- 2026-08-02 — per-finding codereview claude (job `fable-review`; claude-cli
+  2.1.220; `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `904f45c4b27ad4b3fdb9e55d31efc3c9610a17e9..027f2eb18cedd88974ae5a965de2176c0690f801`:
+  verdict `accepted`, `guard_confirmed=true`, `capability_ok=true`, exact pinned
+  SHAs, exit 0, and no stderr. The first substantive result was used unchanged
+  and was not discarded, retried, re-emitted, replaced, reformatted, or
+  resubmitted. In a disposable detached worktree the reviewer passed all 19
+  desktop tests, replaced only `desktop.py` with the base version and
+  reproduced the exact missing-`*.GIF` failure, restored the reviewed file to
+  green, confirmed cross-backend parsing and unchanged signature-based decoder
+  scope, and removed the worktree without changing the primary tree. Two
+  hook-rewritten `rtk git diff` spellings were denied; allowed reads and git
+  commands completed the inspection and capability proof. The transcript model
+  key was `claude-opus-5`; immutable result SHA-256 is
+  `217876161BA4856B24BFBE826E7A97BEA53337296290262DD8BC6455350B5775`.

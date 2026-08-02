@@ -23,6 +23,15 @@
   with guard and capability confirmed. PTK's outer call ended at 300 seconds,
   but the original child persisted its first substantive result 32 seconds
   later; that result was used unchanged with no retry or resubmission.
+- `cl-15` is closed at repair `027f2eb18cedd88974ae5a965de2176c0690f801`.
+  The native chooser now supplies exact lowercase and uppercase GIF, PNG, and
+  BMP patterns without changing decoder scope. The focused guard is
+  non-vacuously mutation-proven; the complete 694-Python/158-browser/compile/
+  syntax/build gate passes. Exact repair-head CI run `30742707290` and Desktop
+  installers run `30742707274` passed every job. Its single `fable-review`
+  used explicit `claude-opus-5` at `high` over exact parent/fix pins and
+  returned `accepted` with guard and capability confirmed; the first result
+  was used unchanged with no retry or resubmission.
 - Active review loop: see `.agents/review/index.md`.
 
 - Public-release candidate attempt 3 at
@@ -229,9 +238,8 @@
 
 ## Next
 
-- Repair and independently verify `cl-15`, then `cl-16`, one finding and one
-  commit at a time. LSR-5 cannot close until both are accepted and exact
-  repair-head CI is green. Do
+- Repair and independently verify `cl-16`. LSR-5 cannot close until it is
+  accepted and exact repair-head CI is green. Do
   not restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat

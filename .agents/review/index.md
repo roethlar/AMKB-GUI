@@ -54,7 +54,7 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | cl-12 | LOW     | Stale sessionless renders fully decode before observing supersession        | `[x]`  | —      | claude/claude-opus-5/high/standard |
 | cl-13 | HIGH    | Expired media preview sessions permanently break Preview and Source         | `[x]`  | —      | claude/claude-opus-5/xhigh/frontier esc:T2 |
 | cl-14 | MEDIUM  | Queued media render can stop Board playback after Source is left            | `[x]`  | —      | claude/claude-opus-5/high/standard |
-| cl-15 | MEDIUM  | Linux picker hides supported files with uppercase media extensions          | `[~]`  | —      | claude/claude-opus-5/high/standard |
+| cl-15 | MEDIUM  | Linux picker hides supported files with uppercase media extensions          | `[x]`  | —      | claude/claude-opus-5/high/standard |
 | cl-16 | MEDIUM  | Interactive framing never uses the required selected-frame render tier      | `[ ]`  | —      | claude/claude-opus-5/high/standard |
 
 All three raised by the 2026-07-25 openreview codex pass over
