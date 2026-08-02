@@ -6,6 +6,7 @@ const assert = require("node:assert/strict");
 const {
   boardFrameSetFromDocument,
   boardFrameSetFromLocalEffect,
+  boardFrameSetFromMappedFrame,
   boardFrameSetFromMappedResult,
   captureWorkspaceAsyncContext,
   createLightingPlaybackRuntime,
@@ -182,6 +183,25 @@ test("BoardFrameSet validates shapes and canonicalizes valid RGB spelling", () =
     }),
     error => error.code === "invalid_color",
   );
+});
+
+test("one mapped media frame becomes an exact transient Board frame", () => {
+  const selected = boardFrameSetFromMappedFrame({
+    context: context({source_kind: "media_render", revision: 4}),
+    mappedFrame: {
+      tracks: {
+        keyframes: {pixels: 2, colors: ["#abcdef", "#123456"]},
+      },
+    },
+    timelineEntry: {index: 7, source_frame_index: 3, duration_ms: 90},
+    targetLengths: TARGET_LENGTHS,
+    allowedDurations: FIRMWARE_DURATIONS,
+  });
+
+  assert.equal(selected.frame_count, 1);
+  assert.equal(selected.duration_ms, 90);
+  assert.deepEqual(selected.timeline, [{index: 0, source_frame_index: 3}]);
+  assert.deepEqual(selected.frames_by_target.keyframes, [["#ABCDEF", "#123456"]]);
 });
 
 test("document, local effect, media, and procedural sources share one BoardFrameSet contract", () => {
@@ -455,12 +475,22 @@ test("expired media sessions clear only the matching id and preserve the draft",
     preview_session_id: "a".repeat(32),
     captured,
   }).state;
-  state = publish(state, frameSet({
-    framesByTarget: {keyframes: [
-      ["#000001", "#000002"],
-      ["#000003", "#000004"],
-    ]},
-  })).state;
+  state = reduceLightingWorkspace(state, {type: "SEQUENCE_RENDER_STARTED"}).state;
+  state = reduceLightingWorkspace(state, {
+    type: "SEQUENCE_RENDER_ACCEPTED",
+    request_epoch: state.preview.request_epoch,
+    context_key: state.preview.request_context_key,
+    media_revision: 0,
+    frame_set: frameSet({
+      workspaceContext: context({source_kind: "media_render", revision: 0}),
+      framesByTarget: {keyframes: [
+        ["#000001", "#000002"],
+        ["#000003", "#000004"],
+      ]},
+    }),
+    target_lengths: TARGET_LENGTHS,
+    allowed_durations: FIRMWARE_DURATIONS,
+  }).state;
   state = reduceLightingWorkspace(state, {type: "PLAY_REQUESTED"}).state;
   assert.equal(state.playhead.playing, true);
   const beforePreview = state.preview;
@@ -1040,4 +1070,136 @@ test("stale selected-frame and full-render epochs cannot collide after same-dest
     assert.equal(staleSource.state, state, transition.type);
     assert.equal(staleSource.ignored, "stale", transition.type);
   }
+});
+
+test("selected media frames preserve the playhead without promoting partial work", () => {
+  let state = createLightingWorkspace({
+    documentEpoch: 7,
+    slot: 5,
+    target: "keyframes",
+    route: "lighting/edit",
+    tool: "paint",
+  });
+  state = reduceLightingWorkspace(state, {
+    type: "MEDIA_OPENED",
+    media: {catalog_id: "media-a", asset_id: "source-a", requested_revision: 0},
+  }).state;
+  const captured = captureWorkspaceAsyncContext(state);
+  state = reduceLightingWorkspace(state, {
+    type: "MEDIA_SESSION_READY",
+    captured,
+    catalog_id: "media-a",
+    asset_id: "source-a",
+    preview_session_id: "11111111-1111-4111-8111-111111111111",
+  }).state;
+
+  let started = reduceLightingWorkspace(state, {type: "SEQUENCE_RENDER_STARTED"});
+  state = started.state;
+  const initialSequence = createBoardFrameSet({
+    context: context({source_kind: "media_render", revision: 0}),
+    frames_by_target: {
+      keyframes: [
+        ["#100000", "#001000"],
+        ["#200000", "#002000"],
+      ],
+    },
+    frame_count: 2,
+    duration_ms: 90,
+    timeline: [
+      {index: 0, source_frame_index: 0},
+      {index: 1, source_frame_index: 1},
+    ],
+    provenance: "media_render",
+  }, {targetLengths: TARGET_LENGTHS, allowedDurations: FIRMWARE_DURATIONS});
+  state = reduceLightingWorkspace(state, {
+    type: "SEQUENCE_RENDER_ACCEPTED",
+    request_epoch: state.preview.request_epoch,
+    context_key: state.preview.request_context_key,
+    media_revision: 0,
+    frame_set: initialSequence,
+    target_lengths: TARGET_LENGTHS,
+    allowed_durations: FIRMWARE_DURATIONS,
+  }).state;
+  state = reduceLightingWorkspace(state, {type: "PLAYHEAD_SCRUBBED", index: 1}).state;
+  state = reduceLightingWorkspace(state, {
+    type: "TRANSFORM_REQUESTED",
+    media_revision: 1,
+    transform: {version: 1},
+  }).state;
+  const acceptedSequence = state.preview.board_frame_set;
+
+  started = reduceLightingWorkspace(state, {type: "FRAME_RENDER_STARTED"});
+  state = started.state;
+  const selected = boardFrameSetFromMappedFrame({
+    context: context({source_kind: "media_render", revision: 1}),
+    mappedFrame: {
+      tracks: {
+        keyframes: {pixels: 2, colors: ["#ABCDEF", "#123456"]},
+      },
+    },
+    timelineEntry: {index: 1, source_frame_index: 5, duration_ms: 90},
+    targetLengths: TARGET_LENGTHS,
+    allowedDurations: FIRMWARE_DURATIONS,
+  });
+  const frameAccepted = reduceLightingWorkspace(state, {
+    type: "FRAME_RENDER_ACCEPTED",
+    request_epoch: state.preview.request_epoch,
+    context_key: state.preview.request_context_key,
+    media_revision: 1,
+    frame_index: 1,
+    frame_set: selected,
+    target_lengths: TARGET_LENGTHS,
+    allowed_durations: FIRMWARE_DURATIONS,
+  });
+  state = frameAccepted.state;
+
+  assert.equal(frameAccepted.ignored, undefined);
+  assert.strictEqual(state.preview.board_frame_set, acceptedSequence);
+  assert.equal(state.preview.selected_frame.timeline_index, 1);
+  assert.equal(state.media.accepted_revision, undefined);
+  assert.equal(state.media.accepted_frame_revision, 1);
+  assert.equal(state.playhead.index, 1);
+  assert.deepEqual(selectBoardProjection(state).colors, ["#ABCDEF", "#123456"]);
+  assert.equal(selectBoardProjection(state).frame_set.frame_count, 2);
+  assert.deepEqual(selectSourceProjection(state), {
+    catalog_id: "media-a",
+    preview_session_id: "11111111-1111-4111-8111-111111111111",
+    source_frame_index: 5,
+    timeline_index: 1,
+    context_key: workspaceContextKey(state),
+  });
+  const blockedPlayback = reduceLightingWorkspace(state, {type: "PLAY_REQUESTED"});
+  assert.equal(blockedPlayback.state.playhead.playing, false);
+  assert.equal(blockedPlayback.ignored, "stale");
+
+  state = reduceLightingWorkspace(state, {type: "SEQUENCE_RENDER_STARTED"}).state;
+  const finalSequence = createBoardFrameSet({
+    context: context({source_kind: "media_render", revision: 1}),
+    frames_by_target: {
+      keyframes: [
+        ["#AAAAAA", "#BBBBBB"],
+        ["#ABCDEF", "#123456"],
+      ],
+    },
+    frame_count: 2,
+    duration_ms: 90,
+    timeline: [
+      {index: 0, source_frame_index: 4},
+      {index: 1, source_frame_index: 5},
+    ],
+    provenance: "media_render",
+  }, {targetLengths: TARGET_LENGTHS, allowedDurations: FIRMWARE_DURATIONS});
+  state = reduceLightingWorkspace(state, {
+    type: "SEQUENCE_RENDER_ACCEPTED",
+    request_epoch: state.preview.request_epoch,
+    context_key: state.preview.request_context_key,
+    media_revision: 1,
+    frame_set: finalSequence,
+    target_lengths: TARGET_LENGTHS,
+    allowed_durations: FIRMWARE_DURATIONS,
+  }).state;
+
+  assert.equal(state.preview.selected_frame, null);
+  assert.equal(state.media.accepted_revision, 1);
+  assert.deepEqual(selectBoardProjection(state).colors, ["#ABCDEF", "#123456"]);
 });

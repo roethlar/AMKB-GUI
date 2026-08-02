@@ -100,6 +100,9 @@ test("media and source-projection transitions are bound to the reducer session",
   assert.match(load,/captureWorkspaceAsyncContext\(lightingWorkspace\)/);
   assert.match(js,/workspaceAsyncContextMatches\(lightingWorkspace,load\)/);
   assert.match(load,/sourceProjectionLoadMatchesWorkspace/);
+  assert.match(load,/sourceProjectionLoadMatchesWorkspace\(existing\.load\)/);
+  assert.match(load,/existing\.controller\.abort\(\)/);
+  assert.match(load,/const record=\{controller,load,promise:null\}/);
   assert.ok(
     load.indexOf("sourceProjectionLoadMatchesWorkspace") < load.indexOf("renderLightingSourceProjection()"),
     "a stale source load must be rejected before touching the current DOM",
@@ -159,6 +162,84 @@ test("queued media renders surrender Source ownership before shared preview muta
     "stale queued work must be rejected before SEQUENCE_RENDER_STARTED",
   );
   assert.match(render,/const requestAsyncContext=request\.ownership/);
+});
+
+test("interactive framing publishes one exact selected frame before the full sequence", () => {
+  const frameSchedulerStart=js.indexOf("const mediaCompositionFrameScheduler");
+  const sequenceSchedulerStart=js.indexOf("const mediaCompositionRenderScheduler");
+  assert.ok(frameSchedulerStart>=0, "the selected-frame scheduler must exist");
+  assert.ok(sequenceSchedulerStart>=0, "the full-sequence scheduler must remain");
+  const frameScheduler=js.slice(frameSchedulerStart,sequenceSchedulerStart);
+  assert.match(frameScheduler,/delayMs:0/);
+  assert.match(frameScheduler,/renderMediaCompositionFrameAttempt/);
+
+  const dispatchStart=js.indexOf("function dispatchLightingWorkspace");
+  const dispatchEnd=js.indexOf("\nfunction ",dispatchStart+10);
+  const dispatch=js.slice(dispatchStart,dispatchEnd);
+  assert.match(dispatch,/mediaCompositionFrameScheduler\.cancel\(\)/);
+  assert.match(dispatch,/mediaCompositionRenderScheduler\.cancel\(\)/);
+  assert.ok(
+    dispatch.indexOf("mediaCompositionFrameScheduler.cancel()")
+      <dispatch.indexOf("executeLightingWorkspaceIntents"),
+    "pending selected-frame work must be cancelled before transition intents",
+  );
+
+  const requestStart=js.indexOf("function requestMediaCompositionRender");
+  const requestEnd=js.indexOf("\nfunction ",requestStart+10);
+  const request=js.slice(requestStart,requestEnd);
+  assert.match(request,/scheduleMediaCompositionFrame\(\)/);
+  assert.doesNotMatch(request,/scheduleMediaCompositionPreview\(\)/);
+
+  const scheduleStart=js.indexOf("function scheduleMediaCompositionFrame");
+  const scheduleEnd=js.indexOf("\nfunction ",scheduleStart+10);
+  const schedule=js.slice(scheduleStart,scheduleEnd);
+  assert.match(schedule,/const frameIndex=mediaCompositionFrameIndex\(draft\)/);
+  assert.match(schedule,/type:"PLAYHEAD_SCRUBBED",index:frameIndex/);
+  assert.match(schedule,/frameIndex,/);
+  assert.match(schedule,/mediaCompositionRenderScheduler\.cancel\(\)/);
+  assert.match(schedule,/mediaCompositionFrameScheduler\.request\(request\)/);
+
+  const attemptStart=js.indexOf("async function renderMediaCompositionFrameAttempt");
+  const attemptEnd=js.indexOf("\nfunction ",attemptStart+10);
+  const attempt=js.slice(attemptStart,attemptEnd);
+  assert.match(attempt,/\/render-frame`/);
+  assert.match(attempt,/frame_index:request\.frameIndex/);
+  assert.match(attempt,/boardFrameSetFromMappedFrame\(/);
+  assert.match(attempt,/type:"FRAME_RENDER_STARTED"/);
+  assert.match(attempt,/type:"FRAME_RENDER_ACCEPTED"/);
+  assert.match(attempt,/type:"FRAME_RENDER_SUCCEEDED"/);
+  assert.match(attempt,/scheduleMediaCompositionPreview\(\)/);
+  assert.ok(
+    attempt.indexOf("mediaLoadMatchesWorkspace(request?.ownership)")
+      <attempt.indexOf('type:"FRAME_RENDER_STARTED"'),
+    "stale selected-frame work must stop before shared preview mutation",
+  );
+  assert.ok(
+    attempt.indexOf("lightingWorkspace.playhead.index!==request?.frameIndex")
+      <attempt.indexOf("/render-frame`"),
+    "a stale scrubbed frame must stop before the selected-frame request",
+  );
+  assert.ok(
+    attempt.indexOf("if(accepted.ignored)return")
+      <attempt.indexOf("scheduleMediaCompositionPreview()"),
+    "only an accepted latest selected frame may schedule the full sequence",
+  );
+
+  const flushStart=js.indexOf("async function renderMediaCompositionPreview");
+  const flushEnd=js.indexOf("\nasync function renderMediaCompositionFrameAttempt",flushStart+10);
+  const flush=js.slice(flushStart,flushEnd);
+  assert.ok(
+    flush.indexOf("await mediaCompositionFrameScheduler.flush()")
+      <flush.indexOf("mediaCompositionRenderScheduler.flush()"),
+    "explicit Preview must finish the selected frame before awaiting the sequence",
+  );
+  const scrubStart=js.indexOf("const scrubTimeline=index=>");
+  const scrubEnd=js.indexOf("\n  };",scrubStart+10);
+  assert.match(
+    js.slice(scrubStart,scrubEnd),
+    /!mediaCompositionCanApply\(\)/,
+    "an already exact full sequence must not launch a late frame that stops playback",
+  );
 });
 
 // Slice P3 renamed the visible tool labels to Paint / Import media / Effects /

@@ -410,6 +410,24 @@
     if (!state || state.version !== 1 || !action || typeof action !== "object") {
       throw new TypeError("The media draft transition is invalid.");
     }
+    if (action.type === "FRAME_RENDER_SUCCEEDED") {
+      if (
+        state.status === "cancelled"
+        || !Number.isSafeInteger(action.revision)
+        || action.revision !== state.revision
+      ) return state;
+      const effects = validateEffects(action.effects);
+      return deepFreeze({
+        ...state,
+        transform: validateTransform(action.transform),
+        effects,
+        resolvedTransforms: validateResolvedTransforms(
+          action.resolvedTransforms,
+          effects,
+        ),
+        error: "",
+      });
+    }
     if (action.type === "RENDER_REQUESTED") {
       if (
         !Number.isSafeInteger(action.epoch)

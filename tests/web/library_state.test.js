@@ -56,7 +56,27 @@ test("a banked media draft stays immutable across render epochs", () => {
     transform: transform(),
   });
   const before = JSON.stringify(initial.source);
-  const rendering = reduceMediaDraft(initial, {
+  const frameReady = reduceMediaDraft(initial, {
+    type: "FRAME_RENDER_SUCCEEDED",
+    revision: 0,
+    transform: transform({offset_x: 0.125}),
+    effects: [],
+    resolvedTransforms: [],
+  });
+  assert.equal(frameReady.status, "draft");
+  assert.equal(frameReady.revision, 0);
+  assert.equal(frameReady.acceptedRevision, null);
+  assert.equal(frameReady.transform.offset_x, 0.125);
+  assert.equal(mediaDraftCanApply(frameReady), false);
+  assert.strictEqual(reduceMediaDraft(frameReady, {
+    type: "FRAME_RENDER_SUCCEEDED",
+    revision: 1,
+    transform: transform(),
+    effects: [],
+    resolvedTransforms: [],
+  }), frameReady);
+
+  const rendering = reduceMediaDraft(frameReady, {
     type: "RENDER_REQUESTED",
     epoch: 4,
     revision: 0,

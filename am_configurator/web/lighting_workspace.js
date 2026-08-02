@@ -301,6 +301,51 @@
     }, {targetLengths, allowedDurations, maxFrames});
   }
 
+  function boardFrameSetFromMappedFrame({
+    context,
+    mappedFrame,
+    timelineEntry,
+    targetLengths,
+    allowedDurations,
+  }) {
+    if (!isObject(mappedFrame) || !isObject(mappedFrame.tracks)) {
+      fail("invalid_shape", "The rendered lighting frame is unavailable.");
+    }
+    if (!isObject(timelineEntry)) {
+      fail("invalid_frame", "The rendered lighting timeline entry is unavailable.");
+    }
+    safeNonNegativeInteger(
+      timelineEntry.index,
+      "invalid_frame",
+      "The rendered lighting frame index is invalid.",
+    );
+    const sourceFrameIndex = safeNonNegativeInteger(
+      timelineEntry.source_frame_index,
+      "invalid_frame",
+      "The rendered lighting source frame is invalid.",
+    );
+    const durationMs = safePositiveInteger(
+      timelineEntry.duration_ms,
+      "invalid_duration",
+      "The rendered lighting timing is invalid.",
+    );
+    const framesByTarget = {};
+    for (const [target, track] of Object.entries(mappedFrame.tracks)) {
+      if (!isObject(track) || !Array.isArray(track.colors)) {
+        fail("invalid_frame", "A rendered lighting target frame is unavailable.");
+      }
+      framesByTarget[target] = [track.colors];
+    }
+    return createBoardFrameSet({
+      context,
+      frames_by_target: framesByTarget,
+      frame_count: 1,
+      duration_ms: durationMs,
+      timeline: [{index: 0, source_frame_index: sourceFrameIndex}],
+      provenance: "media_render",
+    }, {targetLengths, allowedDurations, maxFrames: 1});
+  }
+
   function projectBoardFrame(frameSet, target, index, options = {}) {
     const checked = validatedFrameSets.has(frameSet)
       ? frameSet
@@ -403,6 +448,7 @@
       context_key: workspaceContextKey({context, context_epoch: contextEpoch}, 0),
       request_context_key: null,
       board_frame_set: null,
+      selected_frame: null,
       timeline: [],
       error: null,
     };
@@ -544,7 +590,8 @@
       )
     ) return unchanged(state, "stale");
     if (
-      frameSetEqual(state.preview.board_frame_set, checked)
+      !state.preview.selected_frame
+      && frameSetEqual(state.preview.board_frame_set, checked)
       && (mediaRevision === null || state.media?.accepted_revision === mediaRevision)
     ) return unchanged(state);
 
@@ -565,6 +612,7 @@
         ? {
           ...state.media,
           accepted_revision: mediaRevision,
+          accepted_frame_revision: mediaRevision,
           preview_timeline: canonical.timeline,
         }
         : state.media,
@@ -577,6 +625,7 @@
         context_key: workspaceContextKey(state, acceptedEpoch),
         request_context_key: null,
         board_frame_set: canonical,
+        selected_frame: null,
         timeline: canonical.timeline,
         error: null,
       },
@@ -584,6 +633,73 @@
     return {
       state: next,
       intents: [cancelPlaybackIntent(state), {type: "render-workspace"}],
+    };
+  }
+
+  function acceptSelectedFrame(state, event) {
+    const checked = createBoardFrameSet(event.frame_set, {
+      targetLengths: event.target_lengths,
+      allowedDurations: event.allowed_durations,
+      maxFrames: 1,
+    });
+    if (
+      checked.provenance !== "media_render"
+      || checked.frame_count !== 1
+      || checked.context.document_epoch !== state.context.document_epoch
+      || checked.context.slot !== state.context.slot
+      || checked.context.target !== state.context.target
+    ) return unchanged(state, "stale");
+    const mediaRevision = safeNonNegativeInteger(
+      event.media_revision,
+      "invalid_context",
+      "The media preview revision is invalid.",
+    );
+    const timelineIndex = safeNonNegativeInteger(
+      event.frame_index,
+      "invalid_frame",
+      "The selected lighting frame is invalid.",
+    );
+    if (
+      !isObject(state.media)
+      || state.media.requested_revision !== mediaRevision
+      || state.playhead.index !== timelineIndex
+    ) return unchanged(state, "stale");
+
+    const acceptedEpoch = state.preview.accepted_epoch + 1;
+    const canonical = createBoardFrameSet({
+      ...checked,
+      context: {...checked.context, revision: acceptedEpoch},
+    }, {
+      targetLengths: event.target_lengths,
+      allowedDurations: event.allowed_durations,
+      maxFrames: 1,
+    });
+    const contextKey = workspaceContextKey(state, acceptedEpoch);
+    const selectedFrame = Object.freeze({
+      frame_set: canonical,
+      timeline_index: timelineIndex,
+      media_revision: mediaRevision,
+      context_key: contextKey,
+    });
+    const key = workspaceDestinationKey(state.context);
+    const next = {
+      ...state,
+      media: {...state.media, accepted_frame_revision: mediaRevision},
+      playhead: stopPlayhead(state, timelineIndex),
+      destination_playheads: {...state.destination_playheads, [key]: timelineIndex},
+      preview: {
+        ...state.preview,
+        status: "ready",
+        accepted_epoch: acceptedEpoch,
+        context_key: contextKey,
+        request_context_key: null,
+        selected_frame: selectedFrame,
+        error: null,
+      },
+    };
+    return {
+      state: next,
+      intents: [cancelPlaybackIntent(state), {type: "render-board"}],
     };
   }
 
@@ -793,6 +909,7 @@
           "The media preview revision is invalid.",
         );
         delete media.accepted_revision;
+        delete media.accepted_frame_revision;
         const next = {
           ...state,
           media,
@@ -896,6 +1013,8 @@
         };
       }
       case "FRAME_RENDER_ACCEPTED":
+        if (!requestMatches(state, event)) return unchanged(state, "stale");
+        return acceptSelectedFrame(state, event);
       case "SEQUENCE_RENDER_ACCEPTED":
         if (!requestMatches(state, event)) return unchanged(state, "stale");
         return acceptFrameSet(state, event);
@@ -932,6 +1051,11 @@
       }
       case "PLAY_REQUESTED": {
         const frameSet = state.preview.board_frame_set;
+        if (
+          state.tool === "source"
+          && isObject(state.media)
+          && state.media.accepted_revision !== state.media.requested_revision
+        ) return unchanged(state, "stale");
         if (!frameSet || state.preview.context_key !== workspaceContextKey(state)) {
           return errorResult(state, {code: "no_preview"});
         }
@@ -1065,7 +1189,23 @@
 
   function selectBoardProjection(state) {
     const frameSet = state?.preview?.board_frame_set;
-    if (!frameSet || state.preview.context_key !== workspaceContextKey(state)) return null;
+    const selectedFrame = state?.preview?.selected_frame;
+    if (state?.preview?.context_key !== workspaceContextKey(state)) return null;
+    if (selectedFrame?.context_key === workspaceContextKey(state)) {
+      const selectedSet = selectedFrame.frame_set;
+      const controlsFrameSet = frameSet || selectedSet;
+      const index = frameSet
+        ? Math.min(selectedFrame.timeline_index, frameSet.frame_count - 1)
+        : 0;
+      return Object.freeze({
+        target: state.context.target,
+        index,
+        colors: projectBoardFrame(selectedSet, state.context.target, 0),
+        frame_set: controlsFrameSet,
+        selected_frame: selectedFrame,
+      });
+    }
+    if (!frameSet) return null;
     const index = Math.min(state.playhead.index, frameSet.frame_count - 1);
     return Object.freeze({
       target: state.context.target,
@@ -1079,18 +1219,20 @@
     const board = selectBoardProjection(state);
     if (
       !board
-      || board.frame_set.provenance !== "media_render"
+      || (board.selected_frame?.frame_set?.provenance ?? board.frame_set.provenance) !== "media_render"
       || !isObject(state.media)
       || typeof state.media.catalog_id !== "string"
       || typeof state.media.preview_session_id !== "string"
     ) return null;
-    const timelineEntry = board.frame_set.timeline[board.index];
+    const timelineEntry = board.selected_frame
+      ? board.selected_frame.frame_set.timeline[0]
+      : board.frame_set.timeline[board.index];
     if (!Number.isSafeInteger(timelineEntry?.source_frame_index)) return null;
     return Object.freeze({
       catalog_id: state.media.catalog_id,
       preview_session_id: safePreviewSessionId(state.media.preview_session_id),
       source_frame_index: timelineEntry.source_frame_index,
-      timeline_index: board.index,
+      timeline_index: board.selected_frame?.timeline_index ?? board.index,
       context_key: workspaceContextKey(state),
     });
   }
@@ -1218,6 +1360,7 @@
     LightingWorkspaceError,
     boardFrameSetFromDocument,
     boardFrameSetFromLocalEffect,
+    boardFrameSetFromMappedFrame,
     boardFrameSetFromMappedResult,
     captureWorkspaceAsyncContext,
     createBoardFrameSet,

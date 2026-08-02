@@ -37,6 +37,7 @@ REQUIRED_CASE_CHECKS = [
     "pointer_feedback",
     "keyboard_feedback",
     "slider_feedback",
+    "selected_frame_tier",
     "render_coalescing",
     "queued_render_ownership",
     "overlay_geometry",
@@ -749,6 +750,19 @@ _AUDIT_SCRIPT = r"""
     let queuedRenderSettled = false;
     let queuedRenderCalls = 0;
     let queuedRenderRelease = null;
+    let selectedFrameArmed = false;
+    let selectedFrameCalls = 0;
+    let selectedFrameActive = 0;
+    let selectedFrameMaxActive = 0;
+    let selectedFrameBlocked = false;
+    let selectedFrameSettled = 0;
+    let selectedFrameRelease = null;
+    let selectedFrameRequests = [];
+    let selectedFrameResponses = [];
+    let selectedFullArmed = false;
+    let selectedFullBlocked = false;
+    let selectedFullSettled = false;
+    let selectedFullRelease = null;
     function releaseLateSource() {
       const release = lateSourceRelease;
       lateSourceRelease = null;
@@ -759,12 +773,54 @@ _AUDIT_SCRIPT = r"""
       queuedRenderRelease = null;
       if (release) release();
     }
+    function releaseSelectedFrame() {
+      const release = selectedFrameRelease;
+      selectedFrameRelease = null;
+      if (release) release();
+    }
+    function releaseSelectedFull() {
+      const release = selectedFullRelease;
+      selectedFullRelease = null;
+      if (release) release();
+    }
     window.fetch = (resource, options) => {
       const requestUrl = typeof resource === "string" ? resource : String(resource?.url || "");
       const parsed = new URL(requestUrl, location.href);
       const method = String(options?.method || resource?.method || "GET").toUpperCase();
       if (countLiveRenders && parsed.pathname.endsWith("/render") && method === "POST") {
         liveRenderCount += 1;
+      }
+      if (
+        selectedFrameArmed
+        && parsed.pathname.endsWith("/render-frame")
+        && method === "POST"
+      ) {
+        selectedFrameCalls += 1;
+        selectedFrameActive += 1;
+        selectedFrameMaxActive = Math.max(selectedFrameMaxActive, selectedFrameActive);
+        selectedFrameRequests.push(JSON.parse(String(options?.body || "{}")));
+        let gate = Promise.resolve();
+        if (selectedFrameCalls === 1) {
+          selectedFrameBlocked = true;
+          gate = new Promise(resolve => { selectedFrameRelease = resolve; });
+        }
+        return gate
+          .then(() => originalFetch.call(window, resource, options))
+          .then(async response => {
+            if (response.ok) selectedFrameResponses.push(await response.clone().json());
+            return response;
+          })
+          .finally(() => {
+            selectedFrameActive -= 1;
+            selectedFrameSettled += 1;
+          });
+      }
+      if (selectedFullArmed && parsed.pathname.endsWith("/render") && method === "POST") {
+        selectedFullBlocked = true;
+        const gate = new Promise(resolve => { selectedFullRelease = resolve; });
+        return gate
+          .then(() => originalFetch.call(window, resource, options))
+          .finally(() => { selectedFullSettled = true; });
       }
       if (queuedRenderArmed && parsed.pathname.endsWith("/render") && method === "POST") {
         queuedRenderCalls += 1;
@@ -1134,6 +1190,96 @@ _AUDIT_SCRIPT = r"""
         );
       }
     });
+
+    window.__mediaFramingAuditStep = "selected_frame_tier";
+    selectedFrameArmed = true;
+    selectedFullArmed = true;
+    selectedFrameCalls = 0;
+    selectedFrameActive = 0;
+    selectedFrameMaxActive = 0;
+    selectedFrameBlocked = false;
+    selectedFrameSettled = 0;
+    selectedFrameRequests = [];
+    selectedFrameResponses = [];
+    selectedFullBlocked = false;
+    selectedFullSettled = false;
+    const selectedPage = pageFingerprint();
+    const selectedUndo = state.undo.length;
+    const selectedSlider = document.querySelector("#source-zoom");
+    requireAudit(selectedSlider, "selected_frame_slider_missing");
+    const selectedStart = Number(selectedSlider.value);
+    const selectedDirection = selectedStart <= 3196 ? 1 : -1;
+    selectedSlider.value = String(selectedStart + selectedDirection);
+    selectedSlider.dispatchEvent(new Event("input", {bubbles: true}));
+    await waitFor(() => selectedFrameBlocked, "selected_frame_block_timeout", 30000);
+    selectedSlider.value = String(selectedStart + (selectedDirection * 2));
+    selectedSlider.dispatchEvent(new Event("input", {bubbles: true}));
+    selectedSlider.value = String(selectedStart + (selectedDirection * 3));
+    selectedSlider.dispatchEvent(new Event("input", {bubbles: true}));
+    releaseSelectedFrame();
+    await waitFor(
+      () => selectedFrameCalls === 2
+        && selectedFrameSettled === 2
+        && selectedFullBlocked
+        && lightingWorkspace.media?.accepted_frame_revision
+          === state.mediaComposition?.revision,
+      "selected_frame_latest_timeout",
+      30000,
+    );
+    requireAudit(selectedFrameCalls === 2, "selected_frame_not_latest_only");
+    requireAudit(selectedFrameMaxActive === 1, "selected_frame_overlap");
+    const latestSelectedRequest = selectedFrameRequests.at(-1);
+    const latestSelectedResponse = selectedFrameResponses.at(-1);
+    const selectedColors = latestSelectedResponse?.mapped_frame?.tracks?.[
+      state.ledTarget
+    ]?.colors;
+    const selectedProjection = selectBoardProjection(lightingWorkspace);
+    const selectedPainted = [...document.querySelectorAll("#led-canvas .pixel")].map(
+      pixel => pixel.style.getPropertyValue("--pixel-color").trim().toUpperCase(),
+    );
+    requireAudit(
+      latestSelectedRequest?.transform?.scale_x === state.sourceTransform.scale_x
+        && latestSelectedResponse?.timeline_entry?.index
+          === latestSelectedRequest?.frame_index,
+      "selected_frame_request_not_latest",
+    );
+    requireAudit(
+      Array.isArray(selectedColors)
+        && sameJson(selectedProjection?.colors, selectedColors.map(color => color.toUpperCase()))
+        && sameJson(selectedPainted, selectedColors.map(color => color.toUpperCase())),
+      "selected_frame_board_mismatch",
+    );
+    requireAudit(
+      !mediaCompositionCanApply(state.mediaComposition)
+        && document.querySelector("#media-compose-apply")?.disabled,
+      "selected_frame_enabled_apply",
+    );
+    requireAudit(
+      pageFingerprint() === selectedPage && state.undo.length === selectedUndo,
+      "selected_frame_changed_document",
+    );
+    releaseSelectedFull();
+    await waitFor(
+      () => selectedFullSettled
+        && state.mediaComposition?.status === "ready"
+        && mediaCompositionCanApply(state.mediaComposition),
+      "selected_full_release_timeout",
+      30000,
+    );
+    const selectedFullColors = state.mediaComposition.mappedResult?.tracks?.[
+      state.ledTarget
+    ]?.frames?.[latestSelectedRequest.frame_index];
+    requireAudit(
+      sameJson(selectedFullColors, selectedColors)
+        && lightingWorkspace.preview.selected_frame === null,
+      "selected_full_equality_mismatch",
+    );
+    requireAudit(
+      pageFingerprint() === selectedPage && state.undo.length === selectedUndo,
+      "selected_full_changed_document",
+    );
+    selectedFrameArmed = false;
+    selectedFullArmed = false;
 
     window.__mediaFramingAuditStep = "queued_render_ownership";
     queuedRenderArmed = true;
