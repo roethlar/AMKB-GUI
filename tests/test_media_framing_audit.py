@@ -52,6 +52,32 @@ class MediaFramingFixtureTests(unittest.TestCase):
                 self.assertNotIn("\\", case.name)
                 self.assertLess(len(case.payload), 64_000)
 
+    def test_audit_document_has_distinct_playback_destinations(self) -> None:
+        document = media_framing_audit.build_audit_document()
+        for page in document["page_data"][5:8]:
+            with self.subTest(page=page["page_index"]):
+                self.assertEqual(48, page["speed_ms"])
+                self.assertEqual(2, page["keyframes"]["frame_num"])
+                self.assertEqual(2, page["frames"]["frame_num"])
+                self.assertEqual(90, len(page["keyframes"]["frame_data"][0]["frame_RGB"]))
+                self.assertEqual(200, len(page["frames"]["frame_data"][0]["frame_RGB"]))
+                self.assertNotEqual(
+                    page["keyframes"]["frame_data"][0]["frame_RGB"][0],
+                    page["frames"]["frame_data"][0]["frame_RGB"][0],
+                )
+
+    def test_native_script_checks_destination_playback_before_media_mutation(self) -> None:
+        script = media_framing_audit._audit_script()
+        playback = script.index("await verifyDestinationPlaybackIsolation()")
+        baseline = script.index("const baselinePage = pageFingerprint()", playback)
+        self.assertLess(playback, baseline)
+        self.assertIn(
+            "destination_playback_isolation",
+            media_framing_audit.REQUIRED_CASE_CHECKS,
+        )
+        self.assertIn("playback_destination_colors_mismatch", script)
+        self.assertIn("playback_changed_document", script)
+
 
 class MediaFramingReportTests(unittest.TestCase):
     @staticmethod

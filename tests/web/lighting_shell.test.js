@@ -12,6 +12,7 @@ const {
 const root = path.resolve(__dirname, "../..");
 const html = fs.readFileSync(path.join(root, "am_configurator/web/index.html"), "utf8");
 const js = fs.readFileSync(path.join(root, "am_configurator/web/app.js"), "utf8");
+const workspace = fs.readFileSync(path.join(root, "am_configurator/web/lighting_workspace.js"), "utf8");
 const review = fs.readFileSync(path.join(root, "am_configurator/web/lighting_review.js"), "utf8");
 const css = fs.readFileSync(path.join(root, "am_configurator/web/style.css"), "utf8");
 const server = fs.readFileSync(path.join(root, "am_configurator/server.py"), "utf8");
@@ -45,7 +46,10 @@ test("workspace reducer is the only destination and playback authority", () => {
   assert.match(js,/type: "PLAYHEAD_SCRUBBED"/);
   assert.match(js,/type: "TOOL_SELECTED"/);
   assert.doesNotMatch(js,/state\.playTimer/);
-  assert.match(js,/let lightingPlaybackTimer = null/);
+  assert.doesNotMatch(js,/lightingPlaybackTimer/);
+  assert.match(js,/createLightingPlaybackRuntime/);
+  assert.match(js,/paintBoardProjection/);
+  assert.match(js,/workspaceDestinationKey/);
 
   const playbackStart=js.indexOf("function startPlayback");
   const playbackEnd=js.indexOf("function toggleLightingPlayback",playbackStart);
@@ -57,9 +61,8 @@ test("workspace reducer is the only destination and playback authority", () => {
   const executorStart=js.indexOf("function executeLightingWorkspaceIntents");
   const executorEnd=js.indexOf("function dispatchLightingWorkspace",executorStart);
   const executor=js.slice(executorStart,executorEnd);
-  assert.match(executor,/type: "PLAYBACK_TICK"/);
-  assert.match(executor,/session_id: sessionId/);
-  assert.match(executor,/context_key: contextKey/);
+  assert.match(executor,/lightingPlaybackRuntime\.execute\(intent\)/);
+  assert.doesNotMatch(executor,/setInterval|clearInterval|PLAYBACK_TICK/);
   assert.doesNotMatch(executor,/frame_RGB|\.frames/);
 
   const renderStart=js.indexOf("function renderLightingEdit");
@@ -69,6 +72,34 @@ test("workspace reducer is the only destination and playback authority", () => {
   assert.match(edit,/publishLightingBoardFrameSet/);
   assert.match(edit,/boardProjection\.colors/);
   assert.match(js,/type:"BOARD_COLOR_UPDATED"/);
+});
+
+test("media and source-load transitions are bound to the reducer session", () => {
+  const openLibraryStart=js.indexOf("function openLibrarySource");
+  const openLibraryEnd=js.indexOf("\nfunction ",openLibraryStart+10);
+  const openLibrary=js.slice(openLibraryStart,openLibraryEnd);
+  assert.match(openLibrary,/type:\s*"MEDIA_OPENED"/);
+
+  const importStart=js.indexOf("async function importMedia");
+  const importEnd=js.indexOf("\nasync function ",importStart+10);
+  const importMedia=js.slice(importStart,importEnd);
+  assert.match(importMedia,/type:\s*"MEDIA_OPENED"/);
+
+  const cancelStart=js.indexOf("function cancelMediaComposition");
+  const cancelEnd=js.indexOf("\nfunction ",cancelStart+10);
+  const cancel=js.slice(cancelStart,cancelEnd);
+  assert.match(cancel,/type:\s*"MEDIA_CANCELLED"/);
+
+  const loadStart=js.indexOf("async function loadMediaCompositionSourceAsset");
+  const loadEnd=js.indexOf("\nfunction ",loadStart+10);
+  const load=js.slice(loadStart,loadEnd);
+  assert.match(load,/captureWorkspaceAsyncContext\(lightingWorkspace\)/);
+  assert.match(js,/workspaceAsyncContextMatches\(lightingWorkspace,load\)/);
+  assert.match(load,/sourceLoadMatchesWorkspace/);
+  assert.ok(
+    load.indexOf("sourceLoadMatchesWorkspace") < load.indexOf("renderLightingEdit()"),
+    "a stale source load must be rejected before touching the current DOM",
+  );
 });
 
 // Slice P3 renamed the visible tool labels to Paint / Import media / Effects /
@@ -206,9 +237,9 @@ test("lighting color style interpolation uses only canonical RGB", () => {
   assert.match(js,/normalizeImportedLightingColors\(normalizeImportedAssignmentCodes\(parsed\)\)/);
   assert.match(js,/background:\$\{safeRgbColor\(color\)\}/);
   assert.doesNotMatch(js,/background:\$\{esc\(color\)\}/);
-  assert.match(js,/const color = projection\.colors\[Number\(pixel\.dataset\.pixel\)\]/);
-  assert.match(js,/pixel\.style\.background = color/);
-  assert.match(js,/setProperty\("--pixel-color", color\)/);
+  assert.match(workspace,/projection\.colors\[Number\(pixel\?\.dataset\?\.pixel\)\]/);
+  assert.match(workspace,/pixel\.style\.background = color/);
+  assert.match(workspace,/setProperty\?\.\("--pixel-color", color\)/);
 });
 
 test("persistent job strip remains available outside routed content", () => {

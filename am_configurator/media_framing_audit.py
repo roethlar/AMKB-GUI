@@ -37,6 +37,7 @@ REQUIRED_CASE_CHECKS = [
     "slider_feedback",
     "overlay_geometry",
     "stale_preview_guard",
+    "destination_playback_isolation",
     "canonical_backend_equality",
     "sentinel_pixels",
     "single_apply",
@@ -143,6 +144,42 @@ def build_media_fixtures() -> tuple[MediaFixture, ...]:
             )
         )
     return tuple(fixtures)
+
+
+def build_audit_document() -> dict[str, Any]:
+    """Build a hardware-free CyberBoard document with distinguishable tracks."""
+
+    from .server import blank_config
+
+    document = blank_config("CB04", [["#00000000"] * 200 for _ in range(7)], [])
+    keyframes = (
+        [f"#{0x910000 + index:06X}" for index in range(90)],
+        [f"#{0x920000 + index:06X}" for index in range(90)],
+    )
+    display_frames = (
+        [f"#{0x210000 + index:06X}" for index in range(200)],
+        [f"#{0x220000 + index:06X}" for index in range(200)],
+    )
+    for page in document["page_data"][5:8]:
+        page["valid"] = 1
+        page["speed_ms"] = 48
+        page["keyframes"] = {
+            "valid": 1,
+            "frame_num": 2,
+            "frame_data": [
+                {"frame_index": index, "frame_RGB": list(colors)}
+                for index, colors in enumerate(keyframes)
+            ],
+        }
+        page["frames"] = {
+            "valid": 1,
+            "frame_num": 2,
+            "frame_data": [
+                {"frame_index": index, "frame_RGB": list(colors)}
+                for index, colors in enumerate(display_frames)
+            ],
+        }
+    return document
 
 
 def _is_linklike(path: Path) -> bool:
@@ -550,9 +587,42 @@ _AUDIT_SCRIPT = r"""
     );
   }
 
+  async function verifyDestinationPlaybackIsolation() {
+    const baseline = pageFingerprint();
+    document.querySelector('[data-lighting-target="keyframes"]')?.click();
+    await waitFor(
+      () => state.ledTarget === "keyframes"
+        && document.querySelectorAll("#led-canvas .pixel").length >= 80,
+      "playback_source_target_timeout",
+    );
+    const page = getPage(state.ledSlot);
+    requireAudit(page?.keyframes?.frame_data?.length === 2, "playback_source_track_missing");
+    requireAudit(page?.frames?.frame_data?.length === 2, "playback_destination_track_missing");
+    document.querySelector("#play-led")?.click();
+    await waitFor(() => state.playing, "playback_start_timeout");
+    document.querySelector('[data-lighting-target="frames"]')?.click();
+    await waitFor(
+      () => state.ledTarget === "frames"
+        && !state.playing
+        && document.querySelectorAll("#led-canvas .pixel").length === 200,
+      "playback_destination_timeout",
+    );
+    await delay(Math.max(150, Number(page.speed_ms || 48) * 3));
+    requireAudit(state.ledTarget === "frames", "playback_target_leaked");
+    requireAudit(!state.playing, "playback_timer_leaked");
+    const expected = page.frames.frame_data[0].frame_RGB.map(color => color.toUpperCase());
+    const actual = [...document.querySelectorAll("#led-canvas .pixel")].map(
+      pixel => pixel.style.getPropertyValue("--pixel-color").trim().toUpperCase(),
+    );
+    requireAudit(sameJson(actual, expected), "playback_destination_colors_mismatch");
+    requireAudit(pageFingerprint() === baseline, "playback_changed_document");
+  }
+
   async function runCase(fixture, width, height) {
     window.__mediaFramingAuditStep = "prepare_studio";
     await prepareStudio();
+    window.__mediaFramingAuditStep = "destination_playback_isolation";
+    await verifyDestinationPlaybackIsolation();
     const baselinePage = pageFingerprint();
     const baselineUndo = state.undo.length;
     const input = document.querySelector("#media-input");
@@ -1052,7 +1122,7 @@ def _native_audit_report() -> dict:
         _offline_device_discovery,
     )
     from .library import GeneratedAssetLibrary
-    from .server import blank_config, create_server
+    from .server import create_server
 
     temporary_parent = Path(tempfile.gettempdir()).resolve(strict=True)
     root = Path(tempfile.mkdtemp(prefix=_AUDIT_ROOT_PREFIX, dir=temporary_parent))
@@ -1066,7 +1136,7 @@ def _native_audit_report() -> dict:
         library_root.resolve(strict=True),
     )
     document_path = root / "document.json"
-    document = blank_config("CB04", [["#00000000"] * 200 for _ in range(7)], [])
+    document = build_audit_document()
     document_path.write_text(
         json.dumps(document, ensure_ascii=True, separators=(",", ":")),
         encoding="utf-8",

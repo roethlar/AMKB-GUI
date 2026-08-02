@@ -12,7 +12,7 @@ const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLaunchS
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const {canonicalizeSourceTransform, defaultSourceTransform, interpolateMoveZoom, presetSourceTransform, renderColorEffect, resolveSourceGeometry, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
-const {boardFrameSetFromDocument, boardFrameSetFromLocalEffect, boardFrameSetFromMappedResult, createLightingWorkspace, friendlyWorkspaceError, reduceLightingWorkspace, selectBoardProjection, workspaceContextKey} = LightingWorkspace;
+const {boardFrameSetFromDocument, boardFrameSetFromLocalEffect, boardFrameSetFromMappedResult, captureWorkspaceAsyncContext, createLightingPlaybackRuntime, createLightingWorkspace, friendlyWorkspaceError, paintBoardProjection, reduceLightingWorkspace, selectBoardProjection, workspaceAsyncContextMatches, workspaceContextKey, workspaceDestinationKey} = LightingWorkspace;
 const {
   compatibleProfileSections,
   createLibraryRequestEpochs,
@@ -46,7 +46,6 @@ let lightingWorkspace = createLightingWorkspace({
   tool: "paint",
   route: restoredLighting.lighting.route,
 });
-let lightingPlaybackTimer = null;
 
 const state = {
   config: null,
@@ -193,25 +192,23 @@ Object.defineProperties(state, {
 let incompatibleResolver = null;
 let libraryConfirmAction = null;
 
-function clearLightingPlaybackTimer() {
-  if (lightingPlaybackTimer !== null) clearInterval(lightingPlaybackTimer);
-  lightingPlaybackTimer = null;
-}
+const lightingPlaybackRuntime = createLightingPlaybackRuntime({
+  dispatch: event => dispatchLightingWorkspace(event),
+  setTimer: (callback, duration) => window.setInterval(callback, duration),
+  clearTimer: timer => window.clearInterval(timer),
+  lifecycleTarget: window,
+});
 
 function renderLightingBoardProjection() {
-  const projection = selectBoardProjection(lightingWorkspace);
+  const board = $("#led-canvas");
+  const content = $("#lighting-edit-content");
+  if (!board || !content) return;
+  const projection = paintBoardProjection(lightingWorkspace, {
+    destination_key: board.dataset.lightingDestinationKey,
+    pixels: $$(".pixel", board),
+    frame_items: $$(".frame-item", content),
+  });
   if (!projection) return;
-  $$('.pixel').forEach(pixel => {
-    const color = projection.colors[Number(pixel.dataset.pixel)] || "#000000";
-    pixel.style.background = color;
-    pixel.style.setProperty("--pixel-color", color);
-  });
-  $$('.frame-item').forEach((node, index) => {
-    const selected = index === projection.index;
-    node.classList.toggle("active", selected);
-    node.setAttribute("aria-pressed", String(selected));
-    node.setAttribute("aria-label", `Frame ${index + 1}${selected ? ", selected" : ""}`);
-  });
   if (lightingWorkspace.tool === "animate" && localAnimationDraftMatches()) {
     state.localAnimationPreviewFrame = projection.index;
     const slider = $("#animate-draft-frame");
@@ -223,18 +220,8 @@ function renderLightingBoardProjection() {
 
 function executeLightingWorkspaceIntents(intents, {renderWorkspace = false} = {}) {
   for (const intent of intents) {
-    if (intent.type === "cancel-playback") {
-      clearLightingPlaybackTimer();
-    } else if (intent.type === "start-playback") {
-      clearLightingPlaybackTimer();
-      const {session_id: sessionId, context_key: contextKey} = intent;
-      lightingPlaybackTimer = setInterval(() => {
-        dispatchLightingWorkspace({
-          type: "PLAYBACK_TICK",
-          session_id: sessionId,
-          context_key: contextKey,
-        });
-      }, intent.duration_ms);
+    if (["cancel-playback", "start-playback"].includes(intent.type)) {
+      lightingPlaybackRuntime.execute(intent);
     } else if (intent.type === "render-board") {
       renderLightingBoardProjection();
     } else if (intent.type === "show-error") {
@@ -1850,7 +1837,10 @@ function openLibrarySource(catalogId) {
     destination,
     transform:state.sourceTransform,
   });
-  state.studioTool="source";
+  dispatchLightingWorkspace({
+    type:"MEDIA_OPENED",
+    media:lightingMediaIdentity(state.mediaComposition),
+  });
   state.sourcePreviewMode="source";
   navigateTo(ROUTES.EDIT);
   void loadMediaCompositionSourceAsset();
@@ -2667,13 +2657,38 @@ function activeMediaPreviewTrack() {
     :null;
 }
 
+function lightingMediaIdentity(draft=state.mediaComposition) {
+  if(!draft)return null;
+  return {
+    catalog_id:String(draft.catalogId||""),
+    asset_id:String(draft.source?.asset_id||""),
+  };
+}
+
+function sourceLoadMatchesWorkspace(load) {
+  const media=lightingMediaIdentity();
+  return Boolean(
+    load
+    &&workspaceAsyncContextMatches(lightingWorkspace,load)
+    &&media?.catalog_id===load.catalog_id
+    &&media?.asset_id===load.asset_id
+    &&lightingWorkspace.media?.catalog_id===load.catalog_id
+    &&lightingWorkspace.media?.asset_id===load.asset_id
+    &&lightingWorkspace.tool==="source"
+    &&lightingWorkspace.route===ROUTES.EDIT
+  );
+}
+
 async function loadMediaCompositionSourceAsset() {
   const draft=state.mediaComposition;
   if(!draft||draft.status==="cancelled")return;
+  const load={
+    ...captureWorkspaceAsyncContext(lightingWorkspace),
+    catalog_id:String(draft.catalogId||""),
+    asset_id:String(draft.source.asset_id||""),
+  };
   await loadLibraryAsset(draft.catalogId,draft.source.asset_id);
-  if(state.mediaComposition?.catalogId===draft.catalogId&&state.lighting.route===ROUTES.EDIT){
-    renderLightingEdit();
-  }
+  if(sourceLoadMatchesWorkspace(load))renderLightingEdit();
 }
 
 function mediaCompositionStatusText(draft) {
@@ -2846,7 +2861,10 @@ async function importMedia(input) {
       transform:state.sourceTransform,
     });
     state.library.loaded=false;
-    state.studioTool="source";
+    dispatchLightingWorkspace({
+      type:"MEDIA_OPENED",
+      media:lightingMediaIdentity(state.mediaComposition),
+    });
     state.sourcePreviewMode="source";
     renderLightingEdit();
     void loadMediaCompositionSourceAsset();
@@ -2986,6 +3004,7 @@ function applyMediaCompositionDraft() {
 function cancelMediaComposition() {
   if(!state.mediaComposition)return;
   state.mediaComposition=reduceMediaDraft(state.mediaComposition,{type:"CANCELLED"});
+  dispatchLightingWorkspace({type:"MEDIA_CANCELLED"});
   renderLightingEdit();
   toast(
     "Framing cancelled",
@@ -3603,7 +3622,7 @@ function renderLightingEdit() {
   const generationPanel=aiReady()?`<section id="studio-generate-panel" class="studio-tool-panel lighting-generate-tool" role="tabpanel" aria-labelledby="studio-generate-tab" ${state.studioTool==="generate"?"":"hidden"}><div id="lighting-generate-tool" tabindex="-1"><div class="studio-panel-heading"><strong id="lighting-generate-title">Generate lighting with AI</strong><small>Lighting effect · ${esc(targetLabel)}</small></div><div id="lighting-generate-content" aria-live="polite"></div></div></section>`:"";
   $("#lighting-edit-content").innerHTML=`<div class="lighting-edit-shell"><div class="led-layout">
       <aside class="card frame-list" aria-label="${previewTimelineActive?'Preview':'Animation'} frames"><div class="card-header"><strong>${previewTimelineActive?'Preview frames':'Frames'}</strong><small>${timelineFrames.length}</small></div><div class="frame-items">${timelineFrames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?(previewTimelineActive?'Previewing':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost" ${previewTimelineActive?'disabled':''}>+ Duplicate</button><button id="remove-frame" class="button ghost" ${timelineFrames.length<=1||previewTimelineActive?'disabled':''}>Delete</button></div></aside>
-      <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header led-canvas-heading"><div><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${canvasSubtitle}</small><details class="advanced-disclosure technical-details"><summary>Technical details</summary><p class="control-help">${mappedCount} of ${length} stored colors are mapped to lights on this keyboard${raster?` · ${esc(raster)} grid`:""}.</p></details></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost" title="Keep a reusable copy of this slot in Library. Separate from Apply, which only changes the open document.">Save to Library</button><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${activeDraft||mediaPreviewTrack?'draft-preview':''}" role="region" aria-label="${activeDraft||mediaPreviewTrack?'Preview of this lighting':'Paint the selected animation frame'}"><div id="media-compositor-stage" class="media-compositor-stage ${sourceReady&&state.studioTool==="source"?'source-ready':''} ${sourceVisible?'source-visible':''}" tabindex="${sourceReady&&state.studioTool==="source"?'0':'-1'}" aria-label="Imported media framing canvas" style="--destination-width:${primaryDestination?.width||1};--destination-height:${primaryDestination?.height||1}"><div class="media-compositor-plane" aria-hidden="true">${mediaDraft?`<div class="media-source-viewport" aria-hidden="${String(!sourceVisible)}">${mediaSourceUrl?`<img class="media-source-overlay" src="${esc(mediaSourceUrl)}" alt="">`:""}</div>`:""}</div>${pixelCanvas}<div class="destination-overlay" aria-hidden="true"></div></div></div></section>
+      <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header led-canvas-heading"><div><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${canvasSubtitle}</small><details class="advanced-disclosure technical-details"><summary>Technical details</summary><p class="control-help">${mappedCount} of ${length} stored colors are mapped to lights on this keyboard${raster?` · ${esc(raster)} grid`:""}.</p></details></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost" title="Keep a reusable copy of this slot in Library. Separate from Apply, which only changes the open document.">Save to Library</button><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${activeDraft||mediaPreviewTrack?'draft-preview':''}" data-lighting-destination-key="${esc(workspaceDestinationKey(lightingWorkspace))}" role="region" aria-label="${activeDraft||mediaPreviewTrack?'Preview of this lighting':'Paint the selected animation frame'}"><div id="media-compositor-stage" class="media-compositor-stage ${sourceReady&&state.studioTool==="source"?'source-ready':''} ${sourceVisible?'source-visible':''}" tabindex="${sourceReady&&state.studioTool==="source"?'0':'-1'}" aria-label="Imported media framing canvas" style="--destination-width:${primaryDestination?.width||1};--destination-height:${primaryDestination?.height||1}"><div class="media-compositor-plane" aria-hidden="true">${mediaDraft?`<div class="media-source-viewport" aria-hidden="${String(!sourceVisible)}">${mediaSourceUrl?`<img class="media-source-overlay" src="${esc(mediaSourceUrl)}" alt="">`:""}</div>`:""}</div>${pixelCanvas}<div class="destination-overlay" aria-hidden="true"></div></div></div></section>
       <aside class="card led-controls studio-inspector" aria-label="Lighting controls"><div class="studio-tool-tabs ${aiReady()?'with-generate':''}" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Import media</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Effects</button>${generationTab}</div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}${generationPanel}</div></aside>
     </div></div>`;
   wireLedEditor(columns);

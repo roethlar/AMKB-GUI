@@ -328,6 +328,11 @@
   function workspaceContextKey(value, revision) {
     const context = value?.context || value;
     if (!isObject(context)) fail("invalid_context", "Lighting context is unavailable.");
+    const contextEpoch = safeNonNegativeInteger(
+      value?.context_epoch ?? context.context_epoch ?? 0,
+      "invalid_context",
+      "The lighting context generation is invalid.",
+    );
     const acceptedRevision = revision === undefined
       ? value?.preview?.accepted_epoch ?? context.revision ?? 0
       : revision;
@@ -339,24 +344,52 @@
       ),
       safeNonNegativeInteger(context.slot, "invalid_context", "The lighting slot is invalid."),
       safeTarget(context.target),
+      contextEpoch,
       normalizeRevision(acceptedRevision),
     ]);
   }
 
-  function destinationKey(context) {
+  function workspaceDestinationKey(value) {
+    const context = value?.context || value;
+    if (!isObject(context)) fail("invalid_context", "Lighting context is unavailable.");
     return JSON.stringify([
-      context.document_epoch,
-      context.slot,
-      context.target,
+      safeNonNegativeInteger(
+        context.document_epoch,
+        "invalid_context",
+        "The document context is invalid.",
+      ),
+      safeNonNegativeInteger(context.slot, "invalid_context", "The lighting slot is invalid."),
+      safeTarget(context.target),
     ]);
   }
 
-  function initialPreview(context) {
+  function captureWorkspaceAsyncContext(state) {
+    if (!isObject(state)) fail("invalid_context", "Lighting context is unavailable.");
+    return Object.freeze({
+      context_epoch: safeNonNegativeInteger(
+        state.context_epoch,
+        "invalid_context",
+        "The lighting context generation is invalid.",
+      ),
+      destination_key: workspaceDestinationKey(state),
+    });
+  }
+
+  function workspaceAsyncContextMatches(state, captured) {
+    return Boolean(
+      isObject(state)
+      && isObject(captured)
+      && state.context_epoch === captured.context_epoch
+      && workspaceDestinationKey(state) === captured.destination_key
+    );
+  }
+
+  function initialPreview(context, contextEpoch = 0) {
     return {
       status: "idle",
       request_epoch: 0,
       accepted_epoch: 0,
-      context_key: workspaceContextKey(context, 0),
+      context_key: workspaceContextKey({context, context_epoch: contextEpoch}, 0),
       request_context_key: null,
       board_frame_set: null,
       timeline: [],
@@ -384,12 +417,13 @@
     if (typeof route !== "string" || !route.length) fail("invalid_context", "The route is invalid.");
     return {
       context,
+      context_epoch: 0,
       route,
       tool,
       playhead: {index: 0, playing: false, session_id: 0},
-      destination_playheads: {[destinationKey(context)]: 0},
+      destination_playheads: {[workspaceDestinationKey(context)]: 0},
       media: null,
-      preview: initialPreview(context),
+      preview: initialPreview(context, 0),
       effect_draft: null,
     };
   }
@@ -415,8 +449,9 @@
   }
 
   function contextTransition(state, nextContext, extra = {}) {
-    const oldKey = destinationKey(state.context);
-    const nextKey = destinationKey(nextContext);
+    const oldKey = workspaceDestinationKey(state.context);
+    const nextKey = workspaceDestinationKey(nextContext);
+    const contextEpoch = state.context_epoch + 1;
     const destinationPlayheads = {
       ...state.destination_playheads,
       [oldKey]: state.playhead.index,
@@ -433,9 +468,10 @@
       ...state,
       ...extra.state,
       context: nextContext,
+      context_epoch: contextEpoch,
       playhead: stopPlayhead(state, remembered),
       destination_playheads: destinationPlayheads,
-      preview: initialPreview(nextContext),
+      preview: initialPreview(nextContext, contextEpoch),
       effect_draft: extra.clearEffect === false ? state.effect_draft : null,
     };
   }
@@ -494,7 +530,7 @@
       maxFrames: event.max_frames,
     });
     const index = Math.min(state.playhead.index, canonical.frame_count - 1);
-    const key = destinationKey(state.context);
+    const key = workspaceDestinationKey(state.context);
     const next = {
       ...state,
       playhead: stopPlayhead(state, index),
@@ -503,7 +539,7 @@
         ...state.preview,
         status: "ready",
         accepted_epoch: acceptedEpoch,
-        context_key: workspaceContextKey(state.context, acceptedEpoch),
+        context_key: workspaceContextKey(state, acceptedEpoch),
         request_context_key: null,
         board_frame_set: canonical,
         timeline: canonical.timeline,
@@ -604,11 +640,13 @@
           fail("invalid_context", "The selected tool is invalid.");
         }
         if (event.tool === state.tool) return unchanged(state);
+        const contextEpoch = state.context_epoch + 1;
         const next = {
           ...state,
           tool: event.tool,
+          context_epoch: contextEpoch,
           playhead: stopPlayhead(state),
-          preview: initialPreview(state.context),
+          preview: initialPreview(state.context, contextEpoch),
           effect_draft: event.tool === "animate" ? state.effect_draft : null,
         };
         return {
@@ -621,11 +659,13 @@
           fail("invalid_context", "The workspace route is invalid.");
         }
         if (event.route === state.route) return unchanged(state);
+        const contextEpoch = state.context_epoch + 1;
         const next = {
           ...state,
           route: event.route,
+          context_epoch: contextEpoch,
           playhead: stopPlayhead(state),
-          preview: initialPreview(state.context),
+          preview: initialPreview(state.context, contextEpoch),
         };
         return {
           state: next,
@@ -633,12 +673,14 @@
         };
       }
       case "MEDIA_OPENED": {
+        const contextEpoch = state.context_epoch + 1;
         const next = {
           ...state,
           media: event.media ?? null,
           tool: "source",
+          context_epoch: contextEpoch,
           playhead: stopPlayhead(state, 0),
-          preview: initialPreview(state.context),
+          preview: initialPreview(state.context, contextEpoch),
         };
         return {
           state: next,
@@ -646,11 +688,13 @@
         };
       }
       case "MEDIA_CANCELLED": {
+        const contextEpoch = state.context_epoch + 1;
         const next = {
           ...state,
           media: null,
+          context_epoch: contextEpoch,
           playhead: stopPlayhead(state, 0),
-          preview: initialPreview(state.context),
+          preview: initialPreview(state.context, contextEpoch),
         };
         return {
           state: next,
@@ -748,13 +792,13 @@
           playhead: stopPlayhead(state, frameIndex),
           destination_playheads: {
             ...state.destination_playheads,
-            [destinationKey(state.context)]: frameIndex,
+            [workspaceDestinationKey(state.context)]: frameIndex,
           },
           preview: {
             ...state.preview,
             status: "ready",
             accepted_epoch: acceptedEpoch,
-            context_key: workspaceContextKey(state.context, acceptedEpoch),
+            context_key: workspaceContextKey(state, acceptedEpoch),
             board_frame_set: nextFrameSet,
             error: null,
           },
@@ -783,7 +827,7 @@
             ...state.preview,
             status: "error",
             accepted_epoch: acceptedEpoch,
-            context_key: workspaceContextKey(state.context, acceptedEpoch),
+            context_key: workspaceContextKey(state, acceptedEpoch),
             request_context_key: null,
             board_frame_set: null,
             timeline: [],
@@ -828,7 +872,7 @@
           || !state.preview.board_frame_set
         ) return unchanged(state, "stale");
         const index = (state.playhead.index + 1) % state.preview.board_frame_set.frame_count;
-        const key = destinationKey(state.context);
+        const key = workspaceDestinationKey(state.context);
         const next = {
           ...state,
           playhead: {...state.playhead, index},
@@ -850,7 +894,7 @@
           "The selected lighting frame is invalid.",
         );
         if (index === state.playhead.index && !state.playhead.playing) return unchanged(state);
-        const key = destinationKey(state.context);
+        const key = workspaceDestinationKey(state.context);
         const next = {
           ...state,
           playhead: state.playhead.playing
@@ -905,17 +949,141 @@
     });
   }
 
+  function paintBoardProjection(state, {
+    destination_key: destinationKey,
+    pixels = [],
+    frame_items: frameItems = [],
+  } = {}) {
+    if (destinationKey !== workspaceDestinationKey(state)) return null;
+    const projection = selectBoardProjection(state);
+    if (!projection) return null;
+    for (const pixel of pixels) {
+      const color = projection.colors[Number(pixel?.dataset?.pixel)] || "#000000";
+      if (pixel?.style) {
+        pixel.style.background = color;
+        pixel.style.setProperty?.("--pixel-color", color);
+      }
+    }
+    frameItems.forEach((node, index) => {
+      const selected = index === projection.index;
+      node?.classList?.toggle?.("active", selected);
+      node?.setAttribute?.("aria-pressed", String(selected));
+      node?.setAttribute?.(
+        "aria-label",
+        `Frame ${index + 1}${selected ? ", selected" : ""}`,
+      );
+    });
+    return projection;
+  }
+
+  function createLightingPlaybackRuntime({
+    dispatch,
+    setTimer,
+    clearTimer,
+    lifecycleTarget = null,
+  } = {}) {
+    if (
+      typeof dispatch !== "function"
+      || typeof setTimer !== "function"
+      || typeof clearTimer !== "function"
+    ) fail("invalid_context", "Lighting playback is unavailable.");
+    if (
+      lifecycleTarget !== null
+      && (
+        typeof lifecycleTarget?.addEventListener !== "function"
+        || typeof lifecycleTarget?.removeEventListener !== "function"
+      )
+    ) fail("invalid_context", "Lighting playback cleanup is unavailable.");
+
+    let active = null;
+    let disposed = false;
+    const cancel = intent => {
+      if (!active) return false;
+      if (
+        intent
+        && (
+          intent.session_id !== active.session_id
+          || intent.context_key !== active.context_key
+        )
+      ) return false;
+      const timer = active.timer;
+      active = null;
+      clearTimer(timer);
+      return true;
+    };
+    const onPageHide = () => {
+      const wasActive = cancel();
+      if (wasActive) dispatch({type: "PAUSE_REQUESTED"});
+    };
+    lifecycleTarget?.addEventListener("pagehide", onPageHide);
+
+    const execute = intent => {
+      if (disposed || !isObject(intent)) return false;
+      if (intent.type === "cancel-playback") return cancel(intent);
+      if (intent.type !== "start-playback") return false;
+      const sessionId = safeNonNegativeInteger(
+        intent.session_id,
+        "invalid_context",
+        "The playback session is invalid.",
+      );
+      const duration = safePositiveInteger(
+        intent.duration_ms,
+        "invalid_frame",
+        "The playback speed is invalid.",
+      );
+      if (
+        typeof intent.context_key !== "string"
+        || !intent.context_key.length
+        || intent.context_key.length > 512
+      ) fail("invalid_context", "The playback context is invalid.");
+
+      cancel();
+      const session = {
+        session_id: sessionId,
+        context_key: intent.context_key,
+        timer: null,
+      };
+      active = session;
+      try {
+        session.timer = setTimer(() => {
+          if (active !== session) return;
+          dispatch({
+            type: "PLAYBACK_TICK",
+            session_id: session.session_id,
+            context_key: session.context_key,
+          });
+        }, duration);
+      } catch (error) {
+        if (active === session) active = null;
+        throw error;
+      }
+      return true;
+    };
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      cancel();
+      lifecycleTarget?.removeEventListener("pagehide", onPageHide);
+    };
+    return Object.freeze({execute, dispose});
+  }
+
   return Object.freeze({
     LightingWorkspaceError,
     boardFrameSetFromDocument,
     boardFrameSetFromLocalEffect,
     boardFrameSetFromMappedResult,
+    captureWorkspaceAsyncContext,
     createBoardFrameSet,
+    createLightingPlaybackRuntime,
     createLightingWorkspace,
     friendlyWorkspaceError,
+    paintBoardProjection,
     projectBoardFrame,
     reduceLightingWorkspace,
     selectBoardProjection,
     workspaceContextKey,
+    workspaceAsyncContextMatches,
+    workspaceDestinationKey,
   });
 });
