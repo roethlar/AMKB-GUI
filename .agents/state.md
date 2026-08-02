@@ -104,6 +104,13 @@
   imported arrays make an applied slot uneditable) and `cl-22` (a source-text
   guard pins the associated dead clone block). The active review loop is
   recorded in `.agents/review/index.md`; LSR-8 is not closed.
+- The isolated `cl-21` repair now gives the live document mutable copies of
+  both imported track arrays while the transient report stays frozen. Its
+  executable production-function guard fails against the reviewed shared
+  reference and passes after restoration; the complete 720-Python/179-browser/
+  compile/syntax/build gate passes with 5 Python skips. Commit, push,
+  exact-head CI/Desktop qualification, and the T2-routed per-finding review
+  remain before `cl-21` can close; `cl-22` is unchanged.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -309,8 +316,9 @@
 
 ## Next
 
-- Repair and independently guard-prove `cl-21`, commit and qualify that finding,
-  then repair `cl-22` as its own commit. Continue the codereview per-finding
+- Commit and push the guard-proven `cl-21` repair, qualify its exact head, and
+  run its T2-routed per-finding review; then repair `cl-22` as its own commit.
+  Continue the codereview per-finding
   loop without retrying, replacing, or resubmitting a completed review. Do not
   start LSR-9 until both admitted LSR-8 findings are closed. A
   replacement release candidate must repeat every release gate and cannot mix

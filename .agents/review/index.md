@@ -60,7 +60,7 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | cl-18 | MEDIUM  | Corrupt remembered layout evidence cannot self-heal                         | `[x]`  | —      | claude/claude-opus-5/high/standard |
 | cl-19 | MEDIUM  | Device rescan drops the trusted dynamic-layout signature                    | `[x]`  | —      | claude/claude-opus-5/high/standard |
 | cl-20 | MEDIUM  | Connected geometry can overwrite embedded profile evidence                  | `[x]`  | —      | claude/claude-opus-5/high/standard |
-| cl-21 | HIGH    | Applied AM Master frames remain frozen and cannot be edited                  | `[ ]`  | —      | claude/claude-opus-5/high/standard |
+| cl-21 | HIGH    | Applied AM Master frames remain frozen and cannot be edited                  | `[~]`  | —      | claude/claude-opus-5/high/standard |
 | cl-22 | LOW     | Source-text guard pins a dead clone block and rejects correct cleanup         | `[ ]`  | —      | claude/claude-opus-5/high/standard |
 
 All three raised by the 2026-07-25 openreview codex pass over

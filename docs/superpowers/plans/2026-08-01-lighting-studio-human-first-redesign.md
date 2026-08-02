@@ -1014,6 +1014,15 @@ the exact implementation range once and admitted `cl-21` (applied imported
 frames remain frozen) and `cl-22` (a source-text guard pins the related dead
 clone block). LSR-8 remains open until both findings are independently closed.
 
+The isolated `cl-21` repair copies canonical mapped color arrays at the live
+document boundary, so applied Head and Per-key frames remain editable while the
+transient review report stays recursively frozen. Its executable guard runs the
+actual production conversion, performs indexed paint and frame fill, and
+confirms the source report is unchanged; reverting only the copy fails that
+guard and restoring it passes. The complete 720-Python/179-browser/compile/
+syntax/build gate is green. Commit, push, exact-head qualification, and the
+T2-routed per-finding verdict remain required before `cl-21` closes.
+
 Files:
 
 - new focused `am_configurator/profile_import.py`;

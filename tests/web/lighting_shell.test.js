@@ -949,6 +949,46 @@ test("imported lighting review keeps Apply, Library save, and Close boundaries s
   assert.match(js,/target==="axial"[\s\S]*\?"Per-key layout unavailable\."[\s\S]*:`\$\{targetLabel\} layout unavailable\.`/);
 });
 
+test("applied imported lighting owns mutable colors without thawing its review report", () => {
+  const applyFlow=js.slice(
+    js.indexOf("function applyLedResultToPage"),
+    js.indexOf("function startPlayback"),
+  );
+  const context={};
+  vm.runInNewContext(
+    `${applyFlow}\nglobalThis.applyLedResultToPageForTest=applyLedResultToPage;`,
+    context,
+  );
+  const freezeAll=value=>{
+    if(!value||typeof value!=="object"||Object.isFrozen(value))return value;
+    for(const child of Object.values(value))freezeAll(child);
+    return Object.freeze(value);
+  };
+  const mapped=freezeAll({
+    duration_ms:100,
+    tracks:{
+      keyframes:{frame_count:1,frames:[["#010203","#040506"]]},
+      axial:{frame_count:1,frames:[["#A0B0C0","#D0E0F0"]]},
+    },
+  });
+  const page={};
+
+  context.applyLedResultToPageForTest(page,mapped,"keyframes",false);
+
+  const keyColors=page.keyframes.frame_data[0].frame_RGB;
+  const axialColors=page.axial.frame_data[0].frame_RGB;
+  assert.equal(Object.isFrozen(keyColors),false);
+  assert.equal(Object.isFrozen(axialColors),false);
+  assert.notEqual(keyColors,mapped.tracks.keyframes.frames[0]);
+  assert.notEqual(axialColors,mapped.tracks.axial.frames[0]);
+  keyColors[0]="#FFFFFF";
+  axialColors.fill("#000000");
+  assert.equal(keyColors[0],"#FFFFFF");
+  assert.equal(axialColors[0],"#000000");
+  assert.equal(mapped.tracks.keyframes.frames[0][0],"#010203");
+  assert.equal(mapped.tracks.axial.frames[0][0],"#A0B0C0");
+});
+
 test("CyberBoard switch lighting shares the photographed Keymap geometry", () => {
   assert.match(
     js,
