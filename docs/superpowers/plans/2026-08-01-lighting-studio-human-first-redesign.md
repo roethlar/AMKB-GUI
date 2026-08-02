@@ -1115,8 +1115,10 @@ lighting Library workflow and then failed at the old direct-Apply selector,
 which LSR-9 replaced with Preview on board; that run is not claimed as accepted
 native evidence. No dependency, FFmpeg/libav path, provider request, credential
 use, or hardware write was introduced. No external review was run under the
-owner-approved review-economy rule. Exact-head CI and Desktop installer
-qualification remain pending, so LSR-9 remains open.
+owner-approved review-economy rule. Exact implementation head
+`e4f3d26134dd3926dcc9a559ff62d32877882e91` passes CI run `30762071502` and
+Desktop installers run `30762071501`, including all three platforms, candidate
+metadata, and release provenance. LSR-9 is closed; LSR-10 is next.
 
 Files:
 

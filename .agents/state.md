@@ -142,8 +142,10 @@
   direct-Apply selector; updating that audit for Preview on board is approved
   LSR-10 work, so the run is not accepted as native evidence. No dependency,
   FFmpeg/libav path, provider request, credential use, hardware write, or
-  external review was introduced. Exact-head CI and Desktop installers remain
-  pending; LSR-9 remains open.
+  external review was introduced. Exact implementation head
+  `e4f3d26134dd3926dcc9a559ff62d32877882e91` passes CI run `30762071502` and
+  Desktop installers run `30762071501`; all nine platform, metadata, and
+  provenance jobs passed. LSR-9 is closed; LSR-10 is next.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -347,13 +349,13 @@
 
 ## Next
 
-- Push the landed LSR-9 implementation, then qualify that exact head through CI
-  and all three Desktop installer jobs. If those pass, close LSR-9 and begin
-  approved LSR-10 native-audit and owner-acceptance work. External review is not
-  automatic; use it only on explicit owner request or a concrete material risk
-  that local guards and CI cannot resolve. A replacement release candidate must
-  repeat every release gate and cannot mix evidence from any rejected attempt
-  with new bytes.
+- Implement approved LSR-10 native-audit and owner-acceptance work, beginning by
+  adapting the isolated audit from direct Library Apply to the new read-only
+  Board preview and separate Apply boundary. External review is not automatic;
+  use it only on explicit owner request or a concrete material risk that local
+  guards and CI cannot resolve. A replacement release candidate must repeat
+  every release gate and cannot mix evidence from any rejected attempt with new
+  bytes.
 - The approved `0.1.65` release plan remains recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`; it records all
   three rejected candidates and is paused behind the redesign.
