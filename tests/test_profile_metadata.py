@@ -181,6 +181,59 @@ class PortableLayoutMetadataTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, encoded)
 
+    def test_valid_live_layout_repairs_unreadable_remembered_evidence(self) -> None:
+        variants = {
+            "truncated": b"{",
+            "non-utf8": b"\xff",
+            "oversized": b" " * (store.LAYOUT_EVIDENCE_MAX_BYTES + 1),
+        }
+        for name, invalid_bytes in variants.items():
+            with self.subTest(name=name):
+                root = self._store_root / name
+                with patch.object(store, "store_root", lambda root=root: root):
+                    evidence = profile_metadata.remember_dynamic_layout(
+                        "NEON80", _layout()
+                    )
+                    path = store.layout_evidence_path("NEON80")
+                    path.write_bytes(invalid_bytes)
+
+                    unresolved = profile_metadata.resolve_layout_evidence(_profile())
+                    self.assertIsNone(unresolved["evidence"])
+                    self.assertIn("could not be loaded", unresolved["warning"].lower())
+
+                    repaired = profile_metadata.remember_dynamic_layout(
+                        "NEON80", _layout()
+                    )
+                    resolved = profile_metadata.resolve_layout_evidence(_profile())
+                    self.assertEqual(
+                        evidence["keymap_signature"], repaired["keymap_signature"]
+                    )
+                    self.assertEqual("remembered", resolved["evidence"]["source"])
+                    self.assertEqual(
+                        repaired["keymap_signature"],
+                        resolved["evidence"]["keymap_signature"],
+                    )
+
+    def test_remembering_layout_drops_invalid_retained_entries(self) -> None:
+        evidence = profile_metadata.remember_dynamic_layout("NEON80", _layout())
+        invalid = copy.deepcopy(evidence)
+        invalid["keymap_signature"] = "keymap:v1:" + "0" * 64
+        path = store.layout_evidence_path("NEON80")
+        path.write_text(
+            json.dumps({"schema_version": 1, "layouts": [evidence, invalid]}),
+            encoding="utf-8",
+        )
+        self.assertIsNone(
+            profile_metadata.resolve_layout_evidence(_profile())["evidence"]
+        )
+
+        profile_metadata.remember_dynamic_evidence(evidence)
+
+        payload = store.load_layout_evidence("NEON80")
+        self.assertEqual([evidence], payload["layouts"])
+        resolved = profile_metadata.resolve_layout_evidence(_profile())
+        self.assertEqual("remembered", resolved["evidence"]["source"])
+
 
 if __name__ == "__main__":
     unittest.main()

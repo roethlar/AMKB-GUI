@@ -929,6 +929,12 @@ feat: preview lighting effects as they change
 
 ### Slice LSR-7 — Offline layout evidence and write-time verification
 
+The isolated `cl-18` repair makes a newly validated live layout atomically
+replace unreadable private persistence and retains only strictly revalidated
+bounded history. Its focused guards fail against both reviewed failure modes
+and pass after the repair; the complete 707-Python/173-browser/compile/syntax/
+build gate is green. Per-finding verification remains required before `cl-19`.
+
 Under the resolved Gate LSR-G1 contract, files are expected to include:
 
 - profile load/save helpers in `am_configurator/web/app.js`;

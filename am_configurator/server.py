@@ -1517,9 +1517,7 @@ def _remember_device_layout(payload: Mapping[str, Any]) -> dict[str, Any] | None
     except ValueError:
         return None
     try:
-        from . import store
-
-        store.remember_layout_evidence(evidence["product_id"], evidence)
+        profile_metadata.remember_dynamic_evidence(evidence)
     except (OSError, ValueError):
         # Discovery remains useful when private local persistence is temporarily
         # unavailable. The same exact projection still travels in this response.

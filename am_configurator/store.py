@@ -38,6 +38,7 @@ import re
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -216,7 +217,12 @@ def load_layout_evidence(product_id: str) -> dict | None:
     return value
 
 
-def remember_layout_evidence(product_id: str, evidence: dict) -> Path:
+def remember_layout_evidence(
+    product_id: str,
+    evidence: dict,
+    *,
+    validate_existing: Callable[[object], dict],
+) -> Path:
     """Remember one validated pathless projection with bounded retention."""
 
     if not isinstance(evidence, dict) or set(evidence) != _LAYOUT_EVIDENCE_FIELDS:
@@ -226,30 +232,33 @@ def remember_layout_evidence(product_id: str, evidence: dict) -> Path:
         raise ValueError("Dynamic layout evidence has no signature.")
     path = layout_evidence_path(product_id)
     with device_lock(product_id):
-        current = load_layout_evidence(product_id)
-        if current is None:
-            layouts: list[dict] = []
-        else:
-            if (
-                set(current) != {"schema_version", "layouts"}
-                or current.get("schema_version") != LAYOUT_EVIDENCE_SCHEMA_VERSION
-                or not isinstance(current.get("layouts"), list)
-                or len(current["layouts"]) > LAYOUT_EVIDENCE_MAX
-            ):
-                raise ValueError("Remembered layout evidence is invalid.")
+        try:
+            current = load_layout_evidence(product_id)
+        except (OSError, ValueError):
+            current = None
+        layouts: list[object] = []
+        if (
+            isinstance(current, dict)
+            and set(current) == {"schema_version", "layouts"}
+            and current.get("schema_version") == LAYOUT_EVIDENCE_SCHEMA_VERSION
+            and isinstance(current.get("layouts"), list)
+            and len(current["layouts"]) <= LAYOUT_EVIDENCE_MAX
+        ):
             layouts = current["layouts"]
-        if layouts and layouts[0] == evidence:
-            return path
-        retained = [
-            item
-            for item in layouts
-            if isinstance(item, dict)
-            and item.get("keymap_signature") != signature
-        ]
+        retained: list[dict] = []
+        for item in layouts:
+            try:
+                validated = validate_existing(item)
+            except (TypeError, ValueError):
+                continue
+            if validated.get("keymap_signature") != signature:
+                retained.append(validated)
         payload = {
             "schema_version": LAYOUT_EVIDENCE_SCHEMA_VERSION,
             "layouts": [evidence, *retained][:LAYOUT_EVIDENCE_MAX],
         }
+        if current == payload:
+            return path
         encoded = json.dumps(
             payload,
             allow_nan=False,

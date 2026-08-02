@@ -135,8 +135,26 @@ def build_dynamic_layout(product_id: str, key_layout: object) -> dict[str, Any]:
 
 def remember_dynamic_layout(product_id: str, key_layout: object) -> dict[str, Any]:
     evidence = build_dynamic_layout(product_id, key_layout)
-    store.remember_layout_evidence(evidence["product_id"], evidence)
-    return evidence
+    return remember_dynamic_evidence(evidence)
+
+
+def remember_dynamic_evidence(evidence: object) -> dict[str, Any]:
+    if not isinstance(evidence, dict):
+        raise ValueError("Dynamic layout evidence is invalid.")
+    product_id = evidence.get("product_id")
+    if not isinstance(product_id, str):
+        raise ValueError("Dynamic layout evidence has no product ID.")
+    canonical = _validate_dynamic_layout(evidence, product_id)
+
+    def validate_existing(value: object) -> dict[str, Any]:
+        return _validate_dynamic_layout(value, canonical["product_id"])
+
+    store.remember_layout_evidence(
+        canonical["product_id"],
+        canonical,
+        validate_existing=validate_existing,
+    )
+    return canonical
 
 
 def _embedded_layout(config: dict[str, Any]) -> tuple[dict[str, Any] | None, bool]:
@@ -210,7 +228,7 @@ def resolve_layout_evidence(
     if embedded is not None:
         warning = None
         try:
-            store.remember_layout_evidence(embedded["product_id"], embedded)
+            remember_dynamic_evidence(embedded)
         except (OSError, ValueError):
             warning = (
                 "This profile contains exact per-key layout evidence, but the app "
@@ -312,7 +330,7 @@ def portable_profile(
         evidence = build_dynamic_layout(product_id, key_layout)
         source = "connected"
         try:
-            store.remember_layout_evidence(evidence["product_id"], evidence)
+            remember_dynamic_evidence(evidence)
         except (OSError, ValueError):
             warning = "The exact layout could not be remembered locally."
     else:
