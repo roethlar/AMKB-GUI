@@ -327,8 +327,22 @@ def portable_profile(
     evidence: dict[str, Any] | None = None
     source = "remembered"
     if key_layout is not None:
-        evidence = build_dynamic_layout(product_id, key_layout)
-        source = "connected"
+        connected = build_dynamic_layout(product_id, key_layout)
+        try:
+            embedded, _present = _embedded_layout(config)
+        except ValueError:
+            embedded = None
+        if embedded is not None:
+            if embedded["keymap_signature"] != connected["keymap_signature"]:
+                raise ValueError(
+                    "The connected keyboard layout does not match the exact "
+                    "layout embedded in this profile."
+                )
+            evidence = embedded
+            source = "embedded"
+        else:
+            evidence = connected
+            source = "connected"
         try:
             remember_dynamic_evidence(evidence)
         except (OSError, ValueError):

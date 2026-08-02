@@ -950,6 +950,15 @@ build gate, exact-head CI run `30750225695`, and Desktop installers run
 returned accepted with guard and capability confirmed. `cl-19` is closed;
 `cl-20` is next.
 
+The isolated `cl-20` repair makes valid embedded dynamic-layout evidence own
+portable export and Library save. A matching connected layout retains that
+evidence and a conflicting canonical signature returns one clear error before
+remembered-layout or Library mutation. Its helper, export, and Library guards
+all fail against the reviewed overwrite behavior and pass after restoration;
+the complete 710-Python/175-browser/compile/syntax/build gate is green. Commit,
+push, exact-head qualification, and one per-finding verdict remain required
+before LSR-7 closes.
+
 Under the resolved Gate LSR-G1 contract, files are expected to include:
 
 - profile load/save helpers in `am_configurator/web/app.js`;

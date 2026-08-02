@@ -84,6 +84,34 @@ class PortableLayoutMetadataTests(unittest.TestCase):
         self.assertEqual(evidence["key_layout"], reopened["evidence"]["key_layout"])
         self.assertIsNone(reopened["warning"])
 
+    def test_embedded_layout_owns_portable_save_over_connected_layout(self) -> None:
+        embedded = profile_metadata.build_dynamic_layout("NEON80", _layout())
+        config = profile_metadata.attach_dynamic_layout(_profile(), embedded)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "connected keyboard layout does not match the exact layout embedded",
+        ):
+            profile_metadata.portable_profile(
+                config,
+                key_layout=_layout(width=7.0),
+            )
+        self.assertIsNone(store.load_layout_evidence("NEON80"))
+
+        matching = profile_metadata.portable_profile(
+            config,
+            key_layout=_layout(),
+        )
+        self.assertEqual("embedded", matching["evidence"]["source"])
+        self.assertEqual(
+            config["_am_configurator"],
+            matching["config"]["_am_configurator"],
+        )
+        self.assertEqual(
+            [embedded],
+            store.load_layout_evidence("NEON80")["layouts"],
+        )
+
     def test_malformed_or_unbounded_metadata_never_becomes_layout_evidence(self) -> None:
         evidence = profile_metadata.remember_dynamic_layout("NEON80", _layout())
         valid = profile_metadata.attach_dynamic_layout(_profile(), evidence)

@@ -2019,6 +2019,46 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(fixed, fixed_export["config"])
         self.assertIsNone(fixed_export["layout_evidence"])
 
+    def test_profile_export_rejects_connected_layout_conflicting_with_embedded(self) -> None:
+        layout = self._dynamic_layout()
+        evidence = profile_metadata.build_dynamic_layout("NEON80", layout)
+        config = profile_metadata.attach_dynamic_layout(
+            blank_config(
+                "NEON80",
+                [["#00000000"] * 90 for _ in range(4)],
+                [],
+            ),
+            evidence,
+        )
+
+        status, rejected = self._request(
+            "POST",
+            "/api/config/export",
+            {
+                "config": config,
+                "key_layout": self._dynamic_layout(first_width=7.0),
+            },
+        )
+        self.assertEqual(400, status)
+        self.assertEqual(
+            "The connected keyboard layout does not match the exact layout "
+            "embedded in this profile.",
+            rejected["error"],
+        )
+        self.assertIsNone(store.load_layout_evidence("NEON80"))
+
+        status, exported = self._request(
+            "POST",
+            "/api/config/export",
+            {"config": config, "key_layout": layout},
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("embedded", exported["layout_evidence"]["source"])
+        self.assertEqual(
+            config["_am_configurator"],
+            exported["config"]["_am_configurator"],
+        )
+
     def test_dynamic_layout_mismatch_blocks_before_confirmation_or_transport(self) -> None:
         config = blank_config(
             "NEON80",
@@ -4127,6 +4167,50 @@ class LightingStudioEndpointTests(unittest.TestCase):
             metadata["keymap_signature"],
         )
         self.assertNotIn("_am_configurator", self._server.state.config)
+
+    def test_library_save_rejects_connected_layout_conflicting_with_embedded(self) -> None:
+        layout = LedGenerateEndpointTests._dynamic_layout()
+        evidence = profile_metadata.build_dynamic_layout("NEON80", layout)
+        profile = profile_metadata.attach_dynamic_layout(
+            blank_config(
+                "NEON80",
+                [["#00000000"] * 90 for _ in range(4)],
+                [],
+            ),
+            evidence,
+        )
+        status, synchronized = self._request(
+            "POST",
+            "/api/document/sync",
+            {"config": profile},
+        )
+        self.assertEqual(200, status)
+        before_items = self._server.state.library_catalog().saved_items.scan()
+        before_evidence = store.load_layout_evidence("NEON80")
+        before_document = copy.deepcopy(self._server.state.config)
+
+        status, rejected = self._request(
+            "POST",
+            "/api/library/save/profile",
+            {
+                "name": "Conflicting portable Neon profile",
+                "document_revision": synchronized["revision"],
+                "key_layout": LedGenerateEndpointTests._dynamic_layout(
+                    first_width=7.0,
+                ),
+            },
+        )
+
+        self.assertEqual(400, status)
+        self.assertEqual(
+            "The connected keyboard layout does not match the exact layout "
+            "embedded in this profile.",
+            rejected["error"],
+        )
+        after_items = self._server.state.library_catalog().saved_items.scan()
+        self.assertEqual(before_items["items"], after_items["items"])
+        self.assertEqual(before_evidence, store.load_layout_evidence("NEON80"))
+        self.assertEqual(before_document, self._server.state.config)
 
     def test_profile_compatibility_preview_is_sectioned_and_read_only(self) -> None:
         source = _base_config("80")

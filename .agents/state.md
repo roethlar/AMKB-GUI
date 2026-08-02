@@ -62,7 +62,14 @@
   `30750225695`, and Desktop installers run `30750225702` pass. Its one
   per-finding `fable-review` used explicit `claude-opus-5` at `high` once and
   returned accepted with guard and capability confirmed. Canonical evidence is
-  in `.agents/review/findings/cl-19.md`; `cl-20` is next.
+  in `.agents/review/findings/cl-19.md`.
+- The isolated `cl-20` repair makes valid embedded dynamic-layout evidence own
+  portable export and Library save. A matching connected layout retains that
+  evidence; a conflicting canonical signature returns one clear error before
+  remembered-layout or Library mutation. Its three guards fail against the
+  reviewed overwrite behavior and pass after restoration. The complete
+  710-Python/175-browser/compile/syntax/build gate is green. Commit, push,
+  exact-head qualification, and one per-finding verdict remain pending.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -268,9 +275,8 @@
 
 ## Next
 
-- Repair `cl-20` as one independently guarded commit and one pinned
-  per-finding verdict before closing LSR-7 and starting LSR-8. Do not restart
-  R65-2 until
+- Commit, push, qualify, and independently verify the guard-proven `cl-20`
+  repair before closing LSR-7 and starting LSR-8. Do not restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new

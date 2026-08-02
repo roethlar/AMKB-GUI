@@ -59,7 +59,7 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | cl-17 | MEDIUM  | Effect parameter changes leave timeline LED thumbnails stale                | `[x]`  | —      | claude/claude-opus-5/high/standard |
 | cl-18 | MEDIUM  | Corrupt remembered layout evidence cannot self-heal                         | `[x]`  | —      | claude/claude-opus-5/high/standard |
 | cl-19 | MEDIUM  | Device rescan drops the trusted dynamic-layout signature                    | `[x]`  | —      | claude/claude-opus-5/high/standard |
-| cl-20 | MEDIUM  | Connected geometry can overwrite embedded profile evidence                  | `[ ]`  | —      | claude/claude-opus-5/high/standard |
+| cl-20 | MEDIUM  | Connected geometry can overwrite embedded profile evidence                  | `[~]`  | —      | claude/claude-opus-5/high/standard |
 
 All three raised by the 2026-07-25 openreview codex pass over
 `65a70c9..94a847a` and admitted at intake after independent verification of
