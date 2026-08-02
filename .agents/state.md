@@ -147,6 +147,20 @@
   Desktop installers run `30762071501`; all nine platform, metadata, and
   provenance jobs passed. LSR-9 is closed; LSR-10 is next.
 
+- LSR-10 is in progress. Commits `5a6952e` and `b0a1a23` repair two defects
+  exposed by the native Library workflow: a saved CyberBoard display no longer
+  absorbs the independent per-key timeline, while Relic per-key saves retain
+  their required edge companion; Library preview failures remain observable
+  until the physical Board has opened. Commit `ed1f454` replaces the obsolete
+  direct Library Apply audit with read-only Board Preview, exact DOM-to-frame
+  equality, mutation-free Cancel, separate one-call Apply, and one-checkpoint
+  Undo. Both production guards were independently red under mutation and green
+  after restoration. The simplified source WebView2 audit passes GIF, PNG, and
+  BMP at 1000×680 and 1280×800 with no console or layout findings. The full
+  Python gate advanced through compile and completed both fresh package builds;
+  PTK then lost only the outer transport, so it was not resubmitted. All 185
+  browser tests and syntax checks pass. No external review was launched.
+
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
   `30699706921` and Desktop run `30699706913` attempt 1 passed, and the owner
@@ -349,13 +363,15 @@
 
 ## Next
 
-- Implement approved LSR-10 native-audit and owner-acceptance work, beginning by
-  adapting the isolated audit from direct Library Apply to the new read-only
-  Board preview and separate Apply boundary. External review is not automatic;
-  use it only on explicit owner request or a concrete material risk that local
-  guards and CI cannot resolve. A replacement release candidate must repeat
-  every release gate and cannot mix evidence from any rejected attempt with new
-  bytes.
+- Continue approved LSR-10 native-audit and owner-acceptance work. Remaining
+  coverage is live Effects and reduced motion, app-native profile round-trip,
+  both AM Master import dialects, portable offline Neon layout and missing-layout
+  fallback, frozen Windows, Linux WebKitGTK, macOS WKWebView, read-only acceptance
+  of the seven owner-supplied examples, and one final owner-visible Windows pass.
+  External review is not automatic; use it only on explicit owner request or a
+  concrete material risk that local guards and CI cannot resolve. A replacement
+  release candidate must repeat every release gate and cannot mix evidence from
+  any rejected attempt with new bytes.
 - The approved `0.1.65` release plan remains recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`; it records all
   three rejected candidates and is paused behind the redesign.
