@@ -12,6 +12,21 @@
   animation. No candidate is active. Canonical sanitized evidence is in the
   current public-release plan; screenshots and the native audit remain
   controlled machine-local evidence.
+- A holistic Lighting Studio redesign is drafted at
+  `docs/superpowers/plans/2026-08-01-lighting-studio-human-first-redesign.md`.
+  It preserves the canonical renderer, device maps, Library, document-only
+  Apply/Undo, and write safety while replacing the frontend state and
+  interaction model. Imported media keeps an actual Source pane beside a
+  separate physical Board pane whose LEDs come only from the exact canonical
+  arrays used by Apply and Write; one transform and playhead own both. The plan
+  also covers destination-bound playback, live Effects, supported-format
+  selection, honest errors, and offline profile editing. Implementation is not
+  approved. Gate LSR-G1 still needs the owner's one-at-a-time ruling on whether
+  portable dynamic-layout evidence lives inside the saved JSON or in a
+  separate app representation, followed by approval of the complete plan.
+- The Macro page finding that existing macro contents are not shown directly
+  enough is recorded as separate queued UX work. It is not part of the
+  Lighting redesign and has no approved implementation scope.
 - The proposed Neon write gate was canceled before invocation because the
   loaded portable profile did not contain the owner's current saved lighting.
   No Write action, typed confirmation, physical unlock, hardware write,
@@ -173,14 +188,20 @@
 
 ## Next
 
-- The approved `0.1.65` release plan is recorded at
-  `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`. It records all
-  three rejected candidates and is paused before repair planning.
-- Draft and obtain owner approval for a narrow repair plan covering preview
-  playback isolation across Lighting target changes. Do not restart R65-2
-  until the correction is implemented, guarded, verified, reviewed as
-  required, and pushed. A replacement candidate must repeat every release gate
-  and cannot mix evidence from any rejected attempt with new bytes.
+- Resolve Lighting redesign Gate LSR-G1 in chat, record the approved portable
+  layout representation, then obtain owner approval for the complete
+  `2026-08-01-lighting-studio-human-first-redesign.md` plan. The recommended
+  first ruling is a self-contained, namespaced app metadata object in Save JSON
+  because it makes the normal Save/Open path portable and offline-first; the
+  tradeoff is unproven strict third-party parser compatibility.
+- After complete plan approval, implement LSR-1 first: the pure workspace
+  reducer and canonical `BoardFrameSet` contract. Do not restart R65-2 until
+  LSR-1 through LSR-9 are implemented, guarded, verified, accepted, and pushed.
+  A replacement candidate must repeat every release gate and cannot mix
+  evidence from any rejected attempt with new bytes.
+- The approved `0.1.65` release plan remains recorded at
+  `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`; it records all
+  three rejected candidates and is paused behind the redesign.
 - `.agents/machines.md` owns all host details, including the current connection
   information for `nagatha`. `win-arm-vm` remains SmartScreen observation only
   and Windows ARM64 remains outside the `0.1.65` public asset set.
@@ -192,7 +213,8 @@
 
 ## Blockers
 
-- The R65-6 cross-target preview defect requires a separately approved repair
-  plan and implementation before R65-2 can restart. Live provider requests,
+- Lighting implementation is blocked on the LSR-G1 portable-layout ruling and
+  explicit approval of the complete human-first redesign plan. R65-2 is blocked
+  on completion and owner acceptance of that redesign. Live provider requests,
   keyboard writes, macOS Open Anyway, tag creation, release publication, and
   announcements remain separately gated actions for their later slices.

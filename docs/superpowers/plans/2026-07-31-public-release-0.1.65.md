@@ -5,7 +5,9 @@ at `c2f6fce`, and 3 at `09232fb` were rejected during exact-candidate
 qualification. Attempt 3 was rejected during R65-6 on 2026-08-01 because
 switching from Per-key to Head matrix while preview playback remained active
 rendered incorrect Head matrix lighting. No candidate is active. A correction
-requires a separately approved repair plan before R65-2 can restart. Live
+now requires owner approval and completion of
+`2026-08-01-lighting-studio-human-first-redesign.md` before R65-2 can restart.
+Live
 provider requests, macOS Open Anyway, hardware writes, tag or GitHub Release
 creation, and announcement posting remain separate action-time gates.
 
@@ -508,9 +510,10 @@ Any mismatch rejects the candidate. Do not create a tag or Release.
 - No Write action, typed device confirmation, physical unlock, hardware write,
   live provider request, tag, Release, or announcement occurred. Attempt 3 is
   permanently rejected and its artifacts must not be published or reused.
-- Candidate qualification may restart only after a separately approved repair
-  plan corrects the cross-target preview behavior and the repair is
-  implemented, guarded, verified, reviewed as required, and pushed.
+- Candidate qualification may restart only after the separately approved
+  Lighting Studio redesign corrects the complete rejected interaction model,
+  including cross-target preview behavior, and is implemented, guarded,
+  verified, accepted, and pushed.
 
 ### Slice R65-4 — Exact-artifact platform qualification
 
