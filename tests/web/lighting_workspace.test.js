@@ -13,6 +13,7 @@ const {
   createBoardFrameSet,
   createLightingWorkspace,
   friendlyWorkspaceError,
+  mappedResultFromBoardFrameSet,
   paintBoardProjection,
   projectBoardFrame,
   reduceLightingWorkspace,
@@ -24,7 +25,12 @@ const {
 } = require("../../am_configurator/web/lighting_workspace.js");
 
 const FIRMWARE_DURATIONS = [34, 48, 62, 76, 90];
-const TARGET_LENGTHS = Object.freeze({keyframes: 2, frames: 3, head: 3});
+const TARGET_LENGTHS = Object.freeze({
+  keyframes: 2,
+  spotlight_frames: 1,
+  frames: 3,
+  head: 3,
+});
 
 function context(overrides = {}) {
   return {
@@ -188,6 +194,86 @@ test("BoardFrameSet validates shapes and canonicalizes valid RGB spelling", () =
     }),
     error => error.code === "invalid_color",
   );
+});
+
+test("BoardFrameSet converts to one exact mapped result with every paired track", () => {
+  const accepted = frameSet({
+    framesByTarget: {
+      keyframes: [
+        ["#010203", "#040506"],
+        ["#070809", "#0A0B0C"],
+      ],
+      spotlight_frames: [
+        ["#101112"],
+        ["#131415"],
+      ],
+    },
+    durationMs: 76,
+  });
+
+  const mapped = mappedResultFromBoardFrameSet(accepted);
+  assert.equal(mapped.duration_ms, 76);
+  assert.equal(mapped.source_frames, 2);
+  assert.deepEqual(mapped.tracks, {
+    keyframes: {
+      frame_count: 2,
+      frames: [
+        ["#010203", "#040506"],
+        ["#070809", "#0A0B0C"],
+      ],
+    },
+    spotlight_frames: {
+      frame_count: 2,
+      frames: [
+        ["#101112"],
+        ["#131415"],
+      ],
+    },
+  });
+  assert.notStrictEqual(mapped.tracks.keyframes.frames[0], accepted.frames_by_target.keyframes[0]);
+  mapped.tracks.keyframes.frames[0][0] = "#FFFFFF";
+  assert.equal(accepted.frames_by_target.keyframes[0][0], "#010203");
+  assert.throws(
+    () => mappedResultFromBoardFrameSet({...accepted}),
+    error => error.code === "invalid_shape",
+  );
+});
+
+test("document and local-effect builders retain exact previewed companion tracks", () => {
+  const companions = {
+    spotlight_frames: [
+      ["#111111"],
+      ["#222222"],
+    ],
+  };
+  const documentSet = boardFrameSetFromDocument({
+    context: context(),
+    track: {frame_data: [
+      {frame_index: 0, frame_RGB: ["#010101", "#020202"]},
+      {frame_index: 1, frame_RGB: ["#030303", "#040404"]},
+    ]},
+    companionFramesByTarget: companions,
+    durationMs: 90,
+    targetLengths: TARGET_LENGTHS,
+    allowedDurations: FIRMWARE_DURATIONS,
+  });
+  const effectSet = boardFrameSetFromLocalEffect({
+    context: context({source_kind: "local_effect"}),
+    draft: {
+      frames: [
+        ["#101010", "#202020"],
+        ["#303030", "#404040"],
+      ],
+      effect: {duration_ms: 76},
+    },
+    companionFramesByTarget: companions,
+    targetLengths: TARGET_LENGTHS,
+    allowedDurations: FIRMWARE_DURATIONS,
+  });
+
+  assert.deepEqual(documentSet.frames_by_target.spotlight_frames, companions.spotlight_frames);
+  assert.deepEqual(effectSet.frames_by_target.spotlight_frames, companions.spotlight_frames);
+  assert.notStrictEqual(effectSet.frames_by_target.spotlight_frames, companions.spotlight_frames);
 });
 
 test("one mapped media frame becomes an exact transient Board frame", () => {

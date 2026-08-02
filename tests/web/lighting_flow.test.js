@@ -98,7 +98,9 @@ test("Studio tools read Paint, Import media, Effects, and AI over stable keys", 
 });
 
 test("media previews explicitly while effect cards update the Board immediately", () => {
-  const media = js.slice(js.indexOf('<div class="media-composition-actions">'), js.indexOf('</div>', js.indexOf('<div class="media-composition-actions">')));
+  const edit = jsFunction("renderLightingEdit");
+  const mediaStart = edit.indexOf('<div class="media-composition-actions">');
+  const media = edit.slice(mediaStart, edit.indexOf('</div>', mediaStart));
   assert.match(media, /id="media-compose-preview"[^>]*>Preview</);
   assert.match(media, /id="media-compose-apply"[^>]*>Apply to lighting slot</);
   assert.match(media, /id="media-compose-cancel"[^>]*>Cancel</);
@@ -149,6 +151,7 @@ test("local effect regeneration publishes one exact draft with motion preference
     ["#081018", "#202830"],
   ];
   const frameSet = {token: "exact-board-frame-set"};
+  const companionFrames = {spotlight_frames: [["#010101"], ["#020202"]]};
   const dispatches = [];
   const toasts = [];
   const context = {
@@ -164,6 +167,11 @@ test("local effect regeneration publishes one exact draft with motion preference
     localAnimationSourceFrame: () => ({frame: source, index: 0}),
     activeLedModel: () => ({}),
     getPage: () => null,
+    dependentLightingFramesByTarget: options => {
+      assert.equal(options.primaryTarget, "keyframes");
+      assert.equal(options.frameCount, renderedFrames.length);
+      return companionFrames;
+    },
     toast: (...args) => toasts.push(args),
     currentLocalAnimationSpec: () => ({type: "pulse", duration_ms: 90}),
     clone: value => JSON.parse(JSON.stringify(value)),
@@ -176,6 +184,7 @@ test("local effect regeneration publishes one exact draft with motion preference
     lightingWorkspaceFrameContext: () => ({target: "keyframes"}),
     boardFrameSetFromLocalEffect: value => {
       assert.equal(JSON.stringify(value.draft.frames), JSON.stringify(renderedFrames));
+      assert.strictEqual(value.companionFramesByTarget, companionFrames);
       return frameSet;
     },
     LED_SPEEDS: [90],
@@ -230,46 +239,134 @@ test("effect parameter changes stay pinned to the originating document frame", (
   assert.equal(clamped.frame.frame_RGB[0], "#222222");
 });
 
-test("effect Apply clones exact accepted arrays once and preserves the dependent edge track", () => {
+test("Apply accepts only the exact current BoardFrameSet", () => {
+  const frameSet = {
+    context: {document_epoch: 7, slot: 5, target: "keyframes"},
+    frames_by_target: {keyframes: [["#010203"]]},
+    provenance: "media_render",
+  };
+  const context = {
+    state: {ledSlot: 5, ledTarget: "keyframes"},
+    lightingWorkspace: {
+      context: {document_epoch: 7},
+      preview: {
+        status: "ready",
+        context_key: "current-context",
+        board_frame_set: frameSet,
+      },
+    },
+    workspaceContextKey: () => "current-context",
+    console,
+  };
+  vm.runInNewContext(
+    `${jsFunction("acceptedBoardFrameSetForApply")}\nglobalThis.accept=acceptedBoardFrameSetForApply;`,
+    context,
+  );
+
+  assert.strictEqual(context.accept({
+    provenance: "media_render",
+    expected: frameSet,
+    contextKey: "current-context",
+  }), frameSet);
+  assert.throws(
+    () => context.accept({provenance: "procedural_result", expected: frameSet}),
+    /exact Board preview has expired/,
+  );
+  assert.throws(
+    () => context.accept({provenance: "media_render", expected: {...frameSet}}),
+    /exact Board preview has expired/,
+  );
+  context.lightingWorkspace.preview.context_key = "stale-context";
+  assert.throws(
+    () => context.accept({provenance: "media_render", expected: frameSet}),
+    /exact Board preview has expired/,
+  );
+});
+
+test("the common BoardFrameSet writer copies exact accepted arrays and duration", () => {
   const frameSet = {
     context: {slot: 5, target: "keyframes"},
     duration_ms: 76,
-    frames_by_target: {keyframes: [
-      ["#112233", "#445566"],
-      ["#778899", "#AABBCC"],
-    ]},
+    frame_count: 2,
+    frames_by_target: {
+      keyframes: [
+        ["#112233", "#445566"],
+        ["#778899", "#AABBCC"],
+      ],
+      spotlight_frames: [
+        ["#010101"],
+        ["#020202"],
+      ],
+    },
   };
   const before = JSON.stringify(frameSet);
-  const track = {valid: 0, frame_num: 1, frame_data: []};
-  const page = {
-    speed_ms: 90,
-    spotlight_frames: {valid: 1, frame_num: 1, frame_data: [{frame_RGB: ["#010101"]}]},
+  const page = {speed_ms: 90};
+  const context = {
+    mappedResultFromBoardFrameSet: value => {
+      assert.strictEqual(value, frameSet);
+      return {
+        duration_ms: value.duration_ms,
+        source_frames: value.frame_count,
+        tracks: Object.fromEntries(Object.entries(value.frames_by_target).map(
+          ([target, frames]) => [target, {
+            frame_count: frames.length,
+            frames: frames.map(colors => [...colors]),
+          }],
+        )),
+      };
+    },
+    console,
   };
-  const relic = {};
+  vm.runInNewContext(
+    `${jsFunction("applyLedResultToPage")}\n${jsFunction("applyBoardFrameSetToPage")}\nglobalThis.applyBoard=applyBoardFrameSetToPage;`,
+    context,
+  );
+  context.applyBoard(page, frameSet, "keyframes");
+
+  assert.equal(page.valid, 1);
+  assert.equal(page.speed_ms, 76);
+  assert.equal(page.keyframes.frame_num, 2);
+  assert.equal(page.spotlight_frames.frame_num, 2);
+  assert.equal(
+    JSON.stringify(page.keyframes.frame_data.map(frame => frame.frame_RGB)),
+    JSON.stringify(frameSet.frames_by_target.keyframes),
+  );
+  assert.equal(
+    JSON.stringify(page.spotlight_frames.frame_data.map(frame => frame.frame_RGB)),
+    JSON.stringify(frameSet.frames_by_target.spotlight_frames),
+  );
+  assert.notStrictEqual(page.keyframes.frame_data[0].frame_RGB, frameSet.frames_by_target.keyframes[0]);
+  assert.equal(JSON.stringify(frameSet), before);
+});
+
+test("effect Apply consumes the accepted BoardFrameSet through one Undo checkpoint", () => {
+  const frameSet = {
+    context: {slot: 5, target: "keyframes"},
+    duration_ms: 76,
+    frames_by_target: {
+      keyframes: [["#112233"], ["#445566"]],
+      spotlight_frames: [["#010101"], ["#020202"]],
+    },
+  };
+  const page = {};
   const dispatches = [];
   let mutateCalls = 0;
-  let mutateRerender = null;
-  let mutateOptions = null;
-  let resampled = null;
+  let applied = null;
   const context = {
     currentLocalAnimationDraft: () => ({board_frame_set: frameSet}),
-    workspaceContextKey: () => "current-context",
-    lightingWorkspace: {},
-    clone: value => JSON.parse(JSON.stringify(value)),
+    acceptedBoardFrameSetForApply: options => {
+      assert.strictEqual(options.expected, frameSet);
+      assert.equal(options.provenance, "local_effect");
+      return frameSet;
+    },
     mutate: (fn, rerender, options) => {
       mutateCalls += 1;
-      mutateRerender = rerender;
-      mutateOptions = options;
+      assert.equal(rerender, false);
+      assert.equal(options.preserveEffectDraft, true);
       fn();
     },
     getPage: () => page,
-    ensureTrack: () => track,
-    activeLedModel: () => relic,
-    LED_MODELS: {"80": relic},
-    resampleEdgeAnimation: (frames, count) => {
-      resampled = {frames, count};
-      return [{frame_index: 0, frame_RGB: ["#010101"]}, {frame_index: 1, frame_RGB: ["#010101"]}];
-    },
+    applyBoardFrameSetToPage: (...args) => { applied = args; },
     state: {appliedLightingProvenance: null},
     createLightingProvenance: value => value,
     dispatchLightingWorkspace: (event, options) => dispatches.push({event, options}),
@@ -290,20 +387,51 @@ test("effect Apply clones exact accepted arrays once and preserves the dependent
   });
 
   assert.equal(mutateCalls, 1);
-  assert.equal(mutateRerender, false);
-  assert.equal(mutateOptions.preserveEffectDraft, true);
-  assert.equal(track.valid, 1);
-  assert.equal(track.frame_num, 2);
-  assert.equal(JSON.stringify(track.frame_data.map(frame => frame.frame_RGB)), JSON.stringify(frameSet.frames_by_target.keyframes));
-  assert.notStrictEqual(track.frame_data[0].frame_RGB, frameSet.frames_by_target.keyframes[0]);
-  assert.equal(page.speed_ms, 76);
-  assert.equal(resampled.count, 2);
-  assert.equal(page.spotlight_frames.frame_num, 2);
-  assert.equal(JSON.stringify(frameSet), before);
+  assert.strictEqual(applied[0], page);
+  assert.strictEqual(applied[1], frameSet);
+  assert.equal(applied[2], "keyframes");
   assert.strictEqual(dispatches[0].event.board_frame_set, frameSet);
   assert.equal(dispatches[0].event.type, "APPLY_COMPLETED");
   assert.equal(JSON.stringify(dispatches[0].options), JSON.stringify({renderWorkspace: true}));
   assert.strictEqual(context.state.appliedLightingProvenance.effects[0], specification);
+});
+
+test("every preview-backed Apply consumes the currently accepted BoardFrameSet", () => {
+  for (const name of [
+    "applyMediaCompositionDraft",
+    "applyLocalEffectFrameSet",
+    "applyReviewedLighting",
+    "applyImportedLighting",
+    "applyLibraryPreview",
+  ]) {
+    const body = jsFunction(name);
+    assert.match(body, /acceptedBoardFrameSetForApply\(/, `${name} must retrieve the accepted preview`);
+    assert.match(body, /applyBoardFrameSetToPage\(/, `${name} must use the common exact writer`);
+    assert.equal((body.match(/mutate\(/g) || []).length, 1, `${name} must create one Undo checkpoint`);
+    assert.doesNotMatch(body, /resampleEdgeAnimation\(/, `${name} must not derive an unpreviewed track`);
+  }
+  assert.doesNotMatch(jsFunction("applyLedResultToPage"), /resampleEdgeAnimation\(/);
+  const procedural = jsFunction("applyReviewedLighting");
+  assert.match(procedural, /preview\?\.kind!=="procedural"/);
+  assert.match(procedural, /preview\.identity!==proceduralPreviewIdentity\(manifest,attempt\)/);
+  assert.match(procedural, /expected:preview\.boardFrameSet/);
+});
+
+test("Library actions open a read-only Board preview before a separate Apply", () => {
+  assert.match(js, /data-library-preview-lighting[^>]*>Preview on board</);
+  assert.match(js, /data-library-preview-generated[^>]*>Preview on board</);
+  for (const name of ["previewLibraryGenerated", "previewLibraryLighting"]) {
+    const body = jsFunction(name);
+    assert.match(body, /openLibraryBoardPreview\(/);
+    assert.doesNotMatch(body, /mutate\(|applyBoardFrameSetToPage\(|\/api\/library\/save\//);
+  }
+  const cancel = jsFunction("cancelLibraryBoardPreview");
+  assert.doesNotMatch(cancel, /mutate\(|api\(|fetch\(/);
+  const apply = jsFunction("applyLibraryPreview");
+  assert.doesNotMatch(apply, /api\(|fetch\(|\/api\/library\/save\//);
+  assert.match(apply, /acceptedBoardFrameSetForApply\(/);
+  assert.match(apply, /applyBoardFrameSetToPage\(/);
+  assert.match(jsFunction("wireLedEditor"), /const paintEnabled=state\.studioTool==="paint"&&!activeTransientLightingPreview\(\)/);
 });
 
 // ---- Owner acceptance guard ------------------------------------------------
@@ -329,9 +457,9 @@ test("every Apply names the slot, the document-only change, and the Write action
     "applyMediaCompositionDraft",
     "applyLocalEffectFrameSet",
     "applyReviewedLighting",
+    "applyImportedLighting",
+    "applyLibraryPreview",
     "replaceEdgeAnimation",
-    "applyLibraryGenerated",
-    "applyLibraryLighting",
   ]) assert.match(jsFunction(name), /lightingAppliedDetail\(/, `${name} must report where the work went`);
   assert.match(jsFunction("applyLocalAnimationDraft"), /type:"APPLY_REQUESTED"/);
 
@@ -370,6 +498,7 @@ test("the generated-result review states the destination, scope, and next action
     targetLabel: "Keys",
     destinationSlot: 6,
     mappedResultLoaded: true,
+    boardPreviewReady: true,
     writeActionLabel: "Write to CB04",
   });
   assert.match(view.applyHint, /Custom slot 2/);
@@ -461,6 +590,9 @@ test("AI-off hides AI-only controls while every manual tool stays available", ()
   assert.match(js, /const generationPanel=aiReady\(\)\?/);
   assert.match(jsFunction("renderGenerationStudio"), /if\(!container\|\|!aiReady\(\)\)return/);
   assert.match(jsFunction("setStudioTool"), /if\(!availableStudioTools\(\)\.includes\(tool\)\)return/);
+  assert.doesNotMatch(js, /conceptAssetUrls|conceptAssetLoads|loadConceptAsset/);
+  assert.doesNotMatch(jsFunction("hydrateProceduralAssets"), /preview_asset_id|MEDIA_OPENED|preview-session/);
+  assert.match(jsFunction("renderProceduralReview"), /boardPreviewReady/);
 });
 
 // ---- Advanced disclosures --------------------------------------------------

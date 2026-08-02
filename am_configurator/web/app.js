@@ -12,7 +12,7 @@ const {ROUTES, STAGES, aiStudioAvailable, classifyImportedJsonSelection, createE
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, mergeScannedDeviceDetails, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const {canonicalizeSourceTransform, createLatestTaskScheduler, defaultSourceTransform, interpolateMoveZoom, presetSourceTransform, renderColorEffect, resolveSourceGeometry, selectDemonstrativeEffectFrame, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
-const {boardFrameSetFromDocument, boardFrameSetFromLocalEffect, boardFrameSetFromMappedFrame, boardFrameSetFromMappedResult, captureWorkspaceAsyncContext, createLightingPlaybackRuntime, createLightingWorkspace, friendlyWorkspaceError, paintBoardProjection, reduceLightingWorkspace, selectBoardProjection, selectSourceProjection, workspaceAsyncContextMatches, workspaceContextKey, workspaceDestinationKey} = LightingWorkspace;
+const {boardFrameSetFromDocument, boardFrameSetFromLocalEffect, boardFrameSetFromMappedFrame, boardFrameSetFromMappedResult, captureWorkspaceAsyncContext, createLightingPlaybackRuntime, createLightingWorkspace, friendlyWorkspaceError, mappedResultFromBoardFrameSet, paintBoardProjection, reduceLightingWorkspace, selectBoardProjection, selectSourceProjection, workspaceAsyncContextMatches, workspaceContextKey, workspaceDestinationKey} = LightingWorkspace;
 const {
   compatibleProfileSections,
   createLibraryRequestEpochs,
@@ -44,6 +44,16 @@ const localEffectContextChanges = new Set([
   "ROUTE_CHANGED",
   "MEDIA_OPENED",
   "MEDIA_CANCELLED",
+]);
+const transientPreviewContextChanges = new Set([
+  "DOCUMENT_OPENED",
+  "DOCUMENT_CLOSED",
+  "DESTINATION_CHANGED",
+  "TOOL_SELECTED",
+  "ROUTE_CHANGED",
+  "MEDIA_OPENED",
+  "MEDIA_CANCELLED",
+  "IMPORTED_LIGHTING_OPENED",
 ]);
 
 function restoredLightingState() {
@@ -99,6 +109,7 @@ const state = {
   mediaImporting: false,
   appliedLightingProvenance: null,
   importedLighting: null,
+  transientLightingPreview: null,
   localAnimationEffect: null,
   localAnimationFrameCount: 8,
   localAnimationDuration: 90,
@@ -132,8 +143,6 @@ const state = {
   conceptPollTimer: null,
   conceptPollEpoch: 0,
   conceptPollFailures: 0,
-  conceptAssetUrls: new Map(),
-  conceptAssetLoads: new Set(),
   conceptDestination: null,
   animationMotion: "",
   animationSubmitting: false,
@@ -165,6 +174,7 @@ const state = {
     profileSelections: new Map(),
     compatibilityRevisionPromise: null,
     mutatingCatalogId: null,
+    previewingCatalogId: null,
     undoRemoval: null,
     loaded: false,
     loading: false,
@@ -324,6 +334,11 @@ function dispatchLightingWorkspace(event, options = {}) {
   const decision = reduceLightingWorkspace(lightingWorkspace, event);
   lightingWorkspace = decision.state;
   if(
+    state.transientLightingPreview
+    &&decision.state!==workspaceBefore
+    &&transientPreviewContextChanges.has(event.type)
+  )state.transientLightingPreview=null;
+  if(
     (effectDraftBefore&&!lightingWorkspace.effect_draft)
     ||(decision.state!==workspaceBefore&&localEffectContextChanges.has(event.type))
   )state.localAnimationEffect=null;
@@ -467,6 +482,7 @@ function pushUndo() {
 }
 
 function mutate(fn, rerender = true, {preserveEffectDraft = false} = {}) {
+  state.transientLightingPreview=null;
   if(!preserveEffectDraft&&lightingWorkspace.effect_draft){
     cancelLocalAnimationDraft({render:false});
   }
@@ -480,6 +496,7 @@ function mutate(fn, rerender = true, {preserveEffectDraft = false} = {}) {
 function undo() {
   if (!state.undo.length || !state.config) return;
   if(lightingWorkspace.effect_draft)cancelLocalAnimationDraft({render:false});
+  state.transientLightingPreview=null;
   state.redo.push(JSON.stringify(state.config));
   state.config = JSON.parse(state.undo.pop());
   markDirty();
@@ -490,6 +507,7 @@ function undo() {
 function redo() {
   if (!state.redo.length || !state.config) return;
   if(lightingWorkspace.effect_draft)cancelLocalAnimationDraft({render:false});
+  state.transientLightingPreview=null;
   state.undo.push(JSON.stringify(state.config));
   state.config = JSON.parse(state.redo.pop());
   markDirty();
@@ -1254,11 +1272,12 @@ function renderLightingJobStrip() {
   $("#lighting-job-cancel").disabled = !["in_progress", "accepted", "processing"].includes(job.status);
 }
 
-function clearConceptAssetUrls() {
-  for(const url of state.conceptAssetUrls.values())URL.revokeObjectURL(url);
-  state.conceptAssetUrls.clear();
+function clearProceduralResultCache() {
   state.mappedLightingResults.clear();
   state.mappedLightingResultLoads.clear();
+  if(state.transientLightingPreview?.kind==="procedural"){
+    state.transientLightingPreview=null;
+  }
 }
 
 function arrayBufferToBase64(buffer) {
@@ -1711,14 +1730,15 @@ function libraryDetailMarkup(catalogId) {
   const profile=detail.kind==="keyboard_profile"?detail.item?.profile:null;
   const sectionList=(profile?.sections||[]).map(section=>`<span class="pill muted">${esc(libraryStatusLabel(section))}</span>`).join("");
   const compatibility=libraryDetailCompatibility(catalogId,detail);
-  const busy=state.library.mutatingCatalogId===catalogId;
+  const busy=state.library.mutatingCatalogId===catalogId
+    ||state.library.previewingCatalogId===catalogId;
   let primaryAction="";
   if(!detail.removed&&detail.kind==="media_source"){
     primaryAction=`<button type="button" class="button primary" data-library-open-source ${state.config?"":"disabled"}>Open in Studio</button>`;
   }else if(!detail.removed&&detail.kind==="lighting_composition"){
-    primaryAction=`<button type="button" class="button primary" data-library-apply-lighting ${compatibility.status==="exact"&&!busy?"":"disabled"}>Apply to Custom ${state.ledSlot-4}</button>`;
+    primaryAction=`<button type="button" class="button primary" data-library-preview-lighting ${compatibility.status==="exact"&&!busy?"":"disabled"}>Preview on board</button>`;
   }else if(!detail.removed&&detail.kind==="generation_job"){
-    primaryAction=`<button type="button" class="button primary" data-library-apply-generated ${compatibility.status==="exact"&&!busy?"":"disabled"}>Apply saved result to Custom ${state.ledSlot-4}</button>`;
+    primaryAction=`<button type="button" class="button primary" data-library-preview-generated ${compatibility.status==="exact"&&!busy?"":"disabled"}>Preview on board</button>`;
   }
   const ownershipActions=detail.removed
     ?`<button type="button" class="button ghost" data-library-restore ${busy?"disabled":""}>Restore</button><button type="button" class="button danger" data-library-delete ${busy?"disabled":""}>Delete forever…</button>`
@@ -1885,8 +1905,92 @@ async function applyLibraryProfile(catalogId) {
   }
 }
 
-async function applyLibraryGenerated(catalogId) {
-  if(state.library.mutatingCatalogId||!state.config)return;
+function openLibraryBoardPreview({
+  kind,
+  identity,
+  name,
+  mappedResult,
+  target,
+  lightness=null,
+  catalogId,
+  sourceCatalogId=null,
+  transform=null,
+  effects=[],
+}) {
+  state.studioTool="paint";
+  state.ledTarget=target;
+  const preview=mappedResultBoardPreview({
+    kind,
+    identity,
+    name,
+    mappedResult,
+    slot:state.ledSlot,
+    target,
+    lightness,
+    catalogId,
+    sourceCatalogId,
+    transform,
+    effects,
+  });
+  navigateTo(ROUTES.EDIT);
+  state.transientLightingPreview=preview;
+  renderLightingEdit();
+}
+
+function cancelLibraryBoardPreview() {
+  const preview=activeTransientLightingPreview();
+  if(!preview||!preview.kind.startsWith("library_"))return;
+  state.transientLightingPreview=null;
+  navigateTo(ROUTES.LIBRARY);
+}
+
+function applyLibraryPreview() {
+  const preview=activeTransientLightingPreview();
+  if(!preview||!preview.kind.startsWith("library_")){
+    return toast("Preview expired","Open this saved lighting from Library again. Nothing was changed.","error");
+  }
+  let frameSet;
+  try{
+    frameSet=acceptedBoardFrameSetForApply({
+      provenance:"procedural_result",
+      slot:preview.slot,
+      target:preview.target,
+      expected:preview.boardFrameSet,
+    });
+  }catch(error){
+    return toast("Preview expired",`${error.message} Nothing was changed.`,"error");
+  }
+  mutate(()=>{
+    const page=getPage(preview.slot);
+    applyBoardFrameSetToPage(page,frameSet,preview.target);
+    if(preview.lightness!==null)page.lightness=Number(preview.lightness);
+    state.appliedLightingProvenance=preview.kind==="library_lighting"
+      ?createLightingProvenance({
+        slot:preview.slot,
+        target:preview.target,
+        sourceCatalogId:preview.sourceCatalogId,
+        transform:preview.transform,
+        effects:preview.effects,
+        page,
+      })
+      :null;
+    if(preview.kind==="library_generated"){
+      state.documentRevision=null;
+      state.documentSyncEpoch++;
+    }
+    state.ledFrame=0;
+  },false);
+  state.studioTool="paint";
+  renderLightingEdit();
+  toast(
+    preview.kind==="library_generated"?"Generated lighting applied":"Saved lighting applied",
+    lightingAppliedDetail(preview.slot,preview.target,"The Library copy is unchanged."),
+    "success",
+  );
+}
+
+async function previewLibraryGenerated(catalogId) {
+  if(state.library.mutatingCatalogId||state.library.previewingCatalogId||!state.config)return;
   const detail=state.library.details.get(catalogId);
   const attempt=latestLibraryGeneratedAttempt(detail);
   const target=detail?.job?.target;
@@ -1896,13 +2000,13 @@ async function applyLibraryGenerated(catalogId) {
     ||!attempt?.mapped_result_asset_id
     ||libraryDetailCompatibility(catalogId,detail).status!=="exact"
   ){
-    return toast("Could not apply this lighting","It was made for a different keyboard, so nothing was changed. Open the matching keyboard profile and try again.","error");
+    return toast("Could not preview this lighting","It was made for a different keyboard. Open the matching keyboard profile and try again.","error");
   }
   const catalogEpoch=state.library.epoch;
-  const lease=state.library.requests.begin("mutation",catalogEpoch);
+  const lease=state.library.requests.begin("lighting-preview",catalogEpoch);
   const config=state.config;
   const configFingerprint=JSON.stringify(config);
-  state.library.mutatingCatalogId=catalogId;
+  state.library.previewingCatalogId=catalogId;
   renderLibrary();
   try{
     const response=await fetch(
@@ -1918,35 +2022,29 @@ async function applyLibraryGenerated(catalogId) {
       !lease.current(state.library.epoch)
       ||state.config!==config
       ||JSON.stringify(config)!==configFingerprint
+      ||state.lighting.route!==ROUTES.LIBRARY
+      ||state.library.selectedCatalogId!==catalogId
     )return;
     if(!result?.tracks)throw new Error("The saved lighting could not be read.");
-    const pairsRelic=(target.targets||[]).includes("spotlight_frames");
     lease.release();
-    state.library.mutatingCatalogId=null;
-    mutate(()=>{
-      state.ledTarget=targetKey;
-      applyLedResultToPage(getPage(state.ledSlot),result,targetKey,pairsRelic);
-      state.ledFrame=0;
-      state.documentRevision=null;
-      state.documentSyncEpoch++;
-      state.appliedLightingProvenance=null;
-    },false);
-    state.studioTool="paint";
-    navigateTo(ROUTES.EDIT);
-    toast(
-      "Generated lighting applied",
-      lightingAppliedDetail(state.ledSlot, state.ledTarget, "This effect stays saved in Library."),
-      "success",
-    );
+    state.library.previewingCatalogId=null;
+    openLibraryBoardPreview({
+      kind:"library_generated",
+      identity:`${catalogId}:${attempt.mapped_result_asset_id}`,
+      name:detail.name,
+      mappedResult:result,
+      target:targetKey,
+      catalogId,
+    });
   }catch(error){
     if(lease.current(state.library.epoch)){
-      toast("Could not apply this lighting",`${error.message} Nothing was changed.`,"error");
+      toast("Could not preview this lighting",`${error.message} Nothing was changed.`,"error");
     }
   }finally{
     lease.release();
-    if(state.library.mutatingCatalogId===catalogId){
-      state.library.mutatingCatalogId=null;
-      renderLibrary();
+    if(state.library.previewingCatalogId===catalogId){
+      state.library.previewingCatalogId=null;
+      if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
     }
   }
 }
@@ -2054,8 +2152,8 @@ function wireLibraryContent() {
   $("[data-library-back]",$("#library-content"))?.addEventListener("click",closeLibraryDetail);
   $("[data-library-compatibility-retry]",$("#library-content"))?.addEventListener("click",()=>ensureLibraryProfileCompatibility(state.library.selectedCatalogId,{force:true}));
   $("[data-library-open-source]",$("#library-content"))?.addEventListener("click",()=>openLibrarySource(state.library.selectedCatalogId));
-  $("[data-library-apply-lighting]",$("#library-content"))?.addEventListener("click",()=>applyLibraryLighting(state.library.selectedCatalogId));
-  $("[data-library-apply-generated]",$("#library-content"))?.addEventListener("click",()=>applyLibraryGenerated(state.library.selectedCatalogId));
+  $("[data-library-preview-lighting]",$("#library-content"))?.addEventListener("click",()=>previewLibraryLighting(state.library.selectedCatalogId));
+  $("[data-library-preview-generated]",$("#library-content"))?.addEventListener("click",()=>previewLibraryGenerated(state.library.selectedCatalogId));
   $("[data-library-apply-profile]",$("#library-content"))?.addEventListener("click",()=>requestLibraryProfileApply(state.library.selectedCatalogId));
   $("[data-library-remove]",$("#library-content"))?.addEventListener("click",()=>removeLibraryItem(state.library.selectedCatalogId));
   $("[data-library-restore]",$("#library-content"))?.addEventListener("click",()=>restoreLibraryItem(state.library.selectedCatalogId));
@@ -2097,12 +2195,19 @@ function openLibrarySource(catalogId) {
   void renderMediaCompositionPreview();
 }
 
-async function applyLibraryLighting(catalogId) {
+async function previewLibraryLighting(catalogId) {
+  if(state.library.mutatingCatalogId||state.library.previewingCatalogId||!state.config)return;
   const detail=state.library.details.get(catalogId);
   const composition=detail?.item?.composition;
   if(detail?.kind!=="lighting_composition"||!composition){
-    return toast("Could not apply lighting","This saved lighting is unavailable, so nothing was changed. Refresh Library and try again.","error");
+    return toast("Could not preview lighting","This saved lighting is unavailable. Refresh Library and try again.","error");
   }
+  const catalogEpoch=state.library.epoch;
+  const lease=state.library.requests.begin("lighting-preview",catalogEpoch);
+  const config=state.config;
+  const configFingerprint=JSON.stringify(config);
+  state.library.previewingCatalogId=catalogId;
+  renderLibrary();
   try{
     const destination=composition.destination;
     if(
@@ -2119,8 +2224,14 @@ async function applyLibraryLighting(catalogId) {
     const response=await fetch(`/api/library/assets/${libraryCatalogPath(catalogId)}/${encodeURIComponent(composition.rendered_asset_id)}`,{headers:{"X-AM-Token":token}});
     if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||"The saved lighting could not be read from Library.");}
     const result=await response.json();
+    if(
+      !lease.current(state.library.epoch)
+      ||state.config!==config
+      ||JSON.stringify(config)!==configFingerprint
+      ||state.lighting.route!==ROUTES.LIBRARY
+      ||state.library.selectedCatalogId!==catalogId
+    )return;
     if(!result?.tracks)throw new Error("The saved lighting could not be read.");
-    const pairsRelic=destination.target==="keyframes"&&Boolean(result.tracks.spotlight_frames);
     if(
       !Number.isSafeInteger(destination.lightness)
       ||destination.lightness<0
@@ -2128,34 +2239,30 @@ async function applyLibraryLighting(catalogId) {
     ){
       throw new Error("The saved brightness value is invalid.");
     }
-    const candidate=clone(getPage(state.ledSlot));
-    applyLedResultToPage(candidate,result,destination.target,pairsRelic);
-    candidate.lightness=Number(destination.lightness);
-    const provenance=createLightingProvenance({
-      slot:state.ledSlot,
+    lease.release();
+    state.library.previewingCatalogId=null;
+    openLibraryBoardPreview({
+      kind:"library_lighting",
+      identity:`${catalogId}:${composition.rendered_asset_id}`,
+      name:detail.name,
+      mappedResult:result,
       target:destination.target,
+      lightness:Number(destination.lightness),
+      catalogId,
       sourceCatalogId:composition.source_catalog_id,
       transform:composition.transform,
       effects:composition.effects,
-      page:candidate,
     });
-    mutate(()=>{
-      const page=getPage(state.ledSlot);
-      applyLedResultToPage(page,result,destination.target,pairsRelic);
-      page.lightness=Number(destination.lightness);
-      state.appliedLightingProvenance=provenance;
-      state.ledTarget=destination.target;
-      state.ledFrame=0;
-    });
-    state.studioTool="paint";
-    navigateTo(ROUTES.EDIT);
-    toast(
-      "Saved lighting applied",
-      lightingAppliedDetail(state.ledSlot, destination.target, "The Library copy is unchanged."),
-      "success",
-    );
   }catch(error){
-    toast("Could not apply lighting",`${error.message} Nothing was changed.`,"error");
+    if(lease.current(state.library.epoch)){
+      toast("Could not preview lighting",`${error.message} Nothing was changed.`,"error");
+    }
+  }finally{
+    lease.release();
+    if(state.library.previewingCatalogId===catalogId){
+      state.library.previewingCatalogId=null;
+      if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
+    }
   }
 }
 
@@ -2205,24 +2312,6 @@ function renderLibrary() {
   if(!state.library.loaded&&!state.library.loading)void loadLibrary();
 }
 
-async function loadConceptAsset(jobId,assetId) {
-  const key=`${jobId}:${assetId}`;
-  if(state.conceptAssetUrls.has(key)||state.conceptAssetLoads.has(key))return;
-  state.conceptAssetLoads.add(key);
-  try{
-    const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
-    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||"The lighting preview could not be loaded.");}
-    const url=URL.createObjectURL(await response.blob());
-    if(state.conceptManifest?.job_id!==jobId){URL.revokeObjectURL(url);return;}
-    const previous=state.conceptAssetUrls.get(key);
-    if(previous&&previous!==url)URL.revokeObjectURL(previous);
-    state.conceptAssetUrls.set(key,url);
-    refreshGenerationStudio();
-  }catch(error){
-    if(state.conceptManifest?.job_id===jobId){state.conceptError=error.message;refreshGenerationStudio();}
-  }finally{state.conceptAssetLoads.delete(key);}
-}
-
 async function loadMappedLightingResult(jobId,assetId) {
   const key=`${jobId}:${assetId}`;
   if(state.mappedLightingResults.has(key)||state.mappedLightingResultLoads.has(key))return;
@@ -2234,7 +2323,8 @@ async function loadMappedLightingResult(jobId,assetId) {
     if(!result||typeof result!=="object"||!result.tracks)throw new Error("The generated lighting could not be read.");
     if(state.conceptManifest?.job_id!==jobId)return;
     state.mappedLightingResults.set(key,result);
-    refreshGenerationStudio();
+    if(state.lighting.route===ROUTES.EDIT&&state.studioTool==="generate")renderLightingEdit();
+    else refreshGenerationStudio();
   }catch(error){
     if(state.conceptManifest?.job_id===jobId){state.animationError=error.message;refreshGenerationStudio();}
   }finally{state.mappedLightingResultLoads.delete(key);}
@@ -2954,6 +3044,58 @@ function mediaCompositionCanApply(draft=state.mediaComposition) {
   });
 }
 
+function dependentLightingFramesByTarget({
+  page,
+  primaryTarget,
+  frameCount,
+  model=activeLedModel(),
+  existingTracks={},
+}) {
+  if(
+    model!==LED_MODELS["80"]
+    ||primaryTarget!=="keyframes"
+    ||existingTracks.spotlight_frames
+  )return {};
+  const sourceFrames=page?.spotlight_frames?.frame_data;
+  if(!Array.isArray(sourceFrames)||!sourceFrames.length){
+    throw new Error("The paired edge lighting is unavailable for this Relic slot.");
+  }
+  return {
+    spotlight_frames:resampleEdgeAnimation(sourceFrames,frameCount).map(
+      frame=>[...frame.frame_RGB],
+    ),
+  };
+}
+
+function mappedResultWithDependentTracks(result,{
+  page,
+  primaryTarget,
+  model=activeLedModel(),
+}={}) {
+  const primary=result?.tracks?.[primaryTarget];
+  if(!primary||!Array.isArray(primary.frames)||!primary.frames.length){
+    throw new Error("The rendered lighting does not contain the selected keyboard area.");
+  }
+  const companions=dependentLightingFramesByTarget({
+    page,
+    primaryTarget,
+    frameCount:primary.frames.length,
+    model,
+    existingTracks:result.tracks,
+  });
+  if(!Object.keys(companions).length)return result;
+  return {
+    ...result,
+    tracks:{
+      ...result.tracks,
+      ...Object.fromEntries(Object.entries(companions).map(([target,frames])=>[
+        target,
+        {frame_count:frames.length,frames},
+      ])),
+    },
+  };
+}
+
 function lightingMediaIdentity(draft=state.mediaComposition) {
   if(!draft)return null;
   return {
@@ -3629,6 +3771,7 @@ async function renderMediaCompositionPreviewAttempt(request,allowSessionRecovery
   let renderAccepted=false;
   const epoch=nextMediaRenderEpoch(state.mediaRenderEpoch);
   const requestContext={...lightingWorkspace.context};
+  const requestModel=activeLedModel();
   const requestTargetLengths=lightingWorkspaceTargetLengths();
   const requestMaxFrames=Math.min(256,activeFamilySpec().frameCap||256);
   state.mediaRenderEpoch=epoch;
@@ -3677,6 +3820,11 @@ async function renderMediaCompositionPreviewAttempt(request,allowSessionRecovery
       state.mediaComposition?.catalogId!==draft.catalogId
       ||state.mediaComposition?.revision!==revision
     )return;
+    const mappedResult=mappedResultWithDependentTracks(result.mapped_result,{
+      page:getPage(requestContext.slot),
+      primaryTarget:requestContext.target,
+      model:requestModel,
+    });
     const current=state.mediaComposition;
     const completed=reduceMediaDraft(current,{
       type:"RENDER_SUCCEEDED",
@@ -3685,7 +3833,7 @@ async function renderMediaCompositionPreviewAttempt(request,allowSessionRecovery
       transform:result.transform,
       effects:result.effects,
       resolvedTransforms:result.resolved_transforms,
-      mappedResult:result.mapped_result,
+      mappedResult,
     });
     if(completed===current)return;
     const frameSet=boardFrameSetFromMappedResult({
@@ -3764,16 +3912,19 @@ function applyMediaCompositionDraft() {
   if(!mediaCompositionCanApply(draft)){
     return toast("Preview required","Nothing was changed. Create a preview of this framing before applying it.","error");
   }
-  const pairsRelic=draft.destination.targets.includes("spotlight_frames")
-    &&draft.destination.target==="keyframes";
+  let frameSet;
+  try{
+    frameSet=acceptedBoardFrameSetForApply({
+      provenance:"media_render",
+      slot:state.ledSlot,
+      target:draft.destination.target,
+    });
+  }catch(error){
+    return toast("Preview required",`${error.message} Nothing was changed.`,"error");
+  }
   mutate(()=>{
     const page=getPage(state.ledSlot);
-    applyLedResultToPage(
-      page,
-      draft.mappedResult,
-      draft.destination.target,
-      pairsRelic,
-    );
+    applyBoardFrameSetToPage(page,frameSet,draft.destination.target);
     state.ledTarget=draft.destination.target;
     state.ledFrame=0;
     state.mediaComposition=reduceMediaDraft(draft,{type:"APPLIED"});
@@ -4013,9 +4164,16 @@ function regenerateLocalAnimationDraft({renderWorkspace=true,focusEffect=false}=
     const frames=renderColorEffect([sourceColors],effect,state.localAnimationCoordinates);
     const targetLengths=lightingWorkspaceTargetLengths();
     const maxFrames=Math.min(256,activeFamilySpec().frameCap||256);
+    const companionFramesByTarget=dependentLightingFramesByTarget({
+      page:getPage(state.ledSlot),
+      primaryTarget:state.ledTarget,
+      frameCount:frames.length,
+      existingTracks:{},
+    });
     const frameSet=boardFrameSetFromLocalEffect({
       context:lightingWorkspaceFrameContext("local_effect"),
       draft:{frames,effect},
+      companionFramesByTarget,
       targetLengths,
       allowedDurations:LED_SPEEDS,
       maxFrames,
@@ -4062,26 +4220,25 @@ function applyLocalAnimationDraft() {
 
 function applyLocalEffectFrameSet(intent) {
   const draft=currentLocalAnimationDraft();
-  const frameSet=intent.board_frame_set;
-  if(
-    !draft
-    ||draft.board_frame_set!==frameSet
-    ||intent.context_key!==workspaceContextKey(lightingWorkspace)
-  )return toast("Effect expired","Choose the effect again before applying it.","error");
+  if(!draft||draft.board_frame_set!==intent.board_frame_set){
+    return toast("Effect expired","Choose the effect again before applying it.","error");
+  }
+  let frameSet;
+  try{
+    frameSet=acceptedBoardFrameSetForApply({
+      provenance:"local_effect",
+      slot:draft.board_frame_set.context.slot,
+      target:draft.board_frame_set.context.target,
+      expected:intent.board_frame_set,
+      contextKey:intent.context_key,
+    });
+  }catch(error){
+    return toast("Effect expired",`${error.message} Nothing was changed.`,"error");
+  }
   const context=frameSet.context;
-  const frames=clone(frameSet.frames_by_target[context.target]);
-  const duration=frameSet.duration_ms;
   mutate(()=>{
     const page=getPage(context.slot);
-    const track=ensureTrack();
-    track.valid=1;
-    track.frame_num=frames.length;
-    track.frame_data=frames.map((colors,index)=>({frame_index:index,frame_RGB:colors}));
-    page.speed_ms=duration;
-    if(context.target==="keyframes"&&activeLedModel()===LED_MODELS["80"]&&page.spotlight_frames?.frame_data?.length){
-      const edgeFrames=resampleEdgeAnimation(page.spotlight_frames.frame_data,frames.length);
-      page.spotlight_frames={...page.spotlight_frames,valid:1,frame_num:edgeFrames.length,frame_data:edgeFrames};
-    }
+    applyBoardFrameSetToPage(page,frameSet,context.target);
     state.appliedLightingProvenance=createLightingProvenance({
       slot:context.slot,
       target:context.target,
@@ -4101,7 +4258,7 @@ function applyLocalEffectFrameSet(intent) {
     lightingAppliedDetail(
       context.slot,
       context.target,
-      `${frames.length} exact preview frames changed the open document. Save to Library keeps a reusable copy.`,
+      `${frameSet.frame_count} exact preview frames changed the open document. Save to Library keeps a reusable copy.`,
     ),
     "success",
   );
@@ -4316,13 +4473,127 @@ function lightingWorkspaceFrameContext(sourceKind) {
   };
 }
 
-function currentLightingBoardFrameSet({model, page, track, mediaPreviewTrack, activeDraft}) {
+function mappedResultBoardPreview({
+  kind,
+  identity,
+  name,
+  mappedResult,
+  provenance="procedural_result",
+  slot=state.ledSlot,
+  target=state.ledTarget,
+  lightness=null,
+  catalogId=null,
+  sourceCatalogId=null,
+  transform=null,
+  effects=[],
+}) {
+  if(slot!==lightingWorkspace.context.slot||target!==lightingWorkspace.context.target){
+    throw new Error("The preview destination changed before it could open.");
+  }
+  const model=activeLedModel();
+  const page=getPage(slot);
+  const result=mappedResultWithDependentTracks(mappedResult,{
+    page,
+    primaryTarget:target,
+    model,
+  });
+  const boardFrameSet=boardFrameSetFromMappedResult({
+    context:lightingWorkspaceFrameContext(provenance),
+    mappedResult:result,
+    provenance,
+    targetLengths:lightingWorkspaceTargetLengths(model),
+    allowedDurations:LED_SPEEDS,
+    maxFrames:Math.min(256,activeFamilySpec().frameCap||256),
+  });
+  return {
+    kind,
+    identity,
+    name,
+    boardFrameSet,
+    documentEpoch:lightingWorkspace.context.document_epoch,
+    slot,
+    target,
+    lightness,
+    catalogId,
+    sourceCatalogId,
+    transform,
+    effects:clone(effects),
+  };
+}
+
+function activeTransientLightingPreview() {
+  const preview=state.transientLightingPreview;
+  if(
+    !preview
+    ||state.lighting.route!==ROUTES.EDIT
+    ||preview.documentEpoch!==lightingWorkspace.context.document_epoch
+    ||preview.slot!==state.ledSlot
+    ||preview.target!==state.ledTarget
+    ||(preview.kind==="procedural"&&state.studioTool!=="generate")
+  )return null;
+  return preview;
+}
+
+function libraryBoardPreviewInspectorMarkup(preview,targetLabel) {
+  const frameSet=preview.boardFrameSet;
+  return `<div class="studio-inspector-body library-board-preview"><div class="studio-panel-heading"><div><p class="eyebrow">Library preview</p><strong>${esc(preview.name||"Saved lighting")}</strong><small>${frameSet.frame_count} lighting frame${frameSet.frame_count===1?"":"s"} · ${frameSet.duration_ms} ms · ${esc(targetLabel)}</small></div><span class="pill">Read-only</span></div><p>The Board is the exact LED result that Apply will copy into Custom slot ${preview.slot-4}. The open document has not changed.</p><div class="media-composition-actions"><button id="library-preview-apply" class="button primary">Apply to Custom ${preview.slot-4}</button><button id="library-preview-cancel" class="button ghost">Back to Library</button></div><small class="control-help">Apply changes only the open document through one Undo checkpoint. Nothing is written to the keyboard.</small></div>`;
+}
+
+function wireLibraryBoardPreview() {
+  $("#library-preview-apply")?.addEventListener("click",applyLibraryPreview);
+  $("#library-preview-cancel")?.addEventListener("click",cancelLibraryBoardPreview);
+}
+
+function proceduralPreviewIdentity(manifest,attempt) {
+  return manifest?.job_id&&attempt?.mapped_result_asset_id
+    ?`${manifest.job_id}:${attempt.mapped_result_asset_id}`
+    :null;
+}
+
+function ensureProceduralBoardPreview() {
+  if(state.studioTool!=="generate"||state.lighting.create.stage!==STAGES.REVIEW)return null;
+  const manifest=state.conceptManifest;
+  const attempt=latestProceduralAttempt(manifest);
+  const identity=proceduralPreviewIdentity(manifest,attempt);
+  const destination=state.conceptDestination;
+  const result=identity?state.mappedLightingResults.get(identity):null;
+  if(
+    !identity
+    ||!destination
+    ||!result
+    ||destination.slot!==state.ledSlot
+    ||destination.target!==state.ledTarget
+  )return null;
+  const existing=state.transientLightingPreview;
+  if(existing?.kind==="procedural"&&existing.identity===identity){
+    return activeTransientLightingPreview();
+  }
+  state.transientLightingPreview=mappedResultBoardPreview({
+    kind:"procedural",
+    identity,
+    name:"Generated lighting",
+    mappedResult:result,
+    slot:destination.slot,
+    target:destination.target,
+  });
+  return state.transientLightingPreview;
+}
+
+function currentLightingBoardFrameSet({
+  model,
+  page,
+  track,
+  mediaPreviewTrack,
+  activeDraft,
+  transientPreview,
+}) {
   const targetLengths = lightingWorkspaceTargetLengths(model);
   const options = {
     targetLengths,
     allowedDurations: LED_SPEEDS,
     maxFrames: Math.min(256, activeFamilySpec().frameCap || 256),
   };
+  if (transientPreview?.boardFrameSet) return transientPreview.boardFrameSet;
   if (activeDraft?.board_frame_set) return activeDraft.board_frame_set;
   if (
     state.studioTool === "source"
@@ -4557,11 +4828,20 @@ function applyImportedLighting() {
   }
   const page=getPage(state.ledSlot);
   if(!page)return toast("Could not apply imported lighting","The selected custom slot is unavailable. Nothing was changed.","error");
-  const mapped=report.lighting.mapped_result;
   const target=state.ledTarget;
   const lightness=report.lighting.destination.lightness;
+  let frameSet;
+  try{
+    frameSet=acceptedBoardFrameSetForApply({
+      provenance:"imported_json",
+      slot:state.ledSlot,
+      target,
+    });
+  }catch(error){
+    return toast("Could not apply imported lighting",`${error.message} Nothing was changed.`,"error");
+  }
   mutate(()=>{
-    applyLedResultToPage(page,mapped,target,false);
+    applyBoardFrameSetToPage(page,frameSet,target);
     page.lightness=lightness;
     state.appliedLightingProvenance=null;
     state.importedLighting=null;
@@ -4627,17 +4907,24 @@ function renderLightingEdit() {
   const mediaPreviewTrack=activeMediaPreviewTrack();
   const mediaPreviewActive=Boolean(mediaPreviewTrack?.frames?.length);
   const activeDraft=currentLocalAnimationDraft();
-  const previewTimelineActive=Boolean(activeDraft||mediaPreviewActive);
+  let transientPreview=activeTransientLightingPreview();
+  let previewTimelineActive=Boolean(activeDraft||mediaPreviewActive||transientPreview);
   let boardProjection=null;
   try{
+    transientPreview=ensureProceduralBoardPreview()||transientPreview;
+    previewTimelineActive=Boolean(activeDraft||mediaPreviewActive||transientPreview);
     const boardFrameSet=currentLightingBoardFrameSet({
       model,
       page,
       track,
       mediaPreviewTrack,
       activeDraft,
+      transientPreview,
     });
     boardProjection=publishLightingBoardFrameSet(boardFrameSet,model);
+    if(transientPreview&&boardProjection?.frame_set){
+      transientPreview.boardFrameSet=boardProjection.frame_set;
+    }
   }catch(error){
     dispatchLightingWorkspace({type:"WORKSPACE_ERROR_REPORTED",error});
   }
@@ -4718,6 +5005,13 @@ function renderLightingEdit() {
   const targetLabel=targets.find(t=>t.key===state.ledTarget)?.label||state.ledTarget;
   const mediaDraft=state.mediaComposition?.status==="cancelled"?null:state.mediaComposition;
   const sourceActive=state.studioTool==="source"&&Boolean(mediaDraft);
+  const libraryPreviewActive=Boolean(transientPreview?.kind?.startsWith("library_"));
+  const mutationPreviewActive=Boolean(
+    previewTimelineActive
+    ||sourceActive
+    ||(state.studioTool==="animate"&&state.localAnimationEffect)
+    ||(state.studioTool==="generate"&&state.lighting.create.stage===STAGES.REVIEW)
+  );
   const primaryDestination=mediaDestinationSize();
   const sourceReady=Boolean(sourceActive&&mediaSourceSize()&&primaryDestination);
   const sourceDisabled=sourceReady?"":"disabled";
@@ -4757,15 +5051,18 @@ function renderLightingEdit() {
   // Mapped/stored counts are a Technical details fact, not normal canvas copy.
   const canvasSubtitle=[
     physicalLayout?"Layer 1 labels":"",
-    activeDraft||mediaPreviewActive?"Preview":"",
+    mutationPreviewActive?"Exact preview":"",
   ].filter(Boolean).join(" · ")||"Editing this slot";
   const generationPanel=aiReady()?`<section id="studio-generate-panel" class="studio-tool-panel lighting-generate-tool" role="tabpanel" aria-labelledby="studio-generate-tab" ${state.studioTool==="generate"?"":"hidden"}><div id="lighting-generate-tool" tabindex="-1"><div class="studio-panel-heading"><strong id="lighting-generate-title">Generate lighting with AI</strong><small>Lighting effect · ${esc(targetLabel)}</small></div><div id="lighting-generate-content" aria-live="polite"></div></div></section>`:"";
   const timelineIndex=boardProjection?.index??0;
   const mediaPlaybackReady=!sourceActive||mediaCompositionCanApply(mediaDraft);
   const sourcePane=sourceActive?`<section id="lighting-source-pane" class="card lighting-pane lighting-source-pane" aria-label="Source"><div class="card-header lighting-pane-heading"><div><strong>Source</strong><small>Actual imported frame</small></div></div><div class="lighting-pane-body"><div id="media-compositor-stage" class="media-compositor-stage ${sourceReady?'source-ready':''}" tabindex="${sourceReady?'0':'-1'}" aria-label="Pan and zoom the imported frame" style="--destination-width:${primaryDestination?.width||1};--destination-height:${primaryDestination?.height||1}"><div class="media-compositor-plane"><div class="media-source-viewport" aria-hidden="false"><img id="lighting-source-frame" class="source-frame-image" alt="Imported source frame" hidden><div id="lighting-source-placeholder" class="source-frame-placeholder">Building the synchronized preview…</div></div><div class="destination-overlay" aria-hidden="true"></div></div></div></div></section>`:"";
-  const boardPane=`<section id="lighting-board-pane" class="card lighting-pane lighting-board-pane" aria-label="${esc(targetLabel)} Board"><div class="card-header led-canvas-heading"><div><strong>${esc(targetLabel)}</strong><small>What the keyboard will show · ${esc(canvasSubtitle)}</small><details class="advanced-disclosure technical-details"><summary>Technical details</summary><p class="control-help">${mappedCount} of ${length} stored colors are mapped to lights on this keyboard${raster?` · ${esc(raster)} grid`:""} · ${esc(model.name)}.</p></details></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost" title="Keep a reusable copy of this slot in Library. Separate from Apply, which only changes the open document.">Save to Library</button></div></div><div class="lighting-pane-body"><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${activeDraft||mediaPreviewTrack?'draft-preview':''}" data-lighting-destination-key="${esc(workspaceDestinationKey(lightingWorkspace))}" role="region" aria-label="${activeDraft||mediaPreviewTrack?'Preview of this lighting':'Paint the selected animation frame'}">${pixelCanvas}</div></div></section>`;
-  const timelineMarkup=`<div class="lighting-timeline-toolbar"><div class="lighting-playback-controls"><button id="lighting-previous-frame" class="icon-button" type="button" aria-label="Previous frame" ${timelineFrames.length<=1?'disabled':''}>←</button><button id="play-led" class="button ghost" type="button" aria-label="${state.playing?'Pause lighting':'Play lighting'}" ${timelineFrames.length<=1||!mediaPlaybackReady?'disabled':''}>${state.playing?'Pause':'Play'}</button><button id="lighting-next-frame" class="icon-button" type="button" aria-label="Next frame" ${timelineFrames.length<=1?'disabled':''}>→</button></div><input id="lighting-timeline-scrubber" type="range" min="0" max="${Math.max(0,timelineFrames.length-1)}" value="${timelineIndex}" aria-label="Lighting frame" ${timelineFrames.length<=1?'disabled':''}><div class="lighting-timeline-position"><strong id="lighting-frame-position" aria-live="polite">${timelineFrames.length?`Frame ${timelineIndex+1} of ${timelineFrames.length}`:'No frames'}</strong><small id="lighting-loop-status">${timelineFrames.length>1?'Loops continuously':'Single frame'}</small></div></div><div class="lighting-timeline-frames" role="list" aria-label="Lighting timeline">${timelineFrames.map((item,i)=>`<button class="frame-item ${i===timelineIndex?'active':''}" type="button" role="listitem" data-frame="${i}" aria-pressed="${i===timelineIndex}" aria-label="Frame ${i+1}${i===timelineIndex?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===timelineIndex?(previewTimelineActive?'Previewing':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="lighting-timeline-actions"><button id="add-frame" class="button ghost" ${previewTimelineActive?'disabled':''}>+ Duplicate</button><button id="remove-frame" class="button ghost" ${timelineFrames.length<=1||previewTimelineActive?'disabled':''}>Delete</button></div>`;
-  const inspectorMarkup=`<div class="studio-tool-tabs ${aiReady()?'with-generate':''}" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Import media</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Effects</button>${generationTab}</div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}${generationPanel}</div>`;
+  const boardPane=`<section id="lighting-board-pane" class="card lighting-pane lighting-board-pane" aria-label="${esc(targetLabel)} Board"><div class="card-header led-canvas-heading"><div><strong>${esc(targetLabel)}</strong><small>What the keyboard will show · ${esc(canvasSubtitle)}</small><details class="advanced-disclosure technical-details"><summary>Technical details</summary><p class="control-help">${mappedCount} of ${length} stored colors are mapped to lights on this keyboard${raster?` · ${esc(raster)} grid`:""} · ${esc(model.name)}.</p></details></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost" ${mutationPreviewActive?'hidden':''} title="Keep a reusable copy of this slot in Library. Separate from Apply, which only changes the open document.">Save to Library</button></div></div><div class="lighting-pane-body"><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${mutationPreviewActive?'draft-preview':''}" data-lighting-destination-key="${esc(workspaceDestinationKey(lightingWorkspace))}" role="region" aria-label="${mutationPreviewActive?'Read-only preview of this lighting':'Paint the selected animation frame'}">${pixelCanvas}</div></div></section>`;
+  const timelineMarkup=`<div class="lighting-timeline-toolbar"><div class="lighting-playback-controls"><button id="lighting-previous-frame" class="icon-button" type="button" aria-label="Previous frame" ${timelineFrames.length<=1?'disabled':''}>←</button><button id="play-led" class="button ghost" type="button" aria-label="${state.playing?'Pause lighting':'Play lighting'}" ${timelineFrames.length<=1||!mediaPlaybackReady?'disabled':''}>${state.playing?'Pause':'Play'}</button><button id="lighting-next-frame" class="icon-button" type="button" aria-label="Next frame" ${timelineFrames.length<=1?'disabled':''}>→</button></div><input id="lighting-timeline-scrubber" type="range" min="0" max="${Math.max(0,timelineFrames.length-1)}" value="${timelineIndex}" aria-label="Lighting frame" ${timelineFrames.length<=1?'disabled':''}><div class="lighting-timeline-position"><strong id="lighting-frame-position" aria-live="polite">${timelineFrames.length?`Frame ${timelineIndex+1} of ${timelineFrames.length}`:'No frames'}</strong><small id="lighting-loop-status">${timelineFrames.length>1?'Loops continuously':'Single frame'}</small></div></div><div class="lighting-timeline-frames" role="list" aria-label="Lighting timeline">${timelineFrames.map((item,i)=>`<button class="frame-item ${i===timelineIndex?'active':''}" type="button" role="listitem" data-frame="${i}" aria-pressed="${i===timelineIndex}" aria-label="Frame ${i+1}${i===timelineIndex?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===timelineIndex?(mutationPreviewActive?'Previewing':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="lighting-timeline-actions"><button id="add-frame" class="button ghost" ${mutationPreviewActive?'disabled':''}>+ Duplicate</button><button id="remove-frame" class="button ghost" ${timelineFrames.length<=1||mutationPreviewActive?'disabled':''}>Delete</button></div>`;
+  const normalInspectorMarkup=`<div class="studio-tool-tabs ${aiReady()?'with-generate':''}" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Import media</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Effects</button>${generationTab}</div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}${generationPanel}</div>`;
+  const inspectorMarkup=libraryPreviewActive
+    ?`${libraryBoardPreviewInspectorMarkup(transientPreview,targetLabel)}<div hidden aria-hidden="true">${normalInspectorMarkup}</div>`
+    :normalInspectorMarkup;
   if(!showLightingWorkspace())return;
   const previewPanes=$("#lighting-preview-panes");
   previewPanes.classList.toggle("has-source",Boolean(sourcePane));
@@ -4774,6 +5071,7 @@ function renderLightingEdit() {
   $("#lighting-studio-inspector").innerHTML=inspectorMarkup;
   wireLedEditor(columns);
   wireStudioInspector();
+  wireLibraryBoardPreview();
   renderLightingSourceProjection();
   void loadLightingSourceProjection();
   updateLightingWorkspaceStatus(boardProjection,mediaCompositionStatusText(mediaDraft));
@@ -4847,7 +5145,7 @@ function wireLedEditor(gridColumns) {
     const track=trackInfo().track;track.frame_data.splice(state.ledFrame,1);track.frame_data.forEach((f,i)=>f.frame_index=i);track.frame_num=track.frame_data.length;state.ledFrame=Math.max(0,state.ledFrame-1);
     if(state.ledTarget==="keyframes"&&activeLedModel()===LED_MODELS["80"]){const page=getPage(state.ledSlot);if(page.spotlight_frames?.frame_data?.length){const data=resampleEdgeAnimation(page.spotlight_frames.frame_data,track.frame_data.length);page.spotlight_frames={...page.spotlight_frames,frame_num:data.length,frame_data:data};}}
   }));
-  const paintEnabled=state.studioTool==="paint";
+  const paintEnabled=state.studioTool==="paint"&&!activeTransientLightingPreview();
   const paint = pixel => {
     if(!paintEnabled)return;
     const frame=currentFrame();if(!frame)return;const i=Number(pixel.dataset.pixel);frame.frame_RGB[i]=state.ledColor;
@@ -4905,25 +5203,51 @@ function wireLedEditor(gridColumns) {
   $("#play-led").addEventListener("click",toggleLightingPlayback);
 }
 
-// Write a GIF/procedural mapping result (the shared `/api/led/gif` shape)
-// into a page object in place: replace each returned track, retime a paired or
-// existing Relic edge animation to the key track, and adopt the per-frame speed.
-// Manual import and generated Apply therefore stay identical.
-function applyLedResultToPage(page,result,primaryTarget,pairsRelicGif) {
+function acceptedBoardFrameSetForApply({
+  provenance,
+  slot=state.ledSlot,
+  target=state.ledTarget,
+  expected=null,
+  contextKey=null,
+}={}) {
+  const frameSet=lightingWorkspace.preview.board_frame_set;
+  const allowed=Array.isArray(provenance)?provenance:[provenance];
+  if(
+    !frameSet
+    ||lightingWorkspace.preview.status!=="ready"
+    ||lightingWorkspace.preview.context_key!==workspaceContextKey(lightingWorkspace)
+    ||frameSet.context.document_epoch!==lightingWorkspace.context.document_epoch
+    ||frameSet.context.slot!==slot
+    ||frameSet.context.target!==target
+    ||!frameSet.frames_by_target[target]
+    ||!allowed.includes(frameSet.provenance)
+    ||(expected&&frameSet!==expected)
+    ||(contextKey&&contextKey!==workspaceContextKey(lightingWorkspace))
+  )throw new Error("The exact Board preview has expired. Preview this lighting again before applying it.");
+  return frameSet;
+}
+
+// Low-level writer for an already-validated mapped result. All rendering,
+// retiming, and dependent-track derivation happens before Board acceptance.
+function applyLedResultToPage(page,result,primaryTarget) {
+  if(!page||!result?.tracks?.[primaryTarget]){
+    throw new Error("The accepted lighting does not contain the selected keyboard area.");
+  }
   page.valid=1;
   for(const [trackName,trackResult] of Object.entries(result.tracks)){
-    if(trackName==="spotlight_frames"){
-      const count=Math.max(1,result.tracks.keyframes?.frame_count||page.keyframes?.frame_data?.length||trackResult.frame_count);
-      page[trackName]={valid:1,frame_num:count,frame_data:resampleEdgeAnimation(trackResult.frames,count)};
-    }else{
-      page[trackName]={valid:1,frame_num:trackResult.frame_count,frame_data:trackResult.frames.map((colors,index)=>({frame_index:index,frame_RGB:[...colors]}))};
-    }
-  }
-  if(primaryTarget==="keyframes"&&!pairsRelicGif&&page.spotlight_frames?.frame_data?.length){
-    const count=page.keyframes.frame_data.length;
-    page.spotlight_frames={...page.spotlight_frames,valid:1,frame_num:count,frame_data:resampleEdgeAnimation(page.spotlight_frames.frame_data,count)};
+    page[trackName]={
+      valid:1,
+      frame_num:trackResult.frame_count,
+      frame_data:trackResult.frames.map(
+        (colors,index)=>({frame_index:index,frame_RGB:[...colors]}),
+      ),
+    };
   }
   if(result.duration_ms&&primaryTarget!=="spotlight_frames")page.speed_ms=Number(result.duration_ms);
+}
+
+function applyBoardFrameSetToPage(page,frameSet,primaryTarget) {
+  applyLedResultToPage(page,mappedResultFromBoardFrameSet(frameSet),primaryTarget);
 }
 
 function startPlayback() {
@@ -5435,7 +5759,6 @@ async function loadProceduralRecipe(jobId,assetId) {
 function hydrateProceduralAssets(manifest) {
   const attempt=latestProceduralAttempt(manifest);
   if(!attempt)return;
-  if(attempt.preview_asset_id)void loadConceptAsset(manifest.job_id,attempt.preview_asset_id);
   if(attempt.recipe_asset_id)void loadProceduralRecipe(manifest.job_id,attempt.recipe_asset_id);
   if(attempt.mapped_result_asset_id)void loadMappedLightingResult(manifest.job_id,attempt.mapped_result_asset_id);
 }
@@ -5447,7 +5770,7 @@ function refreshGenerationStudio() {
 function syncLightingJob(manifest,{renderPage=true}={}) {
   const previousId=state.conceptManifest?.job_id;
   if(previousId&&previousId!==manifest?.job_id){
-    clearConceptAssetUrls();
+    clearProceduralResultCache();
     state.proceduralRecipes.clear();
     state.animationError="";
   }
@@ -5558,6 +5881,24 @@ function renderProgressStage(context) {
   $("#cancel-effect")?.addEventListener("click",cancelLightingJob);
 }
 
+function proceduralBoardPreviewReady(manifest,attempt) {
+  const preview=activeTransientLightingPreview();
+  if(
+    preview?.kind!=="procedural"
+    ||preview.identity!==proceduralPreviewIdentity(manifest,attempt)
+  )return false;
+  try{
+    return acceptedBoardFrameSetForApply({
+      provenance:"procedural_result",
+      slot:preview.slot,
+      target:preview.target,
+      expected:preview.boardFrameSet,
+    })===preview.boardFrameSet;
+  }catch(error){
+    return false;
+  }
+}
+
 function renderProceduralReview(context) {
   const manifest=context.manifest;
   const attempt=latestProceduralAttempt(manifest);
@@ -5565,7 +5906,8 @@ function renderProceduralReview(context) {
   const quality=attempt?.quality||{};
   const decision=reduceLightingState(state.lighting,{type:"APPLY_REQUESTED"},{document:documentDescriptor(),destination:state.conceptDestination});
   const mappedResultLoaded=Boolean(attempt?.mapped_result_asset_id&&state.mappedLightingResults.has(`${manifest.job_id}:${attempt.mapped_result_asset_id}`));
-  const view=createReviewView({assetUrls:state.conceptAssetUrls,jobId:manifest.job_id,attempt,recipe,quality,frameCap:manifest?.target?.frame_cap,targetLabel:context.targetLabel,destinationSlot:context.destinationSlot,blockedReason:decision.blocked,mappedResultLoaded,errorMessage:state.animationError,writeActionLabel:writeActionLabel()});
+  const boardPreviewReady=proceduralBoardPreviewReady(manifest,attempt);
+  const view=createReviewView({attempt,recipe,quality,frameCap:manifest?.target?.frame_cap,targetLabel:context.targetLabel,destinationSlot:context.destinationSlot,blockedReason:decision.blocked,mappedResultLoaded,boardPreviewReady,errorMessage:state.animationError,writeActionLabel:writeActionLabel()});
   renderReview($("#lighting-generate-content"),view,applyReviewedLighting);
 }
 
@@ -5626,18 +5968,35 @@ function applyReviewedLighting() {
   if(!manifest||!attempt?.mapped_result_asset_id||!destination)return;
   const decision=reduceLightingState(state.lighting,{type:"APPLY_REQUESTED"},{document:documentDescriptor(),destination});
   if(decision.blocked){state.animationError=reviewBlockedMessage(decision.blocked);renderGenerationStudio();return;}
-  const result=state.mappedLightingResults.get(`${manifest.job_id}:${attempt.mapped_result_asset_id}`);
-  if(!result){state.animationError="The generated lighting is still loading. Nothing was changed; try Apply again in a moment.";renderGenerationStudio();return;}
-  const pairsRelicGif=(manifest.target?.targets||[]).includes("spotlight_frames");
+  const preview=activeTransientLightingPreview();
+  if(
+    preview?.kind!=="procedural"
+    ||preview.identity!==proceduralPreviewIdentity(manifest,attempt)
+  ){
+    state.animationError="The exact Board preview is not ready. Nothing was changed; wait for it to appear, then try Apply again.";
+    renderGenerationStudio();
+    return;
+  }
+  let frameSet;
+  try{
+    frameSet=acceptedBoardFrameSetForApply({
+      provenance:"procedural_result",
+      slot:destination.slot,
+      target:destination.target,
+      expected:preview.boardFrameSet,
+    });
+  }catch(error){
+    state.animationError=`${error.message} Nothing was changed.`;
+    renderGenerationStudio();
+    return;
+  }
   mutate(()=>{
-    state.ledSlot=destination.slot;
-    state.ledTarget=destination.target;
-    applyLedResultToPage(getPage(destination.slot),result,destination.target,pairsRelicGif);
+    applyBoardFrameSetToPage(getPage(destination.slot),frameSet,destination.target);
     state.ledFrame=0;
   },false);
   state.conceptPollEpoch++;
   if(state.conceptPollTimer)clearTimeout(state.conceptPollTimer);
-  clearConceptAssetUrls();
+  clearProceduralResultCache();
   state.proceduralRecipes.clear();
   state.conceptManifest=null;
   state.conceptDestination=null;
@@ -5652,7 +6011,7 @@ function applyReviewedLighting() {
     lightingAppliedDetail(
       destination.slot,
       destination.target,
-      `${Number(result.source_frames||0)} lighting frames arrived there. This effect is already saved to Library.`,
+      `${frameSet.frame_count} lighting frames arrived there. This effect is already saved to Library.`,
     ),
     "success",
   );
@@ -6254,7 +6613,7 @@ document.addEventListener('keydown',event=>{
 });
 document.addEventListener('keyup',event=>{if(state.recording)recordEvent(event,false);});
 window.addEventListener('beforeunload',event=>{if(state.dirty){event.preventDefault();event.returnValue='';}});
-window.addEventListener('pagehide',clearConceptAssetUrls);
+window.addEventListener('pagehide',clearProceduralResultCache);
 window.addEventListener('pagehide',clearLibraryAssetUrls);
 lightingMotionPreference?.addEventListener?.("change",event=>{
   if(event.matches&&lightingWorkspace.playhead.playing){

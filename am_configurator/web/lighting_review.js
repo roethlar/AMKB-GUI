@@ -35,12 +35,6 @@
     })[character]);
   }
 
-  function assetUrl(assetUrls, jobId, assetId) {
-    if (!jobId || !assetId || typeof assetUrls?.get !== "function") return null;
-    const value = assetUrls.get(`${jobId}:${assetId}`);
-    return typeof value === "string" && value ? value : null;
-  }
-
   function reviewBlockedMessage(reason) {
     return BLOCKED_MESSAGES[reason]
       || "This saved lighting cannot be applied to the open profile. Nothing was changed.";
@@ -70,6 +64,7 @@
     const mappedResultLoaded = Boolean(
       attempt.mapped_result_asset_id && options.mappedResultLoaded
     );
+    const boardPreviewReady = Boolean(mappedResultLoaded && options.boardPreviewReady);
     const loadingMessage = attempt.mapped_result_asset_id && !mappedResultLoaded
       ? "The generated lighting is still loading. Nothing has changed yet."
       : !attempt.mapped_result_asset_id
@@ -82,14 +77,16 @@
       ? options.writeActionLabel
       : "Write to keyboard";
     return Object.freeze({
-      previewUrl: assetUrl(options.assetUrls, options.jobId, attempt.preview_asset_id),
       summary,
       detail: `${frameCount} lighting frames · ${options.targetLabel || "Lighting"} · Custom ${customSlot}`,
+      boardMessage: boardPreviewReady
+        ? "The exact result is on the physical Board. Play or scrub there to inspect every LED frame before applying."
+        : "Preparing the physical Board… Nothing has changed yet.",
       applyHint: `Apply puts this in Custom slot ${customSlot} · ${options.targetLabel || "Lighting"} and changes the open document only. Nothing has been written to the keyboard yet — use the ${writeAction} button when you are ready.`,
       blockedMessage,
       loadingMessage,
       errorMessage: typeof options.errorMessage === "string" ? options.errorMessage : "",
-      applyDisabled: Boolean(blockedMessage || !mappedResultLoaded),
+      applyDisabled: Boolean(blockedMessage || !boardPreviewReady),
     });
   }
 
@@ -99,10 +96,8 @@
     }
     const review = view || createReviewView();
     container.innerHTML = `<div class="review-stage">
-      <div class="review-media">${review.previewUrl
-        ? `<img src="${escapeHtml(review.previewUrl)}" alt="Animated lighting preview">`
-        : '<div class="library-card-placeholder">Loading animation…</div>'}</div>
       <div class="review-copy"><p class="eyebrow">Saved to Library</p><h3>${escapeHtml(review.summary)}</h3><p>${escapeHtml(review.detail)}</p>
+      <p class="control-help" role="status">${escapeHtml(review.boardMessage || "")}</p>
       ${review.blockedMessage ? `<p class="ai-error" role="alert">${escapeHtml(review.blockedMessage)}</p>` : ""}
       ${review.loadingMessage ? `<p class="ai-error" role="status">${escapeHtml(review.loadingMessage)}</p>` : ""}
       ${review.errorMessage ? `<p class="ai-error" role="alert">${escapeHtml(review.errorMessage)}</p>` : ""}
@@ -123,7 +118,6 @@
 
   return Object.freeze({
     REVIEW_BLOCK_REASONS,
-    assetUrl,
     createReviewView,
     renderReview,
     reviewBlockedMessage,

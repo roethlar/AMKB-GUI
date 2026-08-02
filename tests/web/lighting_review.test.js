@@ -69,13 +69,11 @@ test("review renderer is surface-agnostic and exports no dialog controller", () 
   assert.equal(Object.hasOwn(review, "openRenderedDialog"), false);
 });
 
-test("ready reducer state renders the authenticated preview and applies exactly once", () => {
+test("ready reducer state points to the exact Board output and applies exactly once", () => {
   const lighting = reduceLightingState(createLightingState(), {type: "JOB_SYNCED", job: readyJob()}).state;
   assert.equal(lighting.create.stage, STAGES.REVIEW);
 
   const view = createReviewView({
-    assetUrls: new Map([[`${JOB_ID}:preview-asset`, "blob:authenticated-preview"]]),
-    jobId: JOB_ID,
     attempt: readyAttempt(),
     recipe: {name: "Violet aurora", density: "dense", layers: [{}, {}]},
     quality: {frame_count: 200},
@@ -83,12 +81,14 @@ test("ready reducer state renders the authenticated preview and applies exactly 
     destinationSlot: 5,
     blockedReason: null,
     mappedResultLoaded: true,
+    boardPreviewReady: true,
   });
   const dom = new ReviewDom();
   let applies = 0;
   renderReview(dom, view, () => { applies += 1; });
 
-  assert.match(dom.innerHTML, /src="blob:authenticated-preview"/);
+  assert.doesNotMatch(dom.innerHTML, /<img\b|<video\b|<picture\b|<canvas\b/i);
+  assert.match(dom.innerHTML, /exact result is on the physical Board/i);
   assert.match(dom.innerHTML, /Violet aurora · dense · 2 layers/);
   assert.match(dom.innerHTML, /200 lighting frames · Keys · Custom 1/);
   assert.equal(dom.button.disabled, false);
@@ -118,12 +118,13 @@ test("loading assets and every reducer block reason render without applying", ()
       destinationSlot: 5,
       blockedReason: reason,
       mappedResultLoaded: false,
+      boardPreviewReady: false,
     });
     const dom = new ReviewDom();
     let applies = 0;
     renderReview(dom, view, () => { applies += 1; });
 
-    assert.match(dom.innerHTML, /Loading animation/);
+    assert.match(dom.innerHTML, /Preparing the physical Board/);
     assert.match(dom.innerHTML, /Loading the lighting effect/);
     assert.ok(dom.innerHTML.includes(reviewBlockedMessage(reason)));
     assert.match(dom.innerHTML, /generated lighting is still loading/);

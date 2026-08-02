@@ -1094,6 +1094,30 @@ feat: import angry miao lighting json
 
 ### Slice LSR-9 — Preserve Library, AI, Apply, and Undo integration
 
+Implementation is landed in the commit containing this status record on
+2026-08-02. Every preview-backed Apply now retrieves the exact accepted
+`BoardFrameSet` and passes it through one common copying writer; Relic dependent
+tracks are derived before Board acceptance, so Apply cannot invent or retime an
+unseen track. Saved Library lighting and generated results open a separate
+read-only physical Board preview before one document-only Apply, and procedural
+review now points to that same Board instead of displaying the obsolete raster
+preview asset. Cancel, navigation, and preview do not create a Library item or
+an Undo checkpoint.
+
+The focused guard set first failed 12 of 101 tests against the pre-change paths
+and now passes 102 of 102. Additional mutations independently proved the exact
+preview-object identity check and the full-render device-model capture. The
+complete local gate passes 720 Python tests with 5 skips, 185 browser tests,
+compile and syntax checks, and both package builds. The Windows native tree
+audit, installer build, and frozen smoke pass. The existing native workflow
+audit is intentionally an LSR-10 update surface: a source run reached its saved
+lighting Library workflow and then failed at the old direct-Apply selector,
+which LSR-9 replaced with Preview on board; that run is not claimed as accepted
+native evidence. No dependency, FFmpeg/libav path, provider request, credential
+use, or hardware write was introduced. No external review was run under the
+owner-approved review-economy rule. Exact-head CI and Desktop installer
+qualification remain pending, so LSR-9 remains open.
+
 Files:
 
 - `am_configurator/web/app.js`;

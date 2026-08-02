@@ -169,6 +169,12 @@ test("queued media renders surrender Source ownership before shared preview muta
   const renderStart=js.indexOf("async function renderMediaCompositionPreviewAttempt");
   const renderEnd=js.indexOf("\nfunction ",renderStart+10);
   const render=js.slice(renderStart,renderEnd);
+  assert.match(render,/const requestModel=activeLedModel\(\)/);
+  assert.ok(
+    render.indexOf("const requestModel=activeLedModel()")
+      <render.indexOf("mappedResultWithDependentTracks"),
+    "the full render must capture its model before deriving dependent tracks",
+  );
   const ownershipCheck=render.indexOf("mediaLoadMatchesWorkspace(request?.ownership)");
   const renderStarted=render.indexOf('type:"SEQUENCE_RENDER_STARTED"');
   assert.ok(ownershipCheck>=0, "queued render ownership must be checked");
@@ -286,7 +292,7 @@ test("Studio is one Paint, Import media, and Effects shell with local draft acce
   const applyEnd=js.indexOf("function ",applyStart+10);
   const apply=js.slice(applyStart,applyEnd);
   assert.equal((apply.match(/mutate\(/g)||[]).length,1);
-  assert.match(apply,/frameSet\.frames_by_target\[context\.target\]/);
+  assert.match(apply,/applyBoardFrameSetToPage\(page,frameSet,context\.target\)/);
   assert.match(apply,/type:"APPLY_COMPLETED"/);
   assert.match(js,/renderColorEffect\(/);
   assert.match(css,/\.studio-tool-tabs/);
@@ -457,9 +463,10 @@ test("media import banks before composition and applies only an accepted preview
   assert.match(js,/id="save-lighting-library"/);
   assert.match(js,/\/api\/library\/save\/lighting/);
   assert.match(js,/lightingProvenanceForPage\(/);
-  assert.match(js,/page\.lightness=Number\(destination\.lightness\)/);
+  assert.match(js,/if\(preview\.lightness!==null\)page\.lightness=Number\(preview\.lightness\)/);
   assert.match(js,/data-library-open-source/);
-  assert.match(js,/data-library-apply-lighting/);
+  assert.match(js,/data-library-preview-lighting/);
+  assert.match(js,/data-library-preview-generated/);
 });
 
 test("lighting color style interpolation uses only canonical RGB", () => {
@@ -652,7 +659,7 @@ test("the LED editor delegates every pointer stroke to release-safe state", () =
   assert.doesNotMatch(wire,/pointerup[^\n]*once:true/);
 });
 
-test("generation is one prompt, durable progress, animated review, and explicit Apply", () => {
+test("generation is one prompt, durable progress, exact Board review, and explicit Apply", () => {
   const generationSurface=`${js}\n${review}`;
   for(const id of ["effect-prompt","generate-effect","cancel-effect","apply-procedural-effect"]){
     assert.match(generationSurface,new RegExp(`id="${id}"`));
@@ -666,11 +673,11 @@ test("generation is one prompt, durable progress, animated review, and explicit 
   assert.match(js,/proceduralProgressLabel\(/);
   assert.doesNotMatch(js,/frames saved/);
   assert.match(js,/procedural_attempts/);
-  assert.match(js,/preview_asset_id/);
   assert.match(js,/recipe_asset_id/);
   assert.match(js,/mapped_result_asset_id/);
-  assert.match(review,/Animated lighting preview/);
-  assert.match(js,/createReviewView\(\{assetUrls:state\.conceptAssetUrls/);
+  assert.match(review,/physical Board/);
+  assert.doesNotMatch(review,/Animated lighting preview|<img\b|previewUrl/);
+  assert.match(js,/createReviewView\(\{attempt,recipe,quality/);
   assert.match(js,/renderReview\(\$\("#lighting-generate-content"\),view,applyReviewedLighting\)/);
   assert.match(js,/function renderGenerationStudio\(\)/);
   assert.match(js,/This earlier failure does not turn anything off/);
@@ -932,7 +939,7 @@ test("imported lighting review keeps Apply, Library save, and Close boundaries s
     js.indexOf("const RELIC_LAYOUT"),
   );
   assert.doesNotMatch(applyFlow,/const candidate=clone\(page\)|applyLedResultToPage\(candidate|candidate\.lightness/);
-  assert.match(applyFlow,/mutate\(\(\)=>\{[\s\S]*applyLedResultToPage\(page/);
+  assert.match(applyFlow,/mutate\(\(\)=>\{[\s\S]*applyBoardFrameSetToPage\(page,frameSet,target\)/);
   assert.equal((applyFlow.match(/mutate\(/g)||[]).length,1);
   assert.doesNotMatch(applyFlow,/pushUndo\(/);
   assert.doesNotMatch(applyFlow,/\/api\/library\//);

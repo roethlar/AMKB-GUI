@@ -171,7 +171,8 @@ test("Ollama and Direct API are the user-facing backend names", () => {
 test("generated-result review speaks in lighting effects and lighting frames", () => {
   assert.match(review, /"Lighting effect"/);
   assert.match(review, /lighting frames/);
-  assert.match(review, /alt="Animated lighting preview"/);
+  assert.match(review, /physical Board/);
+  assert.doesNotMatch(review, /Animated lighting preview|<img\b|previewUrl/);
   assert.match(review, /Loading the lighting effect/);
   assert.doesNotMatch(stringLiterals(review), /\brecipe\b/i);
 });
@@ -192,7 +193,6 @@ test("mapped and stored counts sit behind Technical details, not the canvas head
 test("internal manifest, route, and element contracts are unchanged", () => {
   for (const field of [
     "procedural_attempts",
-    "preview_asset_id",
     "recipe_asset_id",
     "mapped_result_asset_id",
     "raster_animation",

@@ -126,6 +126,24 @@
   `30756144641` and Desktop installers run `30756144701` pass every job. No
   external review was run under the owner-approved review-economy rule.
   `cl-22` and LSR-8 are closed.
+- LSR-9 implementation is landed in the commit containing this state record.
+  Media, local effects, imported JSON, procedural results, and saved Library
+  lighting now Apply only the exact accepted `BoardFrameSet` through one common
+  writer. Relic dependent tracks are derived before Board acceptance. Library
+  lighting and generated results first open a read-only physical Board preview,
+  while procedural review uses that Board instead of the obsolete raster
+  preview asset. The initial focused guard run failed the predicted 12 of 101
+  tests; the final focused set passes 102 of 102, including independent
+  mutations for exact preview identity and the full-render model capture. The
+  complete local gate passes 720 Python tests with 5 skips, 185 browser tests,
+  compile/syntax checks, both package builds, the Windows native-tree audit,
+  installer build, and frozen smoke. The current source native workflow audit
+  reached the saved-lighting Library workflow and then stopped at its obsolete
+  direct-Apply selector; updating that audit for Preview on board is approved
+  LSR-10 work, so the run is not accepted as native evidence. No dependency,
+  FFmpeg/libav path, provider request, credential use, hardware write, or
+  external review was introduced. Exact-head CI and Desktop installers remain
+  pending; LSR-9 remains open.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -329,12 +347,13 @@
 
 ## Next
 
-- Implement approved LSR-9 Library, procedural-AI, Apply, and Undo integration
-  through the canonical frame pipeline. External review is not automatic; use
-  it only on explicit owner request or a concrete material risk that local
-  guards and CI cannot resolve. A
-  replacement release candidate must repeat every release gate and cannot mix
-  evidence from any rejected attempt with new bytes.
+- Push the landed LSR-9 implementation, then qualify that exact head through CI
+  and all three Desktop installer jobs. If those pass, close LSR-9 and begin
+  approved LSR-10 native-audit and owner-acceptance work. External review is not
+  automatic; use it only on explicit owner request or a concrete material risk
+  that local guards and CI cannot resolve. A replacement release candidate must
+  repeat every release gate and cannot mix evidence from any rejected attempt
+  with new bytes.
 - The approved `0.1.65` release plan remains recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`; it records all
   three rejected candidates and is paused behind the redesign.

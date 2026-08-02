@@ -232,6 +232,24 @@
     return result;
   }
 
+  function mappedResultFromBoardFrameSet(frameSet) {
+    if (!validatedFrameSets.has(frameSet)) {
+      fail("invalid_shape", "Only accepted Board lighting can be applied.");
+    }
+    const tracks = {};
+    for (const [target, frames] of Object.entries(frameSet.frames_by_target)) {
+      tracks[target] = {
+        frame_count: frameSet.frame_count,
+        frames: frames.map(colors => [...colors]),
+      };
+    }
+    return {
+      source_frames: frameSet.frame_count,
+      duration_ms: frameSet.duration_ms,
+      tracks,
+    };
+  }
+
   function defaultTimeline(frameCount) {
     return Array.from({length: frameCount}, (_, index) => ({index}));
   }
@@ -245,6 +263,7 @@
   function boardFrameSetFromDocument({
     context,
     track,
+    companionFramesByTarget = {},
     durationMs,
     targetLengths,
     allowedDurations,
@@ -256,6 +275,7 @@
     return createBoardFrameSet({
       context,
       frames_by_target: {
+        ...companionFramesByTarget,
         [context.target]: track.frame_data.map(frameColors),
       },
       frame_count: track.frame_data.length,
@@ -268,6 +288,7 @@
   function boardFrameSetFromLocalEffect({
     context,
     draft,
+    companionFramesByTarget = {},
     targetLengths,
     allowedDurations,
     maxFrames,
@@ -278,6 +299,7 @@
     return createBoardFrameSet({
       context,
       frames_by_target: {
+        ...companionFramesByTarget,
         [context.target]: draft.frames.map(frameColors),
       },
       frame_count: draft.frames.length,
@@ -1539,6 +1561,7 @@
     createLightingPlaybackRuntime,
     createLightingWorkspace,
     friendlyWorkspaceError,
+    mappedResultFromBoardFrameSet,
     paintBoardProjection,
     projectBoardFrame,
     reduceLightingWorkspace,
