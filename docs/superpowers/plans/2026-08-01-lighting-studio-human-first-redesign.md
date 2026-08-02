@@ -619,9 +619,16 @@ verification entry point before each code commit. A new behavioral test must
 be proven non-vacuous by temporarily reverting its production behavior as
 required by `AGENTS.md`. Push verified commits normally to canonical `origin`.
 
-No paid or external model review is authorized by this plan. If the owner later
-requires reviews, record the exact harness/model/effort and rerun policy before
-the first reviewed slice; never infer it from an earlier workflow.
+After each LSR implementation commit is pushed, run exactly one defect-generation
+review through the `claude` codereview harness/job `fable-review`, passing model
+`claude-opus-5`, effort `high`, and the exact parent-to-implementation-commit
+range explicitly. Persist and use the first substantive result regardless of
+envelope or presentation quirks. Never discard, rerun, resubmit, or replace a
+review without explicit owner approval. Triage every returned candidate against
+source and tests; admitted findings follow the codereview per-finding repair and
+verification lifecycle with their actual provenance. A clean result closes the
+slice review; a transport failure is not a clean review and stops that slice's
+progress until owner direction.
 
 ### Slice LSR-1 — Workspace reducer and board-frame contract
 
