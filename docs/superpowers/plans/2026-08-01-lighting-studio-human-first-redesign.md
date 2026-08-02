@@ -619,16 +619,11 @@ verification entry point before each code commit. A new behavioral test must
 be proven non-vacuous by temporarily reverting its production behavior as
 required by `AGENTS.md`. Push verified commits normally to canonical `origin`.
 
-After each LSR implementation commit is pushed, run exactly one defect-generation
-review through the `claude` codereview harness/job `fable-review`, passing model
-`claude-opus-5`, effort `high`, and the exact parent-to-implementation-commit
-range explicitly. Persist and use the first substantive result regardless of
-envelope or presentation quirks. Never discard, rerun, resubmit, or replace a
-review without explicit owner approval. Triage every returned candidate against
-source and tests; admitted findings follow the codereview per-finding repair and
-verification lifecycle with their actual provenance. A clean result closes the
-slice review; a transport failure is not a clean review and stops that slice's
-progress until owner direction.
+External review follows `.agents/repo-guidance.md` under **Review Economy**. It
+is not a per-slice gate: use it only on explicit owner request or when a concrete
+material risk remains that local guards and CI cannot settle. An already-launched
+review still uses its first substantive result as returned and is never retried,
+discarded, replaced, or resubmitted without explicit owner approval.
 
 ### Slice LSR-1 — Workspace reducer and board-frame contract
 
