@@ -964,6 +964,85 @@ class MediaRenderCoordinatorTests(unittest.TestCase):
             self.assertFalse(worker.is_alive())
             self.assertEqual([], failures)
 
+    def test_sessionless_supersession_interrupts_decode(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "library"
+            saved = SavedItemLibrary(root, minimum_free_bytes=1)
+            catalog = LibraryCatalog(
+                GeneratedAssetLibrary(root, minimum_free_bytes=1),
+                saved,
+            )
+            catalog_id = self._bank_source(
+                saved,
+                name="source.png",
+                payload=_still_bytes("PNG"),
+            )
+            renderer = media_composition.MediaRenderCoordinator(catalog)
+            real_decode = media_composition.decode_media
+            first_entered = threading.Event()
+            second_entered = threading.Event()
+            first_completed_decode = threading.Event()
+            calls_lock = threading.Lock()
+            calls = 0
+            first_received_check: list[bool] = []
+            failures: list[BaseException] = []
+
+            def controlled_decode(payload, *, work_check=None):
+                nonlocal calls
+                with calls_lock:
+                    calls += 1
+                    call_index = calls
+                if call_index == 1:
+                    first_entered.set()
+                    self.assertTrue(second_entered.wait(5))
+                    first_received_check.append(callable(work_check))
+                    if work_check is not None:
+                        work_check()
+                    decoded = real_decode(payload, work_check=work_check)
+                    first_completed_decode.set()
+                    return decoded
+                second_entered.set()
+                return real_decode(payload, work_check=work_check)
+
+            def first_render() -> None:
+                try:
+                    renderer.render(
+                        catalog_id,
+                        product_id="CB04",
+                        targets=["frames"],
+                        transform=self._transform(),
+                        epoch=1,
+                    )
+                except BaseException as exc:  # noqa: BLE001 - preserve worker failure
+                    failures.append(exc)
+
+            with patch.object(
+                media_composition,
+                "decode_media",
+                side_effect=controlled_decode,
+            ):
+                worker = threading.Thread(target=first_render)
+                worker.start()
+                self.assertTrue(first_entered.wait(5))
+                newest = renderer.render(
+                    catalog_id,
+                    product_id="CB04",
+                    targets=["frames"],
+                    transform=self._transform(),
+                    epoch=2,
+                )
+                worker.join(5)
+
+            self.assertFalse(worker.is_alive())
+            self.assertEqual([True], first_received_check)
+            self.assertFalse(first_completed_decode.is_set())
+            self.assertEqual(2, newest["epoch"])
+            self.assertEqual(1, len(failures))
+            self.assertIsInstance(
+                failures[0],
+                media_composition.MediaRenderSuperseded,
+            )
+
     def test_newer_epoch_supersedes_inflight_work_and_work_is_never_catalogued(
         self,
     ) -> None:

@@ -2,7 +2,7 @@
 
 ## Now
 - LSR-1 is closed. Implementation `1ee73a81182c8f401b1942776d3df7c005541f33` and admitted review repair `95795845b6eeabd1c572b82244fef26a975183dd` are fully guard-proven, pass the 677-Python/144-browser/compile/syntax/build gate, and are pushed. The required `claude-opus-5` generation review and T2 per-finding verification used exact ranges once each; `cl-10` returned accepted with guard and capability confirmed. Canonical evidence is in the redesign plan and `.agents/review/findings/cl-10.md`.
-- LSR-2 implementation `65c9fbfc22c2b24c3b868218512b00039756e6e1` is committed, pushed, and passed the 685-Python/144-browser/compile/syntax/build gate plus selected/full parity and Library-removal mutation proofs. Its single required `claude-opus-5` generation review over exact parent `4bdb75f802dec338821ea827d397a7ebc091d8bd` returned two independently reproduced findings. `cl-11` MEDIUM is closed: repair `9015d422d97d3be0ba9aa04a0ebeeec81c934335` is mutation-proven, passed the complete 687-Python/144-browser/compile/syntax/build gate, and received one `claude-opus-5` high/standard accepted verdict with guard and capability confirmed over exact parent `bedd9b52c428fdc1cd9fb03c23a03816c7078a5c`. `cl-12` LOW remains open: sessionless supersession begins only after complete decode.
+- LSR-2 implementation `65c9fbfc22c2b24c3b868218512b00039756e6e1` is committed, pushed, and passed the 685-Python/144-browser/compile/syntax/build gate plus selected/full parity and Library-removal mutation proofs. Its single required `claude-opus-5` generation review over exact parent `4bdb75f802dec338821ea827d397a7ebc091d8bd` returned two independently reproduced findings. `cl-11` MEDIUM is closed: repair `9015d422d97d3be0ba9aa04a0ebeeec81c934335` received one accepted Opus verdict. `cl-12` LOW is repaired and mutation-proven locally: stale sessionless work now receives a destination epoch check during decode; 246 affected tests and the complete 688-Python/144-browser/compile/syntax/build gate pass. Commit, push, and obtain its one per-finding verdict before closing LSR-2.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -208,11 +208,9 @@
 
 ## Next
 
-- Repair `cl-12` without expanding LSR-2: register the validated destination
-  epoch before transient decode and pass its cancellation check through
-  `decode_media`. Guard, mutation-prove, fully verify, commit, push, and obtain
-  its one exact-range per-finding verdict before closing LSR-2 and starting
-  LSR-3. Do
+- Commit and push the isolated, fully verified `cl-12` repair, then obtain its
+  one exact-range per-finding verdict. If accepted, close LSR-2 and begin LSR-3.
+  Do
   not restart R65-2 until LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new

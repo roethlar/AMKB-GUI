@@ -1470,6 +1470,7 @@ class MediaRenderCoordinator:
         catalog_id: str,
         *,
         retain: bool,
+        work_check: Callable[[], None] | None = None,
     ) -> PreparedMediaSession:
         source, owned = self._source_asset(catalog_id, verify_content=False)
         byte_size = int(owned.record["byte_size"])
@@ -1477,7 +1478,7 @@ class MediaRenderCoordinator:
             payload = stream.read(byte_size + 1)
         if len(payload) != byte_size:
             raise ValueError("The saved media source changed while it was read.")
-        decoded = decode_media(payload)
+        decoded = decode_media(payload, work_check=work_check)
         if not self._source_matches(source, owned, decoded):
             raise ValueError("The saved media source metadata no longer matches its asset.")
 
@@ -1521,8 +1522,17 @@ class MediaRenderCoordinator:
     def _create_session(self, catalog_id: str) -> PreparedMediaSession:
         return self._decode_session(catalog_id, retain=True)
 
-    def _create_transient_session(self, catalog_id: str) -> PreparedMediaSession:
-        return self._decode_session(catalog_id, retain=False)
+    def _create_transient_session(
+        self,
+        catalog_id: str,
+        *,
+        work_check: Callable[[], None],
+    ) -> PreparedMediaSession:
+        return self._decode_session(
+            catalog_id,
+            retain=False,
+            work_check=work_check,
+        )
 
     def _get_session(
         self,
@@ -1849,24 +1859,29 @@ class MediaRenderCoordinator:
 
     def _begin_epoch(
         self,
-        prepared: PreparedMediaRender,
-        epoch: int,
         *,
-        session_scoped: bool,
+        catalog_id: str,
+        session: PreparedMediaSession | None,
+        product_id: str,
+        targets: tuple[str, ...],
+        epoch: int,
     ) -> Callable[[], None]:
-        session = prepared.session
         key = (
-            session.catalog_id,
-            session.session_id if session_scoped else None,
-            prepared.product_id,
-            prepared.targets,
+            catalog_id,
+            session.session_id if session is not None else None,
+            product_id,
+            targets,
         )
         with self._lock:
-            current = self._sessions.get(session.session_id)
+            current = (
+                self._sessions.get(session.session_id)
+                if session is not None
+                else None
+            )
             if (
                 self._closed
                 or (
-                    session_scoped
+                    session is not None
                     and (current is None or current.prepared is not session)
                 )
             ):
@@ -1880,11 +1895,15 @@ class MediaRenderCoordinator:
 
         def check() -> None:
             with self._lock:
-                current_entry = self._sessions.get(session.session_id)
+                current_entry = (
+                    self._sessions.get(session.session_id)
+                    if session is not None
+                    else None
+                )
                 if (
                     self._closed
                     or (
-                        session_scoped
+                        session is not None
                         and (
                             current_entry is None
                             or current_entry.prepared is not session
@@ -1964,11 +1983,27 @@ class MediaRenderCoordinator:
             self._checked_session_id(preview_session_id)
         self._start_active(catalog_id)
         try:
-            session = (
-                self._create_transient_session(catalog_id)
-                if preview_session_id is None
-                else self._get_session(catalog_id, preview_session_id)
-            )
+            check: Callable[[], None] | None = None
+            if preview_session_id is None:
+                from . import device_mapping
+
+                _model, epoch_targets, _sizes = device_mapping.media_target_sizes(
+                    product_id,
+                    targets,
+                )
+                check = self._begin_epoch(
+                    catalog_id=catalog_id,
+                    session=None,
+                    product_id=product_id,
+                    targets=tuple(epoch_targets),
+                    epoch=epoch,
+                )
+                session = self._create_transient_session(
+                    catalog_id,
+                    work_check=check,
+                )
+            else:
+                session = self._get_session(catalog_id, preview_session_id)
             prepared = self._prepare_render(
                 session,
                 product_id=product_id,
@@ -1976,11 +2011,14 @@ class MediaRenderCoordinator:
                 checked_transform=checked_transform,
                 effects=effects,
             )
-            check = self._begin_epoch(
-                prepared,
-                epoch,
-                session_scoped=preview_session_id is not None,
-            )
+            if check is None:
+                check = self._begin_epoch(
+                    catalog_id=session.catalog_id,
+                    session=session,
+                    product_id=prepared.product_id,
+                    targets=prepared.targets,
+                    epoch=epoch,
+                )
             check()
             mapped = self._render_full_mapping(
                 prepared,
@@ -2042,7 +2080,13 @@ class MediaRenderCoordinator:
             )
             if frame_index >= len(prepared.timeline):
                 raise ValueError("The media preview frame index is invalid.")
-            check = self._begin_epoch(prepared, epoch, session_scoped=True)
+            check = self._begin_epoch(
+                catalog_id=session.catalog_id,
+                session=session,
+                product_id=prepared.product_id,
+                targets=prepared.targets,
+                epoch=epoch,
+            )
             check()
             entry = prepared.timeline[frame_index]
             from . import device_mapping
