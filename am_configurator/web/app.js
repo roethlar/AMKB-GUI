@@ -4560,9 +4560,6 @@ function applyImportedLighting() {
   const mapped=report.lighting.mapped_result;
   const target=state.ledTarget;
   const lightness=report.lighting.destination.lightness;
-  const candidate=clone(page);
-  applyLedResultToPage(candidate,mapped,target,false);
-  candidate.lightness=lightness;
   mutate(()=>{
     applyLedResultToPage(page,mapped,target,false);
     page.lightness=lightness;

@@ -118,6 +118,12 @@
   automatic for every minor change. Use them only on explicit request or a
   concrete material risk that local guards and CI cannot resolve; explain need
   and expected cost before dispatch. `cl-22` receives no Claude review.
+- The isolated `cl-22` repair removes the unused imported-lighting candidate
+  clone/apply block and reverses its source guard so reintroducing only those
+  three lines makes exactly one focused test fail. Restoration passes 42
+  focused shell tests and the complete 720-Python/179-browser/compile/syntax/
+  build gate with 5 Python skips. Commit, push, and exact-head CI/Desktop
+  qualification remain; no external review is required.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -323,8 +329,9 @@
 
 ## Next
 
-- Repair and guard-prove `cl-22` as its own small commit without an external
-  review, then close LSR-8. Do not start LSR-9 until `cl-22` is closed. A
+- Commit and push the guard-proven `cl-22` repair, qualify its exact head, then
+  close LSR-8 without an external review. Do not start LSR-9 until `cl-22` is
+  closed. A
   replacement release candidate must repeat every release gate and cannot mix
   evidence from any rejected attempt with new bytes.
 - The approved `0.1.65` release plan remains recorded at

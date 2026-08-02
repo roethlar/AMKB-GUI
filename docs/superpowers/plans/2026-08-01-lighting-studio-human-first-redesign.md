@@ -1028,6 +1028,14 @@ confirmed the guard and complete gate. `cl-21` is closed; `cl-22` remains.
 Under the owner's 2026-08-02 review-economy ruling, the minor `cl-22` cleanup
 will be locally guard-proven and CI-qualified without external model review.
 
+The isolated `cl-22` repair removes the unused candidate clone/apply/lightness
+block from imported-lighting Apply and reverses the brittle positive source
+assertion so reintroducing only those three lines makes exactly one focused
+test fail. Restoration passes 42 focused shell tests and the complete
+720-Python/179-browser/compile/syntax/build gate with 5 Python skips. Commit,
+push, and exact-head qualification remain before `cl-22` and LSR-8 close; no
+external model review is required.
+
 Files:
 
 - new focused `am_configurator/profile_import.py`;

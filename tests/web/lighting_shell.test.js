@@ -931,7 +931,7 @@ test("imported lighting review keeps Apply, Library save, and Close boundaries s
     js.indexOf("function closeImportedLightingReview"),
     js.indexOf("const RELIC_LAYOUT"),
   );
-  assert.match(applyFlow,/const candidate=clone\(page\)[\s\S]*applyLedResultToPage\(candidate/);
+  assert.doesNotMatch(applyFlow,/const candidate=clone\(page\)|applyLedResultToPage\(candidate|candidate\.lightness/);
   assert.match(applyFlow,/mutate\(\(\)=>\{[\s\S]*applyLedResultToPage\(page/);
   assert.equal((applyFlow.match(/mutate\(/g)||[]).length,1);
   assert.doesNotMatch(applyFlow,/pushUndo\(/);
