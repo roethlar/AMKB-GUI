@@ -83,6 +83,10 @@ class MediaFramingFixtureTests(unittest.TestCase):
 
         self.assertIn("synchronized_workspace", media_framing_audit.REQUIRED_CASE_CHECKS)
         self.assertIn("shared_timeline", media_framing_audit.REQUIRED_CASE_CHECKS)
+        self.assertIn(
+            "preview_session_recovery",
+            media_framing_audit.REQUIRED_CASE_CHECKS,
+        )
         self.assertIn('#lighting-source-pane', script)
         self.assertIn('#lighting-board-pane', script)
         self.assertIn('#lighting-timeline', script)
@@ -90,6 +94,12 @@ class MediaFramingFixtureTests(unittest.TestCase):
         self.assertIn('board.querySelector("img,picture,video,canvas,svg,image")', script)
         self.assertIn('timelineScrubber.dispatchEvent(new Event("input"', script)
         self.assertIn('selectSourceProjection(lightingWorkspace)', script)
+        self.assertIn(
+            'for (let eviction = 0; eviction < 2; eviction += 1)',
+            script,
+        )
+        self.assertIn('preview_session_recovery_timeout', script)
+        self.assertIn('currentPreviewSessionId !== expiredPreviewSessionId', script)
         self.assertNotIn('.media-source-overlay', script)
 
 

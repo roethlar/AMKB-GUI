@@ -52,6 +52,7 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | cl-10 | HIGH    | Lowercase profile colors blank the Lighting Studio                          | `[x]`  | —      | claude/claude-opus-5/xhigh/frontier esc:T2 |
 | cl-11 | MEDIUM  | Sessionless renders evict or depend on unrelated preview sessions           | `[x]`  | —      | claude/claude-opus-5/high/standard |
 | cl-12 | LOW     | Stale sessionless renders fully decode before observing supersession        | `[x]`  | —      | claude/claude-opus-5/high/standard |
+| cl-13 | HIGH    | Expired media preview sessions permanently break Preview and Source         | `[~]`  | —      | claude/claude-opus-5/high/standard esc:T2 |
 
 All three raised by the 2026-07-25 openreview codex pass over
 `65a70c9..94a847a` and admitted at intake after independent verification of

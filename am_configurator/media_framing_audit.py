@@ -38,6 +38,7 @@ REQUIRED_CASE_CHECKS = [
     "overlay_geometry",
     "synchronized_workspace",
     "shared_timeline",
+    "preview_session_recovery",
     "stale_preview_guard",
     "destination_playback_isolation",
     "canonical_backend_equality",
@@ -745,6 +746,34 @@ _AUDIT_SCRIPT = r"""
     requireAudit(sourceResponse.ok, "saved_source_fetch_failed");
     const retrieved = new Uint8Array(await sourceResponse.arrayBuffer());
     requireAudit(bytesEqual(raw, retrieved), "saved_source_bytes_mismatch");
+
+    window.__mediaFramingAuditStep = "preview_session_recovery";
+    const expiredPreviewSessionId = lightingWorkspace.media?.preview_session_id;
+    const expiredSourceUrl = document.querySelector(".source-frame-image")?.src || "";
+    requireAudit(expiredPreviewSessionId && expiredSourceUrl, "preview_session_recovery_missing");
+    for (let eviction = 0; eviction < 2; eviction += 1) {
+      await api(`/api/library/items/${libraryCatalogPath(draftForSource.catalogId)}/preview-session`, {
+        method: "POST",
+        body: "{}",
+      });
+    }
+    const previewButton = document.querySelector("#media-compose-preview");
+    requireAudit(previewButton && !previewButton.disabled, "preview_session_recovery_button_missing");
+    previewButton.click();
+    await waitFor(() => {
+      const currentPreviewSessionId = lightingWorkspace.media?.preview_session_id;
+      const projection = selectSourceProjection(lightingWorkspace);
+      const image = document.querySelector(".source-frame-image");
+      return state.mediaComposition?.status === "ready"
+        && currentPreviewSessionId
+        && currentPreviewSessionId !== expiredPreviewSessionId
+        && projection?.preview_session_id === currentPreviewSessionId
+        && image?.complete
+        && image.src
+        && image.src !== expiredSourceUrl;
+    }, "preview_session_recovery_timeout", 30000);
+    requireAudit(pageFingerprint() === baselinePage, "preview_session_recovery_changed_document");
+    requireAudit(state.undo.length === baselineUndo, "preview_session_recovery_changed_undo");
 
     window.__mediaFramingAuditStep = "pointer_input";
     const stage = document.querySelector("#media-compositor-stage");

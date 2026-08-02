@@ -717,6 +717,20 @@
         };
         return {state: next, intents: [{type: "render-workspace"}]};
       }
+      case "MEDIA_SESSION_INVALIDATED": {
+        if (
+          !isObject(state.media)
+          || event.catalog_id !== state.media.catalog_id
+          || event.asset_id !== state.media.asset_id
+          || event.preview_session_id !== state.media.preview_session_id
+        ) return unchanged(state, "stale");
+        const {preview_session_id: expiredSessionId, ...media} = state.media;
+        void expiredSessionId;
+        return {
+          state: {...state, media},
+          intents: [{type: "render-workspace"}],
+        };
+      }
       case "MEDIA_CANCELLED": {
         const contextEpoch = state.context_epoch + 1;
         const next = {

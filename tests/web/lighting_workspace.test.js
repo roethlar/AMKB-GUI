@@ -340,6 +340,60 @@ test("Source projection and Board projection select one accepted timeline entry"
   assert.equal(staleSession.ignored, "stale");
 });
 
+test("expired media sessions clear only the matching id and preserve the draft", () => {
+  let state = createLightingWorkspace({
+    documentEpoch: 7,
+    slot: 5,
+    target: "keyframes",
+    tool: "source",
+    route: "lighting/edit",
+  });
+  state = reduceLightingWorkspace(state, {
+    type: "MEDIA_OPENED",
+    media: {catalog_id: "item:media", asset_id: "source", requested_transform: {scale: 2}},
+  }).state;
+  const captured = captureWorkspaceAsyncContext(state);
+  state = reduceLightingWorkspace(state, {
+    type: "MEDIA_SESSION_READY",
+    catalog_id: "item:media",
+    asset_id: "source",
+    preview_session_id: "a".repeat(32),
+    captured,
+  }).state;
+  const beforePreview = state.preview;
+
+  const expired = reduceLightingWorkspace(state, {
+    type: "MEDIA_SESSION_INVALIDATED",
+    catalog_id: "item:media",
+    asset_id: "source",
+    preview_session_id: "a".repeat(32),
+  });
+  state = expired.state;
+
+  assert.equal(state.media.preview_session_id, undefined);
+  assert.deepEqual(state.media.requested_transform, {scale: 2});
+  assert.equal(state.preview, beforePreview);
+  assert.deepEqual(expired.intents.map(intent => intent.type), ["render-workspace"]);
+
+  state = reduceLightingWorkspace(state, {
+    type: "MEDIA_SESSION_READY",
+    catalog_id: "item:media",
+    asset_id: "source",
+    preview_session_id: "b".repeat(32),
+    captured,
+  }).state;
+  const newer = state;
+  const stale = reduceLightingWorkspace(state, {
+    type: "MEDIA_SESSION_INVALIDATED",
+    catalog_id: "item:media",
+    asset_id: "source",
+    preview_session_id: "a".repeat(32),
+  });
+  assert.equal(stale.state, newer);
+  assert.equal(stale.ignored, "stale");
+  assert.equal(stale.state.media.preview_session_id, "b".repeat(32));
+});
+
 test("manual paint updates the accepted document frame without a second authority", () => {
   let state = createLightingWorkspace({documentEpoch: 7, slot: 5, target: "keyframes"});
   const original = frameSet();

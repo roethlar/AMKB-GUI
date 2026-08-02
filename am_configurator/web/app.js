@@ -32,6 +32,7 @@ let activeSourceTransformController = null;
 const sourceProjectionUrls = new Map();
 const sourceProjectionLoads = new Map();
 const SOURCE_PROJECTION_CACHE_LIMIT = 2;
+const MEDIA_PREVIEW_SESSION_UNAVAILABLE = "This media preview session is no longer available.";
 
 function restoredLightingState() {
   let saved = {};
@@ -2739,6 +2740,20 @@ async function ensureMediaPreviewSession(draft=state.mediaComposition) {
   return decision.ignored?null:result.preview_session_id;
 }
 
+function mediaPreviewSessionUnavailable(error) {
+  return error?.message===MEDIA_PREVIEW_SESSION_UNAVAILABLE;
+}
+
+function invalidateMediaPreviewSession({catalog_id:catalogId,asset_id:assetId,preview_session_id:previewSessionId}={}) {
+  if(!catalogId||!assetId||!previewSessionId)return null;
+  return dispatchLightingWorkspace({
+    type:"MEDIA_SESSION_INVALIDATED",
+    catalog_id:catalogId,
+    asset_id:assetId,
+    preview_session_id:previewSessionId,
+  },{renderWorkspace:true});
+}
+
 function sourceProjectionCacheKey(projection) {
   return projection
     ?`${projection.catalog_id}:${projection.preview_session_id}:${projection.source_frame_index}`
@@ -2787,7 +2802,17 @@ function renderLightingSourceProjection() {
   image.hidden=!url;
   placeholder.hidden=Boolean(url);
   if(url&&image.src!==url)image.src=url;
-  if(!url)placeholder.textContent=projection?"Loading this source frame…":"Building the synchronized preview…";
+  if(!url){
+    const expired=Boolean(
+      lightingWorkspace.media?.preview_timeline?.length
+      &&!lightingWorkspace.media?.preview_session_id
+    );
+    placeholder.textContent=projection
+      ?"Loading this source frame…"
+      :expired
+        ?"Preview session ended. Choose Preview to reconnect."
+        :"Building the synchronized preview…";
+  }
 }
 
 async function loadLightingSourceProjection() {
@@ -2813,7 +2838,12 @@ async function loadLightingSourceProjection() {
       `/api/library/items/${libraryCatalogPath(projection.catalog_id)}/source-frame?${query}`,
       {headers:{"X-AM-Token":token},signal:controller.signal},
     );
-    if(!response.ok)throw new Error("This source frame could not be loaded.");
+    if(!response.ok){
+      const failure=await response.json().catch(()=>({}));
+      const error=new Error(failure.error||"This source frame could not be loaded.");
+      Object.assign(error,failure,{status:response.status});
+      throw error;
+    }
     const url=URL.createObjectURL(await response.blob());
     if(!sourceProjectionLoadMatchesWorkspace(load)){
       URL.revokeObjectURL(url);
@@ -2822,6 +2852,9 @@ async function loadLightingSourceProjection() {
     rememberSourceProjectionUrl(key,url);
     renderLightingSourceProjection();
   }catch(error){
+    if(error.name!=="AbortError"&&mediaPreviewSessionUnavailable(error)){
+      invalidateMediaPreviewSession(load);
+    }
     if(error.name!=="AbortError"&&sourceProjectionLoadMatchesWorkspace(load)){
       const placeholder=$("#lighting-source-placeholder");
       if(placeholder)placeholder.textContent="This source frame could not be shown. Create the preview again.";
@@ -3027,6 +3060,10 @@ async function importMedia(input) {
 }
 
 async function renderMediaCompositionPreview() {
+  return renderMediaCompositionPreviewAttempt(true);
+}
+
+async function renderMediaCompositionPreviewAttempt(allowSessionRecovery) {
   const draft=state.mediaComposition;
   if(!draft||draft.status==="cancelled")return;
   const epoch=nextMediaRenderEpoch(state.mediaRenderEpoch);
@@ -3041,10 +3078,13 @@ async function renderMediaCompositionPreview() {
   dispatchLightingWorkspace({type:"SEQUENCE_RENDER_STARTED"});
   const workspaceRequestEpoch=lightingWorkspace.preview.request_epoch;
   const workspaceRequestContextKey=lightingWorkspace.preview.request_context_key;
+  const requestAsyncContext=captureWorkspaceAsyncContext(lightingWorkspace);
+  let requestedPreviewSessionId=null;
   renderLightingEdit();
   try{
     const previewSessionId=await ensureMediaPreviewSession(draft);
     if(!previewSessionId)return;
+    requestedPreviewSessionId=previewSessionId;
     const result=await api(`/api/library/items/${libraryCatalogPath(draft.catalogId)}/render`,{method:"POST",body:JSON.stringify({
       product_id:draft.destination.productId,
       targets:draft.destination.targets,
@@ -3091,6 +3131,19 @@ async function renderMediaCompositionPreview() {
     state.sourceTransform=completed.transform;
   }catch(error){
     if(state.mediaComposition?.catalogId!==draft.catalogId)return;
+    const requestStillCurrent=workspaceAsyncContextMatches(lightingWorkspace,requestAsyncContext)
+      &&lightingWorkspace.preview.request_epoch===workspaceRequestEpoch
+      &&lightingWorkspace.preview.request_context_key===workspaceRequestContextKey;
+    if(
+      allowSessionRecovery&&mediaPreviewSessionUnavailable(error)
+      &&requestedPreviewSessionId&&requestStillCurrent
+    ){
+      invalidateMediaPreviewSession({
+        ...lightingMediaIdentity(draft),
+        preview_session_id:requestedPreviewSessionId,
+      });
+      return renderMediaCompositionPreviewAttempt(false);
+    }
     const failed=dispatchLightingWorkspace({
       type:"SEQUENCE_RENDER_FAILED",
       request_epoch:workspaceRequestEpoch,

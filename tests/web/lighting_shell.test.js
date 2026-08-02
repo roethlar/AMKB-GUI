@@ -102,6 +102,28 @@ test("media and source-projection transitions are bound to the reducer session",
   );
 });
 
+test("expired preview sessions invalidate their exact id and retry one render", () => {
+  assert.match(js,/MEDIA_PREVIEW_SESSION_UNAVAILABLE/);
+  const invalidationStart=js.indexOf("function invalidateMediaPreviewSession");
+  const invalidationEnd=js.indexOf("\nfunction ",invalidationStart+10);
+  const invalidation=js.slice(invalidationStart,invalidationEnd);
+  assert.match(invalidation,/type:"MEDIA_SESSION_INVALIDATED"/);
+  assert.match(invalidation,/preview_session_id:previewSessionId/);
+
+  const renderStart=js.indexOf("async function renderMediaCompositionPreviewAttempt");
+  const renderEnd=js.indexOf("\nfunction ",renderStart+10);
+  const renderAttempt=js.slice(renderStart,renderEnd);
+  assert.match(renderAttempt,/allowSessionRecovery&&mediaPreviewSessionUnavailable\(error\)/);
+  assert.match(renderAttempt,/invalidateMediaPreviewSession\(/);
+  assert.match(renderAttempt,/return renderMediaCompositionPreviewAttempt\(false\)/);
+
+  const sourceStart=js.indexOf("async function loadLightingSourceProjection");
+  const sourceEnd=js.indexOf("\nfunction ",sourceStart+10);
+  const sourceLoad=js.slice(sourceStart,sourceEnd);
+  assert.match(sourceLoad,/mediaPreviewSessionUnavailable\(error\)/);
+  assert.match(sourceLoad,/invalidateMediaPreviewSession\(/);
+});
+
 // Slice P3 renamed the visible tool labels to Paint / Import media / Effects /
 // AI while the internal tool keys and element ids stayed stable. This guard
 // keeps owning the stable keys; the visible labels are owned by
