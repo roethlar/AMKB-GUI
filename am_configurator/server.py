@@ -2066,18 +2066,28 @@ class _State:
                 self._media_renderer is None
                 or self._media_renderer_catalog_identity != id(catalog)
             ):
+                previous = self._media_renderer
                 self._media_renderer = MediaRenderCoordinator(catalog)
                 self._media_renderer_catalog_identity = id(catalog)
+                close = getattr(previous, "close", None)
+                if callable(close):
+                    close()
             return self._media_renderer
 
     def close(self) -> None:
         try:
-            capability = self._ai_capability
-            close = getattr(capability, "close", None)
-            if callable(close):
-                close()
+            renderer = self._media_renderer
+            close_renderer = getattr(renderer, "close", None)
+            if callable(close_renderer):
+                close_renderer()
         finally:
-            self._device_executor.shutdown(wait=True)
+            try:
+                capability = self._ai_capability
+                close_capability = getattr(capability, "close", None)
+                if callable(close_capability):
+                    close_capability()
+            finally:
+                self._device_executor.shutdown(wait=True)
 
     def device_io(self, operation):
         """Run one complete device operation on the stable HID worker thread."""
@@ -2118,8 +2128,16 @@ class _State:
             ):
                 return self._lighting_library
             library = GeneratedAssetLibrary(current_root, roots)
+            renderer = self._media_renderer
+            self._media_renderer = None
+            self._media_renderer_catalog_identity = None
+            self._library_catalog = None
+            self._library_catalog_identity = None
             self._lighting_library = library
             self._lighting_root_signature = signature
+            close = getattr(renderer, "close", None)
+            if callable(close):
+                close()
             return library
 
     def reconcile_lighting(self, *, force: bool = False) -> list[dict]:
@@ -2592,12 +2610,14 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
                 return
             catalog = self.state.library_catalog()
-            self._json(
-                catalog.delete_forever(
-                    parts[3],
-                    active_catalog_ids=self._active_library_catalog_ids(),
-                )
+            result = catalog.delete_forever(
+                parts[3],
+                active_catalog_ids=self._active_library_catalog_ids(),
             )
+            renderer = self.state._media_renderer
+            if renderer is not None:
+                renderer.invalidate_catalog_id(parts[3])
+            self._json(result)
         except ValueError as exc:
             self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
         except Exception as exc:  # noqa: BLE001 - API boundary
@@ -3299,11 +3319,70 @@ class _Handler(BaseHTTPRequestHandler):
         if (
             len(parts) == 5
             and parts[:3] == ["api", "library", "items"]
+            and parts[4] == "preview-session"
+        ):
+            if body:
+                raise ValueError(
+                    "Media preview session creation does not accept body fields."
+                )
+            self._json(
+                self.state.media_renderer().prepare_preview_session(parts[3]),
+                HTTPStatus.CREATED,
+            )
+            return
+        if (
+            len(parts) == 5
+            and parts[:3] == ["api", "library", "items"]
+            and parts[4] == "render-frame"
+        ):
+            if set(body) != {
+                "preview_session_id",
+                "product_id",
+                "targets",
+                "transform",
+                "effects",
+                "frame_index",
+                "epoch",
+            }:
+                raise ValueError(
+                    "Selected-frame rendering requires a preview session, destination, transform, effects, frame index, and epoch."
+                )
+            self._json(
+                self.state.media_renderer().render_frame(
+                    parts[3],
+                    preview_session_id=body["preview_session_id"],
+                    product_id=body["product_id"],
+                    targets=body["targets"],
+                    transform=body["transform"],
+                    effects=body["effects"],
+                    frame_index=body["frame_index"],
+                    epoch=body["epoch"],
+                )
+            )
+            return
+        if (
+            len(parts) == 5
+            and parts[:3] == ["api", "library", "items"]
             and parts[4] == "render"
         ):
             if set(body) not in (
                 {"product_id", "targets", "transform", "epoch"},
                 {"product_id", "targets", "transform", "effects", "epoch"},
+                {
+                    "preview_session_id",
+                    "product_id",
+                    "targets",
+                    "transform",
+                    "epoch",
+                },
+                {
+                    "preview_session_id",
+                    "product_id",
+                    "targets",
+                    "transform",
+                    "effects",
+                    "epoch",
+                },
             ):
                 raise ValueError(
                     "Media rendering requires product_id, targets, transform, and epoch."
@@ -3316,6 +3395,7 @@ class _Handler(BaseHTTPRequestHandler):
                     transform=body["transform"],
                     epoch=body["epoch"],
                     effects=body.get("effects", ()),
+                    preview_session_id=body.get("preview_session_id"),
                 )
             )
             return
@@ -3348,12 +3428,15 @@ class _Handler(BaseHTTPRequestHandler):
         operation = (
             catalog.remove if parts[4] == "remove" else catalog.restore
         )
-        self._json(
-            operation(
-                parts[3],
-                active_catalog_ids=self._active_library_catalog_ids(),
-            )
+        result = operation(
+            parts[3],
+            active_catalog_ids=self._active_library_catalog_ids(),
         )
+        if parts[4] == "remove":
+            renderer = self.state._media_renderer
+            if renderer is not None:
+                renderer.invalidate_catalog_id(parts[3])
+        self._json(result)
 
     def _library_get(self, path: str, query: str) -> None:
         catalog = self.state.library_catalog()
@@ -3361,6 +3444,32 @@ class _Handler(BaseHTTPRequestHandler):
             self._library_catalog_page(catalog, query)
             return
         parts = path.strip("/").split("/")
+        if (
+            len(parts) == 5
+            and parts[:3] == ["api", "library", "items"]
+            and parts[4] == "source-frame"
+        ):
+            values = parse_qs(query, keep_blank_values=True)
+            if set(values) != {"preview_session_id", "source_frame_index"} or any(
+                len(items) != 1 for items in values.values()
+            ):
+                raise ValueError(
+                    "Source preview requires one preview session and source frame index."
+                )
+            raw_index = values["source_frame_index"][0]
+            if not raw_index.isascii() or not raw_index.isdigit():
+                raise ValueError("The source preview frame index is invalid.")
+            payload = self.state.media_renderer().source_frame_png(
+                parts[3],
+                preview_session_id=values["preview_session_id"][0],
+                source_frame_index=int(raw_index),
+            )
+            if self.headers.get("Range") is not None:
+                self._range_not_satisfiable(len(payload))
+                return
+            self._headers(HTTPStatus.OK, "image/png", len(payload))
+            self.wfile.write(payload)
+            return
         if len(parts) == 4 and parts[:3] == ["api", "library", "items"]:
             if query:
                 raise ValueError(

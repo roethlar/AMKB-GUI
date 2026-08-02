@@ -6,10 +6,13 @@ import copy
 import hashlib
 import math
 import re
+import secrets
 import struct
 import threading
+import time
 import warnings
 import zlib
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from io import BytesIO
@@ -23,6 +26,12 @@ MAX_MEDIA_DURATION_MS = 10 * 60 * 1_000
 MAX_MEDIA_FRAME_DURATION_MS = 60_000
 MAX_DECODED_PIXELS = 32_000_000
 MAX_RENDER_PIXELS = 32_000_000
+MAX_PREVIEW_SESSIONS = 2
+MAX_PREVIEW_DECODED_PIXELS = MAX_DECODED_PIXELS * MAX_PREVIEW_SESSIONS
+MAX_SOURCE_PREVIEW_PIXELS = 1_000_000
+MAX_SOURCE_PREVIEW_CACHE_ENTRIES = 4
+MAX_SOURCE_PREVIEW_CACHE_BYTES = 16_000_000
+PREVIEW_SESSION_TTL_SECONDS = 5 * 60
 MAX_TRANSFORM_OFFSET = 8.0
 MIN_TRANSFORM_SCALE = 0.01
 MAX_TRANSFORM_SCALE = 32.0
@@ -137,6 +146,75 @@ class ResolvedSourceGeometry:
 
 class MediaRenderSuperseded(RuntimeError):
     """A newer editor epoch replaced this transient render."""
+
+
+@dataclass(frozen=True)
+class PreparedMediaSession:
+    """One pathless verified decoded source held by the bounded preview LRU."""
+
+    session_id: str
+    catalog_id: str
+    asset_id: str
+    asset_sha256: str
+    decoded: DecodedMedia
+
+    @property
+    def decoded_pixels(self) -> int:
+        return self.decoded.width * self.decoded.height * self.decoded.frame_count
+
+
+@dataclass(frozen=True)
+class PreviewTimelineEntry:
+    """One exact firmware output frame and its synchronized source projection."""
+
+    index: int
+    source_frame_index: int
+    duration_ms: int
+    resolved_transform: SourceTransform
+    effect_phase: tuple[tuple[str, int, int], ...]
+    base_frame_index: int
+    color_effect_indices: tuple[int, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "index": self.index,
+            "source_frame_index": self.source_frame_index,
+            "duration_ms": self.duration_ms,
+            "resolved_transform": self.resolved_transform.to_dict(),
+            "effect_phase": [
+                {
+                    "type": effect_type,
+                    "frame_index": frame_index,
+                    "frame_count": frame_count,
+                }
+                for effect_type, frame_index, frame_count in self.effect_phase
+            ],
+        }
+
+
+@dataclass(frozen=True)
+class PreparedMediaRender:
+    """Validated destination/effect projection shared by frame and full renders."""
+
+    session: PreparedMediaSession
+    product_id: str
+    model: str
+    targets: tuple[str, ...]
+    destination_sizes: tuple[tuple[int, int], ...]
+    frame_limit: int
+    transform: SourceTransform
+    effects: tuple[dict[str, object], ...]
+    resolved_transforms: tuple[SourceTransform, ...]
+    color_effects: tuple[dict[str, object], ...]
+    timeline: tuple[PreviewTimelineEntry, ...]
+
+
+@dataclass
+class _PreviewSessionCacheEntry:
+    prepared: PreparedMediaSession
+    last_access: float
+    source_previews: OrderedDict[int, bytes]
+    source_preview_bytes: int = 0
 
 
 def _sniff_media(payload: bytes) -> str:
@@ -884,14 +962,7 @@ def _sweep_position(coordinate: Mapping[str, float], direction: str) -> float:
     return (coordinate["x"] + coordinate["y"]) / 2
 
 
-def render_color_effect(
-    source_frames: object,
-    effect: object,
-    *,
-    coordinates: object = None,
-) -> list[list[str]]:
-    """Render color/intensity effects identically to the browser reducer."""
-
+def _checked_color_effect(effect: object) -> dict[str, object]:
     raw_frame_count = (
         effect.get("frame_count")
         if isinstance(effect, Mapping)
@@ -906,6 +977,10 @@ def render_color_effect(
     )
     if checked["type"] == "move_zoom":
         raise ValueError("Move & zoom renders source transforms, not LED colors.")
+    return checked
+
+
+def _normalized_effect_frames(source_frames: object) -> list[list[str]]:
     if not isinstance(source_frames, (list, tuple)) or not source_frames:
         raise ValueError("A local effect requires source frames.")
     first = source_frames[0]
@@ -923,91 +998,138 @@ def render_color_effect(
             _parse_color(color)
             normalized.append(color.upper())
         frames.append(normalized)
+    return frames
+
+
+def _render_color_effect_frame_checked(
+    source: Sequence[str],
+    checked: Mapping[str, object],
+    frame_index: int,
+    *,
+    positions: Sequence[Mapping[str, float]] | None,
+) -> list[str]:
+    frame_count = int(checked["frame_count"])
+    if type(frame_index) is not int or not 0 <= frame_index < frame_count:
+        raise ValueError("The local effect frame index is invalid.")
 
     effect_type = str(checked["type"])
-    positions = (
-        _validated_coordinates(coordinates, pixel_count)
-        if effect_type == "sweep"
-        else None
-    )
-    frame_count = int(checked["frame_count"])
     parameters = checked["parameters"]
     assert isinstance(parameters, dict)
+    if effect_type == "pulse":
+        phase = frame_index / (frame_count - 1)
+        wave = math.sin(math.pi * phase) ** 2
+        minimum = float(parameters["minimum_brightness"])
+        return [
+            _scale_color(
+                color,
+                1 - (1 - minimum) * wave,
+            )
+            for color in source
+        ]
+    if effect_type == "hue_cycle":
+        turns = float(parameters["turns"]) * frame_index / frame_count
+        return [_hue_color(color, turns) for color in source]
+    if effect_type == "sweep":
+        assert positions is not None
+        width = float(parameters["width"])
+        progress = frame_index / (frame_count - 1)
+        center = -width + progress * (1 + width * 2)
+        minimum = float(parameters["minimum_brightness"])
+        colors: list[str] = []
+        for pixel_index, color in enumerate(source):
+            distance = abs(
+                _sweep_position(
+                    positions[pixel_index],
+                    str(parameters["direction"]),
+                )
+                - center
+            )
+            mask = max(0.0, min(1.0, 1 - distance / width))
+            colors.append(
+                _scale_color(
+                    color,
+                    minimum + (1 - minimum) * mask,
+                )
+            )
+        return colors
+    depth = float(parameters["depth"])
+    loop_phase = math.pi * 2 * frame_index / frame_count
+    return [
+        _scale_color(
+            color,
+            1
+            - depth
+            + depth
+            * (
+                0.5
+                + 0.5
+                * math.sin(
+                    loop_phase
+                    + _noise_phase(
+                        int(parameters["seed"]),
+                        pixel_index,
+                    )
+                )
+            ),
+        )
+        for pixel_index, color in enumerate(source)
+    ]
+
+
+def render_color_effect_frame(
+    source_frame: object,
+    effect: object,
+    frame_index: int,
+    *,
+    coordinates: object = None,
+) -> list[str]:
+    """Render one exact color-effect output frame through the shared primitive."""
+
+    checked = _checked_color_effect(effect)
+    frames = _normalized_effect_frames([source_frame])
+    positions = (
+        _validated_coordinates(coordinates, len(frames[0]))
+        if checked["type"] == "sweep"
+        else None
+    )
+    return _render_color_effect_frame_checked(
+        frames[0],
+        checked,
+        frame_index,
+        positions=positions,
+    )
+
+
+def render_color_effect(
+    source_frames: object,
+    effect: object,
+    *,
+    coordinates: object = None,
+) -> list[list[str]]:
+    """Render color/intensity effects identically to the browser reducer."""
+
+    checked = _checked_color_effect(effect)
+    frames = _normalized_effect_frames(source_frames)
+    frame_count = int(checked["frame_count"])
+    positions = (
+        _validated_coordinates(coordinates, len(frames[0]))
+        if checked["type"] == "sweep"
+        else None
+    )
     output: list[list[str]] = []
     for frame_index in range(frame_count):
         source_index = min(
             len(frames) - 1,
             math.floor(frame_index * len(frames) / frame_count),
         )
-        source = frames[source_index]
-        if effect_type == "pulse":
-            phase = frame_index / (frame_count - 1)
-            wave = math.sin(math.pi * phase) ** 2
-            minimum = float(parameters["minimum_brightness"])
-            output.append(
-                [
-                    _scale_color(
-                        color,
-                        1 - (1 - minimum) * wave,
-                    )
-                    for color in source
-                ]
+        output.append(
+            _render_color_effect_frame_checked(
+                frames[source_index],
+                checked,
+                frame_index,
+                positions=positions,
             )
-        elif effect_type == "hue_cycle":
-            turns = (
-                float(parameters["turns"])
-                * frame_index
-                / frame_count
-            )
-            output.append([_hue_color(color, turns) for color in source])
-        elif effect_type == "sweep":
-            assert positions is not None
-            width = float(parameters["width"])
-            progress = frame_index / (frame_count - 1)
-            center = -width + progress * (1 + width * 2)
-            minimum = float(parameters["minimum_brightness"])
-            colors: list[str] = []
-            for pixel_index, color in enumerate(source):
-                distance = abs(
-                    _sweep_position(
-                        positions[pixel_index],
-                        str(parameters["direction"]),
-                    )
-                    - center
-                )
-                mask = max(0.0, min(1.0, 1 - distance / width))
-                colors.append(
-                    _scale_color(
-                        color,
-                        minimum + (1 - minimum) * mask,
-                    )
-                )
-            output.append(colors)
-        else:
-            depth = float(parameters["depth"])
-            loop_phase = math.pi * 2 * frame_index / frame_count
-            output.append(
-                [
-                    _scale_color(
-                        color,
-                        1
-                        - depth
-                        + depth
-                        * (
-                            0.5
-                            + 0.5
-                            * math.sin(
-                                loop_phase
-                                + _noise_phase(
-                                    int(parameters["seed"]),
-                                    pixel_index,
-                                )
-                            )
-                        ),
-                    )
-                    for pixel_index, color in enumerate(source)
-                ]
-            )
+        )
     return output
 
 
@@ -1167,18 +1289,57 @@ def render_source_frame(
     return output
 
 
-class MediaRenderCoordinator:
-    """Coordinate pathless transient renders with monotonic editor epochs."""
+def _source_preview_size(width: int, height: int) -> tuple[int, int]:
+    """Fit a complete source frame inside the display-only preview ceiling."""
 
-    def __init__(self, catalog: Any) -> None:
+    if width * height <= MAX_SOURCE_PREVIEW_PIXELS:
+        return width, height
+    scale = math.sqrt(MAX_SOURCE_PREVIEW_PIXELS / (width * height))
+    preview_width = max(1, math.floor(width * scale))
+    preview_height = max(1, math.floor(height * scale))
+    while preview_width * preview_height > MAX_SOURCE_PREVIEW_PIXELS:
+        if preview_width / width >= preview_height / height:
+            preview_width -= 1
+        else:
+            preview_height -= 1
+    return preview_width, preview_height
+
+
+def _encode_source_preview(frame: Any, size: tuple[int, int]) -> bytes:
+    """Encode one untransformed complete decoded frame as a static PNG."""
+
+    from PIL import Image
+
+    projected = frame
+    if tuple(frame.size) != size:
+        projected = frame.resize(size, Image.Resampling.LANCZOS)
+    output = BytesIO()
+    projected.save(output, format="PNG")
+    return output.getvalue()
+
+
+class MediaRenderCoordinator:
+    """Coordinate bounded pathless media sessions and exact transient renders."""
+
+    def __init__(
+        self,
+        catalog: Any,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         from .library import LibraryCatalog
 
         if not isinstance(catalog, LibraryCatalog):
             raise TypeError("catalog must be a LibraryCatalog")
         self.catalog = catalog
+        self._clock = clock
         self._lock = threading.Lock()
-        self._latest_epochs: dict[str, int] = {}
+        self._latest_epochs: dict[
+            tuple[str, str | None, str, tuple[str, ...]], int
+        ] = {}
         self._active_counts: dict[str, int] = {}
+        self._sessions: OrderedDict[str, _PreviewSessionCacheEntry] = OrderedDict()
+        self._closed = False
 
     def active_catalog_ids(self) -> set[str]:
         with self._lock:
@@ -1188,28 +1349,49 @@ class MediaRenderCoordinator:
                 if count > 0
             }
 
-    def _begin(self, catalog_id: str, epoch: int) -> Callable[[], None]:
+    def close(self) -> None:
+        """Invalidate every transient session owned by this catalog identity."""
+
         with self._lock:
-            latest = self._latest_epochs.get(catalog_id)
-            if latest is not None and epoch <= latest:
-                raise MediaRenderSuperseded(
-                    "A newer media preview superseded this render."
-                )
-            self._latest_epochs[catalog_id] = epoch
+            self._closed = True
+            self._sessions.clear()
+            self._latest_epochs.clear()
+
+    def invalidate_catalog_id(self, catalog_id: str) -> None:
+        """Discard cached state after one Library item is removed or deleted."""
+
+        with self._lock:
+            for session_id in [
+                session_id
+                for session_id, entry in self._sessions.items()
+                if entry.prepared.catalog_id == catalog_id
+            ]:
+                self._drop_session_locked(session_id)
+            for key in [key for key in self._latest_epochs if key[0] == catalog_id]:
+                self._latest_epochs.pop(key, None)
+
+    def _drop_session_locked(self, session_id: str) -> None:
+        self._sessions.pop(session_id, None)
+        for key in [key for key in self._latest_epochs if key[1] == session_id]:
+            self._latest_epochs.pop(key, None)
+
+    def _purge_expired_locked(self, now: float) -> None:
+        for session_id in [
+            session_id
+            for session_id, entry in self._sessions.items()
+            if now - entry.last_access >= PREVIEW_SESSION_TTL_SECONDS
+        ]:
+            self._drop_session_locked(session_id)
+
+    def _start_active(self, catalog_id: str) -> None:
+        with self._lock:
+            if self._closed:
+                raise ValueError("This media preview session is no longer available.")
             self._active_counts[catalog_id] = (
                 self._active_counts.get(catalog_id, 0) + 1
             )
 
-        def check() -> None:
-            with self._lock:
-                if self._latest_epochs.get(catalog_id) != epoch:
-                    raise MediaRenderSuperseded(
-                        "A newer media preview superseded this render."
-                    )
-
-        return check
-
-    def _finish(self, catalog_id: str) -> None:
+    def _finish_active(self, catalog_id: str) -> None:
         with self._lock:
             remaining = self._active_counts.get(catalog_id, 0) - 1
             if remaining > 0:
@@ -1217,17 +1399,217 @@ class MediaRenderCoordinator:
             else:
                 self._active_counts.pop(catalog_id, None)
 
-    def render(
+    @staticmethod
+    def _checked_session_id(session_id: object) -> str:
+        if (
+            not isinstance(session_id, str)
+            or not 32 <= len(session_id) <= 200
+            or any(
+                character
+                not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+                for character in session_id
+            )
+        ):
+            raise ValueError("The media preview session is invalid.")
+        return session_id
+
+    def _source_asset(
         self,
         catalog_id: str,
         *,
-        product_id: str,
-        targets: Sequence[str],
-        transform: Mapping[str, object],
-        epoch: int,
-        effects: Sequence[Mapping[str, object]] = (),
-        progress: Callable[[int, int], None] | None = None,
+        verify_content: bool,
+    ) -> tuple[dict[str, object], Any]:
+        detail = self.catalog.get(catalog_id)
+        item = detail.get("item")
+        source = item.get("source") if isinstance(item, dict) else None
+        if (
+            detail.get("namespace") != "item"
+            or detail.get("kind") != "media_source"
+            or detail.get("removed") is not False
+            or not isinstance(source, dict)
+        ):
+            raise ValueError("This Library item is not an available media source.")
+        asset_id = source.get("asset_id")
+        if not isinstance(asset_id, str):
+            raise ValueError("This Library media source has an invalid asset.")
+        owned = self.catalog.resolve_asset(
+            catalog_id,
+            asset_id,
+            verify_content=verify_content,
+        )
+        record = owned.record
+        byte_size = record.get("byte_size")
+        if (
+            record.get("kind") != "source"
+            or type(byte_size) is not int
+            or not 0 < byte_size <= MAX_MEDIA_BYTES
+            or record.get("mime_type") != source.get("mime_type")
+            or record.get("sha256") != source.get("sha256")
+        ):
+            raise ValueError("The saved media source metadata no longer matches its asset.")
+        return source, owned
+
+    @staticmethod
+    def _source_matches(
+        source: Mapping[str, object],
+        owned: Any,
+        decoded: DecodedMedia,
+    ) -> bool:
+        return (
+            source.get("asset_id") == owned.record.get("asset_id")
+            and source.get("mime_type") == decoded.mime_type
+            and source.get("sha256") == decoded.sha256
+            and source.get("width") == decoded.width
+            and source.get("height") == decoded.height
+            and source.get("frame_count") == decoded.frame_count
+            and source.get("duration_ms") == decoded.duration_ms
+        )
+
+    def _create_session(self, catalog_id: str) -> PreparedMediaSession:
+        source, owned = self._source_asset(catalog_id, verify_content=False)
+        byte_size = int(owned.record["byte_size"])
+        with owned.open_verified() as stream:
+            payload = stream.read(byte_size + 1)
+        if len(payload) != byte_size:
+            raise ValueError("The saved media source changed while it was read.")
+        decoded = decode_media(payload)
+        if not self._source_matches(source, owned, decoded):
+            raise ValueError("The saved media source metadata no longer matches its asset.")
+
+        with self._lock:
+            if self._closed:
+                raise ValueError("This media preview session is no longer available.")
+            self._purge_expired_locked(self._clock())
+            session_id = secrets.token_urlsafe(32)
+            while session_id in self._sessions:
+                session_id = secrets.token_urlsafe(32)
+            prepared = PreparedMediaSession(
+                session_id=session_id,
+                catalog_id=catalog_id,
+                asset_id=str(source["asset_id"]),
+                asset_sha256=decoded.sha256,
+                decoded=decoded,
+            )
+            while self._sessions and (
+                len(self._sessions) >= MAX_PREVIEW_SESSIONS
+                or sum(
+                    entry.prepared.decoded_pixels
+                    for entry in self._sessions.values()
+                )
+                + prepared.decoded_pixels
+                > MAX_PREVIEW_DECODED_PIXELS
+            ):
+                oldest_session_id = next(iter(self._sessions))
+                self._drop_session_locked(oldest_session_id)
+            if prepared.decoded_pixels > MAX_PREVIEW_DECODED_PIXELS:
+                raise ValueError("The media preview decoded-pixel limit was exceeded.")
+            self._sessions[session_id] = _PreviewSessionCacheEntry(
+                prepared=prepared,
+                last_access=self._clock(),
+                source_previews=OrderedDict(),
+            )
+            return prepared
+
+    def _get_session(
+        self,
+        catalog_id: str,
+        session_id: object,
+    ) -> PreparedMediaSession:
+        checked_id = self._checked_session_id(session_id)
+        with self._lock:
+            if self._closed:
+                raise ValueError("This media preview session is no longer available.")
+            self._purge_expired_locked(self._clock())
+            entry = self._sessions.get(checked_id)
+            if entry is None or entry.prepared.catalog_id != catalog_id:
+                raise ValueError("This media preview session is no longer available.")
+            prepared = entry.prepared
+
+        try:
+            # Session creation already verified and decoded the exact asset bytes.
+            # Reuse rechecks ownership, safe path/descriptor state, size, and the
+            # current manifest digest without rereading up to 12 MB per live frame.
+            source, owned = self._source_asset(catalog_id, verify_content=False)
+            if (
+                prepared.asset_id != source.get("asset_id")
+                or prepared.asset_sha256 != source.get("sha256")
+                or not self._source_matches(source, owned, prepared.decoded)
+            ):
+                raise ValueError(
+                    "The saved media source metadata no longer matches its asset."
+                )
+        except Exception:
+            with self._lock:
+                current = self._sessions.get(checked_id)
+                if current is not None and current.prepared is prepared:
+                    self._drop_session_locked(checked_id)
+            raise
+
+        with self._lock:
+            current = self._sessions.get(checked_id)
+            if (
+                self._closed
+                or current is None
+                or current.prepared is not prepared
+            ):
+                raise ValueError("This media preview session is no longer available.")
+            current.last_access = self._clock()
+            self._sessions.move_to_end(checked_id)
+        return prepared
+
+    @staticmethod
+    def _source_preview_descriptor(
+        prepared: PreparedMediaSession,
     ) -> dict[str, object]:
+        width, height = _source_preview_size(
+            prepared.decoded.width,
+            prepared.decoded.height,
+        )
+        return {
+            "mime_type": "image/png",
+            "width": width,
+            "height": height,
+            "frame_count": prepared.decoded.frame_count,
+            "display_only": True,
+        }
+
+    def _session_response(
+        self,
+        prepared: PreparedMediaSession,
+    ) -> dict[str, object]:
+        decoded = prepared.decoded
+        return {
+            "catalog_id": prepared.catalog_id,
+            "preview_session_id": prepared.session_id,
+            "source": {
+                "mime_type": decoded.mime_type,
+                "width": decoded.width,
+                "height": decoded.height,
+                "frame_count": decoded.frame_count,
+                "duration_ms": decoded.duration_ms,
+                "sha256": decoded.sha256,
+            },
+            "source_preview": self._source_preview_descriptor(prepared),
+        }
+
+    def prepare_preview_session(self, catalog_id: str) -> dict[str, object]:
+        """Decode and retain one verified Library media source within the LRU."""
+
+        self._start_active(catalog_id)
+        try:
+            return self._session_response(self._create_session(catalog_id))
+        finally:
+            self._finish_active(catalog_id)
+
+    @staticmethod
+    def _validate_render_request(
+        *,
+        product_id: object,
+        targets: object,
+        transform: object,
+        epoch: object,
+        effects: object,
+    ) -> SourceTransform:
         if type(epoch) is not int or not 0 <= epoch <= 2**53:
             raise ValueError("The media render epoch is invalid.")
         if not isinstance(product_id, str) or not product_id:
@@ -1244,170 +1626,509 @@ class MediaRenderCoordinator:
             or any(not isinstance(effect, Mapping) for effect in effects)
         ):
             raise ValueError("Media render effects must be a bounded list.")
-        checked_transform = validate_source_transform(transform)
-        detail = self.catalog.get(catalog_id)
-        item = detail.get("item")
-        if (
-            detail.get("namespace") != "item"
-            or detail.get("kind") != "media_source"
-            or detail.get("removed") is not False
-            or not isinstance(item, dict)
-            or not isinstance(item.get("source"), dict)
-        ):
-            raise ValueError("This Library item is not an available media source.")
+        return validate_source_transform(transform)
 
-        check = self._begin(catalog_id, epoch)
-        try:
-            check()
-            source = item["source"]
-            owned = self.catalog.resolve_asset(
-                catalog_id,
-                source["asset_id"],
-                verify_content=False,
-            )
-            byte_size = owned.record["byte_size"]
-            if (
-                type(byte_size) is not int
-                or byte_size <= 0
-                or byte_size > MAX_MEDIA_BYTES
-            ):
-                raise ValueError("The saved media source exceeds the size limit.")
-            with owned.open_verified() as stream:
-                payload = stream.read(byte_size + 1)
-            if len(payload) != byte_size:
-                raise ValueError("The saved media source changed while it was read.")
-            decoded = decode_media(payload, work_check=check)
-            if (
-                decoded.mime_type != source["mime_type"]
-                or decoded.sha256 != source["sha256"]
-                or decoded.width != source["width"]
-                or decoded.height != source["height"]
-                or decoded.frame_count != source["frame_count"]
-                or decoded.duration_ms != source["duration_ms"]
-            ):
-                raise ValueError(
-                    "The saved media source metadata no longer matches its asset."
-                )
-            check()
-            from . import device_mapping
+    def _prepare_render(
+        self,
+        session: PreparedMediaSession,
+        *,
+        product_id: str,
+        targets: Sequence[str],
+        checked_transform: SourceTransform,
+        effects: Sequence[Mapping[str, object]],
+    ) -> PreparedMediaRender:
+        from . import device_mapping
 
-            frame_limit = device_mapping.family_spec(
-                device_mapping.led_model(product_id)
-            ).frame_cap
-            _model, resolved_targets, destination_sizes = (
-                device_mapping.media_target_sizes(product_id, targets)
+        model, resolved_targets, destination_sizes = (
+            device_mapping.media_target_sizes(product_id, targets)
+        )
+        frame_limit = device_mapping.family_spec(model).frame_cap
+        source_size = (session.decoded.width, session.decoded.height)
+        canonical_transform = canonicalize_source_transform(
+            checked_transform,
+            source_size,
+            destination_sizes,
+        )
+        checked_effects = tuple(
+            validate_effect_spec(
+                effect,
+                frame_limit=frame_limit,
+                still_source=session.decoded.frame_count == 1,
             )
-            source_size = (decoded.width, decoded.height)
-            canonical_transform = canonicalize_source_transform(
-                checked_transform,
-                source_size,
-                destination_sizes,
+            for effect in effects
+        )
+        move_effects = tuple(
+            effect for effect in checked_effects if effect["type"] == "move_zoom"
+        )
+        if len(move_effects) > 1:
+            raise ValueError(
+                "A media composition can contain only one Move & zoom effect."
             )
-            checked_effects = [
-                validate_effect_spec(
-                    effect,
+        if move_effects and checked_effects[0]["type"] != "move_zoom":
+            raise ValueError("Move & zoom must be the first media composition effect.")
+
+        if move_effects:
+            raw_transforms = interpolate_move_zoom(
+                move_effects[0],
+                source_size=source_size,
+                destination_sizes=destination_sizes,
+            )
+            resolved_transforms = tuple(
+                validate_source_transform(value) for value in raw_transforms
+            )
+            base_indices, base_duration, _resampled = (
+                device_mapping.media_timeline_indices(
+                    [int(move_effects[0]["duration_ms"])]
+                    * len(resolved_transforms),
                     frame_limit=frame_limit,
-                    still_source=decoded.frame_count == 1,
                 )
-                for effect in effects
+            )
+            base_entries = [
+                PreviewTimelineEntry(
+                    index=output_index,
+                    source_frame_index=0,
+                    duration_ms=base_duration,
+                    resolved_transform=resolved_transforms[transform_index],
+                    effect_phase=(
+                        (
+                            "move_zoom",
+                            transform_index,
+                            len(resolved_transforms),
+                        ),
+                    ),
+                    base_frame_index=output_index,
+                    color_effect_indices=(),
+                )
+                for output_index, transform_index in enumerate(base_indices)
             ]
-            move_effects = [
-                effect
-                for effect in checked_effects
-                if effect["type"] == "move_zoom"
+        else:
+            resolved_transforms = ()
+            base_indices, base_duration, _resampled = (
+                device_mapping.media_timeline_indices(
+                    session.decoded.durations_ms,
+                    frame_limit=frame_limit,
+                )
+            )
+            base_entries = [
+                PreviewTimelineEntry(
+                    index=output_index,
+                    source_frame_index=source_frame_index,
+                    duration_ms=base_duration,
+                    resolved_transform=canonical_transform,
+                    effect_phase=(),
+                    base_frame_index=output_index,
+                    color_effect_indices=(),
+                )
+                for output_index, source_frame_index in enumerate(base_indices)
             ]
-            if len(move_effects) > 1:
-                raise ValueError(
-                    "A media composition can contain only one Move & zoom effect."
+
+        color_effects = tuple(
+            effect for effect in checked_effects if effect["type"] != "move_zoom"
+        )
+        timeline = base_entries
+        for effect in color_effects:
+            previous = timeline
+            frame_count = int(effect["frame_count"])
+            duration_ms = int(effect["duration_ms"])
+            timeline = []
+            for frame_index in range(frame_count):
+                source_index = min(
+                    len(previous) - 1,
+                    math.floor(frame_index * len(previous) / frame_count),
                 )
-            if move_effects:
-                if checked_effects[0]["type"] != "move_zoom":
-                    raise ValueError(
-                        "Move & zoom must be the first media composition effect."
+                source_entry = previous[source_index]
+                timeline.append(
+                    PreviewTimelineEntry(
+                        index=frame_index,
+                        source_frame_index=source_entry.source_frame_index,
+                        duration_ms=duration_ms,
+                        resolved_transform=source_entry.resolved_transform,
+                        effect_phase=(
+                            *source_entry.effect_phase,
+                            (str(effect["type"]), frame_index, frame_count),
+                        ),
+                        base_frame_index=source_entry.base_frame_index,
+                        color_effect_indices=(
+                            *source_entry.color_effect_indices,
+                            frame_index,
+                        ),
                     )
-                transforms = interpolate_move_zoom(
-                    move_effects[0],
-                    source_size=source_size,
-                    destination_sizes=destination_sizes,
                 )
-                mapped = device_mapping.compose_media_transform_sequence_to_led_tracks(
-                    decoded.frames[0],
-                    [int(move_effects[0]["duration_ms"])] * len(transforms),
-                    resolved_targets,
-                    transforms,
-                    product_id,
-                    work_check=check,
-                    progress=progress,
-                )
-            else:
-                mapped = device_mapping.compose_media_frames_to_led_tracks(
-                    decoded.frames,
-                    decoded.durations_ms,
-                    resolved_targets,
-                    canonical_transform.to_dict(),
-                    product_id,
-                    work_check=check,
-                    progress=progress,
-                )
-            color_effects = [
-                effect
-                for effect in checked_effects
-                if effect["type"] != "move_zoom"
-            ]
-            for effect in color_effects:
-                for target, track in mapped["tracks"].items():
-                    capabilities = device_mapping.target_capabilities()[
-                        mapped["model"]
-                    ]["targets"]
-                    target_capability = next(
-                        entry
-                        for entry in capabilities
-                        if entry["name"] == target
+
+        return PreparedMediaRender(
+            session=session,
+            product_id=product_id,
+            model=model,
+            targets=tuple(resolved_targets),
+            destination_sizes=destination_sizes,
+            frame_limit=frame_limit,
+            transform=canonical_transform,
+            effects=checked_effects,
+            resolved_transforms=resolved_transforms,
+            color_effects=color_effects,
+            timeline=tuple(timeline),
+        )
+
+    @staticmethod
+    def _target_effect_coordinates(
+        model: str,
+        target: str,
+        pixel_count: int,
+    ) -> list[dict[str, float]]:
+        from . import device_mapping
+
+        target_capability = next(
+            entry
+            for entry in device_mapping.target_capabilities()[model]["targets"]
+            if entry["name"] == target
+        )
+        coordinates = [
+            {"x": 0.5, "y": 0.5} for _index in range(pixel_count)
+        ]
+        width = target_capability["width"]
+        height = target_capability["height"]
+        for source_index, output_index in enumerate(target_capability["map"]):
+            if output_index < 0:
+                continue
+            coordinates[output_index] = {
+                "x": ((source_index % width) + 0.5) / width,
+                "y": ((source_index // width) + 0.5) / height,
+            }
+        for copy_rule in target_capability["copies"]:
+            coordinates[copy_rule["output_index"]] = copy.deepcopy(
+                coordinates[copy_rule["source_index"]]
+            )
+        return coordinates
+
+    def _apply_full_color_effects(
+        self,
+        mapped: dict[str, Any],
+        effects: Sequence[Mapping[str, object]],
+        check: Callable[[], None],
+    ) -> None:
+        coordinate_cache: dict[str, list[dict[str, float]]] = {}
+        for effect in effects:
+            for target, track in mapped["tracks"].items():
+                check()
+                coordinates = coordinate_cache.get(target)
+                if coordinates is None:
+                    coordinates = self._target_effect_coordinates(
+                        str(mapped["model"]),
+                        target,
+                        int(track["pixels"]),
                     )
-                    coordinates = [
-                        {"x": 0.5, "y": 0.5}
-                        for _index in range(track["pixels"])
-                    ]
-                    width = target_capability["width"]
-                    height = target_capability["height"]
-                    for source_index, output_index in enumerate(
-                        target_capability["map"]
-                    ):
-                        if output_index < 0:
-                            continue
-                        coordinates[output_index] = {
-                            "x": ((source_index % width) + 0.5) / width,
-                            "y": ((source_index // width) + 0.5) / height,
-                        }
-                    for copy_rule in target_capability["copies"]:
-                        coordinates[copy_rule["output_index"]] = copy.deepcopy(
-                            coordinates[copy_rule["source_index"]]
-                        )
-                    frames = render_color_effect(
-                        track["frames"],
-                        effect,
-                        coordinates=coordinates,
-                    )
-                    track["frames"] = frames
-                    track["frame_count"] = len(frames)
-                mapped["source_frames"] = int(effect["frame_count"])
-                mapped["decoded_frames"] = int(effect["frame_count"])
-                mapped["duration_ms"] = int(effect["duration_ms"])
-                mapped["source_duration_ms"] = (
-                    int(effect["frame_count"]) * int(effect["duration_ms"])
+                    coordinate_cache[target] = coordinates
+                frames = render_color_effect(
+                    track["frames"],
+                    effect,
+                    coordinates=coordinates,
                 )
-                mapped["timing_resampled"] = False
+                track["frames"] = frames
+                track["frame_count"] = len(frames)
+            mapped["source_frames"] = int(effect["frame_count"])
+            mapped["decoded_frames"] = int(effect["frame_count"])
+            mapped["duration_ms"] = int(effect["duration_ms"])
+            mapped["source_duration_ms"] = (
+                int(effect["frame_count"]) * int(effect["duration_ms"])
+            )
+            mapped["timing_resampled"] = False
+
+    def _begin_epoch(
+        self,
+        prepared: PreparedMediaRender,
+        epoch: int,
+        *,
+        session_scoped: bool,
+    ) -> Callable[[], None]:
+        session = prepared.session
+        key = (
+            session.catalog_id,
+            session.session_id if session_scoped else None,
+            prepared.product_id,
+            prepared.targets,
+        )
+        with self._lock:
+            current = self._sessions.get(session.session_id)
+            if (
+                self._closed
+                or current is None
+                or current.prepared is not session
+            ):
+                raise ValueError("This media preview session is no longer available.")
+            latest = self._latest_epochs.get(key)
+            if latest is not None and epoch <= latest:
+                raise MediaRenderSuperseded(
+                    "A newer media preview superseded this render."
+                )
+            self._latest_epochs[key] = epoch
+
+        def check() -> None:
+            with self._lock:
+                current_entry = self._sessions.get(session.session_id)
+                if (
+                    self._closed
+                    or current_entry is None
+                    or current_entry.prepared is not session
+                    or self._latest_epochs.get(key) != epoch
+                ):
+                    raise MediaRenderSuperseded(
+                        "A newer media preview superseded this render."
+                    )
+
+        return check
+
+    def _render_full_mapping(
+        self,
+        prepared: PreparedMediaRender,
+        *,
+        check: Callable[[], None],
+        progress: Callable[[int, int], None] | None,
+    ) -> dict[str, Any]:
+        from . import device_mapping
+
+        move_effect = next(
+            (effect for effect in prepared.effects if effect["type"] == "move_zoom"),
+            None,
+        )
+        if move_effect is not None:
+            mapped = device_mapping.compose_media_transform_sequence_to_led_tracks(
+                prepared.session.decoded.frames[0],
+                [int(move_effect["duration_ms"])]
+                * len(prepared.resolved_transforms),
+                prepared.targets,
+                [transform.to_dict() for transform in prepared.resolved_transforms],
+                prepared.product_id,
+                work_check=check,
+                progress=progress,
+            )
+        else:
+            mapped = device_mapping.compose_media_frames_to_led_tracks(
+                prepared.session.decoded.frames,
+                prepared.session.decoded.durations_ms,
+                prepared.targets,
+                prepared.transform.to_dict(),
+                prepared.product_id,
+                work_check=check,
+                progress=progress,
+            )
+        self._apply_full_color_effects(mapped, prepared.color_effects, check)
+        expected_frames = len(prepared.timeline)
+        if any(
+            track.get("frame_count") != expected_frames
+            for track in mapped["tracks"].values()
+        ):
+            raise ValueError("The media preview timeline does not match its LED frames.")
+        return mapped
+
+    def render(
+        self,
+        catalog_id: str,
+        *,
+        product_id: str,
+        targets: Sequence[str],
+        transform: Mapping[str, object],
+        epoch: int,
+        effects: Sequence[Mapping[str, object]] = (),
+        preview_session_id: str | None = None,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> dict[str, object]:
+        checked_transform = self._validate_render_request(
+            product_id=product_id,
+            targets=targets,
+            transform=transform,
+            epoch=epoch,
+            effects=effects,
+        )
+        if preview_session_id is not None:
+            self._checked_session_id(preview_session_id)
+        self._start_active(catalog_id)
+        try:
+            session = (
+                self._create_session(catalog_id)
+                if preview_session_id is None
+                else self._get_session(catalog_id, preview_session_id)
+            )
+            prepared = self._prepare_render(
+                session,
+                product_id=product_id,
+                targets=targets,
+                checked_transform=checked_transform,
+                effects=effects,
+            )
+            check = self._begin_epoch(
+                prepared,
+                epoch,
+                session_scoped=preview_session_id is not None,
+            )
+            check()
+            mapped = self._render_full_mapping(
+                prepared,
+                check=check,
+                progress=progress,
+            )
             check()
             return {
                 "catalog_id": catalog_id,
                 "epoch": epoch,
-                "transform": canonical_transform.to_dict(),
-                "effects": checked_effects,
-                "resolved_transforms": transforms if move_effects else [],
+                "preview_session_id": session.session_id,
+                "transform": prepared.transform.to_dict(),
+                "effects": [copy.deepcopy(effect) for effect in prepared.effects],
+                "resolved_transforms": [
+                    value.to_dict() for value in prepared.resolved_transforms
+                ],
+                "preview_timeline": [
+                    entry.to_dict() for entry in prepared.timeline
+                ],
+                "source_preview": self._source_preview_descriptor(session),
                 "mapped_result": mapped,
             }
         finally:
-            self._finish(catalog_id)
+            self._finish_active(catalog_id)
+
+    def render_frame(
+        self,
+        catalog_id: str,
+        *,
+        preview_session_id: str,
+        product_id: str,
+        targets: Sequence[str],
+        transform: Mapping[str, object],
+        effects: Sequence[Mapping[str, object]],
+        frame_index: int,
+        epoch: int,
+    ) -> dict[str, object]:
+        checked_transform = self._validate_render_request(
+            product_id=product_id,
+            targets=targets,
+            transform=transform,
+            epoch=epoch,
+            effects=effects,
+        )
+        checked_session_id = self._checked_session_id(preview_session_id)
+        if type(frame_index) is not int or not 0 <= frame_index < MAX_MEDIA_FRAMES:
+            raise ValueError("The media preview frame index is invalid.")
+        self._start_active(catalog_id)
+        try:
+            session = self._get_session(catalog_id, checked_session_id)
+            prepared = self._prepare_render(
+                session,
+                product_id=product_id,
+                targets=targets,
+                checked_transform=checked_transform,
+                effects=effects,
+            )
+            if frame_index >= len(prepared.timeline):
+                raise ValueError("The media preview frame index is invalid.")
+            check = self._begin_epoch(prepared, epoch, session_scoped=True)
+            check()
+            entry = prepared.timeline[frame_index]
+            from . import device_mapping
+
+            mapped = device_mapping.map_media_frame_to_led_tracks(
+                session.decoded.frames[entry.source_frame_index],
+                prepared.targets,
+                entry.resolved_transform.to_dict(),
+                prepared.product_id,
+                work_check=check,
+            )
+            coordinate_cache: dict[str, list[dict[str, float]]] = {}
+            for effect, effect_index in zip(
+                prepared.color_effects,
+                entry.color_effect_indices,
+                strict=True,
+            ):
+                for target, track in mapped["tracks"].items():
+                    check()
+                    coordinates = coordinate_cache.get(target)
+                    if coordinates is None:
+                        coordinates = self._target_effect_coordinates(
+                            prepared.model,
+                            target,
+                            int(track["pixels"]),
+                        )
+                        coordinate_cache[target] = coordinates
+                    track["colors"] = render_color_effect_frame(
+                        track["colors"],
+                        effect,
+                        effect_index,
+                        coordinates=coordinates,
+                    )
+            check()
+            return {
+                "catalog_id": catalog_id,
+                "epoch": epoch,
+                "preview_session_id": session.session_id,
+                "transform": prepared.transform.to_dict(),
+                "effects": [copy.deepcopy(effect) for effect in prepared.effects],
+                "resolved_transforms": [
+                    value.to_dict() for value in prepared.resolved_transforms
+                ],
+                "timeline_entry": entry.to_dict(),
+                "source_preview": self._source_preview_descriptor(session),
+                "mapped_frame": mapped,
+            }
+        finally:
+            self._finish_active(catalog_id)
+
+    def source_frame_png(
+        self,
+        catalog_id: str,
+        *,
+        preview_session_id: str,
+        source_frame_index: int,
+    ) -> bytes:
+        checked_session_id = self._checked_session_id(preview_session_id)
+        if (
+            type(source_frame_index) is not int
+            or not 0 <= source_frame_index < MAX_MEDIA_FRAMES
+        ):
+            raise ValueError("The source preview frame index is invalid.")
+        self._start_active(catalog_id)
+        try:
+            session = self._get_session(catalog_id, checked_session_id)
+            if source_frame_index >= session.decoded.frame_count:
+                raise ValueError("The source preview frame index is invalid.")
+            with self._lock:
+                entry = self._sessions.get(checked_session_id)
+                cached = (
+                    entry.source_previews.get(source_frame_index)
+                    if entry is not None and entry.prepared is session
+                    else None
+                )
+                if cached is not None:
+                    entry.source_previews.move_to_end(source_frame_index)
+                    return cached
+
+            descriptor = self._source_preview_descriptor(session)
+            payload = _encode_source_preview(
+                session.decoded.frames[source_frame_index],
+                (int(descriptor["width"]), int(descriptor["height"])),
+            )
+            with self._lock:
+                entry = self._sessions.get(checked_session_id)
+                if (
+                    not self._closed
+                    and entry is not None
+                    and entry.prepared is session
+                    and len(payload) <= MAX_SOURCE_PREVIEW_CACHE_BYTES
+                ):
+                    old = entry.source_previews.pop(source_frame_index, None)
+                    if old is not None:
+                        entry.source_preview_bytes -= len(old)
+                    while entry.source_previews and (
+                        len(entry.source_previews) >= MAX_SOURCE_PREVIEW_CACHE_ENTRIES
+                        or entry.source_preview_bytes + len(payload)
+                        > MAX_SOURCE_PREVIEW_CACHE_BYTES
+                    ):
+                        _old_index, old_payload = entry.source_previews.popitem(
+                            last=False
+                        )
+                        entry.source_preview_bytes -= len(old_payload)
+                    entry.source_previews[source_frame_index] = payload
+                    entry.source_preview_bytes += len(payload)
+            return payload
+        finally:
+            self._finish_active(catalog_id)
 
 
 __all__ = [
@@ -1419,6 +2140,9 @@ __all__ = [
     "MAX_MEDIA_FRAMES",
     "MediaRenderCoordinator",
     "MediaRenderSuperseded",
+    "PreparedMediaRender",
+    "PreparedMediaSession",
+    "PreviewTimelineEntry",
     "ResolvedSourceGeometry",
     "SourceRasterBox",
     "SourceTransform",
@@ -1426,6 +2150,7 @@ __all__ = [
     "decode_media",
     "interpolate_move_zoom",
     "render_color_effect",
+    "render_color_effect_frame",
     "render_source_frame",
     "resolve_source_geometry",
     "validate_effect_spec",

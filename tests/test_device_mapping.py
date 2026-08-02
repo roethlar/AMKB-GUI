@@ -317,6 +317,67 @@ class TransformAwareMappingTests(unittest.TestCase):
                 )
                 self.assertEqual(legacy, composed)
 
+    def test_public_media_timeline_is_the_exact_firmware_selection(self) -> None:
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        self.assertEqual(
+            ([0, 1, 1], 34, True),
+            mapping.media_timeline_indices([30, 70], frame_limit=80),
+        )
+        self.assertEqual(
+            ([0, 1], 90, False),
+            mapping.media_timeline_indices([90, 90], frame_limit=80),
+        )
+        for invalid in (True, 0, mapping.MAX_FRAMES + 1):
+            with self.subTest(frame_limit=invalid):
+                with self.assertRaisesRegex(ValueError, "frame limit"):
+                    mapping.media_timeline_indices([90], frame_limit=invalid)
+
+    def test_one_frame_mapper_is_byte_exact_with_full_mapping_for_every_target(
+        self,
+    ) -> None:
+        mapping = importlib.import_module("am_configurator.device_mapping")
+        frames = [
+            self._asymmetric_frame(61, 17),
+            self._asymmetric_frame(61, 17, 1),
+        ]
+        transform = self._transform(
+            offset_x=0.2,
+            offset_y=-0.15,
+            scale_x=1.4,
+            scale_y=0.8,
+            aspect_locked=False,
+            sampling="nearest",
+        )
+        destinations = (
+            ("CB04", ["keyframes", "frames"]),
+            ("ALICE", ["keyframes"]),
+            ("AM21", ["keyframes", "spotlight_frames"]),
+            ("NEON80", ["axial", "head"]),
+        )
+        for product_id, targets in destinations:
+            with self.subTest(product_id=product_id):
+                full = mapping.compose_media_frames_to_led_tracks(
+                    frames,
+                    [90, 90],
+                    targets,
+                    transform,
+                    product_id,
+                )
+                for frame_index, frame in enumerate(frames):
+                    selected = mapping.map_media_frame_to_led_tracks(
+                        frame,
+                        targets,
+                        transform,
+                        product_id,
+                    )
+                    self.assertEqual(full["model"], selected["model"])
+                    for target in targets:
+                        self.assertEqual(
+                            full["tracks"][target]["frames"][frame_index],
+                            selected["tracks"][target]["colors"],
+                        )
+
     def test_every_frame_uses_the_same_transform_without_mirroring_or_transpose(
         self,
     ) -> None:

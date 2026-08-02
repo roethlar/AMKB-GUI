@@ -430,8 +430,8 @@ class LocalAnimationEffectTests(unittest.TestCase):
 
 class MediaRenderCoordinatorTests(unittest.TestCase):
     @staticmethod
-    def _transform():
-        return {
+    def _transform(**changes):
+        value = {
             "version": 1,
             "offset_x": 0.0,
             "offset_y": 0.0,
@@ -441,6 +441,408 @@ class MediaRenderCoordinatorTests(unittest.TestCase):
             "sampling": "nearest",
             "background": "#000000",
         }
+        value.update(changes)
+        return value
+
+    @staticmethod
+    def _effect(
+        effect_type: str,
+        parameters: dict,
+        *,
+        frame_count: int,
+        duration_ms: int = 90,
+    ) -> dict:
+        return {
+            "version": 1,
+            "type": effect_type,
+            "frame_count": frame_count,
+            "duration_ms": duration_ms,
+            "parameters": parameters,
+        }
+
+    @staticmethod
+    def _bank_source(
+        saved: SavedItemLibrary,
+        *,
+        name: str,
+        payload: bytes,
+    ) -> str:
+        decoded = media_composition.decode_media(payload)
+        manifest, _created = saved.bank_media_source(
+            name=name,
+            payload=payload,
+            metadata={
+                "mime_type": decoded.mime_type,
+                "width": decoded.width,
+                "height": decoded.height,
+                "frame_count": decoded.frame_count,
+                "duration_ms": decoded.duration_ms,
+            },
+        )
+        return f"item:{manifest['item_id']}"
+
+    def test_selected_frames_equal_full_sequences_for_formats_effects_and_targets(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "library"
+            jobs = GeneratedAssetLibrary(root, minimum_free_bytes=1)
+            saved = SavedItemLibrary(root, minimum_free_bytes=1)
+            catalog = LibraryCatalog(jobs, saved)
+            renderer = media_composition.MediaRenderCoordinator(catalog)
+            start = self._transform()
+            cases = (
+                (
+                    "motion.gif",
+                    _gif_bytes(),
+                    [
+                        self._effect(
+                            "hue_cycle",
+                            {"turns": 1.25},
+                            frame_count=4,
+                            duration_ms=76,
+                        )
+                    ],
+                ),
+                (
+                    "still.png",
+                    _still_bytes("PNG"),
+                    [
+                        self._effect(
+                            "move_zoom",
+                            {
+                                "start_transform": start,
+                                "end_transform": self._transform(
+                                    offset_x=0.4,
+                                    offset_y=-0.25,
+                                    scale_x=1.8,
+                                    scale_y=1.8,
+                                ),
+                            },
+                            frame_count=3,
+                        ),
+                        self._effect(
+                            "pulse",
+                            {"minimum_brightness": 0.2},
+                            frame_count=5,
+                        ),
+                    ],
+                ),
+                (
+                    "still.bmp",
+                    _still_bytes("BMP"),
+                    [
+                        self._effect(
+                            "sweep",
+                            {
+                                "direction": "diagonal",
+                                "width": 0.4,
+                                "minimum_brightness": 0.15,
+                            },
+                            frame_count=4,
+                        ),
+                        self._effect(
+                            "shimmer",
+                            {"depth": 0.55, "seed": 824},
+                            frame_count=3,
+                            duration_ms=100,
+                        ),
+                    ],
+                ),
+            )
+            destinations = (
+                ("CB04", ["keyframes", "frames"]),
+                ("ALICE", ["keyframes"]),
+                ("AM21", ["keyframes", "spotlight_frames"]),
+                ("NEON80", ["axial", "head"]),
+            )
+            for name, payload, effects in cases:
+                catalog_id = self._bank_source(saved, name=name, payload=payload)
+                session = renderer.prepare_preview_session(catalog_id)
+                session_id = session["preview_session_id"]
+                for product_id, targets in destinations:
+                    with self.subTest(name=name, product_id=product_id):
+                        transform = self._transform(
+                            offset_x=0.15,
+                            offset_y=-0.1,
+                            scale_x=1.25,
+                            scale_y=0.75,
+                            aspect_locked=False,
+                        )
+                        full = renderer.render(
+                            catalog_id,
+                            preview_session_id=session_id,
+                            product_id=product_id,
+                            targets=targets,
+                            transform=transform,
+                            effects=effects,
+                            epoch=1,
+                        )
+                        self.assertEqual(
+                            len(full["preview_timeline"]),
+                            next(iter(full["mapped_result"]["tracks"].values()))[
+                                "frame_count"
+                            ],
+                        )
+                        for frame_index, timeline_entry in enumerate(
+                            full["preview_timeline"]
+                        ):
+                            selected = renderer.render_frame(
+                                catalog_id,
+                                preview_session_id=session_id,
+                                product_id=product_id,
+                                targets=targets,
+                                transform=transform,
+                                effects=effects,
+                                frame_index=frame_index,
+                                epoch=frame_index + 2,
+                            )
+                            self.assertEqual(
+                                timeline_entry,
+                                selected["timeline_entry"],
+                            )
+                            self.assertEqual(
+                                full["mapped_result"]["model"],
+                                selected["mapped_frame"]["model"],
+                            )
+                            for target in targets:
+                                self.assertEqual(
+                                    full["mapped_result"]["tracks"][target][
+                                        "frames"
+                                    ][frame_index],
+                                    selected["mapped_frame"]["tracks"][target][
+                                        "colors"
+                                    ],
+                                )
+                                for key in ("width", "height", "pixels", "mapped_pixels"):
+                                    self.assertEqual(
+                                        full["mapped_result"]["tracks"][target][key],
+                                        selected["mapped_frame"]["tracks"][target][key],
+                                    )
+                        self.assertNotIn(str(root), json.dumps(full))
+
+    def test_source_projection_is_complete_static_source_and_uses_byte_lru(
+        self,
+    ) -> None:
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "library"
+            saved = SavedItemLibrary(root, minimum_free_bytes=1)
+            catalog = LibraryCatalog(
+                GeneratedAssetLibrary(root, minimum_free_bytes=1),
+                saved,
+            )
+            catalog_id = self._bank_source(
+                saved,
+                name="motion.gif",
+                payload=_gif_bytes(),
+            )
+            renderer = media_composition.MediaRenderCoordinator(catalog)
+            session = renderer.prepare_preview_session(catalog_id)
+            session_id = session["preview_session_id"]
+            expected = media_composition.decode_media(_gif_bytes()).frames[0]
+
+            original_encoder = media_composition._encode_source_preview
+            with patch(
+                "am_configurator.media_composition.MAX_SOURCE_PREVIEW_CACHE_ENTRIES",
+                1,
+            ), patch(
+                "am_configurator.media_composition._encode_source_preview",
+                wraps=original_encoder,
+            ) as encode:
+                first = renderer.source_frame_png(
+                    catalog_id,
+                    preview_session_id=session_id,
+                    source_frame_index=0,
+                )
+                again = renderer.source_frame_png(
+                    catalog_id,
+                    preview_session_id=session_id,
+                    source_frame_index=0,
+                )
+                renderer.source_frame_png(
+                    catalog_id,
+                    preview_session_id=session_id,
+                    source_frame_index=1,
+                )
+                renderer.source_frame_png(
+                    catalog_id,
+                    preview_session_id=session_id,
+                    source_frame_index=0,
+                )
+            self.assertEqual(first, again)
+            self.assertEqual(3, encode.call_count)
+            with Image.open(io.BytesIO(first)) as projected:
+                projected.load()
+                self.assertEqual(expected.size, projected.size)
+                expected_pixels = (
+                    expected.get_flattened_data()
+                    if hasattr(expected, "get_flattened_data")
+                    else expected.getdata()
+                )
+                projected_rgba = projected.convert("RGBA")
+                projected_pixels = (
+                    projected_rgba.get_flattened_data()
+                    if hasattr(projected_rgba, "get_flattened_data")
+                    else projected_rgba.getdata()
+                )
+                self.assertEqual(list(expected_pixels), list(projected_pixels))
+                self.assertNotEqual((40, 5), projected.size)
+            self.assertEqual(
+                {
+                    "mime_type": "image/png",
+                    "width": 4,
+                    "height": 2,
+                    "frame_count": 2,
+                    "display_only": True,
+                },
+                session["source_preview"],
+            )
+
+            bounded_renderer = media_composition.MediaRenderCoordinator(catalog)
+            bounded_session = bounded_renderer.prepare_preview_session(catalog_id)
+            bounded_session_id = bounded_session["preview_session_id"]
+            with patch(
+                "am_configurator.media_composition.MAX_SOURCE_PREVIEW_PIXELS",
+                4,
+            ), patch(
+                "am_configurator.media_composition.MAX_SOURCE_PREVIEW_CACHE_BYTES",
+                1,
+            ), patch(
+                "am_configurator.media_composition._encode_source_preview",
+                wraps=original_encoder,
+            ) as bounded_encode:
+                bounded_first = bounded_renderer.source_frame_png(
+                    catalog_id,
+                    preview_session_id=bounded_session_id,
+                    source_frame_index=0,
+                )
+                bounded_renderer.source_frame_png(
+                    catalog_id,
+                    preview_session_id=bounded_session_id,
+                    source_frame_index=0,
+                )
+            self.assertEqual(2, bounded_encode.call_count)
+            with Image.open(io.BytesIO(bounded_first)) as bounded_projection:
+                self.assertEqual((2, 1), bounded_projection.size)
+                self.assertLessEqual(
+                    bounded_projection.width * bounded_projection.height,
+                    4,
+                )
+
+    def test_sessions_enforce_lru_expiry_pixel_hash_catalog_and_close_bounds(
+        self,
+    ) -> None:
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "library"
+            saved = SavedItemLibrary(root, minimum_free_bytes=1)
+            catalog = LibraryCatalog(
+                GeneratedAssetLibrary(root, minimum_free_bytes=1),
+                saved,
+            )
+            ids = []
+            for index in range(3):
+                image = Image.new("RGBA", (4, 2), (index * 40, 20, 80, 255))
+                output = io.BytesIO()
+                image.save(output, format="PNG")
+                ids.append(
+                    self._bank_source(
+                        saved,
+                        name=f"source-{index}.png",
+                        payload=output.getvalue(),
+                    )
+                )
+            now = [0.0]
+            renderer = media_composition.MediaRenderCoordinator(
+                catalog,
+                clock=lambda: now[0],
+            )
+            sessions = []
+            for index in range(2):
+                now[0] = float(index)
+                sessions.append(renderer.prepare_preview_session(ids[index]))
+            now[0] = 2.0
+            renderer.source_frame_png(
+                ids[0],
+                preview_session_id=sessions[0]["preview_session_id"],
+                source_frame_index=0,
+            )
+            now[0] = 3.0
+            third = renderer.prepare_preview_session(ids[2])
+            with self.assertRaisesRegex(ValueError, "no longer available"):
+                renderer.source_frame_png(
+                    ids[1],
+                    preview_session_id=sessions[1]["preview_session_id"],
+                    source_frame_index=0,
+                )
+            renderer.source_frame_png(
+                ids[0],
+                preview_session_id=sessions[0]["preview_session_id"],
+                source_frame_index=0,
+            )
+            with self.assertRaisesRegex(ValueError, "no longer available"):
+                renderer.source_frame_png(
+                    ids[1],
+                    preview_session_id=sessions[0]["preview_session_id"],
+                    source_frame_index=0,
+                )
+
+            now[0] = media_composition.PREVIEW_SESSION_TTL_SECONDS + 4.0
+            with self.assertRaisesRegex(ValueError, "no longer available"):
+                renderer.source_frame_png(
+                    ids[2],
+                    preview_session_id=third["preview_session_id"],
+                    source_frame_index=0,
+                )
+
+            now[0] += 1
+            fresh = renderer.prepare_preview_session(ids[0])
+            real_get = catalog.get
+
+            def mismatched_hash(catalog_id):
+                detail = real_get(catalog_id)
+                detail["item"]["source"]["sha256"] = "0" * 64
+                return detail
+
+            with patch.object(catalog, "get", side_effect=mismatched_hash):
+                with self.assertRaisesRegex(ValueError, "metadata"):
+                    renderer.source_frame_png(
+                        ids[0],
+                        preview_session_id=fresh["preview_session_id"],
+                        source_frame_index=0,
+                    )
+            with self.assertRaisesRegex(ValueError, "no longer available"):
+                renderer.source_frame_png(
+                    ids[0],
+                    preview_session_id=fresh["preview_session_id"],
+                    source_frame_index=0,
+                )
+
+            replacement = renderer.prepare_preview_session(ids[0])
+            renderer.close()
+            with self.assertRaisesRegex(ValueError, "no longer available"):
+                renderer.source_frame_png(
+                    ids[0],
+                    preview_session_id=replacement["preview_session_id"],
+                    source_frame_index=0,
+                )
+
+            bounded = media_composition.MediaRenderCoordinator(catalog)
+            with patch(
+                "am_configurator.media_composition.MAX_PREVIEW_DECODED_PIXELS",
+                8,
+            ):
+                first = bounded.prepare_preview_session(ids[0])
+                bounded.prepare_preview_session(ids[1])
+                with self.assertRaisesRegex(ValueError, "no longer available"):
+                    bounded.source_frame_png(
+                        ids[0],
+                        preview_session_id=first["preview_session_id"],
+                        source_frame_index=0,
+                    )
 
     def test_newer_epoch_supersedes_inflight_work_and_work_is_never_catalogued(
         self,
@@ -566,6 +968,109 @@ class MediaRenderCoordinatorTests(unittest.TestCase):
                         if item["kind"] == "media_source"
                     ]
                 ),
+            )
+
+    def test_session_epochs_are_destination_scoped_and_selected_work_cannot_publish_stale(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "library"
+            saved = SavedItemLibrary(root, minimum_free_bytes=1)
+            catalog = LibraryCatalog(
+                GeneratedAssetLibrary(root, minimum_free_bytes=1),
+                saved,
+            )
+            catalog_id = self._bank_source(
+                saved,
+                name="source.png",
+                payload=_still_bytes("PNG"),
+            )
+            renderer = media_composition.MediaRenderCoordinator(catalog)
+            session_id = renderer.prepare_preview_session(catalog_id)[
+                "preview_session_id"
+            ]
+            transform = self._transform()
+
+            first_destination = renderer.render(
+                catalog_id,
+                preview_session_id=session_id,
+                product_id="CB04",
+                targets=["frames"],
+                transform=transform,
+                epoch=1,
+            )
+            other_destination = renderer.render(
+                catalog_id,
+                preview_session_id=session_id,
+                product_id="CB04",
+                targets=["keyframes"],
+                transform=transform,
+                epoch=1,
+            )
+            self.assertEqual(1, first_destination["epoch"])
+            self.assertEqual(1, other_destination["epoch"])
+            with self.assertRaises(media_composition.MediaRenderSuperseded):
+                renderer.render(
+                    catalog_id,
+                    preview_session_id=session_id,
+                    product_id="CB04",
+                    targets=["frames"],
+                    transform=transform,
+                    epoch=1,
+                )
+
+            from am_configurator import device_mapping
+
+            real_mapper = device_mapping.map_media_frame_to_led_tracks
+            entered = threading.Event()
+            release = threading.Event()
+            failures: list[BaseException] = []
+
+            def delayed_mapper(*args, **kwargs):
+                entered.set()
+                self.assertTrue(release.wait(5))
+                return real_mapper(*args, **kwargs)
+
+            def selected_render() -> None:
+                try:
+                    renderer.render_frame(
+                        catalog_id,
+                        preview_session_id=session_id,
+                        product_id="CB04",
+                        targets=["frames"],
+                        transform=transform,
+                        effects=[],
+                        frame_index=0,
+                        epoch=2,
+                    )
+                except BaseException as exc:  # noqa: BLE001 - preserve worker failure
+                    failures.append(exc)
+
+            with patch.object(
+                device_mapping,
+                "map_media_frame_to_led_tracks",
+                side_effect=delayed_mapper,
+            ):
+                worker = threading.Thread(target=selected_render)
+                worker.start()
+                self.assertTrue(entered.wait(5))
+                newest = renderer.render(
+                    catalog_id,
+                    preview_session_id=session_id,
+                    product_id="CB04",
+                    targets=["frames"],
+                    transform=transform,
+                    epoch=3,
+                )
+                release.set()
+                worker.join(5)
+
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(3, newest["epoch"])
+            self.assertEqual(1, len(failures))
+            self.assertIsInstance(
+                failures[0],
+                media_composition.MediaRenderSuperseded,
             )
 
 

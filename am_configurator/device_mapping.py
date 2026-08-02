@@ -760,11 +760,15 @@ def firmware_led_speed(duration_ms: int) -> int:
     return min(LED_SPEEDS_MS, key=lambda speed: (abs(speed - duration), speed))
 
 
-def _timeline_indices(
-    durations: list[int],
+def media_timeline_indices(
+    durations: Sequence[int],
     *,
     frame_limit: int = MAX_FRAMES,
 ) -> tuple[list[int], int, bool]:
+    """Select canonical firmware output frames for source-frame durations."""
+
+    if type(frame_limit) is not int or not 1 <= frame_limit <= MAX_FRAMES:
+        raise ValueError("The LED frame limit is invalid.")
     clean = [max(10, int(duration or 90)) for duration in durations]
     if not clean:
         return [0], 90, False
@@ -796,6 +800,101 @@ def _timeline_indices(
             boundary += clean[source_index]
         indices.append(source_index)
     return indices, speed, True
+
+
+def _map_prepared_media_frame(
+    image: Any,
+    *,
+    model: str,
+    requested: Sequence[str],
+    layouts: Mapping[str, Mapping[str, Any]],
+    destination_sizes: Sequence[tuple[int, int]],
+    transform: Any,
+    work_check: Callable[[], None] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Map one source frame through canonical geometry onto exact LED arrays."""
+
+    from .media_composition import render_source_frame
+
+    raster_colors: dict[tuple[int, int], list[str]] = {}
+    for size in destination_sizes:
+        if work_check is not None:
+            work_check()
+        if size in raster_colors:
+            continue
+        raster = render_source_frame(image, size, transform)
+        pixels = (
+            raster.get_flattened_data()
+            if hasattr(raster, "get_flattened_data")
+            else raster.getdata()
+        )
+        raster_colors[size] = [
+            f"#{red:02X}{green:02X}{blue:02X}"
+            for red, green, blue in pixels
+        ]
+
+    tracks: dict[str, dict[str, Any]] = {}
+    for target in requested:
+        if work_check is not None:
+            work_check()
+        layout = layouts[target]
+        size = tuple(layout["size"])
+        source_colors = raster_colors[size]
+        colors = ["#000000"] * int(layout["pixels"])
+        for source_index, output_index in enumerate(layout["map"]):
+            if output_index >= 0:
+                colors[output_index] = source_colors[source_index]
+        for output_index, source_index in layout.get("copies", ()):
+            colors[output_index] = colors[source_index]
+        width, height = size
+        tracks[target] = {
+            "colors": colors,
+            "width": width,
+            "height": height,
+            "pixels": int(layout["pixels"]),
+            "mapped_pixels": len(
+                {index for index in layout["map"] if index >= 0}
+            ),
+        }
+    return tracks
+
+
+def map_media_frame_to_led_tracks(
+    image: Any,
+    targets: list[str] | tuple[str, ...],
+    transform: Mapping[str, object],
+    product_id: str = "CB_XX",
+    *,
+    work_check: Callable[[], None] | None = None,
+) -> dict[str, Any]:
+    """Render and map one exact output frame for live media preview."""
+
+    from .media_composition import (
+        canonicalize_source_transform,
+        validate_source_transform,
+    )
+
+    if work_check is not None:
+        work_check()
+    model, requested, destination_sizes = media_target_sizes(product_id, targets)
+    checked = canonicalize_source_transform(
+        validate_source_transform(transform),
+        tuple(image.size),
+        destination_sizes,
+    )
+    layouts = {target: _LAYOUTS[model][target] for target in requested}
+    return {
+        "model": model,
+        "tracks": _map_prepared_media_frame(
+            image,
+            model=model,
+            requested=requested,
+            layouts=layouts,
+            destination_sizes=destination_sizes,
+            transform=checked,
+            work_check=work_check,
+        ),
+    }
 
 
 def frames_to_led_tracks(
@@ -896,7 +995,7 @@ def frames_to_led_tracks(
 
     if work_check is not None:
         work_check()
-    timeline, duration, timing_resampled = _timeline_indices(
+    timeline, duration, timing_resampled = media_timeline_indices(
         durations,
         frame_limit=frame_limit,
     )
@@ -966,25 +1065,6 @@ def compose_media_frames_to_led_tracks(
         destination_sizes,
     )
 
-    if (
-        checked.offset_x == 0.0
-        and checked.offset_y == 0.0
-        and checked.scale_x == 1.0
-        and checked.scale_y == 1.0
-        and checked.background == "#000000"
-    ):
-        return frames_to_led_tracks(
-            frames,
-            raw_durations,
-            requested,
-            checked.sampling,
-            product_id,
-            work_check=work_check,
-            progress=progress,
-            frame_limit=frame_limit,
-            source_frame_limit=MAX_MEDIA_FRAMES,
-        )
-
     layouts = {target: _LAYOUTS[model][target] for target in requested}
     track_frames: dict[str, list[list[str]]] = {
         target: [] for target in requested
@@ -997,39 +1077,23 @@ def compose_media_frames_to_led_tracks(
             raw_durations[index] if index < len(raw_durations) else None
         )
         durations.append(max(10, int(source_duration or 90)))
-        raster_colors: dict[tuple[int, int], list[str]] = {}
-        for layout in layouts.values():
-            if work_check is not None:
-                work_check()
-            size = tuple(layout["size"])
-            if size not in raster_colors:
-                raster = render_source_frame(frame, size, checked)
-                pixels = (
-                    raster.get_flattened_data()
-                    if hasattr(raster, "get_flattened_data")
-                    else raster.getdata()
-                )
-                raster_colors[size] = [
-                    f"#{red:02X}{green:02X}{blue:02X}"
-                    for red, green, blue in pixels
-                ]
-        for target, layout in layouts.items():
-            if work_check is not None:
-                work_check()
-            source_colors = raster_colors[tuple(layout["size"])]
-            colors = ["#000000"] * int(layout["pixels"])
-            for source_index, output_index in enumerate(layout["map"]):
-                if output_index >= 0:
-                    colors[output_index] = source_colors[source_index]
-            for output_index, source_index in layout.get("copies", ()):
-                colors[output_index] = colors[source_index]
-            track_frames[target].append(colors)
+        mapped = _map_prepared_media_frame(
+            frame,
+            model=model,
+            requested=requested,
+            layouts=layouts,
+            destination_sizes=destination_sizes,
+            transform=checked,
+            work_check=work_check,
+        )
+        for target in requested:
+            track_frames[target].append(mapped[target]["colors"])
         if progress is not None:
             progress(index + 1, len(frames))
 
     if work_check is not None:
         work_check()
-    timeline, duration, timing_resampled = _timeline_indices(
+    timeline, duration, timing_resampled = media_timeline_indices(
         durations,
         frame_limit=frame_limit,
     )
@@ -1101,40 +1165,54 @@ def compose_media_transform_sequence_to_led_tracks(
     if len(durations) != len(checked):
         raise ValueError("Move & zoom timing must match its transform frames.")
 
-    groups: dict[tuple[int, int], list[str]] = {}
-    for target, size in zip(requested, destination_sizes, strict=True):
-        groups.setdefault(size, []).append(target)
-
-    combined: dict[str, Any] | None = None
-    for group_index, (size, group_targets) in enumerate(groups.items()):
+    layouts = {target: _LAYOUTS[model][target] for target in requested}
+    track_frames: dict[str, list[list[str]]] = {
+        target: [] for target in requested
+    }
+    for index, transform in enumerate(checked):
         if work_check is not None:
             work_check()
-        rendered_frames = []
-        for transform in checked:
-            if work_check is not None:
-                work_check()
-            rendered_frames.append(render_source_frame(image, size, transform))
-        mapped = frames_to_led_tracks(
-            rendered_frames,
-            durations,
-            group_targets,
-            sampling,
-            product_id,
+        mapped = _map_prepared_media_frame(
+            image,
+            model=model,
+            requested=requested,
+            layouts=layouts,
+            destination_sizes=destination_sizes,
+            transform=transform,
             work_check=work_check,
-            progress=progress if group_index == 0 else None,
-            frame_limit=frame_limit,
-            source_frame_limit=frame_limit,
         )
-        if combined is None:
-            combined = mapped
-        else:
-            combined["tracks"].update(mapped["tracks"])
-    assert combined is not None
-    combined["tracks"] = {
-        target: combined["tracks"][target]
-        for target in requested
+        for target in requested:
+            track_frames[target].append(mapped[target]["colors"])
+        if progress is not None:
+            progress(index + 1, len(checked))
+
+    timeline, duration, timing_resampled = media_timeline_indices(
+        durations,
+        frame_limit=frame_limit,
+    )
+    tracks: dict[str, dict[str, Any]] = {}
+    for target, layout in layouts.items():
+        selected = [track_frames[target][index] for index in timeline]
+        width, height = layout["size"]
+        tracks[target] = {
+            "frames": selected,
+            "frame_count": len(selected),
+            "width": width,
+            "height": height,
+            "pixels": int(layout["pixels"]),
+            "mapped_pixels": len(
+                {index for index in layout["map"] if index >= 0}
+            ),
+        }
+    return {
+        "tracks": tracks,
+        "source_frames": len(checked),
+        "decoded_frames": len(checked),
+        "duration_ms": duration,
+        "source_duration_ms": sum(durations),
+        "timing_resampled": timing_resampled,
+        "model": model,
     }
-    return combined
 
 
 def validate_mapped_result(

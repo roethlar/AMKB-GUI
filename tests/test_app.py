@@ -2520,6 +2520,82 @@ class AIServiceConstructionTests(unittest.TestCase):
         self.assertIs(results[0], results[1])
 
 
+class MediaRendererLifecycleTests(unittest.TestCase):
+    def test_library_root_change_and_state_close_invalidate_renderer_sessions(
+        self,
+    ) -> None:
+        from PIL import Image
+
+        with tempfile.TemporaryDirectory() as temporary:
+            first_root = Path(temporary) / "first"
+            second_root = Path(temporary) / "second"
+            selected_root = [first_root]
+
+            def settings():
+                return {
+                    "library": {
+                        "current_root": str(selected_root[0]),
+                        "roots": [],
+                    }
+                }
+
+            state = server._State(
+                None,
+                "test-token",
+                credential_store=credentials.MemoryCredentialStore(),
+            )
+            second_renderer = None
+            try:
+                with patch.object(store, "load_settings", side_effect=settings):
+                    first_library = state.lighting_library()
+                    first_renderer = state.media_renderer()
+                    self.assertFalse(first_renderer._closed)
+                    source_image = Image.new("RGBA", (2, 1), (40, 80, 120, 255))
+                    source_output = io.BytesIO()
+                    source_image.save(source_output, format="PNG")
+                    source_payload = source_output.getvalue()
+                    decoded = media_composition.decode_media(source_payload)
+                    source_manifest, _created = SavedItemLibrary(
+                        first_root,
+                        minimum_free_bytes=1,
+                    ).bank_media_source(
+                        name="root-bound.png",
+                        payload=source_payload,
+                        metadata={
+                            "mime_type": decoded.mime_type,
+                            "width": decoded.width,
+                            "height": decoded.height,
+                            "frame_count": decoded.frame_count,
+                            "duration_ms": decoded.duration_ms,
+                        },
+                    )
+                    source_catalog_id = f"item:{source_manifest['item_id']}"
+                    source_session_id = first_renderer.prepare_preview_session(
+                        source_catalog_id
+                    )["preview_session_id"]
+
+                    selected_root[0] = second_root
+                    second_library = state.lighting_library()
+                    self.assertIsNot(first_library, second_library)
+                    self.assertTrue(first_renderer._closed)
+                    self.assertIsNone(state._media_renderer)
+                    self.assertIsNone(state._library_catalog)
+                    with self.assertRaisesRegex(ValueError, "no longer available"):
+                        first_renderer.source_frame_png(
+                            source_catalog_id,
+                            preview_session_id=source_session_id,
+                            source_frame_index=0,
+                        )
+
+                    second_renderer = state.media_renderer()
+                    self.assertIsNot(first_renderer, second_renderer)
+                    self.assertFalse(second_renderer._closed)
+            finally:
+                state.close()
+            self.assertIsNotNone(second_renderer)
+            self.assertTrue(second_renderer._closed)
+
+
 class LightingStudioEndpointTests(unittest.TestCase):
     _DEFAULT = object()
 
@@ -3178,6 +3254,185 @@ class LightingStudioEndpointTests(unittest.TestCase):
         stored = SavedItemLibrary(self.root, minimum_free_bytes=1).load_manifest(item_id)
         self.assertEqual(1, len(stored["assets"]))
         self.assertEqual(png_payload, (item_dir / stored["assets"][0]["relative_path"]).read_bytes())
+
+    def test_media_preview_routes_are_strict_authenticated_pathless_and_invalidated(
+        self,
+    ) -> None:
+        from PIL import Image
+
+        image = Image.new("RGBA", (4, 2))
+        image.putdata(
+            (
+                (255, 0, 0, 255),
+                (0, 255, 0, 255),
+                (0, 0, 255, 255),
+                (255, 255, 0, 255),
+                (0, 255, 255, 255),
+                (255, 0, 255, 255),
+                (255, 255, 255, 255),
+                (0, 0, 0, 255),
+            )
+        )
+        output = io.BytesIO()
+        image.save(output, format="PNG")
+        status, imported = self._media_request("preview-source.png", output.getvalue())
+        self.assertEqual(201, status)
+        catalog_id = imported["item"]["catalog_id"]
+        route = f"/api/library/items/{catalog_id}"
+
+        status, _ = self._request(
+            "POST",
+            f"{route}/preview-session",
+            {},
+            token=None,
+        )
+        self.assertEqual(403, status)
+        with patch("am_configurator.media_composition.decode_media") as decode:
+            status, _ = self._request(
+                "POST",
+                f"{route}/preview-session",
+                {"unexpected": True},
+            )
+        self.assertEqual(400, status)
+        decode.assert_not_called()
+
+        status, session = self._request(
+            "POST",
+            f"{route}/preview-session",
+            {},
+        )
+        self.assertEqual(201, status)
+        session_id = session["preview_session_id"]
+        self.assertGreaterEqual(len(session_id), 32)
+        self.assertEqual(
+            {
+                "mime_type": "image/png",
+                "width": 4,
+                "height": 2,
+                "frame_count": 1,
+                "display_only": True,
+            },
+            session["source_preview"],
+        )
+        self.assertNotIn(str(self.root), json.dumps(session))
+
+        source_path = (
+            f"{route}/source-frame?preview_session_id={session_id}"
+            "&source_frame_index=0"
+        )
+        status, _headers, _payload = self._raw_request(source_path, token=None)
+        self.assertEqual(403, status)
+        status, headers, projection = self._raw_request(source_path)
+        self.assertEqual(200, status)
+        self.assertEqual("image/png", headers["Content-Type"])
+        self.assertNotIn(str(self.root).encode(), projection)
+        with Image.open(io.BytesIO(projection)) as projected:
+            projected.load()
+            self.assertEqual((4, 2), projected.size)
+            source_pixels = (
+                image.get_flattened_data()
+                if hasattr(image, "get_flattened_data")
+                else image.getdata()
+            )
+            projected_rgba = projected.convert("RGBA")
+            projected_pixels = (
+                projected_rgba.get_flattened_data()
+                if hasattr(projected_rgba, "get_flattened_data")
+                else projected_rgba.getdata()
+            )
+            self.assertEqual(
+                list(source_pixels),
+                list(projected_pixels),
+            )
+        status, _headers, _payload = self._raw_request(
+            source_path,
+            headers={"Range": "bytes=0-1"},
+        )
+        self.assertEqual(416, status)
+        for query in (
+            "",
+            f"preview_session_id={session_id}",
+            f"preview_session_id={session_id}&source_frame_index=0&extra=x",
+            f"preview_session_id={session_id}&preview_session_id={session_id}&source_frame_index=0",
+            f"preview_session_id={session_id}&source_frame_index=-1",
+            "preview_session_id=short&source_frame_index=0",
+        ):
+            with self.subTest(query=query):
+                status, _headers, _payload = self._raw_request(
+                    f"{route}/source-frame?{query}"
+                )
+                self.assertEqual(400, status)
+
+        transform = {
+            "version": 1,
+            "offset_x": 0.0,
+            "offset_y": 0.0,
+            "scale_x": 1.0,
+            "scale_y": 1.0,
+            "aspect_locked": True,
+            "sampling": "nearest",
+            "background": "#000000",
+        }
+        render_body = {
+            "preview_session_id": session_id,
+            "product_id": "CB04",
+            "targets": ["frames", "keyframes"],
+            "transform": transform,
+            "effects": [],
+            "epoch": 1,
+        }
+        status, full = self._request("POST", f"{route}/render", render_body)
+        self.assertEqual(200, status)
+        status, selected = self._request(
+            "POST",
+            f"{route}/render-frame",
+            {**render_body, "frame_index": 0, "epoch": 2},
+        )
+        self.assertEqual(200, status)
+        for target in render_body["targets"]:
+            self.assertEqual(
+                full["mapped_result"]["tracks"][target]["frames"][0],
+                selected["mapped_frame"]["tracks"][target]["colors"],
+            )
+        self.assertNotIn(str(self.root), json.dumps(selected))
+
+        malformed = (
+            {**render_body, "frame_index": 0, "epoch": 3, "unexpected": True},
+            {
+                key: value
+                for key, value in {**render_body, "frame_index": 0, "epoch": 3}.items()
+                if key != "effects"
+            },
+            {**render_body, "frame_index": True, "epoch": 3},
+            {**render_body, "frame_index": 1, "epoch": 3},
+            {**render_body, "frame_index": 512, "epoch": 3},
+            {**render_body, "frame_index": 0, "epoch": 3, "preview_session_id": "short"},
+            {**render_body, "frame_index": 0, "epoch": 3, "product_id": ""},
+            {**render_body, "frame_index": 0, "epoch": 3, "targets": []},
+            {
+                **render_body,
+                "frame_index": 0,
+                "epoch": 3,
+                "transform": {**transform, "unknown": True},
+            },
+            {
+                **render_body,
+                "frame_index": 0,
+                "epoch": 3,
+                "effects": [{}] * 9,
+            },
+        )
+        for body in malformed:
+            with self.subTest(body_keys=sorted(body)):
+                status, _ = self._request("POST", f"{route}/render-frame", body)
+                self.assertEqual(400, status)
+
+        status, _ = self._request("POST", f"{route}/remove", {})
+        self.assertEqual(200, status)
+        status, _ = self._request("POST", f"{route}/restore", {})
+        self.assertEqual(200, status)
+        status, _headers, _payload = self._raw_request(source_path)
+        self.assertEqual(400, status)
 
     def test_save_lighting_banks_validated_slot_result_and_source_provenance(
         self,
