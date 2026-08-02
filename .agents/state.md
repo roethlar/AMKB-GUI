@@ -262,9 +262,10 @@
   captured-process invocation passed against identical executable bytes. PTK
   also lost one aggregate full-gate transport; Python and the remaining gate
   components were recovered separately without repeating successful work. No
-  external review was launched. LSR-10 remains open only for exact repair-head
-  CI/Desktop workflows and affected Windows, Linux, and macOS native
-  qualification.
+  external review was launched. Exact repair head `a4d3793` passes CI run
+  `30770842393` on all four test jobs and Desktop installers run `30770842381`
+  on Windows, macOS, Linux, candidate metadata, and release provenance. LSR-10
+  remains open only for affected Windows, Linux, and macOS native qualification.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -468,10 +469,9 @@
 
 ## Next
 
-- Run and monitor exact-head CI and Desktop installer workflows, then repeat
-  affected native qualification on Windows x64, Linux x86-64, and macOS arm64.
-  Close LSR-10 and R65-2 only when all of those exact-head checks pass. No
-  further external review is authorized;
+- Repeat affected native qualification at exact head `a4d3793` on Windows x64,
+  Linux x86-64, and macOS arm64. Close LSR-10 and R65-2 only when all three pass.
+  No further external review is authorized;
   use one only on explicit owner request or a concrete material risk that local
   guards and CI cannot resolve. A replacement release candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new
@@ -491,7 +491,7 @@
 ## Blockers
 
 - Owner acceptance of the complete redesign is passed. R65-2 remains blocked
-  only on exact-head CI/Desktop workflows and affected Windows, Linux, and macOS
-  native qualification for the final LSR-10 repair. Live provider requests,
+  only on affected Windows, Linux, and macOS native qualification for the final
+  LSR-10 repair at exact head `a4d3793`. Live provider requests,
   keyboard writes, macOS Open Anyway, tag creation, release publication, and
   announcements remain separately gated actions for their later slices.

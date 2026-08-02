@@ -1257,8 +1257,10 @@ visible Windows acceptance against executable SHA-256
 uncaptured launches stopped at the already-recorded packaged-startup race
 `raw_import_rejected:unknown` and were not resubmitted; the captured-process
 invocation passed against identical bytes. No external review was launched.
-LSR-10 remains open only until exact repair-head CI/Desktop workflows and the
-affected Windows, Linux, and macOS native qualification pass.
+Exact repair head `a4d3793` passes CI run `30770842393` on all four test jobs
+and Desktop installers run `30770842381` on Windows, macOS, Linux, candidate
+metadata, and release provenance. LSR-10 remains open only until the affected
+Windows, Linux, and macOS native qualification passes.
 
 Commit:
 
