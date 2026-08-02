@@ -38,6 +38,7 @@ REQUIRED_CASE_CHECKS = [
     "keyboard_feedback",
     "slider_feedback",
     "render_coalescing",
+    "queued_render_ownership",
     "overlay_geometry",
     "synchronized_workspace",
     "shared_timeline",
@@ -743,9 +744,19 @@ _AUDIT_SCRIPT = r"""
     let lateSourceBlocked = false;
     let lateSourceFrameIndex = null;
     let lateSourceRelease = null;
+    let queuedRenderArmed = false;
+    let queuedRenderBlocked = false;
+    let queuedRenderSettled = false;
+    let queuedRenderCalls = 0;
+    let queuedRenderRelease = null;
     function releaseLateSource() {
       const release = lateSourceRelease;
       lateSourceRelease = null;
+      if (release) release();
+    }
+    function releaseQueuedRender() {
+      const release = queuedRenderRelease;
+      queuedRenderRelease = null;
       if (release) release();
     }
     window.fetch = (resource, options) => {
@@ -754,6 +765,16 @@ _AUDIT_SCRIPT = r"""
       const method = String(options?.method || resource?.method || "GET").toUpperCase();
       if (countLiveRenders && parsed.pathname.endsWith("/render") && method === "POST") {
         liveRenderCount += 1;
+      }
+      if (queuedRenderArmed && parsed.pathname.endsWith("/render") && method === "POST") {
+        queuedRenderCalls += 1;
+        if (queuedRenderCalls === 1) {
+          queuedRenderBlocked = true;
+          const gate = new Promise(resolve => { queuedRenderRelease = resolve; });
+          return gate
+            .then(() => originalFetch.call(window, resource, options))
+            .finally(() => { queuedRenderSettled = true; });
+        }
       }
       if (
         lateSourceArmed
@@ -1113,6 +1134,58 @@ _AUDIT_SCRIPT = r"""
         );
       }
     });
+
+    window.__mediaFramingAuditStep = "queued_render_ownership";
+    queuedRenderArmed = true;
+    queuedRenderBlocked = false;
+    queuedRenderSettled = false;
+    queuedRenderCalls = 0;
+    const ownershipSlider = document.querySelector("#source-zoom");
+    requireAudit(ownershipSlider, "queued_render_slider_missing");
+    const ownershipSliderValue = Number(ownershipSlider.value);
+    const ownershipDirection = ownershipSliderValue <= 3198 ? 1 : -1;
+    ownershipSlider.value = String(ownershipSliderValue + ownershipDirection);
+    ownershipSlider.dispatchEvent(new Event("input", {bubbles: true}));
+    await waitFor(() => queuedRenderBlocked, "queued_render_block_timeout", 30000);
+    ownershipSlider.value = String(ownershipSliderValue + (ownershipDirection * 2));
+    ownershipSlider.dispatchEvent(new Event("input", {bubbles: true}));
+    document.querySelector("#studio-paint-tab").click();
+    await waitFor(
+      () => state.studioTool === "paint" && document.querySelector("#play-led"),
+      "queued_render_paint_timeout",
+    );
+    const ownershipBoard = selectBoardProjection(lightingWorkspace);
+    requireAudit(
+      ownershipBoard?.frame_set?.frame_count > 1,
+      "queued_render_playback_frames_missing",
+    );
+    document.querySelector("#play-led").click();
+    await waitFor(() => state.playing, "queued_render_playback_start_timeout");
+    const ownershipPreview = JSON.stringify(lightingWorkspace.preview);
+    releaseQueuedRender();
+    await waitFor(() => queuedRenderSettled, "queued_render_release_timeout", 30000);
+    await delay(250);
+    requireAudit(state.playing, "queued_render_stopped_playback");
+    requireAudit(
+      JSON.stringify(lightingWorkspace.preview) === ownershipPreview,
+      "queued_render_changed_preview",
+    );
+    requireAudit(queuedRenderCalls === 1, "queued_render_was_not_cancelled");
+    document.querySelector("#play-led").click();
+    await waitFor(() => !state.playing, "queued_render_playback_stop_timeout");
+    queuedRenderArmed = false;
+    document.querySelector("#studio-source-tab").click();
+    await waitFor(
+      () => state.studioTool === "source" && document.querySelector("#media-compose-preview"),
+      "queued_render_source_timeout",
+    );
+    document.querySelector("#media-compose-preview").click();
+    await waitFor(
+      () => state.mediaComposition?.status === "ready"
+        && mediaCompositionCanApply(state.mediaComposition),
+      "queued_render_preview_restore_timeout",
+      30000,
+    );
 
     window.__mediaFramingAuditStep = "apply_and_save";
     const beforeLighting = new Set(

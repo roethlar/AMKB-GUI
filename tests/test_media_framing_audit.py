@@ -109,6 +109,7 @@ class MediaFramingFixtureTests(unittest.TestCase):
             "native_picker_import",
             "unsupported_rejection",
             "render_coalescing",
+            "queued_render_ownership",
             "late_source_hold",
         ):
             self.assertIn(check, media_framing_audit.REQUIRED_CASE_CHECKS)
@@ -116,6 +117,10 @@ class MediaFramingFixtureTests(unittest.TestCase):
         self.assertNotIn("new DataTransfer()", script)
         self.assertIn('media-import-status', script)
         self.assertIn('liveRenderCount === 1', script)
+        self.assertIn('queued_render_stopped_playback', script)
+        self.assertIn('queued_render_changed_preview', script)
+        self.assertIn('queued_render_was_not_cancelled', script)
+        self.assertIn('releaseQueuedRender()', script)
         self.assertIn('late_source_advanced_early', script)
         self.assertIn('releaseLateSource()', script)
         self.assertIn('drag_stage_replaced_during_live_render', script)

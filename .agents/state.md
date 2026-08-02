@@ -14,6 +14,12 @@
   `e97b40280a494ff5446fb2954fe01ed84f565924..7052212445c269752a094217b1ab4813741b2ef7`
   once. The first substantive result returned three MEDIUM findings, all
   admitted as `cl-14` through `cl-16`; the review loop remains active.
+- The `cl-14` repair captures exact queued-render ownership, cancels pending
+  media work when Source loses the workspace, and rejects stale work before
+  any render-start mutation. Its focused guards and native delayed-render race
+  are mutation-proven; the complete 694-Python/158-browser/compile/syntax/build
+  gate and all six native format/viewport cases pass. Per-finding review is
+  still required before `cl-14` closes.
 - Active review loop: see `.agents/review/index.md`.
 
 - Public-release candidate attempt 3 at
@@ -220,10 +226,9 @@
 
 ## Next
 
-- Repair and independently verify `cl-14`, `cl-15`, and `cl-16` one
-  finding and one commit at a time, beginning with queued-render ownership.
-  LSR-5 cannot close until all three are accepted and exact repair-head CI is
-  green. Do
+- Commit, push, and independently verify the guard-proven `cl-14` repair, then
+  repair `cl-15` and `cl-16` one finding and one commit at a time. LSR-5 cannot
+  close until all three are accepted and exact repair-head CI is green. Do
   not restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat

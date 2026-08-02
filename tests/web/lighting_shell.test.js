@@ -128,6 +128,39 @@ test("expired preview sessions invalidate their exact id and retry one render", 
   assert.match(sourceLoad,/invalidateMediaPreviewSession\(/);
 });
 
+test("queued media renders surrender Source ownership before shared preview mutation", () => {
+  const dispatchStart=js.indexOf("function dispatchLightingWorkspace");
+  const dispatchEnd=js.indexOf("\nfunction ",dispatchStart+10);
+  const dispatch=js.slice(dispatchStart,dispatchEnd);
+  assert.match(dispatch,/mediaOwnedBefore/);
+  assert.match(dispatch,/mediaCompositionRenderScheduler\.cancel\(\)/);
+  assert.ok(
+    dispatch.indexOf("mediaCompositionRenderScheduler.cancel()")
+      < dispatch.indexOf("executeLightingWorkspaceIntents"),
+    "pending media work must be cancelled before transition intents execute",
+  );
+
+  const scheduleStart=js.indexOf("function scheduleMediaCompositionPreview");
+  const scheduleEnd=js.indexOf("\nfunction ",scheduleStart+10);
+  const schedule=js.slice(scheduleStart,scheduleEnd);
+  assert.match(schedule,/ownership:\s*\{/);
+  assert.match(schedule,/captureWorkspaceAsyncContext\(lightingWorkspace\)/);
+  assert.match(schedule,/lightingMediaIdentity\(draft\)/);
+
+  const renderStart=js.indexOf("async function renderMediaCompositionPreviewAttempt");
+  const renderEnd=js.indexOf("\nfunction ",renderStart+10);
+  const render=js.slice(renderStart,renderEnd);
+  const ownershipCheck=render.indexOf("mediaLoadMatchesWorkspace(request?.ownership)");
+  const renderStarted=render.indexOf('type:"SEQUENCE_RENDER_STARTED"');
+  assert.ok(ownershipCheck>=0, "queued render ownership must be checked");
+  assert.match(render,/lightingWorkspace\.media\?\.requested_revision!==request\?\.revision/);
+  assert.ok(
+    ownershipCheck<renderStarted,
+    "stale queued work must be rejected before SEQUENCE_RENDER_STARTED",
+  );
+  assert.match(render,/const requestAsyncContext=request\.ownership/);
+});
+
 // Slice P3 renamed the visible tool labels to Paint / Import media / Effects /
 // AI while the internal tool keys and element ids stayed stable. This guard
 // keeps owning the stable keys; the visible labels are owned by

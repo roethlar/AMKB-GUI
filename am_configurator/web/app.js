@@ -297,8 +297,14 @@ function executeLightingWorkspaceIntents(intents, {renderWorkspace = false} = {}
 }
 
 function dispatchLightingWorkspace(event, options = {}) {
+  const mediaOwnedBefore=
+    lightingWorkspace.route===ROUTES.EDIT&&lightingWorkspace.tool==="source";
   const decision = reduceLightingWorkspace(lightingWorkspace, event);
   lightingWorkspace = decision.state;
+  if(
+    mediaOwnedBefore
+    &&(lightingWorkspace.route!==ROUTES.EDIT||lightingWorkspace.tool!=="source")
+  )mediaCompositionRenderScheduler.cancel();
   executeLightingWorkspaceIntents(decision.intents, options);
   return decision;
 }
@@ -3225,7 +3231,14 @@ async function importMedia(input) {
 function scheduleMediaCompositionPreview() {
   const draft=state.mediaComposition;
   if(!draft||draft.status==="cancelled")return null;
-  const request={catalogId:draft.catalogId,revision:draft.revision};
+  const request={
+    catalogId:draft.catalogId,
+    revision:draft.revision,
+    ownership:{
+      ...captureWorkspaceAsyncContext(lightingWorkspace),
+      ...lightingMediaIdentity(draft),
+    },
+  };
   mediaCompositionRenderScheduler.request(request);
   return request;
 }
@@ -3242,6 +3255,9 @@ async function renderMediaCompositionPreviewAttempt(request,allowSessionRecovery
     ||draft.status==="cancelled"
     ||draft.catalogId!==request?.catalogId
     ||draft.revision!==request?.revision
+    ||request?.ownership?.requested_revision!==request?.revision
+    ||lightingWorkspace.media?.requested_revision!==request?.revision
+    ||!mediaLoadMatchesWorkspace(request?.ownership)
   )return;
   const revision=draft.revision;
   const requiresWorkspaceRebuild=
@@ -3260,11 +3276,7 @@ async function renderMediaCompositionPreviewAttempt(request,allowSessionRecovery
   dispatchLightingWorkspace({type:"SEQUENCE_RENDER_STARTED"});
   const workspaceRequestEpoch=lightingWorkspace.preview.request_epoch;
   const workspaceRequestContextKey=lightingWorkspace.preview.request_context_key;
-  const requestAsyncContext={
-    ...captureWorkspaceAsyncContext(lightingWorkspace),
-    catalog_id:draft.catalogId,
-    asset_id:draft.source.asset_id,
-  };
+  const requestAsyncContext=request.ownership;
   let requestedPreviewSessionId=null;
   if(state.lighting.route===ROUTES.EDIT){
     renderLightingBoardProjection();
