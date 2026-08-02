@@ -1014,14 +1014,19 @@ the exact implementation range once and admitted `cl-21` (applied imported
 frames remain frozen) and `cl-22` (a source-text guard pins the related dead
 clone block). LSR-8 remains open until both findings are independently closed.
 
-The isolated `cl-21` repair copies canonical mapped color arrays at the live
+The isolated `cl-21` repair
+`864bd28636be781a84d1dfc259a9e0622890d111` copies canonical mapped color arrays at the live
 document boundary, so applied Head and Per-key frames remain editable while the
 transient review report stays recursively frozen. Its executable guard runs the
 actual production conversion, performs indexed paint and frame fill, and
 confirms the source report is unchanged; reverting only the copy fails that
 guard and restoring it passes. The complete 720-Python/179-browser/compile/
-syntax/build gate is green. Commit, push, exact-head qualification, and the
-T2-routed per-finding verdict remain required before `cl-21` closes.
+syntax/build gate is green. Exact-head CI run `30755504354` and Desktop
+installers run `30755504317` pass. Its one T2-routed `fable-review` used
+explicit `claude-opus-5` at `xhigh`, returned accepted, and independently
+confirmed the guard and complete gate. `cl-21` is closed; `cl-22` remains.
+Under the owner's 2026-08-02 review-economy ruling, the minor `cl-22` cleanup
+will be locally guard-proven and CI-qualified without external model review.
 
 Files:
 

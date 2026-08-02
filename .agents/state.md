@@ -104,13 +104,20 @@
   imported arrays make an applied slot uneditable) and `cl-22` (a source-text
   guard pins the associated dead clone block). The active review loop is
   recorded in `.agents/review/index.md`; LSR-8 is not closed.
-- The isolated `cl-21` repair now gives the live document mutable copies of
-  both imported track arrays while the transient report stays frozen. Its
-  executable production-function guard fails against the reviewed shared
+- `cl-21` is closed in repair commit
+  `864bd28636be781a84d1dfc259a9e0622890d111`. The live document owns mutable
+  copies of both imported track arrays while the transient report stays frozen.
+  Its executable production-function guard fails against the reviewed shared
   reference and passes after restoration; the complete 720-Python/179-browser/
-  compile/syntax/build gate passes with 5 Python skips. Commit, push,
-  exact-head CI/Desktop qualification, and the T2-routed per-finding review
-  remain before `cl-21` can close; `cl-22` is unchanged.
+  compile/syntax/build gate passes with 5 Python skips. Exact-head CI run
+  `30755504354` and Desktop installers run `30755504317` pass. Its one
+  T2-routed `fable-review` used explicit `claude-opus-5` at `xhigh`, returned
+  accepted, and independently confirmed the guard and full gate. `cl-22`
+  remains open.
+- Owner ruling 2026-08-02: external/cross-harness reviews are exceptional, not
+  automatic for every minor change. Use them only on explicit request or a
+  concrete material risk that local guards and CI cannot resolve; explain need
+  and expected cost before dispatch. `cl-22` receives no Claude review.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -316,11 +323,8 @@
 
 ## Next
 
-- Commit and push the guard-proven `cl-21` repair, qualify its exact head, and
-  run its T2-routed per-finding review; then repair `cl-22` as its own commit.
-  Continue the codereview per-finding
-  loop without retrying, replacing, or resubmitting a completed review. Do not
-  start LSR-9 until both admitted LSR-8 findings are closed. A
+- Repair and guard-prove `cl-22` as its own small commit without an external
+  review, then close LSR-8. Do not start LSR-9 until `cl-22` is closed. A
   replacement release candidate must repeat every release gate and cannot mix
   evidence from any rejected attempt with new bytes.
 - The approved `0.1.65` release plan remains recorded at

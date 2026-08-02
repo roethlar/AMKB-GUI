@@ -43,6 +43,16 @@ local counters and workflow run numbers are provenance only. Do not invoke
 PyInstaller directly; GitHub Actions owns equivalent native builds for the
 other operating systems.
 
+## Review Economy
+
+Cross-harness/model review is exceptional, not a mechanical gate for every
+change. Run one only when the owner explicitly requests it or when a concrete
+material risk remains that local guards and CI cannot adequately resolve; state
+that risk and the expected review cost before dispatch. Do not spend external
+review tokens on minor repairs, routine findings, or paperwork. A review already
+launched still uses its first substantive result and is never retried,
+discarded, replaced, or resubmitted without explicit owner approval.
+
 ## Device Safety
 
 Automated tests and smoke tests must not write to a keyboard. Hardware writes

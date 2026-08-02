@@ -477,3 +477,18 @@
   completed capability and defect proof. The transcript model key was
   `claude-opus-5`; immutable result SHA-256 is
   `27FB81F2BBF70D09260B1920E36B58B366787EB0679C954281DC166D9D96E51F`.
+- 2026-08-02 — `cl-21` per-finding codereview claude (job `fable-review`;
+  claude-cli 2.1.220; `claude-opus-5` @ `xhigh`, frontier, `escalated: T2`,
+  inline/session-only) over
+  `08bc98efa48dc5116057b036e3d4a03121ac81bd..864bd28636be781a84d1dfc259a9e0622890d111`:
+  verdict `accepted`, `guard_confirmed=true`, `capability_ok=true`, exact pins,
+  exit 0, no stderr. In a disposable worktree the reviewer passed 42 focused
+  shell tests, restored only `app.js` from the base and reproduced the exact
+  frozen-array guard failure with no collateral failure, restored the repair,
+  then passed 42 focused, 179 complete browser, 720 Python with 5 skips,
+  compile/syntax, and both package builds. The shared tree stayed untouched and
+  the disposable worktree was removed. The schema-enforced first substantive
+  result was used as returned without retry, re-emission, replacement,
+  reformatting, or resubmission. Transcript model key `claude-opus-5`;
+  immutable result SHA-256
+  `F42B8D99734D590EE668B8A0A42BF8A2BFB2652E45970DF46D3C6CBCEFE1854C`.
