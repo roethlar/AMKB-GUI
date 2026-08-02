@@ -1016,6 +1016,7 @@ class ReleaseInfoTests(unittest.TestCase):
         excluded = {
             ".agents",
             ".claude",
+            ".codex",
             ".gitattributes",
             ".github",
             ".gitignore",
