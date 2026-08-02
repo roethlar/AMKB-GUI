@@ -1,7 +1,8 @@
 # Repository State
 
 ## Now
-- LSR-1 is closed. Implementation `1ee73a81182c8f401b1942776d3df7c005541f33` and admitted review repair `95795845b6eeabd1c572b82244fef26a975183dd` are fully guard-proven, pass the 677-Python/144-browser/compile/syntax/build gate, and are pushed. The required `claude-opus-5` generation review and T2 per-finding verification used exact ranges once each; `cl-10` returned accepted with guard and capability confirmed. Canonical evidence is in the redesign plan and `.agents/review/findings/cl-10.md`. LSR-2 is next.
+- LSR-1 is closed. Implementation `1ee73a81182c8f401b1942776d3df7c005541f33` and admitted review repair `95795845b6eeabd1c572b82244fef26a975183dd` are fully guard-proven, pass the 677-Python/144-browser/compile/syntax/build gate, and are pushed. The required `claude-opus-5` generation review and T2 per-finding verification used exact ranges once each; `cl-10` returned accepted with guard and capability confirmed. Canonical evidence is in the redesign plan and `.agents/review/findings/cl-10.md`.
+- LSR-2 implementation `65c9fbfc22c2b24c3b868218512b00039756e6e1` is committed, pushed, and passed the 685-Python/144-browser/compile/syntax/build gate plus selected/full parity and Library-removal mutation proofs. Its single required `claude-opus-5` generation review over exact parent `4bdb75f802dec338821ea827d397a7ebc091d8bd` returned two independently reproduced findings: `cl-11` MEDIUM (sessionless renders consume and depend on the explicit preview-session LRU) and `cl-12` LOW (supersession begins only after complete decode). Both are admitted; repair `cl-11` first, then `cl-12`, one commit and one per-finding verdict each.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -207,10 +208,12 @@
 
 ## Next
 
-- Implement LSR-2, the exact selected-frame media renderer, under the approved
-  `2026-08-01-lighting-studio-human-first-redesign.md` plan. Preserve the full
-  mapped-result path and defer Apply, Library mutation, Effects UI, and hardware
-  changes. Do not restart R65-2 until LSR-1 through LSR-10 are implemented,
+- Repair `cl-11` without expanding LSR-2: keep explicit prepared sessions in
+  the bounded LRU while sessionless full renders use transient decoded state and
+  destination-scoped epochs independent of cache residency. Guard, mutation-
+  prove, fully verify, commit, push, and obtain its one per-finding verdict;
+  then repair `cl-12` the same way before closing LSR-2 and starting LSR-3. Do
+  not restart R65-2 until LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new
   bytes.
@@ -228,7 +231,7 @@
 
 ## Blockers
 
-- No blocker prevents LSR-2. R65-2 is blocked on completion and owner acceptance
-  of the complete redesign. Live provider requests,
+- No blocker prevents the LSR-2 finding repairs. R65-2 is blocked on completion
+  and owner acceptance of the complete redesign. Live provider requests,
   keyboard writes, macOS Open Anyway, tag creation, release publication, and
   announcements remain separately gated actions for their later slices.

@@ -50,6 +50,8 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | cl-8 | MEDIUM   | High-zoom geometry limit can exceed the unchanged ±8 offset schema         | `[x]`  | —      | claude/claude-opus-5/high/standard |
 | cl-9 | LOW      | Canonical state duplicates nagatha's volatile connection address           | `[x]`  | —      | claude/claude-opus-5/high/standard |
 | cl-10 | HIGH    | Lowercase profile colors blank the Lighting Studio                          | `[x]`  | —      | claude/claude-opus-5/xhigh/frontier esc:T2 |
+| cl-11 | MEDIUM  | Sessionless renders evict or depend on unrelated preview sessions           | `[ ]`  | —      | claude/claude-opus-5/high/standard |
+| cl-12 | LOW     | Stale sessionless renders fully decode before observing supersession        | `[ ]`  | —      | claude/claude-opus-5/high/standard |
 
 All three raised by the 2026-07-25 openreview codex pass over
 `65a70c9..94a847a` and admitted at intake after independent verification of

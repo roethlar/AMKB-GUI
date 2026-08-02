@@ -280,3 +280,15 @@
   was made; it completed through the background wrapper without PTK timeout,
   retry, re-emission, replacement, or resubmission. The transcript model key was
   `claude-opus-5`.
+- 2026-08-02 — codereview claude (job `fable-review`; claude-cli 2.1.220;
+  `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `4bdb75f802dec338821ea827d397a7ebc091d8bd..65c9fbfc22c2b24c3b868218512b00039756e6e1`:
+  verdict `findings`, `capability_ok=true`, exact pinned SHAs, two candidates,
+  exit 0, and no stderr. Both reproduced and were admitted: `cl-11` MEDIUM,
+  because repeated sessionless full renders consume the bounded LRU and evict
+  an unrelated explicit preview session; `cl-12` LOW, because superseded
+  sessionless renders receive no decode work check and only abort after full
+  decode. The persisted first substantive result completed after 16 minutes 24
+  seconds and was used as returned. It was not discarded, retried, re-emitted,
+  replaced, reformatted, or resubmitted. The transcript model key was
+  `claude-opus-5`.
