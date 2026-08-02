@@ -7,7 +7,7 @@ Per-machine facts that do not belong in the portable `state.md`.
 _Last verified locally: 2026-07-31; SSH reachability and suite timing were
 last verified 2026-07-29._
 
-- Reachable as `michael@netwatch-01` over SSH with key auth from `michael-mac`.
+- Reachable as `michael@netwatch-01` over SSH with key auth from `nagatha`.
   Resolution is not always available; it failed until the owner brought the host
   up, so treat a name-resolution failure as "ask the owner", not "host is gone".
 - Default SSH shell is PowerShell 7.6.3. Quoting through
@@ -83,6 +83,10 @@ _Last verified over SSH: 2026-07-31._
 _Last verified locally on the host: 2026-08-02. SSH reachability and the owner's
 console/RDP session were last verified 2026-08-01._
 
+- This is the owner's Mac, formerly recorded here as `michael-mac`; older
+  records and plans that name `michael-mac` mean this host (owner confirmed
+  2026-08-02). The former `/Users/michael/Dev/am` checkout and its Python 3.13
+  venv no longer exist.
 - Reachable as `michael@10.1.10.247`; hostname `nagatha.local`, macOS 26.6,
   Darwin 25.6.0, arm64. Its Ed25519 host key matches the trusted former
   `10.1.10.41` entry; `HostKeyAlias=10.1.10.41` verifies that identity without
@@ -102,6 +106,15 @@ console/RDP session were last verified 2026-08-01._
 - The owner may either operate the GUI directly or permit SSH-driven command
   checks. Availability does not authorize macOS Open Anyway or a keyboard
   write.
+- A local macOS arm64 PyInstaller bundle built here and its frozen
+  `--smoke-test` passed (last verified 2026-07-21, on the former checkout and
+  venv; recheck on the current checkout before relying on it).
+- Ollama is installed at `/usr/local/bin/ollama` (binary re-verified
+  2026-08-02). On 2026-07-21, `ornith:latest` produced a strict
+  procedural-animation recipe while `gemma4:12b-mlx` ignored the requested JSON
+  schema. Current production generation makes one request without automatic
+  correction retries, so model availability and conformance must be rechecked
+  rather than inferred from that historical run.
 
 ## gabrielle (Linux x86-64)
 
@@ -122,29 +135,3 @@ _Last verified over SSH: 2026-08-01._
 - Qualification checkouts and Ubuntu rootfs paths are transient and are not
   durable machine facts. Exact downloaded-artifact checks must create or
   verify their own isolated working root; no physical-keyboard test is needed.
-
-## michael-mac additions
-
-_Last verified: 2026-07-28_
-
-- `build.py` no longer reserves or stamps local build numbers. Native artifacts
-  use the canonical application version unchanged; existing older DMGs in
-  `dist/` do not affect it. <!-- lint: allow (owner ruled leave-it, 2026-07-29: dist/ is gitignored build output, exists only after native builds) -->
-- Use `python build.py --skip-sync` for an end-to-end DMG check against an
-  already prepared environment.
-
-## michael-mac (macOS arm64)
-
-_Last verified: 2026-07-21_
-
-- Repo checkout: `/Users/michael/Dev/am`, shell `zsh`, Darwin 25.5.0
-  (macOS 26.5.2).
-- Project venv at `.venv/` with Python 3.13.14; run tests via
-  `.venv/bin/python -m unittest` (system `python3` also 3.13).
-- Local macOS arm64 PyInstaller bundle builds here and its frozen
-  `--smoke-test` passes.
-- Ollama is installed locally. On 2026-07-21, `ornith:latest` produced a strict
-  procedural-animation recipe while `gemma4:12b-mlx` ignored the requested JSON
-  schema. Current production generation makes one request without automatic
-  correction retries, so model availability and conformance must be rechecked
-  rather than inferred from that historical run.
