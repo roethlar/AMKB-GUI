@@ -393,9 +393,50 @@ class MediaFramingIsolationTests(unittest.TestCase):
 
 
 class MediaFramingNativeWindowTests(unittest.TestCase):
+    def test_native_workflow_uses_direct_js_without_csp_blocked_eval(self) -> None:
+        window = mock.Mock()
+        window.run_js.side_effect = [False, True, None]
+        viewport_results = [
+            {"width": width, "height": height}
+            for width, height in media_framing_audit.AUDIT_VIEWPORTS
+        ]
+
+        with (
+            mock.patch("am_configurator.media_framing_audit.time.sleep"),
+            mock.patch(
+                "am_configurator.media_framing_audit._activate_webview_window"
+            ) as activate,
+            mock.patch(
+                "am_configurator.media_framing_audit._poll_async_result",
+                side_effect=viewport_results,
+            ) as poll,
+        ):
+            result = media_framing_audit._run_webview_workflow(window, [], [])
+
+        self.assertEqual(viewport_results, result)
+        self.assertEqual(3, window.run_js.call_count)
+        window.evaluate_js.assert_not_called()
+        self.assertEqual(len(media_framing_audit.AUDIT_VIEWPORTS), activate.call_count)
+        self.assertEqual(len(media_framing_audit.AUDIT_VIEWPORTS), poll.call_count)
+
+    def test_async_result_poll_uses_direct_js_without_csp_blocked_eval(self) -> None:
+        window = mock.Mock()
+        window.run_js.side_effect = [None, None, '{"width":1000,"height":680}']
+
+        with mock.patch("am_configurator.media_framing_audit.time.sleep") as sleep:
+            result = media_framing_audit._poll_async_result(
+                window,
+                "void window.startAudit();",
+                timeout=1,
+            )
+
+        self.assertEqual({"width": 1000, "height": 680}, result)
+        window.evaluate_js.assert_not_called()
+        sleep.assert_called_once_with(0.05)
+
     def test_native_audit_activates_the_window_before_asserting_focus(self) -> None:
         window = mock.Mock()
-        window.evaluate_js.side_effect = [False, True]
+        window.run_js.side_effect = [False, True]
 
         with mock.patch("am_configurator.media_framing_audit.time.sleep") as sleep:
             media_framing_audit._activate_webview_window(window, timeout=1)
@@ -403,8 +444,9 @@ class MediaFramingNativeWindowTests(unittest.TestCase):
         window.show.assert_called_once_with()
         self.assertEqual(
             [mock.call("document.hasFocus()"), mock.call("document.hasFocus()")],
-            window.evaluate_js.call_args_list,
+            window.run_js.call_args_list,
         )
+        window.evaluate_js.assert_not_called()
         sleep.assert_called_once_with(0.05)
 
 

@@ -2266,10 +2266,10 @@ def _audit_script() -> str:
 
 
 def _poll_async_result(window: Any, kickoff: str, *, timeout: float) -> dict:
-    window.evaluate_js(f"window.{_RESULT_SLOT}=undefined;{kickoff}")
+    window.run_js(f"window.{_RESULT_SLOT}=undefined;{kickoff}")
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        raw = window.evaluate_js(
+        raw = window.run_js(
             f"window.{_RESULT_SLOT}===undefined?null:JSON.stringify(window.{_RESULT_SLOT})"
         )
         if raw:
@@ -2293,7 +2293,7 @@ def _activate_webview_window(window: Any, *, timeout: float = 5) -> None:
     window.show()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if window.evaluate_js("document.hasFocus()"):
+        if window.run_js("document.hasFocus()"):
             return
         time.sleep(0.05)
     raise MediaFramingAuditError("webview_focus_timeout")
@@ -2306,7 +2306,7 @@ def _run_webview_workflow(
 ) -> list[dict]:
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
-        ready = window.evaluate_js(
+        ready = window.run_js(
             "Boolean(window.LibraryState&&window.LightingComposer&&"
             "typeof state==='object'&&state.config&&"
             "document.querySelector('[data-route=\"lighting/edit\"]'))"
@@ -2316,7 +2316,7 @@ def _run_webview_workflow(
         time.sleep(0.05)
     else:
         raise MediaFramingAuditError("webview_boot_timeout")
-    window.evaluate_js(_audit_script())
+    window.run_js(_audit_script())
     encoded_fixtures = json.dumps(
         fixtures,
         ensure_ascii=True,
