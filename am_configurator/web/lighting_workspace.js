@@ -6,7 +6,7 @@
 })(typeof globalThis === "object" ? globalThis : this, function () {
   "use strict";
 
-  const RGB_COLOR = /^#[0-9A-F]{6}$/;
+  const RGB_COLOR = /^#[0-9A-F]{6}$/i;
   const TARGET_NAME = /^[a-z][a-z0-9_]*$/;
   const PROVENANCE = new Set([
     "document",
@@ -174,7 +174,7 @@
           if (typeof color !== "string" || !RGB_COLOR.test(color)) {
             fail("invalid_color", "A lighting frame contains an invalid color.");
           }
-          return color;
+          return color.toUpperCase();
         });
         return Object.freeze(frame);
       }));

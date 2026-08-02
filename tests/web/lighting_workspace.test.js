@@ -59,7 +59,7 @@ function publish(state, value) {
   });
 }
 
-test("BoardFrameSet accepts only canonical target, frame, and RGB shapes", () => {
+test("BoardFrameSet validates shapes and canonicalizes valid RGB spelling", () => {
   const accepted = frameSet({
     framesByTarget: {
       keyframes: [
@@ -83,9 +83,12 @@ test("BoardFrameSet accepts only canonical target, frame, and RGB shapes", () =>
     () => frameSet({framesByTarget: {unknown: [["#FF0000"]]}}),
     error => error.code === "invalid_target",
   );
-  assert.throws(
-    () => frameSet({framesByTarget: {keyframes: [["#ff0000", "#00FF00"]]}}),
-    error => error.code === "invalid_color",
+  const canonicalized = frameSet({
+    framesByTarget: {keyframes: [["#ff0000", "#00ff00"]]},
+  });
+  assert.deepEqual(
+    canonicalized.frames_by_target.keyframes[0],
+    ["#FF0000", "#00FF00"],
   );
   assert.throws(
     () => frameSet({framesByTarget: {keyframes: [["#FF0000"]]}}),

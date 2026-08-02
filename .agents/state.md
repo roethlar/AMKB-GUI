@@ -1,6 +1,7 @@
 # Repository State
 
 ## Now
+- LSR-1 is implemented, fully verified, committed at `1ee73a81182c8f401b1942776d3df7c005541f33`, and pushed. Its one required `fable-review` used `claude-opus-5` at `high` over exact parent/head and returned one admitted HIGH finding, `cl-10`: backend-valid lowercase profile colors can be rejected before Board projection. The original review result was recovered after PTK's caller timeout without retry or resubmission. The isolated repair now canonicalizes valid RGB spelling, has a non-vacuous red/green guard, and passes the full 677-Python/144-browser/compile/syntax/build gate; its independent per-finding verdict remains to close. See `.agents/review/findings/cl-10.md`.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -206,12 +207,12 @@
 
 ## Next
 
-- Implement LSR-1 first under the approved
-  `2026-08-01-lighting-studio-human-first-redesign.md` plan: the pure workspace
-  reducer and canonical `BoardFrameSet` contract. Do not restart R65-2 until
-  LSR-1 through LSR-10 are implemented, guarded, verified, accepted, and pushed.
-  A replacement candidate must repeat every release gate and cannot mix
-  evidence from any rejected attempt with new bytes.
+- Complete landing and independent verification of the isolated `cl-10` repair,
+  then close LSR-1 records and begin LSR-2 under the approved
+  `2026-08-01-lighting-studio-human-first-redesign.md` plan. Do not restart
+  R65-2 until LSR-1 through LSR-10 are implemented, guarded, verified, accepted,
+  and pushed. A replacement candidate must repeat every release gate and cannot
+  mix evidence from any rejected attempt with new bytes.
 - The approved `0.1.65` release plan remains recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`; it records all
   three rejected candidates and is paused behind the redesign.
@@ -226,7 +227,7 @@
 
 ## Blockers
 
-- No blocker prevents LSR-1. R65-2 is blocked on completion and owner acceptance
-  of the complete redesign. Live provider requests, keyboard writes, macOS Open
-  Anyway, tag creation, release publication, and announcements remain
-  separately gated actions for their later slices.
+- No blocker prevents closing `cl-10` and LSR-1. R65-2 is blocked on completion
+  and owner acceptance of the complete redesign. Live provider requests,
+  keyboard writes, macOS Open Anyway, tag creation, release publication, and
+  announcements remain separately gated actions for their later slices.

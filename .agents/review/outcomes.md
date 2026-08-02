@@ -255,3 +255,14 @@
   resubmitted. Two hook-rewritten `rtk git` forms and one Grep form were denied,
   but the reviewer recovered through allowed repository reads and git
   inspection and completed the capability proof.
+- 2026-08-02 — codereview claude (job `fable-review`; claude-cli 2.1.220;
+  `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `cbf1346070fb908bd932028508f3c43923fe0057..1ee73a81182c8f401b1942776d3df7c005541f33`:
+  verdict `findings`, `capability_ok=true`, exact pinned SHAs, one HIGH
+  candidate, exit 0, and no stderr. Direct source verification admitted it as
+  `cl-10`: backend-valid lowercase profile colors are rejected before Board
+  projection and can blank the Lighting Studio. PTK's outer caller timed out
+  at 300 seconds, but the original child stayed alive and its persisted first
+  substantive result completed after 16 minutes 6 seconds. That same result
+  was used as returned; it was not discarded, retried, replaced, reformatted,
+  or resubmitted. The transcript model key was `claude-opus-5`.
