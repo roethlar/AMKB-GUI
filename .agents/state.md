@@ -198,8 +198,11 @@
   Windows/macOS qualification head `a53d0e3` is that packaging test; shipped
   inputs and dependency files are identical. No dependency, FFmpeg/libav path,
   provider call, credential use, hardware write, or external review was added.
-  Exact-head CI/Desktop jobs after push and the owner's final visible Windows
-  acceptance pass remain before LSR-10 can close.
+  Exact shipped-product head `f5cc91c` passes CI run `30766621303` on Windows,
+  macOS, Linux Python 3.11, and Linux, while Desktop installers run
+  `30766621302` passes Windows, macOS, Linux, candidate metadata, and release
+  provenance. Only the owner's final visible Windows acceptance pass remains
+  before LSR-10 can close.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -403,9 +406,8 @@
 
 ## Next
 
-- Commit the LSR-10 qualification record, push the landed range, and require
-  exact-head CI plus all three native Desktop jobs to pass. Then open the current
-  Windows build for the owner's one final visible acceptance pass. External
+- Open the current qualified Windows build for the owner's one final visible
+  acceptance pass, then record and close LSR-10 if accepted. External
   review is not automatic; use it only on explicit owner request or a concrete
   material risk that local guards and CI cannot resolve. A replacement release
   candidate must repeat every release gate and cannot mix evidence from any

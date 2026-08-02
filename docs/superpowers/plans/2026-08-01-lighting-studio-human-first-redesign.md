@@ -1215,8 +1215,10 @@ AppImage is 108,919,288 bytes with SHA-256
 The Windows/macOS qualification head and current head differ only by the
 packaging test that classifies governance-owned `.codex`; shipped inputs and
 dependency files are identical. No external review was dispatched under the
-review-economy rule. Exact-head CI/Desktop jobs after push and the owner's final
-visible Windows acceptance pass remain open.
+review-economy rule. Exact shipped-product head `f5cc91c` passes CI run
+`30766621303` on all four test jobs and Desktop installers run `30766621302` on
+all three platforms, candidate metadata, and release provenance. Only the
+owner's final visible Windows acceptance pass remains open.
 
 Commit:
 
