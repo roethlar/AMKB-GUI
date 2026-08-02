@@ -292,3 +292,16 @@
   seconds and was used as returned. It was not discarded, retried, re-emitted,
   replaced, reformatted, or resubmitted. The transcript model key was
   `claude-opus-5`.
+- 2026-08-02 — `cl-11` per-finding verification through codereview claude (job
+  `fable-review`; claude-cli 2.1.220; `claude-opus-5` @ `high`, standard,
+  inline/session-only) over
+  `bedd9b52c428fdc1cd9fb03c23a03816c7078a5c..9015d422d97d3be0ba9aa04a0ebeeec81c934335`:
+  verdict `accepted`, `guard_confirmed=true`, `capability_ok=true`, exact pins,
+  exit 0, and no stderr. A disposable worktree independently passed both
+  focused guards, restored only the production module from the base and
+  reproduced the unavailable retained session plus incorrectly superseded
+  independent render, then restored the repair and returned both guards green.
+  All 687 Python, 245 affected, and 144 browser tests passed. The worktree was
+  removed and pruned without changing the shared tree. Exactly one verification
+  invocation was made; it was not retried, re-emitted, replaced, reformatted,
+  or resubmitted. The transcript model key was `claude-opus-5`.
