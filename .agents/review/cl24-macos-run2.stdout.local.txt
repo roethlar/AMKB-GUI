@@ -1,0 +1,15 @@
+build_rc=0
+/tmp/amkb-cl24-e738bb6/dist/AM Configurator
+/tmp/amkb-cl24-e738bb6/dist/AM Configurator.app
+/tmp/amkb-cl24-e738bb6/dist/AM Configurator.app/Contents
+/tmp/amkb-cl24-e738bb6/dist/AM Configurator/AM Configurator
+/tmp/amkb-cl24-e738bb6/dist/AM Configurator/_internal
+/tmp/amkb-cl24-e738bb6/dist/AM-Configurator-0.1.65-macOS-arm64.dmg
+Native tree audit passed.
+Desktop smoke test passed (Darwin).
+open_rc=0
+schema_version=2
+status=failed
+failure=webview_focus_timeout
+viewports=0
+bytes=105

@@ -1,0 +1,774 @@
+--- python-tests ---
+Native webview policy smoke passed (Darwin, wkwebview).
+Desktop smoke test passed (Windows).
+Building AM Configurator 0.1.64 for macos...
+Building AM Configurator 0.1.64 for linux...
+--- python-compile ---
+--- browser-tests ---
+Γ£ö empty state offers connect and open as primary tasks with no merge concepts (0.7675ms)
+Γ£ö merge is contextual: absent without a document, offered for key-only exports (0.1746ms)
+Γ£ö matrix numbers and raw keycodes stay hidden until requested (0.197ms)
+Γ£ö palette picks apply to the selected key immediately (0.2483ms)
+Γ£ö lossless raw assignment still round-trips (0.1094ms)
+Γ£ö normal macro path is Type text and Record keys; event editing stays complete under Advanced (0.2426ms)
+Γ£ö capacity failures stay pre-mutation with task language (0.3687ms)
+Γ£ö disclosures are native and focus is restored after re-renders (0.231ms)
+Γ£ö every authored physical key ends on the board (0.343ms)
+Γ£ö sidebar counts carry visible or accessible labels (0.1674ms)
+Γ£ö normal text tokens hold WCAG AA 4.5:1 on every surface they sit on (0.9494ms)
+Γ£ö control boundaries hold 3:1 against their panels (0.3636ms)
+Γ£û body text is at least 14px and helper text at least 13px (1.2568ms)
+Γ£ö focus stays visible and disabled controls stay readable (0.2111ms)
+Γ£ö layout keeps narrow-window and reduced-motion coverage (0.1157ms)
+Γ£ö primary top-bar actions can never be clipped away at narrow widths (0.1075ms)
+Γ£ö the keymap editor drops to one column before its 620px floor can clip (0.0578ms)
+Γ£ö the keyboard board can never outgrow its card (0.0816ms)
+Γ£ö the synchronized Source and Board workspace stays bounded at 1280x800 and 1000x680 (0.4034ms)
+Γ£ö key labels override native button padding at the compact board width (0.1498ms)
+Γ£ö panel control rows wrap instead of blowing out of fixed columns (0.1325ms)
+Γ£ö a banked media draft stays immutable across render epochs (14.6935ms)
+Γ£ö cancelling discards only the draft and retains its banked catalog identity (0.1685ms)
+Γ£ö transform and effect changes invalidate an accepted preview (0.1507ms)
+Γ£ö a render result atomically adopts canonical Move & zoom state (0.1687ms)
+Γ£ö only the exact current media revision can become Apply-ready (0.1366ms)
+Γ£ö render epochs are process-safe and strictly increase across reopened drafts (0.2345ms)
+Γ£ö saved-lighting provenance survives exact pages and expires after edits (0.2053ms)
+Γ£ö mixed Library filters project exact paginated catalog queries (0.3278ms)
+Γ£ö profile selection keeps only server-approved section statuses (0.2185ms)
+Γ£ö Library request leases reject stale filters and superseded mutations (0.184ms)
+Γ£ö Library grid navigation follows rows and boundary keys (0.1136ms)
+Γ£ö source transforms are exact, finite, bounded, and browser-pixel independent (1.4505ms)
+Γ£ö Fit, Fill, Center, pan, zoom, and stretch reduce to normalized transforms (0.4358ms)
+Γ£ö every framing preset stays inside the exact scale bounds at extreme geometry (0.2195ms)
+Γ£ö latest-task scheduling debounces changes and never overlaps full renders (0.3891ms)
+Γ£ö browser and backend share exact canonical geometry vectors (0.3591ms)
+Γ£ö a NotFoundError capture miss still completes one pointer-ID-scoped drag (0.4675ms)
+Γ£ö pointer cancel, lost capture, teardown, and real capture failures release cleanly (0.2503ms)
+Γ£ö wheel and keyboard framing activate source view and share canonical reducers (0.9361ms)
+Γ£ö Pulse, Hue cycle, Sweep, and Shimmer are deterministic bounded local reducers (1.0818ms)
+Γ£ö demonstrative effect selection reports when exact LED output cannot change (0.1937ms)
+Γ£ö effect schemas enforce frame ceilings and Move & zoom remains still-only (0.1765ms)
+Γ£ö the pure compositor has no network, provider, or browser-storage path (0.228ms)
+Γ£ö Studio tools read Paint, Import media, Effects, and AI over stable keys (1.1034ms)
+Γ£ö media previews explicitly while effect cards update the Board immediately (0.6997ms)
+Γ£ö effect cards and every normal parameter regenerate exact Board output immediately (0.5675ms)
+Γ£ö local effect regeneration publishes one exact draft with motion preference attached (1.0296ms)
+Γ£ö effect parameter changes stay pinned to the originating document frame (0.4547ms)
+Γ£ö effect Apply clones exact accepted arrays once and preserves the dependent edge track (0.6543ms)
+Γ£ö every Apply names the slot, the document-only change, and the Write action (0.3915ms)
+Γ£ö a stale model refresh cannot fill inventory from a previous origin (0.2351ms)
+Γ£ö the generated-result review states the destination, scope, and next action (0.3211ms)
+Γ£ö Save to Library is one label everywhere and never merged into Apply (0.7731ms)
+Γ£ö the AI panel shows destination, model, one prompt, one action, and Cancel (0.2907ms)
+Γ£ö a generation failure exposes exactly one Try again action and starts no call (0.4828ms)
+Γ£ö AI-off hides AI-only controls while every manual tool stays available (0.9353ms)
+Γ£ö technical lighting controls keep their behavior under Advanced (0.5761ms)
+Γ£ö normal lighting controls are friendly presets constrained to firmware values (0.5525ms)
+Γ£ö Settings offers Ollama and Direct API with the full Ollama server panel (0.8868ms)
+Γ£ö saving a server URL performs no inventory or setup request (0.4117ms)
+Γ£ö review renderer is surface-agnostic and exports no dialog controller (0.3897ms)
+Γ£ö ready reducer state renders the authenticated preview and applies exactly once (0.5854ms)
+Γ£ö loading assets and every reducer block reason render without applying (1.0407ms)
+Γ£ö pure lighting state loads before the application adapter (0.8028ms)
+Γ£ö workspace reducer is the only destination and playback authority (0.5133ms)
+Γ£ö media and source-projection transitions are bound to the reducer session (0.2745ms)
+Γ£ö expired preview sessions invalidate their exact id and retry one render (0.1452ms)
+Γ£ö queued media renders surrender Source ownership before shared preview mutation (0.1458ms)
+Γ£ö interactive framing publishes one exact selected frame before the full sequence (0.2845ms)
+Γ£ö Studio is one Paint, Import media, and Effects shell with local draft acceptance (1.0206ms)
+Γ£ö the stable Lighting shell keeps actual Source and canonical Board separate (1.1883ms)
+Γ£ö one horizontal timeline owns playback, position, editing, and status (0.5096ms)
+Γ£ö media import banks before composition and applies only an accepted preview (1.3362ms)
+Γ£ö lighting color style interpolation uses only canonical RGB (0.1983ms)
+Γ£ö persistent job strip remains available outside routed content (0.2109ms)
+Γ£ö disabled first paint exposes no generation control outside Settings (0.7105ms)
+Γ£ö Settings exposes Ollama server and cloud models plus the curated API (1.331ms)
+Γ£ö one master switch owns and hides every AI setup control (0.8514ms)
+Γ£ö About is the only normal application-version surface (0.2437ms)
+Γ£ö Settings explains incompatible Ollama discovery without adding show (0.2582ms)
+Γ£ö Settings exposes an explicit blocked-migration credential discard (0.2867ms)
+Γ£ö API setup stays secondary, explicit, and confined to Settings (0.6571ms)
+Γ£ö saving Settings persists intent without client-side readiness forgery (0.2196ms)
+Γ£ö the LED editor delegates every pointer stroke to release-safe state (0.2511ms)
+Γ£ö generation is one prompt, durable progress, animated review, and explicit Apply (1.2727ms)
+Γ£ö inline generation tool omits backend identity and keeps the exact target destination (0.3055ms)
+Γ£ö generation is inline with no detached dialog or Create route (0.5093ms)
+Γ£ö Library remains document-independent and browses every saved kind (0.4849ms)
+Γ£ö profile banking is explicit, exact-source, and applies selected compatible sections (0.4993ms)
+Γ£ö Library removal is reversible and permanent deletion is confirmed (0.5148ms)
+Γ£ö Library cards support arrow-key navigation and narrow pagination (0.1755ms)
+Γ£ö Library media failures retry once and become actionable (0.0715ms)
+Γ£ö Library asset loads revoke stale blobs and preserve refreshed ownership (0.0561ms)
+Γ£ö Settings remains saveable without a procedural loop preference (0.5436ms)
+Γ£ö manual Lighting layout, keyboard controls, narrow windows, and reduced motion remain (1.1282ms)
+Γ£ö narrow Keymap releases the desktop keyboard minimum without page clipping (0.1437ms)
+Γ£ö Relic per-key lighting uses the sized Keymap geometry and segments its spacebar LEDs (2.0007ms)
+Γ£ö CyberBoard switch lighting shares the photographed Keymap geometry (1.4161ms)
+Γ£ö Neon keymap wiring uses the validated layout and assignment gate (1.1458ms)
+Γ£ö connected Neon macro capacity owns the editor meter and mutation gates (0.3882ms)
+Γ£ö imported assignment codes are canonical before browser state publication (1.1734ms)
+Γ£ö hostile assignment markup is escaped into inert attribute text (0.1826ms)
+Γ£ö imported lighting colors normalize to canonical six-digit RGB (0.1742ms)
+Γ£ö CSS declarations and remote URLs cannot enter lighting markup (0.1558ms)
+Γ£ö Ollama endpoint data flow is classified without DNS or network access (0.2039ms)
+Γ£ö epoch load ownership lets refresh supersede an in-flight asset safely (0.1493ms)
+Γ£ö local model picker distinguishes inventory and selected-model states (0.3914ms)
+Γ£ö local model picker preserves a preferred choice after transient refresh failure (0.1191ms)
+Γ£ö AI Studio exists only for enabled and currently ready capability (0.0723ms)
+Γ£ö provider picker uses all six catalog providers and submits the first default (0.3766ms)
+Γ£ö defaults to Keymap at the prompt stage (0.5711ms)
+Γ£ö grid focus movement is bounded and supports arrows plus Home and End (0.0807ms)
+Γ£ö three paint strokes create three checkpoints and entry alone never paints (0.194ms)
+Γ£ö reducer never mutates frozen input (0.3844ms)
+Γ£ö durable job synchronization owns prompt, progress, and review stages (0.0902ms)
+Γ£ö Review cannot be opened before a mapped result exists (0.0339ms)
+Γ£ö job projection uses only the latest procedural attempt (0.0685ms)
+Γ£ö hash routing round-trips safe routes and opaque job IDs (0.1926ms)
+Γ£ö every launch starts Keymap while preserving active job identity (0.1437ms)
+Γ£ö Library and Settings remain document-independent without a Create route (0.0646ms)
+Γ£ö Apply compatibility fails closed with a specific reason (0.0969ms)
+Γ£ö known product variants share their intended compatibility families (0.0495ms)
+Γ£ö only compatible Apply emits a document mutation intent (0.0923ms)
+Γ£ö CyberBoard, Relic, and AFA targets render as selectable valid buttons (1.5289ms)
+Γ£ö an unsupported product resolves to no family instead of a default one (0.1333ms)
+Γ£ö an unrecognised product still reports the shared limits for editing (0.0658ms)
+Γ£ö track colour counts follow the family that authors the track (0.0637ms)
+Γ£ö every family's authored tracks are exactly the targets it offers (0.0933ms)
+Γ£ö productFamily normalises the identifiers the firmware reports (0.0474ms)
+Γ£ö target controls preserve pressed and destination-locked state (0.0862ms)
+Γ£ö the Neon axial LEDs inherit real key widths from the Vial layout (0.3113ms)
+Γ£ö the validated Vial layout becomes the physical Neon key geometry (0.1335ms)
+Γ£ö one scanned Neon supplies display geometry before a full device read (0.1792ms)
+Γ£ö the Neon palette exposes only assignments its QMK wire format accepts (0.1931ms)
+Γ£ö the Neon palette owns every firmware lighting control by name (0.0865ms)
+Γ£ö connected Neon macro limits overlay the static family fallback (0.1646ms)
+Γ£ö Neon macro usage meters the exact encoded Vial buffer bytes (0.0706ms)
+Γ£ö BoardFrameSet validates shapes and canonicalizes valid RGB spelling (1.5871ms)
+Γ£ö one mapped media frame becomes an exact transient Board frame (0.181ms)
+Γ£ö document, local effect, media, and procedural sources share one BoardFrameSet contract (0.3205ms)
+Γ£ö a local effect draft owns exact accepted arrays and starts destination-bound playback (0.8224ms)
+Γ£ö reduced motion selects the representative changed frame without autoplay (0.1815ms)
+Γ£ö a no-change effect explains itself without autoplay or an Apply intent (0.2062ms)
+Γ£ö effect playback and accepted arrays cannot leak across workspace context changes (0.8454ms)
+Γ£ö Source projection and Board projection select one accepted timeline entry (0.4394ms)
+Γ£ö media playback holds Board until the exact next Source frame is ready (0.3387ms)
+Γ£ö expired media sessions clear only the matching id and preserve the draft (0.3926ms)
+Γ£ö manual paint updates the accepted document frame without a second authority (0.2295ms)
+Γ£ö stale context and request epochs cannot publish preview frames (0.1763ms)
+Γ£ö every context change cancels playback before requesting a render (0.1849ms)
+Γ£ö identical internal errors coalesce into one friendly reducer error (0.2317ms)
+Γ£ö a synchronous Board contract failure clears stale output and cancels playback (0.1605ms)
+Γ£ö a Per-key playback session cannot tick after switching to Head matrix (0.1684ms)
+Γ£ö workspace state remains serializable and contains no timer authority (0.1107ms)
+Γ£ö playback runtime keeps one timer and one lifecycle listener across repeated starts (0.4165ms)
+Γ£ö destination sessions isolate Neon, CyberBoard, and Relic board pixels (1.9904ms)
+Γ£ö destination playheads remain independent (0.3019ms)
+Γ£ö stale selected-frame and full-render epochs cannot collide after same-destination transitions (0.2478ms)
+Γ£ö selected media frames preserve the playhead without promoting partial work (0.3012ms)
+Γ£û no banned implementation vocabulary reaches user-visible copy (4.9404ms)
+Γ£ö AI progress phases use the plan's task language everywhere they are shown (0.2855ms)
+Γ£ö the progress explanation states what continues and what closing does (0.0712ms)
+Γ£ö every typed AI failure says what changed and what to do next (0.3778ms)
+Γ£ö raw exception text is never surfaced through the AI error mapper (0.4155ms)
+Γ£ö every blocked review explains the block, the state, and the next step (0.1355ms)
+Γ£ö Ollama and Direct API are the user-facing backend names (0.2853ms)
+Γ£ö generated-result review speaks in lighting effects and lighting frames (0.0996ms)
+Γ£ö mapped and stored counts sit behind Technical details, not the canvas heading (0.2006ms)
+Γ£ö internal manifest, route, and element contracts are unchanged (0.8594ms)
+Γä╣ tests 170
+Γä╣ suites 0
+Γä╣ pass 168
+Γä╣ fail 2
+Γä╣ cancelled 0
+Γä╣ skipped 0
+Γä╣ todo 0
+Γä╣ duration_ms 76.8018
+
+Γ£û failing tests:
+
+test at tests\web\design_tokens.test.js:66:1
+Γ£û body text is at least 14px and helper text at least 13px (1.2568ms)
+  AssertionError [ERR_ASSERTION]: helper text below the 13px floor:
+  584: .effect-card small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+  + actual - expected
+  
+  + [
+  +   '584: .effect-card small { color: var(--muted); font-size: 12px; line-height: 1.35; }'
+  + ]
+  - []
+  
+      at TestContext.<anonymous> (F:\dev\AMKB-GUI\tests\web\design_tokens.test.js:74:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ '584: .effect-card small { color: var(--muted); font-size: 12px; line-height: 1.35; }' ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at tests\web\plain_language.test.js:63:1
+Γ£û no banned implementation vocabulary reaches user-visible copy (4.9404ms)
+  AssertionError [ERR_ASSERTION]: app.js still shows "exact LED frames" in user-visible copy (exact LED frames ΓåÆ lighting frames)
+  + actual - expected
+  
+  + [
+  +   'exact LED frames',
+  +   groups: undefined,
+  +   index: 33466,
+  +   input: '"use strict"\n' +
+  +     '"token"\n' +
+  +     '""\n' +
+  +     '"am-configurator-token"\n' +
+  +     '"am-configurator-token"\n' +
+  +     '""\n' +
+  +     '""\n' +
+  +     '`  `\n' +
+  +     '"am-lighting-session"\n' +
+  +     '"This media preview session is no longer available."\n' +
+  +     '"function"\n' +
+  +     '"(prefers-reduced-motion: reduce)"\n' +
+  +     '"DOCUMENT_OPENED"\n' +
+  +     '"DOCUMENT_CLOSED"\n' +
+  +     '"DESTINATION_CHANGED"\n' +
+  +     '"TOOL_SELECTED"\n' +
+  +     '"ROUTE_CHANGED"\n' +
+  +     '"MEDIA_OPENED"\n' +
+  +     '"MEDIA_CANCELLED"\n' +
+  +     '"{}"\n' +
+  +     '""\n' +
+  +     '`  `\n' +
+  +     '"keyframes"\n' +
+  +     '"paint"\n' +
+  +     '""\n' +
+  +     '"AM-config.json"\n' +
+  +     '"#8358FF"\n' +
+  +     '"box"\n' +
+  +     '"box"\n' +
+  +     '""\n' +
+  +     '"left_to_right"\n' +
+  +     '""\n' +
+  +     '""\n' +
+  +     '""\n' +
+  +     '""\n' +
+  +     '"device"\n' +
+  +     '"all"\n' +
+  +     '""\n' +
+  +     '""\n' +
+  +     '"DESTINATION_CHANGED"\n' +
+  +     '"DESTINATION_CHANGED"\n' +
+  +     '"PLAYHEAD_SCRUBBED"\n' +
+  +     '"TOOL_SELECTED"\n' +
+  +     '"#lighting-edit-message"\n' +
+  +     '"#lighting-workspace-shell"\n' +
+  +     '"#lighting-edit-message"\n' +
+  +     '"#lighting-workspace-shell"\n' +
+  +     '"#led-canvas"\n' +
+  +     '"#lighting-edit-content"\n' +
+  +     '".pixel"\n' +
+  +     '".frame-item"\n' +
+  +     '"#lighting-timeline-scrubber"\n' +
+  +     '"#lighting-frame-position"\n' +
+  +     '`Frame   of  `\n' +
+  +     '"#lighting-loop-status"\n' +
+  +     '"Loops continuously"\n' +
+  +     '"Single frame"\n' +
+  +     '"#lighting-previous-frame"\n' +
+  +     '"#lighting-next-frame"\n' +
+  +     '"#play-led"\n' +
+  +     '"source"\n' +
+  +     '"aria-label"\n' +
+  +     '"Pause lighting"\n' +
+  +     '"Play lighting"\n' +
+  +     '"Pause"\n' +
+  +     '"Play"\n' +
+  +     '"cancel-playback"\n' +
+  +     '"start-playback"\n' +
+  +     '"render-board"\n' +
+  +     '"prepare-source-frame"\n' +
+  +     '"show-error"\n' +
+  +     '"error"\n' +
+  +     '"apply-board-frame-set"\n' +
+  +     '"render-workspace"\n' +
+  +     '"#lighting-edit-content"\n' +
+  +     '"source"\n' +
+  +     '"source"\n' +
+  +     '"keyframes"\n' +
+  +     '"DOCUMENT_OPENED"\n' +
+  +     '"Content-Type"\n' +
+  +     '"application/json"\n' +
+  +     '"X-AM-Token"\n' +
+  +     '`Request failed ( )`\n' +
+  +     '""\n' +
+  +     '"/api/document/sync"\n' +
+  +     '"POST"\n' +
+  +     '"The open document could not be synchronized."\n' +
+  +     '""\n' +
+  +     '""\n' +
+  +     '"div"\n' +
+  +     '`toast  `\n' +
+  +     '"strong"\n' +
+  +     '"span"\n' +
+  +     '"#toast-region"\n' +
+  +     '"error"\n' +
+  +     '"ΓÇö"\n' +
+  +     '"80"\n' +
+  +     '"Relic 80"\n' +
+  +     '"ALICE"\n' +
+  +     '"AFA / AFA 2"\n' +
+  +     '"CB"\n' +
+  +     '"CyberBoard"\n' +
+  +     '"Unknown keyboard"\n' +
+  +     '"AM-config.json"\n' +
+  +     '""\n' +
+  +     '".json"\n' +
+  +     '` .json`\n' +
+  +     '"#dirty-dot"\n' +
+  +     '"visible"\n' +
+  +     '"#undo-button"\n' +
+  +     '"#redo-button"\n' +
+  +     '"#file-name"\n' +
+  +     '"No configuration open"\n' +
+  +     '"#dirty-dot"\n' +
+  +     '"visible"\n' +
+  +     '"#product-pill"\n' +
+  +     '"ΓÇö"\n' +
+  +     '"muted"\n' +
+  +     '"#nav-layers"\n' +
+  +     '"layer"\n' +
+  +     '"layers"\n' +
+  +     '"#nav-macros"\n' +
+  +     '"macro"\n' +
+  +     '"macros"\n' +
+  +     '"#nav-leds"\n' +
+  +     '"lighting slot"\n' +
+  +     '"lighting slots"\n' +
+  +     '"ΓÇö"\n' +
+  +     '"none loaded"\n' +
+  +     '`   `\n' +
+  +     '"aria-label"\n' +
+  +     '"#save-button"\n' +
+  +     '"#merge-button"\n' +
+  +     '"#merge-button"\n' +
+  +     '"#validate-button"\n' +
+  +     '"key_layer"\n' +
+  +     '"tab_key"\n' +
+  +     '"tab_key_num"\n' +
+  +     '"macro_key"\n' +
+  +     '"MACRO_key"\n' +
+  +     '"MACRO_key_num"\n' +
+  +     '"Fn_key"\n' +
+  +     '"Fn_key_num"\n' +
+  +     '"swap_key"\n' +
+  +     '"swap_key_num"\n' +
+  +     '"exchange_key"\n' +
+  +     '"exchange_num"\n' +
+  +     '"?"\n' +
+  +     '"?"\n' +
+  +     '`  ( )`\n' +
+  +     '`  ( )`\n' +
+  +     '"#incompatible-source"\n' +
+  +     '"#incompatible-target"\n' +
+  +     '"#incompatible-message"\n' +
+  +     '"document"\n' +
+  +     '`  is for  ; the open document is  . These profiles cannot be merged.`\n' +
+  +     '`  is for  ; the connected keyboard is  . This profile cannot be written to that keyboard.`\n' +
+  +     '"#import-incompatible-macros"\n' +
+  +     '"Import 1 macro only"\n' +
+  +     '`Import   macros only`\n' +
+  +     '"#incompatible-macro-note"\n' +
+  +     '`The   validated macro definition  portable. Importing replaces the macros in the current   workspace without opening this profile.`\n' +
+  +     '"This profile has no portable modern macros."\n' +
+  +     '"#incompatible-dialog"\n' +
+  +     '""\n' +
+  +     '"#incompatible-dialog"\n' +
+  +     '""\n' +
+  +     '"object"\n' +
+  +     '`  is not a configuration object.`\n' +
+  +     '"The selected JSON files belong to different keyboard families and cannot be combined."\n' +
+  +     '"No key_layer was found in the selected JSON."\n' +
+  +     '`  ( )`\n' +
+  +     '"document"\n' +
+  +     '"/api/config/compatibility"\n' +
+  +     '"POST"\n' +
+  +     '"cancel"\n' +
+  +     '"macros"\n' +
+  +     '"No key_layer was found in the selected JSON."\n' +
+  +     '"The opened document could not be synchronized."\n' +
+  +     '"Configurations merged"\n' +
+  +     '"Configuration opened"\n' +
+  +     '`  ┬╖   layers ┬╖   macros`\n' +
+  +     '"success"\n' +
+  +     '"Could not open JSON"\n' +
+  +     '"error"\n' +
+  +     '"\\n"\n' +
+  +     '"application/json"\n' +
+  +     '"a"\n' +
+  +     '"JSON saved"\n' +
+  +     '"success"\n' +
+  +     '"C1"\n' +
+  +     '"C2"\n' +
+  +     '"C3"\n' +
+  +     '"C4"\n' +
+  +     '"CyberBoard"\n' +
+  +     '"15├ù6"\n' +
+  +     '"cyber"\n' +
+  +     '"AFA"\n' +
+  +     '"16├ù5"\n' +
+  +     '"80"\n' +
+  +     '"Relic 80"\n' +
+  +     '"17├ù6"\n' +
+  +     '"80"\n' +
+  +     '"AM Neon 80"\n' +
+  +     '`<div class="empty-state"><p class="eyebrow"> </p><h1> </h1><p> </p></div>`\n' +
+  +     '"Slow"\n' +
+  +     '"Medium"\n' +
+  +     '"Fast"\n' +
+  +     '"Short"\n' +
+  +     '"Medium"\n' +
+  +     '"Long"\n' +
+  +     '`<div class="segmented compact speed-presets" role="group" aria-label="Animation speed" id=" "> </div>`\n' +
+  +     '`<div class="segmented compact length-presets" role="group" aria-label="Animation length" id=" "> </div>`\n' +
+  +     '""\n' +
+  +     '"ΓÇö"\n' +
+  +     '`Write to  `\n' +
+  +     '"Write to keyboard"\n' +
+  +     '`Custom slot  `\n' +
+  +     '""\n' +
+  +     '`  ┬╖   changed in this open document only. Nothing has been written to the keyboard yet ΓÇö use the   button when you are ready. `\n' +
+  +     '`<div class="empty-state"><p class="eyebrow">Unsupported device</p><h1>No lighting profile for  .</h1><p>This build has no LED layout for that product, so   would use another keyboard\'s geometry. Load a profile for a supported device.</p></div>`\n' +
+  +     '`F `\n' +
+  +     '"F13"\n' +
+  +     '"Enter"\n' +
+  +     '"Esc"\n' +
+  +     '"Backspace"\n' +
+  +     '"Tab"\n' +
+  +     '"Space"\n' +
+  +     '"ΓêÆ"\n' +
+  +     '"="\n' +
+  +     '"["\n' +
+  +     '"]"\n' +
+  +     '"\\\\"\n' +
+  +     '";"\n' +
+  +     `"'"\n` +
+  +     '"`"\n' +
+  +     '","\n' +
+  +     '"."\n' +
+  +     '"/"\n' +
+  +     '"Caps"\n' +
+  +     '"PrtSc"\n' +
+  +     '"ScrLk"\n' +
+  +     '"Pause"\n' +
+  +     '"Insert"\n' +
+  +     '"Home"\n' +
+  +     '"PgUp"\n' +
+  +     '"Delete"\n' +
+  +     '"End"\n' +
+  +     '"PgDn"\n' +
+  +     '"ΓåÆ"\n' +
+  +     '"ΓåÉ"\n' +
+  +     '"Γåô"\n' +
+  +     '"Γåæ"\n' +
+  +     '"Num"\n' +
+  +     '"Menu"\n' +
+  +     '"L Ctrl"\n' +
+  +     '"L Shift"\n' +
+  +     '"L Alt"\n' +
+  +     '"L Cmd"\n' +
+  +     '"R Ctrl"\n' +
+  +     '"R Shift"\n' +
+  +     '"R Alt"\n' +
+  +     '"R Cmd"\n' +
+  +     '"Next"\n' +
+  +     '"Previous"\n' +
+  +     '"Stop"\n' +
+  +     '"Play / Pause"\n' +
+  +     '"Mute"\n' +
+  +     '"Volume +"\n' +
+  +     '"Volume ΓêÆ"\n' +
+  +     '"Brightness +"\n' +
+  +     '"Brightness ΓêÆ"\n' +
+  +     '"Layer 1"\n' +
+  +     '"Layer 2"\n' +
+  +     '"Layer 3"\n' +
+  +     '"Layer 4"\n' +
+  +     '"Layer 5"\n' +
+  +     '"Layer 6"\n' +
+  +     '"Layer 7"\n' +
+  +     '"Fn 1"\n' +
+  +     '"Fn 2"\n' +
+  +     '"Fn 3"\n' +
+  +     '"Fn 4"\n' +
+  +     '"Fn 5"\n' +
+  +     '"Fn 6"\n' +
+  +     '"Fn 7"\n' +
+  +     '"Previous layer"\n' +
+  +     '"Next LED"\n' +
+  +     '"LED On / Off"\n' +
+  +     '"LED Bright +"\n' +
+  +     '"LED Bright ΓêÆ"\n' +
+  +     '"LED Speed +"\n' +
+  +     '"LED Speed ΓêÆ"\n' +
+  +     '"LED Rotate"\n' +
+  +     '"Next PCB"\n' +
+  +     '"PCB Bright +"\n' +
+  +     '"PCB Bright ΓêÆ"\n' +
+  +     '"PCB On / Off"\n' +
+  +     '"PCB Speed +"\n' +
+  +     '"PCB Speed ΓêÆ"\n' +
+  +     '"Nameplate Bright +"\n' +
+  +     '"Nameplate Bright ΓêÆ"\n' +
+  +     '"Nameplate On / Off"\n' +
+  +     '"Nameplate Color"\n' +
+  +     '"Next Nameplate"\n' +
+  +     '"Bluetooth 1"\n' +
+  +     '"Bluetooth 2"\n' +
+  +     '"Bluetooth 3"\n' +
+  +     '"2.4G"\n' +
+  +     '"Battery"\n' +
+  +     '"Win / Mac"\n' +
+  +     '"Power"\n' +
+  +     '"Reset"\n' +
+  +     '"Layers & Fn"\n' +
+  +     '"Display lighting"\n' +
+  +     '"PCB lighting"\n' +
+  +     '"Nameplate lighting"\n' +
+  +     '"Wireless & system"\n' +
+  +     '`#   `\n' +
+  +     '""\n' +
+  +     '"Invalid"\n' +
+  +     '"None"\n' +
+  +     '`Macro  `\n' +
+  +     '` : `\n' +
+  +     '`Γåô  `\n' +
+  +     '`Γåæ  `\n' +
+  +     '`M  +  `\n' +
+  +     '"None"\n' +
+  +     '"#00000000"\n' +
+  +     '"Basic"\n' +
+  +     '"Letters"\n' +
+  +     '"Numbers"\n' +
+  +     '"Basic"\n' +
+  +     '"Function"\n' +
+  +     '"Media"\n' +
+  +     '"Device"\n' +
+  +     '"Keyboard"\n' +
+  +     '`07: `\n' +
+  +     '""\n' +
+  +     '"disabled"\n' +
+  +     '""\n' +
+  +     '`<button class="palette-key assignment-key  " data-code=" " data-search=" " style="--key-units: " title=" "  > </button>`\n' +
+  +     '"Layers & Fn"\n' +
+  +     '"Display lighting"\n' +
+  +     '"PCB lighting"\n' +
+  +     '"Nameplate lighting"\n' +
+  +     '"Wireless & system"\n' +
+  +     '`Macro  `\n' +
+  +     '"Macros"\n' +
+  +     '"None"\n' +
+  +     '"#00000000"\n' +
+  +     '"Navigation & media"\n' +
+  +     '"Navigation & media"\n' +
+  +     '"Media"\n' +
+  +     '`<section class="assignment-panel">\r\n' +
+  +     '    <div class="assignment-heading"><div><strong>Available assignments</strong><small> </small></div><input id="key-search" class="search-field" type="search" placeholder="Filter keys and controlsΓÇª"></div>\r\n' +
+  +     '    <div class="assignment-scroll"><div class="qwerty-board assignment-section"><p class="control-label">Standard QWERTY keyboard</p> </div></div>\r\n' +
+  +     '    <div class="assignment-groups">\r\n' +
+  +     '      <div class="assignment-section"><p class="control-label">Navigation & media</p><div class="assignment-grid"> </div></div>\r\n' +
+  +     '      <div class="assignment-section"><p class="control-label">Macros</p> </div>\r\n' +
+  +     '      ${neonLightingGroups.map(({group,options})=>`\n' +
+  +     '"assignment-section"\n' +
+  +     '"control-label"\n' +
+  +     '"assignment-grid"\n' +
+  +     '""\n' +
+  +     '`).join("")}\r\n' +
+  +     '      ${vendorGroups.map(({group,options})=>`\n' +
+  +     '"assignment-section"\n' +
+  +     '"control-label"\n' +
+  +     '"assignment-grid"\n' +
+  +     '""\n' +
+  +     '`).join("")}\r\n' +
+  +     '    </div>\r\n' +
+  +     '  </section>`\n' +
+  +     '"80"\n' +
+  +     '"Relic 80"\n' +
+  +     '"relic"\n' +
+  +     '"CB"\n' +
+  +     '"CB04"\n' +
+  +     '"CyberBoard"\n' +
+  +     '"cyber"\n' +
+  +     '"ALICE"\n' +
+  +     '"AFA"\n' +
+  +     '"afa"\n' +
+  +     '"NEON"\n' +
+  +     '"AM Neon 80"\n' +
+  +     '"neon"\n' +
+  +     '"AM Neon 80"\n' +
+  +     '"neon"\n' +
+  +     '"#00000000"\n' +
+  +     '"Space"\n' +
+  +     '"Matrix layout"\n' +
+  +     '"generic"\n' +
+  +     '"macro"\n' +
+  +     '"vendor"\n' +
+  +     '""\n' +
+  +     '"NAVIGATE"\n' +
+  +     '`   `\n' +
+  +     '"replaceState"\n' +
+  +     '"pushState"\n' +
+  +     '""\n' +
+  +     '"#settings-title"\n' +
+  +     '"#lighting-title"\n' +
+  +     '"ROUTE_CHANGED"\n' +
+  +     '"#empty-state"\n' +
+  +     '"#screen"\n' +
+  +     '"#lighting-shell"\n' +
+  +     '"#settings-screen"\n' +
+  +     '".nav-item"\n' +
+  +     '"lighting/"\n' +
+  +     '"active"\n' +
+  +     '"aria-current"\n' +
+  +     '"page"\n' +
+  +     '"aria-current"\n' +
+  +     '"#settings-button"\n' +
+  +     '"active"\n' +
+  +     '"#settings-button"\n' +
+  +     '"aria-current"\n' +
+  +     '"page"\n' +
+  +     '"#settings-button"\n' +
+  +     '"aria-current"\n' +
+  +     '"#settings-screen"\n' +
+  +     '"#lighting-shell"\n' +
+  +     '"#empty-state"\n' +
+  +     '"#screen"\n' +
+  +     '"#lighting-job-host"\n' +
+  +     '"#lighting-job-strip"\n' +
+  +     '`<section id="lighting-job-strip" class="lighting-job-strip">\r\n' +
+  +     '      <span class="job-state-mark" aria-hidden="true"></span>\r\n' +
+  +     '      <div class="job-strip-copy"><strong id="lighting-job-phase">Lighting</strong><span id="lighting-job-detail">Getting readyΓÇª</span></div>\r\n' +
+  +     '      <progress id="lighting-job-progress" max="1" value="0" hidden></progress>\r\n' +
+  +     '      <div class="job-strip-actions"><button id="lighting-job-view" type="button" class="button ghost">View</button><button id="lighting-job-cancel" type="button" class="button ghost">Cancel</button></div>\r\n' +
+  +     '      <span id="lighting-job-phase-live" class="sr-only" aria-live="polite"></span>\r\n' +
+  +     '    </section>`\n' +
+  +     '"#lighting-job-strip"\n' +
+  +     '"#lighting-job-view"\n' +
+  +     '"click"\n' +
+  +     '"#lighting-job-cancel"\n' +
+  +     '"click"\n' +
+  +     '"Ready"\n' +
+  +     '"#lighting-job-phase"\n' +
+  +     '"#lighting-job-phase"\n' +
+  +     '"#lighting-job-phase-live"\n' +
+  +     '`Lighting:  `\n' +
+  +     '"#lighting-job-detail"\n' +
+  +     '`  of   complete`\n' +
+  +     '"Your work is saved to Library as it finishes."\n' +
+  +     '"#lighting-job-progress"\n' +
+  +     '"#lighting-job-cancel"\n' +
+  +     '"in_progress"\n' +
+  +     '"accepted"\n' +
+  +     '"processing"\n' +
+  +     '""\n' +
+  +     '""\n' +
+  +     '"/api/library/import/profile"\n' +
+  +     '"POST"\n' +
+  +     '` :  `\n' +
+  +     '"keymaps"\n' +
+  +     '"Some profiles were not added"\n' +
+  +     '"Profiles were not added"\n' +
+  +     '"\\n"\n' +
+  +     '"error"\n' +
+  +     '"Profile added to Library"\n' +
+  +     '"Profiles added to Library"\n' +
+  +     '`  JSON file  saved to Library.`\n' +
+  +     '"success"\n' +
+  +     '"save-mapping-library"\n' +
+  +     '`# `\n' +
+  +     '"The open document could not be synchronized."\n' +
+  +     '"/api/library/save/profile"\n' +
+  +     '"POST"\n' +
+  +     '`  mapping`\n' +
+  +     '"Saved to Library"\n' +
+  +     '`  ┬╖   sections. Library keeps a reusable copy; the open document is unchanged.`\n' +
+  +     '"success"\n' +
+  +     '"Could not save to Library"\n' +
+  +     '"error"\n' +
+  +     '"exact"\n' +
+  +     '"convertible"\n' +
+  +     '"portable"\n' +
+  +     '"blocked"\n' +
+  +     '""\n' +
+  +     '":"\n' +
+  +     '":"\n' +
+  +     '"Unknown date"\n' +
+  +     '"short"\n' +
+  +     '"numeric"\n' +
+  +     '"numeric"\n' +
+  +     '"saved"\n' +
+  +     '"_"\n' +
+  +     '" "\n' +
+  +     '"preview_animation"\n' +
+  +     '"raster_animation"\n' +
+  +     '"image/png"\n' +
+  +     '"preview_poster"\n' +
+  +     '"preview_animation"\n' +
+  +     '"preview"\n' +
+  +     '"source"\n' +
+  +     '` : `\n' +
+  +     '`/api/library/assets/ / `\n' +
+  +     '"X-AM-Token"\n' +
+  +     '"This file could not be loaded from Library."\n' +
+  +     '"RetryingΓÇª"\n' +
+  +     '"keyboard_profile"\n' +
+  +     '"Open or read a keyboard configuration to preview what can be imported."\n' +
+  +     '"The open document could not be synchronized."\n' +
+  +     '`/api/library/items/ /compatibility`\n' +
+  +     '"POST"\n' +
+  +     '""\n' +
+  +     '`/api/library/items/ `\n' +
+  +     '"concept"\n' +
+  +     '"selected_still"\n' +
+  +     '"preview_poster"\n' +
+  +     '"preview_animation"\n' +
+  +     '"preview"\n' +
+  +     '"source"\n' +
+  +     '"keyboard_profile"\n' +
+  +     '"#library-detail-title"\n' +
+  +     '""\n' +
+  +     '`/api/library/items? `\n' +
+  +     `'<div class="library-empty"><div class="loader"></div><strong>Loading your LibraryΓÇª</strong></div>'\n` +
+  +     '`<div class="library-empty"><strong>Library could not be loaded.</strong><p> </p><button type="button" class="button ghost" data-library-retry>Try again</button></div>`\n' +
+  +     `'<div class="library-empty"><strong>Choose a Library folder to save profiles and lighting.</strong><p>Settings controls where your saved files are kept.</p><button type="button" class="button primary" data-library-settings>Open Settings</button></div>'\n` +
+  +     `'<div class="library-empty"><strong>Nothing here yet.</strong><p>Add a keyboard JSON file, save a mapping, or create lighting to save it here.</p></div>'\n` +
+  +     '"Generated"\n' +
+  +     '"Keyboard profile"\n' +
+  +     '"Imported media"\n' +
+  +     '"Lighting"\n' +
+  +     '"unknown"\n' +
+  +     '"Open a keyboard"\n' +
+  +     '"media_source"\n' +
+  +     '"convertible"\n' +
+  +     '"Fits this keyboard"\n' +
+  +     '"keyboard_profile"\n' +
+  +     '"unknown"\n' +
+  +     '"bloc'... 57412 more characters
+  + ]
+  - null
+  
+      at TestContext.<anonymous> (F:\dev\AMKB-GUI\tests\web\plain_language.test.js:74:14)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.start (node:internal/test_runner/test:1242:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'exact LED frames', index: 33466, input: '"use strict"\n"token"\n""\n"am-configurator-token"\n"am-configurator-token"\n""\n""\n`  `\n"am-lighting-session"\n"This media preview session is no longer available."\n"function"\n"(prefers-reduced-motion: reduce)"\n"DOCUMENT_OPENED"\n"DOCUMENT_CLOSED"\n"DESTINATION_CHANGED"\n"TOOL_SELECTED"\n"ROUTE_CHANGED"\n"MEDIA_OPENED"\n"MEDIA_CANCELLED"\n"{}"\n""\n`  `\n"keyframes"\n"paint"\n""\n"AM-config.json"\n"#8358FF"\n"box"\n"box"\n""\n"left_to_right"\n""\n""\n""\n""\n"device"\n"all"\n""\n""\n"DESTINATION_CHANGED"\n"DESTINATION_CHANGED"\n"PLAYHEAD_SCRUBBED"\n"TOOL_SELECTED"\n"#lighting-edit-message"\n"#lighting-workspace-shell"\n"#lighting-edit-message"\n"#lighting-workspace-shell"\n"#led-canvas"\n"#lighting-edit-content"\n".pixel"\n".frame-item"\n"#lighting-timeline-scrubber"\n"#lighting-frame-position"\n`Frame   of  `\n"#lighting-loop-status"\n"Loops continuously"\n"Single frame"\n"#lighting-previous-frame"\n"#lighting-next-frame"\n"#play-led"\n"source"\n"aria-label"\n"Pause lighting"\n"Play lighting"\n"Pause"\n"Play"\n"cancel-playback"\n"start-playback"\n"render-board"\n"prepare-source-frame"\n"show-error"\n"error"\n"apply-board-frame-set"\n"render-workspace"\n"#lighting-edit-content"\n"source"\n"source"\n"keyframes"\n"DOCUMENT_OPENED"\n"Content-Type"\n"application/json"\n"X-AM-Token"\n`Request failed ( )`\n""\n"/api/document/sync"\n"POST"\n"The open document could not be synchronized."\n""\n""\n"div"\n`toast  `\n"strong"\n"span"\n"#toast-region"\n"error"\n"ΓÇö"\n"80"\n"Relic 80"\n"ALICE"\n"AFA / AFA 2"\n"CB"\n"CyberBoard"\n"Unknown keyboard"\n"AM-config.json"\n""\n".json"\n` .json`\n"#dirty-dot"\n"visible"\n"#undo-button"\n"#redo-button"\n"#file-name"\n"No configuration open"\n"#dirty-dot"\n"visible"\n"#product-pill"\n"ΓÇö"\n"muted"\n"#nav-layers"\n"layer"\n"layers"\n"#nav-macros"\n"macro"\n"macros"\n"#nav-leds"\n"lighting slot"\n"lighting slots"\n"ΓÇö"\n"none loaded"\n`   `\n"aria-label"\n"#save-button"\n"#merge-button"\n"#merge-button"\n"#validate-button"\n"key_layer"\n"tab_key"\n"tab_key_num"\n"macro_key"\n"MACRO_key"\n"MACRO_key_num"\n"Fn_key"\n"Fn_key_num"\n"swap_key"\n"swap_key_num"\n"exchange_key"\n"exchange_num"\n"?"\n"?"\n`  ( )`\n`  ( )`\n"#incompatible-source"\n"#incompatible-target"\n"#incompatible-message"\n"document"\n`  is for  ; the open document is  . These profiles cannot be merged.`\n`  is for  ; the connected keyboard is  . This profile cannot be written to that keyboard.`\n"#import-incompatible-macros"\n"Import 1 macro only"\n`Import   macros only`\n"#incompatible-macro-note"\n`The   validated macro definition  portable. Importing replaces the macros in the current   workspace without opening this profile.`\n"This profile has no portable modern macros."\n"#incompatible-dialog"\n""\n"#incompatible-dialog"\n""\n"object"\n`  is not a configuration object.`\n"The selected JSON files belong to different keyboard families and cannot be combined."\n"No key_layer was found in the selected JSON."\n`  ( )`\n"document"\n"/api/config/compatibility"\n"POST"\n"cancel"\n"macros"\n"No key_layer was found in the selected JSON."\n"The opened document could not be synchronized."\n"Configurations merged"\n"Configuration opened"\n`  ┬╖   layers ┬╖   macros`\n"success"\n"Could not open JSON"\n"error"\n"\\n"\n"application/json"\n"a"\n"JSON saved"\n"success"\n"C1"\n"C2"\n"C3"\n"C4"\n"CyberBoard"\n"15├ù6"\n"cyber"\n"AFA"\n"16├ù5"\n"80"\n"Relic 80"\n"17├ù6"\n"80"\n"AM Neon 80"\n`<div class="empty-state"><p class="eyebrow"> </p><h1> </h1><p> </p></div>`\n"Slow"\n"Medium"\n"Fast"\n"Short"\n"Medium"\n"Long"\n`<div class="segmented compact speed-presets" role="group" aria-label="Animation speed" id=" "> </div>`\n`<div class="segmented compact length-presets" role="group" aria-label="Animation length" id=" "> </div>`\n""\n"ΓÇö"\n`Write to  `\n"Write to keyboard"\n`Custom slot  `\n""\n`  ┬╖   changed in this open document only. Nothing has been written to the keyboard yet ΓÇö use the   button when you are ready. `\n`<div class="empty-state"><p class="eyebrow">Unsupported device</p><h1>No lighting profile for  .</h1><p>This build has no LED layout for that product, so   would use another keyboard\'s geometry. Load a profile for a supported device.</p></div>`\n`F `\n"F13"\n"Enter"\n"Esc"\n"Backspace"\n"Tab"\n"Space"\n"ΓêÆ"\n"="\n"["\n"]"\n"\\\\"\n";"\n"\'"\n"`"\n","\n"."\n"/"\n"Caps"\n"PrtSc"\n"ScrLk"\n"Pause"\n"Insert"\n"Home"\n"PgUp"\n"Delete"\n"End"\n"PgDn"\n"ΓåÆ"\n"ΓåÉ"\n"Γåô"\n"Γåæ"\n"Num"\n"Menu"\n"L Ctrl"\n"L Shift"\n"L Alt"\n"L Cmd"\n"R Ctrl"\n"R Shift"\n"R Alt"\n"R Cmd"\n"Next"\n"Previous"\n"Stop"\n"Play / Pause"\n"Mute"\n"Volume +"\n"Volume ΓêÆ"\n"Brightness +"\n"Brightness ΓêÆ"\n"Layer 1"\n"Layer 2"\n"Layer 3"\n"Layer 4"\n"Layer 5"\n"Layer 6"\n"Layer 7"\n"Fn 1"\n"Fn 2"\n"Fn 3"\n"Fn 4"\n"Fn 5"\n"Fn 6"\n"Fn 7"\n"Previous layer"\n"Next LED"\n"LED On / Off"\n"LED Bright +"\n"LED Bright ΓêÆ"\n"LED Speed +"\n"LED Speed ΓêÆ"\n"LED Rotate"\n"Next PCB"\n"PCB Bright +"\n"PCB Bright ΓêÆ"\n"PCB On / Off"\n"PCB Speed +"\n"PCB Speed ΓêÆ"\n"Nameplate Bright +"\n"Nameplate Bright ΓêÆ"\n"Nameplate On / Off"\n"Nameplate Color"\n"Next Nameplate"\n"Bluetooth 1"\n"Bluetooth 2"\n"Bluetooth 3"\n"2.4G"\n"Battery"\n"Win / Mac"\n"Power"\n"Reset"\n"Layers & Fn"\n"Display lighting"\n"PCB lighting"\n"Nameplate lighting"\n"Wireless & system"\n`#   `\n""\n"Invalid"\n"None"\n`Macro  `\n` : `\n`Γåô  `\n`Γåæ  `\n`M  +  `\n"None"\n"#00000000"\n"Basic"\n"Letters"\n"Numbers"\n"Basic"\n"Function"\n"Media"\n"Device"\n"Keyboard"\n`07: `\n""\n"disabled"\n""\n`<button class="palette-key assignment-key  " data-code=" " data-search=" " style="--key-units: " title=" "  > </button>`\n"Layers & Fn"\n"Display lighting"\n"PCB lighting"\n"Nameplate lighting"\n"Wireless & system"\n`Macro  `\n"Macros"\n"None"\n"#00000000"\n"Navigation & media"\n"Navigation & media"\n"Media"\n`<section class="assignment-panel">\r\n    <div class="assignment-heading"><div><strong>Available assignments</strong><small> </small></div><input id="key-search" class="search-field" type="search" placeholder="Filter keys and controlsΓÇª"></div>\r\n    <div class="assignment-scroll"><div class="qwerty-board assignment-section"><p class="control-label">Standard QWERTY keyboard</p> </div></div>\r\n    <div class="assignment-groups">\r\n      <div class="assignment-section"><p class="control-label">Navigation & media</p><div class="assignment-grid"> </div></div>\r\n      <div class="assignment-section"><p class="control-label">Macros</p> </div>\r\n      ${neonLightingGroups.map(({group,options})=>`\n"assignment-section"\n"control-label"\n"assignment-grid"\n""\n`).join("")}\r\n      ${vendorGroups.map(({group,options})=>`\n"assignment-section"\n"control-label"\n"assignment-grid"\n""\n`).join("")}\r\n    </div>\r\n  </section>`\n"80"\n"Relic 80"\n"relic"\n"CB"\n"CB04"\n"CyberBoard"\n"cyber"\n"ALICE"\n"AFA"\n"afa"\n"NEON"\n"AM Neon 80"\n"neon"\n"AM Neon 80"\n"neon"\n"#00000000"\n"Space"\n"Matrix layout"\n"generic"\n"macro"\n"vendor"\n""\n"NAVIGATE"\n`   `\n"replaceState"\n"pushState"\n""\n"#settings-title"\n"#lighting-title"\n"ROUTE_CHANGED"\n"#empty-state"\n"#screen"\n"#lighting-shell"\n"#settings-screen"\n".nav-item"\n"lighting/"\n"active"\n"aria-current"\n"page"\n"aria-current"\n"#settings-button"\n"active"\n"#settings-button"\n"aria-current"\n"page"\n"#settings-button"\n"aria-current"\n"#settings-screen"\n"#lighting-shell"\n"#empty-state"\n"#screen"\n"#lighting-job-host"\n"#lighting-job-strip"\n`<section id="lighting-job-strip" class="lighting-job-strip">\r\n      <span class="job-state-mark" aria-hidden="true"></span>\r\n      <div class="job-strip-copy"><strong id="lighting-job-phase">Lighting</strong><span id="lighting-job-detail">Getting readyΓÇª</span></div>\r\n      <progress id="lighting-job-progress" max="1" value="0" hidden></progress>\r\n      <div class="job-strip-actions"><button id="lighting-job-view" type="button" class="button ghost">View</button><button id="lighting-job-cancel" type="button" class="button ghost">Cancel</button></div>\r\n      <span id="lighting-job-phase-live" class="sr-only" aria-live="polite"></span>\r\n    </section>`\n"#lighting-job-strip"\n"#lighting-job-view"\n"click"\n"#lighting-job-cancel"\n"click"\n"Ready"\n"#lighting-job-phase"\n"#lighting-job-phase"\n"#lighting-job-phase-live"\n`Lighting:  `\n"#lighting-job-detail"\n`  of   complete`\n"Your work is saved to Library as it finishes."\n"#lighting-job-progress"\n"#lighting-job-cancel"\n"in_progress"\n"accepted"\n"processing"\n""\n""\n"/api/library/import/profile"\n"POST"\n` :  `\n"keymaps"\n"Some profiles were not added"\n"Profiles were not added"\n"\\n"\n"error"\n"Profile added to Library"\n"Profiles added to Library"\n`  JSON file  saved to Library.`\n"success"\n"save-mapping-library"\n`# `\n"The open document could not be synchronized."\n"/api/library/save/profile"\n"POST"\n`  mapping`\n"Saved to Library"\n`  ┬╖   sections. Library keeps a reusable copy; the open document is unchanged.`\n"success"\n"Could not save to Library"\n"error"\n"exact"\n"convertible"\n"portable"\n"blocked"\n""\n":"\n":"\n"Unknown date"\n"short"\n"numeric"\n"numeric"\n"saved"\n"_"\n" "\n"preview_animation"\n"raster_animation"\n"image/png"\n"preview_poster"\n"preview_animation"\n"preview"\n"source"\n` : `\n`/api/library/assets/ / `\n"X-AM-Token"\n"This file could not be loaded from Library."\n"RetryingΓÇª"\n"keyboard_profile"\n"Open or read a keyboard configuration to preview what can be imported."\n"The open document could not be synchronized."\n`/api/library/items/ /compatibility`\n"POST"\n""\n`/api/library/items/ `\n"concept"\n"selected_still"\n"preview_poster"\n"preview_animation"\n"preview"\n"source"\n"keyboard_profile"\n"#library-detail-title"\n""\n`/api/library/items? `\n\'<div class="library-empty"><div class="loader"></div><strong>Loading your LibraryΓÇª</strong></div>\'\n`<div class="library-empty"><strong>Library could not be loaded.</strong><p> </p><button type="button" class="button ghost" data-library-retry>Try again</button></div>`\n\'<div class="library-empty"><strong>Choose a Library folder to save profiles and lighting.</strong><p>Settings controls where your saved files are kept.</p><button type="button" class="button primary" data-library-settings>Open Settings</button></div>\'\n\'<div class="library-empty"><strong>Nothing here yet.</strong><p>Add a keyboard JSON file, save a mapping, or create lighting to save it here.</p></div>\'\n"Generated"\n"Keyboard profile"\n"Imported media"\n"Lighting"\n"unknown"\n"Open a keyboard"\n"media_source"\n"convertible"\n"Fits this keyboard"\n"keyboard_profile"\n"unknown"\n"bloc'... 57412 more characters, groups: undefined ],
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

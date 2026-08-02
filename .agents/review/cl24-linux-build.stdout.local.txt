@@ -1,0 +1,43 @@
+Building AM Configurator 0.1.65 for linux...
++ uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
++ /workspace/.venv/bin/python /workspace/build_tools/native_tree_audit.py "/workspace/dist/AM Configurator"
+Native tree audit passed.
++ bash /workspace/packaging/linux/build_appimage.sh
+WARNING: appstreamcli command is missing, please install it if you want to use AppStream metadata
+WARNING: gpg2 or gpg command is missing, please install it if you want to create digital signatures
+/workspace/build/AM Configurator.AppDir should be packaged as /workspace/dist/AM-Configurator-0.1.65-Linux-x86_64.AppImage
+Parallel mksquashfs: Using 8 processors
+Creating 4.0 filesystem on /workspace/dist/AM-Configurator-0.1.65-Linux-x86_64.AppImage, block size 131072.
+[=============================================================/] 8425/8425 100%
+
+Exportable Squashfs 4.0 filesystem, zstd compressed, data block size 131072
+	compressed data, compressed metadata, compressed fragments,
+	compressed xattrs, compressed ids
+	duplicates are removed
+Filesystem size 105442.57 Kbytes (102.97 Mbytes)
+	32.15% of uncompressed filesystem size (327937.67 Kbytes)
+Inode table size 96188 bytes (93.93 Kbytes)
+	19.69% of uncompressed inode table size (488633 bytes)
+Directory table size 118947 bytes (116.16 Kbytes)
+	31.43% of uncompressed directory table size (378425 bytes)
+Number of duplicate files found 1045
+Number of inodes 12483
+Number of files 6132
+Number of fragments 221
+Number of symbolic links 6088
+Number of device nodes 0
+Number of fifo nodes 0
+Number of socket nodes 0
+Number of directories 263
+Number of hard-links 0
+Number of ids (unique uids + gids) 1
+Number of uids 1
+	root (0)
+Number of gids 1
+	root (0)
+Native tree audit passed.
+Desktop smoke test passed (Linux).
+/workspace/dist/AM-Configurator-0.1.65-Linux-x86_64.AppImage
+
+Built installer:
+/workspace/dist/AM-Configurator-0.1.65-Linux-x86_64.AppImage

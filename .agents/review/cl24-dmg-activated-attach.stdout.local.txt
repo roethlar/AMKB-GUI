@@ -1,0 +1,5 @@
+expected   CRC32 $01CBBD39
+/dev/disk15         	GUID_partition_scheme          	
+/dev/disk15s1       	Apple_APFS                     	
+/dev/disk16         	EF57347C-0000-11AA-AA11-0030654	
+/dev/disk16s1       	41504653-0000-11AA-AA11-0030654	/private/tmp/amkb-cl24-e738bb6/cl24-dmg-activated-mount

@@ -1,0 +1,36 @@
+Using CPython 3.12.13
+Creating virtual environment at: .venv
+Resolved 41 packages in 1ms
+   Building am-configurator @ file:///workspace
+      Built am-configurator @ file:///workspace
+Prepared 1 package in 765ms
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 26 packages in 66ms
+ + altgraph==0.17.5
+ + am-configurator==0.1.65 (from file:///workspace)
+ + bottle==0.13.4
+ + cffi==2.1.0
+ + cryptography==49.0.0
+ + hidapi==0.15.0
+ + jaraco-classes==3.4.0
+ + jaraco-context==6.1.2
+ + jaraco-functools==4.6.0
+ + jeepney==0.9.0
+ + keyring==25.7.0
+ + more-itertools==11.1.0
+ + packaging==26.2
+ + pillow==12.3.0
+ + proxy-tools==0.1.0
+ + pycairo==1.29.0
+ + pycparser==3.0
+ + pygobject==3.50.0
+ + pygobject-stubs==2.16.0
+ + pyinstaller==6.21.0
+ + pyinstaller-hooks-contrib==2026.6
+ + pyserial==3.5
+ + pywebview==6.2.1
+ + secretstorage==3.5.0
+ + setuptools==83.0.0
+ + typing-extensions==4.16.0

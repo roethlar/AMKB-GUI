@@ -1,0 +1,972 @@
+--- python-tests ---
+test_anthropic_setup_and_generation_share_one_registry_identity (test_ai_capability.CapabilityTests.test_anthropic_setup_and_generation_share_one_registry_identity) ... ok
+test_api_auth_failure_invalidates_setup_without_exposing_the_key (test_ai_capability.CapabilityTests.test_api_auth_failure_invalidates_setup_without_exposing_the_key) ... ok
+test_api_readiness_requires_credential_disclosure_and_matching_setup (test_ai_capability.CapabilityTests.test_api_readiness_requires_credential_disclosure_and_matching_setup) ... ok
+test_api_status_reads_only_the_selected_provider (test_ai_capability.CapabilityTests.test_api_status_reads_only_the_selected_provider) ... ok
+test_capability_polling_has_no_managed_model_or_runtime_path (test_ai_capability.CapabilityTests.test_capability_polling_has_no_managed_model_or_runtime_path) ... ok
+test_deepseek_setup_and_generation_share_one_registry_identity (test_ai_capability.CapabilityTests.test_deepseek_setup_and_generation_share_one_registry_identity) ... ok
+test_default_registry_constructs_the_anthropic_adapter (test_ai_capability.CapabilityTests.test_default_registry_constructs_the_anthropic_adapter) ... ok
+test_default_registry_constructs_the_deepseek_adapter (test_ai_capability.CapabilityTests.test_default_registry_constructs_the_deepseek_adapter) ... ok
+test_default_registry_constructs_the_gemini_adapter (test_ai_capability.CapabilityTests.test_default_registry_constructs_the_gemini_adapter) ... ok
+test_default_registry_constructs_the_kimi_adapter (test_ai_capability.CapabilityTests.test_default_registry_constructs_the_kimi_adapter) ... ok
+test_default_registry_constructs_the_openai_adapter (test_ai_capability.CapabilityTests.test_default_registry_constructs_the_openai_adapter) ... ok
+test_default_status_is_exact_pathless_and_disabled (test_ai_capability.CapabilityTests.test_default_status_is_exact_pathless_and_disabled) ... ok
+test_disabled_or_unselected_status_performs_no_backend_probe (test_ai_capability.CapabilityTests.test_disabled_or_unselected_status_performs_no_backend_probe) ... ok
+test_enabled_status_never_probes_ollama_inventory (test_ai_capability.CapabilityTests.test_enabled_status_never_probes_ollama_inventory) ... ok
+test_gemini_setup_and_generation_share_one_registry_identity (test_ai_capability.CapabilityTests.test_gemini_setup_and_generation_share_one_registry_identity) ... ok
+test_generation_failure_does_not_invalidate_a_ready_ollama_model (test_ai_capability.CapabilityTests.test_generation_failure_does_not_invalidate_a_ready_ollama_model) ... ok
+test_inventory_identity_change_is_detected_only_by_explicit_setup_test (test_ai_capability.CapabilityTests.test_inventory_identity_change_is_detected_only_by_explicit_setup_test) ... ok
+test_kimi_setup_and_generation_share_one_registry_identity (test_ai_capability.CapabilityTests.test_kimi_setup_and_generation_share_one_registry_identity) ... ok
+test_ollama_client_is_cached_by_normalized_origin_and_replaced_on_change (test_ai_capability.CapabilityTests.test_ollama_client_is_cached_by_normalized_origin_and_replaced_on_change) ... ok
+test_ollama_disclosure_binds_non_loopback_and_cloud_execution (test_ai_capability.CapabilityTests.test_ollama_disclosure_binds_non_loopback_and_cloud_execution) ... ok
+test_ollama_setup_uses_installed_name_and_digest (test_ai_capability.CapabilityTests.test_ollama_setup_uses_installed_name_and_digest) ... ok
+test_openai_setup_and_generation_share_one_registry_identity (test_ai_capability.CapabilityTests.test_openai_setup_and_generation_share_one_registry_identity) ... ok
+test_provider_construction_is_singleton_per_backend_identity (test_ai_capability.CapabilityTests.test_provider_construction_is_singleton_per_backend_identity) ... ok
+test_readiness_reasons_are_exact_and_invocation_fails_closed (test_ai_capability.CapabilityTests.test_readiness_reasons_are_exact_and_invocation_fails_closed) ... ok
+test_setup_requires_master_switch_and_never_changes_its_intent (test_ai_capability.CapabilityTests.test_setup_requires_master_switch_and_never_changes_its_intent) ... ok
+test_transient_api_failure_does_not_invalidate_a_ready_backend (test_ai_capability.CapabilityTests.test_transient_api_failure_does_not_invalidate_a_ready_backend) ... ok
+test_blocked_legacy_migration_requires_confirmed_credential_discard (test_ai_routes.OptionalAIRouteTests.test_blocked_legacy_migration_requires_confirmed_credential_discard) ... 127.0.0.1 - - [02/Aug/2026 05:31:48] "POST /api/settings/ai HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:31:48] "POST /api/settings/migration/discard-credential HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:31:48] "POST /api/settings/migration/discard-credential HTTP/1.1" 400 -
+ok
+test_credential_save_returns_a_vault_probed_status (test_ai_routes.OptionalAIRouteTests.test_credential_save_returns_a_vault_probed_status) ... ok
+test_document_sync_is_strict_and_returns_an_opaque_revision (test_ai_routes.OptionalAIRouteTests.test_document_sync_is_strict_and_returns_an_opaque_revision) ... 127.0.0.1 - - [02/Aug/2026 05:31:49] "POST /api/document/sync HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:31:49] "POST /api/document/sync HTTP/1.1" 400 -
+ok
+test_effect_route_owns_target_model_frames_and_banks_offline_result (test_ai_routes.OptionalAIRouteTests.test_effect_route_owns_target_model_frames_and_banks_offline_result) ... 127.0.0.1 - - [02/Aug/2026 05:31:54] "POST /api/lighting/effects HTTP/1.1" 202 -
+127.0.0.1 - - [02/Aug/2026 05:31:54] "POST /api/lighting/effects HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:31:54] "POST /api/lighting/effects HTTP/1.1" 409 -
+127.0.0.1 - - [02/Aug/2026 05:31:54] "POST /api/lighting/effects HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:31:54] "POST /api/lighting/effects HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:31:54] "POST /api/lighting/effects HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:31:54] "POST /api/lighting/effects HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:31:54] "POST /api/lighting/effects HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:31:54] "POST /api/lighting/effects HTTP/1.1" 400 -
+ok
+test_effect_route_rejects_the_obsolete_procedural_loop_field (test_ai_routes.OptionalAIRouteTests.test_effect_route_rejects_the_obsolete_procedural_loop_field) ... 127.0.0.1 - - [02/Aug/2026 05:31:55] "POST /api/lighting/effects HTTP/1.1" 400 -
+ok
+test_effect_route_validates_each_selected_device_target_server_side (test_ai_routes.OptionalAIRouteTests.test_effect_route_validates_each_selected_device_target_server_side) ... 127.0.0.1 - - [02/Aug/2026 05:31:55] "POST /api/lighting/effects HTTP/1.1" 409 -
+127.0.0.1 - - [02/Aug/2026 05:31:55] "POST /api/lighting/effects HTTP/1.1" 202 -
+127.0.0.1 - - [02/Aug/2026 05:31:55] "POST /api/lighting/effects HTTP/1.1" 409 -
+127.0.0.1 - - [02/Aug/2026 05:31:55] "POST /api/lighting/effects HTTP/1.1" 202 -
+127.0.0.1 - - [02/Aug/2026 05:31:55] "POST /api/lighting/effects HTTP/1.1" 409 -
+127.0.0.1 - - [02/Aug/2026 05:31:55] "POST /api/lighting/effects HTTP/1.1" 202 -
+ok
+test_invalid_credential_input_is_a_stable_non_secret_client_error (test_ai_routes.OptionalAIRouteTests.test_invalid_credential_input_is_a_stable_non_secret_client_error) ... 127.0.0.1 - - [02/Aug/2026 05:31:56] "POST /api/settings/credential HTTP/1.1" 400 -
+ok
+test_legacy_mutations_are_gone_but_procedural_cancel_remains (test_ai_routes.OptionalAIRouteTests.test_legacy_mutations_are_gone_but_procedural_cancel_remains) ... 127.0.0.1 - - [02/Aug/2026 05:31:56] "POST /api/lighting/concepts HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:31:56] "POST /api/lighting/jobs/not-a-job/concepts HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:31:56] "POST /api/lighting/jobs/not-a-job/animate HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:31:56] "POST /api/lighting/jobs/not-a-job/process HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:31:56] "POST /api/led/generate HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:31:56] "POST /api/led/generate/cancel HTTP/1.1" 410 -
+ok
+test_master_switch_persists_intent_before_setup_without_running_it (test_ai_routes.OptionalAIRouteTests.test_master_switch_persists_intent_before_setup_without_running_it) ... ok
+test_ollama_disclosure_route_is_scoped_to_remote_or_cloud_execution (test_ai_routes.OptionalAIRouteTests.test_ollama_disclosure_route_is_scoped_to_remote_or_cloud_execution) ... 127.0.0.1 - - [02/Aug/2026 05:31:57] "POST /api/settings/ollama/disclosure HTTP/1.1" 400 -
+ok
+test_ollama_origin_route_normalizes_and_persists_without_discovery (test_ai_routes.OptionalAIRouteTests.test_ollama_origin_route_normalizes_and_persists_without_discovery) ... ok
+test_real_ollama_discovery_and_selection_cross_the_server_contract (test_ai_routes.OptionalAIRouteTests.test_real_ollama_discovery_and_selection_cross_the_server_contract) ... 127.0.0.1 - - [02/Aug/2026 05:31:58] "POST /api/ai/ollama/select HTTP/1.1" 400 -
+ok
+test_settings_projects_all_provider_models_and_mutations_remain_scoped (test_ai_routes.OptionalAIRouteTests.test_settings_projects_all_provider_models_and_mutations_remain_scoped) ... ok
+test_setup_provider_errors_are_typed_and_unexpected_paths_are_redacted (test_ai_routes.OptionalAIRouteTests.test_setup_provider_errors_are_typed_and_unexpected_paths_are_redacted) ... 127.0.0.1 - - [02/Aug/2026 05:31:59] "POST /api/ai/test HTTP/1.1" 429 -
+127.0.0.1 - - [02/Aug/2026 05:31:59] "POST /api/ai/ollama/gguf/select HTTP/1.1" 404 -
+ok
+test_setup_routes_are_strict_pathless_and_never_echo_credentials (test_ai_routes.OptionalAIRouteTests.test_setup_routes_are_strict_pathless_and_never_echo_credentials) ... 127.0.0.1 - - [02/Aug/2026 05:32:00] "GET /api/ai/status?extra=true HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "GET /api/ai/ollama/models?host=other HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "POST /api/ai/ollama/select HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "POST /api/ai/ollama/gguf/select HTTP/1.1" 404 -
+ok
+test_status_and_all_new_mutations_require_authentication (test_ai_routes.OptionalAIRouteTests.test_status_and_all_new_mutations_require_authentication) ... 127.0.0.1 - - [02/Aug/2026 05:32:00] "GET /api/ai/status HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "GET /api/ai/ollama/models HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "POST /api/settings/ai HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "POST /api/settings/ollama HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "POST /api/settings/ollama/disclosure HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "POST /api/settings/credential HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "POST /api/settings/migration/discard-credential HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "POST /api/ai/test HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "POST /api/ai/ollama/select HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "POST /api/ai/ollama/gguf/select HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "POST /api/ai/ollama/clear HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "POST /api/document/sync HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:00] "POST /api/lighting/effects HTTP/1.1" 403 -
+ok
+test_unready_missing_target_and_busy_states_stop_before_inference (test_ai_routes.OptionalAIRouteTests.test_unready_missing_target_and_busy_states_stop_before_inference) ... 127.0.0.1 - - [02/Aug/2026 05:32:01] "POST /api/lighting/effects HTTP/1.1" 409 -
+127.0.0.1 - - [02/Aug/2026 05:32:01] "POST /api/lighting/effects HTTP/1.1" 409 -
+127.0.0.1 - - [02/Aug/2026 05:32:01] "POST /api/ai/test HTTP/1.1" 409 -
+127.0.0.1 - - [02/Aug/2026 05:32:01] "POST /api/ai/ollama/select HTTP/1.1" 409 -
+127.0.0.1 - - [02/Aug/2026 05:32:01] "POST /api/ai/ollama/gguf/select HTTP/1.1" 404 -
+ok
+test_concurrent_requests_publish_one_capability_service (test_app.AIServiceConstructionTests.test_concurrent_requests_publish_one_capability_service) ... ok
+test_procedural_reconciliation_holds_one_state_lease (test_app.CombinedReconciliationAdmissionTests.test_procedural_reconciliation_holds_one_state_lease) ... ok
+test_startup_reconciliation_never_resolves_a_video_credential (test_app.CombinedReconciliationAdmissionTests.test_startup_reconciliation_never_resolves_a_video_credential) ... ok
+test_am21_creates_relic_edge_tracks_only_for_custom_slots (test_app.DesktopServerTests.test_am21_creates_relic_edge_tracks_only_for_custom_slots) ... ok
+test_cross_platform_usb_serial_discovery (test_app.DesktopServerTests.test_cross_platform_usb_serial_discovery) ... ok
+test_empty_state_connect_task_reaches_the_device_read_action (test_app.DesktopServerTests.test_empty_state_connect_task_reaches_the_device_read_action) ... ok
+test_incompatible_profile_ui_explains_and_recovers_from_mismatch (test_app.DesktopServerTests.test_incompatible_profile_ui_explains_and_recovers_from_mismatch) ... ok
+test_invalid_last_verified_config_is_not_used (test_app.DesktopServerTests.test_invalid_last_verified_config_is_not_used) ... ok
+test_keyboard_probe_does_not_shadow_device_module (test_app.DesktopServerTests.test_keyboard_probe_does_not_shadow_device_module) ... ok
+test_keymap_readback_reports_exact_persistent_differences (test_app.DesktopServerTests.test_keymap_readback_reports_exact_persistent_differences) ... ok
+test_keymap_readback_retries_a_transient_commit_mismatch (test_app.DesktopServerTests.test_keymap_readback_retries_a_transient_commit_mismatch) ... ok
+test_last_verified_config_can_supply_unreadable_led_data (test_app.DesktopServerTests.test_last_verified_config_can_supply_unreadable_led_data) ... ok
+test_layout_audit_uses_the_platform_webview_policy (test_app.DesktopServerTests.test_layout_audit_uses_the_platform_webview_policy) ... ok
+test_loopback_server_can_be_owned_by_a_native_window (test_app.DesktopServerTests.test_loopback_server_can_be_owned_by_a_native_window) ... ok
+test_neon_write_dialog_explains_the_physical_unlock_combo (test_app.DesktopServerTests.test_neon_write_dialog_explains_the_physical_unlock_combo) ... ok
+test_package_declares_native_desktop_entry_point (test_app.DesktopServerTests.test_package_declares_native_desktop_entry_point) ... ok
+test_relic_layer_7_am_controls_are_available_in_key_palette (test_app.DesktopServerTests.test_relic_layer_7_am_controls_are_available_in_key_palette) ... ok
+test_text_selection_is_limited_to_editable_controls (test_app.DesktopServerTests.test_text_selection_is_limited_to_editable_controls) ... ok
+test_version_lives_only_in_about (test_app.DesktopServerTests.test_version_lives_only_in_about) ... ok
+test_windows_omits_posix_exclusive_serial_flag (test_app.DesktopServerTests.test_windows_omits_posix_exclusive_serial_flag) ... ok
+test_write_action_is_in_main_toolbar_not_device_picker (test_app.DesktopServerTests.test_write_action_is_in_main_toolbar_not_device_picker) ... ok
+test_frame_limit_and_timing (test_app.FramesToLedTracksTests.test_frame_limit_and_timing) ... ok
+test_parity_with_gif_import (test_app.FramesToLedTracksTests.test_parity_with_gif_import) ... ok
+test_rejects_empty_and_bad_target (test_app.FramesToLedTracksTests.test_rejects_empty_and_bad_target) ... ok
+test_cyberboard_display_preserves_row_major_motion (test_app.GifImportTests.test_cyberboard_display_preserves_row_major_motion) ... ok
+test_gif_uses_each_models_led_map (test_app.GifImportTests.test_gif_uses_each_models_led_map) ... ok
+test_model_rejects_an_led_target_it_does_not_have (test_app.GifImportTests.test_model_rejects_an_led_target_it_does_not_have) ... ok
+test_relic_gif_maps_keys_and_edges_from_the_same_raster (test_app.GifImportTests.test_relic_gif_maps_keys_and_edges_from_the_same_raster) ... ok
+test_variable_gif_delays_are_resampled_to_firmware_timing (test_app.GifImportTests.test_variable_gif_delays_are_resampled_to_firmware_timing) ... ok
+test_actual_xai_request_ignores_environment_proxy (test_app.GrokTransportTests.test_actual_xai_request_ignores_environment_proxy) ... ok
+test_default_xai_opener_ignores_proxies_and_refuses_redirects (test_app.GrokTransportTests.test_default_xai_opener_ignores_proxies_and_refuses_redirects) ... ok
+test_device_mapping_owns_firmware_speed_steps (test_app.GrokTransportTests.test_device_mapping_owns_firmware_speed_steps) ... ok
+test_provider_json_transport_uses_only_its_pinned_origin_and_headers (test_app.GrokTransportTests.test_provider_json_transport_uses_only_its_pinned_origin_and_headers) ... ok
+test_xai_request_auth_error (test_app.GrokTransportTests.test_xai_request_auth_error) ... ok
+test_xai_request_http_error_retains_exact_usage_without_retry (test_app.GrokTransportTests.test_xai_request_http_error_retains_exact_usage_without_retry) ... ok
+test_xai_request_no_auto_retry (test_app.GrokTransportTests.test_xai_request_no_auto_retry) ... ok
+test_xai_request_non_json_bad_response (test_app.GrokTransportTests.test_xai_request_non_json_bad_response) ... ok
+test_xai_request_non_object_json_bad_response (test_app.GrokTransportTests.test_xai_request_non_object_json_bad_response) ... ok
+test_xai_request_offline_on_network_failure (test_app.GrokTransportTests.test_xai_request_offline_on_network_failure) ... ok
+test_xai_request_other_4xx_bad_response (test_app.GrokTransportTests.test_xai_request_other_4xx_bad_response) ... ok
+test_xai_request_oversized_body_bad_response (test_app.GrokTransportTests.test_xai_request_oversized_body_bad_response) ... ok
+test_xai_request_rate_limited_passes_retry_after (test_app.GrokTransportTests.test_xai_request_rate_limited_passes_retry_after) ... ok
+test_xai_request_rate_limited_without_retry_after (test_app.GrokTransportTests.test_xai_request_rate_limited_without_retry_after) ... ok
+test_xai_request_redacts_secret_in_error (test_app.GrokTransportTests.test_xai_request_redacts_secret_in_error) ... ok
+test_xai_request_secret_absent_across_all_error_paths (test_app.GrokTransportTests.test_xai_request_secret_absent_across_all_error_paths) ... ok
+test_xai_request_server_errors_unavailable (test_app.GrokTransportTests.test_xai_request_server_errors_unavailable) ... ok
+test_xai_request_success_sets_headers_and_returns_dict (test_app.GrokTransportTests.test_xai_request_success_sets_headers_and_returns_dict) ... ok
+test_xai_request_timeout_on_expired_deadline_skips_opener (test_app.GrokTransportTests.test_xai_request_timeout_on_expired_deadline_skips_opener) ... ok
+test_xai_request_timeout_on_socket_timeout (test_app.GrokTransportTests.test_xai_request_timeout_on_socket_timeout) ... ok
+test_xai_transport_pins_origin_and_never_contacts_invalid_urls (test_app.GrokTransportTests.test_xai_transport_pins_origin_and_never_contacts_invalid_urls) ... ok
+test_capabilities (test_app.LedGenerateEndpointTests.test_capabilities) ... ok
+test_current_credential_route_masks_key (test_app.LedGenerateEndpointTests.test_current_credential_route_masks_key) ... 127.0.0.1 - - [02/Aug/2026 05:32:03] "POST /api/settings/credential HTTP/1.1" 400 -
+ok
+test_device_io_stays_on_one_worker_across_http_requests (test_app.LedGenerateEndpointTests.test_device_io_stays_on_one_worker_across_http_requests) ... ok
+test_device_read_publishes_the_reported_macro_limits (test_app.LedGenerateEndpointTests.test_device_read_publishes_the_reported_macro_limits) ... ok
+test_injected_device_discovery_keeps_native_smoke_off_hardware (test_app.LedGenerateEndpointTests.test_injected_device_discovery_keeps_native_smoke_off_hardware) ... ok
+test_internal_get_post_and_accepted_write_errors_are_redacted (test_app.LedGenerateEndpointTests.test_internal_get_post_and_accepted_write_errors_are_redacted) ... 127.0.0.1 - - [02/Aug/2026 05:32:05] Unhandled local API request error: OSError
+127.0.0.1 - - [02/Aug/2026 05:32:05] "GET /api/devices HTTP/1.1" 500 -
+127.0.0.1 - - [02/Aug/2026 05:32:05] Unhandled local API request error: OSError
+127.0.0.1 - - [02/Aug/2026 05:32:05] "POST /api/native/choose-library HTTP/1.1" 500 -
+127.0.0.1 - - [02/Aug/2026 05:32:05] Unhandled local API request error: RuntimeError
+127.0.0.1 - - [02/Aug/2026 05:32:05] "POST /api/settings/preferences HTTP/1.1" 500 -
+127.0.0.1 - - [02/Aug/2026 05:32:05] Accepted device write did not verify: AcceptedWriteError
+127.0.0.1 - - [02/Aug/2026 05:32:05] "POST /api/device/write HTTP/1.1" 409 -
+ok
+test_key_assignments_use_the_target_familys_wire_vocabulary (test_app.LedGenerateEndpointTests.test_key_assignments_use_the_target_familys_wire_vocabulary) ... 127.0.0.1 - - [02/Aug/2026 05:32:06] "POST /api/keymap/assignment HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:06] "POST /api/keymap/assignment HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:06] "POST /api/keymap/assignment HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:06] "POST /api/keymap/assignment HTTP/1.1" 400 -
+ok
+test_legacy_generation_routes_are_retired (test_app.LedGenerateEndpointTests.test_legacy_generation_routes_are_retired) ... 127.0.0.1 - - [02/Aug/2026 05:32:06] "GET /api/led/generate/status?job=old HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:32:06] "POST /api/led/generate HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:32:06] "POST /api/led/generate/cancel HTTP/1.1" 410 -
+ok
+test_native_folder_actions_dispatch_through_the_desktop_bridge (test_app.LedGenerateEndpointTests.test_native_folder_actions_dispatch_through_the_desktop_bridge) ... ok
+test_native_media_picker_banks_selected_bytes_and_rejects_bad_media (test_app.LedGenerateEndpointTests.test_native_media_picker_banks_selected_bytes_and_rejects_bad_media) ... 127.0.0.1 - - [02/Aug/2026 05:32:08] "POST /api/native/choose-media HTTP/1.1" 404 -
+127.0.0.1 - - [02/Aug/2026 05:32:08] "POST /api/native/choose-media HTTP/1.1" 201 -
+127.0.0.1 - - [02/Aug/2026 05:32:08] "POST /api/native/choose-media HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:08] "POST /api/native/choose-media HTTP/1.1" 400 -
+ok
+test_non_ascii_auth_header_is_cleanly_rejected (test_app.LedGenerateEndpointTests.test_non_ascii_auth_header_is_cleanly_rejected) ... 127.0.0.1 - - [02/Aug/2026 05:32:08] "GET /api/settings HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:08] "POST /api/settings HTTP/1.1" 403 -
+ok
+test_obsolete_ai_settings_routes_and_raw_key_helper_are_gone (test_app.LedGenerateEndpointTests.test_obsolete_ai_settings_routes_and_raw_key_helper_are_gone) ... 127.0.0.1 - - [02/Aug/2026 05:32:09] "POST /api/settings/key HTTP/1.1" 404 -
+127.0.0.1 - - [02/Aug/2026 05:32:09] "POST /api/settings/test HTTP/1.1" 404 -
+ok
+test_requires_auth (test_app.LedGenerateEndpointTests.test_requires_auth) ... 127.0.0.1 - - [02/Aug/2026 05:32:09] "GET /api/settings HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:09] "GET /api/led/capabilities HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:09] "GET /api/led/generate/status?job=x HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:09] "POST /api/settings/key HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:09] "POST /api/settings/preferences HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:09] "POST /api/settings/library HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:09] "POST /api/settings/privacy HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:09] "POST /api/native/choose-media HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:09] "POST /api/settings/test HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:09] "POST /api/keymap/assignment HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:09] "POST /api/led/generate HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:09] "POST /api/led/generate/cancel HTTP/1.1" 403 -
+ok
+test_settings_masks_even_a_short_key_in_full (test_app.LedGenerateEndpointTests.test_settings_masks_even_a_short_key_in_full) ... ok
+test_split_settings_routes_are_strict_and_never_echo_secrets (test_app.LedGenerateEndpointTests.test_split_settings_routes_are_strict_and_never_echo_secrets) ... 127.0.0.1 - - [02/Aug/2026 05:32:10] "POST /api/settings/credential HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:10] "POST /api/settings/credential HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:10] "POST /api/settings/preferences HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:10] "POST /api/settings/preferences HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:10] "POST /api/settings/preferences HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:10] "POST /api/settings/preferences HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:10] "POST /api/settings/library HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:10] "POST /api/settings/privacy HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:10] "POST /api/settings/privacy HTTP/1.1" 400 -
+ok
+test_split_settings_routes_update_sections_independently (test_app.LedGenerateEndpointTests.test_split_settings_routes_update_sections_independently) ... ok
+test_asset_streaming_enforces_ownership_mime_and_rejects_ranges (test_app.LightingStudioEndpointTests.test_asset_streaming_enforces_ownership_mime_and_rejects_ranges) ... 127.0.0.1 - - [02/Aug/2026 05:32:11] "GET /api/lighting/assets/6608ae9c-af3a-4fc0-84ec-b17353c89808/251c2ff9-acc5-4f29-a901-a1ad7ab95ef0 HTTP/1.1" 416 -
+127.0.0.1 - - [02/Aug/2026 05:32:11] "GET /api/lighting/assets/8adf9553-d597-4a10-9a0c-6bd54339b16e/251c2ff9-acc5-4f29-a901-a1ad7ab95ef0 HTTP/1.1" 404 -
+127.0.0.1 - - [02/Aug/2026 05:32:11] "GET /api/lighting/assets/not-a-job/not-an-asset HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:11] "GET /api/lighting/assets/6608ae9c-af3a-4fc0-84ec-b17353c89808/251c2ff9-acc5-4f29-a901-a1ad7ab95ef0 HTTP/1.1" 404 -
+ok
+test_durable_job_snapshots_and_filterable_pagination_are_pathless (test_app.LightingStudioEndpointTests.test_durable_job_snapshots_and_filterable_pagination_are_pathless) ... 127.0.0.1 - - [02/Aug/2026 05:32:12] "GET /api/lighting/library?unknown=x HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:12] "GET /api/lighting/library?limit=101 HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:12] "GET /api/lighting/library?status=ready&status=failed HTTP/1.1" 400 -
+ok
+test_library_remove_restore_and_delete_routes_are_exact_and_active_safe (test_app.LightingStudioEndpointTests.test_library_remove_restore_and_delete_routes_are_exact_and_active_safe) ... 127.0.0.1 - - [02/Aug/2026 05:32:12] "POST /api/library/items/item:990faa79-9b92-43f6-a2cd-755bba07f248/remove HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:12] "DELETE /api/library/items/item:990faa79-9b92-43f6-a2cd-755bba07f248 HTTP/1.1" 409 -
+127.0.0.1 - - [02/Aug/2026 05:32:12] "POST /api/library/items/job:d8df3896-2e84-4b7c-b214-0a277b507987/remove HTTP/1.1" 409 -
+127.0.0.1 - - [02/Aug/2026 05:32:12] "DELETE /api/library/items/item:990faa79-9b92-43f6-a2cd-755bba07f248?force=true HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:12] "DELETE /api/library/items/item:990faa79-9b92-43f6-a2cd-755bba07f248 HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:12] "GET /api/library/items/item:990faa79-9b92-43f6-a2cd-755bba07f248 HTTP/1.1" 404 -
+ok
+test_media_preview_routes_are_strict_authenticated_pathless_and_invalidated (test_app.LightingStudioEndpointTests.test_media_preview_routes_are_strict_authenticated_pathless_and_invalidated) ... 127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/import/media?name=preview-source.png HTTP/1.1" 201 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/preview-session HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/preview-session HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/preview-session HTTP/1.1" 201 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "GET /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/source-frame?preview_session_id=9sEo1Ew49bkb6S30y4Fwxti3NE1XVZDt0g0gG6PPxEU&source_frame_index=0 HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "GET /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/source-frame?preview_session_id=9sEo1Ew49bkb6S30y4Fwxti3NE1XVZDt0g0gG6PPxEU&source_frame_index=0 HTTP/1.1" 416 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "GET /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/source-frame? HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "GET /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/source-frame?preview_session_id=9sEo1Ew49bkb6S30y4Fwxti3NE1XVZDt0g0gG6PPxEU HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "GET /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/source-frame?preview_session_id=9sEo1Ew49bkb6S30y4Fwxti3NE1XVZDt0g0gG6PPxEU&source_frame_index=0&extra=x HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "GET /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/source-frame?preview_session_id=9sEo1Ew49bkb6S30y4Fwxti3NE1XVZDt0g0gG6PPxEU&preview_session_id=9sEo1Ew49bkb6S30y4Fwxti3NE1XVZDt0g0gG6PPxEU&source_frame_index=0 HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "GET /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/source-frame?preview_session_id=9sEo1Ew49bkb6S30y4Fwxti3NE1XVZDt0g0gG6PPxEU&source_frame_index=-1 HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "GET /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/source-frame?preview_session_id=short&source_frame_index=0 HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/render-frame HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/render-frame HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/render-frame HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/render-frame HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/render-frame HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/render-frame HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/render-frame HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/render-frame HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/render-frame HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/render-frame HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "GET /api/library/items/item:0e76fb81-6def-4f39-9942-56f986f48f52/source-frame?preview_session_id=9sEo1Ew49bkb6S30y4Fwxti3NE1XVZDt0g0gG6PPxEU&source_frame_index=0 HTTP/1.1" 400 -
+ok
+test_media_upload_envelope_and_decode_failures_publish_nothing (test_app.LightingStudioEndpointTests.test_media_upload_envelope_and_decode_failures_publish_nothing) ... 127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/import/media?name=unauthorized.png HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/import/media?name=bad.png&unknown=x HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/import/media?name=bad.png&name=again.png HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/import/media?name=..%2Fescape.png HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/import/media?name=raw.png HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/import/media?name=raw.png HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/import/media?name=raw.png HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/import/media?name=animated.png HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/import/media?name=truncated.png HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:13] "POST /api/library/import/media?name=trailing.png HTTP/1.1" 400 -
+ok
+test_mixed_library_catalog_lists_details_and_serves_saved_assets (test_app.LightingStudioEndpointTests.test_mixed_library_catalog_lists_details_and_serves_saved_assets) ... 127.0.0.1 - - [02/Aug/2026 05:32:14] "GET /api/library/items/c24303cd-b19b-4bea-ba95-e01b8f7baa71 HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:14] "GET /api/library/items?unknown=x HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:14] "GET /api/library/items?limit=101 HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:14] "GET /api/library/items?status=ready&status=failed HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:14] "GET /api/library/items?kind=not-a-kind HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:14] "GET /api/library/items?compatibility=imaginary HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:14] "GET /api/library/items?removed=maybe HTTP/1.1" 400 -
+ok
+test_profile_apply_projects_selected_sections_without_mutating_server_document (test_app.LightingStudioEndpointTests.test_profile_apply_projects_selected_sections_without_mutating_server_document) ... 127.0.0.1 - - [02/Aug/2026 05:32:15] "POST /api/library/import/profile HTTP/1.1" 201 -
+127.0.0.1 - - [02/Aug/2026 05:32:15] "POST /api/library/items/item:2bbf98a3-7a4c-4fd8-a1ee-fcd2fcd6b278/apply HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:15] "POST /api/library/items/item:2bbf98a3-7a4c-4fd8-a1ee-fcd2fcd6b278/apply HTTP/1.1" 409 -
+ok
+test_profile_compatibility_preview_is_sectioned_and_read_only (test_app.LightingStudioEndpointTests.test_profile_compatibility_preview_is_sectioned_and_read_only) ... 127.0.0.1 - - [02/Aug/2026 05:32:15] "POST /api/library/import/profile HTTP/1.1" 201 -
+ok
+test_profile_import_and_mapping_save_bank_exact_data_without_side_effects (test_app.LightingStudioEndpointTests.test_profile_import_and_mapping_save_bank_exact_data_without_side_effects) ... 127.0.0.1 - - [02/Aug/2026 05:32:16] "POST /api/library/import/profile HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:16] "POST /api/library/import/profile?unexpected=true HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:16] "POST /api/library/import/profile HTTP/1.1" 400 -
+127.0.0.1 - - [02/Aug/2026 05:32:16] "POST /api/library/import/profile HTTP/1.1" 201 -
+127.0.0.1 - - [02/Aug/2026 05:32:16] "POST /api/library/save/profile HTTP/1.1" 201 -
+ok
+test_raw_media_import_banks_all_formats_deduplicates_and_renders (test_app.LightingStudioEndpointTests.test_raw_media_import_banks_all_formats_deduplicates_and_renders) ... 127.0.0.1 - - [02/Aug/2026 05:32:16] "POST /api/library/import/media?name=still.png HTTP/1.1" 201 -
+127.0.0.1 - - [02/Aug/2026 05:32:16] "POST /api/library/import/media?name=still.bmp HTTP/1.1" 201 -
+127.0.0.1 - - [02/Aug/2026 05:32:16] "POST /api/library/import/media?name=motion.gif HTTP/1.1" 201 -
+ok
+test_reconciliation_waits_for_active_generation_to_finish (test_app.LightingStudioEndpointTests.test_reconciliation_waits_for_active_generation_to_finish) ... ok
+test_retired_creation_has_no_injectable_legacy_stack (test_app.LightingStudioEndpointTests.test_retired_creation_has_no_injectable_legacy_stack) ... 127.0.0.1 - - [02/Aug/2026 05:32:18] "POST /api/lighting/concepts HTTP/1.1" 410 -
+ok
+test_retired_creation_never_dispatches_provider_errors (test_app.LightingStudioEndpointTests.test_retired_creation_never_dispatches_provider_errors) ... 127.0.0.1 - - [02/Aug/2026 05:32:19] "POST /api/lighting/concepts HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:32:19] "POST /api/lighting/concepts HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:32:19] "POST /api/lighting/concepts HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:32:19] "POST /api/lighting/concepts HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:32:19] "POST /api/lighting/concepts HTTP/1.1" 410 -
+ok
+test_retired_generation_stays_gone_while_admission_is_busy (test_app.LightingStudioEndpointTests.test_retired_generation_stays_gone_while_admission_is_busy) ... 127.0.0.1 - - [02/Aug/2026 05:32:20] "POST /api/led/generate HTTP/1.1" 410 -
+ok
+test_retired_mutations_and_legacy_cancel_start_no_work (test_app.LightingStudioEndpointTests.test_retired_mutations_and_legacy_cancel_start_no_work) ... 127.0.0.1 - - [02/Aug/2026 05:32:20] "POST /api/lighting/concepts HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:32:20] "POST /api/lighting/jobs/5f497ccb-1998-40c8-bf56-35aa50823756/concepts HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:32:20] "POST /api/lighting/jobs/5f497ccb-1998-40c8-bf56-35aa50823756/animate HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:32:20] "POST /api/lighting/jobs/5f497ccb-1998-40c8-bf56-35aa50823756/process HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:32:20] "POST /api/lighting/jobs/5f497ccb-1998-40c8-bf56-35aa50823756/cancel HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:32:20] "POST /api/lighting/jobs/5f497ccb-1998-40c8-bf56-35aa50823756/cancel HTTP/1.1" 410 -
+127.0.0.1 - - [02/Aug/2026 05:32:20] "POST /api/lighting/jobs/not-a-job/cancel HTTP/1.1" 400 -
+ok
+test_routes_are_authenticated_and_legacy_creation_is_retired (test_app.LightingStudioEndpointTests.test_routes_are_authenticated_and_legacy_creation_is_retired) ... 127.0.0.1 - - [02/Aug/2026 05:32:21] "POST /api/lighting/concepts HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:21] "GET /api/lighting/library HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:21] "GET /api/library/items HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:21] "GET /api/library/items/item:00000000-0000-4000-8000-000000000000 HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:21] "GET /api/library/assets/item:00000000-0000-4000-8000-000000000000/00000000-0000-4000-8000-000000000000 HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:21] "POST /api/library/items/item:00000000-0000-4000-8000-000000000000/remove HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:21] "POST /api/library/items/item:00000000-0000-4000-8000-000000000000/restore HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:21] "DELETE /api/library/items/item:00000000-0000-4000-8000-000000000000 HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:21] "GET /api/lighting/jobs/00000000-0000-4000-8000-000000000000 HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:21] "POST /api/lighting/jobs/00000000-0000-4000-8000-000000000000/cancel HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:21] "GET /api/lighting/assets/00000000-0000-4000-8000-000000000000/00000000-0000-4000-8000-000000000000 HTTP/1.1" 403 -
+127.0.0.1 - - [02/Aug/2026 05:32:21] "POST /api/lighting/concepts HTTP/1.1" 410 -
+ok
+test_save_lighting_banks_validated_slot_result_and_source_provenance (test_app.LightingStudioEndpointTests.test_save_lighting_banks_validated_slot_result_and_source_provenance) ... 127.0.0.1 - - [02/Aug/2026 05:32:21] "POST /api/library/import/media?name=banked-source.png HTTP/1.1" 201 -
+127.0.0.1 - - [02/Aug/2026 05:32:21] "POST /api/library/save/lighting HTTP/1.1" 201 -
+127.0.0.1 - - [02/Aug/2026 05:32:21] "POST /api/library/save/lighting HTTP/1.1" 409 -
+ok
+test_static_csp_allows_only_local_media (test_app.LightingStudioEndpointTests.test_static_csp_allows_only_local_media) ... ok
+test_unexpected_lighting_errors_never_expose_local_paths (test_app.LightingStudioEndpointTests.test_unexpected_lighting_errors_never_expose_local_paths) ... 127.0.0.1 - - [02/Aug/2026 05:32:22] Unhandled local API request error: OSError
+127.0.0.1 - - [02/Aug/2026 05:32:22] "GET /api/lighting/assets/00000000-0000-4000-8000-000000000000/00000000-0000-4000-8000-000000000001 HTTP/1.1" 500 -
+ok
+test_cyberboard_accepts_only_an_exact_fifteen_block_macro_prefix (test_app.MacroProtocolTests.test_cyberboard_accepts_only_an_exact_fifteen_block_macro_prefix) ... ok
+test_cyberboard_macro_readback_ui_reports_the_unreadable_tail (test_app.MacroProtocolTests.test_cyberboard_macro_readback_ui_reports_the_unreadable_tail) ... ok
+test_macro_import_copies_only_modern_cross_board_definitions (test_app.MacroProtocolTests.test_macro_import_copies_only_modern_cross_board_definitions) ... ok
+test_macro_import_rejects_legacy_only_lighting_export (test_app.MacroProtocolTests.test_macro_import_rejects_legacy_only_lighting_export) ... ok
+test_macro_references_are_recovered_from_all_keymap_layers (test_app.MacroProtocolTests.test_macro_references_are_recovered_from_all_keymap_layers) ... ok
+test_modern_macro_frames_round_trip (test_app.MacroProtocolTests.test_modern_macro_frames_round_trip) ... ok
+test_official_macro_with_no_final_delay_is_normalized (test_app.MacroProtocolTests.test_official_macro_with_no_final_delay_is_normalized) ... ok
+test_text_macro_supports_enter_and_rejects_untypable_or_long_text (test_app.MacroProtocolTests.test_text_macro_supports_enter_and_rejects_untypable_or_long_text) ... ok
+test_text_macro_uses_fixed_delays_and_shift_runs (test_app.MacroProtocolTests.test_text_macro_uses_fixed_delays_and_shift_runs) ... ok
+test_validation_rejects_empty_macro (test_app.MacroProtocolTests.test_validation_rejects_empty_macro) ... ok
+test_validation_warns_about_macro_assignments_without_actions (test_app.MacroProtocolTests.test_validation_warns_about_macro_assignments_without_actions) ... ok
+test_library_root_change_and_state_close_invalidate_renderer_sessions (test_app.MediaRendererLifecycleTests.test_library_root_change_and_state_close_invalidate_renderer_sessions) ... ok
+test_blank_config_from_device_is_writable (test_app.MergeTests.test_blank_config_from_device_is_writable) ... ok
+test_cross_board_transfer_allows_only_portable_macros (test_app.MergeTests.test_cross_board_transfer_allows_only_portable_macros) ... ok
+test_led_and_key_exports_merge_in_either_order (test_app.MergeTests.test_led_and_key_exports_merge_in_either_order) ... ok
+test_neon_keymap_compatibility_requires_layout_and_supported_codes (test_app.MergeTests.test_neon_keymap_compatibility_requires_layout_and_supported_codes) ... ok
+test_product_matching (test_app.MergeTests.test_product_matching) ... ok
+test_profile_compatibility_rejects_layer_and_macro_capacity_overflow (test_app.MergeTests.test_profile_compatibility_rejects_layer_and_macro_capacity_overflow) ... ok
+test_section_projection_accepts_a_saved_dynamic_keymap_signature (test_app.MergeTests.test_section_projection_accepts_a_saved_dynamic_keymap_signature) ... ok
+test_section_projection_preserves_destination_identity_and_unselected_data (test_app.MergeTests.test_section_projection_preserves_destination_identity_and_unselected_data) ... ok
+test_validation_reports_key_only_warning (test_app.MergeTests.test_validation_reports_key_only_warning) ... ok
+test_a_family_without_embedded_maps_refuses_to_render_without_geometry (test_app.NeonEditorGeometryGuardTests.test_a_family_without_embedded_maps_refuses_to_render_without_geometry) ... ok
+test_geometry_loads_before_the_first_render_and_without_ai (test_app.NeonEditorGeometryGuardTests.test_geometry_loads_before_the_first_render_and_without_ai)
+Bundling it with the AI calls let a slow AI status delay the layout. ... ok
+test_catalog_has_only_curated_recipe_models_and_integer_prices (test_app.SettingsStoreTests.test_catalog_has_only_curated_recipe_models_and_integer_prices) ... ok
+test_corrupt_file_recovers (test_app.SettingsStoreTests.test_corrupt_file_recovers) ... ok
+test_defaults_when_missing (test_app.SettingsStoreTests.test_defaults_when_missing) ... ok
+test_empty_key_clears (test_app.SettingsStoreTests.test_empty_key_clears) ... ok
+test_env_override (test_app.SettingsStoreTests.test_env_override) ... ok
+test_error_message_omits_secret (test_app.SettingsStoreTests.test_error_message_omits_secret) ... ok
+test_file_permissions (test_app.SettingsStoreTests.test_file_permissions) ... skipped 'POSIX file permissions are not enforced on Windows'
+test_independent_updates_preserve_key_loop_mode_and_library (test_app.SettingsStoreTests.test_independent_updates_preserve_key_loop_mode_and_library) ... ok
+test_library_root_history_is_canonical_and_deduplicated (test_app.SettingsStoreTests.test_library_root_history_is_canonical_and_deduplicated) ... ok
+test_mask_sentinel_rejected (test_app.SettingsStoreTests.test_mask_sentinel_rejected) ... ok
+test_privacy_acknowledges_only_current_version (test_app.SettingsStoreTests.test_privacy_acknowledges_only_current_version) ... ok
+test_retired_model_and_candidate_preferences_are_rejected (test_app.SettingsStoreTests.test_retired_model_and_candidate_preferences_are_rejected) ... ok
+test_unknown_fields_rejected (test_app.SettingsStoreTests.test_unknown_fields_rejected) ... ok
+test_v1_file_migrates_in_place_without_losing_key (test_app.SettingsStoreTests.test_v1_file_migrates_in_place_without_losing_key) ... ok
+test_v2_model_preferences_are_discarded_during_migration (test_app.SettingsStoreTests.test_v2_model_preferences_are_discarded_during_migration) ... ok
+test_v6_migrates_exactly_to_v7_and_resets_ollama_setup_identity (test_app.SettingsStoreTests.test_v6_migrates_exactly_to_v7_and_resets_ollama_setup_identity) ... ok
+test_v7_round_trip (test_app.SettingsStoreTests.test_v7_round_trip) ... ok
+test_display_and_per_key_tracks_share_manifest_and_timing (test_app.SpotlightProtocolTests.test_display_and_per_key_tracks_share_manifest_and_timing) ... ok
+test_spotlight_manifest_and_chunks (test_app.SpotlightProtocolTests.test_spotlight_manifest_and_chunks) ... ok
+test_validation_rejects_edge_lights_outside_custom_slots (test_app.SpotlightProtocolTests.test_validation_rejects_edge_lights_outside_custom_slots) ... ok
+test_default_store_retries_until_a_secure_backend_is_available (test_credentials.CredentialAdapterTests.test_default_store_retries_until_a_secure_backend_is_available) ... ok
+test_keyring_adapter_accepts_only_os_backends_and_fixed_identifiers (test_credentials.CredentialAdapterTests.test_keyring_adapter_accepts_only_os_backends_and_fixed_identifiers) ... ok
+test_keyring_adapter_severs_secret_bearing_backend_errors (test_credentials.CredentialAdapterTests.test_keyring_adapter_severs_secret_bearing_backend_errors) ... ok
+test_memory_store_is_explicit_strict_and_never_echoes_a_secret (test_credentials.CredentialAdapterTests.test_memory_store_is_explicit_strict_and_never_echoes_a_secret) ... ok
+test_blocked_migration_requires_explicit_credential_discard (test_credentials.SettingsV6Tests.test_blocked_migration_requires_explicit_credential_discard) ... ok
+test_credential_status_reads_only_the_requested_provider (test_credentials.SettingsV6Tests.test_credential_status_reads_only_the_requested_provider) ... ok
+test_defaults_are_exact_and_read_only (test_credentials.SettingsV6Tests.test_defaults_are_exact_and_read_only) ... ok
+test_directory_fsync_preserves_windows_and_syncs_posix (test_credentials.SettingsV6Tests.test_directory_fsync_preserves_windows_and_syncs_posix) ... ok
+test_environment_override_is_external_and_never_written (test_credentials.SettingsV6Tests.test_environment_override_is_external_and_never_written) ... ok
+test_every_legacy_projection_is_validated_before_publication (test_credentials.SettingsV6Tests.test_every_legacy_projection_is_validated_before_publication) ... ok
+test_failed_final_migration_write_restores_the_previous_vault_value (test_credentials.SettingsV6Tests.test_failed_final_migration_write_restores_the_previous_vault_value) ... ok
+test_failed_key_update_restores_the_previous_vault_value (test_credentials.SettingsV6Tests.test_failed_key_update_restores_the_previous_vault_value) ... ok
+test_failed_provider_key_save_and_delete_restore_only_that_provider (test_credentials.SettingsV6Tests.test_failed_provider_key_save_and_delete_restore_only_that_provider) ... ok
+test_future_schema_is_reported_without_rename_or_overwrite (test_credentials.SettingsV6Tests.test_future_schema_is_reported_without_rename_or_overwrite) ... ok
+test_invalid_key_input_is_distinct_from_an_unavailable_vault (test_credentials.SettingsV6Tests.test_invalid_key_input_is_distinct_from_an_unavailable_vault) ... ok
+test_invalid_legacy_credential_is_not_a_vault_outage (test_credentials.SettingsV6Tests.test_invalid_legacy_credential_is_not_a_vault_outage) ... ok
+test_invalid_v2_projection_preserves_source_and_prior_vault_value (test_credentials.SettingsV6Tests.test_invalid_v2_projection_preserves_source_and_prior_vault_value) ... ok
+test_malformed_stored_credential_is_reported_without_exposure (test_credentials.SettingsV6Tests.test_malformed_stored_credential_is_reported_without_exposure) ... ok
+test_master_intent_can_be_saved_without_backend_readiness (test_credentials.SettingsV6Tests.test_master_intent_can_be_saved_without_backend_readiness) ... ok
+test_migration_write_failure_has_a_distinct_typed_reason (test_credentials.SettingsV6Tests.test_migration_write_failure_has_a_distinct_typed_reason) ... ok
+test_ollama_disclosure_is_required_only_for_remote_or_cloud_data_flow (test_credentials.SettingsV6Tests.test_ollama_disclosure_is_required_only_for_remote_or_cloud_data_flow) ... ok
+test_ollama_origin_change_normalizes_and_resets_identity_without_network (test_credentials.SettingsV6Tests.test_ollama_origin_change_normalizes_and_resets_identity_without_network) ... ok
+test_ollama_selection_is_strict_and_invalidates_setup (test_credentials.SettingsV6Tests.test_ollama_selection_is_strict_and_invalidates_setup) ... ok
+test_provider_credentials_are_isolated_and_environment_scoped (test_credentials.SettingsV6Tests.test_provider_credentials_are_isolated_and_environment_scoped) ... ok
+test_settings_publication_fsyncs_its_parent_directory (test_credentials.SettingsV6Tests.test_settings_publication_fsyncs_its_parent_directory) ... ok
+test_strict_updates_never_persist_credentials_and_invalidate_setup (test_credentials.SettingsV6Tests.test_strict_updates_never_persist_credentials_and_invalidate_setup) ... ok
+test_switching_provider_preserves_every_provider_record (test_credentials.SettingsV6Tests.test_switching_provider_preserves_every_provider_record) ... ok
+test_transient_read_errors_preserve_exact_settings_bytes (test_credentials.SettingsV6Tests.test_transient_read_errors_preserve_exact_settings_bytes) ... ok
+test_unavailable_or_unverified_vault_preserves_the_only_v2_copy (test_credentials.SettingsV6Tests.test_unavailable_or_unverified_vault_preserves_the_only_v2_copy) ... ok
+test_updates_fail_closed_when_settings_cannot_be_read (test_credentials.SettingsV6Tests.test_updates_fail_closed_when_settings_cannot_be_read) ... ok
+test_v2_key_migration_is_verified_before_plaintext_is_removed (test_credentials.SettingsV6Tests.test_v2_key_migration_is_verified_before_plaintext_is_removed) ... ok
+test_v3_direct_readiness_migrates_to_unselected_ollama (test_credentials.SettingsV6Tests.test_v3_direct_readiness_migrates_to_unselected_ollama) ... ok
+test_v4_gguf_selection_migrates_without_touching_model_file (test_credentials.SettingsV6Tests.test_v4_gguf_selection_migrates_without_touching_model_file) ... ok
+test_v5_migration_preserves_xai_without_reading_the_vault (test_credentials.SettingsV6Tests.test_v5_migration_preserves_xai_without_reading_the_vault) ... ok
+test_windows_settings_replace_retries_a_concurrent_reader (test_credentials.SettingsV6Tests.test_windows_settings_replace_retries_a_concurrent_reader) ... ok
+test_every_top_level_module_is_imported_or_an_entry_point (test_dependencies.DependencyOwnershipTests.test_every_top_level_module_is_imported_or_an_entry_point) ... ok
+test_locked_graph_covers_direct_dependencies_and_excludes_retired_tool (test_dependencies.DependencyOwnershipTests.test_locked_graph_covers_direct_dependencies_and_excludes_retired_tool) ... ok
+test_no_javascript_package_manifest_or_lock_exists (test_dependencies.DependencyOwnershipTests.test_no_javascript_package_manifest_or_lock_exists) ... ok
+test_optional_and_build_dependencies_have_executable_owners (test_dependencies.DependencyOwnershipTests.test_optional_and_build_dependencies_have_executable_owners) ... ok
+test_runtime_dependencies_have_live_production_imports (test_dependencies.DependencyOwnershipTests.test_runtime_dependencies_have_live_production_imports) ... ok
+test_bridge_has_no_local_model_file_picker (test_desktop.DesktopBridgeTests.test_bridge_has_no_local_model_file_picker) ... ok
+test_folder_chooser_returns_none_when_cancelled (test_desktop.DesktopBridgeTests.test_folder_chooser_returns_none_when_cancelled) ... ok
+test_folder_chooser_returns_only_a_canonical_absolute_directory (test_desktop.DesktopBridgeTests.test_folder_chooser_returns_only_a_canonical_absolute_directory) ... ok
+test_media_chooser_filters_supported_formats_and_returns_no_path (test_desktop.DesktopBridgeTests.test_media_chooser_filters_supported_formats_and_returns_no_path) ... ok
+test_reveal_accepts_only_existing_targets_under_recorded_roots (test_desktop.DesktopBridgeTests.test_reveal_accepts_only_existing_targets_under_recorded_roots) ... ok
+test_reveal_rejects_a_symlink_escape_from_a_recorded_root (test_desktop.DesktopBridgeTests.test_reveal_rejects_a_symlink_escape_from_a_recorded_root) ... ok
+test_linux_native_probe_uses_isolated_storage_and_selected_renderer (test_desktop.DesktopNativePolicyTests.test_linux_native_probe_uses_isolated_storage_and_selected_renderer) ... ok
+test_linux_policy_requires_gtk_webkit (test_desktop.DesktopNativePolicyTests.test_linux_policy_requires_gtk_webkit) ... ok
+test_native_probe_reports_only_a_missing_shared_library_name (test_desktop.DesktopNativePolicyTests.test_native_probe_reports_only_a_missing_shared_library_name) ... ok
+test_native_probe_reports_only_the_missing_backend_module (test_desktop.DesktopNativePolicyTests.test_native_probe_reports_only_the_missing_backend_module) ... ok
+test_native_probe_reports_only_the_renderer_exception_type (test_desktop.DesktopNativePolicyTests.test_native_probe_reports_only_the_renderer_exception_type) ... ok
+test_probe_script_checks_the_real_browser_policy_surface (test_desktop.DesktopNativePolicyTests.test_probe_script_checks_the_real_browser_policy_surface) ... ok
+test_probe_settings_contract_matches_the_shipped_dom (test_desktop.DesktopNativePolicyTests.test_probe_settings_contract_matches_the_shipped_dom) ... ok
+test_smoke_runs_seed_and_verify_children_against_one_origin (test_desktop.DesktopNativePolicyTests.test_smoke_runs_seed_and_verify_children_against_one_origin) ... ok
+test_every_offline_ai_smoke_executes_without_external_side_effects (test_desktop.DesktopSmokeTests.test_every_offline_ai_smoke_executes_without_external_side_effects) ... ok
+test_full_smoke_uses_only_in_memory_credentials_and_offline_ollama (test_desktop.DesktopSmokeTests.test_full_smoke_uses_only_in_memory_credentials_and_offline_ollama) ... ok
+test_recipe_smokes_construct_real_adapters_and_propagate_stage_failures (test_desktop.DesktopSmokeTests.test_recipe_smokes_construct_real_adapters_and_propagate_stage_failures) ... ok
+test_macos_automatic_window_tabbing_is_disabled (test_desktop.DesktopWindowTests.test_macos_automatic_window_tabbing_is_disabled) ... ok
+test_run_desktop_binds_native_actions_only_to_loopback_server (test_desktop.DesktopWindowTests.test_run_desktop_binds_native_actions_only_to_loopback_server) ... ok
+test_a_family_without_an_edge_track_gets_none (test_device_mapping.BlankConfigUsesFamilySpecTests.test_a_family_without_an_edge_track_gets_none) ... ok
+test_shipped_families_keep_their_current_shape (test_device_mapping.BlankConfigUsesFamilySpecTests.test_shipped_families_keep_their_current_shape)
+Regression guard: the conversion must not resize a real device. ... ok
+test_the_stored_product_id_is_the_wire_identifier_not_the_family (test_device_mapping.BlankConfigUsesFamilySpecTests.test_the_stored_product_id_is_the_wire_identifier_not_the_family) ... ok
+test_track_sizes_and_extra_tracks_follow_the_family (test_device_mapping.BlankConfigUsesFamilySpecTests.test_track_sizes_and_extra_tracks_follow_the_family) ... ok
+test_tracks_the_function_never_mentions_are_still_emitted (test_device_mapping.BlankConfigUsesFamilySpecTests.test_tracks_the_function_never_mentions_are_still_emitted)
+The names must come from the specification, not from this function. ... ok
+test_browser_families_match_the_python_authority (test_device_mapping.BrowserSpecMirrorsPythonTests.test_browser_families_match_the_python_authority) ... ok
+test_browser_shared_and_unknown_values_match (test_device_mapping.BrowserSpecMirrorsPythonTests.test_browser_shared_and_unknown_values_match) ... ok
+test_generation_specs_enforce_device_raster_and_frame_caps (test_device_mapping.DeviceMappingArchitectureTests.test_generation_specs_enforce_device_raster_and_frame_caps) ... ok
+test_mapping_core_is_lower_level_and_http_independent (test_device_mapping.DeviceMappingArchitectureTests.test_mapping_core_is_lower_level_and_http_independent) ... ok
+test_fixed_and_dynamic_keymap_signatures_are_canonical (test_device_mapping.DeviceSignatureTests.test_fixed_and_dynamic_keymap_signatures_are_canonical) ... ok
+test_lighting_signatures_include_routing_roles_and_derivations (test_device_mapping.DeviceSignatureTests.test_lighting_signatures_include_routing_roles_and_derivations) ... ok
+test_target_limits_and_lighting_conversion_are_explicit (test_device_mapping.DeviceSignatureTests.test_target_limits_and_lighting_conversion_are_explicit) ... ok
+test_a_native_neon_keymap_validates (test_device_mapping.FamilyAwareValidationTests.test_a_native_neon_keymap_validates)
+Four layers of ninety keys, which is what the device actually reports. ... ok
+test_a_neon_keymap_of_two_hundred_keys_is_rejected (test_device_mapping.FamilyAwareValidationTests.test_a_neon_keymap_of_two_hundred_keys_is_rejected)
+The check is the family's own count, not a minimum. ... ok
+test_a_serial_keymap_still_requires_two_hundred (test_device_mapping.FamilyAwareValidationTests.test_a_serial_keymap_still_requires_two_hundred) ... ok
+test_keys_per_layer_comes_from_the_specification (test_device_mapping.FamilyAwareValidationTests.test_keys_per_layer_comes_from_the_specification) ... ok
+test_the_serial_wire_encoder_does_not_judge_a_hid_configuration (test_device_mapping.FamilyAwareValidationTests.test_the_serial_wire_encoder_does_not_judge_a_hid_configuration)
+It is one family's encoder, not a general validator. ... ok
+test_track_colors_come_from_the_layouts_not_a_second_copy (test_device_mapping.FamilySpecTests.test_track_colors_come_from_the_layouts_not_a_second_copy) ... ok
+test_unknown_family_raises_instead_of_substituting (test_device_mapping.FamilySpecTests.test_unknown_family_raises_instead_of_substituting) ... ok
+test_unrecognised_product_falls_back_without_raising (test_device_mapping.FamilySpecTests.test_unrecognised_product_falls_back_without_raising) ... ok
+test_every_registered_family_declares_integer_ceilings (test_device_mapping.MacroCapacityIsAlwaysEnforceableTests.test_every_registered_family_declares_integer_ceilings) ... ok
+test_validation_enforces_the_ceiling_for_every_family (test_device_mapping.MacroCapacityIsAlwaysEnforceableTests.test_validation_enforces_the_ceiling_for_every_family) ... ok
+test_axial_payload_order_round_trips_to_grid_positions (test_device_mapping.NeonFamilyRegistrationTests.test_axial_payload_order_round_trips_to_grid_positions)
+Array index is payload index; the grid must preserve that exactly. ... ok
+test_neon_capacity_is_the_measured_device_capacity (test_device_mapping.NeonFamilyRegistrationTests.test_neon_capacity_is_the_measured_device_capacity) ... ok
+test_neon_publishes_exactly_the_two_authored_tracks (test_device_mapping.NeonFamilyRegistrationTests.test_neon_publishes_exactly_the_two_authored_tracks) ... ok
+test_neon_track_sizes_match_the_wire_payloads (test_device_mapping.NeonFamilyRegistrationTests.test_neon_track_sizes_match_the_wire_payloads) ... ok
+test_the_head_matrix_is_row_major_with_no_remapping (test_device_mapping.NeonFamilyRegistrationTests.test_the_head_matrix_is_row_major_with_no_remapping)
+The host sends head values row-major, so any map here must be identity. ... ok
+test_every_published_target_carries_its_pixel_map (test_device_mapping.ServedGeometryTests.test_every_published_target_carries_its_pixel_map) ... ok
+test_the_browser_carries_no_copy_of_a_led_map (test_device_mapping.ServedGeometryTests.test_the_browser_carries_no_copy_of_a_led_map) ... ok
+test_the_neon_is_fully_describable_without_any_browser_table (test_device_mapping.ServedGeometryTests.test_the_neon_is_fully_describable_without_any_browser_table)
+N4's browser half depends on this being sufficient on its own. ... ok
+test_default_transform_is_exactly_the_legacy_center_crop (test_device_mapping.TransformAwareMappingTests.test_default_transform_is_exactly_the_legacy_center_crop) ... ok
+test_every_frame_uses_the_same_transform_without_mirroring_or_transpose (test_device_mapping.TransformAwareMappingTests.test_every_frame_uses_the_same_transform_without_mirroring_or_transpose) ... F:\dev\AMKB-GUI\tests\test_device_mapping.py:404: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+  for red, green, blue in raster.getdata()
+ok
+test_media_mapping_obeys_the_destination_family_frame_ceiling (test_device_mapping.TransformAwareMappingTests.test_media_mapping_obeys_the_destination_family_frame_ceiling) ... ok
+test_one_frame_mapper_is_byte_exact_with_full_mapping_for_every_target (test_device_mapping.TransformAwareMappingTests.test_one_frame_mapper_is_byte_exact_with_full_mapping_for_every_target) ... ok
+test_public_media_timeline_is_the_exact_firmware_selection (test_device_mapping.TransformAwareMappingTests.test_public_media_timeline_is_the_exact_firmware_selection) ... ok
+test_macro_ceilings_follow_the_configured_family (test_device_mapping.ValidationUsesFamilySpecTests.test_macro_ceilings_follow_the_configured_family) ... ok
+test_track_size_follows_the_configured_family (test_device_mapping.ValidationUsesFamilySpecTests.test_track_size_follows_the_configured_family) ... ok
+test_admission_and_procedural_modules_import_in_any_order (test_generation_admission.GenerationAdmissionArchitectureTests.test_admission_and_procedural_modules_import_in_any_order) ... ok
+test_live_admission_has_no_dependency_on_historical_recovery (test_generation_admission.GenerationAdmissionArchitectureTests.test_live_admission_has_no_dependency_on_historical_recovery) ... ok
+test_retired_video_generation_module_is_absent (test_generation_admission.GenerationAdmissionArchitectureTests.test_retired_video_generation_module_is_absent) ... ok
+test_an_address_leaks_neither_shared_identifier (test_hid_transport.AddressIdentityTests.test_an_address_leaks_neither_shared_identifier) ... ok
+test_an_approval_does_not_transfer_between_units (test_hid_transport.AddressIdentityTests.test_an_approval_does_not_transfer_between_units) ... ok
+test_an_incoherent_vial_identity_is_refused (test_hid_transport.AddressIdentityTests.test_an_incoherent_vial_identity_is_refused) ... ok
+test_the_firmware_uid_is_kept_as_model_identity (test_hid_transport.AddressIdentityTests.test_the_firmware_uid_is_kept_as_model_identity) ... ok
+test_two_units_of_the_same_model_get_different_addresses (test_hid_transport.AddressIdentityTests.test_two_units_of_the_same_model_get_different_addresses) ... ok
+test_a_forged_approval_is_refused (test_hid_transport.ApprovalIsLoadBearingTests.test_a_forged_approval_is_refused)
+An approval must prove it came from `approve_write`. ... ok
+test_a_neon_with_a_different_firmware_uid_is_refused (test_hid_transport.ApprovalIsLoadBearingTests.test_a_neon_with_a_different_firmware_uid_is_refused) ... ok
+test_a_swapped_device_on_the_same_path_is_refused_at_open (test_hid_transport.ApprovalIsLoadBearingTests.test_a_swapped_device_on_the_same_path_is_refused_at_open)
+The gap this closes: validation and writing on different handles. ... ok
+test_a_tampered_confirmation_is_refused_at_open (test_hid_transport.ApprovalIsLoadBearingTests.test_a_tampered_confirmation_is_refused_at_open)
+The typed confirmation is re-checked, not trusted from issue time. ... ok
+test_identity_is_reproved_on_the_handle_that_is_returned (test_hid_transport.ApprovalIsLoadBearingTests.test_identity_is_reproved_on_the_handle_that_is_returned)
+Not on a fresh handle opened afterwards, which reopens the gap. ... ok
+test_the_approved_device_opens_and_can_transmit (test_hid_transport.ApprovalIsLoadBearingTests.test_the_approved_device_opens_and_can_transmit) ... ok
+test_there_is_no_public_way_to_send_without_an_approval (test_hid_transport.ApprovalIsLoadBearingTests.test_there_is_no_public_way_to_send_without_an_approval)
+The old public session took a bare path and wrote with no approval. ... ok
+test_using_the_session_as_a_context_manager_keeps_the_checked_handle (test_hid_transport.ApprovalIsLoadBearingTests.test_using_the_session_as_a_context_manager_keeps_the_checked_handle)
+`with session:` must not silently replace the validated handle. ... ok
+test_a_normal_definition_still_decodes (test_hid_transport.BoundedDecompressionTests.test_a_normal_definition_still_decodes) ... ok
+test_a_small_payload_that_expands_enormously_is_rejected (test_hid_transport.BoundedDecompressionTests.test_a_small_payload_that_expands_enormously_is_rejected) ... ok
+test_a_truncated_stream_is_rejected (test_hid_transport.BoundedDecompressionTests.test_a_truncated_stream_is_rejected) ... ok
+test_fetch_definition_actually_applies_the_bound (test_hid_transport.BoundedDecompressionTests.test_fetch_definition_actually_applies_the_bound)
+Guards the call site, not just the helper. ... ok
+test_trailing_data_after_the_stream_is_rejected (test_hid_transport.BoundedDecompressionTests.test_trailing_data_after_the_stream_is_rejected) ... ok
+test_an_unrecognised_board_has_no_product_id (test_hid_transport.CanonicalProductIdTests.test_an_unrecognised_board_has_no_product_id)
+It must not inherit a family from a firmware-authored string. ... ok
+test_device_info_carries_the_fields_every_route_reads (test_hid_transport.CanonicalProductIdTests.test_device_info_carries_the_fields_every_route_reads)
+`version` was absent, so a successful write raised after mutating. ... ok
+test_the_id_is_identical_before_and_after_identification (test_hid_transport.CanonicalProductIdTests.test_the_id_is_identical_before_and_after_identification) ... ok
+test_the_untrusted_usb_string_stays_separate (test_hid_transport.CanonicalProductIdTests.test_the_untrusted_usb_string_stays_separate) ... ok
+test_a_missing_address_raises_absent (test_hid_transport.ErrorSurfaceTests.test_a_missing_address_raises_absent) ... ok
+test_errors_never_leak_a_device_path (test_hid_transport.ErrorSurfaceTests.test_errors_never_leak_a_device_path) ... ok
+test_a_board_without_the_vial_prefix_is_rejected_without_being_opened (test_hid_transport.IdentityGateTests.test_a_board_without_the_vial_prefix_is_rejected_without_being_opened) ... ok
+test_a_malformed_physical_layout_never_becomes_a_guessed_matrix (test_hid_transport.IdentityGateTests.test_a_malformed_physical_layout_never_becomes_a_guessed_matrix) ... ok
+test_a_vial_board_that_is_not_a_neon_is_never_writable (test_hid_transport.IdentityGateTests.test_a_vial_board_that_is_not_a_neon_is_never_writable) ... ok
+test_an_implausible_definition_size_does_not_become_an_unbounded_read (test_hid_transport.IdentityGateTests.test_an_implausible_definition_size_does_not_become_an_unbounded_read) ... ok
+test_identifying_a_device_never_issues_a_mutating_command (test_hid_transport.IdentityGateTests.test_identifying_a_device_never_issues_a_mutating_command) ... ok
+test_the_real_definition_is_accepted (test_hid_transport.IdentityGateTests.test_the_real_definition_is_accepted) ... ok
+test_the_transport_refuses_a_mutating_subcommand_outright (test_hid_transport.IdentityGateTests.test_the_transport_refuses_a_mutating_subcommand_outright)
+The guard lives here so a mistyped constant cannot reach the board. ... ok
+test_a_vanished_endpoint_is_absent (test_hid_transport.OpenFailureClassificationTests.test_a_vanished_endpoint_is_absent) ... ok
+test_an_undeterminable_cause_is_reported_honestly (test_hid_transport.OpenFailureClassificationTests.test_an_undeterminable_cause_is_reported_honestly)
+Never assert a cause that was not determined. ... ok
+test_discovery_survives_an_open_failure_with_broken_enumeration (test_hid_transport.OpenFailureClassificationTests.test_discovery_survives_an_open_failure_with_broken_enumeration)
+The end-to-end consequence: one bad device must not kill the scan. ... ok
+test_linux_accessible_node_that_will_not_open_is_busy (test_hid_transport.OpenFailureClassificationTests.test_linux_accessible_node_that_will_not_open_is_busy) ... ok
+test_linux_missing_node_is_absent_not_permission (test_hid_transport.OpenFailureClassificationTests.test_linux_missing_node_is_absent_not_permission) ... ok
+test_linux_permission_denied_names_the_udev_remedy (test_hid_transport.OpenFailureClassificationTests.test_linux_permission_denied_names_the_udev_remedy) ... ok
+test_open_routes_failures_through_the_classifier (test_hid_transport.OpenFailureClassificationTests.test_open_routes_failures_through_the_classifier)
+Guards the call site in `_open`, not just the classifier. ... ok
+test_the_binding_really_does_hide_the_cause (test_hid_transport.OpenFailureClassificationTests.test_the_binding_really_does_hide_the_cause)
+Pins the premise. If a future hidapi reports errno, revisit this. ... ok
+test_the_classifier_never_raises_even_if_enumeration_fails (test_hid_transport.OpenFailureClassificationTests.test_the_classifier_never_raises_even_if_enumeration_fails)
+Its contract is to return an error, not raise one. ... ok
+test_a_listed_device_cannot_be_approved_without_being_resolved (test_hid_transport.ShallowDiscoveryTests.test_a_listed_device_cannot_be_approved_without_being_resolved)
+Listing is not authorization. ... ok
+test_a_scan_never_opens_a_device (test_hid_transport.ShallowDiscoveryTests.test_a_scan_never_opens_a_device) ... ok
+test_resolving_an_address_runs_the_full_gate (test_hid_transport.ShallowDiscoveryTests.test_resolving_an_address_runs_the_full_gate) ... ok
+test_a_changed_path_invalidates_a_prior_confirmation (test_hid_transport.WriteApprovalTests.test_a_changed_path_invalidates_a_prior_confirmation)
+A device swapped after confirmation must not inherit the approval. ... ok
+test_an_unidentified_device_cannot_be_approved (test_hid_transport.WriteApprovalTests.test_an_unidentified_device_cannot_be_approved) ... ok
+test_confirmation_must_equal_the_validated_model (test_hid_transport.WriteApprovalTests.test_confirmation_must_equal_the_validated_model) ... ok
+test_browser_has_no_legacy_preview_or_refine_state (test_legacy_inline_generator_removed.LegacyInlineGeneratorRemovalTests.test_browser_has_no_legacy_preview_or_refine_state) ... ok
+test_legacy_llm_pipeline_is_not_importable (test_legacy_inline_generator_removed.LegacyInlineGeneratorRemovalTests.test_legacy_llm_pipeline_is_not_importable) ... ok
+test_legacy_server_worker_is_not_injectable_or_callable (test_legacy_inline_generator_removed.LegacyInlineGeneratorRemovalTests.test_legacy_server_worker_is_not_injectable_or_callable) ... ok
+test_retired_paid_mutation_stack_is_not_importable_or_configurable (test_legacy_inline_generator_removed.LegacyInlineGeneratorRemovalTests.test_retired_paid_mutation_stack_is_not_importable_or_configurable) ... ok
+test_altered_asset_content_is_still_rejected_on_a_verifying_read (test_library.GeneratedAssetLibraryTests.test_altered_asset_content_is_still_rejected_on_a_verifying_read) ... ok
+test_asset_banking_rejects_replaced_kind_directory_symlink (test_library.GeneratedAssetLibraryTests.test_asset_banking_rejects_replaced_kind_directory_symlink) ... ok
+test_asset_hash_rechecks_file_identity (test_library.GeneratedAssetLibraryTests.test_asset_hash_rechecks_file_identity) ... ok
+test_asset_is_banked_before_publication_with_hash_and_opaque_id (test_library.GeneratedAssetLibraryTests.test_asset_is_banked_before_publication_with_hash_and_opaque_id) ... ok
+test_corrupt_manifest_is_isolated_and_scan_errors_are_pathless (test_library.GeneratedAssetLibraryTests.test_corrupt_manifest_is_isolated_and_scan_errors_are_pathless) ... ok
+test_directory_fsync_surfaces_real_io_errors_only (test_library.GeneratedAssetLibraryTests.test_directory_fsync_surfaces_real_io_errors_only) ... skipped 'directory fsync is not exposed on Windows'
+test_file_identity_agrees_between_a_path_stat_and_a_handle_stat (test_library.GeneratedAssetLibraryTests.test_file_identity_agrees_between_a_path_stat_and_a_handle_stat)
+A freshly written asset must identify as itself through either stat. ... ok
+test_job_lookup_validates_manifest_while_holding_job_lock (test_library.GeneratedAssetLibraryTests.test_job_lookup_validates_manifest_while_holding_job_lock) ... ok
+test_malformed_retired_video_manifest_is_isolated_during_scan_reconcile_and_startup (test_library.GeneratedAssetLibraryTests.test_malformed_retired_video_manifest_is_isolated_during_scan_reconcile_and_startup) ... ok
+test_manifest_symlink_and_asset_content_tampering_are_rejected (test_library.GeneratedAssetLibraryTests.test_manifest_symlink_and_asset_content_tampering_are_rejected) ... ok
+test_manifest_updates_are_atomic_and_serialized_by_job_lock (test_library.GeneratedAssetLibraryTests.test_manifest_updates_are_atomic_and_serialized_by_job_lock) ... ok
+test_partial_assets_survive_interrupted_concept_reconciliation (test_library.GeneratedAssetLibraryTests.test_partial_assets_survive_interrupted_concept_reconciliation) ... ok
+test_posix_job_lock_uses_a_nonblocking_monotonic_budget (test_library.GeneratedAssetLibraryTests.test_posix_job_lock_uses_a_nonblocking_monotonic_budget) ... skipped 'POSIX flock is not available on Windows'
+test_preflight_rejects_old_windows_before_touching_root (test_library.GeneratedAssetLibraryTests.test_preflight_rejects_old_windows_before_touching_root) ... ok
+test_private_uuid_job_creation_has_complete_schema_and_directories (test_library.GeneratedAssetLibraryTests.test_private_uuid_job_creation_has_complete_schema_and_directories) ... ok
+test_procedural_jobs_omit_retired_pipeline_controls (test_library.GeneratedAssetLibraryTests.test_procedural_jobs_omit_retired_pipeline_controls) ... ok
+test_procedural_manifest_accepts_only_new_local_artifact_kinds (test_library.GeneratedAssetLibraryTests.test_procedural_manifest_accepts_only_new_local_artifact_kinds) ... ok
+test_public_views_hide_paths_and_reject_secret_manifest_values (test_library.GeneratedAssetLibraryTests.test_public_views_hide_paths_and_reject_secret_manifest_values) ... ok
+test_range_reads_keep_every_path_and_size_check (test_library.GeneratedAssetLibraryTests.test_range_reads_keep_every_path_and_size_check)
+Skipping the digest must not skip the checks that guard the loopback route. ... ok
+test_reconcile_recovers_an_atomic_asset_left_before_manifest_commit (test_library.GeneratedAssetLibraryTests.test_reconcile_recovers_an_atomic_asset_left_before_manifest_commit) ... ok
+test_resolve_asset_hashes_outside_lock_and_rechecks_ownership (test_library.GeneratedAssetLibraryTests.test_resolve_asset_hashes_outside_lock_and_rechecks_ownership) ... ok
+test_retired_video_assets_cannot_be_created_or_resumed (test_library.GeneratedAssetLibraryTests.test_retired_video_assets_cannot_be_created_or_resumed) ... ok
+test_retired_video_manifest_is_reported_without_touching_files (test_library.GeneratedAssetLibraryTests.test_retired_video_manifest_is_reported_without_touching_files) ... ok
+test_root_preflight_canonicalizes_probes_and_checks_free_space (test_library.GeneratedAssetLibraryTests.test_root_preflight_canonicalizes_probes_and_checks_free_space) ... ok
+test_root_preflight_requires_configuration_and_never_falls_back (test_library.GeneratedAssetLibraryTests.test_root_preflight_requires_configuration_and_never_falls_back) ... ok
+test_scan_covers_current_and_historical_roots_with_canonical_dedupe (test_library.GeneratedAssetLibraryTests.test_scan_covers_current_and_historical_roots_with_canonical_dedupe) ... ok
+test_serving_an_asset_reads_it_once_and_a_range_reads_no_extra_pass (test_library.GeneratedAssetLibraryTests.test_serving_an_asset_reads_it_once_and_a_range_reads_no_extra_pass)
+Serving used to hash the whole file twice per request, including per seek. ... ok
+test_startup_reconciliation_isolates_each_damaged_job (test_library.GeneratedAssetLibraryTests.test_startup_reconciliation_isolates_each_damaged_job) ... ok
+test_terminal_reconciliation_purges_work_without_following_symlinks (test_library.GeneratedAssetLibraryTests.test_terminal_reconciliation_purges_work_without_following_symlinks) ... ok
+test_traversal_symlink_escape_and_wrong_ownership_are_rejected (test_library.GeneratedAssetLibraryTests.test_traversal_symlink_escape_and_wrong_ownership_are_rejected) ... ok
+test_uuid_collisions_never_reuse_or_delete_existing_jobs_or_assets (test_library.GeneratedAssetLibraryTests.test_uuid_collisions_never_reuse_or_delete_existing_jobs_or_assets) ... ok
+test_windows_path_depth_failure_precedes_job_creation (test_library.GeneratedAssetLibraryTests.test_windows_path_depth_failure_precedes_job_creation) ... ok
+test_windows_path_depth_probe_accepts_a_long_path_aware_runtime (test_library.GeneratedAssetLibraryTests.test_windows_path_depth_probe_accepts_a_long_path_aware_runtime) ... ok
+test_windows_path_depth_probe_covers_the_classic_path_boundary (test_library.GeneratedAssetLibraryTests.test_windows_path_depth_probe_covers_the_classic_path_boundary) ... ok
+test_windows_preflight_fails_closed_when_dacl_repair_fails (test_library.GeneratedAssetLibraryTests.test_windows_preflight_fails_closed_when_dacl_repair_fails) ... ok
+test_windows_preflight_repairs_preexisting_jobs_dacl (test_library.GeneratedAssetLibraryTests.test_windows_preflight_repairs_preexisting_jobs_dacl) ... ok
+test_windows_private_mode_runtime_boundaries (test_library.GeneratedAssetLibraryTests.test_windows_private_mode_runtime_boundaries) ... ok
+test_windows_python_311_detects_reparse_points_without_is_junction (test_library.GeneratedAssetLibraryTests.test_windows_python_311_detects_reparse_points_without_is_junction) ... ok
+test_windows_python_312_keeps_the_native_junction_check (test_library.GeneratedAssetLibraryTests.test_windows_python_312_keeps_the_native_junction_check) ... ok
+test_windows_reparse_path_is_rejected_before_root_creation (test_library.GeneratedAssetLibraryTests.test_windows_reparse_path_is_rejected_before_root_creation) ... ok
+test_windows_sharing_retry_is_bounded (test_library.GeneratedAssetLibraryTests.test_windows_sharing_retry_is_bounded) ... ok
+test_windows_sharing_retry_prevents_a_banked_asset_orphan (test_library.GeneratedAssetLibraryTests.test_windows_sharing_retry_prevents_a_banked_asset_orphan) ... ok
+test_lighting_filter_groups_compositions_and_historical_jobs (test_library.LibraryCatalogTests.test_lighting_filter_groups_compositions_and_historical_jobs) ... ok
+test_mixed_catalog_namespaces_jobs_and_items_without_reconciling (test_library.LibraryCatalogTests.test_mixed_catalog_namespaces_jobs_and_items_without_reconciling) ... ok
+test_active_and_ambiguous_catalog_items_are_never_moved (test_library.LibraryRemovalTests.test_active_and_ambiguous_catalog_items_are_never_moved) ... ok
+test_delete_forever_rejects_links_and_preserves_external_targets (test_library.LibraryRemovalTests.test_delete_forever_rejects_links_and_preserves_external_targets) ... ok
+test_delete_retries_bounded_windows_reader_contention (test_library.LibraryRemovalTests.test_delete_retries_bounded_windows_reader_contention) ... ok
+test_remove_and_restore_keep_historical_jobs_in_their_own_root (test_library.LibraryRemovalTests.test_remove_and_restore_keep_historical_jobs_in_their_own_root) ... ok
+test_remove_refuses_a_trash_root_link_without_touching_its_target (test_library.LibraryRemovalTests.test_remove_refuses_a_trash_root_link_without_touching_its_target) ... ok
+test_remove_restore_and_delete_forever_target_only_one_owned_item (test_library.LibraryRemovalTests.test_remove_restore_and_delete_forever_target_only_one_owned_item) ... ok
+test_removed_retired_video_job_is_reported_unsupported_and_untouched (test_library.LibraryRemovalTests.test_removed_retired_video_job_is_reported_unsupported_and_untouched) ... ok
+test_restore_retries_bounded_windows_reader_contention (test_library.LibraryRemovalTests.test_restore_retries_bounded_windows_reader_contention) ... ok
+test_retired_video_catalog_mutations_fail_without_touching_files (test_library.LibraryRemovalTests.test_retired_video_catalog_mutations_fail_without_touching_files) ... ok
+test_all_saved_item_discriminators_resolve_server_owned_asset_labels (test_library.SavedItemLibraryTests.test_all_saved_item_discriminators_resolve_server_owned_asset_labels) ... ok
+test_concurrent_identical_media_imports_publish_one_item (test_library.SavedItemLibraryTests.test_concurrent_identical_media_imports_publish_one_item) ... ok
+test_historical_items_are_scanned_and_duplicate_ids_are_isolated (test_library.SavedItemLibraryTests.test_historical_items_are_scanned_and_duplicate_ids_are_isolated) ... ok
+test_keyboard_profile_helper_retains_exact_json_bytes (test_library.SavedItemLibraryTests.test_keyboard_profile_helper_retains_exact_json_bytes) ... ok
+test_media_banking_deduplicates_only_verified_live_source_bytes (test_library.SavedItemLibraryTests.test_media_banking_deduplicates_only_verified_live_source_bytes) ... ok
+test_private_item_publication_is_atomic_and_manifest_owned (test_library.SavedItemLibraryTests.test_private_item_publication_is_atomic_and_manifest_owned) ... ok
+test_saved_assets_are_resolved_by_manifest_ownership_and_hash (test_library.SavedItemLibraryTests.test_saved_assets_are_resolved_by_manifest_ownership_and_hash) ... ok
+test_saved_item_lookup_validates_manifest_while_holding_job_lock (test_library.SavedItemLibraryTests.test_saved_item_lookup_validates_manifest_while_holding_job_lock) ... ok
+test_saved_item_windows_depth_probe_uses_and_cleans_items_layout (test_library.SavedItemLibraryTests.test_saved_item_windows_depth_probe_uses_and_cleans_items_layout) ... ok
+test_saved_manifest_is_exact_discriminated_and_corruption_is_isolated (test_library.SavedItemLibraryTests.test_saved_manifest_is_exact_discriminated_and_corruption_is_isolated) ... ok
+test_saved_root_requires_configuration_and_never_uses_history_as_fallback (test_library.SavedItemLibraryTests.test_saved_root_requires_configuration_and_never_uses_history_as_fallback) ... ok
+test_apng_truncation_trailing_bytes_and_signature_spoofing_are_rejected (test_media.ImportedMediaValidationTests.test_apng_truncation_trailing_bytes_and_signature_spoofing_are_rejected) ... ok
+test_decoder_warnings_fail_closed (test_media.ImportedMediaValidationTests.test_decoder_warnings_fail_closed) ... ok
+test_every_media_limit_is_enforced_before_publication (test_media.ImportedMediaValidationTests.test_every_media_limit_is_enforced_before_publication) ... ok
+test_gif_png_and_bmp_are_fully_decoded_with_normalized_metadata (test_media.ImportedMediaValidationTests.test_gif_png_and_bmp_are_fully_decoded_with_normalized_metadata) ... ok
+test_color_effects_match_the_browser_golden_contract (test_media.LocalAnimationEffectTests.test_color_effects_match_the_browser_golden_contract) ... ok
+test_move_zoom_is_still_only_and_interpolates_exact_transforms (test_media.LocalAnimationEffectTests.test_move_zoom_is_still_only_and_interpolates_exact_transforms) ... ok
+test_newer_epoch_supersedes_inflight_work_and_work_is_never_catalogued (test_media.MediaRenderCoordinatorTests.test_newer_epoch_supersedes_inflight_work_and_work_is_never_catalogued) ... ok
+test_selected_frames_equal_full_sequences_for_formats_effects_and_targets (test_media.MediaRenderCoordinatorTests.test_selected_frames_equal_full_sequences_for_formats_effects_and_targets) ... ok
+test_session_epochs_are_destination_scoped_and_selected_work_cannot_publish_stale (test_media.MediaRenderCoordinatorTests.test_session_epochs_are_destination_scoped_and_selected_work_cannot_publish_stale) ... ok
+test_sessionless_render_does_not_depend_on_preview_lru_residency (test_media.MediaRenderCoordinatorTests.test_sessionless_render_does_not_depend_on_preview_lru_residency) ... ok
+test_sessionless_renders_do_not_consume_preview_session_lru (test_media.MediaRenderCoordinatorTests.test_sessionless_renders_do_not_consume_preview_session_lru) ... ok
+test_sessionless_supersession_interrupts_decode (test_media.MediaRenderCoordinatorTests.test_sessionless_supersession_interrupts_decode) ... ok
+test_sessions_enforce_lru_expiry_pixel_hash_catalog_and_close_bounds (test_media.MediaRenderCoordinatorTests.test_sessions_enforce_lru_expiry_pixel_hash_catalog_and_close_bounds) ... ok
+test_source_projection_is_complete_static_source_and_uses_byte_lru (test_media.MediaRenderCoordinatorTests.test_source_projection_is_complete_static_source_and_uses_byte_lru) ... ok
+test_pan_and_stretch_keep_asymmetric_orientation (test_media.SourceTransformTests.test_pan_and_stretch_keep_asymmetric_orientation) ... F:\dev\AMKB-GUI\tests\test_media.py:219: DeprecationWarning: Image.Image.getdata is deprecated and will be removed in Pillow 14 (2027-10-15). Use get_flattened_data instead.
+  for red, green, blue in rendered.getdata()
+ok
+test_same_size_40x5_pan_cannot_render_off_canvas (test_media.SourceTransformTests.test_same_size_40x5_pan_cannot_render_off_canvas) ... ok
+test_shared_geometry_vectors_are_canonical_and_maximally_overlapping (test_media.SourceTransformTests.test_shared_geometry_vectors_are_canonical_and_maximally_overlapping) ... ok
+test_transform_schema_is_exact_finite_and_bounded (test_media.SourceTransformTests.test_transform_schema_is_exact_finite_and_bounded) ... ok
+test_cli_dispatches_the_explicit_audit_output (test_media_framing_audit.MediaFramingCliTests.test_cli_dispatches_the_explicit_audit_output) ... ok
+test_cli_rejects_every_conflicting_audit_mode (test_media_framing_audit.MediaFramingCliTests.test_cli_rejects_every_conflicting_audit_mode) ... ok
+test_anonymous_asymmetric_fixtures_map_exact_sentinel_pixels (test_media_framing_audit.MediaFramingFixtureTests.test_anonymous_asymmetric_fixtures_map_exact_sentinel_pixels) ... ok
+test_audit_document_has_distinct_playback_destinations (test_media_framing_audit.MediaFramingFixtureTests.test_audit_document_has_distinct_playback_destinations) ... ok
+test_fixture_payloads_are_pathless_and_small (test_media_framing_audit.MediaFramingFixtureTests.test_fixture_payloads_are_pathless_and_small) ... ok
+test_native_script_checks_destination_playback_before_media_mutation (test_media_framing_audit.MediaFramingFixtureTests.test_native_script_checks_destination_playback_before_media_mutation) ... ok
+test_native_script_checks_the_synchronized_source_board_and_timeline_shell (test_media_framing_audit.MediaFramingFixtureTests.test_native_script_checks_the_synchronized_source_board_and_timeline_shell) ... ok
+test_native_script_uses_picker_rejects_bad_media_and_holds_late_source (test_media_framing_audit.MediaFramingFixtureTests.test_native_script_uses_picker_rejects_bad_media_and_holds_late_source) ... ok
+test_cleanup_rejects_a_mismatched_root_without_deleting_it (test_media_framing_audit.MediaFramingIsolationTests.test_cleanup_rejects_a_mismatched_root_without_deleting_it) ... ok
+test_cleanup_removes_only_the_exact_verified_audit_root (test_media_framing_audit.MediaFramingIsolationTests.test_cleanup_removes_only_the_exact_verified_audit_root) ... ok
+test_native_audit_activates_the_window_before_asserting_focus (test_media_framing_audit.MediaFramingNativeWindowTests.test_native_audit_activates_the_window_before_asserting_focus) ... ok
+test_failed_report_accepts_only_one_sanitized_failure_code (test_media_framing_audit.MediaFramingReportTests.test_failed_report_accepts_only_one_sanitized_failure_code) ... ok
+test_report_rejects_paths_identifiers_and_unbounded_text (test_media_framing_audit.MediaFramingReportTests.test_report_rejects_paths_identifiers_and_unbounded_text) ... ok
+test_report_schema_is_exact_bounded_and_sanitized (test_media_framing_audit.MediaFramingReportTests.test_report_schema_is_exact_bounded_and_sanitized) ... ok
+test_report_writer_never_emits_an_invalid_result (test_media_framing_audit.MediaFramingReportTests.test_report_writer_never_emits_an_invalid_result) ... ok
+test_clean_tree_passes (test_native_tree_audit.NativeTreeAuditTests.test_clean_tree_passes) ... ok
+test_cli_reports_only_relative_paths_and_categories (test_native_tree_audit.NativeTreeAuditTests.test_cli_reports_only_relative_paths_and_categories) ... ok
+test_content_marker_split_across_chunks_fails (test_native_tree_audit.NativeTreeAuditTests.test_content_marker_split_across_chunks_fails) ... ok
+test_embedded_media_implementations_fail (test_native_tree_audit.NativeTreeAuditTests.test_embedded_media_implementations_fail) ... ok
+test_gstreamer_libav_plugin_path_fails (test_native_tree_audit.NativeTreeAuditTests.test_gstreamer_libav_plugin_path_fails) ... ok
+test_incidental_media_tool_name_in_required_library_passes (test_native_tree_audit.NativeTreeAuditTests.test_incidental_media_tool_name_in_required_library_passes) ... ok
+test_mixed_case_content_markers_fail (test_native_tree_audit.NativeTreeAuditTests.test_mixed_case_content_markers_fail) ... ok
+test_mixed_case_path_markers_fail (test_native_tree_audit.NativeTreeAuditTests.test_mixed_case_path_markers_fail) ... ok
+test_symlink_targets_are_not_traversed (test_native_tree_audit.NativeTreeAuditTests.test_symlink_targets_are_not_traversed) ... ok
+test_reading_macros_keeps_the_device_reported_capacity (test_neon_driver.LayerCountTests.test_reading_macros_keeps_the_device_reported_capacity) ... ok
+test_reading_the_keymap_ignores_the_routes_seven_layer_default (test_neon_driver.LayerCountTests.test_reading_the_keymap_ignores_the_routes_seven_layer_default)
+The serial families have seven layers; this keyboard has four. ... ok
+test_a_slot_with_no_page_is_refused (test_neon_driver.PlanExtractionTests.test_a_slot_with_no_page_is_refused) ... ok
+test_the_plan_uses_the_pages_brightness_and_interval (test_neon_driver.PlanExtractionTests.test_the_plan_uses_the_pages_brightness_and_interval) ... ok
+test_a_configuration_with_one_slot_writes_only_that_slot (test_neon_driver.PreflightTests.test_a_configuration_with_one_slot_writes_only_that_slot) ... ok
+test_a_locked_keyboard_is_unlocked_before_the_first_configuration_set (test_neon_driver.PreflightTests.test_a_locked_keyboard_is_unlocked_before_the_first_configuration_set) ... ok
+test_a_locked_keyboard_stops_the_write_before_any_lighting (test_neon_driver.PreflightTests.test_a_locked_keyboard_stops_the_write_before_any_lighting) ... ok
+test_a_malformed_populated_slot_stops_before_any_set (test_neon_driver.PreflightTests.test_a_malformed_populated_slot_stops_before_any_set) ... ok
+test_a_slot_writes_independent_axial_and_head_frame_counts (test_neon_driver.PreflightTests.test_a_slot_writes_independent_axial_and_head_frame_counts) ... ok
+test_a_valid_configuration_transmits_everything_it_holds (test_neon_driver.PreflightTests.test_a_valid_configuration_transmits_everything_it_holds)
+Lighting, keymap, and macros. The keymap used to be silently skipped. ... ok
+test_an_unsupported_keycode_stops_the_write_before_any_lighting (test_neon_driver.PreflightTests.test_an_unsupported_keycode_stops_the_write_before_any_lighting) ... ok
+test_every_custom_lighting_slot_is_written (test_neon_driver.PreflightTests.test_every_custom_lighting_slot_is_written)
+Three user slots, nine channels. Writing only slot 1 left two stale. ... ok
+test_macros_that_overflow_the_byte_budget_stop_the_write (test_neon_driver.PreflightTests.test_macros_that_overflow_the_byte_budget_stop_the_write) ... ok
+test_protocol_five_macro_triggers_use_the_firmware_keycodes (test_neon_driver.PreflightTests.test_protocol_five_macro_triggers_use_the_firmware_keycodes) ... ok
+test_the_preflight_runs_before_the_first_lighting_packet (test_neon_driver.PreflightTests.test_the_preflight_runs_before_the_first_lighting_packet)
+Ordering is the property, not merely that the checks exist. ... ok
+test_the_transmitted_keymap_is_the_one_that_was_validated (test_neon_driver.PreflightTests.test_the_transmitted_keymap_is_the_one_that_was_validated) ... ok
+test_too_many_macros_stop_the_write_before_any_lighting (test_neon_driver.PreflightTests.test_too_many_macros_stop_the_write_before_any_lighting) ... ok
+test_it_satisfies_the_driver_interface (test_neon_driver.RegistrationTests.test_it_satisfies_the_driver_interface) ... ok
+test_the_neon_driver_is_registered_under_the_hid_transport (test_neon_driver.RegistrationTests.test_the_neon_driver_is_registered_under_the_hid_transport) ... ok
+test_channels_are_slot_n_and_n_plus_three_and_six (test_neon_lighting.GoldenPacketTests.test_channels_are_slot_n_and_n_plus_three_and_six) ... ok
+test_every_packet_is_well_formed_and_checksummed (test_neon_lighting.GoldenPacketTests.test_every_packet_is_well_formed_and_checksummed) ... ok
+test_only_the_last_packet_of_the_last_frame_carries_the_terminator (test_neon_lighting.GoldenPacketTests.test_only_the_last_packet_of_the_last_frame_carries_the_terminator) ... ok
+test_packetization_matches_the_documented_counts (test_neon_lighting.GoldenPacketTests.test_packetization_matches_the_documented_counts) ... ok
+test_rgb_payload_round_trips_for_every_channel (test_neon_lighting.GoldenPacketTests.test_rgb_payload_round_trips_for_every_channel) ... ok
+test_the_side_channel_carries_the_derived_colours (test_neon_lighting.GoldenPacketTests.test_the_side_channel_carries_the_derived_colours) ... ok
+test_a_malformed_colour_is_refused (test_neon_lighting.PlanValidationTests.test_a_malformed_colour_is_refused) ... ok
+test_an_empty_effect_and_a_bad_slot_are_refused (test_neon_lighting.PlanValidationTests.test_an_empty_effect_and_a_bad_slot_are_refused) ... ok
+test_channels_may_have_independent_frame_counts (test_neon_lighting.PlanValidationTests.test_channels_may_have_independent_frame_counts) ... ok
+test_mismatched_track_lengths_are_refused (test_neon_lighting.PlanValidationTests.test_mismatched_track_lengths_are_refused) ... ok
+test_more_than_the_frame_cap_is_refused (test_neon_lighting.PlanValidationTests.test_more_than_the_frame_cap_is_refused) ... ok
+test_a_complete_push_sends_every_planned_packet (test_neon_lighting.PushTests.test_a_complete_push_sends_every_planned_packet) ... ok
+test_an_echoed_red_payload_byte_is_not_a_rejection (test_neon_lighting.PushTests.test_an_echoed_red_payload_byte_is_not_a_rejection)
+Firmware byte 7 is echoed RGB data, so 0xFF is a valid red channel. ... ok
+test_an_expired_deadline_stops_the_upload (test_neon_lighting.PushTests.test_an_expired_deadline_stops_the_upload) ... ok
+test_an_unexpected_echo_aborts_and_names_the_zone_and_frame (test_neon_lighting.PushTests.test_an_unexpected_echo_aborts_and_names_the_zone_and_frame)
+A reply that does not echo the accepted packet must stop the upload. ... ok
+test_cancellation_stops_the_upload (test_neon_lighting.PushTests.test_cancellation_stops_the_upload) ... ok
+test_progress_reports_the_final_count (test_neon_lighting.PushTests.test_progress_reports_the_final_count) ... ok
+test_a_wrong_length_head_frame_is_refused (test_neon_lighting.SideDerivationTests.test_a_wrong_length_head_frame_is_refused) ... ok
+test_it_samples_the_head_matrix_by_nearest_neighbour (test_neon_lighting.SideDerivationTests.test_it_samples_the_head_matrix_by_nearest_neighbour) ... ok
+test_the_derivation_yields_exactly_seventy_leds (test_neon_lighting.SideDerivationTests.test_the_derivation_yields_exactly_seventy_leds) ... ok
+test_the_skipped_positions_are_exactly_fourteen (test_neon_lighting.SideDerivationTests.test_the_skipped_positions_are_exactly_fourteen) ... ok
+test_a_neon_and_a_serial_board_coexist (test_neon_store.NeonProfileStoreTests.test_a_neon_and_a_serial_board_coexist)
+Two stored devices must not collide or be guessed between. ... ok
+test_a_profile_at_the_macro_capacity_boundary_round_trips (test_neon_store.NeonProfileStoreTests.test_a_profile_at_the_macro_capacity_boundary_round_trips) ... ok
+test_a_profile_holding_an_unwritable_keycode_still_stores (test_neon_store.NeonProfileStoreTests.test_a_profile_holding_an_unwritable_keycode_still_stores)
+Storing is not applying. ... ok
+test_a_profile_saves_and_reloads_unchanged (test_neon_store.NeonProfileStoreTests.test_a_profile_saves_and_reloads_unchanged) ... ok
+test_a_snapshot_round_trips_through_json (test_neon_store.NeonProfileStoreTests.test_a_snapshot_round_trips_through_json) ... ok
+test_the_product_key_is_accepted_and_stays_inside_the_store (test_neon_store.NeonProfileStoreTests.test_the_product_key_is_accepted_and_stays_inside_the_store) ... ok
+test_actual_discovery_request_ignores_environment_proxy (test_ollama_client.OllamaClientTests.test_actual_discovery_request_ignores_environment_proxy) ... ok
+test_chat_cancellation_closes_the_exchange_and_discards_a_late_response (test_ollama_client.OllamaClientTests.test_chat_cancellation_closes_the_exchange_and_discards_a_late_response) ... ok
+test_chat_deadline_closes_an_in_flight_exchange (test_ollama_client.OllamaClientTests.test_chat_deadline_closes_an_in_flight_exchange) ... ok
+test_chat_uses_only_the_configured_origin_and_rejects_bad_output (test_ollama_client.OllamaClientTests.test_chat_uses_only_the_configured_origin_and_rejects_bad_output) ... ok
+test_cloud_inventory_is_public_but_remote_metadata_never_controls_transport (test_ollama_client.OllamaClientTests.test_cloud_inventory_is_public_but_remote_metadata_never_controls_transport) ... ok
+test_configured_inventory_origin_and_connection_scheme_are_preserved (test_ollama_client.OllamaClientTests.test_configured_inventory_origin_and_connection_scheme_are_preserved) ... ok
+test_discovery_uses_configured_origin_and_returns_sorted_public_models (test_ollama_client.OllamaClientTests.test_discovery_uses_configured_origin_and_returns_sorted_public_models) ... ok
+test_each_cloud_marker_classifies_without_hiding_completion_models (test_ollama_client.OllamaClientTests.test_each_cloud_marker_classifies_without_hiding_completion_models) ... ok
+test_each_ineligible_inventory_entry_is_filtered_independently (test_ollama_client.OllamaClientTests.test_each_ineligible_inventory_entry_is_filtered_independently) ... ok
+test_inventory_accepts_512_entries_rejects_513_and_maps_404 (test_ollama_client.OllamaClientTests.test_inventory_accepts_512_entries_rejects_513_and_maps_404) ... ok
+test_loopback_classification_is_syntactic_and_network_free (test_ollama_client.OllamaClientTests.test_loopback_classification_is_syntactic_and_network_free) ... ok
+test_older_tags_contract_requires_upgrade_without_show_fallback (test_ollama_client.OllamaClientTests.test_older_tags_contract_requires_upgrade_without_show_fallback) ... ok
+test_origin_normalization_accepts_supported_http_and_https_hosts (test_ollama_client.OllamaClientTests.test_origin_normalization_accepts_supported_http_and_https_hosts) ... ok
+test_origin_normalization_rejects_non_origins_and_unsafe_hosts (test_ollama_client.OllamaClientTests.test_origin_normalization_rejects_non_origins_and_unsafe_hosts) ... ok
+test_proxy_redirect_timeout_http_and_cancellation_fail_closed (test_ollama_client.OllamaClientTests.test_proxy_redirect_timeout_http_and_cancellation_fail_closed) ... ok
+test_active_ollama_contract_has_no_local_backend_alias (test_packaging.ReleaseInfoTests.test_active_ollama_contract_has_no_local_backend_alias) ... ok
+test_active_release_docs_and_plan_pointers_use_distinct_candidate (test_packaging.ReleaseInfoTests.test_active_release_docs_and_plan_pointers_use_distinct_candidate) ... ok
+test_application_forbids_managed_llama_processes_and_credentials (test_packaging.ReleaseInfoTests.test_application_forbids_managed_llama_processes_and_credentials) ... ok
+test_brand_icon_is_wired_into_every_distribution (test_packaging.ReleaseInfoTests.test_brand_icon_is_wired_into_every_distribution) ... ok
+test_bug_report_form_collects_release_and_hardware_context (test_packaging.ReleaseInfoTests.test_bug_report_form_collects_release_and_hardware_context) ... ok
+test_build_script_dispatches_without_mutating_canonical_version (test_packaging.ReleaseInfoTests.test_build_script_dispatches_without_mutating_canonical_version) ... ok
+test_ci_exercises_the_declared_python_floor (test_packaging.ReleaseInfoTests.test_ci_exercises_the_declared_python_floor) ... ok
+test_ci_runs_each_node_gate_as_a_failure_sensitive_step (test_packaging.ReleaseInfoTests.test_ci_runs_each_node_gate_as_a_failure_sensitive_step) ... ok
+test_current_0_1_65_release_packet_is_consistent (test_packaging.ReleaseInfoTests.test_current_0_1_65_release_packet_is_consistent) ... ok
+test_current_surfaces_have_no_retired_media_tool_reference (test_packaging.ReleaseInfoTests.test_current_surfaces_have_no_retired_media_tool_reference) ... ok
+test_desktop_workflow_has_no_obsolete_vulkan_setup (test_packaging.ReleaseInfoTests.test_desktop_workflow_has_no_obsolete_vulkan_setup) ... ok
+test_desktop_workflow_has_no_retired_media_build_toolchain (test_packaging.ReleaseInfoTests.test_desktop_workflow_has_no_retired_media_build_toolchain) ... ok
+test_desktop_workflow_publishes_native_installers (test_packaging.ReleaseInfoTests.test_desktop_workflow_publishes_native_installers) ... ok
+test_desktop_workflow_runs_frozen_native_policy_on_every_platform (test_packaging.ReleaseInfoTests.test_desktop_workflow_runs_frozen_native_policy_on_every_platform) ... ok
+test_every_tracked_top_level_entry_is_classified (test_packaging.ReleaseInfoTests.test_every_tracked_top_level_entry_is_classified)
+A new top-level entry must be classified before it can silently ship. ... ok
+test_failed_build_does_not_mutate_canonical_version (test_packaging.ReleaseInfoTests.test_failed_build_does_not_mutate_canonical_version) ... ok
+test_linux_appimagetool_uses_immutable_release_assets (test_packaging.ReleaseInfoTests.test_linux_appimagetool_uses_immutable_release_assets) ... ok
+test_linux_bundle_carries_native_backend_licenses (test_packaging.ReleaseInfoTests.test_linux_bundle_carries_native_backend_licenses) ... ok
+test_linux_bundle_uses_gtk_and_repository_gi_hooks (test_packaging.ReleaseInfoTests.test_linux_bundle_uses_gtk_and_repository_gi_hooks) ... ok
+test_linux_native_webview_prerequisites_are_installed (test_packaging.ReleaseInfoTests.test_linux_native_webview_prerequisites_are_installed) ... ok
+test_local_model_and_runtime_attestations_cannot_return (test_packaging.ReleaseInfoTests.test_local_model_and_runtime_attestations_cannot_return) ... ok
+test_macos_dmg_detach_survives_a_busy_volume (test_packaging.ReleaseInfoTests.test_macos_dmg_detach_survives_a_busy_volume) ... ok
+test_main_installers_receive_keyless_provenance (test_packaging.ReleaseInfoTests.test_main_installers_receive_keyless_provenance) ... ok
+test_native_bundle_and_build_surface_have_no_retired_video_stack (test_packaging.ReleaseInfoTests.test_native_bundle_and_build_surface_have_no_retired_video_stack) ... ok
+test_native_bundle_ships_project_license_and_attribution (test_packaging.ReleaseInfoTests.test_native_bundle_ships_project_license_and_attribution) ... ok
+test_native_packages_are_ollama_api_only (test_packaging.ReleaseInfoTests.test_native_packages_are_ollama_api_only) ... ok
+test_native_tree_audit_is_wired_into_every_packaging_path (test_packaging.ReleaseInfoTests.test_native_tree_audit_is_wired_into_every_packaging_path) ... ok
+test_one_canonical_version_drives_every_build (test_packaging.ReleaseInfoTests.test_one_canonical_version_drives_every_build) ... ok
+test_project_version_requires_one_three_part_canonical_source (test_packaging.ReleaseInfoTests.test_project_version_requires_one_three_part_canonical_source) ... ok
+test_public_docs_describe_the_current_release_without_security_bypasses (test_packaging.ReleaseInfoTests.test_public_docs_describe_the_current_release_without_security_bypasses) ... ok
+test_public_screenshots_are_release_sized_and_metadata_free (test_packaging.ReleaseInfoTests.test_public_screenshots_are_release_sized_and_metadata_free) ... ok
+test_rejected_0_1_64_packet_is_historical_and_not_the_readme_target (test_packaging.ReleaseInfoTests.test_rejected_0_1_64_packet_is_historical_and_not_the_readme_target) ... ok
+test_release_names_use_project_version_and_normalized_architecture (test_packaging.ReleaseInfoTests.test_release_names_use_project_version_and_normalized_architecture) ... ok
+test_release_pipeline_has_no_llama_build_commands (test_packaging.ReleaseInfoTests.test_release_pipeline_has_no_llama_build_commands) ... ok
+test_release_tags_do_not_rebuild_a_different_version (test_packaging.ReleaseInfoTests.test_release_tags_do_not_rebuild_a_different_version) ... ok
+test_sdist_allowlist_excludes_governance_and_internal_material (test_packaging.ReleaseInfoTests.test_sdist_allowlist_excludes_governance_and_internal_material) ... ok
+test_secure_credential_dependency_and_os_backends_are_frozen (test_packaging.ReleaseInfoTests.test_secure_credential_dependency_and_os_backends_are_frozen) ... ok
+test_spec_bundles_the_llm_module (test_packaging.ReleaseInfoTests.test_spec_bundles_the_llm_module) ... ok
+test_the_neon_udev_rule_ships_and_keeps_the_shared_vial_serial (test_packaging.ReleaseInfoTests.test_the_neon_udev_rule_ships_and_keeps_the_shared_vial_serial)
+The Linux permission remedy is useless if the rule is not published. ... ok
+test_the_rule_is_obtainable_without_a_filesystem_path (test_packaging.ReleaseInfoTests.test_the_rule_is_obtainable_without_a_filesystem_path)
+A path is worthless to an AppImage user, who has the greatest need. ... ok
+test_the_runtime_names_the_rule_where_it_is_actually_installed (test_packaging.ReleaseInfoTests.test_the_runtime_names_the_rule_where_it_is_actually_installed)
+The message must resolve a real path, not a source-tree path. ... ok
+test_the_udev_install_command_elevates_the_write_not_the_reader (test_packaging.ReleaseInfoTests.test_the_udev_install_command_elevates_the_write_not_the_reader)
+`sudo app > /etc/...` cannot work, however natural it looks. ... ok
+test_the_udev_rule_reaches_the_artifacts_users_actually_install (test_packaging.ReleaseInfoTests.test_the_udev_rule_reaches_the_artifacts_users_actually_install)
+Checking the sdist alone is what let this ship broken. ... ok
+test_windows_installer_accepts_official_inno_install_scopes (test_packaging.ReleaseInfoTests.test_windows_installer_accepts_official_inno_install_scopes) ... ok
+test_windows_installer_smoke_test_waits_for_gui_processes (test_packaging.ReleaseInfoTests.test_windows_installer_smoke_test_waits_for_gui_processes) ... ok
+test_workflow_actions_match_the_reviewed_node24_contract (test_packaging.ReleaseInfoTests.test_workflow_actions_match_the_reviewed_node24_contract) ... ok
+test_candidate_path_cannot_escape_the_supplied_root (test_packaging.ReleaseManifestTests.test_candidate_path_cannot_escape_the_supplied_root) ... skipped 'Windows CI cannot create symlinks reliably'
+test_conflicting_replacement_changes_neither_output (test_packaging.ReleaseManifestTests.test_conflicting_replacement_changes_neither_output) ... ok
+test_empty_installer_is_rejected (test_packaging.ReleaseManifestTests.test_empty_installer_is_rejected) ... ok
+test_extra_or_nested_installer_is_rejected (test_packaging.ReleaseManifestTests.test_extra_or_nested_installer_is_rejected) ... ok
+test_filename_version_mismatch_is_rejected (test_packaging.ReleaseManifestTests.test_filename_version_mismatch_is_rejected) ... ok
+test_happy_path_is_deterministic_sorted_and_pathless (test_packaging.ReleaseManifestTests.test_happy_path_is_deterministic_sorted_and_pathless) ... ok
+test_malformed_version_commit_and_run_identity_are_rejected (test_packaging.ReleaseManifestTests.test_malformed_version_commit_and_run_identity_are_rejected) ... ok
+test_missing_platform_is_rejected (test_packaging.ReleaseManifestTests.test_missing_platform_is_rejected) ... ok
+test_symlinked_installer_is_rejected (test_packaging.ReleaseManifestTests.test_symlinked_installer_is_rejected) ... skipped 'Windows CI cannot create symlinks reliably'
+test_workflow_collects_exact_candidates_only_after_all_installers (test_packaging.ReleaseManifestTests.test_workflow_collects_exact_candidates_only_after_all_installers) ... ok
+test_artifacts_use_one_exact_quality_checked_frame_source (test_procedural.ArtifactAndMappingTests.test_artifacts_use_one_exact_quality_checked_frame_source) ... ok
+test_banked_gifs_preserve_exact_raster_preview_and_mapping_colors (test_procedural.ArtifactAndMappingTests.test_banked_gifs_preserve_exact_raster_preview_and_mapping_colors) ... ok
+test_gif_banking_rejects_frames_with_more_than_256_colors (test_procedural.ArtifactAndMappingTests.test_gif_banking_rejects_frames_with_more_than_256_colors) ... ok
+test_mapping_adapter_is_identical_to_existing_shared_mapper (test_procedural.ArtifactAndMappingTests.test_mapping_adapter_is_identical_to_existing_shared_mapper) ... ok
+test_committed_corpus_covers_devices_densities_effects_and_adversarial_prompts (test_procedural.QualificationCorpusTests.test_committed_corpus_covers_devices_densities_effects_and_adversarial_prompts) ... ok
+test_developer_qualification_tool_has_no_direct_model_entry_point (test_procedural.QualificationCorpusTests.test_developer_qualification_tool_has_no_direct_model_entry_point) ... ok
+test_qualification_result_contains_render_and_quality_evidence (test_procedural.QualificationCorpusTests.test_qualification_result_contains_render_and_quality_evidence) ... ok
+test_qualification_uses_discovered_model_and_production_provider (test_procedural.QualificationCorpusTests.test_qualification_uses_discovered_model_and_production_provider) ... ok
+test_qualify_model_records_one_production_provider_failure (test_procedural.QualificationCorpusTests.test_qualify_model_records_one_production_provider_failure) ... ok
+test_saved_ornith_aurora_passes_the_new_contract_without_inference (test_procedural.QualificationCorpusTests.test_saved_ornith_aurora_passes_the_new_contract_without_inference) ... ok
+test_quality_gate_reports_static_dim_and_density_failures (test_procedural.QualityGateTests.test_quality_gate_reports_static_dim_and_density_failures) ... ok
+test_sparse_balanced_and_dense_recipes_pass_deterministic_metrics (test_procedural.QualityGateTests.test_sparse_balanced_and_dense_recipes_pass_deterministic_metrics) ... ok
+test_each_local_frame_stage_honors_mid_stage_cancellation (test_procedural.RecipeContractTests.test_each_local_frame_stage_honors_mid_stage_cancellation) ... ok
+test_rendering_is_exact_deterministic_and_resource_bounded (test_procedural.RecipeContractTests.test_rendering_is_exact_deterministic_and_resource_bounded) ... ok
+test_schema_and_semantic_validator_require_version_and_density (test_procedural.RecipeContractTests.test_schema_and_semantic_validator_require_version_and_density) ... ok
+test_worst_case_render_obeys_the_shared_monotonic_budget (test_procedural.RecipeContractTests.test_worst_case_render_obeys_the_shared_monotonic_budget) ... ok
+test_api_quality_failure_is_one_charged_call_and_never_retried (test_procedural_generation.ProceduralGenerationTests.test_api_quality_failure_is_one_charged_call_and_never_retried) ... ok
+test_disabled_capability_creates_no_library_or_provider_work (test_procedural_generation.ProceduralGenerationTests.test_disabled_capability_creates_no_library_or_provider_work) ... ok
+test_invalid_mapped_timeline_is_rejected_before_result_assets_are_banked (test_procedural_generation.ProceduralGenerationTests.test_invalid_mapped_timeline_is_rejected_before_result_assets_are_banked) ... ok
+test_launcher_failure_releases_admission_without_an_orphan_worker (test_procedural_generation.ProceduralGenerationTests.test_launcher_failure_releases_admission_without_an_orphan_worker) ... ok
+test_local_cancellation_stops_without_retry_or_ready_artifacts (test_procedural_generation.ProceduralGenerationTests.test_local_cancellation_stops_without_retry_or_ready_artifacts) ... ok
+test_local_job_banks_exact_recipe_raster_preview_and_mapping (test_procedural_generation.ProceduralGenerationTests.test_local_job_banks_exact_recipe_raster_preview_and_mapping) ... ok
+test_local_quality_failure_makes_one_provider_request (test_procedural_generation.ProceduralGenerationTests.test_local_quality_failure_makes_one_provider_request) ... ok
+test_mid_render_cancellation_releases_admission_promptly (test_procedural_generation.ProceduralGenerationTests.test_mid_render_cancellation_releases_admission_promptly) ... ok
+test_ollama_cancellation_releases_admission_and_discards_late_output (test_procedural_generation.ProceduralGenerationTests.test_ollama_cancellation_releases_admission_and_discards_late_output) ... ok
+test_ollama_interruption_reconciliation_is_byte_stable_and_actionless (test_procedural_generation.ProceduralGenerationTests.test_ollama_interruption_reconciliation_is_byte_stable_and_actionless) ... ok
+test_post_launch_failure_keeps_admission_with_the_worker (test_procedural_generation.ProceduralGenerationTests.test_post_launch_failure_keeps_admission_with_the_worker) ... ok
+test_real_ollama_schema_failure_makes_one_request (test_procedural_generation.ProceduralGenerationTests.test_real_ollama_schema_failure_makes_one_request) ... ok
+test_recipe_rerender_uses_each_exact_destination_without_old_raster_input (test_procedural_generation.ProceduralGenerationTests.test_recipe_rerender_uses_each_exact_destination_without_old_raster_input) ... ok
+test_reconcile_adopts_completely_banked_procedural_artifacts (test_procedural_generation.ProceduralGenerationTests.test_reconcile_adopts_completely_banked_procedural_artifacts) ... ok
+test_reconcile_holds_admission_against_a_concurrent_generation (test_procedural_generation.ProceduralGenerationTests.test_reconcile_holds_admission_against_a_concurrent_generation) ... ok
+test_reconcile_never_replays_an_interrupted_api_request (test_procedural_generation.ProceduralGenerationTests.test_reconcile_never_replays_an_interrupted_api_request) ... ok
+test_reconcile_preserves_a_failed_attempt_and_its_completion_time (test_procedural_generation.ProceduralGenerationTests.test_reconcile_preserves_a_failed_attempt_and_its_completion_time) ... ok
+test_reconcile_uses_the_shared_gate_and_releases_it_on_failure (test_procedural_generation.ProceduralGenerationTests.test_reconcile_uses_the_shared_gate_and_releases_it_on_failure) ... ok
+test_rejected_cancellation_never_mutates_ready_or_interrupted_jobs (test_procedural_generation.ProceduralGenerationTests.test_rejected_cancellation_never_mutates_ready_or_interrupted_jobs) ... ok
+test_rendering_cannot_outlive_the_shared_operation_deadline (test_procedural_generation.ProceduralGenerationTests.test_rendering_cannot_outlive_the_shared_operation_deadline) ... ok
+test_response_snapshot_failure_happens_before_worker_launch (test_procedural_generation.ProceduralGenerationTests.test_response_snapshot_failure_happens_before_worker_launch) ... ok
+test_cross_platform_usb_serial_discovery (test_protocol.ProtocolTests.test_cross_platform_usb_serial_discovery) ... ok
+test_frame_crc_and_platform_serial_options (test_protocol.ProtocolTests.test_frame_crc_and_platform_serial_options) ... ok
+test_macro_frames_round_trip (test_protocol.ProtocolTests.test_macro_frames_round_trip) ... ok
+test_partial_keymap_frame_is_reported_as_protocol_error (test_protocol.ProtocolTests.test_partial_keymap_frame_is_reported_as_protocol_error) ... ok
+test_partial_spotlight_manifest_keeps_custom_slot_positions (test_protocol.ProtocolTests.test_partial_spotlight_manifest_keeps_custom_slot_positions) ... ok
+test_spotlight_data_rejects_non_custom_pages (test_protocol.ProtocolTests.test_spotlight_data_rejects_non_custom_pages) ... ok
+test_store_uses_app_owned_environment_variable (test_protocol.ProtocolTests.test_store_uses_app_owned_environment_variable) ... ok
+test_windows_store_lock_contention_has_a_bounded_retry (test_protocol.ProtocolTests.test_windows_store_lock_contention_has_a_bounded_retry) ... ok
+test_action_labels_match_the_application (test_readme.ReadmeCopyTest.test_action_labels_match_the_application) ... ok
+test_device_safety_states_the_write_and_backup_rules (test_readme.ReadmeCopyTest.test_device_safety_states_the_write_and_backup_rules) ... ok
+test_no_banned_implementation_vocabulary (test_readme.ReadmeCopyTest.test_no_banned_implementation_vocabulary) ... ok
+test_download_points_at_the_latest_release (test_readme.ReadmeLinkTest.test_download_points_at_the_latest_release) ... ok
+test_installation_verification_is_linked (test_readme.ReadmeLinkTest.test_installation_verification_is_linked) ... ok
+test_installer_names_match_what_the_build_publishes (test_readme.ReadmeLinkTest.test_installer_names_match_what_the_build_publishes) ... ok
+test_capabilities_are_task_led_and_ordered (test_readme.ReadmeStructureTest.test_capabilities_are_task_led_and_ordered) ... ok
+test_developer_instructions_stay_collapsed (test_readme.ReadmeStructureTest.test_developer_instructions_stay_collapsed) ... ok
+test_every_supported_board_appears_in_the_keyboard_gallery (test_readme.ReadmeStructureTest.test_every_supported_board_appears_in_the_keyboard_gallery) ... ok
+test_readme_opens_with_the_product_purpose (test_readme.ReadmeStructureTest.test_readme_opens_with_the_product_purpose) ... ok
+test_screenshots_sit_between_the_quick_start_and_capabilities (test_readme.ReadmeStructureTest.test_screenshots_sit_between_the_quick_start_and_capabilities) ... ok
+test_sections_follow_the_planned_order (test_readme.ReadmeStructureTest.test_sections_follow_the_planned_order) ... ok
+test_only_production_provider_owns_ollama_inference_details (test_recipe_inference.RecipeInferenceContractTests.test_only_production_provider_owns_ollama_inference_details) ... ok
+test_retry_protocol_has_no_definition_export_or_payload_surface (test_recipe_inference.RecipeInferenceContractTests.test_retry_protocol_has_no_definition_export_or_payload_surface) ... ok
+test_single_payload_is_deterministic_with_one_message_shape (test_recipe_inference.RecipeInferenceContractTests.test_single_payload_is_deterministic_with_one_message_shape) ... ok
+test_cancellation_and_invalid_recipe_never_make_a_paid_retry (test_recipe_provider.AnthropicRecipeProviderTests.test_cancellation_and_invalid_recipe_never_make_a_paid_retry) ... ok
+test_current_catalog_and_one_messages_call_use_the_strict_contract (test_recipe_provider.AnthropicRecipeProviderTests.test_current_catalog_and_one_messages_call_use_the_strict_contract) ... ok
+test_missing_usage_succeeds_and_malformed_usage_fails_once (test_recipe_provider.AnthropicRecipeProviderTests.test_missing_usage_succeeds_and_malformed_usage_fails_once) ... ok
+test_refusal_and_incomplete_stop_are_typed_and_never_retried (test_recipe_provider.AnthropicRecipeProviderTests.test_refusal_and_incomplete_stop_are_typed_and_never_retried) ... ok
+test_cancellation_ambiguity_and_invalid_recipe_never_retry (test_recipe_provider.DeepSeekRecipeProviderTests.test_cancellation_ambiguity_and_invalid_recipe_never_retry) ... ok
+test_current_catalog_and_one_chat_call_use_json_object_contract (test_recipe_provider.DeepSeekRecipeProviderTests.test_current_catalog_and_one_chat_call_use_json_object_contract) ... ok
+test_finish_states_are_typed_and_never_retry_or_leak_body_text (test_recipe_provider.DeepSeekRecipeProviderTests.test_finish_states_are_typed_and_never_retry_or_leak_body_text) ... ok
+test_missing_usage_succeeds_and_malformed_usage_fails_once (test_recipe_provider.DeepSeekRecipeProviderTests.test_missing_usage_succeeds_and_malformed_usage_fails_once) ... ok
+test_cancellation_and_invalid_recipe_never_make_a_paid_retry (test_recipe_provider.GeminiRecipeProviderTests.test_cancellation_and_invalid_recipe_never_make_a_paid_retry) ... ok
+test_current_catalog_and_one_interactions_call_use_the_schema_contract (test_recipe_provider.GeminiRecipeProviderTests.test_current_catalog_and_one_interactions_call_use_the_schema_contract) ... ok
+test_lite_model_sends_its_documented_minimal_thinking_level (test_recipe_provider.GeminiRecipeProviderTests.test_lite_model_sends_its_documented_minimal_thinking_level) ... ok
+test_missing_usage_succeeds_and_malformed_usage_fails_once (test_recipe_provider.GeminiRecipeProviderTests.test_missing_usage_succeeds_and_malformed_usage_fails_once) ... ok
+test_noncompleted_or_unsupported_output_fails_once_without_body_text (test_recipe_provider.GeminiRecipeProviderTests.test_noncompleted_or_unsupported_output_fails_once_without_body_text) ... ok
+test_cancellation_and_invalid_recipe_never_make_a_paid_retry (test_recipe_provider.KimiRecipeProviderTests.test_cancellation_and_invalid_recipe_never_make_a_paid_retry) ... ok
+test_current_catalog_and_one_chat_call_use_json_object_contract (test_recipe_provider.KimiRecipeProviderTests.test_current_catalog_and_one_chat_call_use_json_object_contract) ... ok
+test_missing_usage_succeeds_and_malformed_usage_fails_once (test_recipe_provider.KimiRecipeProviderTests.test_missing_usage_succeeds_and_malformed_usage_fails_once) ... ok
+test_nonstop_or_ambiguous_output_fails_once_without_body_text (test_recipe_provider.KimiRecipeProviderTests.test_nonstop_or_ambiguous_output_fails_once_without_body_text) ... ok
+test_retry_protocol_is_absent_and_bad_output_stops_after_one_call (test_recipe_provider.OllamaRecipeProviderTests.test_retry_protocol_is_absent_and_bad_output_stops_after_one_call) ... ok
+test_strict_recipe_request_uses_selected_installed_model (test_recipe_provider.OllamaRecipeProviderTests.test_strict_recipe_request_uses_selected_installed_model) ... ok
+test_cancellation_and_invalid_recipe_never_make_a_paid_retry (test_recipe_provider.OpenAIRecipeProviderTests.test_cancellation_and_invalid_recipe_never_make_a_paid_retry) ... ok
+test_current_catalog_and_one_responses_call_use_the_strict_contract (test_recipe_provider.OpenAIRecipeProviderTests.test_current_catalog_and_one_responses_call_use_the_strict_contract) ... ok
+test_missing_usage_succeeds_and_malformed_usage_fails_once (test_recipe_provider.OpenAIRecipeProviderTests.test_missing_usage_succeeds_and_malformed_usage_fails_once) ... ok
+test_refusal_and_incomplete_response_are_typed_and_never_retried (test_recipe_provider.OpenAIRecipeProviderTests.test_refusal_and_incomplete_response_are_typed_and_never_retried) ... ok
+test_cancellation_after_the_one_paid_call_preserves_exact_usage (test_recipe_provider.XaiRecipeProviderTests.test_cancellation_after_the_one_paid_call_preserves_exact_usage) ... ok
+test_cancelled_or_invalid_output_never_retries_or_leaks_content (test_recipe_provider.XaiRecipeProviderTests.test_cancelled_or_invalid_output_never_retries_or_leaks_content) ... ok
+test_curated_api_recipe_cost_ceiling_uses_integer_ticks (test_recipe_provider.XaiRecipeProviderTests.test_curated_api_recipe_cost_ceiling_uses_integer_ticks) ... ok
+test_one_strict_call_returns_validated_recipe_and_exact_usage (test_recipe_provider.XaiRecipeProviderTests.test_one_strict_call_returns_validated_recipe_and_exact_usage) ... ok
+test_a_handle_without_an_address_is_refused (test_transport.HandleParsingTests.test_a_handle_without_an_address_is_refused) ... ok
+test_a_payload_without_a_transport_stays_serial (test_transport.HandleParsingTests.test_a_payload_without_a_transport_stays_serial)
+Every request body written before handles existed carries just a port. ... ok
+test_an_unknown_transport_is_rejected_rather_than_driven_as_serial (test_transport.HandleParsingTests.test_an_unknown_transport_is_rejected_rather_than_driven_as_serial)
+The one thing dispatch must never do is guess the link type. ... ok
+test_unsupported_transport_reads_as_a_bad_request (test_transport.HandleParsingTests.test_unsupported_transport_reads_as_a_bad_request)
+The device routes map ValueError to 400; the caller named a bad link. ... ok
+test_a_write_arrives_as_the_configuration_not_as_encoded_frames (test_transport.NonSerialDriverTests.test_a_write_arrives_as_the_configuration_not_as_encoded_frames) ... ok
+test_each_driver_reports_writes_in_its_own_unit (test_transport.NonSerialDriverTests.test_each_driver_reports_writes_in_its_own_unit)
+The response payload must not assume every device writes frames. ... ok
+test_a_refused_write_raises_the_drivers_own_protocol_error (test_transport.SerialDispatchTests.test_a_refused_write_raises_the_drivers_own_protocol_error)
+`JSON_END` is a serial concept; the routes must never name it. ... ok
+test_describing_a_write_performs_no_io (test_transport.SerialDispatchTests.test_describing_a_write_performs_no_io)
+The verify route reports a unit count without resending anything. ... ok
+test_discovery_pairs_every_device_with_its_own_handle (test_transport.SerialDispatchTests.test_discovery_pairs_every_device_with_its_own_handle) ... ok
+test_operations_delegate_to_the_modules_that_owned_them (test_transport.SerialDispatchTests.test_operations_delegate_to_the_modules_that_owned_them) ... ok
+test_probe_dispatches_through_the_handle (test_transport.SerialDispatchTests.test_probe_dispatches_through_the_handle) ... ok
+test_the_driver_receives_the_configuration_and_plans_its_own_protocol (test_transport.SerialDispatchTests.test_the_driver_receives_the_configuration_and_plans_its_own_protocol)
+The seam must sit below the encoding, not above it. ... ok
+test_a_keymap_round_trips_through_the_buffer (test_vial_keymap.BufferTests.test_a_keymap_round_trips_through_the_buffer) ... ok
+test_a_qmk_feature_keycode_is_carried_not_refused (test_vial_keymap.BufferTests.test_a_qmk_feature_keycode_is_carried_not_refused)
+Reading must never fail, or a real keyboard becomes unreadable. ... ok
+test_a_short_buffer_is_refused (test_vial_keymap.BufferTests.test_a_short_buffer_is_refused) ... ok
+test_an_unsupported_code_stops_the_whole_keymap (test_vial_keymap.BufferTests.test_an_unsupported_code_stops_the_whole_keymap)
+A partially translated keymap on a device is worse than none. ... ok
+test_every_offending_key_is_reported_at_once (test_vial_keymap.BufferTests.test_every_offending_key_is_reported_at_once) ... ok
+test_a_keymap_survives_a_write_then_read (test_vial_keymap.DeviceKeymapTests.test_a_keymap_survives_a_write_then_read) ... ok
+test_a_locked_keyboard_reports_an_actionable_state (test_vial_keymap.DeviceKeymapTests.test_a_locked_keyboard_reports_an_actionable_state)
+Not a generic write failure: only the user can resolve it. ... ok
+test_an_unsupported_code_is_refused_before_any_byte_is_sent (test_vial_keymap.DeviceKeymapTests.test_an_unsupported_code_is_refused_before_any_byte_is_sent) ... ok
+test_physical_unlock_starts_and_polls_until_the_combo_is_accepted (test_vial_keymap.DeviceKeymapTests.test_physical_unlock_starts_and_polls_until_the_combo_is_accepted) ... ok
+test_the_layer_count_is_asked_not_assumed (test_vial_keymap.DeviceKeymapTests.test_the_layer_count_is_asked_not_assumed) ... ok
+test_unlock_status_decodes_progress_and_the_physical_combo (test_vial_keymap.DeviceKeymapTests.test_unlock_status_decodes_progress_and_the_physical_combo) ... ok
+test_every_representable_code_round_trips_byte_for_byte (test_vial_keymap.InjectivityTests.test_every_representable_code_round_trips_byte_for_byte) ... ok
+test_left_and_right_modifiers_are_distinct_keycodes (test_vial_keymap.InjectivityTests.test_left_and_right_modifiers_are_distinct_keycodes) ... ok
+test_the_basic_range_maps_to_the_identity (test_vial_keymap.InjectivityTests.test_the_basic_range_maps_to_the_identity) ... ok
+test_a_malformed_code_is_rejected (test_vial_keymap.RejectionTests.test_a_malformed_code_is_rejected) ... ok
+test_a_usage_above_the_basic_range_is_rejected (test_vial_keymap.RejectionTests.test_a_usage_above_the_basic_range_is_rejected) ... ok
+test_a_usage_page_with_no_qmk_equivalent_is_rejected (test_vial_keymap.RejectionTests.test_a_usage_page_with_no_qmk_equivalent_is_rejected) ... ok
+test_is_representable_never_raises (test_vial_keymap.RejectionTests.test_is_representable_never_raises) ... ok
+test_mixed_side_modifiers_are_rejected_not_flattened (test_vial_keymap.RejectionTests.test_mixed_side_modifiers_are_rejected_not_flattened)
+Flattening would silently change which key the user pressed. ... ok
+test_a_natural_code_may_not_also_be_written_as_passthrough (test_vial_keymap.TotalityTests.test_a_natural_code_may_not_also_be_written_as_passthrough)
+Two spellings for one keycode would make read-back unstable. ... ok
+test_every_keycode_round_trips (test_vial_keymap.TotalityTests.test_every_keycode_round_trips) ... ok
+test_no_two_keycodes_share_a_spelling (test_vial_keymap.TotalityTests.test_no_two_keycodes_share_a_spelling) ... ok
+test_the_right_hand_flag_alone_has_no_hid_spelling (test_vial_keymap.TotalityTests.test_the_right_hand_flag_alone_has_no_hid_spelling) ... ok
+test_a_macro_slot_the_device_lacks_is_refused (test_vial_keymap.UiEmittableCodeTests.test_a_macro_slot_the_device_lacks_is_refused) ... ok
+test_a_realistic_keymap_with_clears_and_macros_encodes (test_vial_keymap.UiEmittableCodeTests.test_a_realistic_keymap_with_clears_and_macros_encodes) ... ok
+test_an_empty_key_has_exactly_one_spelling (test_vial_keymap.UiEmittableCodeTests.test_an_empty_key_has_exactly_one_spelling) ... ok
+test_clearing_a_key_translates (test_vial_keymap.UiEmittableCodeTests.test_clearing_a_key_translates) ... ok
+test_every_macro_slot_translates (test_vial_keymap.UiEmittableCodeTests.test_every_macro_slot_translates) ... ok
+test_vial_protocol_five_uses_the_neon_macro_keycode_range (test_vial_keymap.UiEmittableCodeTests.test_vial_protocol_five_uses_the_neon_macro_keycode_range) ... ok
+test_a_buffer_filled_to_the_exact_byte_is_accepted (test_vial_macros.CapacityBoundaryTests.test_a_buffer_filled_to_the_exact_byte_is_accepted) ... ok
+test_capacity_comes_from_the_device_not_a_default (test_vial_macros.CapacityBoundaryTests.test_capacity_comes_from_the_device_not_a_default) ... ok
+test_exactly_the_supported_macro_count_is_accepted (test_vial_macros.CapacityBoundaryTests.test_exactly_the_supported_macro_count_is_accepted) ... ok
+test_one_byte_over_the_budget_sends_nothing (test_vial_macros.CapacityBoundaryTests.test_one_byte_over_the_budget_sends_nothing) ... ok
+test_one_macro_over_the_count_sends_nothing (test_vial_macros.CapacityBoundaryTests.test_one_macro_over_the_count_sends_nothing) ... ok
+test_a_delay_never_encodes_a_null (test_vial_macros.EncodingTests.test_a_delay_never_encodes_a_null)
+A null byte inside a delay would terminate the macro early. ... ok
+test_an_impossible_delay_is_refused (test_vial_macros.EncodingTests.test_an_impossible_delay_is_refused) ... ok
+test_press_release_and_tap_encode_distinctly (test_vial_macros.EncodingTests.test_press_release_and_tap_encode_distinctly) ... ok
+test_the_unsupported_code_policy_applies_to_macro_events (test_vial_macros.EncodingTests.test_the_unsupported_code_policy_applies_to_macro_events) ... ok
+test_unused_macro_slots_are_still_terminated (test_vial_macros.EncodingTests.test_unused_macro_slots_are_still_terminated)
+Without the terminator the device reads into the next macro. ... ok
+test_a_delay_after_tap_belongs_to_the_tap_release (test_vial_macros.LiteralTextReadbackTests.test_a_delay_after_tap_belongs_to_the_tap_release) ... ok
+test_literal_text_and_tap_expand_to_real_us_key_transitions (test_vial_macros.LiteralTextReadbackTests.test_literal_text_and_tap_expand_to_real_us_key_transitions) ... ok
+test_non_ascii_literal_is_refused_instead_of_becoming_a_hid_usage (test_vial_macros.LiteralTextReadbackTests.test_non_ascii_literal_is_refused_instead_of_becoming_a_hid_usage) ... ok
+test_several_macros_survive_a_write_then_read (test_vial_macros.RoundTripTests.test_several_macros_survive_a_write_then_read) ... ok
+test_a_gapped_profile_lands_in_the_slots_its_tokens_name (test_vial_macros.SlotIdentityTests.test_a_gapped_profile_lands_in_the_slots_its_tokens_name) ... ok
+test_a_gapped_profile_round_trips_through_the_device (test_vial_macros.SlotIdentityTests.test_a_gapped_profile_round_trips_through_the_device) ... ok
+test_a_reordered_profile_still_lands_correctly (test_vial_macros.SlotIdentityTests.test_a_reordered_profile_still_lands_correctly) ... ok
+test_a_slot_beyond_the_device_is_refused (test_vial_macros.SlotIdentityTests.test_a_slot_beyond_the_device_is_refused) ... ok
+test_macros_without_tokens_keep_their_list_positions (test_vial_macros.SlotIdentityTests.test_macros_without_tokens_keep_their_list_positions)
+A profile from a serial board never used the tokens. ... ok
+test_read_back_carries_the_slot_token_not_the_first_event (test_vial_macros.SlotIdentityTests.test_read_back_carries_the_slot_token_not_the_first_event)
+Otherwise the keymap and the macro list disagree about which key runs what. ... ok
+test_two_macros_claiming_one_slot_is_refused (test_vial_macros.SlotIdentityTests.test_two_macros_claiming_one_slot_is_refused) ... ok
+test_missing_required_helper_fails_the_build (test_webkitgtk_bundle.WebKitGtkBundleTests.test_missing_required_helper_fails_the_build) ... ok
+test_runtime_helpers_are_collected_and_bundled_library_is_relocated (test_webkitgtk_bundle.WebKitGtkBundleTests.test_runtime_helpers_are_collected_and_bundled_library_is_relocated) ... ok
+
+----------------------------------------------------------------------
+Ran 694 tests in 99.648s
+
+OK (skipped=5)
+--- python-compile ---
+--- browser-tests ---
+--- syntax-lighting-state ---
+--- syntax-lighting-workspace ---
+--- syntax-lighting-review ---
+--- syntax-lighting-targets ---
+--- syntax-lighting-composer ---
+--- syntax-library-state ---
+--- syntax-app ---
+--- package-build ---
+Building source distribution...
+Building wheel from source distribution...
+Successfully built dist\am_configurator-0.1.65.tar.gz
+Successfully built dist\am_configurator-0.1.65-py3-none-any.whl

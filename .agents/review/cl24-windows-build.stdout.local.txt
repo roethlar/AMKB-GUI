@@ -1,0 +1,252 @@
+Building AM Configurator 0.1.65 for windows...
++ uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
++ F:\dev\AMKB-GUI\.venv\Scripts\python.exe F:\dev\AMKB-GUI\build_tools\native_tree_audit.py "F:\dev\AMKB-GUI\dist\AM Configurator"
+Native tree audit passed.
++ "C:\Program Files\PowerShell\7\pwsh.EXE" -NoProfile -ExecutionPolicy Bypass -File F:\dev\AMKB-GUI\packaging\windows\build_installer.ps1
+Inno Setup 6 Command-Line Compiler
+Copyright (C) 1997-2026 Jordan Russell. All rights reserved.
+Portions Copyright (C) 2000-2026 Martijn Laan. All rights reserved.
+Portions Copyright (C) 2001-2004 Alex Yackimoff. All rights reserved.
+https://www.innosetup.com
+
+Compiler engine version: Inno Setup 6.7.3
+Non-commercial use only
+
+Preprocessing
+   Reading file: C:\Users\michael\AppData\Local\Programs\Inno Setup 6\ISPPBuiltins.iss
+Parsing [Setup] section, line 15
+Parsing [Setup] section, line 16
+Parsing [Setup] section, line 17
+Parsing [Setup] section, line 18
+Parsing [Setup] section, line 19
+Parsing [Setup] section, line 20
+Parsing [Setup] section, line 21
+Parsing [Setup] section, line 22
+Parsing [Setup] section, line 23
+Parsing [Setup] section, line 24
+Parsing [Setup] section, line 25
+Parsing [Setup] section, line 26
+Parsing [Setup] section, line 27
+Parsing [Setup] section, line 28
+Parsing [Setup] section, line 29
+Parsing [Setup] section, line 30
+Parsing [Setup] section, line 31
+Parsing [Setup] section, line 32
+Parsing [Setup] section, line 33
+Parsing [Setup] section, line 34
+Parsing [Setup] section, line 35
+Parsing [Setup] section, line 36
+Reading file (LicenseFile)
+Reading file (WizardImageFile)
+Reading file (WizardSmallImageFile)
+Preparing Setup program executable
+   Verification successful
+   Updating icons (Setup.e32)
+   Updating version info (Setup.e32)
+Determining language code pages
+   Reading file: C:\Users\michael\AppData\Local\Programs\Inno Setup 6\Default.isl
+   Messages in script file
+Reading default messages from Default.isl
+Parsing [LangOptions], [Messages], and [CustomMessages] sections
+   Reading file: C:\Users\michael\AppData\Local\Programs\Inno Setup 6\Default.isl
+   Messages in script file
+Reading [Code] section
+Parsing [Tasks] section, line 46
+Parsing [Icons] section, line 42
+Parsing [Icons] section, line 43
+Parsing [Run] section, line 49
+Parsing [Files] section, line 39
+Deleting AM-Configurator-0.1.65-Windows-x64-Setup.exe from output directory
+Creating setup files
+   Verification successful
+   Updating icons (Setup.exe)
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\AM Configurator.exe
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\base_library.zip
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\hid.cp312-win_amd64.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\libcrypto-3-x64.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\libffi-8.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\libssl-3-x64.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\LICENSE
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pyexpat.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\python312.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\select.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\THIRD_PARTY_NOTICES
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\unicodedata.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\VCRUNTIME140.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\VCRUNTIME140_1.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_asyncio.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_bz2.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_cffi_backend.cp312-win_amd64.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_ctypes.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_decimal.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_elementtree.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_hashlib.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_lzma.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_multiprocessing.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_overlapped.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_queue.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_socket.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_ssl.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_uuid.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\_wmi.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\am_configurator\data\60-am-neon-80.rules
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\am_configurator\web\app.js
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\am_configurator\web\icon.png
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\am_configurator\web\index.html
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\am_configurator\web\library_state.js
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\am_configurator\web\lighting_composer.js
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\am_configurator\web\lighting_review.js
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\am_configurator\web\lighting_state.js
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\am_configurator\web\lighting_targets.js
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\am_configurator\web\lighting_workspace.js
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\am_configurator\web\style.css
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\clr_loader\ffi\dlls\amd64\ClrLoader.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\clr_loader\ffi\dlls\x86\ClrLoader.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\keyring-25.7.0.dist-info\entry_points.txt
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\keyring-25.7.0.dist-info\INSTALLER
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\keyring-25.7.0.dist-info\METADATA
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\keyring-25.7.0.dist-info\RECORD
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\keyring-25.7.0.dist-info\REQUESTED
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\keyring-25.7.0.dist-info\top_level.txt
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\keyring-25.7.0.dist-info\WHEEL
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\keyring-25.7.0.dist-info\licenses\LICENSE
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\licenses\cyberboard-cli-LICENSE.txt
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\PIL\_avif.cp312-win_amd64.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\PIL\_imaging.cp312-win_amd64.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\PIL\_imagingcms.cp312-win_amd64.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\PIL\_imagingft.cp312-win_amd64.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\PIL\_imagingmath.cp312-win_amd64.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\PIL\_imagingtk.cp312-win_amd64.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\PIL\_webp.cp312-win_amd64.pyd
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\Microsoft.Win32.Primitives.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\netstandard.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\Python.Runtime.deps.json
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\Python.Runtime.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\Python.Runtime.xml
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.AppContext.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Collections.Concurrent.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Collections.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Collections.NonGeneric.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Collections.Specialized.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.ComponentModel.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.ComponentModel.EventBasedAsync.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.ComponentModel.Primitives.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.ComponentModel.TypeConverter.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Console.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Data.Common.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Diagnostics.Contracts.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Diagnostics.Debug.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Diagnostics.FileVersionInfo.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Diagnostics.Process.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Diagnostics.StackTrace.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Diagnostics.TextWriterTraceListener.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Diagnostics.Tools.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Diagnostics.TraceSource.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Diagnostics.Tracing.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Drawing.Primitives.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Dynamic.Runtime.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Globalization.Calendars.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Globalization.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Globalization.Extensions.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.IO.Compression.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.IO.Compression.ZipFile.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.IO.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.IO.FileSystem.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.IO.FileSystem.DriveInfo.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.IO.FileSystem.Primitives.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.IO.FileSystem.Watcher.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.IO.IsolatedStorage.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.IO.MemoryMappedFiles.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.IO.Pipes.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.IO.UnmanagedMemoryStream.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Linq.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Linq.Expressions.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Linq.Parallel.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Linq.Queryable.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Net.Http.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Net.NameResolution.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Net.NetworkInformation.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Net.Ping.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Net.Primitives.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Net.Requests.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Net.Security.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Net.Sockets.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Net.WebHeaderCollection.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Net.WebSockets.Client.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Net.WebSockets.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.ObjectModel.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Reflection.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Reflection.Extensions.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Reflection.Primitives.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Resources.Reader.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Resources.ResourceManager.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Resources.Writer.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Runtime.CompilerServices.VisualC.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Runtime.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Runtime.Extensions.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Runtime.Handles.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Runtime.InteropServices.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Runtime.InteropServices.RuntimeInformation.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Runtime.Numerics.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Runtime.Serialization.Formatters.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Runtime.Serialization.Json.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Runtime.Serialization.Primitives.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Runtime.Serialization.Xml.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Security.Claims.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Security.Cryptography.Algorithms.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Security.Cryptography.Csp.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Security.Cryptography.Encoding.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Security.Cryptography.Primitives.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Security.Cryptography.X509Certificates.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Security.Principal.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Security.SecureString.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Text.Encoding.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Text.Encoding.Extensions.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Text.RegularExpressions.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Threading.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Threading.Overlapped.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Threading.Tasks.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Threading.Tasks.Parallel.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Threading.Thread.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Threading.ThreadPool.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Threading.Timer.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.ValueTuple.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Xml.ReaderWriter.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Xml.XDocument.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Xml.XmlDocument.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Xml.XmlSerializer.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Xml.XPath.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\pythonnet\runtime\System.Xml.XPath.XDocument.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\setuptools\_vendor\importlib_metadata-8.7.1.dist-info\INSTALLER
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\setuptools\_vendor\importlib_metadata-8.7.1.dist-info\METADATA
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\setuptools\_vendor\importlib_metadata-8.7.1.dist-info\RECORD
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\setuptools\_vendor\importlib_metadata-8.7.1.dist-info\REQUESTED
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\setuptools\_vendor\importlib_metadata-8.7.1.dist-info\top_level.txt
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\setuptools\_vendor\importlib_metadata-8.7.1.dist-info\WHEEL
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\setuptools\_vendor\importlib_metadata-8.7.1.dist-info\licenses\LICENSE
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\setuptools\_vendor\jaraco\text\Lorem ipsum.txt
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\js\api.js
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\js\customize.js
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\js\finish.js
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\js\state.js
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\js\lib\dom_json.js
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\js\lib\polyfill.js
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\lib\Microsoft.Web.WebView2.Core.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\lib\Microsoft.Web.WebView2.WinForms.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\lib\pywebview-android.jar
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\lib\WebBrowserInterop.x64.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\lib\WebBrowserInterop.x86.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\lib\runtimes\win-arm64\native\WebView2Loader.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\lib\runtimes\win-x64\native\WebView2Loader.dll
+   Compressing: F:\dev\AMKB-GUI\dist\AM Configurator\_internal\webview\lib\runtimes\win-x86\native\WebView2Loader.dll
+   Compressing Setup program executable
+   Updating version info (Setup.exe)
+   Updating manifest (Setup.exe)
+
+
+Successful compile (3.766 sec). Resulting Setup program filename is:
+F:\dev\AMKB-GUI\dist\AM-Configurator-0.1.65-Windows-x64-Setup.exe
+F:\dev\AMKB-GUI\dist\AM-Configurator-0.1.65-Windows-x64-Setup.exe
+
+Built installer:
+F:\dev\AMKB-GUI\dist\AM-Configurator-0.1.65-Windows-x64-Setup.exe

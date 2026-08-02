@@ -1,0 +1,41 @@
+Building AM Configurator 0.1.65 for linux...
++ uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
++ /tmp/amkb-lsr10.b8AuDi/.venv/bin/python /tmp/amkb-lsr10.b8AuDi/build_tools/native_tree_audit.py "/tmp/amkb-lsr10.b8AuDi/dist/AM Configurator"
+Native tree audit passed.
++ bash /tmp/amkb-lsr10.b8AuDi/packaging/linux/build_appimage.sh
+/tmp/amkb-lsr10.b8AuDi/build/AM Configurator.AppDir should be packaged as /tmp/amkb-lsr10.b8AuDi/dist/AM-Configurator-0.1.65-Linux-x86_64.AppImage
+Parallel mksquashfs: Using 8 processors
+Creating 4.0 filesystem on /tmp/amkb-lsr10.b8AuDi/dist/AM-Configurator-0.1.65-Linux-x86_64.AppImage, block size 131072.
+[===========================================================|] 31198/31198 100%
+
+Exportable Squashfs 4.0 filesystem, zstd compressed, data block size 131072
+	compressed data, compressed metadata, compressed fragments,
+	compressed xattrs, compressed ids
+	duplicates are removed
+Filesystem size 184436.95 Kbytes (180.11 Mbytes)
+	34.81% of uncompressed filesystem size (529823.28 Kbytes)
+Inode table size 507538 bytes (495.64 Kbytes)
+	22.94% of uncompressed inode table size (2212640 bytes)
+Directory table size 590326 bytes (576.49 Kbytes)
+	32.84% of uncompressed directory table size (1797642 bytes)
+Number of duplicate files found 2545
+Number of inodes 56856
+Number of files 28047
+Number of fragments 834
+Number of symbolic links 27864
+Number of device nodes 0
+Number of fifo nodes 0
+Number of socket nodes 0
+Number of directories 945
+Number of hard-links 0
+Number of ids (unique uids + gids) 1
+Number of uids 1
+	root (0)
+Number of gids 1
+	root (0)
+Native tree audit passed.
+Desktop smoke test passed (Linux).
+/tmp/amkb-lsr10.b8AuDi/dist/AM-Configurator-0.1.65-Linux-x86_64.AppImage
+
+Built installer:
+/tmp/amkb-lsr10.b8AuDi/dist/AM-Configurator-0.1.65-Linux-x86_64.AppImage

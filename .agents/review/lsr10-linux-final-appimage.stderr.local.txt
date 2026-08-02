@@ -1,0 +1,29 @@
+   Building am-configurator @ file:///workspace
+      Built am-configurator @ file:///workspace
+Uninstalled 1 package in 0.52ms
+warning: Failed to hardlink files; falling back to full copy. This may lead to degraded performance.
+         If the cache and target directories are on different filesystems, hardlinking may not be supported.
+         If this is intentional, set `export UV_LINK_MODE=copy` or use `--link-mode=copy` to suppress this warning.
+Installed 1 package in 2ms
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+100 14.3M  100 14.3M    0     0  24.2M      0 --:--:-- --:--:-- --:--:-- 24.2M
+appimagetool, continuous build (git version 8c8c91f), build 296 built on 2025-12-04 17:55:56 UTC
+Using architecture x86_64
+WARNING: AppStream upstream metadata is missing, please consider creating it
+         in usr/share/metainfo/am-configurator.appdata.xml
+         Please see https://www.freedesktop.org/software/appstream/docs/chap-Quickstart.html#sect-Quickstart-DesktopApps
+         for more information or use the generator at
+         https://docs.appimage.org/packaging-guide/optional/appstream.html#using-the-appstream-generator
+Generating squashfs...
+Downloading runtime file from https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64
+Downloaded runtime binary of size 944632
+Embedding ELF...
+Marking the AppImage as executable...
+Embedding MD5 digest
+Success
+
+Please consider submitting your AppImage to AppImageHub, the crowd-sourced
+central directory of available AppImages, by opening a pull request
+at https://github.com/AppImage/appimage.github.io

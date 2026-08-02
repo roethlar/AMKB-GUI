@@ -1,0 +1,9 @@
+source_head=e738bb64d45ad6b367f9a5002223f79c1b1ebf3e
+source_audit=passed
+frozen_audit=passed
+frozen_smoke=passed
+native_tree_audit=passed
+extracted_native_tree_audit=passed
+uv_lock_unchanged=true
+artifact_sha256=c0cb7214cd2a3f9d9e5aa6a09d8ceae26fcd7173044e0484779e432ac1b568b5
+artifact_bytes=108919288
