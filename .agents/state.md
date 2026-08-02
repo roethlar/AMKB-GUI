@@ -14,15 +14,15 @@
   `e97b40280a494ff5446fb2954fe01ed84f565924..7052212445c269752a094217b1ab4813741b2ef7`
   once. The first substantive result returned three MEDIUM findings, all
   admitted as `cl-14` through `cl-16`; the review loop remains active.
-- The `cl-14` repair captures exact queued-render ownership, cancels pending
-  media work when Source loses the workspace, and rejects stale work before
-  any render-start mutation. Its focused guards and native delayed-render race
-  are mutation-proven; the complete 694-Python/158-browser/compile/syntax/build
-  gate and all six native format/viewport cases pass. Its single per-finding
-  review attempt produced no verdict: PTK's outer 300-second transport ceiling
-  killed the still-running Claude child before it wrote result or stderr
-  artifacts. No review was retried or resubmitted; a replacement requires
-  explicit owner approval before `cl-14` can close.
+- `cl-14` is closed at repair `1a8632b6b1b2dc4926f848235d10dadd4066e6e5`.
+  Exact queued-render ownership, Source-exit cancellation, and pre-mutation
+  stale rejection are independently mutation-proven; the complete
+  694-Python/158-browser/compile/syntax/build gate and all six native
+  format/viewport cases pass. Its single `fable-review` used explicit
+  `claude-opus-5` at `high` over exact parent/fix pins and returned `accepted`
+  with guard and capability confirmed. PTK's outer call ended at 300 seconds,
+  but the original child persisted its first substantive result 32 seconds
+  later; that result was used unchanged with no retry or resubmission.
 - Active review loop: see `.agents/review/index.md`.
 
 - Public-release candidate attempt 3 at
@@ -229,11 +229,9 @@
 
 ## Next
 
-- Obtain an owner ruling on one replacement `cl-14` verification using the
-  background-wrapper pattern; do not resubmit without it. After `cl-14` is
-  accepted, repair `cl-15` and `cl-16` one finding and one commit at a time.
-  LSR-5 cannot close until all three are accepted and exact repair-head CI is
-  green. Do
+- Repair and independently verify `cl-15`, then `cl-16`, one finding and one
+  commit at a time. LSR-5 cannot close until both are accepted and exact
+  repair-head CI is green. Do
   not restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat

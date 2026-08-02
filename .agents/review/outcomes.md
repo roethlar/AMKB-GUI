@@ -349,14 +349,19 @@
 - 2026-08-02 — codereview claude (job `fable-review`; claude-cli 2.1.220;
   `claude-opus-5` @ `high`, standard, inline/session-only) over
   `ff7576a3912940829bf282c7e15d654017307358..1a8632b6b1b2dc4926f848235d10dadd4066e6e5`:
-  infrastructure failure, not a verdict. Exactly one verification invocation
-  started at 2026-08-02T09:40:16Z with the exact pins and explicit model and
-  effort. Although PTK was given a 1,900-second budget, its outer MCP tool call
-  ended at the 300-second transport ceiling and worker teardown terminated the
-  still-running Claude child. The child had created and later lost its detached
-  worktree, but no result or stderr artifact was written; the status artifact
-  remains stale at `running`. Verdict, guard confirmation, and capability proof
-  are therefore unknown. Nothing was discarded, retried, re-emitted, replaced,
-  reformatted, or resubmitted. A replacement review requires explicit owner
-  approval and must run through the background-wrapper pattern so the outer PTK
-  ceiling cannot terminate it.
+  verdict `accepted`, `guard_confirmed=true`, `capability_ok=true`, exact pinned
+  SHAs, exit 0, and no stderr. PTK's outer MCP call ended at its 300-second
+  transport ceiling despite a larger requested budget, but the original child
+  remained alive and persisted the schema-enforced result after 5 minutes 32
+  seconds. A provisional record at `5127f8a` was written during the short gap
+  before those artifacts appeared; this entry corrects that lower-authority
+  observation with the completed status and result. The first substantive
+  result was used unchanged and was not discarded, retried, re-emitted,
+  replaced, reformatted, or resubmitted. The reviewer independently reproduced
+  the native `queued_render_stopped_playback` mutation failure, restored all
+  six format/viewport cases green, passed 63 focused and all 158 browser tests,
+  and removed its detached worktree without changing the primary tree. One
+  hook-rewritten `rtk git diff` command was denied; allowed reads and git
+  commands completed the capability proof. The transcript model key was
+  `claude-opus-5`; the immutable result SHA-256 is
+  `01C3136D8DD4F8F20175DC32ED2A05E0533A2C03BC777E1C5C4E288C22CC70BF`.
