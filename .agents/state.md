@@ -161,12 +161,10 @@
   The approved plan requires minimized synthetic fixtures and a final read-only
   acceptance pass against the supplied files; original payloads are not copied
   into the repository, logs, or packages.
-- The active release objective requires every landed LSR implementation slice
-  to be committed, pushed, and reviewed once through codereview harness
-  `claude` / job `fable-review` with explicit model `claude-opus-5` and effort
-  `high` over the exact landed range. The first substantive result is used as
-  returned; no discard, rerun, resubmission, or model substitution is allowed
-  without explicit owner approval.
+- Remaining LSR work follows `.agents/repo-guidance.md` (Review Economy); the
+  former per-slice codereview requirement is superseded. Any review already
+  launched is allowed to finish and its first substantive result is used under
+  that canonical rule.
 - The Macro page finding that existing macro contents are not shown directly
   enough is recorded as separate queued UX work. It is not part of the
   Lighting redesign and has no approved implementation scope.
