@@ -102,8 +102,8 @@
   `fable-review` used job `fable-review`, explicit `claude-opus-5` at `high`,
   and exact pins once; its first substantive result admitted `cl-21` (frozen
   imported arrays make an applied slot uneditable) and `cl-22` (a source-text
-  guard pins the associated dead clone block). The active review loop is
-  recorded in `.agents/review/index.md`; LSR-8 is not closed.
+  guard pins the associated dead clone block). Both findings are closed below;
+  LSR-8 is closed.
 - `cl-21` is closed in repair commit
   `864bd28636be781a84d1dfc259a9e0622890d111`. The live document owns mutable
   copies of both imported track arrays while the transient report stays frozen.
@@ -112,8 +112,7 @@
   compile/syntax/build gate passes with 5 Python skips. Exact-head CI run
   `30755504354` and Desktop installers run `30755504317` pass. Its one
   T2-routed `fable-review` used explicit `claude-opus-5` at `xhigh`, returned
-  accepted, and independently confirmed the guard and full gate. `cl-22`
-  remains open.
+  accepted, and independently confirmed the guard and full gate.
 - Owner ruling 2026-08-02: external/cross-harness reviews are exceptional, not
   automatic for every minor change. Use them only on explicit request or a
   concrete material risk that local guards and CI cannot resolve; explain need
@@ -122,8 +121,11 @@
   clone/apply block and reverses its source guard so reintroducing only those
   three lines makes exactly one focused test fail. Restoration passes 42
   focused shell tests and the complete 720-Python/179-browser/compile/syntax/
-  build gate with 5 Python skips. Commit, push, and exact-head CI/Desktop
-  qualification remain; no external review is required.
+  build gate with 5 Python skips. Repair commit
+  `3b2d26fb48094bf8b804a0449cb968edc2b4b7d9` is pushed; exact-head CI run
+  `30756144641` and Desktop installers run `30756144701` pass every job. No
+  external review was run under the owner-approved review-economy rule.
+  `cl-22` and LSR-8 are closed.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -329,9 +331,10 @@
 
 ## Next
 
-- Commit and push the guard-proven `cl-22` repair, qualify its exact head, then
-  close LSR-8 without an external review. Do not start LSR-9 until `cl-22` is
-  closed. A
+- Implement approved LSR-9 Library, procedural-AI, Apply, and Undo integration
+  through the canonical frame pipeline. External review is not automatic; use
+  it only on explicit owner request or a concrete material risk that local
+  guards and CI cannot resolve. A
   replacement release candidate must repeat every release gate and cannot mix
   evidence from any rejected attempt with new bytes.
 - The approved `0.1.65` release plan remains recorded at

@@ -1032,9 +1032,11 @@ The isolated `cl-22` repair removes the unused candidate clone/apply/lightness
 block from imported-lighting Apply and reverses the brittle positive source
 assertion so reintroducing only those three lines makes exactly one focused
 test fail. Restoration passes 42 focused shell tests and the complete
-720-Python/179-browser/compile/syntax/build gate with 5 Python skips. Commit,
-push, and exact-head qualification remain before `cl-22` and LSR-8 close; no
-external model review is required.
+720-Python/179-browser/compile/syntax/build gate with 5 Python skips. Repair
+commit `3b2d26fb48094bf8b804a0449cb968edc2b4b7d9` is pushed; exact-head CI run
+`30756144641` and Desktop installers run `30756144701` pass every job. No
+external per-finding review was run under the owner-approved review-economy
+rule. `cl-22` and LSR-8 are closed; LSR-9 is next.
 
 Files:
 
