@@ -80,8 +80,8 @@ _Last verified over SSH: 2026-07-31._
 
 ## nagatha (macOS arm64)
 
-_Last verified over SSH: 2026-08-01. The owner was the active console user and
-was RDP-connected from this host to the current `netwatch-01` session._
+_Last verified locally on the host: 2026-08-02. SSH reachability and the owner's
+console/RDP session were last verified 2026-08-01._
 
 - Reachable as `michael@10.1.10.247`; hostname `nagatha.local`, macOS 26.6,
   Darwin 25.6.0, arm64. Its Ed25519 host key matches the trusted former
@@ -89,16 +89,16 @@ was RDP-connected from this host to the current `netwatch-01` session._
   accepting a different key. Gatekeeper assessments are enabled.
 - Exact-artifact qualification tools are available: `hdiutil`, `codesign`,
   `spctl`, `xattr`, `shasum`, `curl`, `file`, `open`, and `ditto`. The temporary
-  directory is writable and the data volume had about 273 GB free.
-- GitHub CLI, `uv`, and Node are not on `PATH`. Attestation may be verified on
-  `netwatch-01` before transfer and bound to the macOS bytes by matching the
-  SHA-256 again on `nagatha`; do not install tools merely to duplicate that
-  proof.
-- A clean checkout exists at `/Users/michael/dev/AMKB-GUI` with canonical
-  `origin`, but it was still at cached head `9dc81c5` and had no project venv.
-  Do not use it as current-source evidence without a deliberate synchronization
-  and environment-preparation step. Exact downloaded-artifact checks do not
-  depend on that checkout.
+  directory is writable and the data volume had about 204 GB free on 2026-08-02.
+- Homebrew now supplies GitHub CLI 2.96.0, `uv` 0.11.32, and Node 26.5.0 on
+  `PATH`, so attestation and Node checks no longer have to be delegated to
+  `netwatch-01` and rebound by SHA-256.
+- This host now carries the active working checkout at
+  `/Users/michael/Dev/AMKB-GUI` (case-insensitive, same directory as the
+  lowercase `dev` path recorded earlier). It has both the canonical `origin`
+  and the `gitea` remote and a project venv on Python 3.14.6. Confirm its head
+  against the canonical remote before treating it as current-source evidence.
+  Exact downloaded-artifact checks do not depend on that checkout.
 - The owner may either operate the GUI directly or permit SSH-driven command
   checks. Availability does not authorize macOS Open Anyway or a keyboard
   write.

@@ -1,243 +1,9 @@
 # Repository State
 
 ## Now
-- LSR-1 is closed. Implementation `1ee73a81182c8f401b1942776d3df7c005541f33` and admitted review repair `95795845b6eeabd1c572b82244fef26a975183dd` are fully guard-proven, pass the 677-Python/144-browser/compile/syntax/build gate, and are pushed. The required `claude-opus-5` generation review and T2 per-finding verification used exact ranges once each; `cl-10` returned accepted with guard and capability confirmed. Canonical evidence is in the redesign plan and `.agents/review/findings/cl-10.md`.
-- LSR-2 is closed. Implementation `65c9fbfc22c2b24c3b868218512b00039756e6e1` and admitted repairs `9015d422d97d3be0ba9aa04a0ebeeec81c934335` (`cl-11`) and `3865c1008a9798f4d882b2f81c445e7fc2e3261f` (`cl-12`) are committed, pushed, mutation-proven, and pass the complete 688-Python/144-browser/compile/syntax/build gate. The single generation review and both per-finding verifications used `fable-review`, explicit `claude-opus-5` at `high`, exact ranges, and the first substantive result once; both findings returned accepted with guard and capability confirmed.
-- LSR-3 is closed. Implementation `92949d92ca6751073ce47fa2b5182c01ed247009` is pushed, mutation-proven, and passes the complete 690-Python/149-browser/compile/syntax/build gate plus the isolated two-viewport native WebView2 destination-transition audit. Exact-head CI run `30735969449` and Desktop installers run `30735969440` passed every platform, metadata, and provenance job. Its one required `fable-review` used explicit `claude-opus-5` at `high` over `b5d46d9402df4d47429b17aaf50326d1307024d8..92949d92ca6751073ce47fa2b5182c01ed247009`; the first substantive result returned clean with exact pins, `capability_ok=true`, no findings, exit 0, and no stderr.
-- LSR-4 is closed. Implementation `78bcdcf47ff3a5dcacce555ad31ac14bef95993b` and admitted review repair `abc6826b346420de257d1679879ef84e483c3a81` are committed, pushed, non-vacuously mutation-proven, and pass the complete 691-Python/153-browser/compile/syntax/build gate plus deliberate two-viewport GIF/PNG/BMP native eviction/recovery. The required generation review used `fable-review`, explicit `claude-opus-5` at `high`, and exact pins once; `cl-13` then returned `accepted` in one T2 verification using `claude-opus-5` at `xhigh`, with guard and capability confirmed. Exact repair-head CI run `30738460515` and Desktop installers run `30738460507` passed all nine jobs. Canonical evidence is in the redesign plan and `.agents/review/findings/cl-13.md`.
-- LSR-5 is closed. Implementation `7052212445c269752a094217b1ab4813741b2ef7`
-  and admitted repairs `1a8632b6b1b2dc4926f848235d10dadd4066e6e5`
-  (`cl-14`), `027f2eb18cedd88974ae5a965de2176c0690f801` (`cl-15`), and
-  `1b09a2a7d6da087187efbf125c9480cb457e7f46` (`cl-16`) are committed,
-  pushed, independently mutation-proven, and pass the complete 694-Python/
-  161-browser/compile/syntax/build gate plus all six native GIF/PNG/BMP cases.
-  The generation review and all three per-finding verifications used job
-  `fable-review`, explicit `claude-opus-5` at `high`, exact pins, and each
-  first substantive result once; all returned accepted with guard and
-  capability confirmed. Exact final CI run `30743864174` and Desktop
-  installers run `30743864148` passed every job. Canonical evidence is in the
-  redesign plan and `.agents/review/findings/cl-14.md` through `cl-16.md`.
-- LSR-6 is closed. Implementation
-  `246da643e95dbc2fc390507264e228cc75051292` and admitted review repair
-  `07a1cbe8cf2c7eea56ea4aa27b43dada8a861c1a` (`cl-17`) are committed,
-  pushed, and independently mutation-proven. The final complete gate passes
-  694 Python tests with 5 skips, 171 browser tests, compile/syntax checks, and
-  both package builds; exact repair-head CI run `30746538330` and Desktop
-  installers run `30746538320` passed all nine jobs. The isolated native
-  WebView2 Effects audit confirmed the five cards, exact Hue-cycle output,
-  accessibility floor, reduced-motion representative frame, Apply/Cancel
-  boundaries, and document-preserving Cancel; its occluded screenshot is not
-  accepted as visual evidence. The generation review and `cl-17` verification
-  each used job `fable-review`, explicit `claude-opus-5` at `high`, exact pins,
-  and the first substantive result once; `cl-17` returned `accepted` with
-  guard and capability confirmed. Canonical evidence is in the redesign plan
-  and `.agents/review/findings/cl-17.md`.
-- LSR-7 implementation `e7bd1f35110e82e40be2fac27bf0f88aa1c388f7`
-  is committed, pushed, and non-vacuously mutation-proven. Its complete local
-  gate passes 705 Python tests with 5 skips, 173 browser tests, compile/syntax
-  checks, and both package builds; exact-head CI run `30748121792` and Desktop
-  installers run `30748121791` passed every platform, metadata, and provenance
-  job. Its one required `fable-review` used explicit `claude-opus-5` at `high`
-  over the exact landed range once and returned three independently confirmed
-  MEDIUM findings: `cl-18` (corrupt remembered evidence cannot self-heal),
-  `cl-19` (device rescan drops the trusted deep signature), and `cl-20`
-  (connected geometry can overwrite conflicting embedded evidence). All three
-  repairs are now independently guard-proven, accepted, and closed; LSR-7 is
-  closed.
-- `cl-18` is closed in repair commit
-  `8e059292411b85a3387d348c8a4ee36ef8137f25`. Its two guards failed against
-  the reviewed exception/raw-retention paths and pass after restoration; the
-  complete 707-Python/173-browser/compile/syntax/build gate, exact-head CI run
-  `30749340460`, and Desktop installers run `30749340465` pass. The one
-  per-finding `fable-review` used explicit `claude-opus-5` at `high` once and
-  returned accepted with guard and capability confirmed. Canonical evidence is
-  in `.agents/review/findings/cl-18.md`.
-- `cl-19` is closed in repair commit
-  `9ad77c2f6070982250b1a9cd6fb2d555e90daaa4`. The isolated repair keeps a
-  validated Neon key layout and its deep
-  descriptor/signature paired across shallow device scans; contradictory
-  signatures and replacement identities inherit no stale geometry. Its
-  descriptor-drop and application-linkage guards fail against the reviewed
-  behaviors and pass after restoration. The authoritative stable
-  707-Python/175-browser/compile/syntax/build gate, exact-head CI run
-  `30750225695`, and Desktop installers run `30750225702` pass. Its one
-  per-finding `fable-review` used explicit `claude-opus-5` at `high` once and
-  returned accepted with guard and capability confirmed. Canonical evidence is
-  in `.agents/review/findings/cl-19.md`.
-- `cl-20` is closed in repair commit
-  `1d6f101f953d190afeaff72be3b25df34ca140f9`. The isolated repair makes valid
-  embedded dynamic-layout evidence own portable export and Library save. A
-  matching connected layout retains that
-  evidence; a conflicting canonical signature returns one clear error before
-  remembered-layout or Library mutation. Its three guards fail against the
-  reviewed overwrite behavior and pass after restoration. The complete
-  710-Python/175-browser/compile/syntax/build gate, exact-head CI run
-  `30751005214`, and Desktop installers run `30751005186` pass. Its one
-  per-finding `fable-review` used explicit `claude-opus-5` at `high` once and
-  returned accepted with guard and capability confirmed. Canonical evidence is
-  in `.agents/review/findings/cl-20.md`. LSR-7 is closed; LSR-8 is next.
-- LSR-8 implementation `845f716fdc80741f38ec2161e49e7b775114fe3c` is
-  committed and pushed. The
-  strict server classifier accepts app-native profiles, recognized AM Master
-  full profiles, and AM Master AM 80 lighting-only JSON without using the
-  filename; exports remain app-native. Lighting-only imports review both exact
-  Head and Per-key tracks offline, can use validated remembered Neon geometry,
-  save explicitly to Library without a document, and apply only to an exact
-  compatible open Neon slot through one Undo checkpoint. Placeholder, track
-  mapping, Apply-signature, whole-selection, shared-playhead, and remembered-
-  layout guards are independently mutation-proven. The complete local gate
-  passes 720 Python tests with 5 skips, 178 browser tests, compile/syntax
-  checks, source and wheel builds, Windows native-tree audit, installer,
-  frozen smoke, silent uninstall, and cleanup. Read-only acceptance against all
-  seven machine-local originals classified four ALICE profiles (writer plan
-  1542 each) and three paired Neon compositions (1/50/75 frames at 90/90/100
-  ms); no original filename or LED payload entered the repository. The native
-  WebView2 behavior audit confirmed 230 Head LEDs, 89 physical Per-key LEDs,
-  exact frame-position preservation, no image-bearing Board descendant,
-  offline Save, disabled Apply without a document, and mutation-free Close.
-  GPU screen capture was black and is not accepted as visual styling evidence.
-  No dependency, FFmpeg/libav path, provider request, credential use, hardware
-  write, or release action was introduced. Exact-head CI run `30754260384`
-  and Desktop installers run `30754260409` pass every job. The one required
-  `fable-review` used job `fable-review`, explicit `claude-opus-5` at `high`,
-  and exact pins once; its first substantive result admitted `cl-21` (frozen
-  imported arrays make an applied slot uneditable) and `cl-22` (a source-text
-  guard pins the associated dead clone block). Both findings are closed below;
-  LSR-8 is closed.
-- `cl-21` is closed in repair commit
-  `864bd28636be781a84d1dfc259a9e0622890d111`. The live document owns mutable
-  copies of both imported track arrays while the transient report stays frozen.
-  Its executable production-function guard fails against the reviewed shared
-  reference and passes after restoration; the complete 720-Python/179-browser/
-  compile/syntax/build gate passes with 5 Python skips. Exact-head CI run
-  `30755504354` and Desktop installers run `30755504317` pass. Its one
-  T2-routed `fable-review` used explicit `claude-opus-5` at `xhigh`, returned
-  accepted, and independently confirmed the guard and full gate.
-- Owner ruling 2026-08-02: external/cross-harness reviews are exceptional, not
-  automatic for every minor change. Use them only on explicit request or a
-  concrete material risk that local guards and CI cannot resolve; explain need
-  and expected cost before dispatch. `cl-22` receives no Claude review.
-- The isolated `cl-22` repair removes the unused imported-lighting candidate
-  clone/apply block and reverses its source guard so reintroducing only those
-  three lines makes exactly one focused test fail. Restoration passes 42
-  focused shell tests and the complete 720-Python/179-browser/compile/syntax/
-  build gate with 5 Python skips. Repair commit
-  `3b2d26fb48094bf8b804a0449cb968edc2b4b7d9` is pushed; exact-head CI run
-  `30756144641` and Desktop installers run `30756144701` pass every job. No
-  external review was run under the owner-approved review-economy rule.
-  `cl-22` and LSR-8 are closed.
-- LSR-9 implementation is landed in the commit containing this state record.
-  Media, local effects, imported JSON, procedural results, and saved Library
-  lighting now Apply only the exact accepted `BoardFrameSet` through one common
-  writer. Relic dependent tracks are derived before Board acceptance. Library
-  lighting and generated results first open a read-only physical Board preview,
-  while procedural review uses that Board instead of the obsolete raster
-  preview asset. The initial focused guard run failed the predicted 12 of 101
-  tests; the final focused set passes 102 of 102, including independent
-  mutations for exact preview identity and the full-render model capture. The
-  complete local gate passes 720 Python tests with 5 skips, 185 browser tests,
-  compile/syntax checks, both package builds, the Windows native-tree audit,
-  installer build, and frozen smoke. The current source native workflow audit
-  reached the saved-lighting Library workflow and then stopped at its obsolete
-  direct-Apply selector; updating that audit for Preview on board is approved
-  LSR-10 work, so the run is not accepted as native evidence. No dependency,
-  FFmpeg/libav path, provider request, credential use, hardware write, or
-  external review was introduced. Exact implementation head
-  `e4f3d26134dd3926dcc9a559ff62d32877882e91` passes CI run `30762071502` and
-  Desktop installers run `30762071501`; all nine platform, metadata, and
-  provenance jobs passed. LSR-9 is closed; LSR-10 is next.
 
-- LSR-10 is in progress. Commits `5a6952e` and `b0a1a23` repair two defects
-  exposed by the native Library workflow: a saved CyberBoard display no longer
-  absorbs the independent per-key timeline, while Relic per-key saves retain
-  their required edge companion; Library preview failures remain observable
-  until the physical Board has opened. Commit `ed1f454` replaces the obsolete
-  direct Library Apply audit with read-only Board Preview, exact DOM-to-frame
-  equality, mutation-free Cancel, separate one-call Apply, and one-checkpoint
-  Undo. Both production guards were independently red under mutation and green
-  after restoration. The simplified source WebView2 audit passes GIF, PNG, and
-  BMP at 1000×680 and 1280×800 with no console or layout findings. The full
-  Python gate advanced through compile and completed both fresh package builds;
-  PTK then lost only the outer transport, so it was not resubmitted. All 185
-  browser tests and syntax checks pass. No external review was launched.
-- LSR-10 commits `4162f19` and `98a163d` extend that evidence. Closing an
-  imported-lighting review no longer calls a shadowed renderer or renders an
-  imported-only target against the underlying document; both executable guards
-  were red before the repair and green after it. Audit schema v2 adds minimized
-  pathless app-native, portable Neon, AM Master full-profile, and AM 80
-  lighting fixtures. The passing Windows source WebView2 audit now covers all
-  six GIF/PNG/BMP viewport cases plus live Pulse output and parameter changes,
-  one Apply/Undo, reduced motion, captured-Blob app-native save/reopen,
-  missing-layout Head/Per-key behavior, embedded 89-key Neon geometry, exact
-  Head/Per-key re-import, Library save, one Apply/Undo, normalized ALICE open,
-  and CyberBoard restoration at 1000×680 and 1280×800. It reports no console or
-  layout findings; canonical machine-local evidence is
-  `.agents/review/lsr10-source-audit-11.local.json`. All 18 focused Python tests,
-  187 browser tests, compile/syntax checks, and both package builds pass. PTK
-  lost the full Python suite transport and reported its outcome unknown, so
-  that command was not silently resubmitted and is not claimed as evidence.
-  No external review was launched.
-- LSR-10 automated cross-platform qualification is complete for the current
-  shipped-product tree. Windows source and frozen schema-v2 audits pass both
-  viewports, all six GIF/PNG/BMP cases, and all ten profile checks; the native
-  tree audit, installer build, and frozen smoke pass. The first diagnostic
-  frozen run stopped before a viewport at `raw_import_rejected:unknown`; one
-  logged run against the identical frozen bytes then passed the complete audit,
-  ruling out the suspected Pillow/PyInstaller packaging defect without a code
-  change. macOS source WKWebView and mounted-DMG audits pass the same schema,
-  strict signature/native-tree/smoke checks pass, and the mounted app matches
-  the built 157-entry bundle manifest. Linux exact-head `b9b481a` source and
-  frozen WebKitGTK audits pass, as do frozen smoke and both the PyInstaller-tree
-  and extracted-AppImage native audits; the 108,919,288-byte AppImage has
-  SHA-256 `efcfdeaa9b65ab60eb4a0a28ebc6fa2c059fcc1506fe34ce1cfa182086594c16`.
-  Commit `b9b481a` also classifies the governance-owned `.codex` directory as
-  deliberately excluded from packages after the existing top-level classifier
-  caught the refresh omission. Its focused guard moved red to green, and the
-  complete current-head gate passes 727 Python tests with 5 skips, 187 browser
-  tests, compile/syntax checks, and both package builds. The only diff from the
-  Windows/macOS qualification head `a53d0e3` is that packaging test; shipped
-  inputs and dependency files are identical. No dependency, FFmpeg/libav path,
-  provider call, credential use, hardware write, or external review was added.
-  Exact shipped-product head `f5cc91c` passes CI run `30766621303` on Windows,
-  macOS, Linux Python 3.11, and Linux, while Desktop installers run
-  `30766621302` passes Windows, macOS, Linux, candidate metadata, and release
-  provenance. Only the owner's final visible Windows acceptance pass remains
-  before LSR-10 can close.
-- The one final LSR-10 material `fable-review` used literal `claude-opus-5` at
-  `high` over pinned range `ca8d7b8..b9b481a`, returned two findings, and was
-  preserved and used unchanged with no retry or re-review. Both independently
-  reproduce and are admitted: `cl-23` (MEDIUM) finds the app-native round-trip
-  native check can pass before reopen; `cl-24` (LOW) finds Close retains the
-  review destination instead of the user's pre-review destination. The prior
-  platform qualification and visible Windows build are reopened until both
-  repairs are mutation-proven and the affected gates are repeated. Canonical
-  records are `.agents/review/findings/cl-23.md` and `cl-24.md`.
-- `cl-23` repair `2d450b6` makes the app-native reopen check load-bearing: the
-  focused contract moved red to green and a deliberate import short-circuit
-  makes the real native audit fail exactly at `app_native_reopen_timeout`.
-  `cl-24` repair `e738bb6` captures and restores the pre-review destination;
-  its executable open/switch/close guard moved red to green and all 43 Lighting
-  shell tests pass. The complete repaired-head gate passes 727 Python tests
-  with 5 skips, 187 browser tests, compile/syntax checks, and both package
-  builds. Repaired-head Windows source/frozen schema-v2 audits, native-tree
-  audit, installer, and smoke pass; the installer is 17,545,528 bytes with
-  SHA-256 `95321e1cb56e8bb22fb552c724c9f1598c68753e8c405b45539aa46f775fed23`.
-  Linux source/frozen schema-v2 audits, native-tree and extracted-AppImage
-  audits, and smoke pass; its 108,919,288-byte AppImage has SHA-256
-  `c0cb7214cd2a3f9d9e5aa6a09d8ceae26fcd7173044e0484779e432ac1b568b5`.
-  macOS exact-head build, DMG checksum verification, strict signature,
-  native-tree audit, smoke, and 157-entry manifest equality pass; the
-  22,612,851-byte DMG has SHA-256
-  `2e41fff767668765706734466470e95f4bd04b4d5a41232309873195a328aac4`.
-  Its schema-v2 audit is the sole remaining platform gap: SSH activation and
-  Accessibility click both leave WKWebView without document focus, so one real
-  owner click in the rebuilt DMG window is required. No further Claude review
-  is authorized.
-  Exact shipped-product head `dbf1b2b` passes CI run `30768142979` on all four
-  test jobs and Desktop installers run `30768142977` on Windows, macOS, Linux,
-  candidate metadata, and release provenance.
-- The final LSR-10 owner-acceptance repair is implemented in the commit
-  containing this record. Imported-media framing and exact mapped LED output
+- The final LSR-10 owner-acceptance repair is implemented in `a4d3793`.
+  Imported-media framing and exact mapped LED output
   now survive Studio -> Library -> Studio before and after Apply; an interrupted
   render is discarded on exit and resumes on return; Undo makes the retained
   accepted result applicable again. Source and Board update automatically with
@@ -266,7 +32,6 @@
   `30770842393` on all four test jobs and Desktop installers run `30770842381`
   on Windows, macOS, Linux, candidate metadata, and release provenance. LSR-10
   remains open only for affected Windows, Linux, and macOS native qualification.
-
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
   `30699706921` and Desktop run `30699706913` attempt 1 passed, and the owner
@@ -314,50 +79,6 @@
   provider request, credential lookup, tag/Release, or announcement occurred.
   Candidate-attempt-3 artifacts are rejected bytes and must not be published or
   reused.
-- The owner approved the Windows-first imported-media correction recorded in
-  `docs/superpowers/plans/2026-08-01-imported-media-framing-repair.md` on
-  2026-08-01. IMF-1 is implemented, locally verified, and clean-reviewed:
-  Python
-  and the browser share exact canonical geometry vectors, normal and Move &
-  zoom renders intersect every requested target's limits, the backend returns
-  the exact canonical state it used, and the browser adopts it atomically. The
-  rejected same-size 40x5 pan now clamps to zero and retains the complete
-  source raster. Its focused and complete CI-equivalent gates pass; canonical
-  evidence is in the repair plan. Its single required `fable-review` run used
-  `claude-fable-5` at `xhigh` over exact implementation commit `4a9e6b8` and
-  returned clean with no findings. No dependency or prohibited path changed.
-- IMF-2 is implemented, locally verified, and clean-reviewed. The
-  source overlay remains mounted for an active media draft and now uses the
-  primary destination's exact resolved raster box; only that viewport clips,
-  leaving the LED grid and destination border intact. Pointer, wheel, keyboard,
-  preset, zoom, stretch, and sampling changes reveal source view before one
-  canonical commit path invalidates Preview and updates controls/status
-  synchronously. Primary-pointer sessions are ID-scoped and stage-scoped,
-  release on up/cancel/lost capture, and continue without error when synthetic
-  capture raises `NotFoundError`. Its focused 134-web/181-Python gate and red
-  proofs pass. Its single required `fable-review` run used `claude-fable-5` at
-  `xhigh` over exact implementation commit `041c26f` and returned clean with
-  no findings. No dependency or prohibited path changed.
-- IMF-3 is implemented, locally verified, and clean-reviewed. Pathless
-  asymmetric GIF/PNG/BMP fixtures now drive one isolated native PyWebView audit
-  through import,
-  framing, exact Preview pixels, Apply/Undo, the complete Library ownership
-  workflow, and Cancel. Source and exact rebuilt frozen WebView2 audits pass at
-  1000x680 and 1280x800 with no console or layout findings; the Windows build,
-  native-tree audit, installer build, and frozen smoke pass. The visual audit
-  activates its real native window before asserting focus; a deliberately
-  hidden launch fails the explicit focus precondition and is not valid evidence.
-  The canonical full command chain reached and produced both valid `uv build`
-  archives after every guarded test/compile/syntax stage returned zero, but PTK
-  lost its outer transport immediately after artifact creation and no duplicate
-  run was submitted. Its single required `fable-review` used `claude-fable-5`
-  at `xhigh` over exact implementation commit `25c58d5` and returned clean with
-  no findings. Post-repair qualification then passed: the controlled current
-  Windows package install, recursive prohibited-native-code audit, frozen
-  smoke, and uninstall were clean, with no install directory left; exact-head
-  CI run `30699525122` and Desktop run `30699525134` attempt 1 passed every
-  required job at `875437ab432462d0c88ee73733d1d84e65261cfe`. No dependency or
-  prohibited path changed.
 - The owner settled the product contract on 2026-07-30: AI produces only a
   procedural LED recipe, the application renders it locally, FFmpeg is
   prohibited in every runtime/build/package path, and dependencies without a
@@ -388,19 +109,6 @@
   against the existing candidate. No tag, Release, announcement, macOS Open
   Anyway action, live cloud prompt, provider credential use, or
   release-candidate hardware write followed the rejection.
-- Review finding `cl-2` is verified at
-  `d77ca6e61a84c4bc01deb5fc3f3367ab8325022b`: live and removed retired-video
-  jobs share one unsupported classification, and remove, restore, and
-  permanent deletion reject them both before and after lock acquisition
-  without changing stored bytes. A pinned `claude-opus-5` review independently
-  reproduced both red/green guards and accepted the slice.
-- Review finding `cl-3` is verified at
-  `72a1e41889243819f4c27036693f150b15b95859`: the Node 24 plan now names
-  the exact retired provenance-action commit, making its future absence guard
-  non-vacuous. A pinned `claude-opus-5` review independently reproduced the
-  manual base/head proof and accepted the slice. The original `cl-1` through
-  `cl-3` review set is closed; the two record-drift findings raised by the A1
-  implementation review are also closed below.
 - Backend Slices B1-B3 and product Slices P1-P6, including their follow-up
   fixes, are landed on `main`. Backend Slice B4 is superseded by the
   procedural-only/FFmpeg-prohibited ruling and must not be executed. Product
@@ -415,46 +123,6 @@
   install/audit/smoke/uninstall all pass.
   Detailed evidence and remaining action gates are canonical in the completed
   product-experience plan.
-- CyberBoard switch lighting now projects the canonical 81-key CB04 Keymap
-  geometry through the firmware LED map instead of rendering a uniform 15×6
-  raster. The function-row gaps, wide keys, three-segment spacebar, and arrow
-  notch share the Keymap footprint and 2.46:1 stage; the 40×5 top display stays
-  rectangular. The geometry guard was red before the repair and green after;
-  the owner accepted the corrected native view, and the full gate passes with
-  646 Python tests, 127 web tests, compile/syntax checks, and the `0.1.65`
-  source/wheel build.
-- CyberBoard review finding `cl-6` closed at `0b6778f28482a664047df4ee0d830f9da1524a6f`:
-  the target-split guard fails when the 83-LED switch layout replaces the
-  200-cell display and passes with the repair. The owner explicitly waived a
-  second paid Claude call after the full gate passed.
-- Windows CI on `791ca06d9012235f9f6af842275e568004bbe418` exposed a pre-existing
-  manifest-lookup race: lookup read a manifest before taking the per-object
-  lock, so Windows sharing contention could be misreported as a missing job.
-  Repair `2e92b62ac0736376a37045b88c8ba043dab8b9dc` locks generated-job and
-  saved-item manifest validation. Both deterministic guards were red before
-  the repair and green after it; all 645 Python tests, 125 web tests, package
-  checks, and 300 Windows stress iterations pass. Its one required
-  `claude-opus-5` review completed but the verdict envelope was lost after the
-  outer MCP caller timed out; `.agents/review/outcomes.md` records the failed
-  pass, and the owner ruled out a paid rerun.
-- The GitHub Actions Node 24 upgrade is complete. Slice A1 landed at
-  `7586bf7daab187a158a5c929cafcb80f9af97d10`; its exact dependency guard,
-  full local verification, and required `claude-opus-5` review passed. Exact
-  implementation-commit CI and Desktop runs then passed without Node 20 or
-  action-runtime warnings, and artifact, SLSA provenance, and qualified Windows
-  install/smoke/uninstall acceptance all passed. Exact evidence lives in
-  `docs/superpowers/plans/2026-07-30-github-actions-node24-upgrade.md`.
-- Review finding `cl-4` is verified at
-  `c443f03605e93e0f288a6d9e0f8ff5d5d1b4d487`: the canonical state now names
-  the exact landed A1 commit and A2 acceptance instead of retired refs and a
-  settled approval gate. A pinned `claude-opus-5` review independently
-  reproduced the manual base/head proof and focused dependency guard.
-- Review finding `cl-5` is verified at
-  `227019705bacfe89862a24bbbe4349176b487818`: the Node 24 plan now names exact
-  A1 commit `7586bf7daab187a158a5c929cafcb80f9af97d10` and the A1/A2 qualification
-  sequence instead of a settled approval gate. A pinned `claude-opus-5` review
-  independently reproduced the manual base/head proof and passed all 51
-  packaging tests. The A1 review loop is closed, and A2 has since completed.
 - Known intermittent (backend, pre-existing): under full-suite load,
   `test_procedural_generation...test_local_cancellation_stops_without_retry_or_ready_artifacts`
   has once reported manifest status `interrupted` instead of `cancelled`.
@@ -479,9 +147,8 @@
 - The approved `0.1.65` release plan remains recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`; it records all
   three rejected candidates and is paused behind the redesign.
-- `.agents/machines.md` owns all host details, including the current connection
-  information for `nagatha`. `win-arm-vm` remains SmartScreen observation only
-  and Windows ARM64 remains outside the `0.1.65` public asset set.
+- `.agents/machines.md` owns all host details, including each host's
+  qualification role and connection information.
 - Tagging, release publication, hardware writes, live provider use, macOS Open
   Anyway, and announcement remain separately gated actions.
 - Separately, the accepted `cl-2` review recorded a pre-existing read-only
