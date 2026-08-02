@@ -412,30 +412,15 @@ class MediaFramingNativeWindowTests(unittest.TestCase):
     def test_native_audit_activates_the_cocoa_application(self) -> None:
         application = mock.Mock()
         appkit = mock.Mock()
-        app_helper = mock.Mock()
         appkit.NSApplication.sharedApplication.return_value = application
 
         with (
             mock.patch.object(media_framing_audit.sys, "platform", "darwin"),
-            mock.patch.object(
-                media_framing_audit.importlib,
-                "import_module",
-                side_effect=[appkit, app_helper],
-            ) as import_module,
+            mock.patch.dict("sys.modules", {"AppKit": appkit}),
         ):
             media_framing_audit._activate_host_application()
 
-        self.assertEqual(
-            [
-                mock.call("AppKit"),
-                mock.call("PyObjCTools.AppHelper"),
-            ],
-            import_module.call_args_list,
-        )
-        app_helper.callAfter.assert_called_once_with(
-            application.activateIgnoringOtherApps_, True
-        )
-        application.activateIgnoringOtherApps_.assert_not_called()
+        application.activateIgnoringOtherApps_.assert_called_once_with(True)
 
     def test_native_workflow_uses_direct_js_without_csp_blocked_eval(self) -> None:
         window = mock.Mock()

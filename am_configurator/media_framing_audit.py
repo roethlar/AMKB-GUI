@@ -6,7 +6,6 @@ import base64
 from contextlib import contextmanager
 from dataclasses import dataclass
 from io import BytesIO
-import importlib
 import json
 import os
 from pathlib import Path
@@ -2302,10 +2301,9 @@ def _poll_async_result(window: Any, kickoff: str, *, timeout: float) -> dict:
 def _activate_host_application() -> None:
     if sys.platform != "darwin":
         return
-    appkit = importlib.import_module("AppKit")
-    app_helper = importlib.import_module("PyObjCTools.AppHelper")
-    application = appkit.NSApplication.sharedApplication()
-    app_helper.callAfter(application.activateIgnoringOtherApps_, True)
+    from AppKit import NSApplication
+
+    NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
 
 
 def _activate_webview_window(window: Any, *, timeout: float = 5) -> None:
