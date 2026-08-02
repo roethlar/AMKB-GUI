@@ -1055,14 +1055,28 @@ _AUDIT_SCRIPT = r"""
       "app_native_save_capture_missing",
     );
     const savedConfig = JSON.parse(await savedBlob.text());
+    const savedFingerprint = lightingFingerprint(savedConfig);
+    const currentPage = getPage(state.ledSlot);
+    const currentLightness = Number(currentPage.lightness ?? 0);
+    mutate(() => {
+      getPage(state.ledSlot).lightness = currentLightness === 99 ? 98 : 99;
+    });
+    requireAudit(
+      lightingFingerprint(state.config) !== savedFingerprint
+        && state.undo.length > 0
+        && state.fileName !== "audit-round-trip.json",
+      "app_native_pre_reopen_not_distinct",
+    );
     await readFiles(auditJsonInput("audit-round-trip.json", savedBlob), false);
     await waitFor(
-      () => productId() === "CB04" && documentSynchronized(),
+      () => productId() === "CB04"
+        && state.fileName === "audit-round-trip.json"
+        && documentSynchronized(),
       "app_native_reopen_timeout",
       30000,
     );
     requireAudit(
-      lightingFingerprint(state.config) === lightingFingerprint(savedConfig)
+      lightingFingerprint(state.config) === savedFingerprint
         && state.undo.length === 0,
       "app_native_round_trip_mismatch",
     );

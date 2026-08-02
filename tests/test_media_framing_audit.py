@@ -282,6 +282,17 @@ class MediaFramingFixtureTests(unittest.TestCase):
         self.assertIn('document.querySelector("#imported-lighting-save").click()', script)
         self.assertIn('document.querySelector("#imported-lighting-apply").click()', script)
         self.assertIn("readFiles(auditJsonInput(", script)
+        round_trip = script.index('window.__mediaFramingAuditStep = "app_native_round_trip"')
+        reopen = script.index(
+            'await readFiles(auditJsonInput("audit-round-trip.json", savedBlob), false)',
+            round_trip,
+        )
+        self.assertIn("app_native_pre_reopen_not_distinct", script[round_trip:reopen])
+        self.assertIn("state.undo.length > 0", script[round_trip:reopen])
+        self.assertIn(
+            'state.fileName === "audit-round-trip.json"',
+            script[reopen:missing],
+        )
         self.assertNotIn("new DataTransfer()", script)
 
 
