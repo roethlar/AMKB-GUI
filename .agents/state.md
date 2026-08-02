@@ -177,6 +177,29 @@
   lost the full Python suite transport and reported its outcome unknown, so
   that command was not silently resubmitted and is not claimed as evidence.
   No external review was launched.
+- LSR-10 automated cross-platform qualification is complete for the current
+  shipped-product tree. Windows source and frozen schema-v2 audits pass both
+  viewports, all six GIF/PNG/BMP cases, and all ten profile checks; the native
+  tree audit, installer build, and frozen smoke pass. The first diagnostic
+  frozen run stopped before a viewport at `raw_import_rejected:unknown`; one
+  logged run against the identical frozen bytes then passed the complete audit,
+  ruling out the suspected Pillow/PyInstaller packaging defect without a code
+  change. macOS source WKWebView and mounted-DMG audits pass the same schema,
+  strict signature/native-tree/smoke checks pass, and the mounted app matches
+  the built 157-entry bundle manifest. Linux exact-head `b9b481a` source and
+  frozen WebKitGTK audits pass, as do frozen smoke and both the PyInstaller-tree
+  and extracted-AppImage native audits; the 108,919,288-byte AppImage has
+  SHA-256 `efcfdeaa9b65ab60eb4a0a28ebc6fa2c059fcc1506fe34ce1cfa182086594c16`.
+  Commit `b9b481a` also classifies the governance-owned `.codex` directory as
+  deliberately excluded from packages after the existing top-level classifier
+  caught the refresh omission. Its focused guard moved red to green, and the
+  complete current-head gate passes 727 Python tests with 5 skips, 187 browser
+  tests, compile/syntax checks, and both package builds. The only diff from the
+  Windows/macOS qualification head `a53d0e3` is that packaging test; shipped
+  inputs and dependency files are identical. No dependency, FFmpeg/libav path,
+  provider call, credential use, hardware write, or external review was added.
+  Exact-head CI/Desktop jobs after push and the owner's final visible Windows
+  acceptance pass remain before LSR-10 can close.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -380,15 +403,13 @@
 
 ## Next
 
-- Continue approved LSR-10 native-audit and owner-acceptance work. Remaining
-  coverage is live Effects and reduced motion, app-native profile round-trip,
-  both AM Master import dialects, portable offline Neon layout and missing-layout
-  fallback, frozen Windows, Linux WebKitGTK, macOS WKWebView, read-only acceptance
-  of the seven owner-supplied examples, and one final owner-visible Windows pass.
-  External review is not automatic; use it only on explicit owner request or a
-  concrete material risk that local guards and CI cannot resolve. A replacement
-  release candidate must repeat every release gate and cannot mix evidence from
-  any rejected attempt with new bytes.
+- Commit the LSR-10 qualification record, push the landed range, and require
+  exact-head CI plus all three native Desktop jobs to pass. Then open the current
+  Windows build for the owner's one final visible acceptance pass. External
+  review is not automatic; use it only on explicit owner request or a concrete
+  material risk that local guards and CI cannot resolve. A replacement release
+  candidate must repeat every release gate and cannot mix evidence from any
+  rejected attempt with new bytes.
 - The approved `0.1.65` release plan remains recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`; it records all
   three rejected candidates and is paused behind the redesign.

@@ -1204,6 +1204,20 @@ Required completion evidence:
 - no new direct or transitive dependency appears; and
 - owner visual acceptance is recorded before any new R65-2 candidate freeze.
 
+Qualification status (2026-08-02): the current shipped-product tree passes the
+complete 727-Python/187-browser/compile/syntax/build gate and source/frozen
+schema-v2 native audits on Windows WebView2, macOS WKWebView, and Linux
+WebKitGTK. Windows installer/native-tree/smoke, macOS mounted-DMG
+signature/native-tree/smoke and 157-entry manifest equality, and Linux
+PyInstaller-tree/extracted-AppImage audits all pass. The exact-head Linux
+AppImage is 108,919,288 bytes with SHA-256
+`efcfdeaa9b65ab60eb4a0a28ebc6fa2c059fcc1506fe34ce1cfa182086594c16`.
+The Windows/macOS qualification head and current head differ only by the
+packaging test that classifies governance-owned `.codex`; shipped inputs and
+dependency files are identical. No external review was dispatched under the
+review-economy rule. Exact-head CI/Desktop jobs after push and the owner's final
+visible Windows acceptance pass remain open.
+
 Commit:
 
 ```text
