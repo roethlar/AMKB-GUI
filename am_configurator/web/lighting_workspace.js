@@ -1389,6 +1389,13 @@
     }
     frameItems.forEach((node, index) => {
       const selected = index === projection.index;
+      const frameColors = index < projection.frame_set.frame_count
+        ? projectBoardFrame(projection.frame_set, projection.target, index)
+        : [];
+      const swatches = node?.querySelectorAll?.(".frame-thumb > i") || [];
+      Array.from(swatches).forEach((swatch, colorIndex) => {
+        if (swatch?.style) swatch.style.background = frameColors[colorIndex] || "#000000";
+      });
       node?.classList?.toggle?.("active", selected);
       node?.setAttribute?.("aria-pressed", String(selected));
       node?.setAttribute?.(

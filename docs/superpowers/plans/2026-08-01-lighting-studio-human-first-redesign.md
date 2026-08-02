@@ -886,6 +886,12 @@ miniatures on the prior accepted frame set. The first substantive result was
 used as returned without retry or resubmission. LSR-6 remains open pending the
 isolated repair and per-finding verification.
 
+The isolated `cl-17` repair repaints mounted timeline LED swatches from the
+same accepted `BoardFrameSet` as Board without rebuilding the workspace. Its
+focused guard fails alone against the reviewed painter and passes after the
+repair; the complete 694-Python/171-browser/compile/syntax/build gate is green.
+Per-finding verification remains required before LSR-6 closes.
+
 Files:
 
 - `am_configurator/web/lighting_workspace.js`;

@@ -78,10 +78,12 @@ function fakePixel(index) {
   };
 }
 
-function fakeFrameItem() {
+function fakeFrameItem(swatchColors = []) {
   const attributes = new Map();
   const classes = new Set();
+  const swatches = swatchColors.map(color => ({style: {background: color}}));
   return {
+    swatches,
     classList: {
       toggle(name, enabled) {
         if (enabled) classes.add(name);
@@ -91,6 +93,9 @@ function fakeFrameItem() {
     },
     setAttribute(name, value) { attributes.set(name, value); },
     getAttribute(name) { return attributes.get(name); },
+    querySelectorAll(selector) {
+      return selector === ".frame-thumb > i" ? swatches : [];
+    },
   };
 }
 
@@ -965,6 +970,38 @@ test("workspace state remains serializable and contains no timer authority", () 
   assert.equal(roundTrip.preview.board_frame_set.frame_count, 1);
   assert.equal(Object.hasOwn(roundTrip, "timer"), false);
   assert.equal(Object.hasOwn(roundTrip.playhead, "timer"), false);
+});
+
+test("partial Board projection refreshes timeline thumbnails from the accepted frame set", () => {
+  let state = createLightingWorkspace({documentEpoch: 7, slot: 5, target: "keyframes"});
+  const accepted = frameSet({
+    workspaceContext: context({source_kind: "local_effect"}),
+    framesByTarget: {
+      keyframes: [
+        ["#102030", "#405060"],
+        ["#708090", "#A0B0C0"],
+      ],
+    },
+    provenance: "local_effect",
+  });
+  state = publish(state, accepted).state;
+  const frameItems = [
+    fakeFrameItem(["#AAAAAA", "#BBBBBB"]),
+    fakeFrameItem(["#CCCCCC", "#DDDDDD"]),
+  ];
+
+  paintBoardProjection(state, {
+    destination_key: workspaceDestinationKey(state),
+    pixels: [fakePixel(0), fakePixel(1)],
+    frame_items: frameItems,
+  });
+
+  assert.deepEqual(
+    frameItems.map(item => item.swatches.map(swatch => swatch.style.background)),
+    accepted.frames_by_target.keyframes,
+  );
+  assert.equal(frameItems[0].classList.contains("active"), true);
+  assert.equal(frameItems[1].classList.contains("active"), false);
 });
 
 test("playback runtime keeps one timer and one lifecycle listener across repeated starts", () => {

@@ -32,6 +32,12 @@
   showing the prior accepted frame set. The first result was used as returned
   without retry or resubmission. LSR-6 remains open; the active review loop is
   recorded in `.agents/review/index.md`.
+- The `cl-17` repair repaints every mounted timeline LED swatch from the same
+  accepted `BoardFrameSet` as the physical Board while retaining the
+  focus-preserving partial update path. Its guard failed alone against the
+  reviewed painter, passes after restoration, and the complete
+  694-Python/171-browser/compile/syntax/build gate is green. The isolated repair
+  commit, push, exact-head qualification, and per-finding verification remain.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -237,8 +243,8 @@
 
 ## Next
 
-- Repair, guard, verify, commit, push, and independently verify `cl-17` as one
-  isolated finding slice. Do not restart R65-2 until
+- Commit, push, qualify, and independently verify the guard-proven `cl-17`
+  repair. Do not restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new
