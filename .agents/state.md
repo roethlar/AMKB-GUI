@@ -212,6 +212,27 @@
   platform qualification and visible Windows build are reopened until both
   repairs are mutation-proven and the affected gates are repeated. Canonical
   records are `.agents/review/findings/cl-23.md` and `cl-24.md`.
+- `cl-23` repair `2d450b6` makes the app-native reopen check load-bearing: the
+  focused contract moved red to green and a deliberate import short-circuit
+  makes the real native audit fail exactly at `app_native_reopen_timeout`.
+  `cl-24` repair `e738bb6` captures and restores the pre-review destination;
+  its executable open/switch/close guard moved red to green and all 43 Lighting
+  shell tests pass. The complete repaired-head gate passes 727 Python tests
+  with 5 skips, 187 browser tests, compile/syntax checks, and both package
+  builds. Repaired-head Windows source/frozen schema-v2 audits, native-tree
+  audit, installer, and smoke pass; the installer is 17,545,528 bytes with
+  SHA-256 `95321e1cb56e8bb22fb552c724c9f1598c68753e8c405b45539aa46f775fed23`.
+  Linux source/frozen schema-v2 audits, native-tree and extracted-AppImage
+  audits, and smoke pass; its 108,919,288-byte AppImage has SHA-256
+  `c0cb7214cd2a3f9d9e5aa6a09d8ceae26fcd7173044e0484779e432ac1b568b5`.
+  macOS exact-head build, DMG checksum verification, strict signature,
+  native-tree audit, smoke, and 157-entry manifest equality pass; the
+  22,612,851-byte DMG has SHA-256
+  `2e41fff767668765706734466470e95f4bd04b4d5a41232309873195a328aac4`.
+  Its schema-v2 audit is the sole remaining platform gap: SSH activation and
+  Accessibility click both leave WKWebView without document focus, so one real
+  owner click in the rebuilt DMG window is required. No further Claude review
+  is authorized.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -415,11 +436,11 @@
 
 ## Next
 
-- Repair `cl-23` and `cl-24` one commit each, prove each guard red then green,
-  repeat the complete gate and three-platform source/frozen qualification, push,
-  and require exact-head CI/Desktop jobs. Then open the rebuilt Windows app for
-  the owner's final visible acceptance pass. No further external review is
-  authorized. External
+- Push the two repaired findings and their current records, then require
+  exact-head CI/Desktop jobs. Launch the rebuilt macOS DMG audit for the owner's
+  one real focus click, close both findings after it passes, then open the rebuilt
+  Windows app for the owner's final visible acceptance pass. No further external
+  review is authorized. External
   review is not automatic; use it only on explicit owner request or a concrete
   material risk that local guards and CI cannot resolve. A replacement release
   candidate must repeat every release gate and cannot mix evidence from any

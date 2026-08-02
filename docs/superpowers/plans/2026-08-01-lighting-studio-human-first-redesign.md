@@ -1225,6 +1225,15 @@ instead of restoring editor context). That qualification is reopened until both
 repairs are independently mutation-proven and the affected platform gates are
 repeated. No per-finding or documentation review will be run.
 
+Repair status (2026-08-02): `cl-23` is landed at `2d450b6` with a real native
+short-circuit failure proving the reopen check is load-bearing; `cl-24` is
+landed at `e738bb6` with an executable red/green open/switch/close guard. The
+complete gate and repaired-head Windows and Linux source/frozen qualification
+pass. macOS build, DMG verification, strict signature, native-tree audit, smoke,
+and 157-entry bundle manifest equality pass. Its schema-v2 audit remains open
+only because SSH activation and an Accessibility click cannot give WKWebView
+document focus; the owner must click the rebuilt DMG window once during launch.
+
 Commit:
 
 ```text

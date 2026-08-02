@@ -62,8 +62,8 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | cl-20 | MEDIUM  | Connected geometry can overwrite embedded profile evidence                  | `[x]`  | —      | claude/claude-opus-5/high/standard |
 | cl-21 | HIGH    | Applied AM Master frames remain frozen and cannot be edited                  | `[x]`  | —      | claude/claude-opus-5/xhigh/frontier esc:T2 |
 | cl-22 | LOW     | Source-text guard pins a dead clone block and rejects correct cleanup         | `[x]`  | —      | local guard/CI; no external review |
-| cl-23 | MEDIUM  | App-native round-trip audit can pass before reopen does anything              | `[ ]`  | —      | claude/claude-opus-5/high/standard |
-| cl-24 | LOW     | Closing import review retains the review destination instead of editor context | `[ ]` | —      | claude/claude-opus-5/high/standard |
+| cl-23 | MEDIUM  | App-native round-trip audit can pass before reopen does anything              | `[~]`  | —      | claude/claude-opus-5/high/standard |
+| cl-24 | LOW     | Closing import review retains the review destination instead of editor context | `[~]` | —      | claude/claude-opus-5/high/standard |
 
 All three raised by the 2026-07-25 openreview codex pass over
 `65a70c9..94a847a` and admitted at intake after independent verification of
