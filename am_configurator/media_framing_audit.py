@@ -1704,6 +1704,16 @@ _AUDIT_SCRIPT = r"""
     requireAudit(!stage.classList.contains("dragging"), "drag_state_not_released");
 
     window.__mediaFramingAuditStep = "keyboard_input";
+    const keyboardBaseline = document.querySelector('[data-source-preset="fill"]');
+    requireAudit(keyboardBaseline, "keyboard_baseline_missing");
+    keyboardBaseline.click();
+    requireAudit(
+      state.sourceTransform.scale_x === 1
+        && state.sourceTransform.scale_y === 1
+        && state.sourceTransform.offset_x === 0
+        && state.sourceTransform.offset_y === 0,
+      "keyboard_baseline_failed",
+    );
     const beforeKeyboard = overlayStyle(overlay);
     const beforeKeyboardTransform = JSON.stringify(state.sourceTransform);
     stage.focus({focusVisible: true});

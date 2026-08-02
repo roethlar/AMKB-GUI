@@ -206,6 +206,22 @@ class MediaFramingFixtureTests(unittest.TestCase):
         )
         self.assertIsNone(bridge.choose_media_file())
 
+    def test_native_script_starts_keyboard_probe_from_a_visible_baseline(self) -> None:
+        script = media_framing_audit._audit_script()
+
+        keyboard = script.index('window.__mediaFramingAuditStep = "keyboard_input"')
+        baseline = script.index(
+            "document.querySelector('[data-source-preset=\"fill\"]')",
+            keyboard,
+        )
+        before = script.index("const beforeKeyboard = overlayStyle(overlay)", baseline)
+        keydown = script.index('key: "ArrowUp"', before)
+
+        self.assertLess(keyboard, baseline)
+        self.assertLess(baseline, before)
+        self.assertLess(before, keydown)
+        self.assertIn("keyboard_baseline_failed", script[baseline:before])
+
     def test_native_script_previews_saved_lighting_before_separate_apply(self) -> None:
         script = media_framing_audit._audit_script()
 
