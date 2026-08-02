@@ -14,6 +14,7 @@ Layout::
 
     <root>/devices/<product_id>/current.json   # last full IR we wrote (LED source of truth)
     <root>/devices/<product_id>/meta.json       # product_id, version, last_seen
+    <root>/devices/<product_id>/layout-evidence.json  # bounded pathless Vial layouts
     <root>/devices/<product_id>/history/...      # ISO8601 snapshots (added in a later issue)
 
 Device identity: the R4 exposes no unique per-unit serial (the USB serial string
@@ -182,6 +183,84 @@ def _read_json(path: Path) -> dict | None:
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+LAYOUT_EVIDENCE_SCHEMA_VERSION = 1
+LAYOUT_EVIDENCE_MAX = 8
+LAYOUT_EVIDENCE_MAX_BYTES = 512 * 1024
+_LAYOUT_EVIDENCE_FIELDS = {
+    "schema_version",
+    "product_id",
+    "keymap_signature",
+    "key_layout",
+}
+
+
+def layout_evidence_path(product_id: str) -> Path:
+    """Private app-local dynamic layouts remembered for one product family."""
+
+    return device_dir(product_id) / "layout-evidence.json"
+
+
+def load_layout_evidence(product_id: str) -> dict | None:
+    path = layout_evidence_path(product_id)
+    if not path.exists():
+        return None
+    with path.open("rb") as stream:
+        encoded = stream.read(LAYOUT_EVIDENCE_MAX_BYTES + 1)
+    if len(encoded) > LAYOUT_EVIDENCE_MAX_BYTES:
+        raise ValueError("Remembered layout evidence is oversized.")
+    value = json.loads(encoded)
+    if not isinstance(value, dict):
+        raise ValueError("Remembered layout evidence is invalid.")
+    return value
+
+
+def remember_layout_evidence(product_id: str, evidence: dict) -> Path:
+    """Remember one validated pathless projection with bounded retention."""
+
+    if not isinstance(evidence, dict) or set(evidence) != _LAYOUT_EVIDENCE_FIELDS:
+        raise ValueError("Dynamic layout evidence is invalid.")
+    signature = evidence.get("keymap_signature")
+    if not isinstance(signature, str) or not signature:
+        raise ValueError("Dynamic layout evidence has no signature.")
+    path = layout_evidence_path(product_id)
+    with device_lock(product_id):
+        current = load_layout_evidence(product_id)
+        if current is None:
+            layouts: list[dict] = []
+        else:
+            if (
+                set(current) != {"schema_version", "layouts"}
+                or current.get("schema_version") != LAYOUT_EVIDENCE_SCHEMA_VERSION
+                or not isinstance(current.get("layouts"), list)
+                or len(current["layouts"]) > LAYOUT_EVIDENCE_MAX
+            ):
+                raise ValueError("Remembered layout evidence is invalid.")
+            layouts = current["layouts"]
+        if layouts and layouts[0] == evidence:
+            return path
+        retained = [
+            item
+            for item in layouts
+            if isinstance(item, dict)
+            and item.get("keymap_signature") != signature
+        ]
+        payload = {
+            "schema_version": LAYOUT_EVIDENCE_SCHEMA_VERSION,
+            "layouts": [evidence, *retained][:LAYOUT_EVIDENCE_MAX],
+        }
+        encoded = json.dumps(
+            payload,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if len(encoded) > LAYOUT_EVIDENCE_MAX_BYTES:
+            raise ValueError("Remembered layout evidence is oversized.")
+        _atomic_write_json(path, payload)
+    return path
 
 
 def _now_iso() -> str:

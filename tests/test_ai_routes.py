@@ -311,7 +311,11 @@ class OptionalAIRouteTests(unittest.TestCase):
         )
 
         self.assertEqual(200, status)
-        self.assertEqual({"revision"}, set(response))
+        self.assertEqual(
+            {"revision", "layout_evidence", "layout_warning"}, set(response)
+        )
+        self.assertIsNone(response["layout_evidence"])
+        self.assertIsNone(response["layout_warning"])
         self.assertIsInstance(response["revision"], str)
         self.assertGreaterEqual(len(response["revision"]), 24)
         self.assertNotIn("AM21", response["revision"])

@@ -69,6 +69,8 @@ const state = {
   documentSyncEpoch: 0,
   documentSyncing: false,
   documentSyncError: "",
+  layoutEvidence: null,
+  layoutEvidenceWarning: "",
   fileName: "AM-config.json",
   dirty: false,
   lighting: restoredLighting.lighting,
@@ -367,13 +369,24 @@ async function synchronizeOpenDocument() {
   const config=state.config;
   const epoch=++state.documentSyncEpoch;
   state.documentRevision=null;
+  state.layoutEvidence=null;
+  state.layoutEvidenceWarning="";
   state.documentSyncError="";
   state.documentSyncing=Boolean(config);
   if(!config)return null;
   try{
-    const result=await api("/api/document/sync",{method:"POST",body:JSON.stringify({config})});
+    const layoutSignature=connectedDocumentLayoutSignature();
+    const result=await api("/api/document/sync",{
+      method:"POST",
+      body:JSON.stringify({
+        config,
+        ...(layoutSignature?{layout_signature:layoutSignature}:{}),
+      }),
+    });
     if(epoch!==state.documentSyncEpoch||state.config!==config)return null;
     state.documentRevision=result.revision;
+    state.layoutEvidence=result.layout_evidence||null;
+    state.layoutEvidenceWarning=result.layout_warning||"";
     return result.revision;
   }catch(error){
     if(epoch===state.documentSyncEpoch){state.documentSyncError=error.message||"The open document could not be synchronized.";}
@@ -621,31 +634,51 @@ async function readFiles(input, merge) {
     markDirty(effectiveMerge);
     updateMeta();
     render();
-    toast(effectiveMerge ? "Configurations merged" : "Configuration opened", `${productId()} · ${layers().length} layers · ${(state.config.macro_key || []).length} macros`, "success");
+    const layoutWarning=state.layoutEvidenceWarning?`\n${state.layoutEvidenceWarning}`:"";
+    toast(effectiveMerge ? "Configurations merged" : "Configuration opened", `${productId()} · ${layers().length} layers · ${(state.config.macro_key || []).length} macros${layoutWarning}`, "success");
   } catch (error) {
     toast("Could not open JSON", error.message, "error");
   }
 }
 
-function saveConfig() {
+async function saveConfig() {
   if (!state.config) return;
-  const output = clone(state.config);
-  output.macro_key = (output.macro_key || []).map(macro => ({
-    ...macro,
-    original_key: String(macro.original_key).toUpperCase(),
-    layer_key: (macro.layer_key || []).map(code => String(code).toUpperCase()),
-    intvel_ms: Array.from({length:(macro.layer_key || []).length},(_,index)=>Number(macro.intvel_ms?.[index]??0)),
-  }));
-  output.page_num = (output.page_data || []).length;
-  const blob = new Blob([JSON.stringify(output, null, 2) + "\n"], {type: "application/json"});
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = cleanFileName(state.fileName);
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  markDirty(false);
-  toast("JSON saved", link.download, "success");
+  try {
+    const candidate = clone(state.config);
+    candidate.macro_key = (candidate.macro_key || []).map(macro => ({
+      ...macro,
+      original_key: String(macro.original_key).toUpperCase(),
+      layer_key: (macro.layer_key || []).map(code => String(code).toUpperCase()),
+      intvel_ms: Array.from({length:(macro.layer_key || []).length},(_,index)=>Number(macro.intvel_ms?.[index]??0)),
+    }));
+    candidate.page_num = (candidate.page_data || []).length;
+    const connectedEvidence=state.layoutEvidence?.source==="connected"
+      ?state.layoutEvidence
+      :null;
+    const layoutSignature=trustedDocumentLayoutSignature()||connectedDocumentLayoutSignature();
+    const portable=await api("/api/config/export",{
+      method:"POST",
+      body:JSON.stringify({
+        config:candidate,
+        ...(layoutSignature?{layout_signature:layoutSignature}:{}),
+        ...(connectedEvidence?.key_layout?{key_layout:connectedEvidence.key_layout}:{}),
+      }),
+    });
+    const output=portable.config;
+    if(portable.layout_evidence)state.layoutEvidence=portable.layout_evidence;
+    state.layoutEvidenceWarning=portable.layout_warning||"";
+    const blob = new Blob([JSON.stringify(output, null, 2) + "\n"], {type: "application/json"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = cleanFileName(state.fileName);
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    markDirty(false);
+    toast("JSON saved", `${link.download}${state.layoutEvidenceWarning?`\n${state.layoutEvidenceWarning}`:""}`, "success");
+  } catch(error) {
+    toast("Could not save JSON",error.message||String(error),"error");
+  }
 }
 
 // Physical geometry transcribed from Angry Miao's public configurator.
@@ -777,7 +810,8 @@ function servedGeometry(family, target) {
 
 function geometryUnavailableNotice() {
   const loading=state.capabilities===null;
-  return `<div class="empty-state"><p class="eyebrow">${loading?"Loading device layout":"Device layout unavailable"}</p><h1>${loading?"Fetching the LED layout for this keyboard…":"The LED layout for this keyboard could not be loaded."}</h1><p>${loading?"The editor opens once the layout arrives.":"Connect the keyboard by USB and scan Devices, or read it again. Editing is held back deliberately: painting against a guessed square grid would author LED positions that do not exist on the device."}</p></div>`;
+  const unavailable=state.layoutEvidenceWarning||"Open a profile saved by AM Configurator with its layout evidence, or connect and read the matching keyboard. This surface stays unavailable because showing guessed LED positions would be misleading.";
+  return `<div class="empty-state"><p class="eyebrow">${loading?"Loading device layout":"Per-key layout unavailable"}</p><h1>${loading?"Fetching the LED layout for this keyboard…":"This profile does not contain the exact physical layout."}</h1><p>${loading?"The editor opens once the layout arrives.":esc(unavailable)}</p></div>`;
 }
 const LED_SPEEDS = [255,240,224,208,192,176,160,146,132,118,100,90,76,62,48,34];
 // Friendly presets for the normal path. Every value is one of the firmware
@@ -2208,7 +2242,7 @@ function renderKeymap() {
       <div class="editor-grid">
         <section class="card"><div class="card-header"><strong>Layer ${state.layer+1}</strong><small>${layout.keys.length} physical keys</small></div><div class="card-body">
           <div class="keyboard-stage ${layout.className}">
-            ${layout.unavailable?'<div class="inspector-empty"><div><strong>Physical layout unavailable</strong><p>Read this Neon keyboard again to load its validated Vial layout.</p></div></div>':layout.keys.map(([index,x,y,w=4.8,rotation=0,height=null]) => {
+        ${layout.unavailable?`<div class="inspector-empty"><div><strong>Physical layout unavailable</strong><p>${esc(state.layoutEvidenceWarning||"Open an AM Configurator profile containing exact layout evidence, or connect and read this Neon keyboard.")}</p></div></div>`:layout.keys.map(([index,x,y,w=4.8,rotation=0,height=null]) => {
               const code = layer[index] || "#00000000";
               return `<button class="keycap ${keyClass(code)} ${state.selected===index?'selected':''}" data-index="${index}" style="left:${x}%;top:${y}%;width:${w}%;${height===null?'':`height:${height}%;`}transform:rotate(${rotation}deg)" title="${technical?`Matrix ${index} · ${esc(code)}`:esc(decodeCode(code))}">${esc(decodeCode(code))}${technical?`<span>${index}</span>`:''}</button>`;
             }).join("")}
@@ -4627,7 +4661,37 @@ function deviceKey(device) {
 }
 
 function displayGeometryDevice() {
-  return selectVialLayoutDevice(productId(),state.devices,state.loadedDevice);
+  return selectVialLayoutDevice(
+    productId(),
+    state.devices,
+    state.loadedDevice,
+    state.layoutEvidence,
+  );
+}
+
+function connectedDocumentLayoutSignature() {
+  if(productFamily(productId())!=="NEON")return null;
+  const loaded=state.devices.find(device=>(
+    deviceKey(device)===state.loadedDevice
+    &&sameProductFamily(productId(),device.product_id)
+  ));
+  const selected=selectedDevice();
+  const device=loaded||(
+    selected&&sameProductFamily(productId(),selected.product_id)
+      ?selected
+      :null
+  );
+  const signature=device?.descriptor?.keymap?.signature;
+  return typeof signature==="string"&&signature?signature:null;
+}
+
+function trustedDocumentLayoutSignature() {
+  const evidence=state.layoutEvidence;
+  return evidence
+    &&evidence.source!=="connected"
+    &&typeof evidence.keymap_signature==="string"
+    ?evidence.keymap_signature
+    :null;
 }
 
 // The handle fields a device request body carries.
@@ -4711,6 +4775,8 @@ function stashDeviceDocument() {
     dirty:state.dirty,
     undo:state.undo,
     redo:state.redo,
+    layoutEvidence:state.layoutEvidence,
+    layoutEvidenceWarning:state.layoutEvidenceWarning,
     view:{layer:state.layer,selected:state.selected,macro:state.macro,ledSlot:state.ledSlot,ledTarget:state.ledTarget,ledFrame:state.ledFrame},
   });
 }
@@ -4724,6 +4790,8 @@ function restoreDeviceDocument(port,deviceId) {
   state.dirty=Boolean(saved.dirty);
   state.undo=saved.undo;
   state.redo=saved.redo;
+  state.layoutEvidence=saved.layoutEvidence||null;
+  state.layoutEvidenceWarning=saved.layoutEvidenceWarning||"";
   if(saved.view){
     state.layer=saved.view.layer;
     state.selected=saved.view.selected;
@@ -4867,10 +4935,26 @@ async function writeDevice() {
   if(!device)return toast('Write unavailable','Select the connected keyboard again.','error');
   if(!sameProductFamily(productId(),device.product_id)||(state.loadedDevice&&state.loadedDevice!==deviceKey(device)))return toast('Write unavailable','Load the selected keyboard before writing its configuration.','error');
   const validation=await validateCurrent(false);if(!validation?.ok)return;
-  state.pendingWrite={device,validation};
-  $("#write-title").textContent=`Write to ${device.product_id}`;
-  $("#write-token").textContent=device.product_id;
-  const neonWrite=productFamily(device.product_id)==="NEON";
+  let preflight;
+  try{
+    preflight=await api('/api/device/preflight',{
+      method:'POST',
+      body:JSON.stringify({
+        ...deviceAddress(device),
+        config:state.config,
+        ...(trustedDocumentLayoutSignature()?{layout_signature:trustedDocumentLayoutSignature()}:{}),
+      }),
+    });
+  }catch(error){
+    toast('Write blocked',error.message||'The selected keyboard could not be verified.','error');
+    return;
+  }
+  const verifiedDevice={...device,...(preflight.device||{})};
+  if(preflight.layout_evidence&&!state.layoutEvidence)state.layoutEvidence=preflight.layout_evidence;
+  state.pendingWrite={device:verifiedDevice,validation};
+  $("#write-title").textContent=`Write to ${verifiedDevice.product_id}`;
+  $("#write-token").textContent=verifiedDevice.product_id;
+  const neonWrite=productFamily(verifiedDevice.product_id)==="NEON";
   const unlockNote=$("#write-unlock-note");
   unlockNote.hidden=!neonWrite;
   unlockNote.textContent=neonWrite
@@ -4902,7 +4986,12 @@ async function confirmDeviceWrite() {
   status.className='write-status working';status.textContent=verifyOnly?'Reading the keymap again without resending the configuration.':neonWrite?'Hold Esc and F2 together. Keep holding until the write begins; no lighting, keymap, or macro SET is sent until the combo is accepted.':'Writing configuration. Keep the cable connected; verification follows automatically.';
   try{
     const endpoint=verifyOnly?'/api/device/verify':'/api/device/write';
-    const result=await api(endpoint,{method:'POST',body:JSON.stringify({...deviceAddress(pending.device),config:state.config,confirmation})});
+    const result=await api(endpoint,{method:'POST',body:JSON.stringify({
+      ...deviceAddress(pending.device),
+      config:state.config,
+      confirmation,
+      ...(trustedDocumentLayoutSignature()?{layout_signature:trustedDocumentLayoutSignature()}:{}),
+    })});
     if(result.document_revision){state.documentRevision=result.document_revision;state.documentSyncError="";}
     markDirty(false);$("#write-dialog").close();state.pendingWrite=null;
     const partialMacros=result.macro_verification==='partial';
@@ -5791,6 +5880,8 @@ lightingMotionPreference?.addEventListener?.("change",event=>{
     if(result.config){
       state.config=result.config;
       state.documentRevision=result.document_revision||null;
+      state.layoutEvidence=result.layout_evidence||null;
+      state.layoutEvidenceWarning=result.layout_warning||"";
       state.fileName=`AM-${productId()}-config.json`;
       resetDocumentView();
     }

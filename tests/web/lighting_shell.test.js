@@ -524,6 +524,32 @@ test("Settings exposes Ollama server and cloud models plus the curated API", () 
   assert.match(restore,/await synchronizeOpenDocument\(\)/);
 });
 
+test("portable layout export and write verification happen at server-owned boundaries", () => {
+  const save=js.slice(
+    js.indexOf("async function saveConfig"),
+    js.indexOf("const RELIC_LAYOUT"),
+  );
+  assert.match(save,/api\("\/api\/config\/export"/);
+  assert.match(save,/const output=portable\.config/);
+  assert.match(save,/layout_signature:layoutSignature/);
+
+  const write=js.slice(
+    js.indexOf("async function writeDevice"),
+    js.indexOf("async function confirmDeviceWrite"),
+  );
+  const preflight=write.indexOf("/api/device/preflight");
+  const pending=write.indexOf("state.pendingWrite=");
+  const confirmation=write.indexOf("showModal()");
+  assert.ok(preflight>=0&&preflight<pending&&pending<confirmation);
+  assert.match(write,/layout_signature:trustedDocumentLayoutSignature\(\)/);
+
+  const confirm=js.slice(
+    js.indexOf("async function confirmDeviceWrite"),
+    js.indexOf("// ---- Optional procedural generation"),
+  );
+  assert.match(confirm,/layout_signature:trustedDocumentLayoutSignature\(\)/);
+});
+
 test("one master switch owns and hides every AI setup control", () => {
   const toggle=html.match(/<input id="settings-ai-enabled"[^>]*>/)?.[0]||"";
   const details=html.match(/<div id="settings-ai-details"[^>]*>/)?.[0]||"";
@@ -938,7 +964,7 @@ test("Neon keymap wiring uses the validated layout and assignment gate", () => {
   assert.match(palette, /NEON_LIGHTING_CONTROLS/);
   assert.match(palette, /neonLightingGroups/);
 
-  assert.match(js, /function displayGeometryDevice\(\)[\s\S]*selectVialLayoutDevice\(productId\(\),state\.devices,state\.loadedDevice\)/);
+  assert.match(js, /function displayGeometryDevice\(\)[\s\S]*selectVialLayoutDevice\([\s\S]*productId\(\),[\s\S]*state\.devices,[\s\S]*state\.loadedDevice,[\s\S]*state\.layoutEvidence/);
   assert.match(layout, /family === "NEON"[\s\S]*displayGeometryDevice\(\)[\s\S]*projectVialKeyLayout\(device\)/);
   assert.match(js, /const device=displayGeometryDevice\(\);[\s\S]*state\.ledTarget==="axial"[\s\S]*projectVialLedLayout\(device,servedTarget\)/);
   assert.match(js, /const neonAxial=productFamily\(productId\(\)\)==="NEON"&&state\.ledTarget==="axial"/);

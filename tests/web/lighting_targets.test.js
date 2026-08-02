@@ -257,6 +257,33 @@ test("one scanned Neon supplies display geometry before a full device read", () 
   }], null), null);
 });
 
+test("portable profile evidence owns Neon geometry even when another layout is connected", () => {
+  const embedded = {
+    product_id: "NEON80",
+    keymap_signature: "keymap:v1:embedded",
+    key_layout: [
+      {index: 0, x: 0, y: 0, width: 5, height: 14, rotation: 0},
+    ],
+  };
+  const connected = {
+    transport: "hid",
+    address: "connected",
+    product_id: "NEON80",
+    key_layout: [
+      {index: 0, x: 0, y: 0, width: 9, height: 14, rotation: 0},
+    ],
+  };
+
+  assert.equal(
+    selectVialLayoutDevice("NEON80", [connected], "hid:connected", embedded),
+    embedded,
+  );
+  assert.equal(
+    selectVialLayoutDevice("AM21", [connected], "hid:connected", embedded),
+    null,
+  );
+});
+
 test("the Neon palette exposes only assignments its QMK wire format accepts", () => {
   const options = [
     {label: "None", code: "#00000000"},

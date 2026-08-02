@@ -28,7 +28,7 @@ from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
-from am_configurator import __version__, transport
+from am_configurator import __version__, profile_metadata, transport
 from am_configurator.device_mapping import (
     MAX_FRAMES,
     firmware_led_speed,
@@ -613,7 +613,7 @@ class DesktopServerTests(unittest.TestCase):
 
         self.assertIn('id="write-unlock-note"', html)
         self.assertIn("Esc and F2", script)
-        self.assertIn('productFamily(device.product_id)==="NEON"', script)
+        self.assertIn('productFamily(verifiedDevice.product_id)==="NEON"', script)
         self.assertIn("Unlocking, then writing", script)
         self.assertIn(
             '$("#write-dialog").addEventListener("cancel",event=>',
@@ -770,7 +770,9 @@ class DesktopServerTests(unittest.TestCase):
             )
             with urlopen(request, timeout=2) as response:
                 self.assertEqual(
-                    b'{"config": null, "document_revision": null}', response.read()
+                    b'{"config": null, "document_revision": null, '
+                    b'"layout_evidence": null, "layout_warning": null}',
+                    response.read(),
                 )
         finally:
             server.shutdown()
@@ -1035,6 +1037,37 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(
             "exact",
             result["compatibility"]["sections"]["keymap"]["status"],
+        )
+
+    def test_embedded_dynamic_layout_drives_offline_profile_compatibility(self) -> None:
+        layers = [["#00070004"] * 90 for _ in range(4)]
+        source = blank_config("NEON80", layers, [])
+        destination = blank_config("NEON80", layers, [])
+        layout = [
+            {
+                "index": 0,
+                "matrix_row": 0,
+                "matrix_col": 0,
+                "x": 0.0,
+                "y": 0.0,
+                "width": 6.0,
+                "height": 12.0,
+                "rotation": 0.0,
+            }
+        ]
+        evidence = profile_metadata.build_dynamic_layout("NEON80", layout)
+        source = profile_metadata.attach_dynamic_layout(source, evidence)
+        destination = profile_metadata.attach_dynamic_layout(destination, evidence)
+
+        compatibility = config_section_compatibility(source, destination)
+
+        self.assertEqual(
+            "exact",
+            compatibility["sections"]["keymap"]["status"],
+        )
+        self.assertEqual(
+            evidence["keymap_signature"],
+            compatibility["source"]["keymap"]["signature"],
         )
 
     def test_blank_config_from_device_is_writable(self) -> None:
@@ -1907,6 +1940,262 @@ class LedGenerateEndpointTests(unittest.TestCase):
         )
         self.assertEqual(200, status)
         self.assertEqual({"ok": True, "code": "#00920100"}, response)
+
+    @staticmethod
+    def _dynamic_layout(*, first_width: float = 6.0) -> list[dict[str, int | float]]:
+        return [
+            {
+                "index": 0,
+                "matrix_row": 0,
+                "matrix_col": 0,
+                "x": 0.0,
+                "y": 0.0,
+                "width": first_width,
+                "height": 12.0,
+                "rotation": 0.0,
+            },
+            {
+                "index": 1,
+                "matrix_row": 0,
+                "matrix_col": 1,
+                "x": 12.0,
+                "y": 0.0,
+                "width": 8.0,
+                "height": 12.0,
+                "rotation": 0.0,
+            },
+        ]
+
+    def test_document_sync_and_export_use_server_validated_layout_evidence(self) -> None:
+        config = blank_config(
+            "NEON80",
+            [["#00000000"] * 90 for _ in range(4)],
+            [],
+        )
+        evidence = profile_metadata.remember_dynamic_layout(
+            "NEON80",
+            self._dynamic_layout(),
+        )
+
+        status, synchronized = self._request(
+            "POST",
+            "/api/document/sync",
+            {
+                "config": config,
+                "layout_signature": evidence["keymap_signature"],
+            },
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(
+            evidence["keymap_signature"],
+            synchronized["layout_evidence"]["keymap_signature"],
+        )
+        self.assertEqual("remembered", synchronized["layout_evidence"]["source"])
+
+        status, exported = self._request(
+            "POST",
+            "/api/config/export",
+            {
+                "config": config,
+                "layout_signature": evidence["keymap_signature"],
+            },
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(
+            evidence["keymap_signature"],
+            exported["config"]["_am_configurator"]["dynamic_layout"][
+                "keymap_signature"
+            ],
+        )
+        self.assertEqual(evidence["key_layout"], exported["layout_evidence"]["key_layout"])
+
+        fixed = _base_config("AM21")
+        status, fixed_export = self._request(
+            "POST",
+            "/api/config/export",
+            {"config": fixed},
+        )
+        self.assertEqual(200, status)
+        self.assertEqual(fixed, fixed_export["config"])
+        self.assertIsNone(fixed_export["layout_evidence"])
+
+    def test_dynamic_layout_mismatch_blocks_before_confirmation_or_transport(self) -> None:
+        config = blank_config(
+            "NEON80",
+            [["#00000000"] * 90 for _ in range(4)],
+            [],
+        )
+        evidence = profile_metadata.build_dynamic_layout(
+            "NEON80",
+            self._dynamic_layout(),
+        )
+        config = profile_metadata.attach_dynamic_layout(config, evidence)
+        connected = SimpleNamespace(
+            is_keyboard=True,
+            product_id="NEON80",
+            key_layout=self._dynamic_layout(first_width=7.0),
+        )
+        transmissions: list[dict] = []
+        link = SimpleNamespace(
+            write_config=lambda address, candidate: transmissions.append(candidate),
+        )
+        body = {
+            "transport": transport.SERIAL,
+            "address": "safe-test-device",
+            "config": config,
+            "layout_signature": evidence["keymap_signature"],
+        }
+
+        with (
+            patch("am_configurator.server._probe_keyboard", return_value=connected),
+            patch.object(transport, "transport_for_handle", return_value=link),
+        ):
+            status, preflight = self._request(
+                "POST",
+                "/api/device/preflight",
+                body,
+            )
+            self.assertEqual(400, status)
+            self.assertEqual("layout_mismatch", preflight["code"])
+
+            status, direct = self._request(
+                "POST",
+                "/api/device/write",
+                {**body, "confirmation": "NEON80"},
+            )
+
+        self.assertEqual(400, status)
+        self.assertEqual("layout_mismatch", direct["code"])
+        self.assertEqual([], transmissions)
+
+    def test_protocol_boundary_strips_app_metadata_before_any_driver_sees_it(self) -> None:
+        config = _base_config("AM21")
+        config["_am_configurator"] = {
+            "schema_version": 1,
+            "dynamic_layout": {
+                "address": "COM-private",
+                "serial": "shared-dummy",
+            },
+        }
+        config["_provenance"] = {"path": "C:/private/profile.json"}
+        connected = SimpleNamespace(is_keyboard=True, product_id="AM21")
+        received: list[dict] = []
+
+        def capture(_address: str, candidate: dict) -> None:
+            received.append(candidate)
+            raise ValueError("captured before transport")
+
+        link = SimpleNamespace(write_config=capture)
+        with (
+            patch("am_configurator.server._probe_keyboard", return_value=connected),
+            patch.object(transport, "transport_for_handle", return_value=link),
+        ):
+            status, _response = self._request(
+                "POST",
+                "/api/device/write",
+                {
+                    "transport": transport.SERIAL,
+                    "address": "safe-test-device",
+                    "config": config,
+                    "confirmation": "AM21",
+                },
+            )
+
+        self.assertEqual(400, status)
+        self.assertEqual(1, len(received))
+        self.assertNotIn("_am_configurator", received[0])
+        self.assertNotIn("_provenance", received[0])
+        self.assertEqual(
+            {
+                "exchange_key",
+                "exchange_num",
+                "key_layer",
+                "macro_key",
+                "page_data",
+                "swap_key",
+                "swap_key_num",
+            }
+            & set(config),
+            set(received[0]),
+        )
+
+    def test_verified_neon_snapshot_retains_portable_layout_metadata(self) -> None:
+        config = blank_config(
+            "NEON80",
+            [["#00000000"] * 90 for _ in range(4)],
+            [],
+        )
+        connected = SimpleNamespace(
+            is_keyboard=True,
+            product_id="NEON80",
+            key_layout=self._dynamic_layout(),
+            version="test",
+        )
+        protocol_inputs: list[dict] = []
+        stored: list[dict] = []
+        snapshotted: list[dict] = []
+
+        link = SimpleNamespace(
+            write_config=lambda _address, candidate: (
+                protocol_inputs.append(copy.deepcopy(candidate))
+                or transport.WriteReceipt(1, "test report")
+            ),
+            write_macros=lambda _address, _macros: None,
+            read_macros=lambda _address: [],
+        )
+
+        with (
+            patch("am_configurator.server._probe_keyboard", return_value=connected),
+            patch("am_configurator.server._verify_keymap_readback"),
+            patch.object(transport, "transport_for_handle", return_value=link),
+            patch.object(
+                transport,
+                "device_json",
+                return_value={
+                    "transport": transport.SERIAL,
+                    "address": "safe-test-device",
+                    "product_id": "NEON80",
+                    "key_layout": self._dynamic_layout(),
+                },
+            ),
+            patch.object(
+                store,
+                "save_current",
+                side_effect=lambda _product, candidate, **_kwargs: (
+                    stored.append(copy.deepcopy(candidate))
+                    or Path(self._tmp) / "current.json"
+                ),
+            ),
+            patch.object(
+                store,
+                "snapshot",
+                side_effect=lambda _product, candidate: (
+                    snapshotted.append(copy.deepcopy(candidate))
+                    or Path(self._tmp) / "snapshot.json"
+                ),
+            ),
+            patch("am_configurator.server.time.sleep"),
+        ):
+            status, response = self._request(
+                "POST",
+                "/api/device/write",
+                {
+                    "transport": transport.SERIAL,
+                    "address": "safe-test-device",
+                    "config": config,
+                    "confirmation": "NEON80",
+                },
+            )
+
+        self.assertEqual(200, status, response)
+        self.assertEqual(1, len(protocol_inputs))
+        self.assertNotIn("_am_configurator", protocol_inputs[0])
+        self.assertEqual(1, len(stored))
+        self.assertEqual(stored, snapshotted)
+        metadata = stored[0]["_am_configurator"]["dynamic_layout"]
+        self.assertEqual("NEON80", metadata["product_id"])
+        self.assertRegex(metadata["keymap_signature"], r"^keymap:v1:[0-9a-f]{64}$")
+        self.assertEqual(self._dynamic_layout(), metadata["key_layout"])
 
     def test_device_read_publishes_the_reported_macro_limits(self) -> None:
         device_layers = [["#00000000"] * 90 for _ in range(4)]
@@ -3800,6 +4089,44 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual(profile, json.loads(saved_payload))
         self.assertEqual(b"current stays", current_sentinel.read_bytes())
         self.assertEqual(b"history stays", history_sentinel.read_bytes())
+
+    def test_saved_neon_library_profile_keeps_its_exact_layout_portable(self) -> None:
+        profile = blank_config(
+            "NEON80",
+            [["#00000000"] * 90 for _ in range(4)],
+            [],
+        )
+        layout = LedGenerateEndpointTests._dynamic_layout()
+        status, synchronized = self._request(
+            "POST",
+            "/api/document/sync",
+            {"config": profile},
+        )
+        self.assertEqual(200, status)
+
+        status, saved = self._request(
+            "POST",
+            "/api/library/save/profile",
+            {
+                "name": "Portable Neon profile",
+                "document_revision": synchronized["revision"],
+                "key_layout": layout,
+            },
+        )
+        self.assertEqual(201, status)
+        asset_id = saved["item"]["profile"]["asset_id"]
+        status, _headers, payload = self._raw_request(
+            f"/api/library/assets/{saved['catalog_id']}/{asset_id}"
+        )
+        self.assertEqual(200, status)
+        banked = json.loads(payload)
+        metadata = banked["_am_configurator"]["dynamic_layout"]
+        self.assertEqual(layout, metadata["key_layout"])
+        self.assertEqual(
+            saved["item"]["device"]["keymap_signature"],
+            metadata["keymap_signature"],
+        )
+        self.assertNotIn("_am_configurator", self._server.state.config)
 
     def test_profile_compatibility_preview_is_sectioned_and_read_only(self) -> None:
         source = _base_config("80")

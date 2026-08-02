@@ -156,8 +156,19 @@
     return keys;
   }
 
-  function selectVialLayoutDevice(product, devices, loadedDeviceKey = null) {
+  function selectVialLayoutDevice(
+    product,
+    devices,
+    loadedDeviceKey = null,
+    layoutEvidence = null,
+  ) {
     if (productFamily(product) !== "NEON") return null;
+    if (
+      productFamily(layoutEvidence?.product_id) === "NEON"
+      && projectVialKeyLayout(layoutEvidence)
+    ) {
+      return layoutEvidence;
+    }
     const candidates = (Array.isArray(devices) ? devices : []).filter(device => (
       productFamily(device?.product_id) === "NEON"
       && projectVialKeyLayout(device)

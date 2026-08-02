@@ -24,7 +24,7 @@ from socketserver import TCPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, device_mapping, macro_text, transport
+from . import __version__, device_mapping, macro_text, profile_metadata, transport
 
 
 _PKG = Path(__file__).resolve().parent
@@ -77,6 +77,18 @@ _PROVIDER_ERROR_HTTP: dict[str, HTTPStatus] = {
 
 class AcceptedWriteError(RuntimeError):
     """The device ACKed the full write, but a later verification step failed."""
+
+
+class LayoutEvidenceError(ValueError):
+    """A dynamic profile cannot establish the exact layout it claims."""
+
+    code = "layout_evidence_invalid"
+
+
+class LayoutMismatchError(ValueError):
+    """The connected dynamic layout differs from the open document evidence."""
+
+    code = "layout_mismatch"
 
 def merge_configs(configs: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Merge official LED and ``*-KEY.json`` exports without losing either half."""
@@ -699,6 +711,10 @@ def _profile_device_metadata(
     key_layout: object = None,
 ) -> dict[str, Any]:
     product_id = str(config["product_info"]["product_id"])
+    if key_layout is None:
+        embedded = profile_metadata.embedded_layout_evidence(config)
+        if embedded is not None:
+            key_layout = embedded["key_layout"]
     try:
         descriptor = device_mapping.device_descriptor(
             product_id,
@@ -1026,12 +1042,21 @@ def config_section_compatibility(
     )
     if not source_product_id:
         raise ValueError("The selected JSON has no product_info.product_id.")
+    source_evidence = profile_metadata.embedded_layout_evidence(source_config)
+    if source_evidence is not None:
+        if source_key_layout is None:
+            source_key_layout = source_evidence["key_layout"]
+        if source_keymap_signature is None:
+            source_keymap_signature = source_evidence["keymap_signature"]
     if destination_config is not None:
         if not isinstance(destination_config, dict):
             raise ValueError("The destination document is not a configuration object.")
         target_product = str(
             ((destination_config.get("product_info") or {}).get("product_id") or "")
         )
+        target_evidence = profile_metadata.embedded_layout_evidence(destination_config)
+        if target_key_layout is None and target_evidence is not None:
+            target_key_layout = target_evidence["key_layout"]
     else:
         target_product = str(target_product_id or "")
     if not target_product:
@@ -1482,6 +1507,49 @@ def _device_payload(
     )
 
 
+def _remember_device_layout(payload: Mapping[str, Any]) -> dict[str, Any] | None:
+    product_id = payload.get("product_id")
+    key_layout = payload.get("key_layout")
+    if not isinstance(product_id, str) or not key_layout:
+        return None
+    try:
+        evidence = profile_metadata.build_dynamic_layout(product_id, key_layout)
+    except ValueError:
+        return None
+    try:
+        from . import store
+
+        store.remember_layout_evidence(evidence["product_id"], evidence)
+    except (OSError, ValueError):
+        # Discovery remains useful when private local persistence is temporarily
+        # unavailable. The same exact projection still travels in this response.
+        pass
+    return evidence
+
+
+_PROTOCOL_CONFIG_FIELDS = frozenset(
+    {
+        "page_data",
+        "key_layer",
+        "macro_key",
+        "exchange_key",
+        "exchange_num",
+        "swap_key",
+        "swap_key_num",
+    }
+)
+
+
+def _protocol_config(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Project app-native state to the only sections protocol drivers accept."""
+
+    return {
+        field: copy.deepcopy(config[field])
+        for field in _PROTOCOL_CONFIG_FIELDS
+        if field in config
+    }
+
+
 def _stored_device_config(device_id: str) -> tuple[dict[str, Any] | None, str | None]:
     """Return the last verified full config for a device, if it is still valid."""
     from . import store
@@ -1864,6 +1932,8 @@ class _State:
         self._document_lock = threading.Lock()
         self._document_snapshot: bytes | None = None
         self._document_revision: str | None = None
+        self._document_layout_evidence: dict[str, Any] | None = None
+        self._document_layout_warning: str | None = None
         self.device_lock = threading.Lock()
         # macOS hidapi owns CoreFoundation/IOKit state that is thread-affine.
         # ThreadingHTTPServer creates a fresh request thread for each call, and
@@ -1913,7 +1983,19 @@ class _State:
         with self._document_lock:
             return self._document_revision
 
-    def synchronize_document(self, config: object) -> str:
+    def document_layout_context(self) -> tuple[dict[str, Any] | None, str | None]:
+        with self._document_lock:
+            return (
+                copy.deepcopy(self._document_layout_evidence),
+                self._document_layout_warning,
+            )
+
+    def synchronize_document(
+        self,
+        config: object,
+        *,
+        layout_signature: object = None,
+    ) -> str:
         """Validate and atomically replace the immutable open-document snapshot."""
         try:
             encoded = json.dumps(
@@ -1933,10 +2015,16 @@ class _State:
             raise ValueError(
                 "The open document must be a complete valid keyboard configuration."
             ) from None
+        layout = profile_metadata.resolve_layout_evidence(
+            candidate,
+            preferred_signature=layout_signature,
+        )
         revision = secrets.token_urlsafe(24)
         with self._document_lock:
             self._document_snapshot = encoded
             self._document_revision = revision
+            self._document_layout_evidence = copy.deepcopy(layout["evidence"])
+            self._document_layout_warning = layout["warning"]
             self.config = copy.deepcopy(candidate)
         return revision
 
@@ -1944,6 +2032,8 @@ class _State:
         with self._document_lock:
             self._document_snapshot = None
             self._document_revision = None
+            self._document_layout_evidence = None
+            self._document_layout_warning = None
             self.config = None
 
     def document_snapshot(self, revision: str) -> dict[str, Any]:
@@ -2388,10 +2478,15 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             try:
                 if path == "/api/config":
+                    layout_evidence, layout_warning = (
+                        self.state.document_layout_context()
+                    )
                     self._json(
                         {
                             "config": self.state.config,
                             "document_revision": self.state.document_revision,
+                            "layout_evidence": layout_evidence,
+                            "layout_warning": layout_warning,
                         }
                     )
                 elif path == "/api/devices":
@@ -2402,12 +2497,13 @@ class _Handler(BaseHTTPRequestHandler):
                         return found
 
                     found = self.state.device_io(scan_devices)
-                    self._json({
-                        "devices": [
-                            _device_payload(handle, info)
-                            for handle, info in found
-                        ]
-                    })
+                    devices = [
+                        _device_payload(handle, info)
+                        for handle, info in found
+                    ]
+                    for device in devices:
+                        _remember_device_layout(device)
+                    self._json({"devices": devices})
                 elif path == "/api/settings":
                     self._json(
                         _settings_view(
@@ -2482,6 +2578,8 @@ class _Handler(BaseHTTPRequestHandler):
             body = self._body()
             if path == "/api/config/validate":
                 self._json(validate_config(body.get("config")))
+            elif path == "/api/config/export":
+                self._export_profile(body)
             elif path == "/api/keymap/assignment":
                 if set(body) != {"product_id", "code"}:
                     raise ValueError(
@@ -2557,6 +2655,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._retired_ai_mutation()
             elif path == "/api/device/read":
                 self._read_device(body)
+            elif path == "/api/device/preflight":
+                self._preflight_device_write(body)
             elif path == "/api/device/write":
                 self._write_device(body)
             elif path == "/api/device/verify":
@@ -2793,9 +2893,43 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(capability.status(probe=False))
 
     def _synchronize_document(self, body: dict[str, Any]) -> None:
-        self._strict_body(body, allowed={"config"}, required={"config"})
-        revision = self.state.synchronize_document(body["config"])
-        self._json({"revision": revision})
+        self._strict_body(
+            body,
+            allowed={"config", "layout_signature"},
+            required={"config"},
+        )
+        revision = self.state.synchronize_document(
+            body["config"],
+            layout_signature=body.get("layout_signature"),
+        )
+        layout_evidence, layout_warning = self.state.document_layout_context()
+        self._json(
+            {
+                "revision": revision,
+                "layout_evidence": layout_evidence,
+                "layout_warning": layout_warning,
+            }
+        )
+
+    def _export_profile(self, body: dict[str, Any]) -> None:
+        self._strict_body(
+            body,
+            allowed={"config", "layout_signature", "key_layout"},
+            required={"config"},
+        )
+        config = _validated_profile_config(body["config"])
+        result = profile_metadata.portable_profile(
+            config,
+            preferred_signature=body.get("layout_signature"),
+            key_layout=body.get("key_layout"),
+        )
+        self._json(
+            {
+                "config": result["config"],
+                "layout_evidence": result["evidence"],
+                "layout_warning": result["warning"],
+            }
+        )
 
     def _start_procedural_effect(self, body: dict[str, Any]) -> None:
         self._strict_body(
@@ -3043,12 +3177,26 @@ class _Handler(BaseHTTPRequestHandler):
                 HTTPStatus.CONFLICT,
             )
             return
+        key_layout = body.get("key_layout")
+        if key_layout is None:
+            document_evidence, _warning = self.state.document_layout_context()
+            if document_evidence is not None:
+                key_layout = document_evidence["key_layout"]
+        portable = profile_metadata.portable_profile(
+            config,
+            key_layout=key_layout,
+        )
+        config = portable["config"]
         detail = self._bank_keyboard_profile(
             config=config,
             configuration=_profile_snapshot_bytes(config),
             origin="verified_export",
             name=body["name"],
-            key_layout=body.get("key_layout"),
+            key_layout=(
+                portable["evidence"]["key_layout"]
+                if portable["evidence"] is not None
+                else None
+            ),
         )
         self._json(detail, HTTPStatus.CREATED)
 
@@ -3871,6 +4019,7 @@ class _Handler(BaseHTTPRequestHandler):
                 else None
             ),
         )
+        _remember_device_layout(device_payload)
         self._json({
             # Not `asdict`: a raw-HID device carries its OS path as bytes, which
             # no JSON encoder accepts, and its canonical product id is a derived
@@ -3896,7 +4045,7 @@ class _Handler(BaseHTTPRequestHandler):
         def write_device():
             self.state.settle_after_scan()
             before = self._validated_write_target(handle, checked, body)
-            receipt = link.write_config(handle.address, config)
+            receipt = link.write_config(handle.address, _protocol_config(config))
             return self._finish_accepted_write(
                 handle, config, before, receipt, install_macros=True
             )
@@ -3912,11 +4061,40 @@ class _Handler(BaseHTTPRequestHandler):
         def verify_device_write():
             before = self._validated_write_target(handle, checked, body)
             return self._finish_accepted_write(
-                handle, config, before, link.describe_write(config), install_macros=False
+                handle,
+                config,
+                before,
+                link.describe_write(_protocol_config(config)),
+                install_macros=False,
             )
 
         result = self.state.device_io(verify_device_write)
         self._json(result)
+
+    def _preflight_device_write(self, body: dict[str, Any]) -> None:
+        handle, _config, checked = self._write_request(body)
+
+        def preflight_device_write():
+            self.state.settle_after_scan()
+            before = self._validated_write_target(
+                handle,
+                checked,
+                body,
+                require_confirmation=False,
+            )
+            payload = _device_payload(handle, before)
+            evidence = _remember_device_layout(payload)
+            return {
+                "ok": True,
+                "device": payload,
+                "layout_evidence": (
+                    {**evidence, "source": "connected"}
+                    if evidence is not None
+                    else None
+                ),
+            }
+
+        self._json(self.state.device_io(preflight_device_write))
 
     @staticmethod
     def _write_request(
@@ -3930,7 +4108,11 @@ class _Handler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _validated_write_target(
-        handle: transport.DeviceHandle, checked: dict[str, Any], body: dict[str, Any]
+        handle: transport.DeviceHandle,
+        checked: dict[str, Any],
+        body: dict[str, Any],
+        *,
+        require_confirmation: bool = True,
     ) -> Any:
         before = _probe_keyboard(handle)
         if not before or not before.is_keyboard or not before.product_id:
@@ -3940,6 +4122,66 @@ class _Handler(BaseHTTPRequestHandler):
             raise ValueError(
                 f"Configuration {config_id} does not match connected device {before.product_id}."
             )
+        if device_mapping.led_model(before.product_id) == "NEON":
+            config = body.get("config")
+            embedded = profile_metadata.embedded_layout_evidence(config)
+            if (
+                isinstance(config, dict)
+                and profile_metadata.APP_METADATA_KEY in config
+                and embedded is None
+            ):
+                raise LayoutEvidenceError(
+                    "The profile's saved per-key layout evidence is invalid. "
+                    "Open a trusted profile or read this keyboard before writing."
+                )
+            preferred_signature = body.get("layout_signature")
+            expected = embedded
+            if expected is not None and preferred_signature is not None:
+                if preferred_signature != expected["keymap_signature"]:
+                    raise LayoutEvidenceError(
+                        "The open document layout changed before write validation."
+                    )
+            elif expected is None and preferred_signature is not None:
+                resolved = profile_metadata.resolve_layout_evidence(
+                    config,
+                    preferred_signature=preferred_signature,
+                )
+                public = resolved["evidence"]
+                if public is None:
+                    raise LayoutEvidenceError(
+                        "The selected per-key layout has not been validated locally. "
+                        "Read this keyboard before writing."
+                    )
+                expected = {
+                    field: copy.deepcopy(public[field])
+                    for field in (
+                        "schema_version",
+                        "product_id",
+                        "keymap_signature",
+                        "key_layout",
+                    )
+                }
+            connected = _remember_device_layout(
+                {
+                    "product_id": before.product_id,
+                    "key_layout": getattr(before, "key_layout", None),
+                }
+            )
+            if connected is None:
+                raise LayoutEvidenceError(
+                    "The connected keyboard did not provide a valid exact per-key layout."
+                )
+            if (
+                expected is not None
+                and expected["keymap_signature"] != connected["keymap_signature"]
+            ):
+                raise LayoutMismatchError(
+                    "This profile's per-key layout does not match the connected "
+                    "keyboard. Nothing was sent. Open the matching profile or "
+                    "read this keyboard into its own workspace."
+                )
+        if not require_confirmation:
+            return before
         confirmation = str(body.get("confirmation") or "")
         if confirmation != before.product_id:
             raise ValueError(f"Confirmation must exactly match {before.product_id}.")
@@ -3990,7 +4232,15 @@ class _Handler(BaseHTTPRequestHandler):
                 "Device accepted the configuration but disappeared before verification "
                 "completed. Reconnect it and retry verification instead of resending."
             )
-        clean = {key: value for key, value in config.items() if key != "_provenance"}
+        portable = profile_metadata.portable_profile(
+            config,
+            key_layout=getattr(before, "key_layout", None),
+        )
+        clean = {
+            key: value
+            for key, value in portable["config"].items()
+            if key != "_provenance"
+        }
         store.save_current(
             after.product_id, clean, version=getattr(after, "version", None)
         )

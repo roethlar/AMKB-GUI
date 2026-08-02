@@ -440,7 +440,7 @@ def _canonical_dynamic_key_layout(
         "rotation",
     }
     for item in key_layout:
-        if not isinstance(item, Mapping) or not required.issubset(item):
+        if not isinstance(item, Mapping) or set(item) != required:
             return None
         index = item["index"]
         matrix_row = item["matrix_row"]
@@ -474,6 +474,7 @@ def _canonical_dynamic_key_layout(
             or y < 0
             or width <= 0
             or height <= 0
+            or rotation != 0
             or x + width > 100.0001
             or y + height > 100.0001
         ):
@@ -494,6 +495,31 @@ def _canonical_dynamic_key_layout(
         )
     canonical.sort(key=lambda item: (item["matrix_row"], item["matrix_col"]))
     return canonical
+
+
+def canonical_dynamic_key_layout(
+    product_id: str,
+    key_layout: object,
+) -> tuple[dict[str, int | float], ...] | None:
+    """Return the exact bounded portable projection for a dynamic layout.
+
+    Fixed families deliberately return no projection: their geometry is owned
+    by the built-in family descriptor and does not belong in saved profile
+    metadata.
+    """
+
+    model = led_model(product_id)
+    if model != "NEON":
+        return None
+    rows, columns = _KEYMAP_MATRICES[model]
+    canonical = _canonical_dynamic_key_layout(
+        key_layout,
+        rows=rows,
+        columns=columns,
+    )
+    if canonical is None:
+        return None
+    return tuple(dict(item) for item in canonical)
 
 
 def _keymap_descriptor(

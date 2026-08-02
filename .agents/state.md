@@ -32,6 +32,16 @@
   and the first substantive result once; `cl-17` returned `accepted` with
   guard and capability confirmed. Canonical evidence is in the redesign plan
   and `.agents/review/findings/cl-17.md`.
+- LSR-7 implementation is landed in the commit containing this record and is
+  non-vacuously mutation-proven. App-native Neon profiles carry strict,
+  bounded, pathless layout evidence; fixed-family output remains unchanged;
+  offline editing resolves embedded evidence before remembered evidence; and
+  both preflight and direct write reject a mismatched live layout before any
+  transport call. Protocol encoders strip app-only metadata. The complete
+  local gate passes 705 Python tests with 5 skips, 173 browser tests,
+  compile/syntax checks, and both package builds. Exact-head CI, Desktop
+  installers, and the one required `fable-review` remain pending; LSR-7 is not
+  closed.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -237,8 +247,10 @@
 
 ## Next
 
-- Implement, guard, verify, commit, push, and independently review LSR-7, the
-  approved offline-layout evidence and write-time verification slice. Do not
+- Push and qualify the exact LSR-7 implementation head, then run its one
+  required `fable-review` using explicit `claude-opus-5` at `high` over the
+  exact landed range. Use the first substantive result as returned and do not
+  retry, replace, or resubmit it without explicit owner approval. Do not
   restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
