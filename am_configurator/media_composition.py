@@ -150,7 +150,7 @@ class MediaRenderSuperseded(RuntimeError):
 
 @dataclass(frozen=True)
 class PreparedMediaSession:
-    """One pathless verified decoded source held by the bounded preview LRU."""
+    """One pathless verified decoded source, optionally retained for preview."""
 
     session_id: str
     catalog_id: str
@@ -1465,7 +1465,12 @@ class MediaRenderCoordinator:
             and source.get("duration_ms") == decoded.duration_ms
         )
 
-    def _create_session(self, catalog_id: str) -> PreparedMediaSession:
+    def _decode_session(
+        self,
+        catalog_id: str,
+        *,
+        retain: bool,
+    ) -> PreparedMediaSession:
         source, owned = self._source_asset(catalog_id, verify_content=False)
         byte_size = int(owned.record["byte_size"])
         with owned.open_verified() as stream:
@@ -1479,7 +1484,8 @@ class MediaRenderCoordinator:
         with self._lock:
             if self._closed:
                 raise ValueError("This media preview session is no longer available.")
-            self._purge_expired_locked(self._clock())
+            if retain:
+                self._purge_expired_locked(self._clock())
             session_id = secrets.token_urlsafe(32)
             while session_id in self._sessions:
                 session_id = secrets.token_urlsafe(32)
@@ -1490,6 +1496,8 @@ class MediaRenderCoordinator:
                 asset_sha256=decoded.sha256,
                 decoded=decoded,
             )
+            if not retain:
+                return prepared
             while self._sessions and (
                 len(self._sessions) >= MAX_PREVIEW_SESSIONS
                 or sum(
@@ -1509,6 +1517,12 @@ class MediaRenderCoordinator:
                 source_previews=OrderedDict(),
             )
             return prepared
+
+    def _create_session(self, catalog_id: str) -> PreparedMediaSession:
+        return self._decode_session(catalog_id, retain=True)
+
+    def _create_transient_session(self, catalog_id: str) -> PreparedMediaSession:
+        return self._decode_session(catalog_id, retain=False)
 
     def _get_session(
         self,
@@ -1851,8 +1865,10 @@ class MediaRenderCoordinator:
             current = self._sessions.get(session.session_id)
             if (
                 self._closed
-                or current is None
-                or current.prepared is not session
+                or (
+                    session_scoped
+                    and (current is None or current.prepared is not session)
+                )
             ):
                 raise ValueError("This media preview session is no longer available.")
             latest = self._latest_epochs.get(key)
@@ -1867,8 +1883,13 @@ class MediaRenderCoordinator:
                 current_entry = self._sessions.get(session.session_id)
                 if (
                     self._closed
-                    or current_entry is None
-                    or current_entry.prepared is not session
+                    or (
+                        session_scoped
+                        and (
+                            current_entry is None
+                            or current_entry.prepared is not session
+                        )
+                    )
                     or self._latest_epochs.get(key) != epoch
                 ):
                     raise MediaRenderSuperseded(
@@ -1944,7 +1965,7 @@ class MediaRenderCoordinator:
         self._start_active(catalog_id)
         try:
             session = (
-                self._create_session(catalog_id)
+                self._create_transient_session(catalog_id)
                 if preview_session_id is None
                 else self._get_session(catalog_id, preview_session_id)
             )
@@ -1970,7 +1991,9 @@ class MediaRenderCoordinator:
             return {
                 "catalog_id": catalog_id,
                 "epoch": epoch,
-                "preview_session_id": session.session_id,
+                "preview_session_id": (
+                    session.session_id if preview_session_id is not None else None
+                ),
                 "transform": prepared.transform.to_dict(),
                 "effects": [copy.deepcopy(effect) for effect in prepared.effects],
                 "resolved_transforms": [

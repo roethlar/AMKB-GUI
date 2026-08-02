@@ -844,6 +844,126 @@ class MediaRenderCoordinatorTests(unittest.TestCase):
                         source_frame_index=0,
                     )
 
+    def test_sessionless_renders_do_not_consume_preview_session_lru(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "library"
+            saved = SavedItemLibrary(root, minimum_free_bytes=1)
+            catalog = LibraryCatalog(
+                GeneratedAssetLibrary(root, minimum_free_bytes=1),
+                saved,
+            )
+            ids = [
+                self._bank_source(
+                    saved,
+                    name=f"source-{index}.png",
+                    payload=_still_bytes("PNG"),
+                )
+                for index in range(2)
+            ]
+            renderer = media_composition.MediaRenderCoordinator(catalog)
+            retained_session_id = renderer.prepare_preview_session(ids[0])[
+                "preview_session_id"
+            ]
+
+            results = [
+                renderer.render(
+                    ids[1],
+                    product_id="CB04",
+                    targets=["frames"],
+                    transform=self._transform(),
+                    epoch=epoch,
+                )
+                for epoch in (1, 2)
+            ]
+
+            source_png = renderer.source_frame_png(
+                ids[0],
+                preview_session_id=retained_session_id,
+                source_frame_index=0,
+            )
+            self.assertTrue(source_png.startswith(b"\x89PNG\r\n\x1a\n"))
+            self.assertEqual(
+                [None, None],
+                [item["preview_session_id"] for item in results],
+            )
+
+    def test_sessionless_render_does_not_depend_on_preview_lru_residency(
+        self,
+    ) -> None:
+        from am_configurator import device_mapping
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "library"
+            saved = SavedItemLibrary(root, minimum_free_bytes=1)
+            catalog = LibraryCatalog(
+                GeneratedAssetLibrary(root, minimum_free_bytes=1),
+                saved,
+            )
+            catalog_id = self._bank_source(
+                saved,
+                name="source.png",
+                payload=_still_bytes("PNG"),
+            )
+            renderer = media_composition.MediaRenderCoordinator(catalog)
+            real_compose = device_mapping.compose_media_frames_to_led_tracks
+            entered = threading.Event()
+            release = threading.Event()
+            calls_lock = threading.Lock()
+            calls = 0
+            failures: list[BaseException] = []
+
+            def delayed_compose(*args, **kwargs):
+                nonlocal calls
+                with calls_lock:
+                    calls += 1
+                    should_wait = calls == 1
+                if should_wait:
+                    entered.set()
+                    self.assertTrue(release.wait(5))
+                return real_compose(*args, **kwargs)
+
+            def first_render() -> None:
+                try:
+                    renderer.render(
+                        catalog_id,
+                        product_id="CB04",
+                        targets=["frames"],
+                        transform=self._transform(),
+                        epoch=1,
+                    )
+                except BaseException as exc:  # noqa: BLE001 - preserve worker failure
+                    failures.append(exc)
+
+            with patch.object(
+                device_mapping,
+                "compose_media_frames_to_led_tracks",
+                side_effect=delayed_compose,
+            ):
+                worker = threading.Thread(target=first_render)
+                worker.start()
+                self.assertTrue(entered.wait(5))
+                try:
+                    renderer.render(
+                        catalog_id,
+                        product_id="CB04",
+                        targets=["keyframes"],
+                        transform=self._transform(),
+                        epoch=1,
+                    )
+                    renderer.render(
+                        catalog_id,
+                        product_id="CB04",
+                        targets=["frames", "keyframes"],
+                        transform=self._transform(),
+                        epoch=1,
+                    )
+                finally:
+                    release.set()
+                    worker.join(5)
+
+            self.assertFalse(worker.is_alive())
+            self.assertEqual([], failures)
+
     def test_newer_epoch_supersedes_inflight_work_and_work_is_never_catalogued(
         self,
     ) -> None:
