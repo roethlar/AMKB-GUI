@@ -413,11 +413,7 @@ class MediaFramingNativeWindowTests(unittest.TestCase):
         application = mock.Mock()
         appkit = mock.Mock()
         app_helper = mock.Mock()
-        native_window = mock.Mock()
-        content_view = mock.Mock()
         appkit.NSApplication.sharedApplication.return_value = application
-        application.keyWindow.return_value = native_window
-        native_window.contentView.return_value = content_view
 
         with (
             mock.patch.object(media_framing_audit.sys, "platform", "darwin"),
@@ -436,15 +432,10 @@ class MediaFramingNativeWindowTests(unittest.TestCase):
             ],
             import_module.call_args_list,
         )
-        app_helper.callAfter.assert_called_once_with(mock.ANY)
+        app_helper.callAfter.assert_called_once_with(
+            application.activateIgnoringOtherApps_, True
+        )
         application.activateIgnoringOtherApps_.assert_not_called()
-
-        activate = app_helper.callAfter.call_args.args[0]
-        activate()
-
-        application.activateIgnoringOtherApps_.assert_called_once_with(True)
-        native_window.makeKeyAndOrderFront_.assert_called_once_with(None)
-        native_window.makeFirstResponder_.assert_called_once_with(content_view)
 
     def test_native_workflow_uses_direct_js_without_csp_blocked_eval(self) -> None:
         window = mock.Mock()
