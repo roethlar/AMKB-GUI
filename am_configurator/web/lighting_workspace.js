@@ -843,8 +843,17 @@
         };
       }
       case "IMPORTED_LIGHTING_CLOSED": {
+        const nextContext = {
+          ...state.context,
+          slot: event.slot === undefined ? state.context.slot : safeNonNegativeInteger(
+            event.slot,
+            "invalid_context",
+            "The lighting slot is invalid.",
+          ),
+          target: event.target === undefined ? state.context.target : safeTarget(event.target),
+        };
         return {
-          state: contextTransition(state, {...state.context}, {
+          state: contextTransition(state, nextContext, {
             state: {media: null, tool: "paint"},
             playheadIndex: 0,
           }),

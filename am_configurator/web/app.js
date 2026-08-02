@@ -766,11 +766,19 @@ function adoptImportedLighting(entry) {
   );
 }
 
-function closeImportedLightingReview({render=true}={}) {
+function closeImportedLightingReview({render:renderView=true}={}) {
   if(!state.importedLighting)return false;
+  const documentTargets=activeLedModel()?.targets||[];
+  if(documentTargets.length&&!documentTargets.some(target=>target.key===state.ledTarget)){
+    state.ledTarget=documentTargets[0].key;
+  }
   state.importedLighting=null;
-  dispatchLightingWorkspace({type:"IMPORTED_LIGHTING_CLOSED"});
-  if(render)render();
+  dispatchLightingWorkspace({
+    type:"IMPORTED_LIGHTING_CLOSED",
+    slot:state.ledSlot,
+    target:state.ledTarget,
+  });
+  if(renderView)render();
   return true;
 }
 

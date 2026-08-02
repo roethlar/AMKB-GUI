@@ -663,6 +663,33 @@ test("effect playback and accepted arrays cannot leak across workspace context c
   }
 });
 
+test("closing imported lighting restores the open document destination atomically", () => {
+  const imported = reduceLightingWorkspace(
+    createLightingWorkspace({
+      documentEpoch: 7,
+      slot: 5,
+      target: "frames",
+      tool: "paint",
+      route: "lighting/edit",
+    }),
+    {type: "IMPORTED_LIGHTING_OPENED", slot: 6, target: "axial"},
+  ).state;
+
+  const closed = reduceLightingWorkspace(imported, {
+    type: "IMPORTED_LIGHTING_CLOSED",
+    slot: 5,
+    target: "frames",
+  });
+
+  assert.equal(closed.state.context.slot, 5);
+  assert.equal(closed.state.context.target, "frames");
+  assert.equal(closed.state.tool, "paint");
+  assert.deepEqual(
+    closed.intents.map(intent => intent.type),
+    ["cancel-playback", "render-workspace"],
+  );
+});
+
 test("Source projection and Board projection select one accepted timeline entry", () => {
   let state = createLightingWorkspace({
     documentEpoch: 7,
