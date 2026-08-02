@@ -10,13 +10,14 @@ then clarified while approving the complete redesign plan.
   test, documentation, per-slice commits, and ordinary canonical pushes. It does
   not authorize any separately gated provider, hardware, security-setting,
   tag, release, or announcement action.
-- Every landed LSR implementation slice receives one synchronous defect review
-  through the `claude` codereview harness/job `fable-review`, with model
-  `claude-opus-5` and effort `high` passed explicitly over the exact parent to
-  implementation-commit range. Persist and use the first substantive result
-  regardless of presentation; do not discard, rerun, resubmit, or substitute a
-  model without explicit owner approval. Admitted findings follow the
-  codereview finding lifecycle and retain their actual review provenance.
+- External review follows `.agents/repo-guidance.md` under **Review Economy**;
+  it is not a per-slice ritual. Run one only on explicit owner request or when
+  a concrete material risk remains that local guards and CI cannot adequately
+  resolve, after stating that risk and the expected cost. A review already
+  launched is allowed to finish, and its first substantive result is used
+  regardless of presentation; never discard, rerun, resubmit, replace, or
+  substitute it without explicit owner approval. Admitted findings retain
+  their actual review provenance.
 - The normal `Save JSON` path includes one exact, namespaced top-level
   `_am_configurator` object when portable dynamic-layout evidence is available.
   It carries a versioned, bounded, server-validated layout projection and its

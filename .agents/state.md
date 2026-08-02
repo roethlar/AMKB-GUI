@@ -160,6 +160,23 @@
   Python gate advanced through compile and completed both fresh package builds;
   PTK then lost only the outer transport, so it was not resubmitted. All 185
   browser tests and syntax checks pass. No external review was launched.
+- LSR-10 commits `4162f19` and `98a163d` extend that evidence. Closing an
+  imported-lighting review no longer calls a shadowed renderer or renders an
+  imported-only target against the underlying document; both executable guards
+  were red before the repair and green after it. Audit schema v2 adds minimized
+  pathless app-native, portable Neon, AM Master full-profile, and AM 80
+  lighting fixtures. The passing Windows source WebView2 audit now covers all
+  six GIF/PNG/BMP viewport cases plus live Pulse output and parameter changes,
+  one Apply/Undo, reduced motion, captured-Blob app-native save/reopen,
+  missing-layout Head/Per-key behavior, embedded 89-key Neon geometry, exact
+  Head/Per-key re-import, Library save, one Apply/Undo, normalized ALICE open,
+  and CyberBoard restoration at 1000×680 and 1280×800. It reports no console or
+  layout findings; canonical machine-local evidence is
+  `.agents/review/lsr10-source-audit-11.local.json`. All 18 focused Python tests,
+  187 browser tests, compile/syntax checks, and both package builds pass. PTK
+  lost the full Python suite transport and reported its outcome unknown, so
+  that command was not silently resubmitted and is not claimed as evidence.
+  No external review was launched.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
