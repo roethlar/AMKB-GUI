@@ -584,7 +584,9 @@ _AUDIT_SCRIPT = r"""
       try {
         const value = await check();
         if (value) return value;
-      } catch (_) {}
+      } catch (error) {
+        if (error instanceof AuditFailure) throw error;
+      }
       await delay(25);
     }
     throw new AuditFailure(code);
@@ -644,6 +646,19 @@ _AUDIT_SCRIPT = r"""
     await readFiles(auditJsonInput(fixture.name, auditJsonBlob(fixture)), false);
     return fixture;
   }
+  const mediaImportFailureCode = prefix => {
+    const message = String(state.mediaImportStatus || "").toLowerCase();
+    const category = message.includes("pillow")
+      ? "pillow"
+      : message.includes("library")
+        ? "library"
+        : message.includes("decode") || message.includes("image")
+          ? "decode"
+          : message.includes("request failed")
+            ? "api"
+            : "unknown";
+    return `${prefix}_rejected:${category}`;
+  };
 
   async function catalogItems(filter) {
     const query = libraryCatalogQuery({filter, page: 1, limit: 100});
@@ -1306,12 +1321,24 @@ _AUDIT_SCRIPT = r"""
     );
     window.__mediaFramingAuditStep = "raw_import";
     document.querySelector("#import-media").click();
-    await waitFor(
-      () => state.mediaComposition?.source?.mime_type === fixture.mime_type
-        && state.mediaComposition.status === "ready",
-      "raw_import_timeout",
-      30000,
-    );
+    try {
+      await waitFor(
+        () => {
+          if (state.mediaImportError) {
+            throw new AuditFailure(mediaImportFailureCode("raw_import"));
+          }
+          return state.mediaComposition?.source?.mime_type === fixture.mime_type
+            && state.mediaComposition.status === "ready";
+        },
+        "raw_import_timeout",
+        30000,
+      );
+    } catch (error) {
+      if (error?.auditCode !== "raw_import_timeout") throw error;
+      const status = String(state.mediaComposition?.status || "none");
+      const boundedStatus = /^[a-z0-9_]{1,40}$/.test(status) ? status : "unknown";
+      throw new AuditFailure(`raw_import_timeout:${boundedStatus}`);
+    }
     requireAudit(pageFingerprint() === baselinePage, "import_changed_document");
     const importedItems = (await catalogItems("sources")).map(item => item.catalog_id);
     requireAudit(
@@ -1679,6 +1706,7 @@ _AUDIT_SCRIPT = r"""
     window.__mediaFramingAuditStep = "keyboard_input";
     const beforeKeyboard = overlayStyle(overlay);
     const beforeKeyboardTransform = JSON.stringify(state.sourceTransform);
+    stage.focus({focusVisible: true});
     stage.dispatchEvent(new KeyboardEvent("keydown", {
       bubbles: true,
       cancelable: true,

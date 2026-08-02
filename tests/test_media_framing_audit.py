@@ -186,6 +186,9 @@ class MediaFramingFixtureTests(unittest.TestCase):
         self.assertIn('late_source_advanced_early', script)
         self.assertIn('releaseLateSource()', script)
         self.assertIn('drag_stage_replaced_during_live_render', script)
+        self.assertIn('mediaImportFailureCode("raw_import")', script)
+        self.assertIn('raw_import_timeout:${boundedStatus}', script)
+        self.assertIn('stage.focus({focusVisible: true})', script)
 
         bridge = media_framing_audit._AuditMediaBridge((
             {"name": "bad.gif", "payload": b"not-media"},
