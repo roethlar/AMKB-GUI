@@ -4005,6 +4005,68 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self.assertEqual(409, status)
         self.assertEqual("document_stale", stale["code"])
 
+    def test_save_lighting_excludes_independent_tracks_on_another_timeline(
+        self,
+    ) -> None:
+        profile = _base_config("CB04")
+        profile["page_data"] = [_page(index) for index in range(8)]
+        profile["page_num"] = 8
+        profile["page_data"][5]["keyframes"] = {
+            "valid": 1,
+            "frame_num": 2,
+            "frame_data": [
+                {
+                    "frame_index": index,
+                    "frame_RGB": [f"#{index + 1:06X}"] * 90,
+                }
+                for index in range(2)
+            ],
+        }
+        profile["page_data"][5]["frames"] = {
+            "valid": 1,
+            "frame_num": 6,
+            "frame_data": [
+                {
+                    "frame_index": index,
+                    "frame_RGB": [f"#{index + 3:06X}"] * 200,
+                }
+                for index in range(6)
+            ],
+        }
+        status, synchronized = self._request(
+            "POST",
+            "/api/document/sync",
+            {"config": profile},
+        )
+        self.assertEqual(200, status)
+
+        status, saved = self._request(
+            "POST",
+            "/api/library/save/lighting",
+            {
+                "name": "Current CyberBoard display",
+                "document_revision": synchronized["revision"],
+                "slot": 5,
+                "target": "frames",
+                "source_catalog_id": None,
+                "transform": None,
+                "effects": [],
+            },
+        )
+
+        self.assertEqual(201, status)
+        composition = saved["item"]["composition"]
+        self.assertEqual({"frames"}, set(composition["tracks"]))
+        result_id = composition["rendered_asset_id"]
+        status, headers, payload = self._raw_request(
+            f"/api/library/assets/{saved['catalog_id']}/{result_id}"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("application/json", headers["Content-Type"])
+        mapped = json.loads(payload)
+        self.assertEqual({"frames"}, set(mapped["tracks"]))
+        self.assertEqual(6, mapped["tracks"]["frames"]["frame_count"])
+
     def test_media_upload_envelope_and_decode_failures_publish_nothing(self) -> None:
         from PIL import Image
 

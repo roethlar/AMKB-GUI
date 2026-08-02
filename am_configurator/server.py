@@ -816,7 +816,12 @@ def _lighting_composition_tracks(
 
     tracks: dict[str, dict[str, Any]] = {}
     track_metadata: dict[str, dict[str, Any]] = {}
+    included_tracks = {target}
+    if descriptor["family"] == "80" and target == "keyframes":
+        included_tracks.add("spotlight_frames")
     for track_name, target_descriptor in lighting.items():
+        if track_name not in included_tracks:
+            continue
         raw_track = page.get(track_name)
         if not isinstance(raw_track, Mapping) or raw_track.get("valid") != 1:
             continue
