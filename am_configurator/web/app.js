@@ -12,7 +12,7 @@ const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLaunchS
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const {canonicalizeSourceTransform, defaultSourceTransform, interpolateMoveZoom, presetSourceTransform, renderColorEffect, resolveSourceGeometry, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
-const {boardFrameSetFromDocument, boardFrameSetFromLocalEffect, boardFrameSetFromMappedResult, captureWorkspaceAsyncContext, createLightingPlaybackRuntime, createLightingWorkspace, friendlyWorkspaceError, paintBoardProjection, reduceLightingWorkspace, selectBoardProjection, workspaceAsyncContextMatches, workspaceContextKey, workspaceDestinationKey} = LightingWorkspace;
+const {boardFrameSetFromDocument, boardFrameSetFromLocalEffect, boardFrameSetFromMappedResult, captureWorkspaceAsyncContext, createLightingPlaybackRuntime, createLightingWorkspace, friendlyWorkspaceError, paintBoardProjection, reduceLightingWorkspace, selectBoardProjection, selectSourceProjection, workspaceAsyncContextMatches, workspaceContextKey, workspaceDestinationKey} = LightingWorkspace;
 const {
   compatibleProfileSections,
   createLibraryRequestEpochs,
@@ -29,6 +29,9 @@ const {
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
 let activeSourceTransformController = null;
+const sourceProjectionUrls = new Map();
+const sourceProjectionLoads = new Map();
+const SOURCE_PROJECTION_CACHE_LIMIT = 2;
 
 function restoredLightingState() {
   let saved = {};
@@ -74,7 +77,6 @@ const state = {
   mediaAdvancedOpen: false,
   effectsAdvancedOpen: false,
   sourceTransform: defaultSourceTransform("box"),
-  sourcePreviewMode: "result",
   mediaComposition: null,
   mediaRenderEpoch: 0,
   appliedLightingProvenance: null,
@@ -199,6 +201,25 @@ const lightingPlaybackRuntime = createLightingPlaybackRuntime({
   lifecycleTarget: window,
 });
 
+function showLightingEditMessage(markup) {
+  const message = $("#lighting-edit-message");
+  const workspace = $("#lighting-workspace-shell");
+  if (!message || !workspace) return;
+  message.hidden = false;
+  message.innerHTML = markup;
+  workspace.hidden = true;
+}
+
+function showLightingWorkspace() {
+  const message = $("#lighting-edit-message");
+  const workspace = $("#lighting-workspace-shell");
+  if (!message || !workspace) return false;
+  message.hidden = true;
+  message.replaceChildren();
+  workspace.hidden = false;
+  return true;
+}
+
 function renderLightingBoardProjection() {
   const board = $("#led-canvas");
   const content = $("#lighting-edit-content");
@@ -209,6 +230,30 @@ function renderLightingBoardProjection() {
     frame_items: $$(".frame-item", content),
   });
   if (!projection) return;
+  const frameCount = projection.frame_set.frame_count;
+  const scrubber = $("#lighting-timeline-scrubber");
+  if (scrubber) {
+    scrubber.max = String(Math.max(0, frameCount - 1));
+    scrubber.value = String(projection.index);
+    scrubber.disabled = frameCount <= 1;
+  }
+  const position = $("#lighting-frame-position");
+  if (position) position.textContent = `Frame ${projection.index + 1} of ${frameCount}`;
+  const loop = $("#lighting-loop-status");
+  if (loop) loop.textContent = frameCount > 1 ? "Loops continuously" : "Single frame";
+  const previous = $("#lighting-previous-frame");
+  if (previous) previous.disabled = frameCount <= 1;
+  const next = $("#lighting-next-frame");
+  if (next) next.disabled = frameCount <= 1;
+  const play = $("#play-led");
+  if (play) {
+    play.disabled = frameCount <= 1;
+    play.setAttribute("aria-label", state.playing ? "Pause lighting" : "Play lighting");
+    play.textContent = state.playing ? "Pause" : "Play";
+  }
+  updateLightingWorkspaceStatus(projection);
+  renderLightingSourceProjection();
+  void loadLightingSourceProjection();
   if (lightingWorkspace.tool === "animate" && localAnimationDraftMatches()) {
     state.localAnimationPreviewFrame = projection.index;
     const slider = $("#animate-draft-frame");
@@ -1841,9 +1886,7 @@ function openLibrarySource(catalogId) {
     type:"MEDIA_OPENED",
     media:lightingMediaIdentity(state.mediaComposition),
   });
-  state.sourcePreviewMode="source";
   navigateTo(ROUTES.EDIT);
-  void loadMediaCompositionSourceAsset();
   void renderMediaCompositionPreview();
 }
 
@@ -2088,7 +2131,7 @@ function renderLightingShell() {
 
   if (route === ROUTES.EDIT) {
     if (!available.available) {
-      $("#lighting-edit-content").innerHTML = documentRequirementMarkup("Edit works directly on the custom lighting slots in an open document.");
+      showLightingEditMessage(documentRequirementMarkup("Edit works directly on the custom lighting slots in an open document."));
     } else renderLightingEdit();
   }
   if (route === ROUTES.LIBRARY) renderLibrary();
@@ -2603,7 +2646,6 @@ function refreshMediaCompositionDestination() {
     });
     const context=mediaGeometryContext(draft);
     if(context){
-      state.sourcePreviewMode="source";
       const canonical=canonicalizeSourceTransform(
         state.sourceTransform,
         context.sourceSize,
@@ -2643,12 +2685,6 @@ function updateMediaCompositionTransform(transform) {
   return checked;
 }
 
-function mediaCompositionSourceUrl() {
-  const draft=state.mediaComposition;
-  if(!draft||draft.status==="cancelled")return "";
-  return state.library.assetUrls.get(`${draft.catalogId}:${draft.source.asset_id}`)||"";
-}
-
 function activeMediaPreviewTrack() {
   if(state.studioTool!=="source"||state.mediaComposition?.status!=="ready")return null;
   const track=state.mediaComposition.mappedResult?.tracks?.[state.ledTarget];
@@ -2665,7 +2701,7 @@ function lightingMediaIdentity(draft=state.mediaComposition) {
   };
 }
 
-function sourceLoadMatchesWorkspace(load) {
+function mediaLoadMatchesWorkspace(load) {
   const media=lightingMediaIdentity();
   return Boolean(
     load
@@ -2679,16 +2715,120 @@ function sourceLoadMatchesWorkspace(load) {
   );
 }
 
-async function loadMediaCompositionSourceAsset() {
-  const draft=state.mediaComposition;
-  if(!draft||draft.status==="cancelled")return;
+async function ensureMediaPreviewSession(draft=state.mediaComposition) {
+  if(!draft||draft.status==="cancelled")return null;
+  const existing=lightingWorkspace.media?.preview_session_id;
+  if(existing)return existing;
   const load={
     ...captureWorkspaceAsyncContext(lightingWorkspace),
     catalog_id:String(draft.catalogId||""),
     asset_id:String(draft.source.asset_id||""),
   };
-  await loadLibraryAsset(draft.catalogId,draft.source.asset_id);
-  if(sourceLoadMatchesWorkspace(load))renderLightingEdit();
+  const result=await api(`/api/library/items/${libraryCatalogPath(draft.catalogId)}/preview-session`,{
+    method:"POST",
+    body:"{}",
+  });
+  if(!mediaLoadMatchesWorkspace(load))return null;
+  const decision=dispatchLightingWorkspace({
+    type:"MEDIA_SESSION_READY",
+    catalog_id:load.catalog_id,
+    asset_id:load.asset_id,
+    preview_session_id:result.preview_session_id,
+    captured:load,
+  },{renderWorkspace:true});
+  return decision.ignored?null:result.preview_session_id;
+}
+
+function sourceProjectionCacheKey(projection) {
+  return projection
+    ?`${projection.catalog_id}:${projection.preview_session_id}:${projection.source_frame_index}`
+    :"";
+}
+
+function cachedSourceProjectionUrl(projection) {
+  const key=sourceProjectionCacheKey(projection);
+  const url=sourceProjectionUrls.get(key)||"";
+  if(url){
+    sourceProjectionUrls.delete(key);
+    sourceProjectionUrls.set(key,url);
+  }
+  return url;
+}
+
+function rememberSourceProjectionUrl(key,url) {
+  const previous=sourceProjectionUrls.get(key);
+  if(previous&&previous!==url)URL.revokeObjectURL(previous);
+  sourceProjectionUrls.delete(key);
+  sourceProjectionUrls.set(key,url);
+  while(sourceProjectionUrls.size>SOURCE_PROJECTION_CACHE_LIMIT){
+    const oldest=sourceProjectionUrls.entries().next().value;
+    sourceProjectionUrls.delete(oldest[0]);
+    URL.revokeObjectURL(oldest[1]);
+  }
+}
+
+function sourceProjectionLoadMatchesWorkspace(load) {
+  const projection=selectSourceProjection(lightingWorkspace);
+  return Boolean(
+    mediaLoadMatchesWorkspace(load)
+    &&projection
+    &&projection.context_key===load.context_key
+    &&projection.preview_session_id===load.preview_session_id
+    &&projection.source_frame_index===load.source_frame_index
+  );
+}
+
+function renderLightingSourceProjection() {
+  const image=$("#lighting-source-frame");
+  const placeholder=$("#lighting-source-placeholder");
+  if(!image||!placeholder)return;
+  const projection=selectSourceProjection(lightingWorkspace);
+  const url=cachedSourceProjectionUrl(projection);
+  image.hidden=!url;
+  placeholder.hidden=Boolean(url);
+  if(url&&image.src!==url)image.src=url;
+  if(!url)placeholder.textContent=projection?"Loading this source frame…":"Building the synchronized preview…";
+}
+
+async function loadLightingSourceProjection() {
+  const projection=selectSourceProjection(lightingWorkspace);
+  const key=sourceProjectionCacheKey(projection);
+  if(!projection||sourceProjectionUrls.has(key)||sourceProjectionLoads.has(key))return;
+  const controller=new AbortController();
+  const load={
+    ...captureWorkspaceAsyncContext(lightingWorkspace),
+    context_key:projection.context_key,
+    catalog_id:projection.catalog_id,
+    asset_id:String(lightingWorkspace.media?.asset_id||""),
+    preview_session_id:projection.preview_session_id,
+    source_frame_index:projection.source_frame_index,
+  };
+  sourceProjectionLoads.set(key,controller);
+  try{
+    const query=new URLSearchParams({
+      preview_session_id:projection.preview_session_id,
+      source_frame_index:String(projection.source_frame_index),
+    });
+    const response=await fetch(
+      `/api/library/items/${libraryCatalogPath(projection.catalog_id)}/source-frame?${query}`,
+      {headers:{"X-AM-Token":token},signal:controller.signal},
+    );
+    if(!response.ok)throw new Error("This source frame could not be loaded.");
+    const url=URL.createObjectURL(await response.blob());
+    if(!sourceProjectionLoadMatchesWorkspace(load)){
+      URL.revokeObjectURL(url);
+      return;
+    }
+    rememberSourceProjectionUrl(key,url);
+    renderLightingSourceProjection();
+  }catch(error){
+    if(error.name!=="AbortError"&&sourceProjectionLoadMatchesWorkspace(load)){
+      const placeholder=$("#lighting-source-placeholder");
+      if(placeholder)placeholder.textContent="This source frame could not be shown. Create the preview again.";
+    }
+  }finally{
+    if(sourceProjectionLoads.get(key)===controller)sourceProjectionLoads.delete(key);
+  }
 }
 
 function mediaCompositionStatusText(draft) {
@@ -2705,47 +2845,58 @@ function mediaCompositionStatusText(draft) {
             :"Import media to save it to Library and start framing.";
 }
 
+function updateLightingWorkspaceStatus(projection, mediaStatus="") {
+  const status=$("#lighting-workspace-status");
+  if(!status)return;
+  const draft=state.mediaComposition?.status==="cancelled"?null:state.mediaComposition;
+  const mediaActive=state.studioTool==="source"&&Boolean(draft);
+  const failed=Boolean(mediaActive&&draft?.status==="failed");
+  const workspaceError=lightingWorkspace.preview.error?.message||"";
+  if(mediaActive){
+    status.textContent=`${mediaStatus||mediaCompositionStatusText(draft)} The keyboard is unchanged.`;
+  }else if(projection?.frame_set.provenance==="local_effect"){
+    status.textContent="Effect preview. Apply to lighting slot changes only this open document. The keyboard is unchanged.";
+  }else if(workspaceError){
+    status.textContent=`${workspaceError} Nothing was changed.`;
+  }else{
+    status.textContent="Editing this lighting slot in the open document. The keyboard is unchanged until you choose Write to keyboard.";
+  }
+  status.classList.toggle("failed",failed||Boolean(workspaceError));
+}
+
 function updateSourceTransformView() {
+  const draft=state.mediaComposition?.status==="cancelled"?null:state.mediaComposition;
+  const mediaStatus=mediaCompositionStatusText(draft);
+  updateLightingWorkspaceStatus(selectBoardProjection(lightingWorkspace),mediaStatus);
   const stage=$("#media-compositor-stage");
-  if(!stage)return;
   const transform=state.sourceTransform;
-  const context=mediaGeometryContext();
-  const sourceOverlay=stage.querySelector(".media-source-overlay");
-  const sourceViewport=stage.querySelector(".media-source-viewport");
-  const plane=stage.querySelector(".media-compositor-plane");
-  const sourceVisible=Boolean(
-    context
-    &&sourceOverlay
-    &&state.studioTool==="source"
-    &&state.sourcePreviewMode==="source"
-  );
-  stage.classList.toggle(
-    "source-ready",
-    Boolean(context&&sourceOverlay&&state.studioTool==="source"),
-  );
-  stage.classList.toggle("source-visible",sourceVisible);
-  sourceViewport?.setAttribute("aria-hidden",String(!sourceVisible));
-  if(context&&plane){
-    const primary=context.destinationSizes[context.primaryIndex];
-    stage.style.setProperty("--destination-width",String(primary.width));
-    stage.style.setProperty("--destination-height",String(primary.height));
-    if(sourceOverlay){
-      const box=resolveSourceGeometry(
-        context.sourceSize,
-        context.destinationSizes,
-        transform,
-      ).boxes[context.primaryIndex];
-      sourceOverlay.style.setProperty("--source-left",`${box.left/primary.width*100}%`);
-      sourceOverlay.style.setProperty("--source-top",`${box.top/primary.height*100}%`);
-      sourceOverlay.style.setProperty("--source-width",`${box.rendered_width/primary.width*100}%`);
-      sourceOverlay.style.setProperty("--source-height",`${box.rendered_height/primary.height*100}%`);
+  if(stage){
+    const context=mediaGeometryContext();
+    const sourceImage=stage.querySelector(".source-frame-image");
+    const sourceViewport=stage.querySelector(".media-source-viewport");
+    const plane=stage.querySelector(".media-compositor-plane");
+    stage.classList.toggle(
+      "source-ready",
+      Boolean(context&&sourceImage&&state.studioTool==="source"),
+    );
+    sourceViewport?.setAttribute("aria-hidden","false");
+    if(context&&plane){
+      const primary=context.destinationSizes[context.primaryIndex];
+      stage.style.setProperty("--destination-width",String(primary.width));
+      stage.style.setProperty("--destination-height",String(primary.height));
+      if(sourceImage){
+        const box=resolveSourceGeometry(
+          context.sourceSize,
+          context.destinationSizes,
+          transform,
+        ).boxes[context.primaryIndex];
+        sourceImage.style.setProperty("--source-left",`${box.left/primary.width*100}%`);
+        sourceImage.style.setProperty("--source-top",`${box.top/primary.height*100}%`);
+        sourceImage.style.setProperty("--source-width",`${box.rendered_width/primary.width*100}%`);
+        sourceImage.style.setProperty("--source-height",`${box.rendered_height/primary.height*100}%`);
+      }
     }
   }
-  $$("[data-source-preview]").forEach(button=>{
-    const selected=button.dataset.sourcePreview===state.sourcePreviewMode;
-    button.classList.toggle("active",selected);
-    button.setAttribute("aria-pressed",String(selected));
-  });
   const zoom=$("#source-zoom");
   if(zoom)zoom.value=String(Math.round(transform.scale_x*100));
   const zoomLabel=$("#source-zoom-label");
@@ -2760,12 +2911,6 @@ function updateSourceTransformView() {
   if(heightValue)heightValue.textContent=`${Math.round(transform.scale_y*100)}%`;
   const stretch=$("#source-stretch");
   if(stretch)stretch.checked=!transform.aspect_locked;
-  const draft=state.mediaComposition?.status==="cancelled"?null:state.mediaComposition;
-  const status=$(".media-composition-status");
-  if(status){
-    status.textContent=mediaCompositionStatusText(draft);
-    status.classList.toggle("failed",draft?.status==="failed");
-  }
   const preview=$("#media-compose-preview");
   if(preview)preview.disabled=!draft||draft.status==="rendering";
   const apply=$("#media-compose-apply");
@@ -2775,7 +2920,6 @@ function updateSourceTransformView() {
 }
 
 function activateSourceTransformView() {
-  state.sourcePreviewMode="source";
   updateSourceTransformView();
 }
 
@@ -2865,9 +3009,7 @@ async function importMedia(input) {
       type:"MEDIA_OPENED",
       media:lightingMediaIdentity(state.mediaComposition),
     });
-    state.sourcePreviewMode="source";
     renderLightingEdit();
-    void loadMediaCompositionSourceAsset();
     await renderMediaCompositionPreview();
     toast(
       payload.deduplicated?"Imported media reopened":"Imported media saved to Library",
@@ -2901,12 +3043,15 @@ async function renderMediaCompositionPreview() {
   const workspaceRequestContextKey=lightingWorkspace.preview.request_context_key;
   renderLightingEdit();
   try{
+    const previewSessionId=await ensureMediaPreviewSession(draft);
+    if(!previewSessionId)return;
     const result=await api(`/api/library/items/${libraryCatalogPath(draft.catalogId)}/render`,{method:"POST",body:JSON.stringify({
       product_id:draft.destination.productId,
       targets:draft.destination.targets,
       transform:draft.transform,
       effects:draft.effects,
       epoch,
+      preview_session_id:previewSessionId,
     })});
     if(state.mediaComposition?.catalogId!==draft.catalogId)return;
     const current=state.mediaComposition;
@@ -2926,6 +3071,7 @@ async function renderMediaCompositionPreview() {
         revision:lightingWorkspace.preview.accepted_epoch,
       },
       mappedResult:completed.mappedResult,
+      timeline:result.preview_timeline,
       provenance:"media_render",
       targetLengths:requestTargetLengths,
       allowedDurations:LED_SPEEDS,
@@ -2943,7 +3089,6 @@ async function renderMediaCompositionPreview() {
     if(accepted.ignored)return;
     state.mediaComposition=completed;
     state.sourceTransform=completed.transform;
-    state.sourcePreviewMode="result";
   }catch(error){
     if(state.mediaComposition?.catalogId!==draft.catalogId)return;
     const failed=dispatchLightingWorkspace({
@@ -3329,11 +3474,6 @@ function wireStudioInspector() {
   $("#media-compose-apply")?.addEventListener("click",applyMediaCompositionDraft);
   $("#media-compose-cancel")?.addEventListener("click",cancelMediaComposition);
 
-  $$("[data-source-preview]").forEach(button=>button.addEventListener("click",()=>{
-    if(button.disabled)return;
-    state.sourcePreviewMode=button.dataset.sourcePreview;
-    updateSourceTransformView();
-  }));
   $$("[data-source-preset]").forEach(button=>button.addEventListener("click",()=>applySourceTransformPreset(button.dataset.sourcePreset)));
   $("#source-stretch")?.addEventListener("change",event=>{
     const locked=!event.target.checked;
@@ -3372,7 +3512,7 @@ function wireStudioInspector() {
   });
   const stage=$("#media-compositor-stage");
   const plane=stage?.querySelector(".media-compositor-plane");
-  if(stage&&plane&&stage.querySelector(".media-source-overlay")&&mediaGeometryContext()){
+  if(stage&&plane&&stage.querySelector(".source-frame-image")&&mediaGeometryContext()){
     activeSourceTransformController=wireSourceTransformStage(stage,{
       isActive:()=>state.studioTool==="source",
       activate:activateSourceTransformView,
@@ -3427,6 +3567,7 @@ function currentLightingBoardFrameSet({model, page, track, mediaPreviewTrack, ac
     return boardFrameSetFromMappedResult({
       context: lightingWorkspaceFrameContext("media_render"),
       mappedResult: state.mediaComposition.mappedResult,
+      timeline: lightingWorkspace.media?.preview_timeline??null,
       provenance: "media_render",
       ...options,
     });
@@ -3459,15 +3600,15 @@ function renderLightingEdit() {
   activeSourceTransformController?.teardown();
   activeSourceTransformController=null;
   if (!pageData().length) {
-    $("#lighting-edit-content").innerHTML=`<div class="empty-state lighting-edit-empty"><p class="eyebrow">Key-only export</p><h1>No LED pages loaded.</h1><p>Merge the matching lighting JSON to preserve your existing effects, or create three blank custom slots.</p><div class="header-controls"><button id="merge-led" class="button ghost large">Merge lighting JSON</button><button id="create-led" class="button primary large">Create blank slots</button></div></div>`;
-    $("#merge-led").addEventListener("click",()=>$("#merge-input").click());
-    $("#create-led").addEventListener("click",createLedPages);
+    showLightingEditMessage(`<div class="empty-state lighting-edit-empty"><p class="eyebrow">Key-only export</p><h1>No LED pages loaded.</h1><p>Merge the matching lighting JSON to preserve your existing effects, or create three blank custom slots.</p><div class="header-controls"><button id="merge-led" class="button ghost large">Merge lighting JSON</button><button id="create-led" class="button primary large">Create blank slots</button></div></div>`);
+    $("#merge-led")?.addEventListener("click",()=>$("#merge-input").click());
+    $("#create-led")?.addEventListener("click",createLedPages);
     return;
   }
   const page = getPage(state.ledSlot);
   const model=activeLedModel();
   if (!model) {
-    $("#lighting-edit-content").innerHTML=unsupportedDeviceNotice("painting these pages");
+    showLightingEditMessage(unsupportedDeviceNotice("painting these pages"));
     return;
   }
   const targets=model.targets;
@@ -3509,7 +3650,7 @@ function renderLightingEdit() {
   // identity map is a plausible-looking but wrong layout, and a user painting
   // against it would be authoring positions that do not exist on the device.
   if(!model.keyMap&&!model.displayMap&&!model.physicalLayout&&!servedTarget){
-    $("#lighting-edit-content").innerHTML=geometryUnavailableNotice();
+    showLightingEditMessage(geometryUnavailableNotice());
     return;
   }
   const columns=state.ledTarget==="frames"?40:state.ledTarget==="spotlight_frames"?7:(model.keyColumns||servedTarget?.width);
@@ -3521,7 +3662,7 @@ function renderLightingEdit() {
       :null;
   const neonAxial=productFamily(productId())==="NEON"&&state.ledTarget==="axial";
   if(neonAxial&&!physicalLayout){
-    $("#lighting-edit-content").innerHTML=geometryUnavailableNotice();
+    showLightingEditMessage(geometryUnavailableNotice());
     return;
   }
   const pixelMap=physicalLayout?physicalLayout.map(item=>item.index):state.ledTarget==="keyframes"?(model.keyMap||servedTarget?.map):state.ledTarget==="spotlight_frames"?[0,1,2,3,4,5,6]:(model.displayMap||servedTarget?.map||Array.from({length},(_,index)=>index));
@@ -3569,14 +3710,10 @@ function renderLightingEdit() {
   const edgeTools=edgeAutomation?`<div class="control-group"><label class="control-label">Whole edge animation</label><div class="button-row"><button id="edge-static" class="button ghost">Static color</button><button id="edge-pulse" class="button ghost">Pulse color</button></div><button id="edge-hold" class="button ghost wide-button">Hold painted frame</button><small class="control-help">Generates ${keyFrameCount} edge frames automatically to match the key animation. “Hold” preserves the seven colors painted in the current frame.</small></div>`:"";
   const targetLabel=targets.find(t=>t.key===state.ledTarget)?.label||state.ledTarget;
   const mediaDraft=state.mediaComposition?.status==="cancelled"?null:state.mediaComposition;
-  const mediaSourceUrl=mediaCompositionSourceUrl();
+  const sourceActive=state.studioTool==="source"&&Boolean(mediaDraft);
   const primaryDestination=mediaDestinationSize();
-  const sourceReady=Boolean(mediaSourceUrl&&mediaSourceSize()&&primaryDestination);
-  const sourceVisible=sourceReady
-    &&state.studioTool==="source"
-    &&state.sourcePreviewMode==="source";
+  const sourceReady=Boolean(sourceActive&&mediaSourceSize()&&primaryDestination);
   const sourceDisabled=sourceReady?"":"disabled";
-  const mediaStatus=mediaCompositionStatusText(mediaDraft);
   const familyFrameCap=Math.min(256,activeFamilySpec().frameCap||256);
   const fixedEdgeFrameCount=edgeAutomation&&keyFrameCount>=2;
   const edgeAnimationUnavailable=edgeAutomation&&keyFrameCount<2;
@@ -3595,14 +3732,12 @@ function renderLightingEdit() {
       </div>`;
   const sourceBody=`<div id="studio-source-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-source-tab" ${state.studioTool==="source"?"":"hidden"}>
         <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Imported media</h3><input id="media-input" type="file" hidden><div class="gif-import-row"><button id="import-media" class="button ghost">${gifButtonLabel}</button></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
+        <div class="media-composition-actions"><button id="media-compose-preview" class="button ghost" ${sourceReady&&mediaDraft?.status!=="rendering"?"":"disabled"}>Preview</button><button id="media-compose-apply" class="button primary" ${mediaDraftCanApply(mediaDraft)?"":"disabled"}>Apply to lighting slot</button><button id="media-compose-cancel" class="button ghost" ${mediaDraft?"":"disabled"}>Cancel</button></div>
         <div class="control-group source-transform-controls" aria-disabled="${String(!sourceReady)}"><span class="control-label">Framing</span><div class="source-preset-grid"><button class="button ghost" data-source-preset="fit" ${sourceDisabled}>Fit</button><button class="button ghost" data-source-preset="fill" ${sourceDisabled}>Fill</button><button class="button ghost" data-source-preset="center" ${sourceDisabled}>Center</button><button class="button ghost" data-source-preset="reset" ${sourceDisabled}>Reset</button></div><label id="source-zoom-label" class="control-label secondary-label" for="source-zoom">${state.sourceTransform.aspect_locked?"Zoom":"Width"}</label><div class="range-row"><input id="source-zoom" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_x*100)}" ${sourceDisabled}><span id="source-zoom-value" class="range-value">${Math.round(state.sourceTransform.scale_x*100)}%</span></div><small class="control-help">${sourceReady?"Drag on the canvas to pan; use the wheel or sliders to resize.":"Import media to save it to Library and open the framing controls."}</small></div>
         <details id="media-advanced" class="advanced-disclosure" ${state.mediaAdvancedOpen?"open":""}><summary>Advanced</summary>
           <div class="control-group"><label class="control-label" for="gif-resample">Sampling method</label><select id="gif-resample" class="select-field" aria-label="Media sampling method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select><small class="control-help">How the imported picture is resampled down to the lights on this keyboard.</small></div>
           <div class="control-group"><span class="control-label">Independent axes</span><label class="check-row"><input id="source-stretch" type="checkbox" ${state.sourceTransform.aspect_locked?"":"checked"} ${sourceDisabled}><span>Stretch width and height independently</span></label><div id="source-height-control" ${state.sourceTransform.aspect_locked?"hidden":""}><label class="control-label secondary-label" for="source-height">Height</label><div class="range-row"><input id="source-height" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_y*100)}" ${sourceDisabled}><span id="source-height-value" class="range-value">${Math.round(state.sourceTransform.scale_y*100)}%</span></div></div></div>
         </details>
-        <div class="control-group"><span class="control-label">Canvas preview</span><div class="segmented source-preview-toggle" role="group" aria-label="Canvas preview"><button type="button" data-source-preview="result" aria-pressed="${String(state.sourcePreviewMode==="result")}" class="${state.sourcePreviewMode==="result"?"active":""}">LED result</button><button type="button" data-source-preview="source" aria-pressed="${String(state.sourcePreviewMode==="source")}" class="${state.sourcePreviewMode==="source"?"active":""}" ${sourceDisabled}>Imported media</button></div></div>
-        <div class="media-composition-status ${mediaDraft?.status==="failed"?"failed":""}" aria-live="polite">${esc(mediaStatus)}</div>
-        <div class="media-composition-actions"><button id="media-compose-preview" class="button ghost" ${sourceReady&&mediaDraft?.status!=="rendering"?"":"disabled"}>Preview</button><button id="media-compose-apply" class="button primary" ${mediaDraftCanApply(mediaDraft)?"":"disabled"}>Apply to lighting slot</button><button id="media-compose-cancel" class="button ghost" ${mediaDraft?"":"disabled"}>Cancel</button></div>
       </div>`;
   const animateBody=`<div id="studio-animate-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-animate-tab" ${state.studioTool==="animate"?"":"hidden"}>
         <div class="control-group"><label class="control-label" for="animate-effect">Animate this</label><select id="animate-effect" class="select-field"><option value="pulse" ${state.localAnimationEffect==="pulse"?"selected":""}>Pulse</option><option value="hue_cycle" ${state.localAnimationEffect==="hue_cycle"?"selected":""}>Hue cycle</option><option value="sweep" ${state.localAnimationEffect==="sweep"?"selected":""}>Sweep</option><option value="shimmer" ${state.localAnimationEffect==="shimmer"?"selected":""}>Shimmer</option><option value="move_zoom" ${state.localAnimationEffect==="move_zoom"?"selected":""} ${moveZoomReady?"":"disabled"}>Move &amp; zoom${moveZoomReady?"":" · still only"}</option></select><small class="control-help">Builds a preview from the selected frame on this computer. No AI or network request is used.</small></div>
@@ -3620,13 +3755,22 @@ function renderLightingEdit() {
     activeDraft||mediaPreviewActive?"Preview":"",
   ].filter(Boolean).join(" · ")||"Editing this slot";
   const generationPanel=aiReady()?`<section id="studio-generate-panel" class="studio-tool-panel lighting-generate-tool" role="tabpanel" aria-labelledby="studio-generate-tab" ${state.studioTool==="generate"?"":"hidden"}><div id="lighting-generate-tool" tabindex="-1"><div class="studio-panel-heading"><strong id="lighting-generate-title">Generate lighting with AI</strong><small>Lighting effect · ${esc(targetLabel)}</small></div><div id="lighting-generate-content" aria-live="polite"></div></div></section>`:"";
-  $("#lighting-edit-content").innerHTML=`<div class="lighting-edit-shell"><div class="led-layout">
-      <aside class="card frame-list" aria-label="${previewTimelineActive?'Preview':'Animation'} frames"><div class="card-header"><strong>${previewTimelineActive?'Preview frames':'Frames'}</strong><small>${timelineFrames.length}</small></div><div class="frame-items">${timelineFrames.map((item,i)=>`<button class="frame-item ${i===state.ledFrame?'active':''}" data-frame="${i}" aria-pressed="${i===state.ledFrame}" aria-label="Frame ${i+1}${i===state.ledFrame?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===state.ledFrame?(previewTimelineActive?'Previewing':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="card-body button-row"><button id="add-frame" class="button ghost" ${previewTimelineActive?'disabled':''}>+ Duplicate</button><button id="remove-frame" class="button ghost" ${timelineFrames.length<=1||previewTimelineActive?'disabled':''}>Delete</button></div></aside>
-      <section class="card led-canvas-card" aria-label="LED canvas"><div class="card-header led-canvas-heading"><div><strong>${esc(model.name)} · ${esc(targetLabel)}</strong><small>${canvasSubtitle}</small><details class="advanced-disclosure technical-details"><summary>Technical details</summary><p class="control-help">${mappedCount} of ${length} stored colors are mapped to lights on this keyboard${raster?` · ${esc(raster)} grid`:""}.</p></details></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost" title="Keep a reusable copy of this slot in Library. Separate from Apply, which only changes the open document.">Save to Library</button><button id="play-led" class="icon-button" aria-label="${state.playing?'Stop animation':'Play animation'}">${state.playing?'■':'▶'}</button></div></div><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${activeDraft||mediaPreviewTrack?'draft-preview':''}" data-lighting-destination-key="${esc(workspaceDestinationKey(lightingWorkspace))}" role="region" aria-label="${activeDraft||mediaPreviewTrack?'Preview of this lighting':'Paint the selected animation frame'}"><div id="media-compositor-stage" class="media-compositor-stage ${sourceReady&&state.studioTool==="source"?'source-ready':''} ${sourceVisible?'source-visible':''}" tabindex="${sourceReady&&state.studioTool==="source"?'0':'-1'}" aria-label="Imported media framing canvas" style="--destination-width:${primaryDestination?.width||1};--destination-height:${primaryDestination?.height||1}"><div class="media-compositor-plane" aria-hidden="true">${mediaDraft?`<div class="media-source-viewport" aria-hidden="${String(!sourceVisible)}">${mediaSourceUrl?`<img class="media-source-overlay" src="${esc(mediaSourceUrl)}" alt="">`:""}</div>`:""}</div>${pixelCanvas}<div class="destination-overlay" aria-hidden="true"></div></div></div></section>
-      <aside class="card led-controls studio-inspector" aria-label="Lighting controls"><div class="studio-tool-tabs ${aiReady()?'with-generate':''}" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Import media</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Effects</button>${generationTab}</div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}${generationPanel}</div></aside>
-    </div></div>`;
+  const timelineIndex=boardProjection?.index??0;
+  const sourcePane=sourceActive?`<section id="lighting-source-pane" class="card lighting-pane lighting-source-pane" aria-label="Source"><div class="card-header lighting-pane-heading"><div><strong>Source</strong><small>Actual imported frame</small></div></div><div class="lighting-pane-body"><div id="media-compositor-stage" class="media-compositor-stage ${sourceReady?'source-ready':''}" tabindex="${sourceReady?'0':'-1'}" aria-label="Pan and zoom the imported frame" style="--destination-width:${primaryDestination?.width||1};--destination-height:${primaryDestination?.height||1}"><div class="media-compositor-plane"><div class="media-source-viewport" aria-hidden="false"><img id="lighting-source-frame" class="source-frame-image" alt="Imported source frame" hidden><div id="lighting-source-placeholder" class="source-frame-placeholder">Building the synchronized preview…</div></div><div class="destination-overlay" aria-hidden="true"></div></div></div></div></section>`:"";
+  const boardPane=`<section id="lighting-board-pane" class="card lighting-pane lighting-board-pane" aria-label="${esc(targetLabel)} Board"><div class="card-header led-canvas-heading"><div><strong>${esc(targetLabel)}</strong><small>What the keyboard will show · ${esc(canvasSubtitle)}</small><details class="advanced-disclosure technical-details"><summary>Technical details</summary><p class="control-help">${mappedCount} of ${length} stored colors are mapped to lights on this keyboard${raster?` · ${esc(raster)} grid`:""} · ${esc(model.name)}.</p></details></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost" title="Keep a reusable copy of this slot in Library. Separate from Apply, which only changes the open document.">Save to Library</button></div></div><div class="lighting-pane-body"><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${activeDraft||mediaPreviewTrack?'draft-preview':''}" data-lighting-destination-key="${esc(workspaceDestinationKey(lightingWorkspace))}" role="region" aria-label="${activeDraft||mediaPreviewTrack?'Preview of this lighting':'Paint the selected animation frame'}">${pixelCanvas}</div></div></section>`;
+  const timelineMarkup=`<div class="lighting-timeline-toolbar"><div class="lighting-playback-controls"><button id="lighting-previous-frame" class="icon-button" type="button" aria-label="Previous frame" ${timelineFrames.length<=1?'disabled':''}>←</button><button id="play-led" class="button ghost" type="button" aria-label="${state.playing?'Pause lighting':'Play lighting'}" ${timelineFrames.length<=1?'disabled':''}>${state.playing?'Pause':'Play'}</button><button id="lighting-next-frame" class="icon-button" type="button" aria-label="Next frame" ${timelineFrames.length<=1?'disabled':''}>→</button></div><input id="lighting-timeline-scrubber" type="range" min="0" max="${Math.max(0,timelineFrames.length-1)}" value="${timelineIndex}" aria-label="Lighting frame" ${timelineFrames.length<=1?'disabled':''}><div class="lighting-timeline-position"><strong id="lighting-frame-position" aria-live="polite">${timelineFrames.length?`Frame ${timelineIndex+1} of ${timelineFrames.length}`:'No frames'}</strong><small id="lighting-loop-status">${timelineFrames.length>1?'Loops continuously':'Single frame'}</small></div></div><div class="lighting-timeline-frames" role="list" aria-label="Lighting timeline">${timelineFrames.map((item,i)=>`<button class="frame-item ${i===timelineIndex?'active':''}" type="button" role="listitem" data-frame="${i}" aria-pressed="${i===timelineIndex}" aria-label="Frame ${i+1}${i===timelineIndex?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===timelineIndex?(previewTimelineActive?'Previewing':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="lighting-timeline-actions"><button id="add-frame" class="button ghost" ${previewTimelineActive?'disabled':''}>+ Duplicate</button><button id="remove-frame" class="button ghost" ${timelineFrames.length<=1||previewTimelineActive?'disabled':''}>Delete</button></div>`;
+  const inspectorMarkup=`<div class="studio-tool-tabs ${aiReady()?'with-generate':''}" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Import media</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Effects</button>${generationTab}</div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}${generationPanel}</div>`;
+  if(!showLightingWorkspace())return;
+  const previewPanes=$("#lighting-preview-panes");
+  previewPanes.classList.toggle("has-source",Boolean(sourcePane));
+  previewPanes.innerHTML=`${sourcePane}${boardPane}`;
+  $("#lighting-timeline").innerHTML=timelineMarkup;
+  $("#lighting-studio-inspector").innerHTML=inspectorMarkup;
   wireLedEditor(columns);
   wireStudioInspector();
+  renderLightingSourceProjection();
+  void loadLightingSourceProjection();
+  updateLightingWorkspaceStatus(boardProjection,mediaCompositionStatusText(mediaDraft));
   renderGenerationStudio();
 }
 
@@ -3647,6 +3791,26 @@ function wireLedEditor(gridColumns) {
   activePaintStrokeController?.teardown();
   activePaintStrokeController=null;
   $$('[data-frame]').forEach(button=>button.addEventListener('click',()=>selectLightingFrame(button.dataset.frame)));
+  const scrubTimeline=index=>{
+    const projection=selectBoardProjection(lightingWorkspace);
+    if(!projection)return;
+    const next=Math.max(0,Math.min(projection.frame_set.frame_count-1,Number(index)));
+    state.ledFrame=next;
+    if(state.studioTool==="animate"&&localAnimationDraftMatches()){
+      state.localAnimationPreviewFrame=next;
+    }
+  };
+  $("#lighting-timeline-scrubber")?.addEventListener("input",event=>scrubTimeline(event.target.value));
+  $("#lighting-previous-frame")?.addEventListener("click",()=>{
+    const projection=selectBoardProjection(lightingWorkspace);
+    if(!projection)return;
+    scrubTimeline((projection.index-1+projection.frame_set.frame_count)%projection.frame_set.frame_count);
+  });
+  $("#lighting-next-frame")?.addEventListener("click",()=>{
+    const projection=selectBoardProjection(lightingWorkspace);
+    if(!projection)return;
+    scrubTimeline((projection.index+1)%projection.frame_set.frame_count);
+  });
   $("#first-frame")?.addEventListener("click",()=>mutate(ensureTrack));
   $("#import-media").addEventListener("click",()=>$("#media-input").click());
   $("#gif-resample").addEventListener("change",event=>{

@@ -95,7 +95,7 @@ test("layout keeps narrow-window and reduced-motion coverage", () => {
 });
 
 function mediaBlock(width) {
-  const start = css.indexOf(`@media (max-width: ${width})`);
+  const start = css.lastIndexOf(`@media (max-width: ${width})`);
   assert.ok(start >= 0, `missing breakpoint ${width}`);
   const end = css.indexOf("\n}", start);
   return css.slice(start, end);
@@ -121,16 +121,17 @@ test("the keyboard board can never outgrow its card", () => {
   assert.match(css, /\.keyboard-stage \{[^}]*min-height: 260px; max-width: 100%;/);
 });
 
-test("the media framing plane stays bounded at 1280x800 and 1000x680", () => {
+test("the synchronized Source and Board workspace stays bounded at 1280x800 and 1000x680", () => {
   assert.ok(1280 > 1240, "1280x800 exercises the bounded three-column layout");
   assert.ok(1000 <= 1120 && 1000 > 980, "1000x680 exercises the compact two-column layout");
-  assert.match(css, /\.led-layout > \* \{ min-width: 0; \}/);
+  assert.match(css, /\.lighting-workspace-shell > \*, \.lighting-preview-panes > \* \{ min-width: 0; \}/);
+  assert.match(css, /\.lighting-workspace-shell \{[^}]*grid-template-columns: minmax\(0, 1fr\) minmax\(230px, 250px\)/);
+  assert.match(css, /\.lighting-preview-panes\.has-source \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(css, /\.media-compositor-plane \{[^}]*width: 100%;[^}]*max-width: 850px;[^}]*min-width: 0;[^}]*aspect-ratio: var\(--destination-width\) \/ var\(--destination-height\)/);
   assert.match(css, /\.media-compositor-stage \{[^}]*width: 100%;[^}]*min-width: 0;/);
-  assert.match(
-    mediaBlock("1240px"),
-    /\.led-layout \{ grid-template-columns: minmax\(0, 1fr\) 240px;/,
-  );
+  assert.match(css, /\.lighting-pane-body \{[^}]*min-height: clamp\(/);
+  assert.match(css, /\.lighting-timeline-frames \{[^}]*overflow-x: auto/);
+  assert.match(mediaBlock("720px"),/\.lighting-workspace-shell \{ grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(css, /\.studio-inspector-body \{[^}]*overflow: auto/);
   assert.match(css, /\.main-content \{[^}]*overflow: auto/);
 });
@@ -147,9 +148,9 @@ test("panel control rows wrap instead of blowing out of fixed columns", () => {
   assert.match(css, /\.button-row > \* \{ min-width: 0; \}/);
   assert.match(css, /\.gif-import-row \{ display: grid; grid-template-columns: repeat\(auto-fit, minmax\(130px, 1fr\)\);/);
   assert.match(css, /\.gif-import-row > \* \{ min-width: 0; \}/);
-  for (const row of ["media-composition-actions", "animation-draft-actions"]) {
-    assert.match(css, new RegExp(`\\.${row} \\{ display: grid; grid-template-columns: repeat\\(auto-fit, minmax\\(110px, 1fr\\)\\);`));
-    assert.match(css, new RegExp(`\\.${row} > \\* \\{ min-width: 0; \\}`));
-  }
+  assert.match(css, /\.media-composition-actions \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+  assert.match(css, /\.media-composition-actions > \* \{ min-width: 0; \}/);
+  assert.match(css, /\.animation-draft-actions \{ display: grid; grid-template-columns: repeat\(auto-fit, minmax\(110px, 1fr\)\);/);
+  assert.match(css, /\.animation-draft-actions > \* \{ min-width: 0; \}/);
   assert.match(css, /\.search-field, \.text-field, \.select-field \{ width: 100%; min-width: 0; max-width: 100%;/);
 });

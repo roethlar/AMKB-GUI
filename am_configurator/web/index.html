@@ -114,7 +114,17 @@
             </div>
 
             <section id="lighting-edit-panel" role="tabpanel" aria-labelledby="lighting-edit-tab">
-              <div id="lighting-edit-content"></div>
+              <div id="lighting-edit-content">
+                <div id="lighting-edit-message"></div>
+                <div id="lighting-workspace-shell" class="lighting-workspace-shell" hidden>
+                  <div class="lighting-stage-column">
+                    <div id="lighting-preview-panes" class="lighting-preview-panes"></div>
+                    <div id="lighting-workspace-status" class="lighting-workspace-status" role="status" aria-live="polite" aria-atomic="true"></div>
+                    <section id="lighting-timeline" class="card lighting-timeline" aria-label="Lighting timeline"></section>
+                  </div>
+                  <aside id="lighting-studio-inspector" class="card led-controls studio-inspector" aria-label="Lighting controls"></aside>
+                </div>
+              </div>
             </section>
 
             <section id="lighting-library-panel" role="tabpanel" aria-labelledby="lighting-library-tab" hidden>

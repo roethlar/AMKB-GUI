@@ -74,7 +74,7 @@ test("workspace reducer is the only destination and playback authority", () => {
   assert.match(js,/type:"BOARD_COLOR_UPDATED"/);
 });
 
-test("media and source-load transitions are bound to the reducer session", () => {
+test("media and source-projection transitions are bound to the reducer session", () => {
   const openLibraryStart=js.indexOf("function openLibrarySource");
   const openLibraryEnd=js.indexOf("\nfunction ",openLibraryStart+10);
   const openLibrary=js.slice(openLibraryStart,openLibraryEnd);
@@ -90,14 +90,14 @@ test("media and source-load transitions are bound to the reducer session", () =>
   const cancel=js.slice(cancelStart,cancelEnd);
   assert.match(cancel,/type:\s*"MEDIA_CANCELLED"/);
 
-  const loadStart=js.indexOf("async function loadMediaCompositionSourceAsset");
+  const loadStart=js.indexOf("async function loadLightingSourceProjection");
   const loadEnd=js.indexOf("\nfunction ",loadStart+10);
   const load=js.slice(loadStart,loadEnd);
   assert.match(load,/captureWorkspaceAsyncContext\(lightingWorkspace\)/);
   assert.match(js,/workspaceAsyncContextMatches\(lightingWorkspace,load\)/);
-  assert.match(load,/sourceLoadMatchesWorkspace/);
+  assert.match(load,/sourceProjectionLoadMatchesWorkspace/);
   assert.ok(
-    load.indexOf("sourceLoadMatchesWorkspace") < load.indexOf("renderLightingEdit()"),
+    load.indexOf("sourceProjectionLoadMatchesWorkspace") < load.indexOf("renderLightingSourceProjection()"),
     "a stale source load must be rejected before touching the current DOM",
   );
 });
@@ -129,7 +129,18 @@ test("Studio is one Paint, Import media, and Effects shell with local draft acce
   assert.match(css,/\.animation-draft-controls/);
 });
 
-test("imported media framing keeps one exact live overlay outside the LED grid", () => {
+test("the stable Lighting shell keeps actual Source and canonical Board separate", () => {
+  for(const id of [
+    "lighting-edit-message","lighting-workspace-shell","lighting-preview-panes",
+    "lighting-timeline","lighting-workspace-status","lighting-studio-inspector",
+  ])assert.match(html,new RegExp(`id="${id}"`));
+  const shell=html.slice(
+    html.indexOf('id="lighting-edit-content"'),
+    html.indexOf('id="lighting-library-panel"'),
+  );
+  assert.ok(shell.indexOf('id="lighting-preview-panes"')<shell.indexOf('id="lighting-timeline"'));
+  assert.ok(shell.indexOf('id="lighting-timeline"')<shell.indexOf('id="lighting-studio-inspector"'));
+
   assert.match(js,/function commitSourceTransform\(reducer\)/);
   const commitStart=js.indexOf("function commitSourceTransform");
   const commitEnd=js.indexOf("function ",commitStart+10);
@@ -142,40 +153,37 @@ test("imported media framing keeps one exact live overlay outside the LED grid",
     "source mode must become visible before the transform changes",
   );
   assert.match(js,/wireSourceTransformStage\(stage,/);
-  assert.match(js,/class="media-compositor-plane"/);
-  assert.match(js,/class="media-source-viewport"/);
-  assert.match(js,/class="media-source-overlay"/);
+  const sourceStart=js.indexOf("const sourcePane=");
+  const boardStart=js.indexOf("const boardPane=");
+  const timelineStart=js.indexOf("const timelineMarkup=");
+  assert.ok(sourceStart>=0&&sourceStart<boardStart&&boardStart<timelineStart);
+  const sourceMarkup=js.slice(sourceStart,boardStart);
+  const boardMarkup=js.slice(boardStart,timelineStart);
+  assert.match(sourceMarkup,/id="lighting-source-pane"/);
+  assert.match(sourceMarkup,/id="media-compositor-stage"/);
+  assert.match(sourceMarkup,/class="media-source-viewport"/);
+  assert.match(sourceMarkup,/class="source-frame-image"/);
+  assert.match(boardMarkup,/id="lighting-board-pane"/);
+  assert.match(boardMarkup,/id="led-canvas"/);
+  assert.match(boardMarkup,/\$\{pixelCanvas\}/);
+  assert.doesNotMatch(boardMarkup,/<img|source-frame-image|media-source-viewport|media-compositor-stage/);
+  assert.match(js,/selectSourceProjection\(lightingWorkspace\)/);
+  assert.match(js,/\/preview-session/);
+  assert.match(js,/\/source-frame\?/);
+  assert.match(js,/preview_session_id/);
+  assert.match(js,/source_frame_index/);
   assert.match(js,/resolveSourceGeometry\(/);
   assert.match(js,/box\.left\/primary\.width/);
   assert.match(js,/box\.top\/primary\.height/);
   assert.match(js,/box\.rendered_width\/primary\.width/);
   assert.match(js,/box\.rendered_height\/primary\.height/);
-  const canvasMarkup=js.slice(
-    js.indexOf('<section class="card led-canvas-card"'),
-    js.indexOf('<aside class="card led-controls'),
-  );
-  const viewportIndex=canvasMarkup.indexOf("media-source-viewport");
-  const pixelsIndex=canvasMarkup.indexOf("${pixelCanvas}");
-  const destinationIndex=canvasMarkup.indexOf("destination-overlay");
-  assert.ok(viewportIndex>=0&&viewportIndex<pixelsIndex);
-  assert.ok(pixelsIndex>=0&&pixelsIndex<destinationIndex);
-  assert.doesNotMatch(canvasMarkup,/sourcePreviewMode[^\n]*media-source-overlay/);
-  const previewStart=js.indexOf("async function renderMediaCompositionPreview");
-  const previewEnd=js.indexOf("\nfunction ",previewStart+10);
-  const preview=js.slice(previewStart,previewEnd);
-  assert.match(preview,/if\(completed===current\)return;/);
-  assert.ok(
-    preview.indexOf("if(completed===current)return;")
-      <preview.indexOf('state.sourcePreviewMode="result"'),
-    "only the accepted current preview may switch back to LED result mode",
-  );
-
   assert.match(css,/\.media-source-viewport \{[^}]*overflow: hidden/);
-  assert.match(css,/\.media-source-overlay \{[^}]*left: var\(--source-left\)[^}]*top: var\(--source-top\)[^}]*width: var\(--source-width\)[^}]*height: var\(--source-height\)/);
-  assert.doesNotMatch(css,/\.media-source-overlay \{[^}]*(?:object-fit: cover|transform: translate)/);
-  assert.match(css,/\.media-compositor-stage\.source-visible \.media-source-viewport/);
+  assert.match(css,/\.source-frame-image \{[^}]*left: var\(--source-left\)[^}]*top: var\(--source-top\)[^}]*width: var\(--source-width\)[^}]*height: var\(--source-height\)/);
+  assert.doesNotMatch(css,/\.source-frame-image \{[^}]*(?:object-fit: cover|opacity: \.\d+)/);
   assert.match(css,/\.media-compositor-stage\.dragging \{[^}]*cursor: grabbing/);
   assert.match(css,/\.media-compositor-stage:focus-visible/);
+  assert.doesNotMatch(js,/sourcePreviewMode|data-source-preview/);
+  assert.doesNotMatch(css,/source-preview-toggle|source-visible|\.media-compositor-stage\.source-visible/);
   assert.match(css,/@media \(prefers-reduced-motion: reduce\)/);
   assert.match(
     css,
@@ -185,6 +193,20 @@ test("imported media framing keeps one exact live overlay outside the LED grid",
     css,
     /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?transition-duration:/,
   );
+});
+
+test("one horizontal timeline owns playback, position, editing, and status", () => {
+  for(const id of [
+    "lighting-previous-frame","play-led","lighting-next-frame",
+    "lighting-timeline-scrubber","lighting-frame-position","lighting-loop-status",
+  ])assert.match(js,new RegExp(`id="${id}"`));
+  assert.match(js,/class="lighting-timeline-frames"/);
+  assert.match(js,/aria-label="Lighting timeline"/);
+  assert.match(js,/aria-live="polite"/);
+  assert.match(css,/\.lighting-timeline-frames \{[^}]*grid-auto-flow: column[^}]*overflow-x: auto/);
+  assert.match(css,/\.lighting-playback-controls/);
+  assert.doesNotMatch(css,/\.frame-list\s*\{/);
+  assert.doesNotMatch(css,/\.led-layout\s*\{/);
 });
 
 test("media import banks before composition and applies only an accepted preview", () => {
@@ -206,7 +228,21 @@ test("media import banks before composition and applies only an accepted preview
   assert.match(js,/nextMediaRenderEpoch\(state\.mediaRenderEpoch\)/);
   assert.match(js,/boardFrameSetFromMappedResult\(/);
   assert.match(js,/type:"SEQUENCE_RENDER_ACCEPTED"/);
+  const renderPreviewStart=js.indexOf("async function renderMediaCompositionPreview");
+  const renderPreviewEnd=js.indexOf("\nfunction ",renderPreviewStart+10);
+  const renderPreview=js.slice(renderPreviewStart,renderPreviewEnd);
+  assert.match(renderPreview,/await ensureMediaPreviewSession\(draft\)/);
+  assert.match(renderPreview,/preview_session_id:previewSessionId/);
+  assert.match(renderPreview,/timeline:result\.preview_timeline/);
+  assert.ok(
+    renderPreview.indexOf("await ensureMediaPreviewSession(draft)")
+      <renderPreview.indexOf("/render`"),
+    "the authenticated source session must exist before the full LED render",
+  );
   assert.match(js,/boardProjection\?\.frame_set\.frames_by_target/);
+  const frameSetStart=js.indexOf("function currentLightingBoardFrameSet");
+  const frameSetEnd=js.indexOf("\nfunction ",frameSetStart+10);
+  assert.match(js.slice(frameSetStart,frameSetEnd),/timeline:\s*lightingWorkspace\.media\?\.preview_timeline\?\?null/);
   assert.match(js,/function activeMediaPreviewTrack\(\)/);
   assert.match(js,/function cancelMediaComposition\(\)/);
   assert.match(js,/id="media-compose-apply"/);
@@ -592,8 +628,8 @@ test("manual Lighting layout, keyboard controls, narrow windows, and reduced mot
   assert.match(css,/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
   const medium=css.match(/@media\s*\(max-width:\s*1240px\)\s*\{[\s\S]*?\n\}/)?.[0]||"";
   const zoomed=css.match(/@media\s*\(max-width:\s*1120px\)\s*\{[\s\S]*?\n\}/)?.[0]||"";
-  assert.match(medium,/grid-template-areas:\s*"canvas controls"\s*"frames frames"/);
-  assert.match(medium,/overflow-x:\s*auto/);
+  assert.match(medium,/\.lighting-workspace-shell\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) 240px/);
+  assert.match(css,/\.lighting-timeline-frames\s*\{[^}]*overflow-x:\s*auto/);
   assert.match(zoomed,/\.topbar\s*\{[^}]*grid-template-columns:\s*1fr auto/);
   assert.match(zoomed,/\.top-actions\s*\{[^}]*overflow-x:\s*auto/);
 });

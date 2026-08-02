@@ -49,6 +49,16 @@
     return value;
   }
 
+  function safePreviewSessionId(value) {
+    if (
+      typeof value !== "string"
+      || value.length < 32
+      || value.length > 200
+      || !/^[A-Za-z0-9_-]+$/.test(value)
+    ) fail("invalid_context", "The media preview session is invalid.");
+    return value;
+  }
+
   function normalizeTargetLengths(value) {
     if (!isObject(value) || !Object.keys(value).length) {
       fail("invalid_target", "Target sizes are unavailable.");
@@ -253,6 +263,7 @@
   function boardFrameSetFromMappedResult({
     context,
     mappedResult,
+    timeline = null,
     provenance,
     targetLengths,
     allowedDurations,
@@ -285,7 +296,7 @@
       frames_by_target: framesByTarget,
       frame_count: frameCount,
       duration_ms: mappedResult.duration_ms,
-      timeline: defaultTimeline(frameCount),
+      timeline: timeline === null ? defaultTimeline(frameCount) : timeline,
       provenance,
     }, {targetLengths, allowedDurations, maxFrames});
   }
@@ -533,6 +544,9 @@
     const key = workspaceDestinationKey(state.context);
     const next = {
       ...state,
+      media: canonical.provenance === "media_render" && isObject(state.media)
+        ? {...state.media, preview_timeline: canonical.timeline}
+        : state.media,
       playhead: stopPlayhead(state, index),
       destination_playheads: {...state.destination_playheads, [key]: index},
       preview: {
@@ -686,6 +700,22 @@
           state: next,
           intents: [cancelPlaybackIntent(state), {type: "render-workspace"}],
         };
+      }
+      case "MEDIA_SESSION_READY": {
+        if (
+          !workspaceAsyncContextMatches(state, event.captured)
+          || !isObject(state.media)
+          || event.catalog_id !== state.media.catalog_id
+          || event.asset_id !== state.media.asset_id
+        ) return unchanged(state, "stale");
+        const next = {
+          ...state,
+          media: {
+            ...state.media,
+            preview_session_id: safePreviewSessionId(event.preview_session_id),
+          },
+        };
+        return {state: next, intents: [{type: "render-workspace"}]};
       }
       case "MEDIA_CANCELLED": {
         const contextEpoch = state.context_epoch + 1;
@@ -949,6 +979,26 @@
     });
   }
 
+  function selectSourceProjection(state) {
+    const board = selectBoardProjection(state);
+    if (
+      !board
+      || board.frame_set.provenance !== "media_render"
+      || !isObject(state.media)
+      || typeof state.media.catalog_id !== "string"
+      || typeof state.media.preview_session_id !== "string"
+    ) return null;
+    const timelineEntry = board.frame_set.timeline[board.index];
+    if (!Number.isSafeInteger(timelineEntry?.source_frame_index)) return null;
+    return Object.freeze({
+      catalog_id: state.media.catalog_id,
+      preview_session_id: safePreviewSessionId(state.media.preview_session_id),
+      source_frame_index: timelineEntry.source_frame_index,
+      timeline_index: board.index,
+      context_key: workspaceContextKey(state),
+    });
+  }
+
   function paintBoardProjection(state, {
     destination_key: destinationKey,
     pixels = [],
@@ -1082,6 +1132,7 @@
     projectBoardFrame,
     reduceLightingWorkspace,
     selectBoardProjection,
+    selectSourceProjection,
     workspaceContextKey,
     workspaceAsyncContextMatches,
     workspaceDestinationKey,

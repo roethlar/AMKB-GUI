@@ -36,6 +36,8 @@ REQUIRED_CASE_CHECKS = [
     "keyboard_feedback",
     "slider_feedback",
     "overlay_geometry",
+    "synchronized_workspace",
+    "shared_timeline",
     "stale_preview_guard",
     "destination_playback_isolation",
     "canonical_backend_equality",
@@ -477,7 +479,7 @@ _AUDIT_SCRIPT = r"""
   function overlayGeometryFinding() {
     const stage = document.querySelector("#media-compositor-stage");
     const viewport = stage?.querySelector(".media-source-viewport");
-    const overlay = stage?.querySelector(".media-source-overlay");
+    const overlay = stage?.querySelector(".source-frame-image");
     const plane = stage?.querySelector(".media-compositor-plane");
     const context = mediaGeometryContext();
     if (!stage || !viewport || !overlay || !plane || !context) return "overlay_geometry_missing";
@@ -538,7 +540,7 @@ _AUDIT_SCRIPT = r"""
       }
     }
     const boxes = document.querySelectorAll(
-      ".card,.lighting-context,.studio-tool-panel,.led-controls,.frame-list,.studio-inspector,.library-toolbar",
+      ".card,.lighting-context,.studio-tool-panel,.led-controls,.lighting-pane,.lighting-timeline,.studio-inspector,.library-toolbar",
     );
     for (const box of boxes) {
       if (box.closest("[hidden]")) continue;
@@ -564,6 +566,50 @@ _AUDIT_SCRIPT = r"""
       }
     }
     return findings.slice(0, 20);
+  }
+
+  function synchronizedWorkspaceFinding() {
+    const panes = document.querySelector("#lighting-preview-panes");
+    const source = document.querySelector("#lighting-source-pane");
+    const board = document.querySelector("#lighting-board-pane");
+    const timeline = document.querySelector("#lighting-timeline");
+    const apply = document.querySelector("#media-compose-apply");
+    const cancel = document.querySelector("#media-compose-cancel");
+    if (!panes || !source || !board || !timeline || !apply || !cancel) {
+      return "synchronized_workspace_missing";
+    }
+    if (source.parentElement !== panes || board.parentElement !== panes) {
+      return "synchronized_workspace_not_siblings";
+    }
+    if (!source.querySelector(".source-frame-image")) return "source_projection_missing";
+    if (board.querySelector("img,picture,video,canvas,svg,image")) {
+      return "board_contains_image";
+    }
+    const viewportWidth = document.documentElement.clientWidth;
+    const viewportHeight = document.documentElement.clientHeight;
+    for (const [name, element] of [
+      ["source", source],
+      ["board", board],
+      ["timeline", timeline],
+      ["apply", apply],
+      ["cancel", cancel],
+    ]) {
+      const rect = element.getBoundingClientRect();
+      if (
+        rect.width <= 0
+        || rect.height <= 0
+        || rect.left < -2
+        || rect.right > viewportWidth + 2
+        || rect.top < -2
+        || rect.bottom > viewportHeight + 2
+      ) {
+        const timelineDetail = name === "timeline"
+          ? `:th${Math.round(timeline.querySelector(".lighting-timeline-toolbar")?.getBoundingClientRect().height || 0)}:fh${Math.round(timeline.querySelector(".lighting-timeline-frames")?.getBoundingClientRect().height || 0)}:ah${Math.round(timeline.querySelector(".lighting-timeline-actions")?.getBoundingClientRect().height || 0)}`
+          : "";
+        return `${name}_outside_first_viewport:t${Math.round(rect.top)}:b${Math.round(rect.bottom)}:vh${Math.round(viewportHeight)}${timelineDetail}`;
+      }
+    }
+    return null;
   }
 
   async function prepareStudio() {
@@ -646,12 +692,51 @@ _AUDIT_SCRIPT = r"""
 
     window.__mediaFramingAuditStep = "saved_source_retrieval";
     const sourceImage = await waitFor(() => {
-      const image = document.querySelector(".media-source-overlay");
+      const image = document.querySelector(".source-frame-image");
       return image?.complete && image.naturalWidth === 20 && image.naturalHeight === 5
         ? image
         : false;
     }, "saved_source_image_timeout");
     requireAudit(sourceImage.src.startsWith("blob:"), "saved_source_blob_missing");
+    window.__mediaFramingAuditStep = "shared_timeline";
+    const timelineScrubber = document.querySelector("#lighting-timeline-scrubber");
+    const initialSourceProjection = selectSourceProjection(lightingWorkspace);
+    const acceptedBoard = selectBoardProjection(lightingWorkspace);
+    requireAudit(timelineScrubber && initialSourceProjection && acceptedBoard, "shared_timeline_missing");
+    const initialSourceUrl = sourceImage.src;
+    const alternateTimelineIndex = acceptedBoard.frame_set.timeline.findIndex(
+      entry => entry.source_frame_index !== initialSourceProjection.source_frame_index,
+    );
+    if (alternateTimelineIndex >= 0) {
+      const expectedAlternate = state.mediaComposition.mappedResult.tracks.frames.frames[alternateTimelineIndex];
+      timelineScrubber.value = String(alternateTimelineIndex);
+      timelineScrubber.dispatchEvent(new Event("input", {bubbles: true}));
+      await waitFor(() => {
+        const projection = selectSourceProjection(lightingWorkspace);
+        const image = document.querySelector(".source-frame-image");
+        const actual = [...document.querySelectorAll("#led-canvas .pixel")].map(
+          pixel => pixel.style.getPropertyValue("--pixel-color").trim().toUpperCase(),
+        );
+        return projection?.timeline_index === alternateTimelineIndex
+          && projection.source_frame_index !== initialSourceProjection.source_frame_index
+          && image?.src !== initialSourceUrl
+          && sameJson(actual, expectedAlternate.map(color => color.toUpperCase()));
+      }, "shared_timeline_advance_timeout");
+      timelineScrubber.value = "0";
+      timelineScrubber.dispatchEvent(new Event("input", {bubbles: true}));
+      await waitFor(
+        () => selectSourceProjection(lightingWorkspace)?.timeline_index === 0
+          && document.querySelector(".source-frame-image")?.src === initialSourceUrl,
+        "shared_timeline_return_timeout",
+      );
+    } else {
+      requireAudit(
+        timelineScrubber.disabled
+          && acceptedBoard.frame_set.frame_count === 1
+          && initialSourceProjection.timeline_index === 0,
+        "single_frame_timeline_mismatch",
+      );
+    }
     const draftForSource = state.mediaComposition;
     const sourceResponse = await fetch(
       `/api/library/assets/${libraryCatalogPath(draftForSource.catalogId)}/${encodeURIComponent(draftForSource.source.asset_id)}`,
@@ -664,7 +749,7 @@ _AUDIT_SCRIPT = r"""
     window.__mediaFramingAuditStep = "pointer_input";
     const stage = document.querySelector("#media-compositor-stage");
     const plane = stage?.querySelector(".media-compositor-plane");
-    const overlay = stage?.querySelector(".media-source-overlay");
+    const overlay = stage?.querySelector(".source-frame-image");
     requireAudit(stage && plane && overlay, "framing_stage_missing");
     const beforePointer = overlayStyle(overlay);
     const beforePointerTransform = JSON.stringify(state.sourceTransform);
@@ -769,6 +854,8 @@ _AUDIT_SCRIPT = r"""
     );
     const overlayFinding = overlayGeometryFinding();
     requireAudit(!overlayFinding, overlayFinding || "overlay_geometry_mismatch");
+    const workspaceFinding = synchronizedWorkspaceFinding();
+    requireAudit(!workspaceFinding, workspaceFinding || "synchronized_workspace_mismatch");
     requireAudit(layoutFindings().length === 0, "layout_escape");
 
     window.__mediaFramingAuditStep = "stale_preview";

@@ -78,6 +78,20 @@ class MediaFramingFixtureTests(unittest.TestCase):
         self.assertIn("playback_destination_colors_mismatch", script)
         self.assertIn("playback_changed_document", script)
 
+    def test_native_script_checks_the_synchronized_source_board_and_timeline_shell(self) -> None:
+        script = media_framing_audit._audit_script()
+
+        self.assertIn("synchronized_workspace", media_framing_audit.REQUIRED_CASE_CHECKS)
+        self.assertIn("shared_timeline", media_framing_audit.REQUIRED_CASE_CHECKS)
+        self.assertIn('#lighting-source-pane', script)
+        self.assertIn('#lighting-board-pane', script)
+        self.assertIn('#lighting-timeline', script)
+        self.assertIn('.source-frame-image', script)
+        self.assertIn('board.querySelector("img,picture,video,canvas,svg,image")', script)
+        self.assertIn('timelineScrubber.dispatchEvent(new Event("input"', script)
+        self.assertIn('selectSourceProjection(lightingWorkspace)', script)
+        self.assertNotIn('.media-source-overlay', script)
+
 
 class MediaFramingReportTests(unittest.TestCase):
     @staticmethod

@@ -178,10 +178,10 @@ test("generated-result review speaks in lighting effects and lighting frames", (
 
 test("mapped and stored counts sit behind Technical details, not the canvas heading", () => {
   const heading = js.slice(
-    js.indexOf('<div class="card-header led-canvas-heading">'),
-    js.indexOf('<div class="led-canvas-actions">')
+    js.indexOf('const boardPane='),
+    js.indexOf('const timelineMarkup=')
   );
-  assert.ok(heading.length > 0, "the LED canvas heading must exist");
+  assert.ok(heading.length > 0, "the Board heading must exist");
   assert.doesNotMatch(heading, /\/ \$\{length\} stored/);
   assert.match(heading, /<summary>Technical details<\/summary>/);
   const technical = heading.slice(heading.indexOf("<summary>Technical details</summary>"));
@@ -207,6 +207,7 @@ test("internal manifest, route, and element contracts are unchanged", () => {
   ]) assert.ok(js.includes(route), `${route} must remain unchanged`);
   assert.match(html, /data-library-filter="sources"/);
   assert.match(html, /id="settings-ai-api"[^>]*value="api"/);
-  assert.match(js, /data-source-preview="source"/);
+  assert.match(js, /id="lighting-source-pane"/);
+  assert.doesNotMatch(js, /data-source-preview|sourcePreviewMode/);
   assert.match(review, /id="apply-procedural-effect"/);
 });

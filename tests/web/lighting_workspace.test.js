@@ -16,6 +16,7 @@ const {
   projectBoardFrame,
   reduceLightingWorkspace,
   selectBoardProjection,
+  selectSourceProjection,
   workspaceContextKey,
   workspaceAsyncContextMatches,
   workspaceDestinationKey,
@@ -235,6 +236,10 @@ test("document, local effect, media, and procedural sources share one BoardFrame
   const mediaSet = boardFrameSetFromMappedResult({
     context: context({source_kind: "media_render"}),
     mappedResult,
+    timeline: [
+      {index: 0, source_frame_index: 3},
+      {index: 1, source_frame_index: 1},
+    ],
     provenance: "media_render",
     targetLengths: TARGET_LENGTHS,
     allowedDurations: FIRMWARE_DURATIONS,
@@ -249,6 +254,10 @@ test("document, local effect, media, and procedural sources share one BoardFrame
 
   assert.deepEqual(mediaSet.frames_by_target, proceduralSet.frames_by_target);
   assert.equal(mediaSet.provenance, "media_render");
+  assert.deepEqual(mediaSet.timeline, [
+    {index: 0, source_frame_index: 3},
+    {index: 1, source_frame_index: 1},
+  ]);
   assert.equal(proceduralSet.provenance, "procedural_result");
   assert.deepEqual(projectBoardFrame(
     proceduralSet,
@@ -256,6 +265,79 @@ test("document, local effect, media, and procedural sources share one BoardFrame
     1,
     {targetLengths: TARGET_LENGTHS, allowedDurations: FIRMWARE_DURATIONS},
   ), ["#200001", "#200002", "#200003"]);
+});
+
+test("Source projection and Board projection select one accepted timeline entry", () => {
+  let state = createLightingWorkspace({
+    documentEpoch: 7,
+    slot: 5,
+    target: "keyframes",
+    tool: "source",
+    route: "lighting/edit",
+  });
+  state = reduceLightingWorkspace(state, {
+    type: "MEDIA_OPENED",
+    media: {catalog_id: "item:media", asset_id: "source"},
+  }).state;
+  const captured = captureWorkspaceAsyncContext(state);
+  state = reduceLightingWorkspace(state, {
+    type: "MEDIA_SESSION_READY",
+    catalog_id: "item:media",
+    asset_id: "source",
+    preview_session_id: "a".repeat(32),
+    captured,
+  }).state;
+  const accepted = boardFrameSetFromMappedResult({
+    context: {
+      ...state.context,
+      source_kind: "media_render",
+      revision: state.preview.accepted_epoch,
+    },
+    mappedResult: {
+      duration_ms: 48,
+      tracks: {
+        keyframes: {
+          frame_count: 2,
+          frames: [
+            ["#000001", "#000002"],
+            ["#000003", "#000004"],
+          ],
+        },
+      },
+    },
+    timeline: [
+      {index: 0, source_frame_index: 4},
+      {index: 1, source_frame_index: 2},
+    ],
+    provenance: "media_render",
+    targetLengths: TARGET_LENGTHS,
+    allowedDurations: FIRMWARE_DURATIONS,
+  });
+  state = publish(state, accepted).state;
+
+  assert.deepEqual(state.media.preview_timeline, accepted.timeline);
+  assert.equal(selectBoardProjection(state).index, 0);
+  assert.deepEqual(selectSourceProjection(state), {
+    catalog_id: "item:media",
+    preview_session_id: "a".repeat(32),
+    source_frame_index: 4,
+    timeline_index: 0,
+    context_key: workspaceContextKey(state),
+  });
+
+  state = reduceLightingWorkspace(state, {type: "PLAYHEAD_SCRUBBED", index: 1}).state;
+  assert.equal(selectBoardProjection(state).index, 1);
+  assert.equal(selectSourceProjection(state).source_frame_index, 2);
+
+  const staleSession = reduceLightingWorkspace(state, {
+    type: "MEDIA_SESSION_READY",
+    catalog_id: "item:other",
+    asset_id: "source",
+    preview_session_id: "b".repeat(32),
+    captured,
+  });
+  assert.equal(staleSession.state, state);
+  assert.equal(staleSession.ignored, "stale");
 });
 
 test("manual paint updates the accepted document frame without a second authority", () => {
