@@ -4,7 +4,7 @@
 - LSR-1 is closed. Implementation `1ee73a81182c8f401b1942776d3df7c005541f33` and admitted review repair `95795845b6eeabd1c572b82244fef26a975183dd` are fully guard-proven, pass the 677-Python/144-browser/compile/syntax/build gate, and are pushed. The required `claude-opus-5` generation review and T2 per-finding verification used exact ranges once each; `cl-10` returned accepted with guard and capability confirmed. Canonical evidence is in the redesign plan and `.agents/review/findings/cl-10.md`.
 - LSR-2 is closed. Implementation `65c9fbfc22c2b24c3b868218512b00039756e6e1` and admitted repairs `9015d422d97d3be0ba9aa04a0ebeeec81c934335` (`cl-11`) and `3865c1008a9798f4d882b2f81c445e7fc2e3261f` (`cl-12`) are committed, pushed, mutation-proven, and pass the complete 688-Python/144-browser/compile/syntax/build gate. The single generation review and both per-finding verifications used `fable-review`, explicit `claude-opus-5` at `high`, exact ranges, and the first substantive result once; both findings returned accepted with guard and capability confirmed.
 - LSR-3 is closed. Implementation `92949d92ca6751073ce47fa2b5182c01ed247009` is pushed, mutation-proven, and passes the complete 690-Python/149-browser/compile/syntax/build gate plus the isolated two-viewport native WebView2 destination-transition audit. Exact-head CI run `30735969449` and Desktop installers run `30735969440` passed every platform, metadata, and provenance job. Its one required `fable-review` used explicit `claude-opus-5` at `high` over `b5d46d9402df4d47429b17aaf50326d1307024d8..92949d92ca6751073ce47fa2b5182c01ed247009`; the first substantive result returned clean with exact pins, `capability_ok=true`, no findings, exit 0, and no stderr.
-- LSR-4 implementation `78bcdcf47ff3a5dcacce555ad31ac14bef95993b` is committed and pushed. Its complete 691-Python/151-browser/compile/syntax/build gate and two-viewport native GIF/PNG/BMP audit pass, including the shared Source/Board timeline guard. The one required `fable-review` used explicit `claude-opus-5` at `high` over `b0dee7ef725771ad43d7d60d3b8f96aa83e3df1b..78bcdcf47ff3a5dcacce555ad31ac14bef95993b`; its first substantive result was used as returned without retry and admitted one HIGH finding. Active review loop: see `.agents/review/index.md` (`cl-13`).
+- LSR-4 is closed. Implementation `78bcdcf47ff3a5dcacce555ad31ac14bef95993b` and admitted review repair `abc6826b346420de257d1679879ef84e483c3a81` are committed, pushed, non-vacuously mutation-proven, and pass the complete 691-Python/153-browser/compile/syntax/build gate plus deliberate two-viewport GIF/PNG/BMP native eviction/recovery. The required generation review used `fable-review`, explicit `claude-opus-5` at `high`, and exact pins once; `cl-13` then returned `accepted` in one T2 verification using `claude-opus-5` at `xhigh`, with guard and capability confirmed. Exact repair-head CI run `30738460515` and Desktop installers run `30738460507` passed all nine jobs. Canonical evidence is in the redesign plan and `.agents/review/findings/cl-13.md`.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -210,10 +210,11 @@
 
 ## Next
 
-- Repair and verify `cl-13`: expire only the stale media preview-session ID,
-  preserve the active draft, retry Preview once through normal session
-  creation, and prove the real WebView2 path recovers after bounded-LRU
-  eviction. Then close LSR-4 and make LSR-5 next. Do not restart R65-2 until
+- Implement LSR-5's live imported-media workflow: complete the native and
+  browser selection paths, coalescing, source projection prefetch, synchronized
+  playback under late projections, render debounce, and Apply readiness while
+  preserving the already-landed Source/Board and preview-session contracts. Do
+  not restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new
@@ -232,8 +233,7 @@
 
 ## Blockers
 
-- LSR-4 closure is blocked only on its admitted `cl-13` repair, guard proof,
-  per-finding verdict, and exact-head CI. R65-2 is blocked on completion and
-  owner acceptance of the complete redesign. Live provider requests,
+- R65-2 is blocked on completion and owner acceptance of the complete redesign.
+  Live provider requests,
   keyboard writes, macOS Open Anyway, tag creation, release publication, and
   announcements remain separately gated actions for their later slices.

@@ -770,6 +770,22 @@ fix: isolate lighting playback by destination
 
 ### Slice LSR-4 — Human-first shell and synchronized panes
 
+Completed 2026-08-02. Implementation commit
+`78bcdcf47ff3a5dcacce555ad31ac14bef95993b` is pushed and passes the complete
+691-Python/151-browser/compile/syntax/build gate plus the isolated two-viewport
+native GIF/PNG/BMP audit. Its one required `fable-review` used
+`claude-opus-5` at `high` over exact parent/head and returned one admitted HIGH
+finding, `cl-13`. Repair commit
+`abc6826b346420de257d1679879ef84e483c3a81` restores bounded recovery after
+preview-session expiry or eviction, is pushed, non-vacuously mutation-proven,
+and passes the complete 691-Python/153-browser/compile/syntax/build gate plus
+deliberate six-case native eviction/recovery. Its T2 per-finding verification used
+`claude-opus-5` at `xhigh` over the exact repair range and returned `accepted`
+with `guard_confirmed=true` and `capability_ok=true`; the first substantive
+result was used as returned without retry or resubmission. Exact repair-head CI
+run `30738460515` and Desktop installers run `30738460507` passed all nine
+jobs. LSR-4 is closed; LSR-5 is next.
+
 Files:
 
 - `am_configurator/web/index.html`;
