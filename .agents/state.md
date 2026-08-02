@@ -5,34 +5,18 @@
 - LSR-2 is closed. Implementation `65c9fbfc22c2b24c3b868218512b00039756e6e1` and admitted repairs `9015d422d97d3be0ba9aa04a0ebeeec81c934335` (`cl-11`) and `3865c1008a9798f4d882b2f81c445e7fc2e3261f` (`cl-12`) are committed, pushed, mutation-proven, and pass the complete 688-Python/144-browser/compile/syntax/build gate. The single generation review and both per-finding verifications used `fable-review`, explicit `claude-opus-5` at `high`, exact ranges, and the first substantive result once; both findings returned accepted with guard and capability confirmed.
 - LSR-3 is closed. Implementation `92949d92ca6751073ce47fa2b5182c01ed247009` is pushed, mutation-proven, and passes the complete 690-Python/149-browser/compile/syntax/build gate plus the isolated two-viewport native WebView2 destination-transition audit. Exact-head CI run `30735969449` and Desktop installers run `30735969440` passed every platform, metadata, and provenance job. Its one required `fable-review` used explicit `claude-opus-5` at `high` over `b5d46d9402df4d47429b17aaf50326d1307024d8..92949d92ca6751073ce47fa2b5182c01ed247009`; the first substantive result returned clean with exact pins, `capability_ok=true`, no findings, exit 0, and no stderr.
 - LSR-4 is closed. Implementation `78bcdcf47ff3a5dcacce555ad31ac14bef95993b` and admitted review repair `abc6826b346420de257d1679879ef84e483c3a81` are committed, pushed, non-vacuously mutation-proven, and pass the complete 691-Python/153-browser/compile/syntax/build gate plus deliberate two-viewport GIF/PNG/BMP native eviction/recovery. The required generation review used `fable-review`, explicit `claude-opus-5` at `high`, and exact pins once; `cl-13` then returned `accepted` in one T2 verification using `claude-opus-5` at `xhigh`, with guard and capability confirmed. Exact repair-head CI run `30738460515` and Desktop installers run `30738460507` passed all nine jobs. Canonical evidence is in the redesign plan and `.agents/review/findings/cl-13.md`.
-- LSR-5 implementation `7052212445c269752a094217b1ab4813741b2ef7`
-  is committed, pushed, mutation-proven, and passes the complete
-  694-Python/157-browser/compile/syntax/build gate plus the isolated
-  two-viewport Windows WebView2 GIF/PNG/BMP audit. Its one required generation
-  review used job `fable-review`, explicit `claude-opus-5` at `high`, and
-  exact range
-  `e97b40280a494ff5446fb2954fe01ed84f565924..7052212445c269752a094217b1ab4813741b2ef7`
-  once. The first substantive result returned three MEDIUM findings, all
-  admitted as `cl-14` through `cl-16`; the review loop remains active.
-- `cl-14` is closed at repair `1a8632b6b1b2dc4926f848235d10dadd4066e6e5`.
-  Exact queued-render ownership, Source-exit cancellation, and pre-mutation
-  stale rejection are independently mutation-proven; the complete
-  694-Python/158-browser/compile/syntax/build gate and all six native
-  format/viewport cases pass. Its single `fable-review` used explicit
-  `claude-opus-5` at `high` over exact parent/fix pins and returned `accepted`
-  with guard and capability confirmed. PTK's outer call ended at 300 seconds,
-  but the original child persisted its first substantive result 32 seconds
-  later; that result was used unchanged with no retry or resubmission.
-- `cl-15` is closed at repair `027f2eb18cedd88974ae5a965de2176c0690f801`.
-  The native chooser now supplies exact lowercase and uppercase GIF, PNG, and
-  BMP patterns without changing decoder scope. The focused guard is
-  non-vacuously mutation-proven; the complete 694-Python/158-browser/compile/
-  syntax/build gate passes. Exact repair-head CI run `30742707290` and Desktop
-  installers run `30742707274` passed every job. Its single `fable-review`
-  used explicit `claude-opus-5` at `high` over exact parent/fix pins and
-  returned `accepted` with guard and capability confirmed; the first result
-  was used unchanged with no retry or resubmission.
-- Active review loop: see `.agents/review/index.md`.
+- LSR-5 is closed. Implementation `7052212445c269752a094217b1ab4813741b2ef7`
+  and admitted repairs `1a8632b6b1b2dc4926f848235d10dadd4066e6e5`
+  (`cl-14`), `027f2eb18cedd88974ae5a965de2176c0690f801` (`cl-15`), and
+  `1b09a2a7d6da087187efbf125c9480cb457e7f46` (`cl-16`) are committed,
+  pushed, independently mutation-proven, and pass the complete 694-Python/
+  161-browser/compile/syntax/build gate plus all six native GIF/PNG/BMP cases.
+  The generation review and all three per-finding verifications used job
+  `fable-review`, explicit `claude-opus-5` at `high`, exact pins, and each
+  first substantive result once; all returned accepted with guard and
+  capability confirmed. Exact final CI run `30743864174` and Desktop
+  installers run `30743864148` passed every job. Canonical evidence is in the
+  redesign plan and `.agents/review/findings/cl-14.md` through `cl-16.md`.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -238,8 +222,8 @@
 
 ## Next
 
-- Repair and independently verify `cl-16`. LSR-5 cannot close until it is
-  accepted and exact repair-head CI is green. Do
+- Implement, guard, verify, commit, push, and independently review LSR-6, the
+  immediate Effects workflow. Do
   not restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat

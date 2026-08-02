@@ -822,6 +822,20 @@ feat: rebuild the lighting workspace around led output
 
 ### Slice LSR-5 — Live imported-media workflow
 
+Completed 2026-08-02. Implementation commit
+`7052212445c269752a094217b1ab4813741b2ef7` and admitted review repairs
+`1a8632b6b1b2dc4926f848235d10dadd4066e6e5` (`cl-14`),
+`027f2eb18cedd88974ae5a965de2176c0690f801` (`cl-15`), and
+`1b09a2a7d6da087187efbf125c9480cb457e7f46` (`cl-16`) are pushed. The one
+generation review and all three per-finding verifications used job
+`fable-review`, explicit `claude-opus-5` at `high`, exact pins, and each first
+substantive result once; every finding returned `accepted` with guard and
+capability confirmed. The final head passes 694 Python and 161 browser tests,
+compile/syntax/build gates, and deliberate two-viewport GIF/PNG/BMP native
+selected-frame, ownership, session-recovery, Source/Board, Apply/Undo, Library,
+and layout proof. Exact final CI run `30743864174` and Desktop installers run
+`30743864148` passed all jobs. LSR-5 is closed; LSR-6 is next.
+
 Files:
 
 - `am_configurator/desktop.py` and bridge tests;

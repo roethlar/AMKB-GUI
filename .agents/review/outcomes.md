@@ -380,3 +380,20 @@
   commands completed the inspection and capability proof. The transcript model
   key was `claude-opus-5`; immutable result SHA-256 is
   `217876161BA4856B24BFBE826E7A97BEA53337296290262DD8BC6455350B5775`.
+- 2026-08-02 — `cl-16` per-finding codereview claude (job `fable-review`;
+  claude-cli 2.1.220; `claude-opus-5` @ `high`, standard,
+  inline/session-only) over
+  `9f57fbbd6c147a773a696f1b520b37809ef17492..1b09a2a7d6da087187efbf125c9480cb457e7f46`:
+  verdict `accepted`, `guard_confirmed=true`, `capability_ok=true`, exact pins,
+  exit 0, and no stderr. The first substantive result was used unchanged and
+  was not discarded, retried, re-emitted, replaced, reformatted, or
+  resubmitted. In a disposable detached worktree the reviewer passed 77
+  focused browser tests, 15 audit-contract tests, the full 161-test browser
+  suite, and both complete six-case native audits. Replacing only `app.js`
+  with the base reproduced the missing scheduler in the focused guard and
+  native `selected_frame_block_timeout`; restoring reviewed-head `app.js`
+  returned both green with no tracked diff. Three non-terminal permission
+  denials affected only rewritten or disallowed inspection spellings; allowed
+  reads and git/node/uv commands completed capability proof. The transcript
+  model key was `claude-opus-5`; immutable result SHA-256 is
+  `ACC149E2EA3562B2E11166CFB94827A4E3D1AF7C60FACA0E6CDCC3E4C3DD012C`.
