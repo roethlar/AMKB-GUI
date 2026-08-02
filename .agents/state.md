@@ -20,11 +20,22 @@
   separate physical Board pane whose LEDs come only from the exact canonical
   arrays used by Apply and Write; one transform and playhead own both. The plan
   also covers destination-bound playback, live Effects, supported-format
-  selection, honest errors, and offline profile editing. Implementation is not
-  approved. The owner resolved Gate LSR-G1 on 2026-08-01: normal Save JSON is
-  self-contained through strict namespaced `_am_configurator` dynamic-layout
-  metadata, stripped before hardware protocol encoding; no sidecar is required.
-  Complete plan approval remains pending.
+  selection, honest errors, and offline profile editing. The owner approved the
+  complete plan on 2026-08-01. Normal Save JSON is self-contained app-native
+  output through strict namespaced `_am_configurator` dynamic-layout metadata;
+  protocol encoders exclude that metadata, while no sidecar, vendor-clean
+  export, or third-party output compatibility promise is required. Import
+  remains intentionally broader: strict server adapters
+  must accept recognized Angry Miao AM Master full-profile and AM 80
+  lighting-only JSON.
+- Seven owner-supplied machine-local AM Master examples established two import
+  dialects without becoming repository fixtures: four full `ALICE` profiles
+  need only recognized disabled zero-frame placeholder normalization to pass
+  existing validation/writer planning; three AM 80 lighting-only objects carry
+  paired 230-pixel Head and 89-pixel Per-key tracks with 1, 50, or 75 frames.
+  The approved plan requires minimized synthetic fixtures and a final read-only
+  acceptance pass against the supplied files; original payloads are not copied
+  into the repository, logs, or packages.
 - The Macro page finding that existing macro contents are not shown directly
   enough is recorded as separate queued UX work. It is not part of the
   Lighting redesign and has no approved implementation scope.
@@ -189,12 +200,10 @@
 
 ## Next
 
-- Obtain owner approval for the complete
-  `2026-08-01-lighting-studio-human-first-redesign.md` plan. Gate LSR-G1 is
-  resolved and recorded; no other plan decision is open.
-- After complete plan approval, implement LSR-1 first: the pure workspace
+- Implement LSR-1 first under the approved
+  `2026-08-01-lighting-studio-human-first-redesign.md` plan: the pure workspace
   reducer and canonical `BoardFrameSet` contract. Do not restart R65-2 until
-  LSR-1 through LSR-9 are implemented, guarded, verified, accepted, and pushed.
+  LSR-1 through LSR-10 are implemented, guarded, verified, accepted, and pushed.
   A replacement candidate must repeat every release gate and cannot mix
   evidence from any rejected attempt with new bytes.
 - The approved `0.1.65` release plan remains recorded at
@@ -211,8 +220,7 @@
 
 ## Blockers
 
-- Lighting implementation is blocked only on explicit approval of the complete
-  human-first redesign plan. R65-2 is blocked on completion and owner acceptance
-  of that redesign. Live provider requests, keyboard writes, macOS Open Anyway,
-  tag creation, release publication, and announcements remain separately gated
-  actions for their later slices.
+- No blocker prevents LSR-1. R65-2 is blocked on completion and owner acceptance
+  of the complete redesign. Live provider requests, keyboard writes, macOS Open
+  Anyway, tag creation, release publication, and announcements remain
+  separately gated actions for their later slices.

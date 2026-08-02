@@ -5,7 +5,7 @@ at `c2f6fce`, and 3 at `09232fb` were rejected during exact-candidate
 qualification. Attempt 3 was rejected during R65-6 on 2026-08-01 because
 switching from Per-key to Head matrix while preview playback remained active
 rendered incorrect Head matrix lighting. No candidate is active. A correction
-now requires owner approval and completion of
+now requires completion and owner acceptance of the approved
 `2026-08-01-lighting-studio-human-first-redesign.md` before R65-2 can restart.
 Live
 provider requests, macOS Open Anyway, hardware writes, tag or GitHub Release

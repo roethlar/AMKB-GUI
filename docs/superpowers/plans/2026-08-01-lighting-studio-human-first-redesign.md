@@ -1,9 +1,8 @@
 # Lighting Studio Human-First Redesign
 
-**Status:** Drafted on 2026-08-01. Gate LSR-G1 Option A was approved by the
-owner on 2026-08-01 and recorded in `.agents/decisions.md`. Complete plan
-approval is still pending; no implementation slice is authorized until it is
-explicitly approved.
+**Status:** Owner-approved on 2026-08-01 after Gate LSR-G1 and the asymmetric
+AM Configurator export / AM Master import contract were recorded in
+`.agents/decisions.md`. Implementation is authorized beginning with LSR-1.
 
 ## Objective
 
@@ -18,6 +17,10 @@ results:
 - document-only Apply with one Undo checkpoint;
 - explicit Save to Library; and
 - the separately authorized, identity-checked hardware-write boundary.
+
+The application also imports recognized Angry Miao AM Master JSON. Its own
+saved JSON is an app-native, self-contained format and makes no compatibility
+promise to AM Master or another tool.
 
 For imported media, the workspace must show two synchronized views at the same
 time:
@@ -43,7 +46,8 @@ problem and are corrected through one state and rendering contract.
   safety, and action authorization.
 - `.agents/decisions.md` owns the integrated Lighting/Library product, the
   imported-media/AI separation, procedural-only AI, the unconditional FFmpeg
-  prohibition, document-only Apply, and the independent hardware-write gate.
+  prohibition, app-native-export/AM-Master-import asymmetry, document-only
+  Apply, and the independent hardware-write gate.
 - `2026-07-27-unified-lighting-studio-library.md` remains authoritative for
   Library ownership, media banking, compatibility, AI separation, and the
   backend `mapped_result` seam. This plan supersedes its frontend layout and
@@ -93,6 +97,30 @@ The redesign must close all of these observed failures as one product problem:
 
 The Macro page complaint (existing macros are not shown directly enough) is a
 separate queued product finding. This Lighting plan does not redesign Macros.
+
+## Confirmed AM Master import evidence
+
+Seven owner-supplied AM Master exports were structurally inspected without
+copying their lighting payloads into the repository:
+
+- four AFA exports are full `ALICE` profiles with eight pages, seven 200-key
+  layers, and canonical 90-pixel per-key custom tracks;
+- those full profiles currently fail only because AM Master retains a one-color
+  placeholder in built-in tracks explicitly marked `valid: false` with
+  `frame_num: 0`; replacing only those semantically disabled placeholders with
+  empty `frame_data` makes all four pass the existing validator and serial
+  writer plan without another repair;
+- three AM 80 exports are lighting-only objects rather than profiles, with
+  `speed`, `brightness`, optional `description`, `frames`, and `frames_axial`;
+- their `frames` contain 230 six-digit RGB values per frame for Head matrix,
+  their `frames_axial` contain 89 for Per-key, and the paired tracks have equal
+  frame counts; the supplied files exercise 1, 50, and 75 frames; and
+- the observed brightness dialects use normal `0..100` percentage values or
+  `255` for full brightness.
+
+The supplied files remain machine-local acceptance evidence. Add minimized,
+synthetic fixtures that preserve these schemas and edge cases; do not commit
+the owner's original filenames, lighting arrays, or other payload data.
 
 ## Non-negotiable product contract
 
@@ -205,6 +233,68 @@ remembered dynamic layout whose canonical signature differs from the selected
 device blocks the write before typed confirmation and before any transport
 mutation. Editing and previewing remain offline and read-only with respect to
 hardware.
+
+### Asymmetric JSON interoperability
+
+`Save JSON` writes the canonical app-native profile, including validated
+`_am_configurator` metadata where available. Do not add a vendor-clean mode,
+sidecar, compatibility toggle, or output-shape promise for AM Master. Hardware
+encoders receive only the canonical device sections because protocol preflight
+strips app metadata independently of file interoperability.
+
+All global JSON Open/import paths become server-authoritative and classify one
+of these forms before mutating the open document:
+
+1. **AM Configurator profile** — supported device configuration plus optional
+   valid `_am_configurator` metadata;
+2. **AM Master full profile** — supported `product_info.product_id`, key layers,
+   pages, and optional macro/legacy sections; or
+3. **AM Master AM 80 lighting** — the exact lighting-only dialect confirmed
+   above, with no claim that it is a complete keyboard profile.
+
+Never classify by basename. Parse under the existing bounded profile byte
+ceiling, reject duplicate JSON object keys, require a JSON object root, and
+match a strict structural discriminator. The server returns `source_format`,
+canonical normalized content, and a list of every normalization. JavaScript
+does not independently reinterpret vendor shapes.
+
+For AM Master full profiles:
+
+- normalize assignment and RGB spelling through the existing lossless helpers;
+- ignore comment-only `//` members;
+- canonicalize a track to `frame_num: 0, frame_data: []` only when the track is
+  explicitly `valid: false`, declares zero frames, and contains the recognized
+  single-color placeholder form;
+- preserve every valid supported keymap, macro, lighting, timing, brightness,
+  page-validity, and destination-identity value; and
+- reject mismatches in enabled tracks, capacities, product identity, or any
+  unrecognized lossy convention. Do not make `validate_config()` broadly ignore
+  malformed disabled data from arbitrary callers; normalization belongs in the
+  named AM Master adapter before canonical validation.
+
+For AM Master AM 80 lighting:
+
+- require exactly the known required fields and optional `description`;
+- require equal nonzero track frame counts within the Neon frame ceiling;
+- require exactly 230 Head and 89 Per-key six-digit hexadecimal colors per
+  frame, then normalize them to uppercase `#RRGGBB`;
+- map `frames` to canonical `head` and `frames_axial` to canonical `axial`;
+- treat `speed` as bounded milliseconds;
+- accept brightness `0..100` directly and the observed sentinel `255` as 100%;
+  reject unproven values `101..254` rather than guessing a scale; and
+- produce a transient, family-bound lighting composition and `BoardFrameSet`,
+  not a fabricated full profile or writable device document.
+
+A lighting-only composition opens in Studio review even with no document. Head
+matrix preview, timeline, playback, and explicit Save to Library work offline.
+Per-key preview uses validated portable/remembered/current layout evidence or
+shows the scoped missing-layout state. Applying requires an open compatible AM
+80 document, a selected custom slot, explicit Apply, and one Undo checkpoint.
+Opening or reviewing never writes hardware and never silently saves to Library.
+
+The import result identifies `AM Master profile` or `AM Master AM 80 lighting`
+in task language. Any normalization appears once in a review note; expected
+disabled placeholders do not become alarming error toasts.
 
 ### Human-first tool behavior
 
@@ -512,15 +602,14 @@ App-owned layout metadata is exact-field, versioned, bounded, pathless, contains
 no device address, serial, credential, or other machine identity, and is
 validated by rebuilding `device_descriptor()` and comparing the canonical
 signature. Unknown or malformed metadata never becomes layout evidence. The
-application strips the object before protocol encoding and any verified-write
-snapshot that promises vendor configuration shape.
+protocol encoder extracts only canonical device sections so the object never
+reaches transport; app-native files and local snapshots may retain it.
 
-Strict third-party parser compatibility with unknown top-level fields remains
-unproven. If reproduced testing shows a parser rejects `_am_configurator`, add a
-clearly labelled vendor-clean export without changing self-contained Save JSON
-as the normal path. Do not add a sidecar workflow speculatively.
+Third-party parser compatibility is not a requirement. Do not add a
+vendor-clean export, sidecar workflow, or compatibility mode. AM Master support
+exists only at the validated import boundary defined above.
 
-The gate is resolved. Complete plan approval remains required before LSR-1.
+The gate and complete plan are approved.
 
 ## Implementation slices
 
@@ -761,8 +850,9 @@ Under the resolved Gate LSR-G1 contract, files are expected to include:
 
 Implement the exact approved portable representation, canonical dynamic-layout
 schema/signature, evidence resolution, remembered exact layouts, scoped legacy
-fallback, and write-time comparison. Strip app metadata before every protocol
-encoder and verified-write snapshot that promises vendor configuration shape.
+fallback, and write-time comparison. Make every protocol encoder extract only
+canonical device fields; retain validated app metadata in app-native files and
+local snapshots where it preserves offline layout evidence.
 
 Required proof:
 
@@ -785,7 +875,68 @@ Commit:
 feat: keep dynamic lighting layouts portable
 ```
 
-### Slice LSR-8 — Preserve Library, AI, Apply, and Undo integration
+### Slice LSR-8 — Import AM Master profiles and lighting
+
+Files:
+
+- new focused `am_configurator/profile_import.py`;
+- `am_configurator/server.py`;
+- `am_configurator/web/app.js` and `lighting_workspace.js`;
+- `am_configurator/library.py` only where explicit Save to Library reuses the
+  canonical composition contract;
+- new minimized synthetic fixtures under `tests/fixtures/`;
+- new focused profile-import tests plus affected app, Library, web, desktop,
+  and packaging tests.
+
+Add a bounded authenticated raw-JSON import endpoint that accepts a sanitized
+display name separately from bytes, rejects duplicate object keys, classifies
+the three approved forms, runs the named adapter, then canonical validation.
+Route global Open, Merge inputs, and Library profile import through the same
+classifier. Global Open remains non-banking; explicit Library import/save owns
+persistence.
+
+Implement the exact AM Master full-profile disabled-placeholder normalization
+and AM 80 lighting-only conversion defined above. Return one immutable import
+report with source format and normalizations. A full profile proceeds through
+the normal document-open compatibility flow. A lighting-only file produces a
+transient composition review and exact `BoardFrameSet`; it never fabricates
+key layers, device identity evidence, or write eligibility.
+
+Required proof:
+
+- minimized versions of all four confirmed AFA full-profile shapes normalize
+  only disabled zero-frame placeholders and pass unchanged canonical
+  validation/writer planning afterward;
+- temporarily leaving one recognized placeholder unnormalized makes the
+  focused test fail for the predicted frame-count/color-count reason;
+- an enabled malformed track still fails and no generic validator rule is
+  weakened;
+- minimized 1-, 50-, and 75-frame AM 80 lighting fixtures map `frames` to 230
+  Head colors and `frames_axial` to 89 Per-key colors with exact order, timing,
+  and paired frame count;
+- brightness `0..100` and `255` normalize as specified, while `101..254`
+  rejects with one friendly explanation;
+- filename changes cannot affect classification, and unknown fields, duplicate
+  keys, invalid colors, unequal tracks, oversize input, excess frames, wrong
+  pixel counts, and malformed descriptions fail before document/Library
+  mutation;
+- a lighting-only file can preview/play and be explicitly saved to Library
+  without an open document, but Apply remains disabled until an exact AM 80
+  document/custom slot exists;
+- full-profile Open and Merge remain document-only, preserve every supported
+  section, and create no Library item implicitly;
+- app-native `_am_configurator` profiles still round-trip exactly, while no
+  export path attempts to reproduce an AM Master shape; and
+- no original owner-supplied payload is committed, logged, or included in a
+  package.
+
+Commit:
+
+```text
+feat: import angry miao lighting json
+```
+
+### Slice LSR-9 — Preserve Library, AI, Apply, and Undo integration
 
 Files:
 
@@ -819,7 +970,7 @@ Commit:
 refactor: unify lighting previews on canonical frames
 ```
 
-### Slice LSR-9 — Native audit and owner acceptance
+### Slice LSR-10 — Native audit and owner acceptance
 
 Files:
 
@@ -832,8 +983,9 @@ Files:
 Extend the current isolated, no-hardware native audit rather than introducing a
 browser-automation dependency. Cover GIF/PNG/BMP, two-pane framing, exact Board
 pixels, source/board playback, target-switch isolation, live Effects, Apply,
-Undo, Library, portable offline Neon layout, missing-layout fallback, Cancel,
-focus, keyboard operation, reduced motion, and error hygiene.
+Undo, Library, app-native profile round-trip, both AM Master import dialects,
+portable offline Neon layout, missing-layout fallback, Cancel, focus, keyboard
+operation, reduced motion, and error hygiene.
 
 Run source and frozen audits at 1000×680 and 1280×800 on:
 
@@ -847,6 +999,12 @@ the current pathless fixtures, isolated data/Library roots, offline device
 discovery, in-memory credentials, no provider variables, exact cleanup, and
 sanitized bounded report.
 
+Before packaging qualification, run the finished importer read-only against
+all seven owner-supplied machine-local examples. Record only source-format,
+normalization, validation, and resulting count assertions; never copy filenames
+or payload arrays into repository artifacts. Synthetic minimized fixtures own
+the repeatable CI guard.
+
 The owner performs one final visible acceptance pass on the current Windows
 build. That pass must confirm that source framing, physical LED reduction,
 Effects, target changes, offline profile behavior, and action boundaries make
@@ -854,6 +1012,8 @@ sense without instruction. It authorizes no hardware write.
 
 Required completion evidence:
 
+- all seven supplied AM Master examples pass their intended full-profile or
+  lighting-only import path with no unreported normalization;
 - full repository verification passes;
 - exact-head CI and all three native Desktop artifact jobs pass;
 - source and frozen native audits pass on all three platforms with no console,
@@ -885,6 +1045,7 @@ Cross-cutting guard matrix:
 | Physical layouts | CyberBoard, AFA, Relic, Neon axial, CyberBoard display, and Neon Head use their canonical maps and dimensions. |
 | Media selection | Native and fallback flows admit GIF/PNG/BMP and reject unsupported input once, before publication. |
 | Offline Neon | Exact portable evidence edits offline; missing evidence scopes the limitation; mismatched live signature blocks write pre-confirmation. |
+| AM Master import | Full-profile disabled placeholders normalize only through the named adapter; AM 80 lighting maps exact Head/Per-key arrays; malformed enabled data remains rejected. |
 | Effects | Each normal control produces immediate visible draft output; reduced motion remains paused and meaningful. |
 | Presets/errors | Every preset validates at extremes; one friendly error per revision; no raw field/path/exception. |
 | Mutation equality | Apply, saved composition, open document, and writer input retain exact accepted arrays/duration and dependent-track semantics. |
@@ -907,9 +1068,10 @@ the current pre-redesign markup before the slice is accepted.
   both on the last accepted entry; never let either silently run ahead.
 - If a dynamic layout lacks validated evidence, scope the missing surface and
   explain it; never invent or substitute a plausible grid.
-- If the approved portable representation breaks required third-party
-  interoperability in reproduced testing, stop and reopen Gate LSR-G1 with the
-  exact failing parser/tool evidence.
+- If a new AM Master export does not match either approved dialect, reject it
+  with one useful explanation and capture only a minimized, non-sensitive
+  structural case before expanding the adapter. Do not weaken canonical
+  validation or guess a conversion.
 - If a slice moves `main` after a future release candidate is frozen, reject
   that candidate and restart R65-2. Never patch candidate bytes or reuse earlier
   platform evidence.
@@ -921,7 +1083,7 @@ the current pre-redesign markup before the slice is accepted.
 This plan is complete only when:
 
 - Gate LSR-G1 and complete plan approval are durably recorded;
-- LSR-1 through LSR-9 and any admitted findings are independently committed,
+- LSR-1 through LSR-10 and any admitted findings are independently committed,
   guard-proven, fully verified, and pushed;
 - imported media always presents actual Source and exact physical Board output
   together under one transform and playhead;
@@ -933,6 +1095,8 @@ This plan is complete only when:
 - Effects provide immediate obvious feedback without a Preview discovery step;
 - profiles open offline, dynamic layout evidence is portable under the approved
   representation, and live verification occurs at write time;
+- recognized AM Master full profiles and AM 80 lighting-only JSON import through
+  strict named adapters, while app exports remain self-contained and app-native;
 - Paint, Library, procedural AI, Apply, Undo, Save to Library, and write safety
   retain their existing successful behavior;
 - full automation, exact-head CI, three native frozen audits, dependency/native

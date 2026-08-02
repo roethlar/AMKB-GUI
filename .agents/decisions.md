@@ -1,9 +1,15 @@
 # Repository Decisions
 
-## 2026-08-01 — Dynamic lighting layout metadata is self-contained
+## 2026-08-01 — App-native exports and AM Master imports are asymmetric
 
-Status: approved by the owner on 2026-08-01 as Lighting redesign Gate LSR-G1.
+Status: approved by the owner on 2026-08-01 as Lighting redesign Gate LSR-G1,
+then clarified while approving the complete redesign plan.
 
+- `docs/superpowers/plans/2026-08-01-lighting-studio-human-first-redesign.md`
+  is the approved implementation plan. It authorizes LSR-1 through LSR-10 code,
+  test, documentation, per-slice commits, and ordinary canonical pushes. It does
+  not authorize any separately gated provider, hardware, security-setting,
+  tag, release, or announcement action.
 - The normal `Save JSON` path includes one exact, namespaced top-level
   `_am_configurator` object when portable dynamic-layout evidence is available.
   It carries a versioned, bounded, server-validated layout projection and its
@@ -12,13 +18,19 @@ Status: approved by the owner on 2026-08-01 as Lighting redesign Gate LSR-G1.
 - The metadata is pathless and contains no serial, device address, credential,
   or other machine identity. Reopening accepts it only after strict validation,
   rebuilding the canonical `device_descriptor()`, and matching the signature.
-- App metadata is stripped before protocol encoding and any verified-write
-  snapshot that promises vendor configuration shape. A different connected
-  dynamic-layout signature blocks write before confirmation or transport.
-- Do not split the normal portable profile into a sidecar or require a second
-  file. If reproduced interoperability testing proves a strict third-party
-  parser rejects the namespaced object, add an explicit vendor-clean export;
-  that does not replace self-contained Save JSON as the normal path.
+- Protocol encoders extract only canonical device sections; app metadata never
+  reaches transport. App-native files and local snapshots may retain it. A
+  different connected dynamic-layout signature blocks write before confirmation
+  or transport.
+- AM Configurator exports are app-native. They do not promise compatibility
+  with AM Master or another tool, and no vendor-clean export or sidecar is
+  required. Strip app metadata at the hardware protocol boundary for device
+  safety, not to manufacture a third-party-compatible file.
+- Import compatibility is intentionally broader than export compatibility.
+  Support server-validated Angry Miao AM Master full-profile JSON and AM 80
+  lighting-only JSON, normalize only explicitly recognized vendor conventions,
+  and report every normalization. Never infer compatibility from a filename or
+  silently accept a malformed enabled section.
 - A legacy dynamic-layout profile without metadata still opens. Only the
   physical surface whose geometry cannot be established is scoped unavailable;
   the application never guesses a plausible layout or blocks unrelated editing.
