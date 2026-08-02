@@ -98,8 +98,8 @@ class DesktopBridgeTests(unittest.TestCase):
                     }],
                 )
 
-            filters = " ".join(desktop._MEDIA_FILE_TYPES).casefold()
-            for extension in ("*.gif", "*.png", "*.bmp"):
+            filters = " ".join(desktop._MEDIA_FILE_TYPES)
+            for extension in ("*.gif", "*.GIF", "*.png", "*.PNG", "*.bmp", "*.BMP"):
                 self.assertIn(extension, filters)
             self.assertNotIn("*.jpg", filters)
             self.assertNotIn("*.*", filters)
