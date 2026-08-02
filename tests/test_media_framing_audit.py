@@ -149,6 +149,30 @@ class MediaFramingFixtureTests(unittest.TestCase):
         )
         self.assertIsNone(bridge.choose_media_file())
 
+    def test_native_script_previews_saved_lighting_before_separate_apply(self) -> None:
+        script = media_framing_audit._audit_script()
+
+        for check in ("library_preview", "library_preview_cancel", "library_apply_undo"):
+            self.assertIn(check, media_framing_audit.REQUIRED_CASE_CHECKS)
+        preview = script.index('document.querySelector("[data-library-preview-lighting]").click()')
+        board = script.index('activeTransientLightingPreview()', preview)
+        cancel = script.index('document.querySelector("#library-preview-cancel").click()', board)
+        reopen = script.index('document.querySelector("[data-library-preview-lighting]").click()', cancel)
+        apply = script.index('document.querySelector("#library-preview-apply").click()', reopen)
+        undo = script.index('document.querySelector("#undo-button").click()', apply)
+        self.assertLess(preview, board)
+        self.assertLess(board, cancel)
+        self.assertLess(cancel, reopen)
+        self.assertLess(reopen, apply)
+        self.assertLess(apply, undo)
+        self.assertIn('board.querySelector("img,picture,video,canvas,svg,image")', script[board:cancel])
+        self.assertIn("library_preview_changed_document", script[board:cancel])
+        self.assertIn("library_preview_board_mismatch", script[board:cancel])
+        self.assertIn("library_preview_created_item", script[board:cancel])
+        self.assertIn("library_apply_count_mismatch", script[apply:undo])
+        self.assertIn("library_apply_undo_timeout", script[undo:])
+        self.assertNotIn("data-library-apply-lighting", script)
+
 
 class MediaFramingReportTests(unittest.TestCase):
     @staticmethod

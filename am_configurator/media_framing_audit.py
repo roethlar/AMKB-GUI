@@ -52,7 +52,10 @@ REQUIRED_CASE_CHECKS = [
     "single_apply",
     "undo_dirty_state",
     "save_to_library",
+    "library_preview",
+    "library_preview_cancel",
     "library_apply",
+    "library_apply_undo",
     "library_remove_undo",
     "library_restore",
     "library_permanent_delete",
@@ -1389,19 +1392,117 @@ _AUDIT_SCRIPT = r"""
     await openLibraryItemById(lightingId);
     await waitFor(
       () => {
-        const button = document.querySelector("[data-library-apply-lighting]");
+        const button = document.querySelector("[data-library-preview-lighting]");
         return button && !button.disabled ? button : false;
       },
-      "library_apply_unavailable",
+      "library_preview_unavailable",
       30000,
     );
-    document.querySelector("[data-library-apply-lighting]").click();
+    const lightingItemsBeforePreview = (await catalogItems("lighting"))
+      .map(item => item.catalog_id)
+      .sort();
+    const previewToastsBefore = new Set(document.querySelectorAll("#toast-region .toast"));
+    document.querySelector("[data-library-preview-lighting]").click();
+    const previewOutcome = await waitFor(
+      () => {
+        if (
+          document.querySelector("#library-preview-apply")
+          && document.querySelector("#library-preview-cancel")
+        ) return "ready";
+        const failure = [...document.querySelectorAll("#toast-region .toast.error")]
+          .find(candidate => !previewToastsBefore.has(candidate));
+        return failure ? "rejected" : false;
+      },
+      "library_preview_timeout",
+      30000,
+    );
+    requireAudit(previewOutcome === "ready", "library_preview_rejected");
+    const preview = activeTransientLightingPreview();
+    const board = document.querySelector("#lighting-board-pane");
+    requireAudit(
+      state.lighting.route === ROUTES.EDIT
+        && preview?.kind === "library_lighting"
+        && preview.catalogId === lightingId
+        && board,
+      "library_preview_state_mismatch",
+    );
+    const projection = selectBoardProjection(lightingWorkspace);
+    const previewColors = preview?.boardFrameSet?.frames_by_target?.[preview.target]?.[
+      projection?.index
+    ];
+    const paintedPreviewColors = [...board.querySelectorAll("#led-canvas .pixel")].map(
+      pixel => pixel.style.getPropertyValue("--pixel-color").trim().toUpperCase(),
+    );
+    requireAudit(
+      pageFingerprint() === baselinePage && state.undo.length === baselineUndo,
+      "library_preview_changed_document",
+    );
+    requireAudit(
+      projection?.frame_set === preview.boardFrameSet
+        && sameJson(projection.colors, previewColors)
+        && sameJson(paintedPreviewColors, previewColors)
+        && !board.querySelector("img,picture,video,canvas,svg,image"),
+      "library_preview_board_mismatch",
+    );
+    const lightingItemsAfterPreview = (await catalogItems("lighting"))
+      .map(item => item.catalog_id)
+      .sort();
+    requireAudit(
+      sameJson(lightingItemsAfterPreview, lightingItemsBeforePreview),
+      "library_preview_created_item",
+    );
+
+    document.querySelector("#library-preview-cancel").click();
+    await waitFor(
+      () => state.lighting.route === ROUTES.LIBRARY
+        && state.transientLightingPreview === null
+        && state.library.selectedCatalogId === lightingId,
+      "library_preview_cancel_timeout",
+      30000,
+    );
+    requireAudit(
+      pageFingerprint() === baselinePage && state.undo.length === baselineUndo,
+      "library_preview_cancel_changed_document",
+    );
+
+    await waitFor(
+      () => {
+        const button = document.querySelector("[data-library-preview-lighting]");
+        return button && !button.disabled ? button : false;
+      },
+      "library_preview_reopen_unavailable",
+      30000,
+    );
+    document.querySelector("[data-library-preview-lighting]").click();
+    await waitFor(
+      () => activeTransientLightingPreview()?.catalogId === lightingId
+        && document.querySelector("#library-preview-apply"),
+      "library_preview_reopen_timeout",
+      30000,
+    );
+    const originalLibraryApply = applyLedResultToPage;
+    let libraryApplyCalls = 0;
+    applyLedResultToPage = (...args) => {
+      libraryApplyCalls += 1;
+      return originalLibraryApply(...args);
+    };
+    document.querySelector("#library-preview-apply").click();
     await waitFor(
       () => state.lighting.route === ROUTES.EDIT
+        && !activeTransientLightingPreview()
         && lightingFingerprint(getPage(state.ledSlot)) === appliedLighting,
       "library_apply_timeout",
       30000,
     );
+    requireAudit(
+      state.undo.length === baselineUndo + 1 && libraryApplyCalls === 1,
+      "library_apply_count_mismatch",
+    );
+    applyLedResultToPage = originalLibraryApply;
+
+    document.querySelector("#undo-button").click();
+    await waitFor(() => pageFingerprint() === baselinePage, "library_apply_undo_timeout");
+    requireAudit(state.undo.length === baselineUndo, "library_apply_undo_count_mismatch");
 
     document.querySelector("#lighting-library-tab").click();
     await waitFor(() => state.lighting.route === ROUTES.LIBRARY, "library_return_timeout");
@@ -1482,8 +1583,10 @@ _AUDIT_SCRIPT = r"""
     window.__mediaFramingAuditStep = "cancel";
     document.querySelector('[data-route="lighting/edit"]')?.click();
     await waitFor(() => state.lighting.route === ROUTES.EDIT, "edit_return_timeout");
-    document.querySelector("#undo-button").click();
-    await waitFor(() => pageFingerprint() === baselinePage, "library_apply_undo_timeout");
+    requireAudit(
+      pageFingerprint() === baselinePage && state.undo.length === baselineUndo,
+      "library_workflow_changed_document",
+    );
     document.querySelector("#studio-source-tab").click();
     await waitFor(() => document.querySelector("#media-compose-cancel"), "cancel_button_missing");
     document.querySelector("#media-compose-cancel").click();
