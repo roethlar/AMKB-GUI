@@ -411,3 +411,19 @@
   git inspection, and a complete 170-test browser run established capability.
   The transcript model key was `claude-opus-5`; immutable result SHA-256 is
   `EEA7624B5F9E18FCF9FB2AACE00ECF103B6D9353D8A6D6F8E4F19B1206CD5CB6`.
+- 2026-08-02 — `cl-17` per-finding codereview claude (job `fable-review`;
+  claude-cli 2.1.220; `claude-opus-5` @ `high`, standard,
+  inline/session-only) over
+  `a18a0a61b68ae1f4b0cfd288e9fc7b8b9c097bae..07a1cbe8cf2c7eea56ea4aa27b43dada8a861c1a`:
+  verdict `accepted`, `guard_confirmed=true`, `capability_ok=true`, exact pins,
+  exit 0, and no stderr. The first substantive result was used unchanged and
+  was not discarded, retried, re-emitted, replaced, reformatted, or
+  resubmitted. In a disposable detached worktree the reviewer passed 23/23
+  focused and 171/171 complete browser tests, replaced only
+  `lighting_workspace.js` with its base version and reproduced the one exact
+  stale-thumbnail assertion, restored reviewed head to both green suites, and
+  removed the worktree without changing the primary checkout. Four
+  non-terminal denials affected rewritten or unavailable inspection forms;
+  allowed reads and git/Node commands completed capability and guard proof.
+  The transcript model key was `claude-opus-5`; immutable result SHA-256 is
+  `08802A29B1C9C4DA6E512DD875C8498957570EDA70BEAEF9B92F8E6A9CC2A734`.

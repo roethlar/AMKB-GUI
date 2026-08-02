@@ -875,22 +875,18 @@ feat: make media framing live and truthful
 
 ### Slice LSR-6 — Immediate Effects workflow
 
-Implementation commit `246da643e95dbc2fc390507264e228cc75051292` is pushed,
-non-vacuously mutation-proven, and passes the complete local
-694-Python/170-browser/compile/syntax/build gate. Exact-head CI run
-`30745662566` and Desktop installers run `30745662565` passed all nine jobs.
-Its one generation `fable-review` used explicit `claude-opus-5` at `high` over
-exact pins and returned one admitted MEDIUM finding, `cl-17`: partial live
-effect repaint changes Board and Apply arrays but leaves timeline LED
-miniatures on the prior accepted frame set. The first substantive result was
-used as returned without retry or resubmission. LSR-6 remains open pending the
-isolated repair and per-finding verification.
-
-The isolated `cl-17` repair repaints mounted timeline LED swatches from the
-same accepted `BoardFrameSet` as Board without rebuilding the workspace. Its
-focused guard fails alone against the reviewed painter and passes after the
-repair; the complete 694-Python/171-browser/compile/syntax/build gate is green.
-Per-finding verification remains required before LSR-6 closes.
+Completed 2026-08-02. Implementation commit
+`246da643e95dbc2fc390507264e228cc75051292` and admitted review repair
+`07a1cbe8cf2c7eea56ea4aa27b43dada8a861c1a` (`cl-17`) are pushed and
+non-vacuously mutation-proven. The final complete gate passes 694 Python tests
+with 5 skips, 171 browser tests, compile/syntax checks, and both package builds;
+exact repair-head CI run `30746538330` and Desktop installers run `30746538320`
+passed all nine jobs. The generation review and `cl-17` per-finding verification
+used job `fable-review`, explicit `claude-opus-5` at `high`, exact pins, and
+each first substantive result once. The repair verification independently
+reproduced the stale-thumbnail failure with only the painter reverted, restored
+both focused and complete browser suites green, and returned `accepted` with
+guard and capability confirmed. LSR-6 is closed; LSR-7 is next.
 
 Files:
 

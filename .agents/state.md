@@ -17,27 +17,21 @@
   capability confirmed. Exact final CI run `30743864174` and Desktop
   installers run `30743864148` passed every job. Canonical evidence is in the
   redesign plan and `.agents/review/findings/cl-14.md` through `cl-16.md`.
-- LSR-6 implementation `246da643e95dbc2fc390507264e228cc75051292` is
-  pushed and non-vacuously mutation-proven. Its complete local gate passes 694
-  Python tests with 5 skips, 170 browser tests, compile/syntax checks, and both
-  package builds. Exact-head CI run `30745662566` passed all four jobs and
-  Desktop installers run `30745662565` passed all five. An isolated 1000x680
-  native WebView2 audit confirmed all five Effects cards, immediate exact
-  Hue-cycle output, the 13px helper floor, enabled Apply/Cancel boundaries, 200
-  physical Board pixels, reduced-motion representative-frame behavior, and
-  document-preserving Cancel; its occluded screenshot is not accepted as visual
-  evidence. The one required generation `fable-review` used explicit
-  `claude-opus-5` at `high` over exact pins and returned one admitted MEDIUM
-  finding, `cl-17`: live parameter changes leave timeline LED thumbnails
-  showing the prior accepted frame set. The first result was used as returned
-  without retry or resubmission. LSR-6 remains open; the active review loop is
-  recorded in `.agents/review/index.md`.
-- The `cl-17` repair repaints every mounted timeline LED swatch from the same
-  accepted `BoardFrameSet` as the physical Board while retaining the
-  focus-preserving partial update path. Its guard failed alone against the
-  reviewed painter, passes after restoration, and the complete
-  694-Python/171-browser/compile/syntax/build gate is green. The isolated repair
-  commit, push, exact-head qualification, and per-finding verification remain.
+- LSR-6 is closed. Implementation
+  `246da643e95dbc2fc390507264e228cc75051292` and admitted review repair
+  `07a1cbe8cf2c7eea56ea4aa27b43dada8a861c1a` (`cl-17`) are committed,
+  pushed, and independently mutation-proven. The final complete gate passes
+  694 Python tests with 5 skips, 171 browser tests, compile/syntax checks, and
+  both package builds; exact repair-head CI run `30746538330` and Desktop
+  installers run `30746538320` passed all nine jobs. The isolated native
+  WebView2 Effects audit confirmed the five cards, exact Hue-cycle output,
+  accessibility floor, reduced-motion representative frame, Apply/Cancel
+  boundaries, and document-preserving Cancel; its occluded screenshot is not
+  accepted as visual evidence. The generation review and `cl-17` verification
+  each used job `fable-review`, explicit `claude-opus-5` at `high`, exact pins,
+  and the first substantive result once; `cl-17` returned `accepted` with
+  guard and capability confirmed. Canonical evidence is in the redesign plan
+  and `.agents/review/findings/cl-17.md`.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -243,8 +237,9 @@
 
 ## Next
 
-- Commit, push, qualify, and independently verify the guard-proven `cl-17`
-  repair. Do not restart R65-2 until
+- Implement, guard, verify, commit, push, and independently review LSR-7, the
+  approved offline-layout evidence and write-time verification slice. Do not
+  restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new
