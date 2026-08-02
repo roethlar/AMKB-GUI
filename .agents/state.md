@@ -32,16 +32,17 @@
   and the first substantive result once; `cl-17` returned `accepted` with
   guard and capability confirmed. Canonical evidence is in the redesign plan
   and `.agents/review/findings/cl-17.md`.
-- LSR-7 implementation is landed in the commit containing this record and is
-  non-vacuously mutation-proven. App-native Neon profiles carry strict,
-  bounded, pathless layout evidence; fixed-family output remains unchanged;
-  offline editing resolves embedded evidence before remembered evidence; and
-  both preflight and direct write reject a mismatched live layout before any
-  transport call. Protocol encoders strip app-only metadata. The complete
-  local gate passes 705 Python tests with 5 skips, 173 browser tests,
-  compile/syntax checks, and both package builds. Exact-head CI, Desktop
-  installers, and the one required `fable-review` remain pending; LSR-7 is not
-  closed.
+- LSR-7 implementation `e7bd1f35110e82e40be2fac27bf0f88aa1c388f7`
+  is committed, pushed, and non-vacuously mutation-proven. Its complete local
+  gate passes 705 Python tests with 5 skips, 173 browser tests, compile/syntax
+  checks, and both package builds; exact-head CI run `30748121792` and Desktop
+  installers run `30748121791` passed every platform, metadata, and provenance
+  job. Its one required `fable-review` used explicit `claude-opus-5` at `high`
+  over the exact landed range once and returned three independently confirmed
+  MEDIUM findings: `cl-18` (corrupt remembered evidence cannot self-heal),
+  `cl-19` (device rescan drops the trusted deep signature), and `cl-20`
+  (connected geometry can overwrite conflicting embedded evidence). Repair
+  them one commit and one per-finding verdict each; LSR-7 is not closed.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -247,11 +248,12 @@
 
 ## Next
 
-- Push and qualify the exact LSR-7 implementation head, then run its one
-  required `fable-review` using explicit `claude-opus-5` at `high` over the
-  exact landed range. Use the first substantive result as returned and do not
-  retry, replace, or resubmit it without explicit owner approval. Do not
-  restart R65-2 until
+- Repair `cl-18` first without expanding LSR-7: make newly validated live
+  evidence atomically repair corrupt private persistence while invalid prior
+  bytes remain unusable for reads. Guard, mutation-prove, fully verify, commit,
+  push, and obtain its one `fable-review` verdict; then repair `cl-19` and
+  `cl-20` the same way before closing LSR-7 and starting LSR-8. Do not restart
+  R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new

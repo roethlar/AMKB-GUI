@@ -427,3 +427,19 @@
   allowed reads and git/Node commands completed capability and guard proof.
   The transcript model key was `claude-opus-5`; immutable result SHA-256 is
   `08802A29B1C9C4DA6E512DD875C8498957570EDA70BEAEF9B92F8E6A9CC2A734`.
+- 2026-08-02 — codereview claude (job `fable-review`; claude-cli 2.1.220;
+  `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `75908dfffeda3ee6afd2502735def444101f1ff3..e7bd1f35110e82e40be2fac27bf0f88aa1c388f7`:
+  verdict `findings`, `capability_ok=true`, exact pinned SHAs, three MEDIUM
+  candidates, exit 0, and no stderr. Direct verification admitted all three:
+  `cl-18` because corrupt private layout evidence cannot be replaced by a new
+  validated device read; `cl-19` because shallow rescan drops the trusted deep
+  descriptor and can disarm legacy-profile mismatch comparison; and `cl-20`
+  because supplied connected geometry silently replaces conflicting embedded
+  evidence on export and Library save. The persisted schema-enforced first
+  result completed after 19 minutes 11 seconds and was used as returned. It was
+  not discarded, retried, re-emitted, replaced, reformatted, or resubmitted.
+  Non-terminal denials affected rewritten or disallowed inspection forms;
+  allowed repository reads and git inspection completed capability proof. The
+  transcript model key was `claude-opus-5`; immutable result SHA-256 is
+  `DCB0A77D4918911118866B4485440E9105637385047DF0CD464DB7ED6E3AC8C7`.
