@@ -783,6 +783,7 @@ class ReleaseInfoTests(unittest.TestCase):
         for command in (
             "node --test tests/web/*.test.js",
             "node --check am_configurator/web/lighting_state.js",
+            "node --check am_configurator/web/lighting_workspace.js",
             "node --check am_configurator/web/lighting_review.js",
             "node --check am_configurator/web/lighting_targets.js",
             "node --check am_configurator/web/lighting_composer.js",

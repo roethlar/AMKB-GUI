@@ -856,6 +856,7 @@ def run_smoke_test() -> int:
                 raise SystemExit("Desktop smoke test failed: bundled UI did not load.")
             parsed_url = urlsplit(url)
             asset_markers = {
+                "lighting_workspace.js": b"createLightingWorkspace",
                 "lighting_composer.js": b"renderColorEffect",
                 "library_state.js": b"libraryCatalogQuery",
                 "app.js": b"async function applyLibraryProfile",

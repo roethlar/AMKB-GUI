@@ -55,6 +55,8 @@ jobs:
         run: node --test tests/web/*.test.js
       - name: Check lighting state JavaScript
         run: node --check am_configurator/web/lighting_state.js
+      - name: Check lighting workspace JavaScript
+        run: node --check am_configurator/web/lighting_workspace.js
       - name: Check lighting review JavaScript
         run: node --check am_configurator/web/lighting_review.js
       - name: Check lighting targets JavaScript

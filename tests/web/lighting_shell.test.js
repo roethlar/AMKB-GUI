@@ -18,17 +18,57 @@ const server = fs.readFileSync(path.join(root, "am_configurator/server.py"), "ut
 
 test("pure lighting state loads before the application adapter", () => {
   const stateScript=html.indexOf('<script src="/lighting_state.js"></script>');
+  const workspaceScript=html.indexOf('<script src="/lighting_workspace.js"></script>');
   const reviewScript=html.indexOf('<script src="/lighting_review.js"></script>');
   const targetsScript=html.indexOf('<script src="/lighting_targets.js"></script>');
   const composerScript=html.indexOf('<script src="/lighting_composer.js"></script>');
   const libraryStateScript=html.indexOf('<script src="/library_state.js"></script>');
   const appScript=html.indexOf('<script src="/app.js"></script>');
-  assert.ok(stateScript>=0&&stateScript<reviewScript&&reviewScript<targetsScript&&targetsScript<composerScript&&composerScript<libraryStateScript&&libraryStateScript<appScript);
+  assert.ok(stateScript>=0&&stateScript<workspaceScript&&workspaceScript<reviewScript&&reviewScript<targetsScript&&targetsScript<composerScript&&composerScript<libraryStateScript&&libraryStateScript<appScript);
   assert.match(server,/"\/lighting_state\.js":\s*"lighting_state\.js"/);
+  assert.match(server,/"\/lighting_workspace\.js":\s*"lighting_workspace\.js"/);
   assert.match(server,/"\/lighting_review\.js":\s*"lighting_review\.js"/);
   assert.match(server,/"\/lighting_targets\.js":\s*"lighting_targets\.js"/);
   assert.match(server,/"\/lighting_composer\.js":\s*"lighting_composer\.js"/);
   assert.match(server,/"\/library_state\.js":\s*"library_state\.js"/);
+});
+
+test("workspace reducer is the only destination and playback authority", () => {
+  const stateStart=js.indexOf("const state = {");
+  const stateEnd=js.indexOf("\n};",stateStart);
+  const legacyState=js.slice(stateStart,stateEnd);
+  for(const field of ["ledSlot","ledTarget","ledFrame","studioTool","playing","playTimer"]){
+    assert.doesNotMatch(legacyState,new RegExp(`\\b${field}\\s*:`),`${field} must not remain reducer-adjacent state`);
+  }
+  assert.match(js,/Object\.defineProperties\(state,/);
+  assert.match(js,/type: "DESTINATION_CHANGED"/);
+  assert.match(js,/type: "PLAYHEAD_SCRUBBED"/);
+  assert.match(js,/type: "TOOL_SELECTED"/);
+  assert.doesNotMatch(js,/state\.playTimer/);
+  assert.match(js,/let lightingPlaybackTimer = null/);
+
+  const playbackStart=js.indexOf("function startPlayback");
+  const playbackEnd=js.indexOf("function toggleLightingPlayback",playbackStart);
+  const playback=js.slice(playbackStart,playbackEnd);
+  assert.match(playback,/selectBoardProjection\(lightingWorkspace\)/);
+  assert.match(playback,/type: "PLAY_REQUESTED"/);
+  assert.doesNotMatch(playback,/trackInfo|activeMediaPreviewTrack|frames\s*=/);
+
+  const executorStart=js.indexOf("function executeLightingWorkspaceIntents");
+  const executorEnd=js.indexOf("function dispatchLightingWorkspace",executorStart);
+  const executor=js.slice(executorStart,executorEnd);
+  assert.match(executor,/type: "PLAYBACK_TICK"/);
+  assert.match(executor,/session_id: sessionId/);
+  assert.match(executor,/context_key: contextKey/);
+  assert.doesNotMatch(executor,/frame_RGB|\.frames/);
+
+  const renderStart=js.indexOf("function renderLightingEdit");
+  const renderEnd=js.indexOf("function focusSelectedFrame",renderStart);
+  const edit=js.slice(renderStart,renderEnd);
+  assert.match(edit,/currentLightingBoardFrameSet/);
+  assert.match(edit,/publishLightingBoardFrameSet/);
+  assert.match(edit,/boardProjection\.colors/);
+  assert.match(js,/type:"BOARD_COLOR_UPDATED"/);
 });
 
 // Slice P3 renamed the visible tool labels to Paint / Import media / Effects /
@@ -133,7 +173,9 @@ test("media import banks before composition and applies only an accepted preview
   const applyEnd=js.indexOf("function ",applyStart+10);
   assert.equal((js.slice(applyStart,applyEnd).match(/mutate\(/g)||[]).length,1);
   assert.match(js,/nextMediaRenderEpoch\(state\.mediaRenderEpoch\)/);
-  assert.match(js,/const timelineFrames=mediaPreviewFrames\.length\?mediaPreviewFrames:documentFrames/);
+  assert.match(js,/boardFrameSetFromMappedResult\(/);
+  assert.match(js,/type:"SEQUENCE_RENDER_ACCEPTED"/);
+  assert.match(js,/boardProjection\?\.frame_set\.frames_by_target/);
   assert.match(js,/function activeMediaPreviewTrack\(\)/);
   assert.match(js,/function cancelMediaComposition\(\)/);
   assert.match(js,/id="media-compose-apply"/);
@@ -164,8 +206,9 @@ test("lighting color style interpolation uses only canonical RGB", () => {
   assert.match(js,/normalizeImportedLightingColors\(normalizeImportedAssignmentCodes\(parsed\)\)/);
   assert.match(js,/background:\$\{safeRgbColor\(color\)\}/);
   assert.doesNotMatch(js,/background:\$\{esc\(color\)\}/);
-  assert.match(js,/pixel\.style\.background=safeRgbColor\(color\)/);
-  assert.match(js,/setProperty\('--pixel-color',safeRgbColor\(color\)\)/);
+  assert.match(js,/const color = projection\.colors\[Number\(pixel\.dataset\.pixel\)\]/);
+  assert.match(js,/pixel\.style\.background = color/);
+  assert.match(js,/setProperty\("--pixel-color", color\)/);
 });
 
 test("persistent job strip remains available outside routed content", () => {

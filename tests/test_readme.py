@@ -127,6 +127,7 @@ def interface_copy() -> str:
         "index.html",
         "app.js",
         "lighting_state.js",
+        "lighting_workspace.js",
         "lighting_review.js",
         "lighting_targets.js",
         "lighting_composer.js",

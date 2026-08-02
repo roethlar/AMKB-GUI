@@ -21,6 +21,7 @@ const read = relative => fs.readFileSync(path.join(root, relative), "utf8");
 const html = read("am_configurator/web/index.html");
 const js = read("am_configurator/web/app.js");
 const review = read("am_configurator/web/lighting_review.js");
+const workspace = read("am_configurator/web/lighting_workspace.js");
 const libraryState = read("am_configurator/web/library_state.js");
 
 // Interpolated expressions inside a template literal are code, not copy.
@@ -64,6 +65,7 @@ test("no banned implementation vocabulary reaches user-visible copy", () => {
     ["index.html", html],
     ["app.js", stringLiterals(js)],
     ["lighting_review.js", stringLiterals(review)],
+    ["lighting_workspace.js", stringLiterals(workspace)],
     ["library_state.js", stringLiterals(libraryState)],
   ];
   for (const [name, copy] of surfaces) {

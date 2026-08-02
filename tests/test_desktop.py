@@ -142,6 +142,7 @@ class DesktopSmokeTests(unittest.TestCase):
                 b'AM Configurator data-library-filter="sources" '
                 b'data-library-filter="removed"'
             ),
+            "/lighting_workspace.js": b"createLightingWorkspace",
             "/lighting_composer.js": b"renderColorEffect",
             "/library_state.js": b"libraryCatalogQuery",
             "/app.js": b"async function applyLibraryProfile",
@@ -212,6 +213,7 @@ class DesktopSmokeTests(unittest.TestCase):
         self.assertEqual(
             [
                 "/",
+                "/lighting_workspace.js",
                 "/lighting_composer.js",
                 "/library_state.js",
                 "/app.js",
