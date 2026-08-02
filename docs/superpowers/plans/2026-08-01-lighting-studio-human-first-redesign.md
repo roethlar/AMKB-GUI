@@ -1007,8 +1007,12 @@ remembered-layout path are mutation-proven. The complete local gate passes 720
 Python tests with 5 skips, 178 browser tests, compile/syntax and source/wheel
 builds, plus the Windows native-tree/installer/frozen-smoke chain. A read-only
 acceptance pass classified all seven machine-local examples without recording
-their filenames or payload arrays. Exact-head CI/Desktop qualification and the
-single required `fable-review` are pending; LSR-8 is not closed yet.
+their filenames or payload arrays. Implementation commit `845f716` is pushed;
+exact-head CI run `30754260384` and Desktop installers run `30754260409` pass.
+The single required `fable-review` used explicit `claude-opus-5` at `high` over
+the exact implementation range once and admitted `cl-21` (applied imported
+frames remain frozen) and `cl-22` (a source-text guard pins the related dead
+clone block). LSR-8 remains open until both findings are independently closed.
 
 Files:
 

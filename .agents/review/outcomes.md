@@ -461,3 +461,19 @@
   git operations, and verification commands completed capability and guard
   proof. Transcript model key: `claude-opus-5`; immutable result SHA-256 is
   `341F5F5A6E72892C9392EF2E952A4677026EB2D7724D12B8A2869F94C4FDFD23`.
+- 2026-08-02 — LSR-8 codereview claude (job `fable-review`; claude-cli
+  2.1.220; `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `b927a97d4a96c9b456ca5964f4b93181a48a023d..845f716fdc80741f38ec2161e49e7b775114fe3c`:
+  verdict `findings`, `capability_ok=true`, exact pinned SHAs, one HIGH and one
+  LOW candidate, exit 0, and no stderr. Direct verification admitted both:
+  `cl-21` because recursively frozen imported color arrays are stored by
+  reference in the live document and throw on indexed paint or frame fill;
+  `cl-22` because a source-text assertion requires the associated unused clone
+  block and fails when correct cleanup removes it. The persisted
+  schema-enforced first result completed after 18 minutes 36 seconds and was
+  used as returned without retry, re-emission, replacement, reformatting, or
+  resubmission. One hook-rewritten git spelling and one disallowed Grep form
+  were denied; allowed repository reads, git inspection, and Node execution
+  completed capability and defect proof. The transcript model key was
+  `claude-opus-5`; immutable result SHA-256 is
+  `27FB81F2BBF70D09260B1920E36B58B366787EB0679C954281DC166D9D96E51F`.

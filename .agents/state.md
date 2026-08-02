@@ -76,7 +76,8 @@
   per-finding `fable-review` used explicit `claude-opus-5` at `high` once and
   returned accepted with guard and capability confirmed. Canonical evidence is
   in `.agents/review/findings/cl-20.md`. LSR-7 is closed; LSR-8 is next.
-- LSR-8 implementation is landed in the commit containing this record. The
+- LSR-8 implementation `845f716fdc80741f38ec2161e49e7b775114fe3c` is
+  committed and pushed. The
   strict server classifier accepts app-native profiles, recognized AM Master
   full profiles, and AM Master AM 80 lighting-only JSON without using the
   filename; exports remain app-native. Lighting-only imports review both exact
@@ -96,8 +97,13 @@
   offline Save, disabled Apply without a document, and mutation-free Close.
   GPU screen capture was black and is not accepted as visual styling evidence.
   No dependency, FFmpeg/libav path, provider request, credential use, hardware
-  write, or release action was introduced. Push, exact-head CI/Desktop
-  qualification, and the one required `fable-review` remain pending.
+  write, or release action was introduced. Exact-head CI run `30754260384`
+  and Desktop installers run `30754260409` pass every job. The one required
+  `fable-review` used job `fable-review`, explicit `claude-opus-5` at `high`,
+  and exact pins once; its first substantive result admitted `cl-21` (frozen
+  imported arrays make an applied slot uneditable) and `cl-22` (a source-text
+  guard pins the associated dead clone block). The active review loop is
+  recorded in `.agents/review/index.md`; LSR-8 is not closed.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -303,11 +309,10 @@
 
 ## Next
 
-- Commit and push LSR-8, qualify exact-head CI and Desktop installers, then run
-  its one exact-range `fable-review` through job `fable-review` with explicit
-  model `claude-opus-5` and effort `high`. Use the first substantive result
-  once; do not retry or resubmit without owner approval. Do not start LSR-9
-  until LSR-8 review is clean or every admitted finding is closed. A
+- Repair and independently guard-prove `cl-21`, commit and qualify that finding,
+  then repair `cl-22` as its own commit. Continue the codereview per-finding
+  loop without retrying, replacing, or resubmitting a completed review. Do not
+  start LSR-9 until both admitted LSR-8 findings are closed. A
   replacement release candidate must repeat every release gate and cannot mix
   evidence from any rejected attempt with new bytes.
 - The approved `0.1.65` release plan remains recorded at
