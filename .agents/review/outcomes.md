@@ -331,3 +331,18 @@
   `rtk git log` form was denied, but the reviewer completed its repo inspection
   and capability proof through allowed commands. The transcript model key was
   `claude-opus-5`.
+- 2026-08-02 — codereview claude (job `fable-review`; claude-cli 2.1.220;
+  `claude-opus-5` @ `high`, standard, inline/session-only) over
+  `e97b40280a494ff5446fb2954fe01ed84f565924..7052212445c269752a094217b1ab4813741b2ef7`:
+  verdict `findings`, `capability_ok=true`, exact pinned SHAs, three MEDIUM
+  candidates, exit 0, and no stderr. Direct source and dependency-backend
+  verification admitted all three as `cl-14` through `cl-16`: queued media
+  work can mutate playback after Source loses ownership; GTK's case-sensitive
+  filter hides valid uppercase-extension media; and the plan-required
+  selected-frame fast render tier has no browser caller. The persisted first
+  substantive result completed after 16 minutes 37 seconds and was used as
+  returned. It was not discarded, retried, re-emitted, replaced, reformatted,
+  or resubmitted. One hook-rewritten `rtk git` command and one temporary-file
+  Grep were denied; the reviewer recovered through allowed repository reads and
+  git inspection and completed the capability proof. The transcript model key
+  was `claude-opus-5`.
