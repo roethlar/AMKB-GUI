@@ -1,9 +1,9 @@
 # Lighting Studio Human-First Redesign
 
-**Status:** Drafted on 2026-08-01. Owner approval is pending. The product and
-renderer contracts below are settled, but Gate LSR-G1 still requires an owner
-ruling on portable Neon layout persistence. No implementation slice is
-authorized until that ruling is recorded and the complete plan is approved.
+**Status:** Drafted on 2026-08-01. Gate LSR-G1 Option A was approved by the
+owner on 2026-08-01 and recorded in `.agents/decisions.md`. Complete plan
+approval is still pending; no implementation slice is authorized until it is
+explicitly approved.
 
 ## Objective
 
@@ -497,46 +497,30 @@ client-side extension/type feedback. Backend validation remains authoritative
 in both paths. Unsupported formats are not shown as normal native choices, and
 any bypassed/mislabeled file produces one plain-language inline error.
 
-## Gate LSR-G1 — Portable dynamic layout representation
+## Resolved Gate LSR-G1 — Self-contained dynamic layout metadata
 
 Neon Per-key geometry comes from a validated Vial definition and is not present
 in the vendor configuration JSON. Offline editing therefore needs durable
-layout evidence. Two viable representations have different UX and compatibility
-costs:
-
-### Option A — Self-contained app metadata in Save JSON (recommended)
+layout evidence.
 
 `Save JSON` includes one exact namespaced top-level `_am_configurator` object
 with a versioned, server-validated dynamic layout projection and canonical
-signature. The application strips this metadata before protocol encoding and
-offers a clearly labelled vendor-clean export only if interoperability testing
-shows another tool rejects unknown top-level fields.
+signature. This is the normal portable Save/Open representation and does not
+require a sidecar, second file, or local cache to travel with the profile.
 
-This gives one portable file, makes the normal Save/Open path work offline on
-another machine, and avoids hidden local state. The cost is that strict
-third-party parsers may reject the extra top-level object; current compatibility
-outside this application is unproven.
+App-owned layout metadata is exact-field, versioned, bounded, pathless, contains
+no device address, serial, credential, or other machine identity, and is
+validated by rebuilding `device_descriptor()` and comparing the canonical
+signature. Unknown or malformed metadata never becomes layout evidence. The
+application strips the object before protocol encoding and any verified-write
+snapshot that promises vendor configuration shape.
 
-### Option B — Vendor-clean JSON plus separate app representation
+Strict third-party parser compatibility with unknown top-level fields remains
+unproven. If reproduced testing shows a parser rejects `_am_configurator`, add a
+clearly labelled vendor-clean export without changing self-contained Save JSON
+as the normal path. Do not add a sidecar workflow speculatively.
 
-`Save JSON` remains byte-shape compatible with vendor profiles. Layout evidence
-lives in a separate `.amkb-profile.json` envelope or local Library/cache record.
-
-This minimizes third-party parser risk, but a raw JSON copied to another
-machine is not self-contained. Users must understand and keep a second file or
-use a different Save action, which preserves the confusing offline failure in
-the normal path.
-
-The recommended ruling is Option A because the primary task is a portable
-profile that opens and edits without hardware. Before implementation, record
-the owner's choice in `.agents/decisions.md` and replace this gate with the
-exact approved schema/export contract. No slice begins while the choice and
-complete plan approval are pending.
-
-Whichever option is selected, app-owned layout metadata is exact-field,
-versioned, bounded, pathless, contains no device address/serial/credential, and
-is validated by rebuilding `device_descriptor()` and comparing the canonical
-signature. Unknown or malformed metadata never becomes layout evidence.
+The gate is resolved. Complete plan approval remains required before LSR-1.
 
 ## Implementation slices
 
@@ -766,7 +750,7 @@ feat: preview lighting effects as they change
 
 ### Slice LSR-7 — Offline layout evidence and write-time verification
 
-Files depend on Gate LSR-G1 and are expected to include:
+Under the resolved Gate LSR-G1 contract, files are expected to include:
 
 - profile load/save helpers in `am_configurator/web/app.js`;
 - strict metadata validation in `am_configurator/server.py` or a focused

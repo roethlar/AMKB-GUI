@@ -21,9 +21,10 @@
   arrays used by Apply and Write; one transform and playhead own both. The plan
   also covers destination-bound playback, live Effects, supported-format
   selection, honest errors, and offline profile editing. Implementation is not
-  approved. Gate LSR-G1 still needs the owner's one-at-a-time ruling on whether
-  portable dynamic-layout evidence lives inside the saved JSON or in a
-  separate app representation, followed by approval of the complete plan.
+  approved. The owner resolved Gate LSR-G1 on 2026-08-01: normal Save JSON is
+  self-contained through strict namespaced `_am_configurator` dynamic-layout
+  metadata, stripped before hardware protocol encoding; no sidecar is required.
+  Complete plan approval remains pending.
 - The Macro page finding that existing macro contents are not shown directly
   enough is recorded as separate queued UX work. It is not part of the
   Lighting redesign and has no approved implementation scope.
@@ -188,12 +189,9 @@
 
 ## Next
 
-- Resolve Lighting redesign Gate LSR-G1 in chat, record the approved portable
-  layout representation, then obtain owner approval for the complete
-  `2026-08-01-lighting-studio-human-first-redesign.md` plan. The recommended
-  first ruling is a self-contained, namespaced app metadata object in Save JSON
-  because it makes the normal Save/Open path portable and offline-first; the
-  tradeoff is unproven strict third-party parser compatibility.
+- Obtain owner approval for the complete
+  `2026-08-01-lighting-studio-human-first-redesign.md` plan. Gate LSR-G1 is
+  resolved and recorded; no other plan decision is open.
 - After complete plan approval, implement LSR-1 first: the pure workspace
   reducer and canonical `BoardFrameSet` contract. Do not restart R65-2 until
   LSR-1 through LSR-9 are implemented, guarded, verified, accepted, and pushed.
@@ -213,8 +211,8 @@
 
 ## Blockers
 
-- Lighting implementation is blocked on the LSR-G1 portable-layout ruling and
-  explicit approval of the complete human-first redesign plan. R65-2 is blocked
-  on completion and owner acceptance of that redesign. Live provider requests,
-  keyboard writes, macOS Open Anyway, tag creation, release publication, and
-  announcements remain separately gated actions for their later slices.
+- Lighting implementation is blocked only on explicit approval of the complete
+  human-first redesign plan. R65-2 is blocked on completion and owner acceptance
+  of that redesign. Live provider requests, keyboard writes, macOS Open Anyway,
+  tag creation, release publication, and announcements remain separately gated
+  actions for their later slices.

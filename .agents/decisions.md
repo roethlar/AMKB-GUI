@@ -1,5 +1,28 @@
 # Repository Decisions
 
+## 2026-08-01 — Dynamic lighting layout metadata is self-contained
+
+Status: approved by the owner on 2026-08-01 as Lighting redesign Gate LSR-G1.
+
+- The normal `Save JSON` path includes one exact, namespaced top-level
+  `_am_configurator` object when portable dynamic-layout evidence is available.
+  It carries a versioned, bounded, server-validated layout projection and its
+  canonical signature so the saved profile opens and renders physical Per-key
+  lighting offline on another installation.
+- The metadata is pathless and contains no serial, device address, credential,
+  or other machine identity. Reopening accepts it only after strict validation,
+  rebuilding the canonical `device_descriptor()`, and matching the signature.
+- App metadata is stripped before protocol encoding and any verified-write
+  snapshot that promises vendor configuration shape. A different connected
+  dynamic-layout signature blocks write before confirmation or transport.
+- Do not split the normal portable profile into a sidecar or require a second
+  file. If reproduced interoperability testing proves a strict third-party
+  parser rejects the namespaced object, add an explicit vendor-clean export;
+  that does not replace self-contained Save JSON as the normal path.
+- A legacy dynamic-layout profile without metadata still opens. Only the
+  physical surface whose geometry cannot be established is scoped unavailable;
+  the application never guesses a plausible layout or blocks unrelated editing.
+
 ## 2026-07-31 — The 0.1.65 public-release plan governs release work
 
 Status: approved by the owner on 2026-07-31 after one owner-requested
