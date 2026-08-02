@@ -956,41 +956,86 @@ test("imported lighting review keeps Apply, Library save, and Close boundaries s
   assert.match(js,/target==="axial"[\s\S]*\?"Per-key layout unavailable\."[\s\S]*:`\$\{targetLabel\} layout unavailable\.`/);
 });
 
-test("closing imported lighting restores a destination supported by the open document", () => {
-  const start=js.indexOf("function closeImportedLightingReview");
+test("closing imported lighting restores the pre-review destination", () => {
+  const start=js.indexOf("function adoptImportedLighting");
   const end=js.indexOf("\n// Physical geometry",start);
   const source=js.slice(start,end);
-  const run=targets=>{
+  const run=({targets,beforeTarget,reviewTarget})=>{
     const events=[];
     let renders=0;
     const context={
-      state:{importedLighting:{},ledSlot:5,ledTarget:"axial"},
+      state:{importedLighting:null,ledSlot:5,ledTarget:beforeTarget},
       activeLedModel:()=>({targets}),
-      dispatchLightingWorkspace:event=>events.push(event),
+      cancelLocalAnimationDraft:()=>{},
+      mediaCompositionFrameScheduler:{cancel:()=>{}},
+      mediaCompositionRenderScheduler:{cancel:()=>{}},
+      dispatchLightingWorkspace:event=>{
+        events.push(event);
+        context.state.ledSlot=event.slot;
+        context.state.ledTarget=event.target;
+      },
+      navigateTo:()=>{},
+      ROUTES:{EDIT:"edit"},
+      importNormalizationText:()=>"",
+      toast:()=>{},
       render:()=>{renders+=1;},
     };
     vm.runInNewContext(
-      `${source}\nglobalThis.closeForTest=closeImportedLightingReview;`,
+      `${source}\nglobalThis.adoptForTest=adoptImportedLighting;globalThis.closeForTest=closeImportedLightingReview;`,
       context,
     );
+    context.adoptForTest({
+      data:"payload",
+      report:{
+        name:"am80.json",
+        normalizations:[],
+        lighting:{
+          destination:{target:reviewTarget},
+          mapped_result:{source_frames:1},
+        },
+      },
+    });
+    assert.equal(context.state.importedLighting.returnTarget,beforeTarget);
+    assert.equal(context.state.ledTarget,reviewTarget);
     assert.equal(context.closeForTest(),true);
     return {state:context.state,events,renders};
   };
 
-  const cyberboard=run([{key:"frames"},{key:"keyframes"}]);
+  const cyberboard=run({
+    targets:[{key:"frames"},{key:"keyframes"}],
+    beforeTarget:"frames",
+    reviewTarget:"keyframes",
+  });
   assert.equal(cyberboard.state.ledTarget,"frames");
   assert.deepEqual(
     JSON.parse(JSON.stringify(cyberboard.events)),
-    [{type:"IMPORTED_LIGHTING_CLOSED",slot:5,target:"frames"}],
+    [
+      {type:"IMPORTED_LIGHTING_OPENED",slot:5,target:"keyframes"},
+      {type:"IMPORTED_LIGHTING_CLOSED",slot:5,target:"frames"},
+    ],
   );
   assert.equal(cyberboard.renders,1);
 
-  const neon=run([{key:"head"},{key:"axial"}]);
-  assert.equal(neon.state.ledTarget,"axial");
+  const neon=run({
+    targets:[{key:"head"},{key:"axial"}],
+    beforeTarget:"head",
+    reviewTarget:"axial",
+  });
+  assert.equal(neon.state.ledTarget,"head");
   assert.deepEqual(
     JSON.parse(JSON.stringify(neon.events)),
-    [{type:"IMPORTED_LIGHTING_CLOSED",slot:5,target:"axial"}],
+    [
+      {type:"IMPORTED_LIGHTING_OPENED",slot:5,target:"axial"},
+      {type:"IMPORTED_LIGHTING_CLOSED",slot:5,target:"head"},
+    ],
   );
+
+  const fallback=run({
+    targets:[{key:"head"},{key:"axial"}],
+    beforeTarget:"retired",
+    reviewTarget:"axial",
+  });
+  assert.equal(fallback.state.ledTarget,"head");
 });
 
 test("applied imported lighting owns mutable colors without thawing its review report", () => {

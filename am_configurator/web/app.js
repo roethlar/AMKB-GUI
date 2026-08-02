@@ -747,6 +747,7 @@ function adoptImportedLighting(entry) {
     report:entry.report,
     data:entry.data,
     name:entry.report.name,
+    returnTarget:state.ledTarget,
     savedCatalogId:null,
     saving:false,
   };
@@ -769,8 +770,11 @@ function adoptImportedLighting(entry) {
 function closeImportedLightingReview({render:renderView=true}={}) {
   if(!state.importedLighting)return false;
   const documentTargets=activeLedModel()?.targets||[];
-  if(documentTargets.length&&!documentTargets.some(target=>target.key===state.ledTarget)){
-    state.ledTarget=documentTargets[0].key;
+  if(documentTargets.length){
+    const returnTarget=state.importedLighting.returnTarget;
+    state.ledTarget=documentTargets.some(target=>target.key===returnTarget)
+      ?returnTarget
+      :documentTargets[0].key;
   }
   state.importedLighting=null;
   dispatchLightingWorkspace({
