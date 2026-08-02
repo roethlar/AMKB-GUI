@@ -11,7 +11,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeOllamaModels, ollamaEndpointDataFlow, ollamaModelRefreshFailed, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectOllamaModelPicker, reduceLightingState, routeAvailability, safeRgbColor} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
-const {canonicalizeSourceTransform, createLatestTaskScheduler, defaultSourceTransform, interpolateMoveZoom, presetSourceTransform, renderColorEffect, resolveSourceGeometry, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
+const {canonicalizeSourceTransform, createLatestTaskScheduler, defaultSourceTransform, interpolateMoveZoom, presetSourceTransform, renderColorEffect, resolveSourceGeometry, selectDemonstrativeEffectFrame, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
 const {boardFrameSetFromDocument, boardFrameSetFromLocalEffect, boardFrameSetFromMappedFrame, boardFrameSetFromMappedResult, captureWorkspaceAsyncContext, createLightingPlaybackRuntime, createLightingWorkspace, friendlyWorkspaceError, paintBoardProjection, reduceLightingWorkspace, selectBoardProjection, selectSourceProjection, workspaceAsyncContextMatches, workspaceContextKey, workspaceDestinationKey} = LightingWorkspace;
 const {
   compatibleProfileSections,
@@ -33,6 +33,18 @@ const sourceProjectionUrls = new Map();
 const sourceProjectionLoads = new Map();
 const SOURCE_PROJECTION_CACHE_LIMIT = 2;
 const MEDIA_PREVIEW_SESSION_UNAVAILABLE = "This media preview session is no longer available.";
+const lightingMotionPreference = typeof window.matchMedia === "function"
+  ? window.matchMedia("(prefers-reduced-motion: reduce)")
+  : null;
+const localEffectContextChanges = new Set([
+  "DOCUMENT_OPENED",
+  "DOCUMENT_CLOSED",
+  "DESTINATION_CHANGED",
+  "TOOL_SELECTED",
+  "ROUTE_CHANGED",
+  "MEDIA_OPENED",
+  "MEDIA_CANCELLED",
+]);
 
 function restoredLightingState() {
   let saved = {};
@@ -84,7 +96,7 @@ const state = {
   mediaImportError: false,
   mediaImporting: false,
   appliedLightingProvenance: null,
-  localAnimationEffect: "pulse",
+  localAnimationEffect: null,
   localAnimationFrameCount: 8,
   localAnimationDuration: 90,
   localAnimationMinimum: 0.2,
@@ -94,8 +106,6 @@ const state = {
   localAnimationShimmerDepth: 0.6,
   localAnimationSeed: 824,
   localAnimationCoordinates: [],
-  localAnimationDraft: null,
-  localAnimationPreviewFrame: 0,
   undo: [],
   redo: [],
   devices: [],
@@ -277,13 +287,7 @@ function renderLightingBoardProjection() {
   renderLightingSourceProjection();
   void loadLightingSourceProjection();
   void prefetchNextLightingSourceProjection();
-  if (lightingWorkspace.tool === "animate" && localAnimationDraftMatches()) {
-    state.localAnimationPreviewFrame = projection.index;
-    const slider = $("#animate-draft-frame");
-    if (slider) slider.value = String(projection.index);
-    const label = $(".animation-draft-controls small");
-    if (label) label.textContent = `Frame ${projection.index + 1} of ${projection.frame_set.frame_count}`;
-  }
+  updateLocalAnimationDraftStatus();
 }
 
 function executeLightingWorkspaceIntents(intents, {renderWorkspace = false} = {}) {
@@ -296,6 +300,8 @@ function executeLightingWorkspaceIntents(intents, {renderWorkspace = false} = {}
       void prepareLightingSourceFrame(intent);
     } else if (intent.type === "show-error") {
       toast(intent.error.title, intent.error.message, "error");
+    } else if (intent.type === "apply-board-frame-set") {
+      applyLocalEffectFrameSet(intent);
     } else if (
       intent.type === "render-workspace"
       && renderWorkspace
@@ -308,10 +314,16 @@ function executeLightingWorkspaceIntents(intents, {renderWorkspace = false} = {}
 }
 
 function dispatchLightingWorkspace(event, options = {}) {
+  const workspaceBefore=lightingWorkspace;
   const mediaOwnedBefore=
     lightingWorkspace.route===ROUTES.EDIT&&lightingWorkspace.tool==="source";
+  const effectDraftBefore=lightingWorkspace.effect_draft;
   const decision = reduceLightingWorkspace(lightingWorkspace, event);
   lightingWorkspace = decision.state;
+  if(
+    (effectDraftBefore&&!lightingWorkspace.effect_draft)
+    ||(decision.state!==workspaceBefore&&localEffectContextChanges.has(event.type))
+  )state.localAnimationEffect=null;
   if(
     mediaOwnedBefore
     &&(lightingWorkspace.route!==ROUTES.EDIT||lightingWorkspace.tool!=="source")
@@ -439,7 +451,10 @@ function pushUndo() {
   updateHistoryButtons();
 }
 
-function mutate(fn, rerender = true) {
+function mutate(fn, rerender = true, {preserveEffectDraft = false} = {}) {
+  if(!preserveEffectDraft&&lightingWorkspace.effect_draft){
+    cancelLocalAnimationDraft({render:false});
+  }
   pushUndo();
   fn();
   markDirty();
@@ -449,6 +464,7 @@ function mutate(fn, rerender = true) {
 
 function undo() {
   if (!state.undo.length || !state.config) return;
+  if(lightingWorkspace.effect_draft)cancelLocalAnimationDraft({render:false});
   state.redo.push(JSON.stringify(state.config));
   state.config = JSON.parse(state.undo.pop());
   markDirty();
@@ -458,6 +474,7 @@ function undo() {
 
 function redo() {
   if (!state.redo.length || !state.config) return;
+  if(lightingWorkspace.effect_draft)cancelLocalAnimationDraft({render:false});
   state.undo.push(JSON.stringify(state.config));
   state.config = JSON.parse(state.redo.pop());
   markDirty();
@@ -3704,7 +3721,7 @@ function currentLocalAnimationSpec() {
     depth:state.localAnimationShimmerDepth,
     seed:state.localAnimationSeed,
   };
-  else{
+  else if(type==="move_zoom"){
     const context=mediaGeometryContext();
     if(!context)throw new Error("Move & zoom needs imported-media geometry.");
     const start=canonicalizeSourceTransform(
@@ -3723,7 +3740,7 @@ function currentLocalAnimationSpec() {
         scale_y:start.aspect_locked?nextScale:Math.min(32,start.scale_y*1.18),
       },context.sourceSize,context.destinationSizes),
     };
-  }
+  }else throw new Error("Choose an effect first.");
   return validateEffectSpec({
     version:1,
     type,
@@ -3736,121 +3753,178 @@ function currentLocalAnimationSpec() {
   });
 }
 
-function localAnimationDraftMatches() {
-  const draft=state.localAnimationDraft;
+function currentLocalAnimationDraft() {
+  const draft=lightingWorkspace.effect_draft;
   return Boolean(
-    draft
-    &&draft.slot===state.ledSlot
-    &&draft.target===state.ledTarget
-  );
+    lightingWorkspace.tool==="animate"
+    &&draft?.board_frame_set
+    &&draft.board_frame_set.context.document_epoch===lightingWorkspace.context.document_epoch
+    &&draft.board_frame_set.context.slot===lightingWorkspace.context.slot
+    &&draft.board_frame_set.context.target===lightingWorkspace.context.target
+  )?draft:null;
 }
 
-function previewLocalAnimation() {
-  const source=currentFrame();
-  if(!source)return toast("Nothing to animate","Create or select a frame first.","error");
+function localAnimationSourceFrame() {
+  const {track}=trackInfo();
+  if(!track?.frame_data?.length)return null;
+  const remembered=currentLocalAnimationDraft()?.source_frame_index;
+  const requested=Number.isSafeInteger(remembered)
+    ?remembered
+    :lightingWorkspace.playhead.index;
+  const index=Math.max(0,Math.min(track.frame_data.length-1,requested));
+  return {frame:track.frame_data[index],index};
+}
+
+function prefersReducedLightingMotion() {
+  return Boolean(lightingMotionPreference?.matches);
+}
+
+function localAnimationNoChangeMessage(type,sourceColors) {
+  if(sourceColors.every(color=>safeRgbColor(color)==="#000000")){
+    return "This frame has no lit LEDs for the effect to change. Paint or import some light first.";
+  }
+  if(type==="hue_cycle"&&sourceColors.every(color=>{
+    const value=safeRgbColor(color);
+    return value.slice(1,3)===value.slice(3,5)&&value.slice(3,5)===value.slice(5,7);
+  }))return "Hue cycle needs at least one colored LED. This frame contains only neutral colors.";
+  if(type==="pulse")return "Minimum brightness is reproducing this frame. Lower it to make Pulse visible.";
+  if(type==="shimmer")return "Shimmer depth is reproducing this frame. Raise it to make Shimmer visible.";
+  if(type==="sweep")return "These Sweep settings reproduce this frame. Lower minimum brightness or narrow the band.";
+  return "These settings reproduce the current frame. Adjust them to create a visible change.";
+}
+
+function localAnimationEffectLabel(type=state.localAnimationEffect) {
+  return ({
+    pulse:"Pulse",
+    hue_cycle:"Hue cycle",
+    sweep:"Sweep",
+    shimmer:"Shimmer",
+    move_zoom:"Move & zoom",
+  })[type]||"Effect";
+}
+
+function regenerateLocalAnimationDraft({renderWorkspace=true,focusEffect=false}={}) {
+  const sourceSelection=localAnimationSourceFrame();
+  const source=sourceSelection?.frame;
+  if(!source)return toast("Nothing to animate","Create or select a lighting frame first.","error");
   if(state.ledTarget==="spotlight_frames"&&activeLedModel()===LED_MODELS["80"]&&(getPage(state.ledSlot)?.keyframes?.frame_data?.length||0)<2){
     return toast("Add a key frame first","Edge animation stays synchronized to the key animation, which currently has only one frame.","error");
   }
   try{
     const effect=currentLocalAnimationSpec();
     const sourceColors=clone(source.frame_RGB);
-    const draft={
-      slot:state.ledSlot,
-      target:state.ledTarget,
-      sourceFingerprint:JSON.stringify(sourceColors),
-      effect,
-      frames:[],
-      transforms:[],
-    };
     if(effect.type==="move_zoom"){
       if(!state.mediaComposition||state.mediaComposition.status==="cancelled"){
         throw new Error("Move & zoom needs an imported still image.");
       }
       const context=mediaGeometryContext();
       if(!context)throw new Error("Move & zoom needs imported-media geometry.");
-      draft.transforms=interpolateMoveZoom(
-        effect,
-        context.sourceSize,
-        context.destinationSizes,
-      );
+      interpolateMoveZoom(effect,context.sourceSize,context.destinationSizes);
+      if(lightingWorkspace.effect_draft){
+        dispatchLightingWorkspace({type:"EFFECT_DRAFT_CANCELLED"});
+      }
       state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
         type:"EFFECTS_CHANGED",
         effects:[effect],
       });
       requestMediaCompositionRender("EFFECT_REQUESTED");
-      state.localAnimationDraft=null;
       state.studioTool="source";
       renderLightingEdit();
       void renderMediaCompositionPreview();
       return;
-    }else{
-      draft.frames=renderColorEffect(
-        [sourceColors],
-        effect,
-        state.localAnimationCoordinates,
-      );
     }
-    state.localAnimationDraft=draft;
-    state.localAnimationPreviewFrame=0;
-    renderLightingEdit();
-    requestAnimationFrame(()=>$("#animate-accept")?.focus({preventScroll:true}));
+    const frames=renderColorEffect([sourceColors],effect,state.localAnimationCoordinates);
+    const targetLengths=lightingWorkspaceTargetLengths();
+    const maxFrames=Math.min(256,activeFamilySpec().frameCap||256);
+    const frameSet=boardFrameSetFromLocalEffect({
+      context:lightingWorkspaceFrameContext("local_effect"),
+      draft:{frames,effect},
+      targetLengths,
+      allowedDurations:LED_SPEEDS,
+      maxFrames,
+    });
+    const demonstrativeFrame=selectDemonstrativeEffectFrame(sourceColors,frames);
+    dispatchLightingWorkspace({
+      type:"EFFECT_DRAFT_ACCEPTED",
+      specification:effect,
+      frame_set:frameSet,
+      demonstrative_frame:demonstrativeFrame,
+      source_frame_index:sourceSelection.index,
+      autoplay:!prefersReducedLightingMotion(),
+      target_lengths:targetLengths,
+      allowed_durations:LED_SPEEDS,
+      max_frames:maxFrames,
+    },{renderWorkspace});
+    if(!renderWorkspace){
+      renderLightingBoardProjection();
+      updateLocalAnimationDraftStatus();
+    }
+    if(focusEffect)requestAnimationFrame(()=>$(`[data-effect-preset="${effect.type}"]`)?.focus({preventScroll:true}));
   }catch(error){
-    state.localAnimationDraft=null;
-    toast("Could not preview this effect",`${error.message} Nothing was changed.`,"error");
+    const selectedEffect=state.localAnimationEffect;
+    if(lightingWorkspace.effect_draft){
+      dispatchLightingWorkspace({type:"EFFECT_DRAFT_CANCELLED"},{renderWorkspace});
+      state.localAnimationEffect=selectedEffect;
+    }
+    if(renderWorkspace)renderLightingEdit();
+    else updateLocalAnimationDraftStatus();
+    toast("Could not show effect",`${error.message} Try another effect or setting.`,"error");
   }
 }
 
-function cancelLocalAnimationDraft({render=true}={}) {
-  state.localAnimationDraft=null;
-  state.localAnimationPreviewFrame=0;
-  if(render)renderLightingEdit();
+function cancelLocalAnimationDraft({render=true,clearSelection=true}={}) {
+  if(clearSelection)state.localAnimationEffect=null;
+  const hadDraft=Boolean(lightingWorkspace.effect_draft);
+  dispatchLightingWorkspace({type:"EFFECT_DRAFT_CANCELLED"},{renderWorkspace:render});
+  if(render&&!hadDraft)renderLightingEdit();
 }
 
 function applyLocalAnimationDraft() {
-  const draft=state.localAnimationDraft;
-  const source=currentFrame();
-  if(!localAnimationDraftMatches()||!source){
-    cancelLocalAnimationDraft();
-    return toast("Preview expired","Nothing was changed. Preview the effect again for this lighting slot.","error");
-  }
-  if(JSON.stringify(source.frame_RGB)!==draft.sourceFingerprint){
-    cancelLocalAnimationDraft();
-    return toast("Preview out of date","The frame changed, so nothing was applied. Preview the effect again.","error");
-  }
-  if(!draft.frames.length){
-    return toast("Imported image required","Nothing was changed. Move & zoom is applied to an imported still image.","error");
-  }
-  const frames=clone(draft.frames);
-  const duration=draft.effect.duration_ms;
+  dispatchLightingWorkspace({type:"APPLY_REQUESTED"});
+}
+
+function applyLocalEffectFrameSet(intent) {
+  const draft=currentLocalAnimationDraft();
+  const frameSet=intent.board_frame_set;
+  if(
+    !draft
+    ||draft.board_frame_set!==frameSet
+    ||intent.context_key!==workspaceContextKey(lightingWorkspace)
+  )return toast("Effect expired","Choose the effect again before applying it.","error");
+  const context=frameSet.context;
+  const frames=clone(frameSet.frames_by_target[context.target]);
+  const duration=frameSet.duration_ms;
   mutate(()=>{
-    const page=getPage(state.ledSlot);
+    const page=getPage(context.slot);
     const track=ensureTrack();
     track.valid=1;
     track.frame_num=frames.length;
     track.frame_data=frames.map((colors,index)=>({frame_index:index,frame_RGB:colors}));
     page.speed_ms=duration;
-    if(state.ledTarget==="keyframes"&&activeLedModel()===LED_MODELS["80"]&&page.spotlight_frames?.frame_data?.length){
+    if(context.target==="keyframes"&&activeLedModel()===LED_MODELS["80"]&&page.spotlight_frames?.frame_data?.length){
       const edgeFrames=resampleEdgeAnimation(page.spotlight_frames.frame_data,frames.length);
       page.spotlight_frames={...page.spotlight_frames,valid:1,frame_num:edgeFrames.length,frame_data:edgeFrames};
     }
-    state.ledFrame=0;
-    state.localAnimationDraft=null;
-    state.localAnimationPreviewFrame=0;
     state.appliedLightingProvenance=createLightingProvenance({
-      slot:draft.slot,
-      target:draft.target,
+      slot:context.slot,
+      target:context.target,
       sourceCatalogId:null,
       transform:null,
-      effects:[draft.effect],
+      effects:[intent.specification],
       page,
     });
-  });
+  },false,{preserveEffectDraft:true});
+  dispatchLightingWorkspace({
+    type:"APPLY_COMPLETED",
+    context_key:intent.context_key,
+    board_frame_set:frameSet,
+  },{renderWorkspace:true});
   toast(
-    `Applied to ${lightingSlotLabel(draft.slot)}`,
+    `Applied to ${lightingSlotLabel(context.slot)}`,
     lightingAppliedDetail(
-      draft.slot,
-      draft.target,
-      `${frames.length} frames replaced the lighting there. Save to Library keeps a reusable copy.`,
+      context.slot,
+      context.target,
+      `${frames.length} exact preview frames changed the open document. Save to Library keeps a reusable copy.`,
     ),
     "success",
   );
@@ -3862,7 +3936,8 @@ function animationParameterMarkup() {
   if(type==="hue_cycle")return `<div class="control-group"><label class="control-label" for="animate-turns">Color rotations</label><div class="range-row"><input id="animate-turns" type="range" min="0.125" max="4" step="0.125" value="${state.localAnimationTurns}"><span class="range-value">${state.localAnimationTurns}×</span></div></div>`;
   if(type==="sweep")return `<div class="control-group"><label class="control-label" for="animate-direction">Direction</label><select id="animate-direction" class="select-field"><option value="left_to_right" ${state.localAnimationDirection==="left_to_right"?"selected":""}>Left to right</option><option value="right_to_left" ${state.localAnimationDirection==="right_to_left"?"selected":""}>Right to left</option><option value="top_to_bottom" ${state.localAnimationDirection==="top_to_bottom"?"selected":""}>Top to bottom</option><option value="bottom_to_top" ${state.localAnimationDirection==="bottom_to_top"?"selected":""}>Bottom to top</option><option value="diagonal" ${state.localAnimationDirection==="diagonal"?"selected":""}>Diagonal</option></select><label class="control-label secondary-label" for="animate-width">Band width</label><div class="range-row"><input id="animate-width" type="range" min="0.05" max="2" step="0.05" value="${state.localAnimationSweepWidth}"><span class="range-value">${state.localAnimationSweepWidth.toFixed(2)}</span></div></div>`;
   if(type==="shimmer")return `<div class="control-group"><label class="control-label" for="animate-depth">Shimmer depth</label><div class="range-row"><input id="animate-depth" type="range" min="0" max="100" value="${Math.round(state.localAnimationShimmerDepth*100)}"><span class="range-value">${Math.round(state.localAnimationShimmerDepth*100)}%</span></div></div>`;
-  return `<div class="control-group"><span class="control-label">Move &amp; zoom</span><p class="control-help">Starts from the current framing of your imported media and gently pans and zooms from there. Available only for an imported PNG or BMP.</p></div>`;
+  if(type==="move_zoom")return `<div class="control-group"><span class="control-label">Move &amp; zoom</span><p class="control-help">Starts from the current framing of your imported media and gently pans and zooms from there. Available only for an imported PNG or BMP.</p></div>`;
+  return "";
 }
 
 // Exact frame counts, the firmware timing steps, and the shimmer pattern seed
@@ -3878,19 +3953,73 @@ function animationAdvancedMarkup(familyFrameCap,animationFrameCount,fixedEdgeFra
         </details>`;
 }
 
-function animationDraftMarkup() {
-  const draft=localAnimationDraftMatches()?state.localAnimationDraft:null;
-  const count=draft?.frames.length||draft?.transforms.length||0;
-  if(!draft)return `<div class="animation-draft-empty">Preview shows the effect here. Nothing in your document changes until you apply it.</div>`;
-  return `<div class="animation-draft-controls" aria-live="polite"><strong>Preview ready · ${count} frames</strong><input id="animate-draft-frame" type="range" min="0" max="${Math.max(0,count-1)}" value="${Math.min(state.localAnimationPreviewFrame,Math.max(0,count-1))}" aria-label="Preview frame"><small>Frame ${Math.min(state.localAnimationPreviewFrame+1,Math.max(1,count))} of ${count}</small></div>`;
+function animationEffectCardsMarkup() {
+  const moveZoomReady=stillMediaCompositionActive();
+  const cards=[
+    ["pulse","Pulse","Breathe brightness in and out.",true],
+    ["hue_cycle","Hue cycle","Rotate every lit color smoothly.",true],
+    ["sweep","Sweep","Move a bright band across the board.",true],
+    ["shimmer","Shimmer","Add a repeatable sparkling pattern.",true],
+    ["move_zoom","Move & zoom","Pan an imported PNG or BMP.",moveZoomReady],
+  ];
+  return `<div class="effect-card-grid" role="group" aria-label="Choose an effect">${cards.map(([type,label,detail,available])=>`<button type="button" class="effect-card" data-effect-preset="${type}" data-effect-available="${String(available)}" aria-pressed="${String(state.localAnimationEffect===type)}" aria-disabled="${String(!available)}"><strong>${label}</strong><small>${detail}${available?"":" Import a still image first."}</small></button>`).join("")}</div>`;
 }
 
-function showLocalAnimationDraftFrame(index) {
-  const draft=localAnimationDraftMatches()?state.localAnimationDraft:null;
-  const count=draft?.frames.length||draft?.transforms.length||0;
-  if(!count)return;
-  state.localAnimationPreviewFrame=Math.max(0,Math.min(count-1,Number(index)));
-  state.ledFrame=state.localAnimationPreviewFrame;
+function localAnimationDraftStatus() {
+  const draft=currentLocalAnimationDraft();
+  const label=localAnimationEffectLabel();
+  if(!state.localAnimationEffect)return {
+    tone:"empty",
+    title:"Choose an effect",
+    detail:"It appears on the Board immediately. Apply changes only the open document.",
+  };
+  if(!draft)return {
+    tone:"empty",
+    title:`${label} is not active`,
+    detail:"Select the card again to show it on this Board.",
+  };
+  const count=draft.board_frame_set.frame_count;
+  if(draft.demonstrative_frame===null)return {
+    tone:"no-change",
+    title:`${label} cannot change this frame`,
+    detail:localAnimationNoChangeMessage(state.localAnimationEffect,localAnimationSourceFrame()?.frame.frame_RGB||[]),
+  };
+  if(prefersReducedLightingMotion())return {
+    tone:"ready",
+    title:`${label} · representative frame ${draft.demonstrative_frame+1} of ${count}`,
+    detail:"Reduce Motion is on, so the effect stays paused on a visibly changed frame.",
+  };
+  if(lightingWorkspace.playhead.playing)return {
+    tone:"playing",
+    title:`${label} is playing · ${count} frames`,
+    detail:"What you see on the Board is what Apply will use.",
+  };
+  return {
+    tone:"ready",
+    title:`${label} is ready · ${count} frames`,
+    detail:"What you see on the Board is what Apply will use.",
+  };
+}
+
+function animationDraftMarkup() {
+  const status=localAnimationDraftStatus();
+  return `<div id="animate-draft-status" class="animation-draft-status ${status.tone}" aria-live="polite"><strong>${esc(status.title)}</strong><small>${esc(status.detail)}</small></div>`;
+}
+
+function updateLocalAnimationDraftStatus() {
+  const host=$("#animate-draft-status");
+  if(!host)return;
+  const status=localAnimationDraftStatus();
+  host.className=`animation-draft-status ${status.tone}`;
+  const title=host.querySelector("strong");
+  const detail=host.querySelector("small");
+  if(title)title.textContent=status.title;
+  if(detail)detail.textContent=status.detail;
+  const draft=currentLocalAnimationDraft();
+  const apply=$("#animate-accept");
+  const cancel=$("#animate-cancel");
+  if(apply)apply.disabled=!draft||draft.demonstrative_frame===null;
+  if(cancel)cancel.disabled=!draft&&!state.localAnimationEffect;
 }
 
 function wireStudioInspector() {
@@ -3908,28 +4037,32 @@ function wireStudioInspector() {
   });
   $("#media-advanced")?.addEventListener("toggle",event=>{state.mediaAdvancedOpen=event.currentTarget.open;});
   $("#effects-advanced")?.addEventListener("toggle",event=>{state.effectsAdvancedOpen=event.currentTarget.open;});
+  $$('[data-effect-preset]').forEach(button=>button.addEventListener("click",()=>{
+    if(button.dataset.effectAvailable!=="true"){
+      return toast("Import a still image first","Move & zoom works with an imported PNG or BMP so Source and Board can stay synchronized.","error");
+    }
+    state.localAnimationEffect=button.dataset.effectPreset;
+    regenerateLocalAnimationDraft({renderWorkspace:true,focusEffect:true});
+  }));
   $$("#animate-length-presets [data-length-preset]").forEach(button=>button.addEventListener("click",()=>{
     if(button.disabled)return;
     state.localAnimationFrameCount=Number(button.dataset.lengthPreset);
-    cancelLocalAnimationDraft();
+    regenerateLocalAnimationDraft({renderWorkspace:true});
   }));
   $$("#animate-speed-presets [data-speed-preset]").forEach(button=>button.addEventListener("click",()=>{
     state.localAnimationDuration=Number(button.dataset.speedPreset);
-    cancelLocalAnimationDraft();
+    regenerateLocalAnimationDraft({renderWorkspace:true});
   }));
-  $("#animate-effect")?.addEventListener("change",event=>{state.localAnimationEffect=event.target.value;cancelLocalAnimationDraft();});
-  $("#animate-frame-count")?.addEventListener("change",event=>{state.localAnimationFrameCount=Number(event.target.value);cancelLocalAnimationDraft();});
-  $("#animate-duration")?.addEventListener("change",event=>{state.localAnimationDuration=Number(event.target.value);cancelLocalAnimationDraft();});
-  $("#animate-minimum")?.addEventListener("change",event=>{state.localAnimationMinimum=Number(event.target.value)/100;cancelLocalAnimationDraft();});
-  $("#animate-turns")?.addEventListener("change",event=>{state.localAnimationTurns=Number(event.target.value);cancelLocalAnimationDraft();});
-  $("#animate-direction")?.addEventListener("change",event=>{state.localAnimationDirection=event.target.value;cancelLocalAnimationDraft();});
-  $("#animate-width")?.addEventListener("change",event=>{state.localAnimationSweepWidth=Number(event.target.value);cancelLocalAnimationDraft();});
-  $("#animate-depth")?.addEventListener("change",event=>{state.localAnimationShimmerDepth=Number(event.target.value)/100;cancelLocalAnimationDraft();});
-  $("#animate-seed")?.addEventListener("change",event=>{state.localAnimationSeed=Number(event.target.value);cancelLocalAnimationDraft();});
-  $("#animate-preview")?.addEventListener("click",previewLocalAnimation);
+  $("#animate-frame-count")?.addEventListener("change",event=>{state.localAnimationFrameCount=Number(event.target.value);regenerateLocalAnimationDraft({renderWorkspace:true});});
+  $("#animate-duration")?.addEventListener("change",event=>{state.localAnimationDuration=Number(event.target.value);regenerateLocalAnimationDraft({renderWorkspace:true});});
+  $("#animate-minimum")?.addEventListener("input",event=>{state.localAnimationMinimum=Number(event.target.value)/100;event.currentTarget.nextElementSibling.textContent=`${event.target.value}%`;regenerateLocalAnimationDraft({renderWorkspace:false});});
+  $("#animate-turns")?.addEventListener("input",event=>{state.localAnimationTurns=Number(event.target.value);event.currentTarget.nextElementSibling.textContent=`${event.target.value}×`;regenerateLocalAnimationDraft({renderWorkspace:false});});
+  $("#animate-direction")?.addEventListener("change",event=>{state.localAnimationDirection=event.target.value;regenerateLocalAnimationDraft({renderWorkspace:false});});
+  $("#animate-width")?.addEventListener("input",event=>{state.localAnimationSweepWidth=Number(event.target.value);event.currentTarget.nextElementSibling.textContent=Number(event.target.value).toFixed(2);regenerateLocalAnimationDraft({renderWorkspace:false});});
+  $("#animate-depth")?.addEventListener("input",event=>{state.localAnimationShimmerDepth=Number(event.target.value)/100;event.currentTarget.nextElementSibling.textContent=`${event.target.value}%`;regenerateLocalAnimationDraft({renderWorkspace:false});});
+  $("#animate-seed")?.addEventListener("change",event=>{state.localAnimationSeed=Number(event.target.value);regenerateLocalAnimationDraft({renderWorkspace:false});});
   $("#animate-accept")?.addEventListener("click",applyLocalAnimationDraft);
   $("#animate-cancel")?.addEventListener("click",()=>cancelLocalAnimationDraft());
-  $("#animate-draft-frame")?.addEventListener("input",event=>showLocalAnimationDraftFrame(event.target.value));
   $("#media-compose-preview")?.addEventListener("click",renderMediaCompositionPreview);
   $("#media-compose-apply")?.addEventListener("click",applyMediaCompositionDraft);
   $("#media-compose-cancel")?.addEventListener("click",cancelMediaComposition);
@@ -4010,13 +4143,7 @@ function currentLightingBoardFrameSet({model, page, track, mediaPreviewTrack, ac
     allowedDurations: LED_SPEEDS,
     maxFrames: Math.min(256, activeFamilySpec().frameCap || 256),
   };
-  if (activeDraft?.frames?.length) {
-    return boardFrameSetFromLocalEffect({
-      context: lightingWorkspaceFrameContext("local_effect"),
-      draft: activeDraft,
-      ...options,
-    });
-  }
+  if (activeDraft?.board_frame_set) return activeDraft.board_frame_set;
   if (
     state.studioTool === "source"
     && state.mediaComposition
@@ -4077,9 +4204,7 @@ function renderLightingEdit() {
   const {track,length}=trackInfo();
   const mediaPreviewTrack=activeMediaPreviewTrack();
   const mediaPreviewActive=Boolean(mediaPreviewTrack?.frames?.length);
-  const activeDraft=state.studioTool==="animate"&&localAnimationDraftMatches()
-    ?state.localAnimationDraft
-    :null;
+  const activeDraft=currentLocalAnimationDraft();
   const previewTimelineActive=Boolean(activeDraft||mediaPreviewActive);
   let boardProjection=null;
   try{
@@ -4176,10 +4301,8 @@ function renderLightingEdit() {
   const sourceDisabled=sourceReady?"":"disabled";
   const familyFrameCap=Math.min(256,activeFamilySpec().frameCap||256);
   const fixedEdgeFrameCount=edgeAutomation&&keyFrameCount>=2;
-  const edgeAnimationUnavailable=edgeAutomation&&keyFrameCount<2;
   const animationFrameCount=fixedEdgeFrameCount?keyFrameCount:state.localAnimationFrameCount;
-  const moveZoomReady=stillMediaCompositionActive();
-  const animationDraft=localAnimationDraftMatches()?state.localAnimationDraft:null;
+  const animationDraft=currentLocalAnimationDraft();
   const paintBody=`<div id="studio-paint-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-paint-tab" ${state.studioTool==="paint"?"":"hidden"}>
         ${edgeTools}
         <div class="control-group"><label class="control-label" for="led-color">Paint color</label><input id="led-color" class="color-picker" type="color" value="${state.ledColor}"><input id="led-color-text" class="text-field" aria-label="Paint color hex value" value="${state.ledColor}"></div>
@@ -4200,13 +4323,13 @@ function renderLightingEdit() {
         </details>
       </div>`;
   const animateBody=`<div id="studio-animate-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-animate-tab" ${state.studioTool==="animate"?"":"hidden"}>
-        <div class="control-group"><label class="control-label" for="animate-effect">Animate this</label><select id="animate-effect" class="select-field"><option value="pulse" ${state.localAnimationEffect==="pulse"?"selected":""}>Pulse</option><option value="hue_cycle" ${state.localAnimationEffect==="hue_cycle"?"selected":""}>Hue cycle</option><option value="sweep" ${state.localAnimationEffect==="sweep"?"selected":""}>Sweep</option><option value="shimmer" ${state.localAnimationEffect==="shimmer"?"selected":""}>Shimmer</option><option value="move_zoom" ${state.localAnimationEffect==="move_zoom"?"selected":""} ${moveZoomReady?"":"disabled"}>Move &amp; zoom${moveZoomReady?"":" · still only"}</option></select><small class="control-help">Builds a preview from the selected frame on this computer. No AI or network request is used.</small></div>
-        <div class="control-group"><span class="control-label">Length</span>${ledLengthPresetMarkup("animate-length-presets",animationFrameCount,familyFrameCap,fixedEdgeFrameCount)}<small class="control-help">${fixedEdgeFrameCount?`Locked to the key animation’s ${keyFrameCount} frames.`:"Longer effects animate for longer. Set an exact count under Advanced."}</small></div>
+        <div class="control-group"><span class="control-label">Choose an effect</span>${animationEffectCardsMarkup()}<small class="control-help">Select a card and the exact LED result appears on the Board immediately. No AI provider is used.</small></div>
+        ${state.localAnimationEffect?`<div class="control-group"><span class="control-label">Length</span>${ledLengthPresetMarkup("animate-length-presets",animationFrameCount,familyFrameCap,fixedEdgeFrameCount)}<small class="control-help">${fixedEdgeFrameCount?`Locked to the key animation’s ${keyFrameCount} frames.`:"Longer effects animate for longer. Set an exact count under Advanced."}</small></div>
         <div class="control-group"><span class="control-label">Animation speed</span>${ledSpeedPresetMarkup("animate-speed-presets",state.localAnimationDuration)}<small class="control-help">Every preset is a timing step the keyboard firmware accepts.</small></div>
         ${animationParameterMarkup()}
-        ${animationAdvancedMarkup(familyFrameCap,animationFrameCount,fixedEdgeFrameCount,keyFrameCount)}
+        ${animationAdvancedMarkup(familyFrameCap,animationFrameCount,fixedEdgeFrameCount,keyFrameCount)}`:""}
         ${animationDraftMarkup()}
-        <div class="animation-draft-actions"><button id="animate-preview" class="button ghost" ${frame&&!edgeAnimationUnavailable?"":"disabled"}>Preview</button><button id="animate-accept" class="button primary" ${animationDraft?.frames.length?"":"disabled"}>Apply to lighting slot</button><button id="animate-cancel" class="button ghost" ${animationDraft?"":"disabled"}>Cancel</button></div>
+        <div class="animation-draft-actions"><button id="animate-accept" class="button primary" ${animationDraft&&animationDraft.demonstrative_frame!==null?"":"disabled"}>Apply to lighting slot</button><button id="animate-cancel" class="button ghost" ${animationDraft||state.localAnimationEffect?"":"disabled"}>Cancel</button></div>
       </div>`;
   const generationTab=aiReady()?`<button id="studio-generate-tab" role="tab" aria-controls="studio-generate-panel" aria-selected="${String(state.studioTool==="generate")}" tabindex="${state.studioTool==="generate"?0:-1}" data-studio-tool="generate">AI</button>`:"";
   // Mapped/stored counts are a Technical details fact, not normal canvas copy.
@@ -4240,13 +4363,12 @@ function focusSelectedFrame() {
 }
 
 function selectLightingFrame(index) {
-  const draftActive=state.studioTool==="animate"&&localAnimationDraftMatches();
+  const draftActive=Boolean(currentLocalAnimationDraft());
   const mediaFrameRequested=state.studioTool==="source"
     &&state.mediaComposition
     &&state.mediaComposition.status!=="cancelled";
   if(!draftActive)cancelLocalAnimationDraft({render:false});
   state.ledFrame=Number(index);
-  if(draftActive)state.localAnimationPreviewFrame=state.ledFrame;
   renderLightingEdit();
   if(mediaFrameRequested&&!mediaCompositionCanApply())scheduleMediaCompositionFrame();
   focusSelectedFrame();
@@ -4267,9 +4389,6 @@ function wireLedEditor(gridColumns) {
       &&!mediaCompositionCanApply()
     ){
       scheduleMediaCompositionFrame();
-    }
-    if(state.studioTool==="animate"&&localAnimationDraftMatches()){
-      state.localAnimationPreviewFrame=next;
     }
   };
   $("#lighting-timeline-scrubber")?.addEventListener("input",event=>scrubTimeline(event.target.value));
@@ -4306,7 +4425,7 @@ function wireLedEditor(gridColumns) {
     const track=trackInfo().track;track.frame_data.splice(state.ledFrame,1);track.frame_data.forEach((f,i)=>f.frame_index=i);track.frame_num=track.frame_data.length;state.ledFrame=Math.max(0,state.ledFrame-1);
     if(state.ledTarget==="keyframes"&&activeLedModel()===LED_MODELS["80"]){const page=getPage(state.ledSlot);if(page.spotlight_frames?.frame_data?.length){const data=resampleEdgeAnimation(page.spotlight_frames.frame_data,track.frame_data.length);page.spotlight_frames={...page.spotlight_frames,frame_num:data.length,frame_data:data};}}
   }));
-  const paintEnabled=state.studioTool==="paint"&&!localAnimationDraftMatches();
+  const paintEnabled=state.studioTool==="paint";
   const paint = pixel => {
     if(!paintEnabled)return;
     const frame=currentFrame();if(!frame)return;const i=Number(pixel.dataset.pixel);frame.frame_RGB[i]=state.ledColor;
@@ -5658,6 +5777,11 @@ document.addEventListener('keyup',event=>{if(state.recording)recordEvent(event,f
 window.addEventListener('beforeunload',event=>{if(state.dirty){event.preventDefault();event.returnValue='';}});
 window.addEventListener('pagehide',clearConceptAssetUrls);
 window.addEventListener('pagehide',clearLibraryAssetUrls);
+lightingMotionPreference?.addEventListener?.("change",event=>{
+  if(event.matches&&lightingWorkspace.playhead.playing){
+    dispatchLightingWorkspace({type:"PAUSE_REQUESTED"},{renderWorkspace:true});
+  }
+});
 
 (async function boot(){
   updateMeta();

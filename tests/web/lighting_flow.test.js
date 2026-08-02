@@ -97,21 +97,213 @@ test("Studio tools read Paint, Import media, Effects, and AI over stable keys", 
   assert.match(css, /\.studio-tool-tabs > \* \{ min-width: 0; \}/);
 });
 
-test("every drafting tool ends in Preview then Apply to lighting slot", () => {
+test("media previews explicitly while effect cards update the Board immediately", () => {
   const media = js.slice(js.indexOf('<div class="media-composition-actions">'), js.indexOf('</div>', js.indexOf('<div class="media-composition-actions">')));
   assert.match(media, /id="media-compose-preview"[^>]*>Preview</);
   assert.match(media, /id="media-compose-apply"[^>]*>Apply to lighting slot</);
   assert.match(media, /id="media-compose-cancel"[^>]*>Cancel</);
 
   const effects = js.slice(js.indexOf('<div class="animation-draft-actions">'), js.indexOf('</div>', js.indexOf('<div class="animation-draft-actions">')));
-  assert.match(effects, /id="animate-preview"[^>]*>Preview</);
   assert.match(effects, /id="animate-accept"[^>]*>Apply to lighting slot</);
   assert.match(effects, /id="animate-cancel"[^>]*>Cancel</);
+  assert.doesNotMatch(js, /id="animate-preview"/);
+  const cards = jsFunction("animationEffectCardsMarkup");
+  for (const effect of ["pulse", "hue_cycle", "sweep", "shimmer", "move_zoom"]) {
+    assert.match(cards, new RegExp(`\\["${effect}"`));
+  }
+  assert.match(jsFunction("regenerateLocalAnimationDraft"), /type:"EFFECT_DRAFT_ACCEPTED"/);
+  assert.match(jsFunction("regenerateLocalAnimationDraft"), /autoplay:!prefersReducedLightingMotion\(\)/);
 
   assert.match(review, /id="apply-procedural-effect"[^>]*>Apply to lighting slot</);
   // The old per-tool verbs are gone; one boundary is named the same everywhere.
   assert.doesNotMatch(js, />Apply preview</);
   assert.doesNotMatch(review, /class="button primary"[^>]*>Apply</);
+});
+
+test("effect cards and every normal parameter regenerate exact Board output immediately", () => {
+  const wire = jsFunction("wireStudioInspector");
+  assert.doesNotMatch(wire, /throw new Error\("Choose an effect first\."\)/);
+  assert.match(wire, /\$\$\('\[data-effect-preset\]'\)[\s\S]*regenerateLocalAnimationDraft\(\{renderWorkspace:true,focusEffect:true\}\)/);
+  for (const id of ["animate-minimum", "animate-turns", "animate-width", "animate-depth"]) {
+    assert.match(
+      wire,
+      new RegExp(`#${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^\\n]*addEventListener\\(\"input\"[^\\n]*regenerateLocalAnimationDraft\\(\\{renderWorkspace:false\\}\\)`),
+      `${id} must repaint while the user changes it`,
+    );
+  }
+  assert.match(wire, /#animate-direction"\)\?\.addEventListener\("change"[\s\S]*regenerateLocalAnimationDraft\(\{renderWorkspace:false\}\)/);
+  assert.match(wire, /#animate-frame-count"\)\?\.addEventListener\("change"[\s\S]*regenerateLocalAnimationDraft\(\{renderWorkspace:true\}\)/);
+  assert.match(wire, /#animate-duration"\)\?\.addEventListener\("change"[\s\S]*regenerateLocalAnimationDraft\(\{renderWorkspace:true\}\)/);
+  assert.doesNotMatch(jsFunction("cancelLocalAnimationDraft"), /mutate\(/);
+  assert.match(jsFunction("mutate"), /lightingWorkspace\.effect_draft[\s\S]*cancelLocalAnimationDraft\(\{render:false\}\)/);
+  assert.match(jsFunction("undo"), /lightingWorkspace\.effect_draft[\s\S]*cancelLocalAnimationDraft\(\{render:false\}\)/);
+  assert.match(jsFunction("redo"), /lightingWorkspace\.effect_draft[\s\S]*cancelLocalAnimationDraft\(\{render:false\}\)/);
+  assert.match(jsFunction("localAnimationDraftStatus"), /demonstrative_frame===null/);
+  assert.match(jsFunction("localAnimationDraftStatus"), /Reduce Motion is on/);
+});
+
+test("local effect regeneration publishes one exact draft with motion preference attached", () => {
+  const source = {frame_RGB: ["#102030", "#405060"]};
+  const renderedFrames = [
+    ["#102030", "#405060"],
+    ["#081018", "#202830"],
+  ];
+  const frameSet = {token: "exact-board-frame-set"};
+  const dispatches = [];
+  const toasts = [];
+  const context = {
+    state: {
+      ledTarget: "keyframes",
+      ledSlot: 5,
+      localAnimationCoordinates: [{x: 0, y: 0}, {x: 1, y: 0}],
+      localAnimationEffect: "pulse",
+    },
+    LED_MODELS: {"80": {}},
+    lightingWorkspace: {effect_draft: null},
+    reduced: false,
+    localAnimationSourceFrame: () => ({frame: source, index: 0}),
+    activeLedModel: () => ({}),
+    getPage: () => null,
+    toast: (...args) => toasts.push(args),
+    currentLocalAnimationSpec: () => ({type: "pulse", duration_ms: 90}),
+    clone: value => JSON.parse(JSON.stringify(value)),
+    renderColorEffect: frames => {
+      assert.equal(JSON.stringify(frames), JSON.stringify([source.frame_RGB]));
+      return renderedFrames;
+    },
+    lightingWorkspaceTargetLengths: () => ({keyframes: 2}),
+    activeFamilySpec: () => ({frameCap: 256}),
+    lightingWorkspaceFrameContext: () => ({target: "keyframes"}),
+    boardFrameSetFromLocalEffect: value => {
+      assert.equal(JSON.stringify(value.draft.frames), JSON.stringify(renderedFrames));
+      return frameSet;
+    },
+    LED_SPEEDS: [90],
+    selectDemonstrativeEffectFrame: () => 1,
+    prefersReducedLightingMotion: () => context.reduced,
+    dispatchLightingWorkspace: (event, options) => dispatches.push({event, options}),
+    renderLightingBoardProjection: () => {},
+    updateLocalAnimationDraftStatus: () => {},
+    requestAnimationFrame: () => {},
+    $: () => null,
+    console,
+  };
+  vm.runInNewContext(
+    `${jsFunction("regenerateLocalAnimationDraft")}\nglobalThis.regenerate=regenerateLocalAnimationDraft;`,
+    context,
+  );
+
+  context.regenerate({renderWorkspace: false});
+  assert.deepEqual(toasts, []);
+  assert.strictEqual(dispatches[0].event.frame_set, frameSet);
+  assert.equal(dispatches[0].event.demonstrative_frame, 1);
+  assert.equal(dispatches[0].event.source_frame_index, 0);
+  assert.equal(dispatches[0].event.autoplay, true);
+  assert.equal(JSON.stringify(dispatches[0].options), JSON.stringify({renderWorkspace: false}));
+
+  context.reduced = true;
+  context.regenerate({renderWorkspace: false});
+  assert.equal(dispatches[1].event.autoplay, false);
+});
+
+test("effect parameter changes stay pinned to the originating document frame", () => {
+  const frames = [
+    {frame_RGB: ["#111111"]},
+    {frame_RGB: ["#222222"]},
+  ];
+  const context = {
+    trackInfo: () => ({track: {frame_data: frames}}),
+    currentLocalAnimationDraft: () => ({source_frame_index: 0}),
+    lightingWorkspace: {playhead: {index: 7}},
+  };
+  vm.runInNewContext(
+    `${jsFunction("localAnimationSourceFrame")}\nglobalThis.sourceFrame=localAnimationSourceFrame;`,
+    context,
+  );
+  const selected = context.sourceFrame();
+  assert.equal(selected.index, 0);
+  assert.equal(selected.frame.frame_RGB[0], "#111111");
+
+  context.currentLocalAnimationDraft = () => null;
+  const clamped = context.sourceFrame();
+  assert.equal(clamped.index, 1);
+  assert.equal(clamped.frame.frame_RGB[0], "#222222");
+});
+
+test("effect Apply clones exact accepted arrays once and preserves the dependent edge track", () => {
+  const frameSet = {
+    context: {slot: 5, target: "keyframes"},
+    duration_ms: 76,
+    frames_by_target: {keyframes: [
+      ["#112233", "#445566"],
+      ["#778899", "#AABBCC"],
+    ]},
+  };
+  const before = JSON.stringify(frameSet);
+  const track = {valid: 0, frame_num: 1, frame_data: []};
+  const page = {
+    speed_ms: 90,
+    spotlight_frames: {valid: 1, frame_num: 1, frame_data: [{frame_RGB: ["#010101"]}]},
+  };
+  const relic = {};
+  const dispatches = [];
+  let mutateCalls = 0;
+  let mutateRerender = null;
+  let mutateOptions = null;
+  let resampled = null;
+  const context = {
+    currentLocalAnimationDraft: () => ({board_frame_set: frameSet}),
+    workspaceContextKey: () => "current-context",
+    lightingWorkspace: {},
+    clone: value => JSON.parse(JSON.stringify(value)),
+    mutate: (fn, rerender, options) => {
+      mutateCalls += 1;
+      mutateRerender = rerender;
+      mutateOptions = options;
+      fn();
+    },
+    getPage: () => page,
+    ensureTrack: () => track,
+    activeLedModel: () => relic,
+    LED_MODELS: {"80": relic},
+    resampleEdgeAnimation: (frames, count) => {
+      resampled = {frames, count};
+      return [{frame_index: 0, frame_RGB: ["#010101"]}, {frame_index: 1, frame_RGB: ["#010101"]}];
+    },
+    state: {appliedLightingProvenance: null},
+    createLightingProvenance: value => value,
+    dispatchLightingWorkspace: (event, options) => dispatches.push({event, options}),
+    toast: () => {},
+    lightingSlotLabel: () => "Custom slot 1",
+    lightingAppliedDetail: () => "detail",
+    console,
+  };
+  vm.runInNewContext(
+    `${jsFunction("applyLocalEffectFrameSet")}\nglobalThis.applyEffect=applyLocalEffectFrameSet;`,
+    context,
+  );
+  const specification = {type: "pulse"};
+  context.applyEffect({
+    context_key: "current-context",
+    board_frame_set: frameSet,
+    specification,
+  });
+
+  assert.equal(mutateCalls, 1);
+  assert.equal(mutateRerender, false);
+  assert.equal(mutateOptions.preserveEffectDraft, true);
+  assert.equal(track.valid, 1);
+  assert.equal(track.frame_num, 2);
+  assert.equal(JSON.stringify(track.frame_data.map(frame => frame.frame_RGB)), JSON.stringify(frameSet.frames_by_target.keyframes));
+  assert.notStrictEqual(track.frame_data[0].frame_RGB, frameSet.frames_by_target.keyframes[0]);
+  assert.equal(page.speed_ms, 76);
+  assert.equal(resampled.count, 2);
+  assert.equal(page.spotlight_frames.frame_num, 2);
+  assert.equal(JSON.stringify(frameSet), before);
+  assert.strictEqual(dispatches[0].event.board_frame_set, frameSet);
+  assert.equal(dispatches[0].event.type, "APPLY_COMPLETED");
+  assert.equal(JSON.stringify(dispatches[0].options), JSON.stringify({renderWorkspace: true}));
+  assert.strictEqual(context.state.appliedLightingProvenance.effects[0], specification);
 });
 
 // ---- Owner acceptance guard ------------------------------------------------
@@ -135,12 +327,13 @@ test("every Apply names the slot, the document-only change, and the Write action
   // Every apply path routes through the one helper.
   for (const name of [
     "applyMediaCompositionDraft",
-    "applyLocalAnimationDraft",
+    "applyLocalEffectFrameSet",
     "applyReviewedLighting",
     "replaceEdgeAnimation",
     "applyLibraryGenerated",
     "applyLibraryLighting",
   ]) assert.match(jsFunction(name), /lightingAppliedDetail\(/, `${name} must report where the work went`);
+  assert.match(jsFunction("applyLocalAnimationDraft"), /type:"APPLY_REQUESTED"/);
 
   // The imported-media status line repeats the same answer where it lingers.
   assert.match(jsFunction("mediaCompositionStatusText"), /lightingAppliedDetail\(\)/);

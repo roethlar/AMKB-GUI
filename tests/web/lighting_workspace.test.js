@@ -287,6 +287,214 @@ test("document, local effect, media, and procedural sources share one BoardFrame
   ), ["#200001", "#200002", "#200003"]);
 });
 
+test("a local effect draft owns exact accepted arrays and starts destination-bound playback", () => {
+  let state = createLightingWorkspace({
+    documentEpoch: 7,
+    slot: 5,
+    target: "keyframes",
+    tool: "animate",
+    route: "lighting/edit",
+  });
+  const rendered = frameSet({
+    workspaceContext: context({source_kind: "local_effect"}),
+    framesByTarget: {keyframes: [
+      ["#101010", "#202020"],
+      ["#303030", "#404040"],
+      ["#505050", "#606060"],
+    ]},
+    provenance: "local_effect",
+  });
+  const specification = {
+    version: 1,
+    type: "shimmer",
+    frame_count: 3,
+    duration_ms: 90,
+    parameters: {depth: 0.6, seed: 824},
+  };
+
+  const accepted = reduceLightingWorkspace(state, {
+    type: "EFFECT_DRAFT_ACCEPTED",
+    specification,
+    frame_set: rendered,
+    demonstrative_frame: 1,
+    source_frame_index: 0,
+    autoplay: true,
+    target_lengths: TARGET_LENGTHS,
+    allowed_durations: FIRMWARE_DURATIONS,
+  });
+  state = accepted.state;
+  assert.deepEqual(
+    accepted.intents.map(intent => intent.type),
+    ["cancel-playback", "start-playback", "render-workspace"],
+  );
+  assert.equal(state.playhead.playing, true);
+  assert.equal(state.playhead.index, 1);
+  assert.equal(state.effect_draft.demonstrative_frame, 1);
+  assert.equal(state.effect_draft.source_frame_index, 0);
+  assert.strictEqual(state.effect_draft.board_frame_set, state.preview.board_frame_set);
+  assert.deepEqual(
+    state.effect_draft.board_frame_set.frames_by_target,
+    rendered.frames_by_target,
+  );
+  assert.deepEqual(state.effect_draft.specification, specification);
+  assert.notStrictEqual(state.effect_draft.specification, specification);
+  assert.doesNotThrow(() => JSON.stringify(state));
+
+  const apply = reduceLightingWorkspace(state, {type: "APPLY_REQUESTED"});
+  assert.equal(apply.intents.length, 1);
+  assert.equal(apply.intents[0].type, "apply-board-frame-set");
+  assert.strictEqual(apply.intents[0].board_frame_set, state.effect_draft.board_frame_set);
+  assert.strictEqual(apply.intents[0].specification, state.effect_draft.specification);
+
+  const completed = reduceLightingWorkspace(state, {
+    type: "APPLY_COMPLETED",
+    context_key: apply.intents[0].context_key,
+    board_frame_set: apply.intents[0].board_frame_set,
+  });
+  assert.equal(completed.state.effect_draft, null);
+  assert.equal(completed.state.preview.board_frame_set, null);
+  assert.equal(completed.state.playhead.playing, false);
+  assert.deepEqual(
+    completed.intents.map(intent => intent.type),
+    ["cancel-playback", "render-workspace"],
+  );
+});
+
+test("reduced motion selects the representative changed frame without autoplay", () => {
+  const initial = createLightingWorkspace({
+    documentEpoch: 7,
+    slot: 5,
+    target: "keyframes",
+    tool: "animate",
+  });
+  const rendered = frameSet({
+    workspaceContext: context({source_kind: "local_effect"}),
+    framesByTarget: {keyframes: [
+      ["#111111", "#222222"],
+      ["#AAAAAA", "#BBBBBB"],
+      ["#333333", "#444444"],
+    ]},
+    provenance: "local_effect",
+  });
+  const accepted = reduceLightingWorkspace(initial, {
+    type: "EFFECT_DRAFT_ACCEPTED",
+    specification: {type: "pulse"},
+    frame_set: rendered,
+    demonstrative_frame: 1,
+    source_frame_index: 0,
+    autoplay: false,
+    target_lengths: TARGET_LENGTHS,
+    allowed_durations: FIRMWARE_DURATIONS,
+  });
+  assert.equal(accepted.state.playhead.playing, false);
+  assert.equal(accepted.state.playhead.index, 1);
+  assert.deepEqual(
+    accepted.intents.map(intent => intent.type),
+    ["cancel-playback", "render-workspace"],
+  );
+  assert.deepEqual(selectBoardProjection(accepted.state).colors, ["#AAAAAA", "#BBBBBB"]);
+  const cancelled = reduceLightingWorkspace(accepted.state, {type: "EFFECT_DRAFT_CANCELLED"});
+  assert.equal(cancelled.state.effect_draft, null);
+  assert.equal(cancelled.state.playhead.index, 0);
+  assert.deepEqual(
+    cancelled.intents.map(intent => intent.type),
+    ["cancel-playback", "render-workspace"],
+  );
+});
+
+test("a no-change effect explains itself without autoplay or an Apply intent", () => {
+  const initial = createLightingWorkspace({
+    documentEpoch: 7,
+    slot: 5,
+    target: "keyframes",
+    tool: "animate",
+  });
+  const rendered = frameSet({
+    workspaceContext: context({source_kind: "local_effect"}),
+    provenance: "local_effect",
+  });
+  const accepted = reduceLightingWorkspace(initial, {
+    type: "EFFECT_DRAFT_ACCEPTED",
+    specification: {type: "pulse"},
+    frame_set: rendered,
+    demonstrative_frame: null,
+    source_frame_index: 0,
+    autoplay: true,
+    target_lengths: TARGET_LENGTHS,
+    allowed_durations: FIRMWARE_DURATIONS,
+  });
+  assert.equal(accepted.state.playhead.playing, false);
+  assert.equal(accepted.state.effect_draft.demonstrative_frame, null);
+  assert.equal(accepted.intents.some(intent => intent.type === "start-playback"), false);
+
+  const replaced = reduceLightingWorkspace(accepted.state, {
+    type: "EFFECT_DRAFT_ACCEPTED",
+    specification: {type: "hue_cycle"},
+    frame_set: rendered,
+    demonstrative_frame: null,
+    source_frame_index: 0,
+    autoplay: true,
+    target_lengths: TARGET_LENGTHS,
+    allowed_durations: FIRMWARE_DURATIONS,
+  });
+  assert.equal(replaced.state.effect_draft.specification.type, "hue_cycle");
+  assert.ok(replaced.state.preview.accepted_epoch > accepted.state.preview.accepted_epoch);
+
+  const apply = reduceLightingWorkspace(accepted.state, {type: "APPLY_REQUESTED"});
+  assert.equal(apply.intents.some(intent => intent.type === "apply-board-frame-set"), false);
+  assert.equal(apply.state.preview.error.code, "no_effect_change");
+});
+
+test("effect playback and accepted arrays cannot leak across workspace context changes", () => {
+  const transitions = [
+    {type: "DOCUMENT_OPENED", document_epoch: 8, slot: 5, target: "keyframes"},
+    {type: "DESTINATION_CHANGED", slot: 5, target: "head"},
+    {type: "TOOL_SELECTED", tool: "paint"},
+    {type: "ROUTE_CHANGED", route: "lighting/library"},
+  ];
+  for (const transition of transitions) {
+    let state = createLightingWorkspace({
+      documentEpoch: 7,
+      slot: 5,
+      target: "keyframes",
+      tool: "animate",
+      route: "lighting/edit",
+    });
+    const accepted = reduceLightingWorkspace(state, {
+      type: "EFFECT_DRAFT_ACCEPTED",
+      specification: {type: "sweep"},
+      frame_set: frameSet({
+        workspaceContext: context({source_kind: "local_effect"}),
+        framesByTarget: {keyframes: [
+          ["#101010", "#202020"],
+          ["#303030", "#404040"],
+        ]},
+        provenance: "local_effect",
+      }),
+      demonstrative_frame: 1,
+      source_frame_index: 0,
+      autoplay: true,
+      target_lengths: TARGET_LENGTHS,
+      allowed_durations: FIRMWARE_DURATIONS,
+    });
+    state = accepted.state;
+    const staleSession = state.playhead.session_id;
+    const staleContextKey = workspaceContextKey(state);
+
+    const changed = reduceLightingWorkspace(state, transition);
+    assert.equal(changed.intents[0]?.type, "cancel-playback", transition.type);
+    assert.equal(changed.state.effect_draft, null, transition.type);
+    assert.equal(changed.state.playhead.playing, false, transition.type);
+    const stale = reduceLightingWorkspace(changed.state, {
+      type: "PLAYBACK_TICK",
+      session_id: staleSession,
+      context_key: staleContextKey,
+    });
+    assert.equal(stale.state, changed.state, transition.type);
+    assert.equal(stale.ignored, "stale", transition.type);
+  }
+});
+
 test("Source projection and Board projection select one accepted timeline entry", () => {
   let state = createLightingWorkspace({
     documentEpoch: 7,

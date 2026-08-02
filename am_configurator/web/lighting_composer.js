@@ -938,6 +938,35 @@
     return output;
   }
 
+  function selectDemonstrativeEffectFrame(sourceFrame, effectFrames) {
+    if (!Array.isArray(sourceFrame) || sourceFrame.length === 0) {
+      throw new TypeError("A demonstrative effect frame needs source colors.");
+    }
+    const source = sourceFrame.map(color => parseColor(color));
+    if (!Array.isArray(effectFrames) || effectFrames.length === 0) {
+      throw new TypeError("A demonstrative effect frame needs rendered frames.");
+    }
+    let bestIndex = null;
+    let bestDifference = 0;
+    effectFrames.forEach((frame, frameIndex) => {
+      if (!Array.isArray(frame) || frame.length !== source.length) {
+        throw new TypeError("A rendered effect frame has the wrong number of colors.");
+      }
+      let difference = 0;
+      frame.forEach((color, colorIndex) => {
+        const channels = parseColor(color);
+        for (let channel = 0; channel < 3; channel += 1) {
+          difference += Math.abs(channels[channel] - source[colorIndex][channel]);
+        }
+      });
+      if (difference > bestDifference) {
+        bestDifference = difference;
+        bestIndex = frameIndex;
+      }
+    });
+    return bestIndex;
+  }
+
   function interpolateMoveZoom(
     effect,
     sourceSize = undefined,
@@ -977,6 +1006,7 @@
     renderColorEffect,
     resolveSourceGeometry,
     scaleSourceTransform,
+    selectDemonstrativeEffectFrame,
     validateEffectSpec,
     validateSourceTransform,
     wireSourceTransformStage,

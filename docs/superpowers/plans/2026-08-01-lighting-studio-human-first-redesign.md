@@ -364,7 +364,7 @@ preview
   status, request_epoch, accepted_epoch, context_key, board_frame_set,
   timeline, error
 effect_draft
-  specification, board_frame_set, demonstrative_frame
+  specification, board_frame_set, demonstrative_frame, source_frame_index
 ```
 
 Timers, DOM nodes, object URLs, AbortControllers, decoded frames, and device
@@ -899,6 +899,8 @@ Required proof:
   a Preview click;
 - changing any normal control changes the Board or clearly explains why it
   cannot;
+- parameter changes stay pinned to the originating document frame while the
+  effect playhead advances;
 - reduced-motion mode never autoplays and selects a changed representative
   frame;
 - seeded Shimmer stays repeatable, target bounds/frame ceilings remain exact,

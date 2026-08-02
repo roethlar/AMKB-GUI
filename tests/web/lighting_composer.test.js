@@ -19,6 +19,7 @@ const {
   presetSourceTransform,
   renderColorEffect,
   scaleSourceTransform,
+  selectDemonstrativeEffectFrame,
   validateEffectSpec,
   validateSourceTransform,
   wireSourceTransformStage,
@@ -545,12 +546,31 @@ test("Pulse, Hue cycle, Sweep, and Shimmer are deterministic bounded local reduc
   );
 
   for (const frames of [pulsed, hueFrames, swept, shimmerA]) {
+    const demonstrative = selectDemonstrativeEffectFrame(sourceFrames[0], frames);
+    assert.ok(Number.isSafeInteger(demonstrative));
+    assert.notDeepEqual(frames[demonstrative], sourceFrames[0]);
     for (const frame of frames) {
       assert.equal(frame.length, sourceFrames[0].length);
       for (const color of frame) assert.match(color, /^#[0-9A-F]{6}$/);
     }
   }
   assert.equal(JSON.stringify(sourceFrames), before);
+});
+
+test("demonstrative effect selection reports when exact LED output cannot change", () => {
+  const black = ["#000000", "#000000"];
+  const pulse = renderColorEffect(
+    [black],
+    effect("pulse", {minimum_brightness: 0.2}, {frame_count: 5}),
+  );
+  assert.equal(selectDemonstrativeEffectFrame(black, pulse), null);
+
+  const neutral = ["#404040", "#FFFFFF"];
+  const hue = renderColorEffect(
+    [neutral],
+    effect("hue_cycle", {turns: 1}, {frame_count: 6}),
+  );
+  assert.equal(selectDemonstrativeEffectFrame(neutral, hue), null);
 });
 
 test("effect schemas enforce frame ceilings and Move & zoom remains still-only", () => {

@@ -250,23 +250,33 @@ test("Studio is one Paint, Import media, and Effects shell with local draft acce
   for(const id of [
     "studio-paint-tab","studio-source-tab","studio-animate-tab",
     "studio-paint-panel","studio-source-panel","studio-animate-panel",
-    "animate-effect","animate-frame-count","animate-preview",
+    "animate-draft-status","animate-frame-count",
     "animate-accept","animate-cancel",
   ])assert.match(js,new RegExp(`id="${id}"`));
   assert.match(js,/role="tablist" aria-label="Studio tools"/);
   assert.match(js,/data-studio-tool="paint"/);
   assert.match(js,/data-studio-tool="source"/);
   assert.match(js,/data-studio-tool="animate"/);
-  assert.match(js,/function previewLocalAnimation\(\)/);
+  assert.match(js,/function regenerateLocalAnimationDraft\(/);
   assert.match(js,/function applyLocalAnimationDraft\(\)/);
-  const applyStart=js.indexOf("function applyLocalAnimationDraft");
+  assert.doesNotMatch(js,/id="animate-preview"|state\.localAnimationDraft/);
+  const cardsStart=js.indexOf("function animationEffectCardsMarkup");
+  const cardsEnd=js.indexOf("function ",cardsStart+10);
+  const cards=js.slice(cardsStart,cardsEnd);
+  for(const effect of ["pulse","hue_cycle","sweep","shimmer","move_zoom"]){
+    assert.match(cards,new RegExp(`\\["${effect}"`));
+  }
+  const applyStart=js.indexOf("function applyLocalEffectFrameSet");
   const applyEnd=js.indexOf("function ",applyStart+10);
   const apply=js.slice(applyStart,applyEnd);
   assert.equal((apply.match(/mutate\(/g)||[]).length,1);
+  assert.match(apply,/frameSet\.frames_by_target\[context\.target\]/);
+  assert.match(apply,/type:"APPLY_COMPLETED"/);
   assert.match(js,/renderColorEffect\(/);
   assert.match(css,/\.studio-tool-tabs/);
   assert.match(css,/\.media-compositor-stage/);
-  assert.match(css,/\.animation-draft-controls/);
+  assert.match(css,/\.effect-card-grid/);
+  assert.match(css,/\.animation-draft-status/);
 });
 
 test("the stable Lighting shell keeps actual Source and canonical Board separate", () => {

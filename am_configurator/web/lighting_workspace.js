@@ -32,6 +32,32 @@
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);
   }
 
+  function serializableCopy(value, depth = 0) {
+    if (depth > 12) fail("invalid_shape", "The lighting effect is too deeply nested.");
+    if (value === null || typeof value === "string" || typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) fail("invalid_shape", "The lighting effect contains an invalid number.");
+      return value;
+    }
+    if (Array.isArray(value)) {
+      if (value.length > 4096) fail("invalid_shape", "The lighting effect contains too many values.");
+      return Object.freeze(value.map(item => serializableCopy(item, depth + 1)));
+    }
+    if (!isObject(value)) fail("invalid_shape", "The lighting effect is not serializable.");
+    const entries = Object.entries(value);
+    if (entries.length > 64) fail("invalid_shape", "The lighting effect contains too many fields.");
+    const result = {};
+    for (const [key, item] of entries) {
+      if (["__proto__", "constructor", "prototype"].includes(key)) {
+        fail("invalid_shape", "The lighting effect contains an invalid field.");
+      }
+      result[key] = serializableCopy(item, depth + 1);
+    }
+    return Object.freeze(result);
+  }
+
   function safeNonNegativeInteger(value, code, message) {
     if (!Number.isSafeInteger(value) || value < 0) fail(code, message);
     return value;
@@ -366,6 +392,7 @@
     invalid_shape: "This lighting preview could not be read. Create it again.",
     invalid_duration: "This animation speed is not supported by the selected keyboard.",
     no_preview: "There is no finished lighting preview to use yet.",
+    no_effect_change: "These effect settings do not visibly change the selected lighting frame.",
     render_failed: "The lighting preview could not be updated. Try again.",
   });
 
@@ -564,7 +591,7 @@
     return true;
   }
 
-  function acceptFrameSet(state, event) {
+  function acceptFrameSet(state, event, {force = false} = {}) {
     const checked = createBoardFrameSet(event.frame_set, {
       targetLengths: event.target_lengths,
       allowedDurations: event.allowed_durations,
@@ -590,7 +617,8 @@
       )
     ) return unchanged(state, "stale");
     if (
-      !state.preview.selected_frame
+      !force
+      && !state.preview.selected_frame
       && frameSetEqual(state.preview.board_frame_set, checked)
       && (mediaRevision === null || state.media?.accepted_revision === mediaRevision)
     ) return unchanged(state);
@@ -823,6 +851,7 @@
           context_epoch: contextEpoch,
           playhead: stopPlayhead(state),
           preview: initialPreview(state.context, contextEpoch),
+          effect_draft: null,
         };
         return {
           state: next,
@@ -848,6 +877,7 @@
           context_epoch: contextEpoch,
           playhead: stopPlayhead(state, 0),
           preview: initialPreview(state.context, contextEpoch),
+          effect_draft: null,
         };
         return {
           state: next,
@@ -892,6 +922,7 @@
           context_epoch: contextEpoch,
           playhead: stopPlayhead(state, 0),
           preview: initialPreview(state.context, contextEpoch),
+          effect_draft: null,
         };
         return {
           state: next,
@@ -915,6 +946,7 @@
           media,
           playhead: stopPlayhead(state),
           preview: {...state.preview, status: "updating", error: null},
+          effect_draft: null,
         };
         return {
           state: next,
@@ -942,6 +974,83 @@
       }
       case "BOARD_FRAME_SET_ACCEPTED":
         return acceptFrameSet(state, event);
+      case "EFFECT_DRAFT_ACCEPTED": {
+        const accepted = acceptFrameSet(state, event, {force: true});
+        if (accepted.ignored) return accepted;
+        const boardFrameSet = accepted.state.preview.board_frame_set;
+        if (boardFrameSet?.provenance !== "local_effect") {
+          fail("invalid_context", "The effect draft source is invalid.");
+        }
+        const specification = serializableCopy(event.specification);
+        if (!isObject(specification)) fail("invalid_shape", "The effect specification is invalid.");
+        const demonstrativeFrame = event.demonstrative_frame === null
+          ? null
+          : safeNonNegativeInteger(
+            event.demonstrative_frame,
+            "invalid_frame",
+            "The demonstrative effect frame is invalid.",
+          );
+        if (demonstrativeFrame !== null && demonstrativeFrame >= boardFrameSet.frame_count) {
+          fail("invalid_frame", "The demonstrative effect frame is unavailable.");
+        }
+        if (typeof event.autoplay !== "boolean") {
+          fail("invalid_context", "The effect motion preference is invalid.");
+        }
+        const sourceFrameIndex = safeNonNegativeInteger(
+          event.source_frame_index,
+          "invalid_frame",
+          "The source lighting frame is invalid.",
+        );
+        const index = demonstrativeFrame ?? 0;
+        const playing = event.autoplay && demonstrativeFrame !== null && boardFrameSet.frame_count > 1;
+        const sessionId = accepted.state.playhead.session_id + (playing ? 1 : 0);
+        const key = workspaceDestinationKey(state.context);
+        const next = {
+          ...accepted.state,
+          playhead: {index, playing, session_id: sessionId},
+          destination_playheads: {
+            ...accepted.state.destination_playheads,
+            [key]: index,
+          },
+          effect_draft: Object.freeze({
+            specification,
+            board_frame_set: boardFrameSet,
+            demonstrative_frame: demonstrativeFrame,
+            source_frame_index: sourceFrameIndex,
+          }),
+        };
+        return {
+          state: next,
+          intents: [
+            cancelPlaybackIntent(state),
+            ...(playing ? [{
+              type: "start-playback",
+              session_id: sessionId,
+              context_key: workspaceContextKey(next),
+              duration_ms: boardFrameSet.duration_ms,
+            }] : []),
+            {type: "render-workspace"},
+          ],
+        };
+      }
+      case "EFFECT_DRAFT_CANCELLED": {
+        if (!state.effect_draft) return unchanged(state);
+        const contextEpoch = state.context_epoch + 1;
+        const index = state.effect_draft.source_frame_index;
+        const key = workspaceDestinationKey(state.context);
+        const next = {
+          ...state,
+          context_epoch: contextEpoch,
+          playhead: stopPlayhead(state, index),
+          destination_playheads: {...state.destination_playheads, [key]: index},
+          preview: initialPreview(state.context, contextEpoch),
+          effect_draft: null,
+        };
+        return {
+          state: next,
+          intents: [cancelPlaybackIntent(state), {type: "render-workspace"}],
+        };
+      }
       case "BOARD_COLOR_UPDATED": {
         const frameSet = state.preview.board_frame_set;
         if (
@@ -1029,6 +1138,7 @@
         const next = {
           ...state,
           playhead: stopPlayhead(state, 0),
+          effect_draft: null,
           preview: {
             ...state.preview,
             status: "error",
@@ -1161,20 +1271,45 @@
         };
       }
       case "APPLY_REQUESTED": {
-        if (!state.preview.board_frame_set || state.preview.context_key !== workspaceContextKey(state)) {
+        if (
+          !state.effect_draft
+          || !frameSetEqual(state.effect_draft.board_frame_set, state.preview.board_frame_set)
+          || state.preview.context_key !== workspaceContextKey(state)
+        ) {
           return errorResult(state, {code: "no_preview"});
+        }
+        if (state.effect_draft.demonstrative_frame === null) {
+          return errorResult(state, {code: "no_effect_change"});
         }
         return {
           state,
           intents: [{
             type: "apply-board-frame-set",
             context_key: workspaceContextKey(state),
-            board_frame_set: state.preview.board_frame_set,
+            board_frame_set: state.effect_draft.board_frame_set,
+            specification: state.effect_draft.specification,
           }],
         };
       }
-      case "APPLY_COMPLETED":
-        return unchanged(state);
+      case "APPLY_COMPLETED": {
+        if (
+          !state.effect_draft
+          || event.context_key !== workspaceContextKey(state)
+          || !frameSetEqual(event.board_frame_set, state.effect_draft.board_frame_set)
+        ) return unchanged(state, "stale");
+        const contextEpoch = state.context_epoch + 1;
+        const next = {
+          ...state,
+          context_epoch: contextEpoch,
+          playhead: stopPlayhead(state, 0),
+          preview: initialPreview(state.context, contextEpoch),
+          effect_draft: null,
+        };
+        return {
+          state: next,
+          intents: [cancelPlaybackIntent(state), {type: "render-workspace"}],
+        };
+      }
       case "WORKSPACE_ERROR_DISMISSED": {
         if (!state.preview.error) return unchanged(state);
         return {

@@ -17,6 +17,16 @@
   capability confirmed. Exact final CI run `30743864174` and Desktop
   installers run `30743864148` passed every job. Canonical evidence is in the
   redesign plan and `.agents/review/findings/cl-14.md` through `cl-16.md`.
+- LSR-6 implementation is landed in the commit containing this record and is
+  non-vacuously mutation-proven. The complete local gate passes 694 Python
+  tests with 5 skips, 170 browser tests, compile/syntax checks, and both package
+  builds. An isolated 1000x680 native WebView2 audit confirmed all five Effects
+  cards, immediate exact Hue-cycle output, the 13px helper floor, enabled
+  Apply/Cancel boundaries, 200 physical Board pixels, reduced-motion
+  representative-frame behavior, and document-preserving Cancel. The native
+  screenshot was occluded and is not accepted as visual evidence. Exact-head
+  CI, Desktop installers, and the one required `fable-review` remain pending;
+  LSR-6 is not closed.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -222,9 +232,11 @@
 
 ## Next
 
-- Implement, guard, verify, commit, push, and independently review LSR-6, the
-  immediate Effects workflow. Do
-  not restart R65-2 until
+- Push and qualify the exact LSR-6 implementation head, then run its one
+  required `fable-review` using explicit `claude-opus-5` at `high` over the
+  exact landed range. Use the first substantive result as returned and do not
+  retry, replace, or resubmit it without explicit owner approval. Do not
+  restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new
