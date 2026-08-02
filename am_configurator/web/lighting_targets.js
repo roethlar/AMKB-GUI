@@ -182,6 +182,57 @@
     return candidates.length === 1 ? candidates[0] : null;
   }
 
+  function mergeScannedDeviceDetails(device, known) {
+    const next = device && typeof device === "object" ? {...device} : {};
+    if (!known || typeof known !== "object") return next;
+    const family = productFamily(next.product_id);
+    if (
+      String(next.transport || "") !== String(known.transport || "")
+      || String(next.address || "") !== String(known.address || "")
+      || family !== "NEON"
+      || family !== productFamily(known.product_id)
+    ) {
+      return next;
+    }
+
+    const knownLayout = Array.isArray(known.key_layout) && known.key_layout.length
+      ? known.key_layout
+      : null;
+    const nextLayout = Array.isArray(next.key_layout) && next.key_layout.length
+      ? next.key_layout
+      : null;
+    const knownSignature = known.descriptor?.keymap?.signature;
+    const nextSignature = next.descriptor?.keymap?.signature;
+    const mayCarryLayout = Boolean(
+      knownLayout
+      && !nextLayout
+      && (
+        typeof nextSignature !== "string"
+        || !nextSignature
+        || nextSignature === knownSignature
+      )
+    );
+    if (mayCarryLayout) {
+      next.key_layout = knownLayout;
+      if (
+        (typeof nextSignature !== "string" || !nextSignature)
+        && known.descriptor
+        && typeof knownSignature === "string"
+        && knownSignature
+      ) {
+        next.descriptor = known.descriptor;
+      }
+    }
+    if (
+      Number.isInteger(Number(known.macro_count))
+      && Number.isInteger(Number(known.macro_buffer_bytes))
+    ) {
+      next.macro_count = known.macro_count;
+      next.macro_buffer_bytes = known.macro_buffer_bytes;
+    }
+    return next;
+  }
+
   function projectVialLedLayout(device, target) {
     const keys = projectVialKeyLayout(device);
     const width = Number(target?.width);
@@ -436,6 +487,7 @@
     familySpec,
     filterAssignmentOptions,
     macroCapacityStatus,
+    mergeScannedDeviceDetails,
     neonPaletteAssignment,
     productFamily,
     projectVialKeyLayout,

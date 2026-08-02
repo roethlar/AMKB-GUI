@@ -10,7 +10,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeOllamaModels, ollamaEndpointDataFlow, ollamaModelRefreshFailed, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectOllamaModelPicker, reduceLightingState, routeAvailability, safeRgbColor} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
-const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
+const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, mergeScannedDeviceDetails, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const {canonicalizeSourceTransform, createLatestTaskScheduler, defaultSourceTransform, interpolateMoveZoom, presetSourceTransform, renderColorEffect, resolveSourceGeometry, selectDemonstrativeEffectFrame, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
 const {boardFrameSetFromDocument, boardFrameSetFromLocalEffect, boardFrameSetFromMappedFrame, boardFrameSetFromMappedResult, captureWorkspaceAsyncContext, createLightingPlaybackRuntime, createLightingWorkspace, friendlyWorkspaceError, paintBoardProjection, reduceLightingWorkspace, selectBoardProjection, selectSourceProjection, workspaceAsyncContextMatches, workspaceContextKey, workspaceDestinationKey} = LightingWorkspace;
 const {
@@ -4847,17 +4847,9 @@ async function scanDevices() {
   try {
     const result=await api('/api/devices');
     const previous=new Map(state.devices.map(device=>[deviceKey(device),device]));
-    state.devices=(result.devices||[]).map(device=>{
-      const known=previous.get(deviceKey(device));
-      const deep={
-        ...(known?.key_layout?.length&&!device.key_layout?.length?{key_layout:known.key_layout}:{}),
-        ...(Number.isInteger(Number(known?.macro_count))&&Number.isInteger(Number(known?.macro_buffer_bytes))?{
-          macro_count:known.macro_count,
-          macro_buffer_bytes:known.macro_buffer_bytes,
-        }:{}),
-      };
-      return {...device,...deep};
-    });
+    state.devices=(result.devices||[]).map(device=>(
+      mergeScannedDeviceDetails(device,previous.get(deviceKey(device)))
+    ));
     const keyboards=state.devices.filter(device=>device.is_keyboard);
     $(".status-light").classList.toggle("online",Boolean(keyboards.length));
     if(!keyboards.length){

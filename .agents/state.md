@@ -51,6 +51,13 @@
   per-finding `fable-review` used explicit `claude-opus-5` at `high` once and
   returned accepted with guard and capability confirmed. Canonical evidence is
   in `.agents/review/findings/cl-18.md`; `cl-19` is next.
+- The isolated `cl-19` repair keeps a validated Neon key layout and its deep
+  descriptor/signature paired across shallow device scans; contradictory
+  signatures and replacement identities inherit no stale geometry. Its
+  descriptor-drop and application-linkage guards fail against the reviewed
+  behaviors and pass after restoration. The authoritative stable
+  707-Python/175-browser/compile/syntax/build gate is green. Commit, push,
+  exact-head qualification, and one per-finding verdict remain pending.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -256,12 +263,9 @@
 
 ## Next
 
-- Repair `cl-19` without expanding LSR-7: preserve the exact deep dynamic
-  descriptor whenever a shallow rescan carries its validated `key_layout`, so
-  legacy-profile synchronization cannot lose its mismatch signature. Guard,
-  mutation-prove, fully verify, commit, push, qualify, and obtain its one
-  per-finding verdict; then repair `cl-20` before closing LSR-7 and starting
-  LSR-8. Do not restart R65-2 until
+- Commit, push, qualify, and independently verify the guard-proven `cl-19`
+  repair. Then repair `cl-20` the same one-commit, one-verdict way before
+  closing LSR-7 and starting LSR-8. Do not restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new

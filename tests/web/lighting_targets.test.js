@@ -11,6 +11,7 @@ const {
   familySpec,
   filterAssignmentOptions,
   macroCapacityStatus,
+  mergeScannedDeviceDetails,
   neonPaletteAssignment,
   productFamily,
   projectVialKeyLayout,
@@ -23,6 +24,55 @@ const {
   vialMacroBufferUsage,
   withDeviceMacroLimits,
 } = require("../../am_configurator/web/lighting_targets.js");
+
+test("shallow device rescans keep dynamic layout and descriptor paired", () => {
+  const layout = [{index: 0, matrix_row: 0, matrix_col: 0}];
+  const trustedSignature = `keymap:v1:${"a".repeat(64)}`;
+  const differentSignature = `keymap:v1:${"b".repeat(64)}`;
+  const descriptor = {keymap: {signature: trustedSignature}};
+  const known = {
+    transport: "raw-hid",
+    address: "1:2",
+    product_id: "NEON80",
+    key_layout: layout,
+    descriptor,
+    macro_count: 16,
+    macro_buffer_bytes: 4096,
+  };
+  const shallow = {
+    transport: "raw-hid",
+    address: "1:2",
+    product_id: "NEON80",
+    descriptor: {keymap: {signature: null}},
+  };
+
+  const merged = mergeScannedDeviceDetails(shallow, known);
+
+  assert.equal(merged.key_layout, layout);
+  assert.equal(merged.descriptor, descriptor);
+  assert.equal(merged.descriptor.keymap.signature, trustedSignature);
+  assert.equal(merged.macro_count, 16);
+  assert.equal(merged.macro_buffer_bytes, 4096);
+
+  const contradictory = mergeScannedDeviceDetails(
+    {...shallow, descriptor: {keymap: {signature: differentSignature}}},
+    known,
+  );
+  assert.equal(contradictory.key_layout, undefined);
+  assert.equal(contradictory.descriptor.keymap.signature, differentSignature);
+
+  const replacement = mergeScannedDeviceDetails(
+    {...shallow, address: "3:4"},
+    known,
+  );
+  assert.equal(replacement.key_layout, undefined);
+
+  const otherProduct = mergeScannedDeviceDetails(
+    {...shallow, product_id: "CB04"},
+    known,
+  );
+  assert.equal(otherProduct.key_layout, undefined);
+});
 
 class FakeElement {
   constructor(tagName, ownerDocument) {

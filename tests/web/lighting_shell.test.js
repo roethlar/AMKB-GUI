@@ -17,6 +17,22 @@ const review = fs.readFileSync(path.join(root, "am_configurator/web/lighting_rev
 const css = fs.readFileSync(path.join(root, "am_configurator/web/style.css"), "utf8");
 const server = fs.readFileSync(path.join(root, "am_configurator/server.py"), "utf8");
 
+test("device rescans retain the deep descriptor through the tested merge", () => {
+  const scanStart=js.indexOf("async function scanDevices()");
+  const scanEnd=js.indexOf("\nasync function readDevice()",scanStart);
+  const scan=js.slice(scanStart,scanEnd);
+  assert.match(
+    scan,
+    /mergeScannedDeviceDetails\(device,previous\.get\(deviceKey\(device\)\)\)/,
+  );
+  assert.doesNotMatch(scan,/key_layout:known\.key_layout/);
+
+  const signatureStart=js.indexOf("function connectedDocumentLayoutSignature()");
+  const signatureEnd=js.indexOf("\nfunction trustedDocumentLayoutSignature()",signatureStart);
+  const signature=js.slice(signatureStart,signatureEnd);
+  assert.match(signature,/device\?\.descriptor\?\.keymap\?\.signature/);
+});
+
 test("pure lighting state loads before the application adapter", () => {
   const stateScript=html.indexOf('<script src="/lighting_state.js"></script>');
   const workspaceScript=html.indexOf('<script src="/lighting_workspace.js"></script>');
@@ -996,6 +1012,4 @@ test("connected Neon macro capacity owns the editor meter and mutation gates", (
   assert.match(macros,/recordEvent[\s\S]*macroCapacityError\(candidate\)/);
   assert.match(server,/macro_state\.device_macro_count/);
   assert.match(server,/"macro_buffer_bytes": macro_state\.device_macro_buffer_bytes/);
-  const scan=js.slice(js.indexOf("async function scanDevices"),js.indexOf("async function readDevice"));
-  assert.match(scan,/known\?\.macro_count[\s\S]*known\?\.macro_buffer_bytes[\s\S]*macro_count:known\.macro_count[\s\S]*macro_buffer_bytes:known\.macro_buffer_bytes/);
 });
