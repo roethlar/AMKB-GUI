@@ -340,6 +340,101 @@ test("Source projection and Board projection select one accepted timeline entry"
   assert.equal(staleSession.ignored, "stale");
 });
 
+test("media playback holds Board until the exact next Source frame is ready", () => {
+  let state = createLightingWorkspace({
+    documentEpoch: 7,
+    slot: 5,
+    target: "keyframes",
+    tool: "source",
+    route: "lighting/edit",
+  });
+  state = reduceLightingWorkspace(state, {
+    type: "MEDIA_OPENED",
+    media: {catalog_id: "item:media", asset_id: "source", requested_revision: 0},
+  }).state;
+  const captured = captureWorkspaceAsyncContext(state);
+  state = reduceLightingWorkspace(state, {
+    type: "MEDIA_SESSION_READY",
+    catalog_id: "item:media",
+    asset_id: "source",
+    preview_session_id: "a".repeat(32),
+    captured,
+  }).state;
+  const accepted = boardFrameSetFromMappedResult({
+    context: {...state.context, source_kind: "media_render", revision: 0},
+    mappedResult: {
+      duration_ms: 48,
+      tracks: {keyframes: {
+        frame_count: 3,
+        frames: [
+          ["#000001", "#000002"],
+          ["#000003", "#000004"],
+          ["#000005", "#000006"],
+        ],
+      }},
+    },
+    timeline: [
+      {index: 0, source_frame_index: 4},
+      {index: 1, source_frame_index: 2},
+      {index: 2, source_frame_index: 7},
+    ],
+    provenance: "media_render",
+    targetLengths: TARGET_LENGTHS,
+    allowedDurations: FIRMWARE_DURATIONS,
+  });
+  state = reduceLightingWorkspace(state, {
+    type: "BOARD_FRAME_SET_ACCEPTED",
+    frame_set: accepted,
+    media_revision: 0,
+    target_lengths: TARGET_LENGTHS,
+    allowed_durations: FIRMWARE_DURATIONS,
+  }).state;
+  state = reduceLightingWorkspace(state, {type: "PLAY_REQUESTED"}).state;
+  const session = state.playhead.session_id;
+  const contextKey = workspaceContextKey(state);
+
+  const tick = reduceLightingWorkspace(state, {
+    type: "PLAYBACK_TICK",
+    session_id: session,
+    context_key: contextKey,
+  });
+  assert.equal(tick.state, state);
+  assert.deepEqual(tick.intents, [{
+    type: "prepare-source-frame",
+    session_id: session,
+    context_key: contextKey,
+    from_index: 0,
+    timeline_index: 1,
+    source_frame_index: 2,
+  }]);
+  assert.equal(selectBoardProjection(state).index, 0);
+  assert.equal(selectSourceProjection(state).source_frame_index, 4);
+
+  const wrong = reduceLightingWorkspace(state, {
+    ...tick.intents[0],
+    type: "SOURCE_FRAME_READY",
+    source_frame_index: 7,
+  });
+  assert.equal(wrong.state, state);
+  assert.equal(wrong.ignored, "stale");
+
+  const ready = reduceLightingWorkspace(state, {
+    ...tick.intents[0],
+    type: "SOURCE_FRAME_READY",
+  });
+  state = ready.state;
+  assert.equal(selectBoardProjection(state).index, 1);
+  assert.equal(selectSourceProjection(state).source_frame_index, 2);
+  assert.deepEqual(ready.intents, [{type: "render-board"}]);
+
+  const duplicate = reduceLightingWorkspace(state, {
+    ...tick.intents[0],
+    type: "SOURCE_FRAME_READY",
+  });
+  assert.equal(duplicate.state, state);
+  assert.equal(duplicate.ignored, "stale");
+});
+
 test("expired media sessions clear only the matching id and preserve the draft", () => {
   let state = createLightingWorkspace({
     documentEpoch: 7,
@@ -360,6 +455,14 @@ test("expired media sessions clear only the matching id and preserve the draft",
     preview_session_id: "a".repeat(32),
     captured,
   }).state;
+  state = publish(state, frameSet({
+    framesByTarget: {keyframes: [
+      ["#000001", "#000002"],
+      ["#000003", "#000004"],
+    ]},
+  })).state;
+  state = reduceLightingWorkspace(state, {type: "PLAY_REQUESTED"}).state;
+  assert.equal(state.playhead.playing, true);
   const beforePreview = state.preview;
 
   const expired = reduceLightingWorkspace(state, {
@@ -373,7 +476,11 @@ test("expired media sessions clear only the matching id and preserve the draft",
   assert.equal(state.media.preview_session_id, undefined);
   assert.deepEqual(state.media.requested_transform, {scale: 2});
   assert.equal(state.preview, beforePreview);
-  assert.deepEqual(expired.intents.map(intent => intent.type), ["render-workspace"]);
+  assert.equal(state.playhead.playing, false);
+  assert.deepEqual(
+    expired.intents.map(intent => intent.type),
+    ["cancel-playback", "render-workspace"],
+  );
 
   state = reduceLightingWorkspace(state, {
     type: "MEDIA_SESSION_READY",

@@ -586,6 +586,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .control-group:last-child { border-bottom: 0; margin-bottom: 0; }
 .control-label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .1em; display: block; margin-bottom: 9px; }
 .control-help { color: var(--muted-2); display: block; font-size: 13px; line-height: 1.45; margin-top: 8px; }
+.media-import-status { min-height: 1.45em; }
+.media-import-status.failed { color: #ff8999; }
 .gif-import-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px; }
 .gif-import-row > * { min-width: 0; }
 .gif-import-row .select-field { min-height: 38px; padding: 0 7px; }

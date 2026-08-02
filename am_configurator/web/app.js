@@ -11,7 +11,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeOllamaModels, ollamaEndpointDataFlow, ollamaModelRefreshFailed, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectOllamaModelPicker, reduceLightingState, routeAvailability, safeRgbColor} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
-const {canonicalizeSourceTransform, defaultSourceTransform, interpolateMoveZoom, presetSourceTransform, renderColorEffect, resolveSourceGeometry, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
+const {canonicalizeSourceTransform, createLatestTaskScheduler, defaultSourceTransform, interpolateMoveZoom, presetSourceTransform, renderColorEffect, resolveSourceGeometry, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
 const {boardFrameSetFromDocument, boardFrameSetFromLocalEffect, boardFrameSetFromMappedResult, captureWorkspaceAsyncContext, createLightingPlaybackRuntime, createLightingWorkspace, friendlyWorkspaceError, paintBoardProjection, reduceLightingWorkspace, selectBoardProjection, selectSourceProjection, workspaceAsyncContextMatches, workspaceContextKey, workspaceDestinationKey} = LightingWorkspace;
 const {
   compatibleProfileSections,
@@ -80,6 +80,9 @@ const state = {
   sourceTransform: defaultSourceTransform("box"),
   mediaComposition: null,
   mediaRenderEpoch: 0,
+  mediaImportStatus: "",
+  mediaImportError: false,
+  mediaImporting: false,
   appliedLightingProvenance: null,
   localAnimationEffect: "pulse",
   localAnimationFrameCount: 8,
@@ -195,6 +198,13 @@ Object.defineProperties(state, {
 let incompatibleResolver = null;
 let libraryConfirmAction = null;
 
+const mediaCompositionRenderScheduler = createLatestTaskScheduler({
+  delayMs:75,
+  setTimer:(callback,delay)=>window.setTimeout(callback,delay),
+  clearTimer:timer=>window.clearTimeout(timer),
+  run:request=>renderMediaCompositionPreviewAttempt(request,true),
+});
+
 const lightingPlaybackRuntime = createLightingPlaybackRuntime({
   dispatch: event => dispatchLightingWorkspace(event),
   setTimer: (callback, duration) => window.setInterval(callback, duration),
@@ -255,6 +265,7 @@ function renderLightingBoardProjection() {
   updateLightingWorkspaceStatus(projection);
   renderLightingSourceProjection();
   void loadLightingSourceProjection();
+  void prefetchNextLightingSourceProjection();
   if (lightingWorkspace.tool === "animate" && localAnimationDraftMatches()) {
     state.localAnimationPreviewFrame = projection.index;
     const slider = $("#animate-draft-frame");
@@ -270,6 +281,8 @@ function executeLightingWorkspaceIntents(intents, {renderWorkspace = false} = {}
       lightingPlaybackRuntime.execute(intent);
     } else if (intent.type === "render-board") {
       renderLightingBoardProjection();
+    } else if (intent.type === "prepare-source-frame") {
+      void prepareLightingSourceFrame(intent);
     } else if (intent.type === "show-error") {
       toast(intent.error.title, intent.error.message, "error");
     } else if (
@@ -2659,6 +2672,7 @@ function refreshMediaCompositionDestination() {
       });
     }
     state.mediaComposition=draft;
+    requestMediaCompositionRender("TRANSFORM_REQUESTED");
   }
 }
 
@@ -2682,16 +2696,48 @@ function updateMediaCompositionTransform(transform) {
       type:"TRANSFORM_CHANGED",
       transform:checked,
     });
+    requestMediaCompositionRender("TRANSFORM_REQUESTED");
   }
   return checked;
 }
 
 function activeMediaPreviewTrack() {
-  if(state.studioTool!=="source"||state.mediaComposition?.status!=="ready")return null;
+  if(state.studioTool!=="source"||!mediaCompositionCanApply())return null;
   const track=state.mediaComposition.mappedResult?.tracks?.[state.ledTarget];
   return track&&Array.isArray(track.frames)&&track.frames.length
     ?track
     :null;
+}
+
+function mediaCompositionCanApply(draft=state.mediaComposition) {
+  const frameSet=lightingWorkspace.preview.board_frame_set;
+  const media=lightingWorkspace.media;
+  if(
+    !mediaDraftCanApply(draft)
+    ||!frameSet
+    ||frameSet.provenance!=="media_render"
+    ||lightingWorkspace.preview.context_key!==workspaceContextKey(lightingWorkspace)
+    ||media?.catalog_id!==draft.catalogId
+    ||media?.asset_id!==draft.source.asset_id
+    ||media?.requested_revision!==draft.revision
+    ||media?.accepted_revision!==draft.revision
+    ||frameSet.context.target!==draft.destination.target
+    ||frameSet.duration_ms!==draft.mappedResult.duration_ms
+  )return false;
+  return draft.destination.targets.every(target=>{
+    const mappedFrames=draft.mappedResult.tracks?.[target]?.frames;
+    const boardFrames=frameSet.frames_by_target?.[target];
+    return Array.isArray(mappedFrames)
+      &&Array.isArray(boardFrames)
+      &&mappedFrames.length===boardFrames.length
+      &&mappedFrames.every((frame,index)=>
+        Array.isArray(frame)
+        &&frame.length===boardFrames[index]?.length
+        &&frame.every((color,colorIndex)=>
+          String(color).toUpperCase()===boardFrames[index][colorIndex]
+        )
+      );
+  });
 }
 
 function lightingMediaIdentity(draft=state.mediaComposition) {
@@ -2699,7 +2745,27 @@ function lightingMediaIdentity(draft=state.mediaComposition) {
   return {
     catalog_id:String(draft.catalogId||""),
     asset_id:String(draft.source?.asset_id||""),
+    requested_revision:Number(draft.revision),
   };
+}
+
+function requestMediaCompositionRender(type) {
+  const draft=state.mediaComposition;
+  if(!draft||draft.status==="cancelled")return;
+  const playbackWasActive=lightingWorkspace.playhead.playing;
+  dispatchLightingWorkspace(type==="EFFECT_REQUESTED"?{
+    type:"EFFECT_REQUESTED",
+    media_revision:draft.revision,
+    effects:draft.effects,
+  }:{
+    type:"TRANSFORM_REQUESTED",
+    media_revision:draft.revision,
+    transform:draft.transform,
+  });
+  if(playbackWasActive&&state.lighting.route===ROUTES.EDIT){
+    renderLightingBoardProjection();
+  }
+  scheduleMediaCompositionPreview();
 }
 
 function mediaLoadMatchesWorkspace(load) {
@@ -2736,7 +2802,7 @@ async function ensureMediaPreviewSession(draft=state.mediaComposition) {
     asset_id:load.asset_id,
     preview_session_id:result.preview_session_id,
     captured:load,
-  },{renderWorkspace:true});
+  });
   return decision.ignored?null:result.preview_session_id;
 }
 
@@ -2746,12 +2812,17 @@ function mediaPreviewSessionUnavailable(error) {
 
 function invalidateMediaPreviewSession({catalog_id:catalogId,asset_id:assetId,preview_session_id:previewSessionId}={}) {
   if(!catalogId||!assetId||!previewSessionId)return null;
-  return dispatchLightingWorkspace({
+  const decision=dispatchLightingWorkspace({
     type:"MEDIA_SESSION_INVALIDATED",
     catalog_id:catalogId,
     asset_id:assetId,
     preview_session_id:previewSessionId,
-  },{renderWorkspace:true});
+  });
+  if(!decision.ignored&&state.lighting.route===ROUTES.EDIT){
+    renderLightingBoardProjection();
+    updateSourceTransformView();
+  }
+  return decision;
 }
 
 function sourceProjectionCacheKey(projection) {
@@ -2783,14 +2854,32 @@ function rememberSourceProjectionUrl(key,url) {
 }
 
 function sourceProjectionLoadMatchesWorkspace(load) {
-  const projection=selectSourceProjection(lightingWorkspace);
   return Boolean(
     mediaLoadMatchesWorkspace(load)
-    &&projection
-    &&projection.context_key===load.context_key
-    &&projection.preview_session_id===load.preview_session_id
-    &&projection.source_frame_index===load.source_frame_index
+    &&workspaceContextKey(lightingWorkspace)===load.context_key
+    &&lightingWorkspace.media?.preview_session_id===load.preview_session_id
   );
+}
+
+function sourceProjectionForTimelineIndex(index) {
+  const frameSet=lightingWorkspace.preview.board_frame_set;
+  const media=lightingWorkspace.media;
+  const entry=frameSet?.timeline?.[index];
+  if(
+    frameSet?.provenance!=="media_render"
+    ||!media?.catalog_id
+    ||!media?.asset_id
+    ||!media?.preview_session_id
+    ||!Number.isSafeInteger(entry?.source_frame_index)
+  )return null;
+  return {
+    catalog_id:media.catalog_id,
+    asset_id:media.asset_id,
+    preview_session_id:media.preview_session_id,
+    source_frame_index:entry.source_frame_index,
+    timeline_index:index,
+    context_key:workspaceContextKey(lightingWorkspace),
+  };
 }
 
 function renderLightingSourceProjection() {
@@ -2815,10 +2904,12 @@ function renderLightingSourceProjection() {
   }
 }
 
-async function loadLightingSourceProjection() {
-  const projection=selectSourceProjection(lightingWorkspace);
+function loadSourceProjection(projection) {
   const key=sourceProjectionCacheKey(projection);
-  if(!projection||sourceProjectionUrls.has(key)||sourceProjectionLoads.has(key))return;
+  if(!projection)return Promise.resolve(false);
+  if(sourceProjectionUrls.has(key))return Promise.resolve(true);
+  const existing=sourceProjectionLoads.get(key);
+  if(existing)return existing.promise;
   const controller=new AbortController();
   const load={
     ...captureWorkspaceAsyncContext(lightingWorkspace),
@@ -2828,40 +2919,76 @@ async function loadLightingSourceProjection() {
     preview_session_id:projection.preview_session_id,
     source_frame_index:projection.source_frame_index,
   };
-  sourceProjectionLoads.set(key,controller);
-  try{
-    const query=new URLSearchParams({
-      preview_session_id:projection.preview_session_id,
-      source_frame_index:String(projection.source_frame_index),
-    });
-    const response=await fetch(
-      `/api/library/items/${libraryCatalogPath(projection.catalog_id)}/source-frame?${query}`,
-      {headers:{"X-AM-Token":token},signal:controller.signal},
-    );
-    if(!response.ok){
-      const failure=await response.json().catch(()=>({}));
-      const error=new Error(failure.error||"This source frame could not be loaded.");
-      Object.assign(error,failure,{status:response.status});
-      throw error;
+  const record={controller,promise:null};
+  record.promise=(async()=>{
+    try{
+      const query=new URLSearchParams({
+        preview_session_id:projection.preview_session_id,
+        source_frame_index:String(projection.source_frame_index),
+      });
+      const response=await fetch(
+        `/api/library/items/${libraryCatalogPath(projection.catalog_id)}/source-frame?${query}`,
+        {headers:{"X-AM-Token":token},signal:controller.signal},
+      );
+      if(!response.ok){
+        const failure=await response.json().catch(()=>({}));
+        const error=new Error(failure.error||"This source frame could not be loaded.");
+        Object.assign(error,failure,{status:response.status});
+        throw error;
+      }
+      const url=URL.createObjectURL(await response.blob());
+      if(!sourceProjectionLoadMatchesWorkspace(load)){
+        URL.revokeObjectURL(url);
+        return false;
+      }
+      rememberSourceProjectionUrl(key,url);
+      if(sourceProjectionCacheKey(selectSourceProjection(lightingWorkspace))===key){
+        renderLightingSourceProjection();
+      }
+      return true;
+    }catch(error){
+      if(error.name!=="AbortError"&&mediaPreviewSessionUnavailable(error)){
+        invalidateMediaPreviewSession(load);
+      }
+      if(
+        error.name!=="AbortError"
+        &&sourceProjectionLoadMatchesWorkspace(load)
+        &&sourceProjectionCacheKey(selectSourceProjection(lightingWorkspace))===key
+      ){
+        const placeholder=$("#lighting-source-placeholder");
+        if(placeholder)placeholder.textContent="This source frame could not be shown. Create the preview again.";
+      }
+      return false;
+    }finally{
+      if(sourceProjectionLoads.get(key)===record)sourceProjectionLoads.delete(key);
     }
-    const url=URL.createObjectURL(await response.blob());
-    if(!sourceProjectionLoadMatchesWorkspace(load)){
-      URL.revokeObjectURL(url);
-      return;
-    }
-    rememberSourceProjectionUrl(key,url);
-    renderLightingSourceProjection();
-  }catch(error){
-    if(error.name!=="AbortError"&&mediaPreviewSessionUnavailable(error)){
-      invalidateMediaPreviewSession(load);
-    }
-    if(error.name!=="AbortError"&&sourceProjectionLoadMatchesWorkspace(load)){
-      const placeholder=$("#lighting-source-placeholder");
-      if(placeholder)placeholder.textContent="This source frame could not be shown. Create the preview again.";
-    }
-  }finally{
-    if(sourceProjectionLoads.get(key)===controller)sourceProjectionLoads.delete(key);
+  })();
+  sourceProjectionLoads.set(key,record);
+  return record.promise;
+}
+
+function loadLightingSourceProjection() {
+  return loadSourceProjection(selectSourceProjection(lightingWorkspace));
+}
+
+function prefetchNextLightingSourceProjection() {
+  const frameSet=lightingWorkspace.preview.board_frame_set;
+  if(frameSet?.provenance!=="media_render"||frameSet.frame_count<2){
+    return Promise.resolve(false);
   }
+  const index=(lightingWorkspace.playhead.index+1)%frameSet.frame_count;
+  return loadSourceProjection(sourceProjectionForTimelineIndex(index));
+}
+
+async function prepareLightingSourceFrame(intent) {
+  const projection=sourceProjectionForTimelineIndex(intent.timeline_index);
+  if(
+    !projection
+    ||projection.context_key!==intent.context_key
+    ||projection.source_frame_index!==intent.source_frame_index
+  )return;
+  if(!await loadSourceProjection(projection))return;
+  dispatchLightingWorkspace({...intent,type:"SOURCE_FRAME_READY"});
 }
 
 function mediaCompositionStatusText(draft) {
@@ -2947,7 +3074,7 @@ function updateSourceTransformView() {
   const preview=$("#media-compose-preview");
   if(preview)preview.disabled=!draft||draft.status==="rendering";
   const apply=$("#media-compose-apply");
-  if(apply)apply.disabled=!mediaDraftCanApply(draft);
+  if(apply)apply.disabled=!mediaCompositionCanApply(draft);
   const cancel=$("#media-compose-cancel");
   if(cancel)cancel.disabled=!draft;
 }
@@ -2983,27 +3110,99 @@ function applySourceTransformPreset(mode) {
   }
 }
 
+function setMediaImportStatus(message="",{error=false}={}) {
+  state.mediaImportStatus=String(message||"");
+  state.mediaImportError=Boolean(error&&message);
+  const status=$("#media-import-status");
+  if(status){
+    status.textContent=state.mediaImportStatus;
+    status.classList.toggle("failed",state.mediaImportError);
+  }
+}
+
+function reportMediaImportError(error) {
+  const message=String(error?.message||"This file could not be imported.");
+  setMediaImportStatus(`${message} Nothing was changed.`,{error:true});
+}
+
+function setMediaImportBusy(busy) {
+  state.mediaImporting=Boolean(busy);
+  const button=$("#import-media");
+  if(button){
+    button.disabled=state.mediaImporting;
+    button.textContent=busy?"Opening…":"Add GIF, PNG, or BMP";
+  }
+}
+
+async function adoptImportedMedia(payload,displayName="Imported media") {
+  const detail=payload?.item;
+  const source=detail?.item?.source;
+  const destination=currentMediaDestination();
+  if(!destination){
+    throw new Error("This app has no layout for the selected lighting area. Choose another lighting area and try again.");
+  }
+  if(!detail?.catalog_id||!source){
+    throw new Error("This file could not be saved to Library.");
+  }
+  const destinationSizes=mediaDestinationSizes(destination);
+  if(!destinationSizes)throw new Error("The selected lighting area has no geometry.");
+  state.sourceTransform=canonicalizeSourceTransform({
+    ...state.sourceTransform,
+    sampling:state.gifResample,
+  },{width:Number(source.width),height:Number(source.height)},destinationSizes);
+  state.mediaComposition=createMediaDraft({
+    catalogId:detail.catalog_id,
+    source:{
+      asset_id:source.asset_id,
+      mime_type:source.mime_type,
+      width:source.width,
+      height:source.height,
+      frame_count:source.frame_count,
+      duration_ms:source.duration_ms,
+    },
+    destination,
+    transform:state.sourceTransform,
+  });
+  state.library.loaded=false;
+  dispatchLightingWorkspace({
+    type:"MEDIA_OPENED",
+    media:lightingMediaIdentity(state.mediaComposition),
+  });
+  renderLightingEdit();
+  await renderMediaCompositionPreview();
+  setMediaImportStatus(
+    `${payload.deduplicated?"Reopened from":"Saved to"} Library: ${displayName} · ${source.frame_count} frame${source.frame_count===1?"":"s"}.`,
+  );
+}
+
+async function chooseMedia() {
+  setMediaImportStatus();
+  setMediaImportBusy(true);
+  try{
+    const payload=await api("/api/native/choose-media",{method:"POST",body:"{}"});
+    if(payload.cancelled)return;
+    await adoptImportedMedia(payload,payload.item?.name||"Imported media");
+  }catch(error){
+    if(error.status===404){
+      $("#media-input").click();
+      return;
+    }
+    reportMediaImportError(error);
+  }finally{
+    setMediaImportBusy(false);
+  }
+}
+
 async function importMedia(input) {
   const file=input.files?.[0];
   input.value="";
   if(!file)return;
+  setMediaImportStatus();
   if(file.size>12_000_000){
-    return toast(
-      "Image is too large",
-      "Choose a GIF, PNG, or BMP smaller than 12 MB.",
-      "error",
-    );
+    reportMediaImportError(new Error("Choose a GIF, PNG, or BMP smaller than 12 MB."));
+    return;
   }
-  const destination=currentMediaDestination();
-  if(!destination){
-    return toast(
-      "Nowhere to put this media",
-      "This app has no layout for the selected lighting area, so nothing was imported. Choose another lighting area and try again.",
-      "error",
-    );
-  }
-  const button=$("#import-media");
-  if(button){button.disabled=true;button.textContent="Saving…";}
+  setMediaImportBusy(true);
   try{
     const response=await fetch(`/api/library/import/media?name=${encodeURIComponent(file.name)}`,{
       method:"POST",
@@ -3015,57 +3214,39 @@ async function importMedia(input) {
     });
     const payload=await response.json().catch(()=>({}));
     if(!response.ok)throw new Error(payload.error||"This file could not be saved to Library.");
-    const detail=payload.item;
-    const source=detail?.item?.source;
-    if(!detail?.catalog_id||!source)throw new Error("This file could not be saved to Library.");
-    const destinationSizes=mediaDestinationSizes(destination);
-    if(!destinationSizes)throw new Error("The selected lighting area has no geometry.");
-    state.sourceTransform=canonicalizeSourceTransform({
-      ...state.sourceTransform,
-      sampling:state.gifResample,
-    },{width:Number(source.width),height:Number(source.height)},destinationSizes);
-    state.mediaComposition=createMediaDraft({
-      catalogId:detail.catalog_id,
-      source:{
-        asset_id:source.asset_id,
-        mime_type:source.mime_type,
-        width:source.width,
-        height:source.height,
-        frame_count:source.frame_count,
-        duration_ms:source.duration_ms,
-      },
-      destination,
-      transform:state.sourceTransform,
-    });
-    state.library.loaded=false;
-    dispatchLightingWorkspace({
-      type:"MEDIA_OPENED",
-      media:lightingMediaIdentity(state.mediaComposition),
-    });
-    renderLightingEdit();
-    await renderMediaCompositionPreview();
-    toast(
-      payload.deduplicated?"Imported media reopened":"Imported media saved to Library",
-      `${file.name} · ${source.frame_count} frame${source.frame_count===1?"":"s"}`,
-      "success",
-    );
+    await adoptImportedMedia(payload,file.name);
   }catch(error){
-    toast("Could not import media",`${error.message} Nothing was changed.`,"error");
+    reportMediaImportError(error);
   }finally{
-    if(button?.isConnected){
-      button.disabled=false;
-      button.textContent="Add GIF, PNG, or BMP";
-    }
+    setMediaImportBusy(false);
   }
 }
 
-async function renderMediaCompositionPreview() {
-  return renderMediaCompositionPreviewAttempt(true);
+function scheduleMediaCompositionPreview() {
+  const draft=state.mediaComposition;
+  if(!draft||draft.status==="cancelled")return null;
+  const request={catalogId:draft.catalogId,revision:draft.revision};
+  mediaCompositionRenderScheduler.request(request);
+  return request;
 }
 
-async function renderMediaCompositionPreviewAttempt(allowSessionRecovery) {
+async function renderMediaCompositionPreview() {
+  if(!scheduleMediaCompositionPreview())return;
+  return mediaCompositionRenderScheduler.flush();
+}
+
+async function renderMediaCompositionPreviewAttempt(request,allowSessionRecovery) {
   const draft=state.mediaComposition;
-  if(!draft||draft.status==="cancelled")return;
+  if(
+    !draft
+    ||draft.status==="cancelled"
+    ||draft.catalogId!==request?.catalogId
+    ||draft.revision!==request?.revision
+  )return;
+  const revision=draft.revision;
+  const requiresWorkspaceRebuild=
+    lightingWorkspace.preview.board_frame_set?.provenance!=="media_render";
+  let renderAccepted=false;
   const epoch=nextMediaRenderEpoch(state.mediaRenderEpoch);
   const requestContext={...lightingWorkspace.context};
   const requestTargetLengths=lightingWorkspaceTargetLengths();
@@ -3074,16 +3255,39 @@ async function renderMediaCompositionPreviewAttempt(allowSessionRecovery) {
   state.mediaComposition=reduceMediaDraft(draft,{
     type:"RENDER_REQUESTED",
     epoch,
+    revision,
   });
   dispatchLightingWorkspace({type:"SEQUENCE_RENDER_STARTED"});
   const workspaceRequestEpoch=lightingWorkspace.preview.request_epoch;
   const workspaceRequestContextKey=lightingWorkspace.preview.request_context_key;
-  const requestAsyncContext=captureWorkspaceAsyncContext(lightingWorkspace);
+  const requestAsyncContext={
+    ...captureWorkspaceAsyncContext(lightingWorkspace),
+    catalog_id:draft.catalogId,
+    asset_id:draft.source.asset_id,
+  };
   let requestedPreviewSessionId=null;
-  renderLightingEdit();
+  if(state.lighting.route===ROUTES.EDIT){
+    renderLightingBoardProjection();
+    updateSourceTransformView();
+  }
   try{
     const previewSessionId=await ensureMediaPreviewSession(draft);
-    if(!previewSessionId)return;
+    if(
+      !previewSessionId
+      ||state.mediaComposition?.catalogId!==draft.catalogId
+      ||state.mediaComposition?.revision!==revision
+      ||!mediaLoadMatchesWorkspace(requestAsyncContext)
+    ){
+      if(state.mediaComposition){
+        state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
+          type:"RENDER_DISCARDED",
+          epoch,
+          revision,
+        });
+      }
+      if(state.lighting.route===ROUTES.EDIT)updateSourceTransformView();
+      return;
+    }
     requestedPreviewSessionId=previewSessionId;
     const result=await api(`/api/library/items/${libraryCatalogPath(draft.catalogId)}/render`,{method:"POST",body:JSON.stringify({
       product_id:draft.destination.productId,
@@ -3093,11 +3297,15 @@ async function renderMediaCompositionPreviewAttempt(allowSessionRecovery) {
       epoch,
       preview_session_id:previewSessionId,
     })});
-    if(state.mediaComposition?.catalogId!==draft.catalogId)return;
+    if(
+      state.mediaComposition?.catalogId!==draft.catalogId
+      ||state.mediaComposition?.revision!==revision
+    )return;
     const current=state.mediaComposition;
     const completed=reduceMediaDraft(current,{
       type:"RENDER_SUCCEEDED",
       epoch,
+      revision,
       transform:result.transform,
       effects:result.effects,
       resolvedTransforms:result.resolved_transforms,
@@ -3108,7 +3316,7 @@ async function renderMediaCompositionPreviewAttempt(allowSessionRecovery) {
       context:{
         ...requestContext,
         source_kind:"media_render",
-        revision:lightingWorkspace.preview.accepted_epoch,
+        revision,
       },
       mappedResult:completed.mappedResult,
       timeline:result.preview_timeline,
@@ -3121,6 +3329,7 @@ async function renderMediaCompositionPreviewAttempt(allowSessionRecovery) {
       type:"SEQUENCE_RENDER_ACCEPTED",
       request_epoch:workspaceRequestEpoch,
       context_key:workspaceRequestContextKey,
+      media_revision:revision,
       frame_set:frameSet,
       target_lengths:requestTargetLengths,
       allowed_durations:LED_SPEEDS,
@@ -3129,11 +3338,16 @@ async function renderMediaCompositionPreviewAttempt(allowSessionRecovery) {
     if(accepted.ignored)return;
     state.mediaComposition=completed;
     state.sourceTransform=completed.transform;
+    renderAccepted=true;
   }catch(error){
-    if(state.mediaComposition?.catalogId!==draft.catalogId)return;
+    if(
+      state.mediaComposition?.catalogId!==draft.catalogId
+      ||state.mediaComposition?.revision!==revision
+    )return;
     const requestStillCurrent=workspaceAsyncContextMatches(lightingWorkspace,requestAsyncContext)
       &&lightingWorkspace.preview.request_epoch===workspaceRequestEpoch
-      &&lightingWorkspace.preview.request_context_key===workspaceRequestContextKey;
+      &&lightingWorkspace.preview.request_context_key===workspaceRequestContextKey
+      &&lightingWorkspace.media?.requested_revision===revision;
     if(
       allowSessionRecovery&&mediaPreviewSessionUnavailable(error)
       &&requestedPreviewSessionId&&requestStillCurrent
@@ -3142,12 +3356,13 @@ async function renderMediaCompositionPreviewAttempt(allowSessionRecovery) {
         ...lightingMediaIdentity(draft),
         preview_session_id:requestedPreviewSessionId,
       });
-      return renderMediaCompositionPreviewAttempt(false);
+      return renderMediaCompositionPreviewAttempt(request,false);
     }
     const failed=dispatchLightingWorkspace({
       type:"SEQUENCE_RENDER_FAILED",
       request_epoch:workspaceRequestEpoch,
       context_key:workspaceRequestContextKey,
+      media_revision:revision,
       error,
     });
     if(failed.ignored)return;
@@ -3155,15 +3370,22 @@ async function renderMediaCompositionPreviewAttempt(allowSessionRecovery) {
     state.mediaComposition=reduceMediaDraft(state.mediaComposition,{
       type:"RENDER_FAILED",
       epoch,
+      revision,
       error:friendly.message,
     });
   }
-  if(state.lighting.route===ROUTES.EDIT)renderLightingEdit();
+  if(state.lighting.route===ROUTES.EDIT){
+    if(renderAccepted&&requiresWorkspaceRebuild)renderLightingEdit();
+    else{
+      renderLightingBoardProjection();
+      updateSourceTransformView();
+    }
+  }
 }
 
 function applyMediaCompositionDraft() {
   const draft=state.mediaComposition;
-  if(!mediaDraftCanApply(draft)){
+  if(!mediaCompositionCanApply(draft)){
     return toast("Preview required","Nothing was changed. Create a preview of this framing before applying it.","error");
   }
   const pairsRelic=draft.destination.targets.includes("spotlight_frames")
@@ -3201,6 +3423,7 @@ function applyMediaCompositionDraft() {
 
 function cancelMediaComposition() {
   if(!state.mediaComposition)return;
+  mediaCompositionRenderScheduler.cancel();
   state.mediaComposition=reduceMediaDraft(state.mediaComposition,{type:"CANCELLED"});
   dispatchLightingWorkspace({type:"MEDIA_CANCELLED"});
   renderLightingEdit();
@@ -3371,6 +3594,7 @@ function previewLocalAnimation() {
         type:"EFFECTS_CHANGED",
         effects:[effect],
       });
+      requestMediaCompositionRender("EFFECT_REQUESTED");
       state.localAnimationDraft=null;
       state.studioTool="source";
       renderLightingEdit();
@@ -3784,8 +4008,8 @@ function renderLightingEdit() {
         </details>
       </div>`;
   const sourceBody=`<div id="studio-source-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-source-tab" ${state.studioTool==="source"?"":"hidden"}>
-        <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Imported media</h3><input id="media-input" type="file" hidden><div class="gif-import-row"><button id="import-media" class="button ghost">${gifButtonLabel}</button></div>${relicGifOption}<small class="control-help">${gifHelp}</small></div>
-        <div class="media-composition-actions"><button id="media-compose-preview" class="button ghost" ${sourceReady&&mediaDraft?.status!=="rendering"?"":"disabled"}>Preview</button><button id="media-compose-apply" class="button primary" ${mediaDraftCanApply(mediaDraft)?"":"disabled"}>Apply to lighting slot</button><button id="media-compose-cancel" class="button ghost" ${mediaDraft?"":"disabled"}>Cancel</button></div>
+        <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Imported media</h3><input id="media-input" type="file" accept=".gif,.png,.bmp,image/gif,image/png,image/bmp" hidden><div class="gif-import-row"><button id="import-media" class="button ghost" ${state.mediaImporting?"disabled":""}>${state.mediaImporting?"Opening…":gifButtonLabel}</button></div>${relicGifOption}<small class="control-help">${gifHelp}</small><small id="media-import-status" class="control-help media-import-status ${state.mediaImportError?"failed":""}" aria-live="polite">${esc(state.mediaImportStatus)}</small></div>
+        <div class="media-composition-actions"><button id="media-compose-preview" class="button ghost" ${sourceReady&&mediaDraft?.status!=="rendering"?"":"disabled"}>Preview</button><button id="media-compose-apply" class="button primary" ${mediaCompositionCanApply(mediaDraft)?"":"disabled"}>Apply to lighting slot</button><button id="media-compose-cancel" class="button ghost" ${mediaDraft?"":"disabled"}>Cancel</button></div>
         <div class="control-group source-transform-controls" aria-disabled="${String(!sourceReady)}"><span class="control-label">Framing</span><div class="source-preset-grid"><button class="button ghost" data-source-preset="fit" ${sourceDisabled}>Fit</button><button class="button ghost" data-source-preset="fill" ${sourceDisabled}>Fill</button><button class="button ghost" data-source-preset="center" ${sourceDisabled}>Center</button><button class="button ghost" data-source-preset="reset" ${sourceDisabled}>Reset</button></div><label id="source-zoom-label" class="control-label secondary-label" for="source-zoom">${state.sourceTransform.aspect_locked?"Zoom":"Width"}</label><div class="range-row"><input id="source-zoom" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_x*100)}" ${sourceDisabled}><span id="source-zoom-value" class="range-value">${Math.round(state.sourceTransform.scale_x*100)}%</span></div><small class="control-help">${sourceReady?"Drag on the canvas to pan; use the wheel or sliders to resize.":"Import media to save it to Library and open the framing controls."}</small></div>
         <details id="media-advanced" class="advanced-disclosure" ${state.mediaAdvancedOpen?"open":""}><summary>Advanced</summary>
           <div class="control-group"><label class="control-label" for="gif-resample">Sampling method</label><select id="gif-resample" class="select-field" aria-label="Media sampling method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select><small class="control-help">How the imported picture is resampled down to the lights on this keyboard.</small></div>
@@ -3865,7 +4089,7 @@ function wireLedEditor(gridColumns) {
     scrubTimeline((projection.index+1)%projection.frame_set.frame_count);
   });
   $("#first-frame")?.addEventListener("click",()=>mutate(ensureTrack));
-  $("#import-media").addEventListener("click",()=>$("#media-input").click());
+  $("#import-media").addEventListener("click",chooseMedia);
   $("#gif-resample").addEventListener("change",event=>{
     state.gifResample=event.target.value;
     commitSourceTransform(transform=>({...transform,sampling:state.gifResample}));

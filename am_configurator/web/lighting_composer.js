@@ -68,6 +68,133 @@
     return Math.min(maximum, Math.max(minimum, value));
   }
 
+  function createLatestTaskScheduler({
+    delayMs = 75,
+    setTimer = (callback, delay) => setTimeout(callback, delay),
+    clearTimer = timer => clearTimeout(timer),
+    run,
+  } = {}) {
+    if (
+      typeof run !== "function"
+      || typeof setTimer !== "function"
+      || typeof clearTimer !== "function"
+      || !Number.isSafeInteger(delayMs)
+      || delayMs < 0
+    ) {
+      throw new TypeError("The latest-task scheduler is invalid.");
+    }
+    let generation = 0;
+    let completedGeneration = 0;
+    let latest = null;
+    let timer = null;
+    let running = null;
+    let flushNext = false;
+    const waiters = [];
+
+    const settleWaiters = (failedGeneration = null, error = null) => {
+      for (let index = waiters.length - 1; index >= 0; index -= 1) {
+        const waiter = waiters[index];
+        if (waiter.generation > completedGeneration) continue;
+        waiters.splice(index, 1);
+        if (failedGeneration !== null && failedGeneration >= waiter.generation) {
+          waiter.reject(error);
+        } else {
+          waiter.resolve();
+        }
+      }
+    };
+
+    const clearPendingTimer = () => {
+      if (timer === null) return;
+      clearTimer(timer);
+      timer = null;
+    };
+
+    let launch;
+    const schedule = () => {
+      if (!latest || running || timer !== null) return;
+      timer = setTimer(() => {
+        timer = null;
+        launch();
+      }, delayMs);
+    };
+
+    launch = () => {
+      if (running || !latest) return running?.promise || Promise.resolve();
+      clearPendingTimer();
+      const task = latest;
+      latest = null;
+      let promise;
+      try {
+        promise = Promise.resolve(run(task.value));
+      } catch (error) {
+        promise = Promise.reject(error);
+      }
+      running = {generation: task.generation, promise};
+      promise.then(
+        () => {
+          if (running?.generation !== task.generation) return;
+          running = null;
+          completedGeneration = Math.max(completedGeneration, task.generation);
+          settleWaiters();
+          if (!latest) return;
+          if (flushNext) {
+            flushNext = false;
+            launch();
+          } else {
+            schedule();
+          }
+        },
+        error => {
+          if (running?.generation !== task.generation) return;
+          running = null;
+          completedGeneration = Math.max(completedGeneration, task.generation);
+          settleWaiters(task.generation, error);
+          if (!latest) return;
+          if (flushNext) {
+            flushNext = false;
+            launch();
+          } else {
+            schedule();
+          }
+        },
+      );
+      return promise;
+    };
+
+    const request = value => {
+      generation += 1;
+      latest = {generation, value};
+      clearPendingTimer();
+      if (!running) schedule();
+      return generation;
+    };
+
+    const flush = () => {
+      const requestedGeneration = generation;
+      if (requestedGeneration <= completedGeneration || (!latest && !running)) {
+        return Promise.resolve();
+      }
+      const promise = new Promise((resolve, reject) => {
+        waiters.push({generation: requestedGeneration, resolve, reject});
+      });
+      clearPendingTimer();
+      if (running) flushNext = true;
+      else launch();
+      return promise;
+    };
+
+    const cancel = () => {
+      clearPendingTimer();
+      latest = null;
+      flushNext = false;
+      completedGeneration = Math.max(completedGeneration, generation);
+      settleWaiters();
+    };
+
+    return Object.freeze({request, flush, cancel});
+  }
+
   function validateSourceTransform(value) {
     if (!hasExactFields(value, TRANSFORM_FIELDS)) {
       throw new TypeError("The source transform schema is unsupported.");
@@ -277,13 +404,14 @@
         destination.width / source.width,
         destination.height / source.height,
       );
-      scale = fit / fill;
+      scale = clamp(fit / fill, MIN_SCALE, MAX_SCALE);
     } else if (mode === "center") {
-      scale = 1 / Math.max(
+      scale = clamp(1 / Math.max(
         destination.width / source.width,
         destination.height / source.height,
-      );
+      ), MIN_SCALE, MAX_SCALE);
     }
+    scale = clamp(scale, MIN_SCALE, MAX_SCALE);
     return canonicalizeSourceTransform({
       ...checked,
       offset_x: 0,
@@ -840,6 +968,7 @@
 
   return Object.freeze({
     canonicalizeSourceTransform,
+    createLatestTaskScheduler,
     defaultSourceTransform,
     interpolateMoveZoom,
     normalizedPointer,

@@ -30,14 +30,18 @@ AUDIT_TRANSFORM = {
 }
 REQUIRED_CASE_CHECKS = [
     "raw_import",
+    "native_picker_import",
+    "unsupported_rejection",
     "saved_source_retrieval",
     "pointer_not_found_capture",
     "pointer_feedback",
     "keyboard_feedback",
     "slider_feedback",
+    "render_coalescing",
     "overlay_geometry",
     "synchronized_workspace",
     "shared_timeline",
+    "late_source_hold",
     "preview_session_recovery",
     "stale_preview_guard",
     "destination_playback_isolation",
@@ -78,6 +82,24 @@ class MediaFixture:
     payload: bytes
     source_frame_count: int
     expected_frames: tuple[ExpectedFrame, ...]
+
+
+class _AuditMediaBridge:
+    """Serve one pathless, bounded native-picker selection at a time."""
+
+    def __init__(self, selections: tuple[object, ...]) -> None:
+        self._selections = iter(selections)
+
+    def choose_media_file(self) -> dict[str, object] | None:
+        try:
+            selected = next(self._selections)
+        except StopIteration:
+            return None
+        if isinstance(selected, MediaFixture):
+            return {"name": selected.name, "payload": selected.payload}
+        if isinstance(selected, Mapping):
+            return dict(selected)
+        raise TypeError("Unsupported audit media selection.")
 
 
 _FRAME_ZERO = ExpectedFrame(
@@ -360,6 +382,7 @@ def _fixture_payload(fixtures: tuple[MediaFixture, ...]) -> list[dict[str, objec
             "name": case.name,
             "mime_type": case.mime_type,
             "payload": base64.b64encode(case.payload).decode("ascii"),
+            "source_frame_count": case.source_frame_count,
             "expected_frames": [
                 {
                     "sentinels": [list(sentinel) for sentinel in frame.sentinels],
@@ -636,6 +659,7 @@ _AUDIT_SCRIPT = r"""
 
   async function verifyDestinationPlaybackIsolation() {
     const baseline = pageFingerprint();
+    window.__mediaFramingAuditStep = "destination_playback_select_source";
     document.querySelector('[data-lighting-target="keyframes"]')?.click();
     await waitFor(
       () => state.ledTarget === "keyframes"
@@ -645,8 +669,10 @@ _AUDIT_SCRIPT = r"""
     const page = getPage(state.ledSlot);
     requireAudit(page?.keyframes?.frame_data?.length === 2, "playback_source_track_missing");
     requireAudit(page?.frames?.frame_data?.length === 2, "playback_destination_track_missing");
+    window.__mediaFramingAuditStep = "destination_playback_start";
     document.querySelector("#play-led")?.click();
     await waitFor(() => state.playing, "playback_start_timeout");
+    window.__mediaFramingAuditStep = "destination_playback_select_destination";
     document.querySelector('[data-lighting-target="frames"]')?.click();
     await waitFor(
       () => state.ledTarget === "frames"
@@ -654,13 +680,17 @@ _AUDIT_SCRIPT = r"""
         && document.querySelectorAll("#led-canvas .pixel").length === 200,
       "playback_destination_timeout",
     );
+    window.__mediaFramingAuditStep = "destination_playback_verify";
     await delay(Math.max(150, Number(page.speed_ms || 48) * 3));
     requireAudit(state.ledTarget === "frames", "playback_target_leaked");
     requireAudit(!state.playing, "playback_timer_leaked");
+    window.__mediaFramingAuditStep = "destination_playback_expected";
     const expected = page.frames.frame_data[0].frame_RGB.map(color => color.toUpperCase());
+    window.__mediaFramingAuditStep = "destination_playback_actual";
     const actual = [...document.querySelectorAll("#led-canvas .pixel")].map(
       pixel => pixel.style.getPropertyValue("--pixel-color").trim().toUpperCase(),
     );
+    window.__mediaFramingAuditStep = "destination_playback_compare";
     requireAudit(sameJson(actual, expected), "playback_destination_colors_mismatch");
     requireAudit(pageFingerprint() === baseline, "playback_changed_document");
   }
@@ -672,17 +702,25 @@ _AUDIT_SCRIPT = r"""
     await verifyDestinationPlaybackIsolation();
     const baselinePage = pageFingerprint();
     const baselineUndo = state.undo.length;
-    const input = document.querySelector("#media-input");
     const raw = Uint8Array.from(atob(fixture.payload), character => character.charCodeAt(0));
-    const transfer = new DataTransfer();
-    transfer.items.add(new File(
-      [raw],
-      `audit-${width}x${height}.${fixture.format}`,
-      {type: fixture.mime_type, lastModified: 0},
-    ));
-    input.files = transfer.files;
+    const mediaBefore = (await catalogItems("sources")).map(item => item.catalog_id);
+    const toastsBefore = new Set(document.querySelectorAll("#toast-region .toast"));
+    window.__mediaFramingAuditStep = "unsupported_rejection";
+    document.querySelector("#import-media").click();
+    await waitFor(() => {
+      const status = document.querySelector("#media-import-status");
+      return status?.classList.contains("failed") && status.textContent.trim();
+    }, "unsupported_rejection_timeout");
+    const mediaAfterBad = (await catalogItems("sources")).map(item => item.catalog_id);
+    requireAudit(sameJson(mediaAfterBad, mediaBefore), "unsupported_published_item");
+    requireAudit(
+      [...document.querySelectorAll("#toast-region .toast")].every(
+        toast => toastsBefore.has(toast),
+      ),
+      "unsupported_created_toast",
+    );
     window.__mediaFramingAuditStep = "raw_import";
-    input.dispatchEvent(new Event("change", {bubbles: true}));
+    document.querySelector("#import-media").click();
     await waitFor(
       () => state.mediaComposition?.source?.mime_type === fixture.mime_type
         && state.mediaComposition.status === "ready",
@@ -690,6 +728,45 @@ _AUDIT_SCRIPT = r"""
       30000,
     );
     requireAudit(pageFingerprint() === baselinePage, "import_changed_document");
+    const importedItems = (await catalogItems("sources")).map(item => item.catalog_id);
+    requireAudit(
+      importedItems.includes(state.mediaComposition.catalogId)
+        && importedItems.length >= mediaBefore.length
+        && importedItems.length <= mediaBefore.length + 1,
+      "native_picker_import_missing",
+    );
+
+    const originalFetch = window.fetch;
+    let countLiveRenders = false;
+    let liveRenderCount = 0;
+    let lateSourceArmed = false;
+    let lateSourceBlocked = false;
+    let lateSourceFrameIndex = null;
+    let lateSourceRelease = null;
+    function releaseLateSource() {
+      const release = lateSourceRelease;
+      lateSourceRelease = null;
+      if (release) release();
+    }
+    window.fetch = (resource, options) => {
+      const requestUrl = typeof resource === "string" ? resource : String(resource?.url || "");
+      const parsed = new URL(requestUrl, location.href);
+      const method = String(options?.method || resource?.method || "GET").toUpperCase();
+      if (countLiveRenders && parsed.pathname.endsWith("/render") && method === "POST") {
+        liveRenderCount += 1;
+      }
+      if (
+        lateSourceArmed
+        && parsed.pathname.endsWith("/source-frame")
+        && parsed.searchParams.get("source_frame_index") === String(lateSourceFrameIndex)
+      ) {
+        lateSourceArmed = false;
+        lateSourceBlocked = true;
+        const gate = new Promise(resolve => { lateSourceRelease = resolve; });
+        return gate.then(() => originalFetch.call(window, resource, options));
+      }
+      return originalFetch.call(window, resource, options);
+    };
 
     window.__mediaFramingAuditStep = "saved_source_retrieval";
     const sourceImage = await waitFor(() => {
@@ -738,6 +815,69 @@ _AUDIT_SCRIPT = r"""
         "single_frame_timeline_mismatch",
       );
     }
+    window.__mediaFramingAuditStep = "late_source_hold";
+    if (fixture.source_frame_count > 1) {
+      const playbackBoard = selectBoardProjection(lightingWorkspace);
+      const playbackSource = selectSourceProjection(lightingWorkspace);
+      const lateTimelineIndex = playbackBoard.frame_set.timeline.findIndex(
+        entry => entry.source_frame_index !== playbackSource.source_frame_index,
+      );
+      requireAudit(lateTimelineIndex > 0, "late_source_timeline_missing");
+      lateSourceFrameIndex = playbackBoard.frame_set.timeline[lateTimelineIndex].source_frame_index;
+      const lateProjection = {
+        ...playbackSource,
+        source_frame_index: lateSourceFrameIndex,
+        timeline_index: lateTimelineIndex,
+      };
+      const lateCacheKey = sourceProjectionCacheKey(lateProjection);
+      const cachedLateSource = sourceProjectionUrls.get(lateCacheKey);
+      if (cachedLateSource) URL.revokeObjectURL(cachedLateSource);
+      sourceProjectionUrls.delete(lateCacheKey);
+      lateSourceArmed = true;
+      document.querySelector("#play-led").click();
+      await waitFor(() => state.playing, "late_source_playback_start_timeout");
+      const heldIndex = lateTimelineIndex - 1;
+      await waitFor(
+        () => lateSourceBlocked && lightingWorkspace.playhead.index === heldIndex,
+        "late_source_request_timeout",
+      );
+      const heldColors = [...document.querySelectorAll("#led-canvas .pixel")].map(
+        pixel => pixel.style.getPropertyValue("--pixel-color").trim().toUpperCase(),
+      );
+      await delay(Math.max(160, playbackBoard.frame_set.duration_ms * 3));
+      requireAudit(
+        lightingWorkspace.playhead.index === heldIndex
+          && sameJson(
+            heldColors,
+            [...document.querySelectorAll("#led-canvas .pixel")].map(
+              pixel => pixel.style.getPropertyValue("--pixel-color").trim().toUpperCase(),
+            ),
+          ),
+        "late_source_advanced_early",
+      );
+      releaseLateSource();
+      await waitFor(() => {
+        const projection = selectSourceProjection(lightingWorkspace);
+        const image = document.querySelector(".source-frame-image");
+        if (
+          lightingWorkspace.playhead.index !== heldIndex
+          && projection?.source_frame_index === lateSourceFrameIndex
+          && image?.complete
+          && !image.hidden
+        ) {
+          document.querySelector("#play-led").click();
+          return true;
+        }
+        return false;
+      }, "late_source_release_timeout");
+      await waitFor(() => !state.playing, "late_source_pause_timeout");
+    } else {
+      requireAudit(
+        selectBoardProjection(lightingWorkspace)?.frame_set.frame_count === 1
+          && document.querySelector("#play-led")?.disabled,
+        "late_source_single_frame_mismatch",
+      );
+    }
     const draftForSource = state.mediaComposition;
     const sourceResponse = await fetch(
       `/api/library/assets/${libraryCatalogPath(draftForSource.catalogId)}/${encodeURIComponent(draftForSource.source.asset_id)}`,
@@ -776,6 +916,8 @@ _AUDIT_SCRIPT = r"""
     requireAudit(state.undo.length === baselineUndo, "preview_session_recovery_changed_undo");
 
     window.__mediaFramingAuditStep = "pointer_input";
+    liveRenderCount = 0;
+    countLiveRenders = true;
     const stage = document.querySelector("#media-compositor-stage");
     const plane = stage?.querySelector(".media-compositor-plane");
     const overlay = stage?.querySelector(".source-frame-image");
@@ -831,6 +973,33 @@ _AUDIT_SCRIPT = r"""
       overlayStyle(overlay) !== beforePointer,
       "pointer_overlay_missing",
     );
+    await waitFor(
+      () => state.mediaComposition?.status === "ready" && liveRenderCount === 1,
+      "pointer_live_render_timeout",
+      30000,
+    );
+    requireAudit(
+      document.querySelector("#media-compositor-stage") === stage
+        && stage.classList.contains("dragging"),
+      "drag_stage_replaced_during_live_render",
+    );
+    const afterLiveRenderTransform = JSON.stringify(state.sourceTransform);
+    stage.dispatchEvent(new PointerEvent("pointermove", {
+      bubbles: true,
+      cancelable: true,
+      pointerId,
+      pointerType: "mouse",
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: startX,
+      clientY: startY - deltaY,
+    }));
+    requireAudit(
+      JSON.stringify(state.sourceTransform) !== afterLiveRenderTransform,
+      "drag_did_not_continue_after_live_render",
+    );
+    liveRenderCount = 0;
     stage.dispatchEvent(new PointerEvent("pointerup", {
       bubbles: true,
       cancelable: true,
@@ -840,7 +1009,7 @@ _AUDIT_SCRIPT = r"""
       button: 0,
       buttons: 0,
       clientX: startX,
-      clientY: startY + deltaY,
+      clientY: startY - deltaY,
     }));
     if (hadOwnCapture) stage.setPointerCapture = nativeCapture;
     else delete stage.setPointerCapture;
@@ -903,6 +1072,17 @@ _AUDIT_SCRIPT = r"""
       pageFingerprint() === stalePage && state.undo.length === staleUndo,
       "stale_apply_mutated_document",
     );
+
+    window.__mediaFramingAuditStep = "render_coalescing";
+    await waitFor(
+      () => state.mediaComposition?.status === "ready"
+        && mediaCompositionCanApply(state.mediaComposition)
+        && liveRenderCount === 1,
+      "render_coalescing_timeout",
+      30000,
+    );
+    countLiveRenders = false;
+    requireAudit(liveRenderCount === 1, "render_coalescing_overlap");
 
     window.__mediaFramingAuditStep = "preview";
     document.querySelector("#media-compose-preview").click();
@@ -1092,6 +1272,8 @@ _AUDIT_SCRIPT = r"""
       state.mediaComposition?.status === "cancelled" && pageFingerprint() === baselinePage,
       "cancel_changed_document",
     );
+    releaseLateSource();
+    window.fetch = originalFetch;
     requireAudit(consoleErrors.length === 0, "console_errors_present");
 
     return {format: fixture.format, checks: requiredChecks};
@@ -1253,6 +1435,15 @@ def _native_audit_report() -> dict:
     )
     document_path = root / "document.json"
     document = build_audit_document()
+    fixtures = build_media_fixtures()
+    selections: list[object] = []
+    for _viewport in AUDIT_VIEWPORTS:
+        for fixture in fixtures:
+            selections.extend((
+                {"name": "unsupported.gif", "payload": b"not supported media"},
+                fixture,
+            ))
+    media_bridge = _AuditMediaBridge(tuple(selections))
     document_path.write_text(
         json.dumps(document, ensure_ascii=True, separators=(",", ":")),
         encoding="utf-8",
@@ -1272,6 +1463,7 @@ def _native_audit_report() -> dict:
                 credential_store=MemoryCredentialStore(),
                 device_discovery=_offline_device_discovery,
             )
+            server.state.desktop_bridge = media_bridge
             server_thread = threading.Thread(
                 target=server.serve_forever,
                 kwargs={"poll_interval": 0.05},
@@ -1296,7 +1488,7 @@ def _native_audit_report() -> dict:
                 try:
                     result_holder["viewports"] = _run_webview_workflow(
                         window,
-                        _fixture_payload(build_media_fixtures()),
+                        _fixture_payload(fixtures),
                     )
                 except Exception as exc:  # noqa: BLE001 - marshal to the GUI owner
                     result_holder["error"] = exc

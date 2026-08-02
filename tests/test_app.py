@@ -2310,6 +2310,56 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(data, {"revealed": True})
         self.assertEqual(revealed, ["/tmp/chosen-library"])
 
+    def test_native_media_picker_banks_selected_bytes_and_rejects_bad_media(self) -> None:
+        from PIL import Image
+
+        image = Image.new("RGBA", (3, 2), (131, 88, 255, 255))
+        output = io.BytesIO()
+        image.save(output, format="PNG")
+        png = output.getvalue()
+
+        self._server.state.desktop_bridge = None
+        status, data = self._request("POST", "/api/native/choose-media", {})
+        self.assertEqual(404, status)
+        self.assertNotIn(str(self._tmp), json.dumps(data))
+
+        self._server.state.desktop_bridge = SimpleNamespace(
+            choose_media_file=lambda: None,
+        )
+        status, data = self._request("POST", "/api/native/choose-media", {})
+        self.assertEqual(200, status)
+        self.assertEqual({"cancelled": True}, data)
+
+        library_root = Path(self._tmp) / "library"
+        store.update_library_root({"current_root": str(library_root)})
+        selections = iter((
+            {"name": "native.png", "payload": png},
+            {"name": "pretends-to-be.gif", "payload": b"not supported media"},
+        ))
+        self._server.state.desktop_bridge = SimpleNamespace(
+            choose_media_file=lambda: next(selections),
+        )
+        status, imported = self._request("POST", "/api/native/choose-media", {})
+        self.assertEqual(201, status)
+        self.assertFalse(imported["cancelled"])
+        self.assertFalse(imported["deduplicated"])
+        self.assertEqual("media_source", imported["item"]["kind"])
+        self.assertEqual("image/png", imported["item"]["item"]["source"]["mime_type"])
+        self.assertNotIn(str(self._tmp), json.dumps(imported))
+
+        before = self._server.state.library_catalog().saved_items.scan()
+        status, _ = self._request("POST", "/api/native/choose-media", {})
+        self.assertEqual(400, status)
+        after = self._server.state.library_catalog().saved_items.scan()
+        self.assertEqual(before["items"], after["items"])
+
+        self._server.state.desktop_bridge = SimpleNamespace(
+            choose_media_file=lambda: {"path": "C:/private/file.png"},
+        )
+        status, data = self._request("POST", "/api/native/choose-media", {})
+        self.assertEqual(400, status)
+        self.assertNotIn("C:/private", json.dumps(data))
+
     def test_requires_auth(self) -> None:
         cases = [
             ("GET", "/api/settings", None),
@@ -2319,6 +2369,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
             ("POST", "/api/settings/preferences", {"candidate_count": 4}),
             ("POST", "/api/settings/library", {"current_root": None}),
             ("POST", "/api/settings/privacy", {"version": "anything"}),
+            ("POST", "/api/native/choose-media", {}),
             ("POST", "/api/settings/test", {}),
             (
                 "POST",

@@ -123,6 +123,16 @@ def _folder_dialog_type() -> Any:
     return webview.FileDialog.FOLDER
 
 
+def _media_dialog_type() -> Any:
+    """Resolve pywebview's open-dialog enum without making it a base install."""
+    import webview
+
+    return webview.FileDialog.OPEN
+
+
+_MEDIA_FILE_TYPES = ("Supported images (*.gif;*.png;*.bmp)",)
+
+
 def _open_reveal_target(target: Path) -> None:
     """Open a validated target in the platform file manager."""
     system = platform.system()
@@ -145,7 +155,7 @@ def _open_reveal_target(target: Path) -> None:
 
 
 class DesktopBridge:
-    """Narrow native bridge for Library selection and reveal.
+    """Narrow native bridge for bounded selection and Library reveal.
 
     Settings persistence intentionally remains behind the authenticated loopback
     HTTP API. Browser JavaScript reaches these methods only through those
@@ -187,6 +197,41 @@ class DesktopBridge:
             return str(path.resolve(strict=True))
         except (OSError, RuntimeError):
             return None
+
+    def choose_media_file(self) -> dict[str, object] | None:
+        """Return one bounded supported-media payload without exposing its path."""
+        if self._window is None:
+            return None
+        selected = self._window.create_file_dialog(
+            dialog_type=_media_dialog_type(),
+            allow_multiple=False,
+            file_types=_MEDIA_FILE_TYPES,
+        )
+        if not selected:
+            return None
+        raw = selected if isinstance(selected, str) else selected[0]
+        if not isinstance(raw, str) or not raw:
+            return None
+        try:
+            path = Path(raw).expanduser()
+            if not path.is_absolute() or not path.is_file():
+                return None
+            path = path.resolve(strict=True)
+            from .media_composition import MAX_MEDIA_BYTES
+
+            with path.open("rb") as stream:
+                payload = stream.read(MAX_MEDIA_BYTES + 1)
+            if len(payload) > MAX_MEDIA_BYTES:
+                raise ValueError(
+                    "The selected image is too large. Choose a GIF, PNG, or BMP smaller than 12 MB."
+                )
+            if not payload:
+                raise ValueError("The selected image is empty.")
+            return {"name": path.name, "payload": payload}
+        except ValueError:
+            raise
+        except (OSError, RuntimeError, IndexError) as exc:
+            raise ValueError("The selected image could not be read.") from exc
 
     def reveal_library_path(self, value: object) -> bool:
         """Reveal an existing target only when a recorded library root owns it."""

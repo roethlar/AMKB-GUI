@@ -34,7 +34,10 @@ def _fake_webview_module() -> types.ModuleType:
     machine built with `--extra desktop`.
     """
     module = types.ModuleType("webview")
-    module.FileDialog = types.SimpleNamespace(FOLDER="folder-dialog")
+    module.FileDialog = types.SimpleNamespace(
+        FOLDER="folder-dialog",
+        OPEN="open-dialog",
+    )
     return module
 
 
@@ -65,6 +68,46 @@ class DesktopBridgeTests(unittest.TestCase):
 
             window.selection = ["relative/library"]
             self.assertIsNone(bridge.choose_library_folder())
+
+    def test_media_chooser_filters_supported_formats_and_returns_no_path(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as raw_tmp,
+            mock.patch.dict(sys.modules, {"webview": _fake_webview_module()}),
+        ):
+            root = Path(raw_tmp)
+            for suffix in ("gif", "png", "bmp"):
+                selected = root / f"selected.{suffix}"
+                payload = f"fixture-{suffix}".encode("ascii")
+                selected.write_bytes(payload)
+                window = _FakeWindow([str(selected)])
+                bridge = desktop.DesktopBridge(window)
+
+                result = bridge.choose_media_file()
+
+                self.assertEqual(
+                    result,
+                    {"name": selected.name, "payload": payload},
+                )
+                self.assertNotIn(str(root), repr(result))
+                self.assertEqual(
+                    window.dialog_calls,
+                    [{
+                        "dialog_type": desktop._media_dialog_type(),
+                        "allow_multiple": False,
+                        "file_types": desktop._MEDIA_FILE_TYPES,
+                    }],
+                )
+
+            filters = " ".join(desktop._MEDIA_FILE_TYPES).casefold()
+            for extension in ("*.gif", "*.png", "*.bmp"):
+                self.assertIn(extension, filters)
+            self.assertNotIn("*.jpg", filters)
+            self.assertNotIn("*.*", filters)
+
+            for selection in (None, []):
+                with self.subTest(selection=selection):
+                    cancelled = desktop.DesktopBridge(_FakeWindow(selection))
+                    self.assertIsNone(cancelled.choose_media_file())
 
     def test_bridge_has_no_local_model_file_picker(self) -> None:
         bridge = desktop.DesktopBridge(_FakeWindow(None))

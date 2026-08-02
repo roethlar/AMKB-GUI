@@ -385,6 +385,8 @@
       effects: validateEffects(effects),
       status: "draft",
       epoch: 0,
+      revision: 0,
+      acceptedRevision: null,
       mappedResult: null,
       resolvedTransforms: [],
       error: "",
@@ -396,6 +398,8 @@
       ...state,
       ...changes,
       status: "draft",
+      revision: state.revision + 1,
+      acceptedRevision: null,
       mappedResult: null,
       resolvedTransforms: [],
       error: "",
@@ -411,6 +415,9 @@
         !Number.isSafeInteger(action.epoch)
         || action.epoch < 0
         || action.epoch < state.epoch
+        || !Number.isSafeInteger(action.revision)
+        || action.revision < 0
+        || action.revision !== state.revision
       ) {
         return state;
       }
@@ -418,17 +425,23 @@
         ...state,
         status: "rendering",
         epoch: action.epoch,
+        acceptedRevision: null,
         mappedResult: null,
         resolvedTransforms: [],
         error: "",
       });
     }
     if (action.type === "RENDER_SUCCEEDED") {
-      if (state.status !== "rendering" || action.epoch !== state.epoch) return state;
+      if (
+        state.status !== "rendering"
+        || action.epoch !== state.epoch
+        || action.revision !== state.revision
+      ) return state;
       const effects = validateEffects(action.effects);
       return deepFreeze({
         ...state,
         status: "ready",
+        acceptedRevision: action.revision,
         transform: validateTransform(action.transform),
         effects,
         mappedResult: validateMappedResult(action.mappedResult),
@@ -440,13 +453,33 @@
       });
     }
     if (action.type === "RENDER_FAILED") {
-      if (state.status !== "rendering" || action.epoch !== state.epoch) return state;
+      if (
+        state.status !== "rendering"
+        || action.epoch !== state.epoch
+        || action.revision !== state.revision
+      ) return state;
       return deepFreeze({
         ...state,
         status: "failed",
+        acceptedRevision: null,
         mappedResult: null,
         resolvedTransforms: [],
         error: String(action.error || "The preview could not be created. Nothing was changed; adjust the framing and try again."),
+      });
+    }
+    if (action.type === "RENDER_DISCARDED") {
+      if (
+        state.status !== "rendering"
+        || action.epoch !== state.epoch
+        || action.revision !== state.revision
+      ) return state;
+      return deepFreeze({
+        ...state,
+        status: "draft",
+        acceptedRevision: null,
+        mappedResult: null,
+        resolvedTransforms: [],
+        error: "",
       });
     }
     if (action.type === "TRANSFORM_CHANGED") {
@@ -468,6 +501,7 @@
       return deepFreeze({
         ...state,
         status: "cancelled",
+        acceptedRevision: null,
         mappedResult: null,
         resolvedTransforms: [],
         error: "",
@@ -484,6 +518,7 @@
     return Boolean(
       state
       && state.status === "ready"
+      && state.acceptedRevision === state.revision
       && state.mappedResult
       && state.mappedResult.tracks
       && Object.keys(state.mappedResult.tracks).length,

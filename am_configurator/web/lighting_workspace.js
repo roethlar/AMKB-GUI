@@ -529,7 +529,24 @@
       || checked.context.slot !== state.context.slot
       || checked.context.target !== state.context.target
     ) return unchanged(state, "stale");
-    if (frameSetEqual(state.preview.board_frame_set, checked)) return unchanged(state);
+    const mediaRevision = checked.provenance === "media_render"
+      ? safeNonNegativeInteger(
+        event.media_revision ?? state.media?.requested_revision,
+        "invalid_context",
+        "The media preview revision is invalid.",
+      )
+      : null;
+    if (
+      mediaRevision !== null
+      && (
+        !isObject(state.media)
+        || state.media.requested_revision !== mediaRevision
+      )
+    ) return unchanged(state, "stale");
+    if (
+      frameSetEqual(state.preview.board_frame_set, checked)
+      && (mediaRevision === null || state.media?.accepted_revision === mediaRevision)
+    ) return unchanged(state);
 
     const acceptedEpoch = state.preview.accepted_epoch + 1;
     const canonical = createBoardFrameSet({
@@ -545,7 +562,11 @@
     const next = {
       ...state,
       media: canonical.provenance === "media_render" && isObject(state.media)
-        ? {...state.media, preview_timeline: canonical.timeline}
+        ? {
+          ...state.media,
+          accepted_revision: mediaRevision,
+          preview_timeline: canonical.timeline,
+        }
         : state.media,
       playhead: stopPlayhead(state, index),
       destination_playheads: {...state.destination_playheads, [key]: index},
@@ -567,7 +588,13 @@
   }
 
   function requestMatches(state, event) {
-    return Number.isSafeInteger(event.request_epoch)
+    const mediaRevisionMatches = event.media_revision === undefined || Boolean(
+      isObject(state.media)
+      && Number.isSafeInteger(event.media_revision)
+      && event.media_revision === state.media.requested_revision
+    );
+    return mediaRevisionMatches
+      && Number.isSafeInteger(event.request_epoch)
       && event.request_epoch === state.preview.request_epoch
       && typeof event.context_key === "string"
       && event.context_key === state.preview.request_context_key
@@ -688,9 +715,19 @@
       }
       case "MEDIA_OPENED": {
         const contextEpoch = state.context_epoch + 1;
+        const media = isObject(event.media)
+          ? {
+            ...event.media,
+            requested_revision: safeNonNegativeInteger(
+              event.media.requested_revision ?? 0,
+              "invalid_context",
+              "The media preview revision is invalid.",
+            ),
+          }
+          : null;
         const next = {
           ...state,
-          media: event.media ?? null,
+          media,
           tool: "source",
           context_epoch: contextEpoch,
           playhead: stopPlayhead(state, 0),
@@ -727,8 +764,8 @@
         const {preview_session_id: expiredSessionId, ...media} = state.media;
         void expiredSessionId;
         return {
-          state: {...state, media},
-          intents: [{type: "render-workspace"}],
+          state: {...state, media, playhead: stopPlayhead(state)},
+          intents: [cancelPlaybackIntent(state), {type: "render-workspace"}],
         };
       }
       case "MEDIA_CANCELLED": {
@@ -750,6 +787,12 @@
         const media = isObject(state.media) ? {...state.media} : {};
         if (event.type === "TRANSFORM_REQUESTED") media.requested_transform = event.transform;
         else media.effects = event.effects;
+        media.requested_revision = safeNonNegativeInteger(
+          event.media_revision,
+          "invalid_context",
+          "The media preview revision is invalid.",
+        );
+        delete media.accepted_revision;
         const next = {
           ...state,
           media,
@@ -907,7 +950,6 @@
           }, {type: "render-workspace"}],
         };
       }
-      case "SOURCE_FRAME_READY":
       case "PLAYBACK_TICK": {
         if (
           !state.playhead.playing
@@ -916,6 +958,46 @@
           || !state.preview.board_frame_set
         ) return unchanged(state, "stale");
         const index = (state.playhead.index + 1) % state.preview.board_frame_set.frame_count;
+        if (state.preview.board_frame_set.provenance === "media_render") {
+          const timelineEntry = state.preview.board_frame_set.timeline[index];
+          if (!Number.isSafeInteger(timelineEntry?.source_frame_index)) {
+            return unchanged(state, "stale");
+          }
+          return {
+            state,
+            intents: [{
+              type: "prepare-source-frame",
+              session_id: state.playhead.session_id,
+              context_key: workspaceContextKey(state),
+              from_index: state.playhead.index,
+              timeline_index: index,
+              source_frame_index: timelineEntry.source_frame_index,
+            }],
+          };
+        }
+        const key = workspaceDestinationKey(state.context);
+        const next = {
+          ...state,
+          playhead: {...state.playhead, index},
+          destination_playheads: {...state.destination_playheads, [key]: index},
+        };
+        return {state: next, intents: [{type: "render-board"}]};
+      }
+      case "SOURCE_FRAME_READY": {
+        if (
+          !state.playhead.playing
+          || event.session_id !== state.playhead.session_id
+          || event.context_key !== workspaceContextKey(state)
+          || !state.preview.board_frame_set
+          || state.preview.board_frame_set.provenance !== "media_render"
+          || event.from_index !== state.playhead.index
+        ) return unchanged(state, "stale");
+        const index = (state.playhead.index + 1) % state.preview.board_frame_set.frame_count;
+        const timelineEntry = state.preview.board_frame_set.timeline[index];
+        if (
+          event.timeline_index !== index
+          || event.source_frame_index !== timelineEntry?.source_frame_index
+        ) return unchanged(state, "stale");
         const key = workspaceDestinationKey(state.context);
         const next = {
           ...state,

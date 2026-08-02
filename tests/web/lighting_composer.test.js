@@ -10,6 +10,7 @@ const modulePath = path.join(
   "../../am_configurator/web/lighting_composer.js",
 );
 const {
+  createLatestTaskScheduler,
   resolveSourceGeometry,
   defaultSourceTransform,
   interpolateMoveZoom,
@@ -257,6 +258,88 @@ test("Fit, Fill, Center, pan, zoom, and stretch reduce to normalized transforms"
     ),
     transform(),
   );
+});
+
+test("every framing preset stays inside the exact scale bounds at extreme geometry", () => {
+  const cases = [
+    [{width: 1, height: 1}, [{width: 10_000, height: 1}]],
+    [{width: 10_000, height: 1}, [{width: 1, height: 10_000}]],
+    [{width: 1, height: 10_000}, [{width: 10_000, height: 1}]],
+  ];
+  for (const [source, destinations] of cases) {
+    for (const mode of ["fit", "fill", "center", "reset"]) {
+      const result = presetSourceTransform(mode, source, destinations, transform());
+      assert.ok(result.scale_x >= 0.01 && result.scale_x <= 32, `${mode} scale_x`);
+      assert.ok(result.scale_y >= 0.01 && result.scale_y <= 32, `${mode} scale_y`);
+    }
+  }
+});
+
+test("latest-task scheduling debounces changes and never overlaps full renders", async () => {
+  let nextTimer = 0;
+  const timers = new Map();
+  const releases = [];
+  const runs = [];
+  const scheduler = createLatestTaskScheduler({
+    delayMs: 75,
+    setTimer(callback, delay) {
+      const id = ++nextTimer;
+      timers.set(id, {callback, delay});
+      return id;
+    },
+    clearTimer(id) {
+      timers.delete(id);
+    },
+    async run(value) {
+      runs.push(value);
+      await new Promise(resolve => releases.push(resolve));
+    },
+  });
+  const fire = () => {
+    const [id, timer] = timers.entries().next().value;
+    timers.delete(id);
+    timer.callback();
+  };
+
+  scheduler.request("first");
+  scheduler.request("second");
+  assert.equal(timers.size, 1);
+  assert.equal([...timers.values()][0].delay, 75);
+  fire();
+  await Promise.resolve();
+  assert.deepEqual(runs, ["second"]);
+
+  scheduler.request("third");
+  scheduler.request("fourth");
+  assert.equal(timers.size, 0, "a running render owns the single execution slot");
+  releases.shift()();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(timers.size, 1);
+  fire();
+  await Promise.resolve();
+  assert.deepEqual(runs, ["second", "fourth"]);
+  releases.shift()();
+  await Promise.resolve();
+
+  scheduler.request("fifth");
+  const flushed = scheduler.flush();
+  await Promise.resolve();
+  assert.deepEqual(runs, ["second", "fourth", "fifth"]);
+  releases.shift()();
+  await flushed;
+  scheduler.request("cancelled");
+  assert.equal(timers.size, 1);
+  const cancelledFlush = scheduler.flush();
+  scheduler.cancel();
+  assert.equal(timers.size, 0);
+  await Promise.race([
+    cancelledFlush,
+    new Promise((_, reject) => setImmediate(
+      () => reject(new Error("a cancelled flush never settled")),
+    )),
+  ]);
+  releases.shift()();
 });
 
 test("browser and backend share exact canonical geometry vectors", () => {

@@ -2533,6 +2533,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._clear_ollama_model(body)
             elif path == "/api/native/choose-library":
                 self._native_choose_library(body)
+            elif path == "/api/native/choose-media":
+                self._native_choose_media(body)
             elif path == "/api/native/reveal-library":
                 self._native_reveal_library(body)
             elif path == "/api/library/import/profile":
@@ -2887,7 +2889,21 @@ class _Handler(BaseHTTPRequestHandler):
         self._json({"job_id": manifest["job_id"]})
 
     @staticmethod
-    def _media_import_name(query: str) -> str:
+    def _validate_media_import_name(name: object) -> str:
+        if (
+            not isinstance(name, str)
+            or not name
+            or len(name) > 200
+            or name in {".", ".."}
+            or "/" in name
+            or "\\" in name
+            or any(ord(character) < 32 or ord(character) == 127 for character in name)
+        ):
+            raise ValueError("The media import file name is invalid.")
+        return name
+
+    @classmethod
+    def _media_import_name(cls, query: str) -> str:
         if len(query) > 4_096:
             raise ValueError("The media import query is too long.")
         if any(
@@ -2915,17 +2931,31 @@ class _Handler(BaseHTTPRequestHandler):
             raise ValueError(
                 "Media import requires exactly one encoded name query field."
             )
-        name = values["name"][0]
-        if (
-            not name
-            or len(name) > 200
-            or name in {".", ".."}
-            or "/" in name
-            or "\\" in name
-            or any(ord(character) < 32 or ord(character) == 127 for character in name)
-        ):
-            raise ValueError("The media import file name is invalid.")
-        return name
+        return cls._validate_media_import_name(values["name"][0])
+
+    def _bank_media_payload(self, *, name: object, payload: object) -> tuple[dict, bool]:
+        from . import media_composition
+
+        checked_name = self._validate_media_import_name(name)
+        if not isinstance(payload, (bytes, bytearray)):
+            raise ValueError("The selected media payload is invalid.")
+        checked_payload = bytes(payload)
+        if not 0 < len(checked_payload) <= media_composition.MAX_MEDIA_BYTES:
+            raise ValueError("The media upload exceeds the size limit.")
+        decoded = media_composition.decode_media(checked_payload)
+        catalog = self.state.library_catalog()
+        manifest, created = catalog.saved_items.bank_media_source(
+            name=checked_name,
+            payload=checked_payload,
+            metadata={
+                "mime_type": decoded.mime_type,
+                "width": decoded.width,
+                "height": decoded.height,
+                "frame_count": decoded.frame_count,
+                "duration_ms": decoded.duration_ms,
+            },
+        )
+        return catalog.get(f"item:{manifest['item_id']}"), created
 
     def _library_import_media(self, query: str) -> None:
         from . import media_composition
@@ -2948,20 +2978,7 @@ class _Handler(BaseHTTPRequestHandler):
         if len(payload) != length:
             raise ValueError("The media upload ended before its declared length.")
 
-        decoded = media_composition.decode_media(payload)
-        catalog = self.state.library_catalog()
-        manifest, created = catalog.saved_items.bank_media_source(
-            name=name,
-            payload=payload,
-            metadata={
-                "mime_type": decoded.mime_type,
-                "width": decoded.width,
-                "height": decoded.height,
-                "frame_count": decoded.frame_count,
-                "duration_ms": decoded.duration_ms,
-            },
-        )
-        detail = catalog.get(f"item:{manifest['item_id']}")
+        detail, created = self._bank_media_payload(name=name, payload=payload)
         self._json(
             {
                 "item": detail,
@@ -3757,6 +3774,40 @@ class _Handler(BaseHTTPRequestHandler):
             self._internal_error(exc)
             return
         self._json({"path": selected})
+
+    def _native_choose_media(self, body: dict[str, Any]) -> None:
+        if urlparse(self.path).query or body:
+            raise ValueError("The media chooser does not accept options.")
+        bridge = self.state.desktop_bridge
+        if bridge is None:
+            self._json(
+                {"error": "The native media chooser is unavailable in this launch."},
+                HTTPStatus.NOT_FOUND,
+            )
+            return
+        try:
+            selected = bridge.choose_media_file()
+        except ValueError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - native UI boundary
+            raise ValueError("The selected image could not be read.") from exc
+        if selected is None:
+            self._json({"cancelled": True})
+            return
+        if not isinstance(selected, Mapping) or set(selected) != {"name", "payload"}:
+            raise ValueError("The selected media payload is invalid.")
+        detail, created = self._bank_media_payload(
+            name=selected["name"],
+            payload=selected["payload"],
+        )
+        self._json(
+            {
+                "cancelled": False,
+                "item": detail,
+                "deduplicated": not created,
+            },
+            HTTPStatus.CREATED if created else HTTPStatus.OK,
+        )
 
     def _native_reveal_library(self, body: dict[str, Any]) -> None:
         if set(body) != {"path"} or not isinstance(body["path"], str):

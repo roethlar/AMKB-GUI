@@ -102,6 +102,40 @@ class MediaFramingFixtureTests(unittest.TestCase):
         self.assertIn('currentPreviewSessionId !== expiredPreviewSessionId', script)
         self.assertNotIn('.media-source-overlay', script)
 
+    def test_native_script_uses_picker_rejects_bad_media_and_holds_late_source(self) -> None:
+        script = media_framing_audit._audit_script()
+
+        for check in (
+            "native_picker_import",
+            "unsupported_rejection",
+            "render_coalescing",
+            "late_source_hold",
+        ):
+            self.assertIn(check, media_framing_audit.REQUIRED_CASE_CHECKS)
+        self.assertIn('document.querySelector("#import-media").click()', script)
+        self.assertNotIn("new DataTransfer()", script)
+        self.assertIn('media-import-status', script)
+        self.assertIn('liveRenderCount === 1', script)
+        self.assertIn('late_source_advanced_early', script)
+        self.assertIn('releaseLateSource()', script)
+        self.assertIn('drag_stage_replaced_during_live_render', script)
+
+        bridge = media_framing_audit._AuditMediaBridge((
+            {"name": "bad.gif", "payload": b"not-media"},
+            media_framing_audit.build_media_fixtures()[0],
+        ))
+        self.assertEqual(
+            {"name": "bad.gif", "payload": b"not-media"},
+            bridge.choose_media_file(),
+        )
+        selected = bridge.choose_media_file()
+        self.assertEqual("audit.gif", selected["name"])
+        self.assertEqual(
+            media_framing_audit.build_media_fixtures()[0].payload,
+            selected["payload"],
+        )
+        self.assertIsNone(bridge.choose_media_file())
+
 
 class MediaFramingReportTests(unittest.TestCase):
     @staticmethod

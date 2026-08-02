@@ -59,22 +59,26 @@ test("a banked media draft stays immutable across render epochs", () => {
   const rendering = reduceMediaDraft(initial, {
     type: "RENDER_REQUESTED",
     epoch: 4,
+    revision: 0,
   });
   const stale = reduceMediaDraft(rendering, {
     type: "RENDER_SUCCEEDED",
     epoch: 3,
+    revision: 0,
     mappedResult: {tracks: {}},
   });
   assert.strictEqual(stale, rendering);
   const ready = reduceMediaDraft(rendering, {
     type: "RENDER_SUCCEEDED",
     epoch: 4,
+    revision: 0,
     transform: transform({offset_x: 0.25}),
     effects: [],
     resolvedTransforms: [],
     mappedResult: {tracks: {axial: {frame_count: 1, frames: [["#000000"]]}}},
   });
   assert.equal(ready.status, "ready");
+  assert.equal(ready.acceptedRevision, 0);
   assert.equal(mediaDraftCanApply(ready), true);
   assert.deepEqual(ready.transform, transform({offset_x: 0.25}));
   assert.deepEqual(ready.resolvedTransforms, []);
@@ -129,10 +133,11 @@ test("transform and effect changes invalidate an accepted preview", () => {
     },
     transform: transform(),
   });
-  draft = reduceMediaDraft(draft, {type: "RENDER_REQUESTED", epoch: 1});
+  draft = reduceMediaDraft(draft, {type: "RENDER_REQUESTED", epoch: 1, revision: 0});
   draft = reduceMediaDraft(draft, {
     type: "RENDER_SUCCEEDED",
     epoch: 1,
+    revision: 0,
     transform: transform(),
     effects: [],
     resolvedTransforms: [],
@@ -144,6 +149,8 @@ test("transform and effect changes invalidate an accepted preview", () => {
     transform: transform({offset_x: 0.25}),
   });
   assert.equal(transformed.status, "draft");
+  assert.equal(transformed.revision, 1);
+  assert.equal(transformed.acceptedRevision, null);
   assert.equal(transformed.mappedResult, null);
   const effected = reduceMediaDraft(transformed, {
     type: "EFFECTS_CHANGED",
@@ -193,10 +200,11 @@ test("a render result atomically adopts canonical Move & zoom state", () => {
     transform(),
     transform({offset_x: 0.5, scale_x: 2, scale_y: 2}),
   ];
-  draft = reduceMediaDraft(draft, {type: "RENDER_REQUESTED", epoch: 7});
+  draft = reduceMediaDraft(draft, {type: "RENDER_REQUESTED", epoch: 7, revision: 0});
   draft = reduceMediaDraft(draft, {
     type: "RENDER_SUCCEEDED",
     epoch: 7,
+    revision: 0,
     transform: transform(),
     effects: [effect],
     resolvedTransforms,
@@ -206,6 +214,94 @@ test("a render result atomically adopts canonical Move & zoom state", () => {
   assert.deepEqual(draft.effects, [effect]);
   assert.deepEqual(draft.resolvedTransforms, resolvedTransforms);
   assert.equal(Object.isFrozen(draft.resolvedTransforms), true);
+});
+
+test("only the exact current media revision can become Apply-ready", () => {
+  let draft = createMediaDraft({
+    catalogId: "item:11111111-1111-4111-8111-111111111111",
+    source: {
+      asset_id: "22222222-2222-4222-8222-222222222222",
+      mime_type: "image/png",
+      width: 40,
+      height: 5,
+      frame_count: 1,
+      duration_ms: 0,
+    },
+    destination: {
+      productId: "CB04",
+      target: "frames",
+      targets: ["frames"],
+      width: 40,
+      height: 5,
+    },
+    transform: transform(),
+  });
+  assert.equal(draft.revision, 0);
+  assert.equal(draft.acceptedRevision, null);
+
+  draft = reduceMediaDraft(draft, {
+    type: "RENDER_REQUESTED",
+    epoch: 10,
+    revision: 0,
+  });
+  draft = reduceMediaDraft(draft, {
+    type: "TRANSFORM_CHANGED",
+    transform: transform({offset_x: 0.25}),
+  });
+  assert.equal(draft.revision, 1);
+  const stale = reduceMediaDraft(draft, {
+    type: "RENDER_SUCCEEDED",
+    epoch: 10,
+    revision: 0,
+    transform: transform(),
+    effects: [],
+    resolvedTransforms: [],
+    mappedResult: {tracks: {frames: {frame_count: 1, frames: [["#000000"]]}}},
+  });
+  assert.strictEqual(stale, draft);
+  assert.equal(mediaDraftCanApply(stale), false);
+
+  draft = reduceMediaDraft(draft, {
+    type: "RENDER_REQUESTED",
+    epoch: 11,
+    revision: 1,
+  });
+  const wrongRevision = reduceMediaDraft(draft, {
+    type: "RENDER_SUCCEEDED",
+    epoch: 11,
+    revision: 0,
+    transform: transform(),
+    effects: [],
+    resolvedTransforms: [],
+    mappedResult: {tracks: {frames: {frame_count: 1, frames: [["#000000"]]}}},
+  });
+  assert.strictEqual(wrongRevision, draft);
+
+  const discarded = reduceMediaDraft(draft, {
+    type: "RENDER_DISCARDED",
+    epoch: 11,
+    revision: 1,
+  });
+  assert.equal(discarded.status, "draft");
+  assert.equal(mediaDraftCanApply(discarded), false);
+
+  draft = reduceMediaDraft(discarded, {
+    type: "RENDER_REQUESTED",
+    epoch: 12,
+    revision: 1,
+  });
+
+  const ready = reduceMediaDraft(draft, {
+    type: "RENDER_SUCCEEDED",
+    epoch: 12,
+    revision: 1,
+    transform: transform({offset_x: 0.25}),
+    effects: [],
+    resolvedTransforms: [],
+    mappedResult: {tracks: {frames: {frame_count: 1, frames: [["#000000"]]}}},
+  });
+  assert.equal(ready.acceptedRevision, 1);
+  assert.equal(mediaDraftCanApply(ready), true);
 });
 
 test("render epochs are process-safe and strictly increase across reopened drafts", () => {

@@ -83,15 +83,19 @@ test("media and source-projection transitions are bound to the reducer session",
   const importStart=js.indexOf("async function importMedia");
   const importEnd=js.indexOf("\nasync function ",importStart+10);
   const importMedia=js.slice(importStart,importEnd);
-  assert.match(importMedia,/type:\s*"MEDIA_OPENED"/);
+  assert.match(importMedia,/adoptImportedMedia\(/);
+  const adoptStart=js.indexOf("async function adoptImportedMedia");
+  const adoptEnd=js.indexOf("\nasync function ",adoptStart+10);
+  const adopt=js.slice(adoptStart,adoptEnd);
+  assert.match(adopt,/type:\s*"MEDIA_OPENED"/);
 
   const cancelStart=js.indexOf("function cancelMediaComposition");
   const cancelEnd=js.indexOf("\nfunction ",cancelStart+10);
   const cancel=js.slice(cancelStart,cancelEnd);
   assert.match(cancel,/type:\s*"MEDIA_CANCELLED"/);
 
-  const loadStart=js.indexOf("async function loadLightingSourceProjection");
-  const loadEnd=js.indexOf("\nfunction ",loadStart+10);
+  const loadStart=js.indexOf("function loadSourceProjection");
+  const loadEnd=js.indexOf("\nfunction loadLightingSourceProjection",loadStart+10);
   const load=js.slice(loadStart,loadEnd);
   assert.match(load,/captureWorkspaceAsyncContext\(lightingWorkspace\)/);
   assert.match(js,/workspaceAsyncContextMatches\(lightingWorkspace,load\)/);
@@ -115,10 +119,10 @@ test("expired preview sessions invalidate their exact id and retry one render", 
   const renderAttempt=js.slice(renderStart,renderEnd);
   assert.match(renderAttempt,/allowSessionRecovery&&mediaPreviewSessionUnavailable\(error\)/);
   assert.match(renderAttempt,/invalidateMediaPreviewSession\(/);
-  assert.match(renderAttempt,/return renderMediaCompositionPreviewAttempt\(false\)/);
+  assert.match(renderAttempt,/return renderMediaCompositionPreviewAttempt\(request,false\)/);
 
-  const sourceStart=js.indexOf("async function loadLightingSourceProjection");
-  const sourceEnd=js.indexOf("\nfunction ",sourceStart+10);
+  const sourceStart=js.indexOf("function loadSourceProjection");
+  const sourceEnd=js.indexOf("\nfunction loadLightingSourceProjection",sourceStart+10);
   const sourceLoad=js.slice(sourceStart,sourceEnd);
   assert.match(sourceLoad,/mediaPreviewSessionUnavailable\(error\)/);
   assert.match(sourceLoad,/invalidateMediaPreviewSession\(/);
@@ -232,16 +236,20 @@ test("one horizontal timeline owns playback, position, editing, and status", () 
 });
 
 test("media import banks before composition and applies only an accepted preview", () => {
-  // WKWebView owns HTML file inputs and can leave valid GIF/PNG/BMP files
-  // disabled when an accept filter is present. The bounded import endpoint
-  // remains the authority for supported media after selection.
   const mediaInput=js.match(/<input id="media-input"[^>]*>/)?.[0]||"";
   assert.match(mediaInput,/type="file"/);
   assert.match(mediaInput,/\shidden(?:\s|>)/);
-  assert.doesNotMatch(mediaInput,/\saccept=/);
+  assert.match(mediaInput,/accept="\.gif,\.png,\.bmp,image\/gif,image\/png,image\/bmp"/);
+  assert.match(js,/async function chooseMedia\(\)/);
+  assert.match(js,/api\("\/api\/native\/choose-media"/);
+  assert.match(js,/error\.status===404/);
+  assert.match(js,/\$\("#media-input"\)\.click\(\)/);
+  assert.match(js,/id="media-import-status"[^>]*aria-live="polite"/);
   assert.match(js,/async function importMedia\(input\)/);
   assert.match(js,/\/api\/library\/import\/media\?name=/);
   assert.match(js,/function renderMediaCompositionPreview\(\)/);
+  assert.match(js,/createLatestTaskScheduler\(/);
+  assert.match(js,/scheduleMediaCompositionPreview\(/);
   assert.match(js,/\/render`,\{method:"POST"/);
   assert.match(js,/function applyMediaCompositionDraft\(\)/);
   const applyStart=js.indexOf("function applyMediaCompositionDraft");
@@ -256,6 +264,22 @@ test("media import banks before composition and applies only an accepted preview
   assert.match(renderPreview,/await ensureMediaPreviewSession\(draft\)/);
   assert.match(renderPreview,/preview_session_id:previewSessionId/);
   assert.match(renderPreview,/timeline:result\.preview_timeline/);
+  assert.match(renderPreview,/type:"RENDER_DISCARDED"/);
+  assert.ok(
+    renderPreview.indexOf("mediaLoadMatchesWorkspace(requestAsyncContext)")
+      < renderPreview.indexOf("/render`"),
+    "a stale session acquisition must stop before a full media render",
+  );
+  assert.match(
+    renderPreview,
+    /if\(renderAccepted&&requiresWorkspaceRebuild\)renderLightingEdit\(\)/,
+    "only the first media frame set may rebuild the workspace",
+  );
+  assert.equal(
+    (renderPreview.match(/renderLightingEdit\(\)/g)||[]).length,
+    1,
+    "live media revisions must preserve the active transform surface",
+  );
   assert.ok(
     renderPreview.indexOf("await ensureMediaPreviewSession(draft)")
       <renderPreview.indexOf("/render`"),
@@ -282,7 +306,14 @@ test("media import banks before composition and applies only an accepted preview
   const transformView=js.slice(transformViewStart,transformViewEnd);
   assert.match(transformView,/mediaCompositionStatusText/);
   assert.match(transformView,/media-compose-apply/);
-  assert.match(transformView,/mediaDraftCanApply/);
+  assert.match(transformView,/mediaCompositionCanApply/);
+  assert.match(js,/type:"TRANSFORM_REQUESTED"/);
+  assert.match(js,/intent\.type === "prepare-source-frame"/);
+  const importErrorStart=js.indexOf("function reportMediaImportError");
+  const importErrorEnd=js.indexOf("\nfunction ",importErrorStart+10);
+  const importError=js.slice(importErrorStart,importErrorEnd);
+  assert.match(importError,/setMediaImportStatus/);
+  assert.doesNotMatch(importError,/toast\(/);
   assert.match(js,/id="save-lighting-library"/);
   assert.match(js,/\/api\/library\/save\/lighting/);
   assert.match(js,/lightingProvenanceForPage\(/);
