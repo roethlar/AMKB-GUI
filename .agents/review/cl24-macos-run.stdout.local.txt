@@ -1,9 +1,0 @@
-archive_sha256=3fcd1524d00e50961c04033041e066269cd4e1a059b76c3cc537e1a0c87570a6
-source_head=e738bb64d45ad6b367f9a5002223f79c1b1ebf3e
-Python 3.13.14
-audit_rc=1
-schema_version=2
-status=failed
-failure=focus_not_visible
-viewports=0
-bytes=101

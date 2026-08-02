@@ -16,5 +16,6 @@ dist/
 .tokensave/**
 /.serena/
 
-# Machine-local reviewer transport cache.
-/.agents/review/*.local.json
+# Machine-local review evidence: reviewer transport cache, gate logs, and
+# audit reports. Named machine-local by convention; never tracked.
+/.agents/review/*.local.*
