@@ -148,8 +148,9 @@ test("panel control rows wrap instead of blowing out of fixed columns", () => {
   assert.match(css, /\.button-row > \* \{ min-width: 0; \}/);
   assert.match(css, /\.gif-import-row \{ display: grid; grid-template-columns: repeat\(auto-fit, minmax\(130px, 1fr\)\);/);
   assert.match(css, /\.gif-import-row > \* \{ min-width: 0; \}/);
-  assert.match(css, /\.media-composition-actions \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+  assert.match(css, /\.media-composition-actions \{ display: grid; grid-template-columns: minmax\(0, 1fr\) auto;/);
   assert.match(css, /\.media-composition-actions > \* \{ min-width: 0; \}/);
+  assert.match(css, /\.media-composition-actions #media-compose-apply \{ white-space: normal; \}/);
   assert.match(css, /\.animation-draft-actions \{ display: grid; grid-template-columns: repeat\(auto-fit, minmax\(110px, 1fr\)\);/);
   assert.match(css, /\.animation-draft-actions > \* \{ min-width: 0; \}/);
   assert.match(css, /\.search-field, \.text-field, \.select-field \{ width: 100%; min-width: 0; max-width: 100%;/);

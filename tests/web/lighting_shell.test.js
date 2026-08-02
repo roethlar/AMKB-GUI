@@ -437,6 +437,7 @@ test("media import banks before composition and applies only an accepted preview
   assert.match(js.slice(frameSetStart,frameSetEnd),/timeline:\s*lightingWorkspace\.media\?\.preview_timeline\?\?null/);
   assert.match(js,/function activeMediaPreviewTrack\(\)/);
   assert.match(js,/function cancelMediaComposition\(\)/);
+  assert.doesNotMatch(js,/id="media-compose-preview"/);
   assert.match(js,/id="media-compose-apply"/);
   assert.match(js,/id="media-compose-cancel"/);
   assert.match(js,/id="source-height"/);

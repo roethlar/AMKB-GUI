@@ -40,6 +40,7 @@ REQUIRED_CASE_CHECKS = [
     "selected_frame_tier",
     "render_coalescing",
     "queued_render_ownership",
+    "studio_navigation_persistence",
     "overlay_geometry",
     "synchronized_workspace",
     "shared_timeline",
@@ -1598,9 +1599,12 @@ _AUDIT_SCRIPT = r"""
         body: "{}",
       });
     }
-    const previewButton = document.querySelector("#media-compose-preview");
-    requireAudit(previewButton && !previewButton.disabled, "preview_session_recovery_button_missing");
-    previewButton.click();
+    const recoveryZoom = document.querySelector("#source-zoom");
+    requireAudit(recoveryZoom && !recoveryZoom.disabled, "preview_session_recovery_control_missing");
+    const recoveryZoomValue = Number(recoveryZoom.value);
+    const recoveryZoomDirection = recoveryZoomValue < Number(recoveryZoom.max) ? 1 : -1;
+    recoveryZoom.value = String(recoveryZoomValue + recoveryZoomDirection);
+    recoveryZoom.dispatchEvent(new Event("input", {bubbles: true}));
     await waitFor(() => {
       const currentPreviewSessionId = lightingWorkspace.media?.preview_session_id;
       const projection = selectSourceProjection(lightingWorkspace);
@@ -1796,13 +1800,11 @@ _AUDIT_SCRIPT = r"""
     countLiveRenders = false;
     requireAudit(liveRenderCount === 1, "render_coalescing_overlap");
 
-    window.__mediaFramingAuditStep = "preview";
-    document.querySelector("#media-compose-preview").click();
-    await waitFor(
-      () => state.mediaComposition?.status === "ready"
+    window.__mediaFramingAuditStep = "automatic_preview";
+    requireAudit(
+      !document.querySelector("#media-compose-preview")
         && !document.querySelector("#media-compose-apply")?.disabled,
-      "preview_timeout",
-      30000,
+      "automatic_preview_action_mismatch",
     );
     requireAudit(
       sameJson(browserTransform, state.mediaComposition.transform),
@@ -1957,15 +1959,51 @@ _AUDIT_SCRIPT = r"""
     queuedRenderArmed = false;
     document.querySelector("#studio-source-tab").click();
     await waitFor(
-      () => state.studioTool === "source" && document.querySelector("#media-compose-preview"),
-      "queued_render_source_timeout",
-    );
-    document.querySelector("#media-compose-preview").click();
-    await waitFor(
-      () => state.mediaComposition?.status === "ready"
+      () => state.studioTool === "source"
+        && document.querySelector("#media-compose-apply")
         && mediaCompositionCanApply(state.mediaComposition),
-      "queued_render_preview_restore_timeout",
+      "queued_render_source_timeout",
       30000,
+    );
+
+    window.__mediaFramingAuditStep = "media_navigation_before_apply";
+    const navigationDraft = JSON.stringify({
+      catalogId: state.mediaComposition.catalogId,
+      revision: state.mediaComposition.revision,
+      transform: state.mediaComposition.transform,
+      effects: state.mediaComposition.effects,
+      mappedResult: state.mediaComposition.mappedResult,
+    });
+    const navigationPage = pageFingerprint();
+    const navigationUndo = state.undo.length;
+    document.querySelector("#lighting-library-tab").click();
+    await waitFor(
+      () => state.lighting.route === ROUTES.LIBRARY,
+      "media_navigation_library_timeout",
+    );
+    document.querySelector("#lighting-edit-tab").click();
+    await waitFor(
+      () => state.lighting.route === ROUTES.EDIT
+        && state.studioTool === "source"
+        && mediaCompositionCanApply(state.mediaComposition)
+        && document.querySelector("#lighting-source-pane")
+        && document.querySelector("#lighting-board-pane"),
+      "media_navigation_studio_timeout",
+      30000,
+    );
+    requireAudit(
+      navigationDraft === JSON.stringify({
+        catalogId: state.mediaComposition.catalogId,
+        revision: state.mediaComposition.revision,
+        transform: state.mediaComposition.transform,
+        effects: state.mediaComposition.effects,
+        mappedResult: state.mediaComposition.mappedResult,
+      }),
+      "media_navigation_draft_changed",
+    );
+    requireAudit(
+      pageFingerprint() === navigationPage && state.undo.length === navigationUndo,
+      "media_navigation_mutated_document",
     );
 
     window.__mediaFramingAuditStep = "apply_and_save";
@@ -1998,6 +2036,41 @@ _AUDIT_SCRIPT = r"""
       "media_apply_repeated",
     );
     applyLedResultToPage = originalApply;
+
+    window.__mediaFramingAuditStep = "media_navigation_after_apply";
+    const appliedDraft = JSON.stringify({
+      catalogId: state.mediaComposition.catalogId,
+      revision: state.mediaComposition.revision,
+      transform: state.mediaComposition.transform,
+      effects: state.mediaComposition.effects,
+      mappedResult: state.mediaComposition.mappedResult,
+    });
+    document.querySelector("#lighting-library-tab").click();
+    await waitFor(
+      () => state.lighting.route === ROUTES.LIBRARY,
+      "media_navigation_applied_library_timeout",
+    );
+    document.querySelector("#lighting-edit-tab").click();
+    await waitFor(
+      () => state.lighting.route === ROUTES.EDIT
+        && state.studioTool === "source"
+        && mediaCompositionResultMatchesDocument(state.mediaComposition)
+        && document.querySelector("#media-compose-apply")?.disabled,
+      "media_navigation_applied_studio_timeout",
+      30000,
+    );
+    requireAudit(pageFingerprint() === appliedPage, "media_navigation_applied_page_changed");
+    requireAudit(state.undo.length === baselineUndo + 1, "media_navigation_applied_undo_changed");
+    requireAudit(
+      appliedDraft === JSON.stringify({
+        catalogId: state.mediaComposition.catalogId,
+        revision: state.mediaComposition.revision,
+        transform: state.mediaComposition.transform,
+        effects: state.mediaComposition.effects,
+        mappedResult: state.mediaComposition.mappedResult,
+      }),
+      "media_navigation_applied_draft_changed",
+    );
 
     document.querySelector("#save-lighting-library").click();
     const savedLighting = await waitFor(async () => {

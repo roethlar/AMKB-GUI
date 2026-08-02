@@ -291,7 +291,7 @@ function renderLightingBoardProjection() {
     const mediaSequenceReady = !(
       lightingWorkspace.tool === "source"
       && lightingWorkspace.media
-    ) || mediaCompositionCanApply();
+    ) || mediaCompositionCanPresent();
     play.disabled = frameCount <= 1 || !mediaSequenceReady;
     play.setAttribute("aria-label", state.playing ? "Pause lighting" : "Play lighting");
     play.textContent = state.playing ? "Pause" : "Play";
@@ -348,6 +348,14 @@ function dispatchLightingWorkspace(event, options = {}) {
   ){
     mediaCompositionFrameScheduler.cancel();
     mediaCompositionRenderScheduler.cancel();
+    const draft=state.mediaComposition;
+    if(draft?.status==="rendering"){
+      state.mediaComposition=reduceMediaDraft(draft,{
+        type:"RENDER_DISCARDED",
+        epoch:draft.epoch,
+        revision:draft.revision,
+      });
+    }
   }
   executeLightingWorkspaceIntents(decision.intents, options);
   return decision;
@@ -2204,7 +2212,6 @@ function openLibrarySource(catalogId) {
     media:lightingMediaIdentity(state.mediaComposition),
   });
   navigateTo(ROUTES.EDIT);
-  void renderMediaCompositionPreview();
 }
 
 async function previewLibraryLighting(catalogId) {
@@ -2459,7 +2466,10 @@ function renderLightingShell() {
   if (route === ROUTES.EDIT) {
     if (!available.available) {
       showLightingEditMessage(documentRequirementMarkup("Edit works directly on the custom lighting slots in an open document."));
-    } else renderLightingEdit();
+    } else {
+      renderLightingEdit();
+      resumeUnfinishedMediaComposition();
+    }
   }
   if (route === ROUTES.LIBRARY) renderLibrary();
 }
@@ -2876,10 +2886,22 @@ function availableStudioTools() {
   return ["paint","source","animate",...(aiReady()?["generate"]:[])];
 }
 
+function resumeUnfinishedMediaComposition() {
+  const draft=state.mediaComposition;
+  if(
+    state.lighting.route!==ROUTES.EDIT
+    ||state.studioTool!=="source"
+    ||draft?.status!=="draft"
+  )return false;
+  void renderMediaCompositionPreview();
+  return true;
+}
+
 function setStudioTool(tool,{focus=true}={}) {
   if(!availableStudioTools().includes(tool))return;
   state.studioTool=tool;
   renderLightingEdit();
+  resumeUnfinishedMediaComposition();
   if(focus)requestAnimationFrame(()=>$(`[data-studio-tool="${tool}"]`)?.focus({preventScroll:true}));
 }
 
@@ -3018,18 +3040,67 @@ function updateMediaCompositionTransform(transform) {
 }
 
 function activeMediaPreviewTrack() {
-  if(state.studioTool!=="source"||!mediaCompositionCanApply())return null;
+  if(!mediaCompositionCanPresent())return null;
   const track=state.mediaComposition.mappedResult?.tracks?.[state.ledTarget];
   return track&&Array.isArray(track.frames)&&track.frames.length
     ?track
     :null;
 }
 
+function mediaCompositionHasAcceptedResult(draft=state.mediaComposition) {
+  return Boolean(
+    draft
+    &&["ready","applied"].includes(draft.status)
+    &&draft.acceptedRevision===draft.revision
+    &&draft.mappedResult?.tracks
+    &&Object.keys(draft.mappedResult.tracks).length
+  );
+}
+
+function mediaCompositionResultMatchesDocument(draft=state.mediaComposition) {
+  if(!state.config||!mediaCompositionHasAcceptedResult(draft))return false;
+  try{
+    const provenance=lightingProvenanceForPage(state.appliedLightingProvenance,{
+      slot:state.ledSlot,
+      target:draft.destination.target,
+      page:getPage(state.ledSlot),
+    });
+    return Boolean(
+      provenance
+      &&provenance.source_catalog_id===draft.catalogId
+      &&JSON.stringify(provenance.transform)===JSON.stringify(draft.transform)
+      &&JSON.stringify(provenance.effects)===JSON.stringify(draft.effects)
+    );
+  }catch(_error){
+    return false;
+  }
+}
+
+function mediaCompositionCanPresent(draft=state.mediaComposition) {
+  const media=lightingWorkspace.media;
+  return Boolean(
+    state.studioTool==="source"
+    &&lightingWorkspace.route===ROUTES.EDIT
+    &&lightingWorkspace.tool==="source"
+    &&mediaCompositionHasAcceptedResult(draft)
+    &&draft.destination.productId===productId()
+    &&draft.destination.target===state.ledTarget
+    &&lightingWorkspace.context.slot===state.ledSlot
+    &&lightingWorkspace.context.target===state.ledTarget
+    &&media?.catalog_id===draft.catalogId
+    &&media?.asset_id===draft.source.asset_id
+    &&media?.requested_revision===draft.revision
+    &&media?.accepted_revision===draft.revision
+    &&Array.isArray(media.preview_timeline)
+  );
+}
+
 function mediaCompositionCanApply(draft=state.mediaComposition) {
   const frameSet=lightingWorkspace.preview.board_frame_set;
   const media=lightingWorkspace.media;
   if(
-    !mediaDraftCanApply(draft)
+    !mediaCompositionCanPresent(draft)
+    ||mediaCompositionResultMatchesDocument(draft)
     ||!frameSet
     ||frameSet.provenance!=="media_render"
     ||lightingWorkspace.preview.context_key!==workspaceContextKey(lightingWorkspace)
@@ -3054,6 +3125,13 @@ function mediaCompositionCanApply(draft=state.mediaComposition) {
         )
       );
   });
+}
+
+function mediaCompositionApplyLabel(draft=state.mediaComposition) {
+  const slot=Math.max(1,Number(state.ledSlot)-4);
+  if(mediaCompositionResultMatchesDocument(draft))return `Applied to slot ${slot}`;
+  if(mediaCompositionCanApply(draft))return `Apply to slot ${slot}`;
+  return draft?"Preparing…":"Apply";
 }
 
 function dependentLightingFramesByTarget({
@@ -3366,19 +3444,19 @@ async function prepareLightingSourceFrame(intent) {
 }
 
 function mediaCompositionStatusText(draft) {
-  return draft?.status==="rendering"
-    ?"Building the lighting preview…"
-    :draft?.status==="ready"
-      ?"Preview ready. Apply to lighting slot changes only this open document."
-      :draft?.status==="failed"
-        ?draft.error
-        :draft?.status==="applied"
-          ?`${lightingAppliedDetail()} The imported media stays in Library if you want to reframe it.`
-          :draft&&lightingWorkspace.media?.accepted_frame_revision===draft.revision
-            ?"Lights updated. Finishing the full animation…"
-          :draft
-            ?"Adjust the framing, then create a preview."
-            :"Import media to save it to Library and start framing.";
+  if(!draft)return "Import media to save it to Library and start framing.";
+  if(draft.status==="rendering")return "Updating Board…";
+  if(draft.status==="failed")return draft.error;
+  if(mediaCompositionResultMatchesDocument(draft)){
+    return `Applied to ${lightingSlotLabel()} in this open profile.`;
+  }
+  if(mediaCompositionCanApply(draft)){
+    return `Board ready for ${lightingSlotLabel()}.`;
+  }
+  if(lightingWorkspace.media?.accepted_frame_revision===draft.revision){
+    return "Board updated. Finishing animation…";
+  }
+  return "Framing updates Source and Board.";
 }
 
 function updateLightingWorkspaceStatus(projection, mediaStatus="") {
@@ -3447,10 +3525,11 @@ function updateSourceTransformView() {
   if(heightValue)heightValue.textContent=`${Math.round(transform.scale_y*100)}%`;
   const stretch=$("#source-stretch");
   if(stretch)stretch.checked=!transform.aspect_locked;
-  const preview=$("#media-compose-preview");
-  if(preview)preview.disabled=!draft||draft.status==="rendering";
   const apply=$("#media-compose-apply");
-  if(apply)apply.disabled=!mediaCompositionCanApply(draft);
+  if(apply){
+    apply.disabled=!mediaCompositionCanApply(draft);
+    apply.textContent=mediaCompositionApplyLabel(draft);
+  }
   const cancel=$("#media-compose-cancel");
   if(cancel)cancel.disabled=!draft;
 }
@@ -3922,7 +4001,7 @@ async function renderMediaCompositionPreviewAttempt(request,allowSessionRecovery
 function applyMediaCompositionDraft() {
   const draft=state.mediaComposition;
   if(!mediaCompositionCanApply(draft)){
-    return toast("Preview required","Nothing was changed. Create a preview of this framing before applying it.","error");
+    return toast("Lighting is still preparing","Nothing was changed. Wait for the Board to finish updating, then try Apply again.","error");
   }
   let frameSet;
   try{
@@ -3932,7 +4011,7 @@ function applyMediaCompositionDraft() {
       target:draft.destination.target,
     });
   }catch(error){
-    return toast("Preview required",`${error.message} Nothing was changed.`,"error");
+    return toast("Couldn’t apply lighting",`${error.message} Nothing was changed.`,"error");
   }
   mutate(()=>{
     const page=getPage(state.ledSlot);
@@ -4409,7 +4488,6 @@ function wireStudioInspector() {
   $("#animate-seed")?.addEventListener("change",event=>{state.localAnimationSeed=Number(event.target.value);regenerateLocalAnimationDraft({renderWorkspace:false});});
   $("#animate-accept")?.addEventListener("click",applyLocalAnimationDraft);
   $("#animate-cancel")?.addEventListener("click",()=>cancelLocalAnimationDraft());
-  $("#media-compose-preview")?.addEventListener("click",renderMediaCompositionPreview);
   $("#media-compose-apply")?.addEventListener("click",applyMediaCompositionDraft);
   $("#media-compose-cancel")?.addEventListener("click",cancelMediaComposition);
 
@@ -5017,6 +5095,9 @@ function renderLightingEdit() {
   const targetLabel=targets.find(t=>t.key===state.ledTarget)?.label||state.ledTarget;
   const mediaDraft=state.mediaComposition?.status==="cancelled"?null:state.mediaComposition;
   const sourceActive=state.studioTool==="source"&&Boolean(mediaDraft);
+  const mediaResultApplied=mediaCompositionResultMatchesDocument(mediaDraft);
+  const mediaApplyReady=mediaCompositionCanApply(mediaDraft);
+  const mediaApplyLabel=mediaCompositionApplyLabel(mediaDraft);
   const libraryPreviewActive=Boolean(transientPreview?.kind?.startsWith("library_"));
   const mutationPreviewActive=Boolean(
     previewTimelineActive
@@ -5043,7 +5124,7 @@ function renderLightingEdit() {
       </div>`;
   const sourceBody=`<div id="studio-source-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-source-tab" ${state.studioTool==="source"?"":"hidden"}>
         <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Imported media</h3><input id="media-input" type="file" accept=".gif,.png,.bmp,image/gif,image/png,image/bmp" hidden><div class="gif-import-row"><button id="import-media" class="button ghost" ${state.mediaImporting?"disabled":""}>${state.mediaImporting?"Opening…":gifButtonLabel}</button></div>${relicGifOption}<small class="control-help">${gifHelp}</small><small id="media-import-status" class="control-help media-import-status ${state.mediaImportError?"failed":""}" aria-live="polite">${esc(state.mediaImportStatus)}</small></div>
-        <div class="media-composition-actions"><button id="media-compose-preview" class="button ghost" ${sourceReady&&mediaDraft?.status!=="rendering"?"":"disabled"}>Preview</button><button id="media-compose-apply" class="button primary" ${mediaCompositionCanApply(mediaDraft)?"":"disabled"}>Apply to lighting slot</button><button id="media-compose-cancel" class="button ghost" ${mediaDraft?"":"disabled"}>Cancel</button></div>
+        <div class="media-composition-actions"><button id="media-compose-apply" class="button primary" ${mediaApplyReady?"":"disabled"}>${mediaApplyLabel}</button><button id="media-compose-cancel" class="button ghost" ${mediaDraft?"":"disabled"}>Cancel</button></div>
         <div class="control-group source-transform-controls" aria-disabled="${String(!sourceReady)}"><span class="control-label">Framing</span><div class="source-preset-grid"><button class="button ghost" data-source-preset="fit" ${sourceDisabled}>Fit</button><button class="button ghost" data-source-preset="fill" ${sourceDisabled}>Fill</button><button class="button ghost" data-source-preset="center" ${sourceDisabled}>Center</button><button class="button ghost" data-source-preset="reset" ${sourceDisabled}>Reset</button></div><label id="source-zoom-label" class="control-label secondary-label" for="source-zoom">${state.sourceTransform.aspect_locked?"Zoom":"Width"}</label><div class="range-row"><input id="source-zoom" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_x*100)}" ${sourceDisabled}><span id="source-zoom-value" class="range-value">${Math.round(state.sourceTransform.scale_x*100)}%</span></div><small class="control-help">${sourceReady?"Drag on the canvas to pan; use the wheel or sliders to resize.":"Import media to save it to Library and open the framing controls."}</small></div>
         <details id="media-advanced" class="advanced-disclosure" ${state.mediaAdvancedOpen?"open":""}><summary>Advanced</summary>
           <div class="control-group"><label class="control-label" for="gif-resample">Sampling method</label><select id="gif-resample" class="select-field" aria-label="Media sampling method"><option value="nearest" ${state.gifResample==='nearest'?'selected':''}>Crisp</option><option value="box" ${state.gifResample==='box'?'selected':''}>Balanced</option><option value="lanczos" ${state.gifResample==='lanczos'?'selected':''}>Smooth</option></select><small class="control-help">How the imported picture is resampled down to the lights on this keyboard.</small></div>
@@ -5067,9 +5148,9 @@ function renderLightingEdit() {
   ].filter(Boolean).join(" · ")||"Editing this slot";
   const generationPanel=aiReady()?`<section id="studio-generate-panel" class="studio-tool-panel lighting-generate-tool" role="tabpanel" aria-labelledby="studio-generate-tab" ${state.studioTool==="generate"?"":"hidden"}><div id="lighting-generate-tool" tabindex="-1"><div class="studio-panel-heading"><strong id="lighting-generate-title">Generate lighting with AI</strong><small>Lighting effect · ${esc(targetLabel)}</small></div><div id="lighting-generate-content" aria-live="polite"></div></div></section>`:"";
   const timelineIndex=boardProjection?.index??0;
-  const mediaPlaybackReady=!sourceActive||mediaCompositionCanApply(mediaDraft);
+  const mediaPlaybackReady=!sourceActive||mediaCompositionCanPresent(mediaDraft);
   const sourcePane=sourceActive?`<section id="lighting-source-pane" class="card lighting-pane lighting-source-pane" aria-label="Source"><div class="card-header lighting-pane-heading"><div><strong>Source</strong><small>Actual imported frame</small></div></div><div class="lighting-pane-body"><div id="media-compositor-stage" class="media-compositor-stage ${sourceReady?'source-ready':''}" tabindex="${sourceReady?'0':'-1'}" aria-label="Pan and zoom the imported frame" style="--destination-width:${primaryDestination?.width||1};--destination-height:${primaryDestination?.height||1}"><div class="media-compositor-plane"><div class="media-source-viewport" aria-hidden="false"><img id="lighting-source-frame" class="source-frame-image" alt="Imported source frame" hidden><div id="lighting-source-placeholder" class="source-frame-placeholder">Building the synchronized preview…</div></div><div class="destination-overlay" aria-hidden="true"></div></div></div></div></section>`:"";
-  const boardPane=`<section id="lighting-board-pane" class="card lighting-pane lighting-board-pane" aria-label="${esc(targetLabel)} Board"><div class="card-header led-canvas-heading"><div><strong>${esc(targetLabel)}</strong><small>What the keyboard will show · ${esc(canvasSubtitle)}</small><details class="advanced-disclosure technical-details"><summary>Technical details</summary><p class="control-help">${mappedCount} of ${length} stored colors are mapped to lights on this keyboard${raster?` · ${esc(raster)} grid`:""} · ${esc(model.name)}.</p></details></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost" ${mutationPreviewActive?'hidden':''} title="Keep a reusable copy of this slot in Library. Separate from Apply, which only changes the open document.">Save to Library</button></div></div><div class="lighting-pane-body"><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${mutationPreviewActive?'draft-preview':''}" data-lighting-destination-key="${esc(workspaceDestinationKey(lightingWorkspace))}" role="region" aria-label="${mutationPreviewActive?'Read-only preview of this lighting':'Paint the selected animation frame'}">${pixelCanvas}</div></div></section>`;
+  const boardPane=`<section id="lighting-board-pane" class="card lighting-pane lighting-board-pane" aria-label="${esc(targetLabel)} Board"><div class="card-header led-canvas-heading"><div><strong>${esc(targetLabel)}</strong><small>What the keyboard will show · ${esc(canvasSubtitle)}</small><details class="advanced-disclosure technical-details"><summary>Technical details</summary><p class="control-help">${mappedCount} of ${length} stored colors are mapped to lights on this keyboard${raster?` · ${esc(raster)} grid`:""} · ${esc(model.name)}.</p></details></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost" ${mutationPreviewActive&&!mediaResultApplied?'hidden':''} title="Keep a reusable copy of this slot in Library. Separate from Apply, which only changes the open document.">Save to Library</button></div></div><div class="lighting-pane-body"><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${mutationPreviewActive?'draft-preview':''}" data-lighting-destination-key="${esc(workspaceDestinationKey(lightingWorkspace))}" role="region" aria-label="${mutationPreviewActive?'Read-only preview of this lighting':'Paint the selected animation frame'}">${pixelCanvas}</div></div></section>`;
   const timelineMarkup=`<div class="lighting-timeline-toolbar"><div class="lighting-playback-controls"><button id="lighting-previous-frame" class="icon-button" type="button" aria-label="Previous frame" ${timelineFrames.length<=1?'disabled':''}>←</button><button id="play-led" class="button ghost" type="button" aria-label="${state.playing?'Pause lighting':'Play lighting'}" ${timelineFrames.length<=1||!mediaPlaybackReady?'disabled':''}>${state.playing?'Pause':'Play'}</button><button id="lighting-next-frame" class="icon-button" type="button" aria-label="Next frame" ${timelineFrames.length<=1?'disabled':''}>→</button></div><input id="lighting-timeline-scrubber" type="range" min="0" max="${Math.max(0,timelineFrames.length-1)}" value="${timelineIndex}" aria-label="Lighting frame" ${timelineFrames.length<=1?'disabled':''}><div class="lighting-timeline-position"><strong id="lighting-frame-position" aria-live="polite">${timelineFrames.length?`Frame ${timelineIndex+1} of ${timelineFrames.length}`:'No frames'}</strong><small id="lighting-loop-status">${timelineFrames.length>1?'Loops continuously':'Single frame'}</small></div></div><div class="lighting-timeline-frames" role="list" aria-label="Lighting timeline">${timelineFrames.map((item,i)=>`<button class="frame-item ${i===timelineIndex?'active':''}" type="button" role="listitem" data-frame="${i}" aria-pressed="${i===timelineIndex}" aria-label="Frame ${i+1}${i===timelineIndex?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===timelineIndex?(mutationPreviewActive?'Previewing':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="lighting-timeline-actions"><button id="add-frame" class="button ghost" ${mutationPreviewActive?'disabled':''}>+ Duplicate</button><button id="remove-frame" class="button ghost" ${timelineFrames.length<=1||mutationPreviewActive?'disabled':''}>Delete</button></div>`;
   const normalInspectorMarkup=`<div class="studio-tool-tabs ${aiReady()?'with-generate':''}" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Import media</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Effects</button>${generationTab}</div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}${generationPanel}</div>`;
   const inspectorMarkup=libraryPreviewActive

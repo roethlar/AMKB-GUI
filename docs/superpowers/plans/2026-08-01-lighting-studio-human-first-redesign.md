@@ -1236,6 +1236,30 @@ document focus; the owner must click the rebuilt DMG window once during launch.
 Exact shipped-product head `dbf1b2b` passes CI run `30768142979` and Desktop
 installers run `30768142977` on every job.
 
+Owner-acceptance repair status (2026-08-02): the commit containing this record
+preserves imported-media framing and exact mapped LED output across Studio ->
+Library -> Studio both before and after Apply, automatically resumes an
+interrupted render on return, and lets Undo make the retained accepted result
+applicable again. Source and Board now update automatically without a separate
+Preview action; Apply uses compact state-specific slot copy and no longer clips.
+The audit adds navigation-persistence checks before and after Apply plus
+interrupted-render recovery, and uses a Zoom nudge instead of Fit for its pointer
+proof. The complete local gate passes 727 Python tests with 5 skips, 188 browser
+tests, compile/syntax checks, and both package builds. Windows source and frozen
+schema-v2 audits pass both viewports, all six GIF/PNG/BMP cases, all ten profile
+checks, and all six navigation checks with no console or layout finding;
+native-tree audit, frozen smoke, and the Windows build pass. Canonical
+machine-local reports are
+`.agents/review/lsr10-media-navigation-source-5.local.json` and
+`.agents/review/lsr10-media-navigation-frozen-3.local.json`. The owner passed the
+visible Windows acceptance against executable SHA-256
+`CC130573A8E33512962ABF75821BD51C65098CF8B1AB4584A6FC35FFB0C5B042`. Two
+uncaptured launches stopped at the already-recorded packaged-startup race
+`raw_import_rejected:unknown` and were not resubmitted; the captured-process
+invocation passed against identical bytes. No external review was launched.
+LSR-10 remains open only until exact repair-head CI/Desktop workflows and the
+affected Windows, Linux, and macOS native qualification pass.
+
 Commit:
 
 ```text

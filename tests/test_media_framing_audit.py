@@ -166,12 +166,22 @@ class MediaFramingFixtureTests(unittest.TestCase):
             "render_coalescing",
             "queued_render_ownership",
             "late_source_hold",
+            "studio_navigation_persistence",
         ):
             self.assertIn(check, media_framing_audit.REQUIRED_CASE_CHECKS)
         self.assertIn('document.querySelector("#import-media").click()', script)
         self.assertNotIn("new DataTransfer()", script)
         self.assertIn('media-import-status', script)
         self.assertIn('liveRenderCount === 1', script)
+        self.assertNotIn('document.querySelector("#media-compose-preview").click()', script)
+        recovery = script[
+            script.index('window.__mediaFramingAuditStep = "preview_session_recovery"'):
+            script.index('window.__mediaFramingAuditStep = "pointer_input"')
+        ]
+        self.assertIn('document.querySelector("#source-zoom")', recovery)
+        self.assertNotIn('data-source-preset="fit"', recovery)
+        self.assertIn('media_navigation_draft_changed', script)
+        self.assertIn('media_navigation_applied_page_changed', script)
         self.assertIn('selectedFrameCalls === 2', script)
         self.assertIn('selectedFrameMaxActive === 1', script)
         self.assertIn('selected_frame_board_mismatch', script)

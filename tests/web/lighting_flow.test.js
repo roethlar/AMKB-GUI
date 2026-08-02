@@ -21,6 +21,15 @@ const {
   createReviewView,
   renderReview,
 } = require("../../am_configurator/web/lighting_review.js");
+const {
+  boardFrameSetFromDocument,
+  boardFrameSetFromMappedResult,
+  createBoardFrameSet,
+  createLightingWorkspace,
+  reduceLightingWorkspace,
+  workspaceContextKey,
+} = require("../../am_configurator/web/lighting_workspace.js");
+const {mediaDraftCanApply} = require("../../am_configurator/web/library_state.js");
 
 const root = path.resolve(__dirname, "../..");
 const read = relative => fs.readFileSync(path.join(root, relative), "utf8");
@@ -97,13 +106,29 @@ test("Studio tools read Paint, Import media, Effects, and AI over stable keys", 
   assert.match(css, /\.studio-tool-tabs > \* \{ min-width: 0; \}/);
 });
 
-test("media previews explicitly while effect cards update the Board immediately", () => {
+test("media builds its preview automatically while effect cards update the Board immediately", () => {
   const edit = jsFunction("renderLightingEdit");
   const mediaStart = edit.indexOf('<div class="media-composition-actions">');
   const media = edit.slice(mediaStart, edit.indexOf('</div>', mediaStart));
-  assert.match(media, /id="media-compose-preview"[^>]*>Preview</);
-  assert.match(media, /id="media-compose-apply"[^>]*>Apply to lighting slot</);
+  assert.doesNotMatch(media, /id="media-compose-preview"/);
+  assert.match(media, /id="media-compose-apply"[^>]*>\$\{mediaApplyLabel\}</);
   assert.match(media, /id="media-compose-cancel"[^>]*>Cancel</);
+  assert.doesNotMatch(jsFunction("wireStudioInspector"), /#media-compose-preview/);
+  assert.match(jsFunction("renderMediaCompositionFrameAttempt"), /scheduleMediaCompositionPreview\(\)/);
+  assert.doesNotMatch(jsFunction("applyMediaCompositionDraft"), /Preview required|Create a preview/);
+  const mediaStatus = jsFunction("mediaCompositionStatusText");
+  assert.doesNotMatch(mediaStatus, /lightingAppliedDetail|keyboard is unchanged/i);
+  assert.match(mediaStatus, /Board ready/);
+  assert.match(jsFunction("dispatchLightingWorkspace"), /type:"RENDER_DISCARDED"/);
+  assert.match(jsFunction("setStudioTool"), /resumeUnfinishedMediaComposition\(\)/);
+  assert.match(jsFunction("renderLightingShell"), /resumeUnfinishedMediaComposition\(\)/);
+  assert.match(
+    jsFunction("resumeUnfinishedMediaComposition"),
+    /status!=="draft"[\s\S]*renderMediaCompositionPreview\(\)/,
+  );
+  assert.doesNotMatch(jsFunction("openLibrarySource"), /renderMediaCompositionPreview\(\)/);
+  assert.match(css, /\.media-composition-actions \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto/);
+  assert.match(css, /#media-compose-apply \{[^}]*white-space: normal/);
 
   const effects = js.slice(js.indexOf('<div class="animation-draft-actions">'), js.indexOf('</div>', js.indexOf('<div class="animation-draft-actions">')));
   assert.match(effects, /id="animate-accept"[^>]*>Apply to lighting slot</);
@@ -120,6 +145,158 @@ test("media previews explicitly while effect cards update the Board immediately"
   // The old per-tool verbs are gone; one boundary is named the same everywhere.
   assert.doesNotMatch(js, />Apply preview</);
   assert.doesNotMatch(review, /class="button primary"[^>]*>Apply</);
+});
+
+test("Studio and Library navigation preserves accepted and applied media work", () => {
+  const frames = [
+    ["#112233", "#445566"],
+    ["#778899", "#AABBCC"],
+  ];
+  const timeline = [
+    {index: 0, source_frame_index: 0},
+    {index: 1, source_frame_index: 1},
+  ];
+  let workspace = createLightingWorkspace({
+    documentEpoch: 7,
+    slot: 5,
+    target: "keyframes",
+    tool: "source",
+    route: "lighting/edit",
+  });
+  const transition = event => {
+    workspace = reduceLightingWorkspace(workspace, event).state;
+  };
+  transition({
+    type: "MEDIA_OPENED",
+    media: {catalog_id: "media-a", asset_id: "source-a", requested_revision: 4},
+  });
+  transition({type: "TRANSFORM_REQUESTED", media_revision: 4, transform: {scale_x: 1.5}});
+  transition({type: "SEQUENCE_RENDER_STARTED"});
+  const accepted = createBoardFrameSet({
+    context: {
+      document_epoch: 7,
+      slot: 5,
+      target: "keyframes",
+      source_kind: "media_render",
+      revision: 4,
+    },
+    frames_by_target: {keyframes: frames},
+    frame_count: 2,
+    duration_ms: 90,
+    timeline,
+    provenance: "media_render",
+  }, {targetLengths: {keyframes: 2}, allowedDurations: [90], maxFrames: 8});
+  transition({
+    type: "SEQUENCE_RENDER_ACCEPTED",
+    request_epoch: workspace.preview.request_epoch,
+    context_key: workspace.preview.request_context_key,
+    media_revision: 4,
+    frame_set: accepted,
+    target_lengths: {keyframes: 2},
+    allowed_durations: [90],
+    max_frames: 8,
+  });
+  transition({type: "ROUTE_CHANGED", route: "lighting/library"});
+  transition({type: "ROUTE_CHANGED", route: "lighting/edit"});
+  assert.equal(workspace.preview.board_frame_set, null);
+  assert.equal(workspace.media.accepted_revision, 4);
+
+  const draft = {
+    status: "ready",
+    catalogId: "media-a",
+    source: {asset_id: "source-a"},
+    destination: {productId: "CYBERBOARD", target: "keyframes", targets: ["keyframes"]},
+    revision: 4,
+    acceptedRevision: 4,
+    transform: {scale_x: 1.5},
+    effects: [],
+    mappedResult: {
+      duration_ms: 90,
+      tracks: {keyframes: {frame_count: 2, frames}},
+    },
+  };
+  const page = {speed_ms: 90, keyframes: {frame_data: [["#000000", "#000000"]]}};
+  const state = {
+    config: {},
+    studioTool: "source",
+    ledSlot: 5,
+    ledTarget: "keyframes",
+    mediaComposition: draft,
+    appliedLightingProvenance: null,
+  };
+  const context = {
+    state,
+    lightingWorkspace: workspace,
+    ROUTES: {EDIT: "lighting/edit"},
+    LED_SPEEDS: [90],
+    mediaDraftCanApply,
+    productId: () => "CYBERBOARD",
+    getPage: () => page,
+    lightingProvenanceForPage: () => null,
+    lightingWorkspaceTargetLengths: () => ({keyframes: 2}),
+    activeFamilySpec: () => ({frameCap: 8}),
+    lightingWorkspaceFrameContext: sourceKind => ({
+      document_epoch: context.lightingWorkspace.context.document_epoch,
+      slot: context.lightingWorkspace.context.slot,
+      target: context.lightingWorkspace.context.target,
+      source_kind: sourceKind,
+      revision: context.lightingWorkspace.preview.accepted_epoch,
+    }),
+    boardFrameSetFromDocument,
+    boardFrameSetFromMappedResult,
+    workspaceContextKey,
+    console,
+  };
+  vm.runInNewContext(
+    [
+      "mediaCompositionHasAcceptedResult",
+      "mediaCompositionResultMatchesDocument",
+      "mediaCompositionCanPresent",
+      "activeMediaPreviewTrack",
+      "mediaCompositionCanApply",
+      "currentLightingBoardFrameSet",
+    ].map(jsFunction).join("\n")
+      + "\nglobalThis.activeTrack=activeMediaPreviewTrack;"
+      + "globalThis.canApply=mediaCompositionCanApply;"
+      + "globalThis.matchesDocument=mediaCompositionResultMatchesDocument;"
+      + "globalThis.restoreFrameSet=currentLightingBoardFrameSet;",
+    context,
+  );
+
+  const restoredTrack = context.activeTrack();
+  assert.equal(JSON.stringify(restoredTrack.frames), JSON.stringify(frames));
+  const restored = context.restoreFrameSet({
+    model: {},
+    page,
+    track: page.keyframes,
+    mediaPreviewTrack: restoredTrack,
+    activeDraft: null,
+    transientPreview: null,
+  });
+  workspace = reduceLightingWorkspace(workspace, {
+    type: "BOARD_FRAME_SET_ACCEPTED",
+    frame_set: restored,
+    target_lengths: {keyframes: 2},
+    allowed_durations: [90],
+    max_frames: 8,
+  }).state;
+  context.lightingWorkspace = workspace;
+  assert.equal(context.canApply(), true);
+
+  draft.status = "applied";
+  state.appliedLightingProvenance = {version: 1};
+  context.lightingProvenanceForPage = () => ({
+    source_catalog_id: draft.catalogId,
+    transform: draft.transform,
+    effects: draft.effects,
+  });
+  assert.equal(context.matchesDocument(), true);
+  assert.equal(context.canApply(), false);
+  assert.equal(JSON.stringify(context.activeTrack().frames), JSON.stringify(frames));
+
+  context.lightingProvenanceForPage = () => null;
+  assert.equal(context.matchesDocument(), false);
+  assert.equal(context.canApply(), true, "Undo must make the exact accepted draft applicable again");
 });
 
 test("effect cards and every normal parameter regenerate exact Board output immediately", () => {
@@ -472,8 +649,13 @@ test("every Apply names the slot, the document-only change, and the Write action
   ]) assert.match(jsFunction(name), /lightingAppliedDetail\(/, `${name} must report where the work went`);
   assert.match(jsFunction("applyLocalAnimationDraft"), /type:"APPLY_REQUESTED"/);
 
-  // The imported-media status line repeats the same answer where it lingers.
-  assert.match(jsFunction("mediaCompositionStatusText"), /lightingAppliedDetail\(\)/);
+  // The lingering imported-media line stays compact enough to keep the full
+  // workspace visible; the Apply toast above owns the detailed Write guidance.
+  const mediaStatus = jsFunction("mediaCompositionStatusText");
+  assert.match(mediaStatus, /lightingSlotLabel\(\)/);
+  assert.match(mediaStatus, /open profile/);
+  assert.doesNotMatch(mediaStatus, /lightingAppliedDetail\(\)/);
+  assert.match(jsFunction("updateLightingWorkspaceStatus"), /The keyboard is unchanged/);
 });
 
 test("a stale model refresh cannot fill inventory from a previous origin", () => {

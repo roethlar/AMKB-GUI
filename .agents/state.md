@@ -236,6 +236,35 @@
   Exact shipped-product head `dbf1b2b` passes CI run `30768142979` on all four
   test jobs and Desktop installers run `30768142977` on Windows, macOS, Linux,
   candidate metadata, and release provenance.
+- The final LSR-10 owner-acceptance repair is implemented in the commit
+  containing this record. Imported-media framing and exact mapped LED output
+  now survive Studio -> Library -> Studio before and after Apply; an interrupted
+  render is discarded on exit and resumes on return; Undo makes the retained
+  accepted result applicable again. Source and Board update automatically with
+  no separate Preview action, Apply uses compact state-specific slot copy, the
+  action row no longer clips, and applied compositions remain saveable to
+  Library. The native audit now proves navigation persistence before and after
+  Apply plus interrupted-render recovery, and uses a Zoom nudge for its pointer
+  proof so Fit cannot make vertical pan mathematically impossible. The complete
+  local gate passes 727 Python tests with 5 skips, 188 browser tests,
+  compile/syntax checks, and both package builds. Windows source and frozen
+  schema-v2 audits pass both viewports, all six GIF/PNG/BMP cases, all ten
+  profile checks, and all six navigation-persistence checks with no console or
+  layout finding; native-tree audit, frozen smoke, and the Windows build pass.
+  Canonical machine-local evidence is
+  `.agents/review/lsr10-media-navigation-source-5.local.json` and
+  `.agents/review/lsr10-media-navigation-frozen-3.local.json`. The accepted
+  executable has SHA-256
+  `CC130573A8E33512962ABF75821BD51C65098CF8B1AB4584A6FC35FFB0C5B042`, and
+  the owner passed its visible Windows acceptance on 2026-08-02. Two uncaptured
+  launches stopped at the already-recorded packaged-startup race
+  `raw_import_rejected:unknown`; they were not resubmitted, while the proven
+  captured-process invocation passed against identical executable bytes. PTK
+  also lost one aggregate full-gate transport; Python and the remaining gate
+  components were recovered separately without repeating successful work. No
+  external review was launched. LSR-10 remains open only for exact repair-head
+  CI/Desktop workflows and affected Windows, Linux, and macOS native
+  qualification.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -439,14 +468,14 @@
 
 ## Next
 
-- Launch the rebuilt macOS DMG audit for the owner's one real focus click, close
-  both findings after it passes, then open the rebuilt
-  Windows app for the owner's final visible acceptance pass. No further external
-  review is authorized. External
-  review is not automatic; use it only on explicit owner request or a concrete
-  material risk that local guards and CI cannot resolve. A replacement release
-  candidate must repeat every release gate and cannot mix evidence from any
-  rejected attempt with new bytes.
+- Run and monitor exact-head CI and Desktop installer workflows, then repeat
+  affected native qualification on Windows x64, Linux x86-64, and macOS arm64.
+  Close LSR-10 and R65-2 only when all of those exact-head checks pass. No
+  further external review is authorized;
+  use one only on explicit owner request or a concrete material risk that local
+  guards and CI cannot resolve. A replacement release candidate must repeat
+  every release gate and cannot mix evidence from any rejected attempt with new
+  bytes.
 - The approved `0.1.65` release plan remains recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`; it records all
   three rejected candidates and is paused behind the redesign.
@@ -461,7 +490,8 @@
 
 ## Blockers
 
-- R65-2 is blocked on completion and owner acceptance of the complete redesign.
-  Live provider requests,
+- Owner acceptance of the complete redesign is passed. R65-2 remains blocked
+  only on exact-head CI/Desktop workflows and affected Windows, Linux, and macOS
+  native qualification for the final LSR-10 repair. Live provider requests,
   keyboard writes, macOS Open Anyway, tag creation, release publication, and
   announcements remain separately gated actions for their later slices.
