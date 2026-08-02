@@ -632,6 +632,16 @@ progress until owner direction.
 
 ### Slice LSR-1 — Workspace reducer and board-frame contract
 
+Completed 2026-08-02. Implementation commit
+`1ee73a81182c8f401b1942776d3df7c005541f33` passed the full gate and was pushed.
+Its single required `fable-review` used `claude-opus-5` at `high` over exact
+parent/head and returned one admitted HIGH finding, `cl-10`. Repair commit
+`95795845b6eeabd1c572b82244fef26a975183dd` canonicalizes backend-valid RGB
+spelling, passed the non-vacuous red/green proof and full 677-Python/144-browser
+gate, and was pushed. Its T2 per-finding verification used `claude-opus-5` at
+`xhigh` over the exact repair range and returned `accepted` with
+`guard_confirmed=true` and `capability_ok=true`. LSR-1 is closed; LSR-2 is next.
+
 Files:
 
 - new `am_configurator/web/lighting_workspace.js`;

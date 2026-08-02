@@ -266,3 +266,17 @@
   substantive result completed after 16 minutes 6 seconds. That same result
   was used as returned; it was not discarded, retried, replaced, reformatted,
   or resubmitted. The transcript model key was `claude-opus-5`.
+- 2026-08-02 — `cl-10` per-finding verification through codereview claude (job
+  `fable-review`; claude-cli 2.1.220; `claude-opus-5` @ `xhigh`, frontier,
+  escalated T2, inline/session-only) over
+  `1ee73a81182c8f401b1942776d3df7c005541f33..95795845b6eeabd1c572b82244fef26a975183dd`:
+  verdict `accepted`, `guard_confirmed=true`, `capability_ok=true`, exact pins,
+  exit 0, and no stderr. A disposable worktree independently proved 9/9 green,
+  8/9 with only the canonicalization guard red after restoring the base
+  implementation, and 9/9 after restoration; all 144 browser tests also passed.
+  Malformed-color probes remained rejected, the full 677-Python/144-browser
+  persisted gate was confirmed, and the disposable worktree was removed and
+  pruned without changing the shared tree. Exactly one verification invocation
+  was made; it completed through the background wrapper without PTK timeout,
+  retry, re-emission, replacement, or resubmission. The transcript model key was
+  `claude-opus-5`.

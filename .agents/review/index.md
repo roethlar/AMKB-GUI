@@ -49,7 +49,7 @@ Whole-change pass records: see `.agents/review/outcomes.md`.
 | cl-7 | HIGH     | Synthetic WebView2 drag throws when mandatory capture sees an untracked ID | `[x]`  | —      | claude/claude-fable-5/xhigh/frontier esc:T2,T5(ceiling) |
 | cl-8 | MEDIUM   | High-zoom geometry limit can exceed the unchanged ±8 offset schema         | `[x]`  | —      | claude/claude-opus-5/high/standard |
 | cl-9 | LOW      | Canonical state duplicates nagatha's volatile connection address           | `[x]`  | —      | claude/claude-opus-5/high/standard |
-| cl-10 | HIGH    | Lowercase profile colors blank the Lighting Studio                          | `[~]`  | —      | claude/claude-opus-5/high/standard |
+| cl-10 | HIGH    | Lowercase profile colors blank the Lighting Studio                          | `[x]`  | —      | claude/claude-opus-5/xhigh/frontier esc:T2 |
 
 All three raised by the 2026-07-25 openreview codex pass over
 `65a70c9..94a847a` and admitted at intake after independent verification of
