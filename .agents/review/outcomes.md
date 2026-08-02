@@ -443,3 +443,21 @@
   allowed repository reads and git inspection completed capability proof. The
   transcript model key was `claude-opus-5`; immutable result SHA-256 is
   `DCB0A77D4918911118866B4485440E9105637385047DF0CD464DB7ED6E3AC8C7`.
+- 2026-08-02 — `cl-18` per-finding codereview claude (job `fable-review`;
+  claude-cli 2.1.220; `claude-opus-5` @ `high`, standard,
+  inline/session-only) over
+  `818b3ab6f3689038228221d056d8c438101c8da5..8e059292411b85a3387d348c8a4ee36ef8137f25`:
+  verdict `accepted`, `guard_confirmed=true`, `capability_ok=true`, exact pins,
+  exit 0, and no stderr. In a disposable worktree the reviewer independently
+  reproduced all three unreadable-file errors and the invalid retained-entry
+  payload failure, restored the reviewed head, then passed 7/7 focused and
+  707/707 full Python tests with 5 expected skips. Exact-head CI run
+  `30749340460` passed. Desktop installers run `30749340465` passed on attempt
+  2 after attempt 1's Linux setup-uv manifest fetch timed out before repository
+  code; macOS and Windows passed on the original attempt. The schema-enforced
+  first result completed after 8 minutes 17 seconds and was persisted and used
+  as returned without retry, re-emission, replacement, reformatting, or
+  resubmission. Two hook-rewritten git spellings were denied; allowed reads,
+  git operations, and verification commands completed capability and guard
+  proof. Transcript model key: `claude-opus-5`; immutable result SHA-256 is
+  `341F5F5A6E72892C9392EF2E952A4677026EB2D7724D12B8A2869F94C4FDFD23`.

@@ -43,12 +43,14 @@
   `cl-19` (device rescan drops the trusted deep signature), and `cl-20`
   (connected geometry can overwrite conflicting embedded evidence). Repair
   them one commit and one per-finding verdict each; LSR-7 is not closed.
-- The isolated `cl-18` repair makes validated device evidence atomically
-  replace unreadable private persistence and retains only strictly revalidated
-  bounded history. Its two guards failed against the reviewed exception/raw
-  retention paths and pass after restoration. The complete 707-Python/
-  173-browser/compile/syntax/build gate is green. Commit, push, exact-head
-  qualification, and one per-finding `fable-review` verdict remain pending.
+- `cl-18` is closed in repair commit
+  `8e059292411b85a3387d348c8a4ee36ef8137f25`. Its two guards failed against
+  the reviewed exception/raw-retention paths and pass after restoration; the
+  complete 707-Python/173-browser/compile/syntax/build gate, exact-head CI run
+  `30749340460`, and Desktop installers run `30749340465` pass. The one
+  per-finding `fable-review` used explicit `claude-opus-5` at `high` once and
+  returned accepted with guard and capability confirmed. Canonical evidence is
+  in `.agents/review/findings/cl-18.md`; `cl-19` is next.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -254,9 +256,12 @@
 
 ## Next
 
-- Commit, push, qualify, and independently verify the guard-proven `cl-18`
-  repair. Then repair `cl-19` and `cl-20` the same one-commit, one-verdict way
-  before closing LSR-7 and starting LSR-8. Do not restart R65-2 until
+- Repair `cl-19` without expanding LSR-7: preserve the exact deep dynamic
+  descriptor whenever a shallow rescan carries its validated `key_layout`, so
+  legacy-profile synchronization cannot lose its mismatch signature. Guard,
+  mutation-prove, fully verify, commit, push, qualify, and obtain its one
+  per-finding verdict; then repair `cl-20` before closing LSR-7 and starting
+  LSR-8. Do not restart R65-2 until
   LSR-1 through LSR-10 are implemented,
   guarded, verified, accepted, and pushed. A replacement candidate must repeat
   every release gate and cannot mix evidence from any rejected attempt with new
