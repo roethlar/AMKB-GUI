@@ -424,6 +424,15 @@ test("Library actions open a read-only Board preview before a separate Apply", (
     const body = jsFunction(name);
     assert.match(body, /openLibraryBoardPreview\(/);
     assert.doesNotMatch(body, /mutate\(|applyBoardFrameSetToPage\(|\/api\/library\/save\//);
+    const open = body.indexOf("openLibraryBoardPreview({");
+    assert.ok(
+      open < body.indexOf("lease.release()"),
+      `${name} must keep its request current until the Board preview opens`,
+    );
+    assert.ok(
+      open < body.indexOf("state.library.previewingCatalogId=null"),
+      `${name} must leave failure cleanup to finally until the Board preview opens`,
+    );
   }
   const cancel = jsFunction("cancelLibraryBoardPreview");
   assert.doesNotMatch(cancel, /mutate\(|api\(|fetch\(/);

@@ -2026,8 +2026,6 @@ async function previewLibraryGenerated(catalogId) {
       ||state.library.selectedCatalogId!==catalogId
     )return;
     if(!result?.tracks)throw new Error("The saved lighting could not be read.");
-    lease.release();
-    state.library.previewingCatalogId=null;
     openLibraryBoardPreview({
       kind:"library_generated",
       identity:`${catalogId}:${attempt.mapped_result_asset_id}`,
@@ -2036,6 +2034,8 @@ async function previewLibraryGenerated(catalogId) {
       target:targetKey,
       catalogId,
     });
+    lease.release();
+    state.library.previewingCatalogId=null;
   }catch(error){
     if(lease.current(state.library.epoch)){
       toast("Could not preview this lighting",`${error.message} Nothing was changed.`,"error");
@@ -2239,8 +2239,6 @@ async function previewLibraryLighting(catalogId) {
     ){
       throw new Error("The saved brightness value is invalid.");
     }
-    lease.release();
-    state.library.previewingCatalogId=null;
     openLibraryBoardPreview({
       kind:"library_lighting",
       identity:`${catalogId}:${composition.rendered_asset_id}`,
@@ -2253,6 +2251,8 @@ async function previewLibraryLighting(catalogId) {
       transform:composition.transform,
       effects:composition.effects,
     });
+    lease.release();
+    state.library.previewingCatalogId=null;
   }catch(error){
     if(lease.current(state.library.epoch)){
       toast("Could not preview lighting",`${error.message} Nothing was changed.`,"error");
