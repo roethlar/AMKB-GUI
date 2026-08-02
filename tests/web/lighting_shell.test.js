@@ -463,7 +463,8 @@ test("media import banks before composition and applies only an accepted preview
 });
 
 test("lighting color style interpolation uses only canonical RGB", () => {
-  assert.match(js,/normalizeImportedLightingColors\(normalizeImportedAssignmentCodes\(parsed\)\)/);
+  assert.match(js,/const response=await api\("\/api\/config\/import"/);
+  assert.doesNotMatch(js,/normalizeImported(?:LightingColors|AssignmentCodes)/);
   assert.match(js,/background:\$\{safeRgbColor\(color\)\}/);
   assert.doesNotMatch(js,/background:\$\{esc\(color\)\}/);
   assert.match(workspace,/projection\.colors\[Number\(pixel\?\.dataset\?\.pixel\)\]/);
@@ -736,7 +737,8 @@ test("profile banking is explicit, exact-source, and applies selected compatible
     js.indexOf("async function importLibraryProfiles"),
     js.indexOf("async function saveMappingToLibrary"),
   );
-  assert.match(importFlow,/state\.library\.filter="keymaps"/);
+  assert.match(importFlow,/state\.library\.filter=importedLighting&&importedProfiles/);
+  assert.match(importFlow,/\?"all"[\s\S]*\?"lighting"[\s\S]*:"keymaps"/);
   assert.doesNotMatch(importFlow,/state\.library\.filter="profiles"/);
   assert.match(js,/file\.arrayBuffer\(\)/);
   assert.match(js,/\/api\/library\/import\/profile/);
@@ -897,6 +899,56 @@ test("Relic per-key lighting uses the sized Keymap geometry and segments its spa
   );
 });
 
+test("all JSON entry points use the server classifier and lighting-only opens an offline review", () => {
+  const openFlow=js.slice(js.indexOf("async function readFiles"),js.indexOf("function blankTrack"));
+  assert.match(openFlow,/\/api\/config\/import/);
+  assert.doesNotMatch(openFlow,/JSON\.parse\(await file\.text\(\)\)/);
+  assert.match(openFlow,/classifyImportedJsonSelection\([\s\S]*\{merge\}/);
+  const macroFlow=js.slice(js.indexOf("async function importMacros"),js.indexOf("function renderMacros"));
+  assert.match(macroFlow,/await importJsonFile\(file\)/);
+  assert.match(macroFlow,/imported\.report\.kind!=="profile"/);
+  assert.doesNotMatch(macroFlow,/JSON\.parse\(await file\.text\(\)\)/);
+  assert.match(js,/function renderImportedLightingReview\(/);
+  assert.match(js,/function applyImportedLighting\(/);
+  assert.match(js,/function saveImportedLightingToLibrary\(/);
+  assert.match(js,/state\.importedLighting/);
+  assert.match(js,/provenance:\s*"imported_json"/);
+  assert.match(js,/if\(family==="NEON"\)return "AM Neon 80"/);
+  assert.match(js,/imported&&!importedLightingApplyDecision\(state\.ledTarget,slot\)\.compatible/);
+  assert.match(js,/if\(imported\)\{[\s\S]*playhead_index:lightingWorkspace\.playhead\.index/);
+});
+
+test("imported lighting review keeps Apply, Library save, and Close boundaries separate", () => {
+  const applyFlow=js.slice(
+    js.indexOf("function applyImportedLighting"),
+    js.indexOf("async function saveImportedLightingToLibrary"),
+  );
+  const saveFlow=js.slice(
+    js.indexOf("async function saveImportedLightingToLibrary"),
+    js.indexOf("function renderLightingEdit"),
+  );
+  const closeFlow=js.slice(
+    js.indexOf("function closeImportedLightingReview"),
+    js.indexOf("const RELIC_LAYOUT"),
+  );
+  assert.match(applyFlow,/const candidate=clone\(page\)[\s\S]*applyLedResultToPage\(candidate/);
+  assert.match(applyFlow,/mutate\(\(\)=>\{[\s\S]*applyLedResultToPage\(page/);
+  assert.equal((applyFlow.match(/mutate\(/g)||[]).length,1);
+  assert.doesNotMatch(applyFlow,/pushUndo\(/);
+  assert.doesNotMatch(applyFlow,/\/api\/library\//);
+  assert.match(saveFlow,/\/api\/library\/import\/profile/);
+  assert.doesNotMatch(saveFlow,/if\s*\(\s*!state\.config/);
+  assert.doesNotMatch(saveFlow,/applyLedResultToPage|mutate\(/);
+  assert.match(closeFlow,/state\.importedLighting=null/);
+  assert.doesNotMatch(closeFlow,/state\.config\s*=|\/api\/library\//);
+  assert.match(js,/const missingGeometry=!servedTarget\|\|\(target==="axial"&&!physicalLayout\)/);
+  assert.match(js,/const importedLayoutEvidence=report\.layout_evidence\|\|null/);
+  assert.match(js,/state\.layoutEvidence\|\|importedLayoutEvidence/);
+  assert.match(js,/report\.layout_warning\|\|"Connect this Neon 80/);
+  assert.match(js,/Head matrix preview remains available now\./);
+  assert.match(js,/target==="axial"[\s\S]*\?"Per-key layout unavailable\."[\s\S]*:`\$\{targetLabel\} layout unavailable\.`/);
+});
+
 test("CyberBoard switch lighting shares the photographed Keymap geometry", () => {
   assert.match(
     js,
@@ -980,7 +1032,7 @@ test("Neon keymap wiring uses the validated layout and assignment gate", () => {
   assert.match(palette, /NEON_LIGHTING_CONTROLS/);
   assert.match(palette, /neonLightingGroups/);
 
-  assert.match(js, /function displayGeometryDevice\(\)[\s\S]*selectVialLayoutDevice\([\s\S]*productId\(\),[\s\S]*state\.devices,[\s\S]*state\.loadedDevice,[\s\S]*state\.layoutEvidence/);
+  assert.match(js, /function displayGeometryDevice\(product=productId\(\),layoutEvidence=state\.layoutEvidence\)[\s\S]*selectVialLayoutDevice\([\s\S]*product,[\s\S]*state\.devices,[\s\S]*state\.loadedDevice,[\s\S]*layoutEvidence/);
   assert.match(layout, /family === "NEON"[\s\S]*displayGeometryDevice\(\)[\s\S]*projectVialKeyLayout\(device\)/);
   assert.match(js, /const device=displayGeometryDevice\(\);[\s\S]*state\.ledTarget==="axial"[\s\S]*projectVialLedLayout\(device,servedTarget\)/);
   assert.match(js, /const neonAxial=productFamily\(productId\(\)\)==="NEON"&&state\.ledTarget==="axial"/);

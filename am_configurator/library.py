@@ -169,7 +169,7 @@ _CATALOG_KIND_GROUPS = {
 }
 _SAVED_ITEM_ORIGINS = {
     "media_source": {"media_import"},
-    "lighting_composition": {"manual"},
+    "lighting_composition": {"json_import", "manual"},
     "keyboard_profile": {"json_import", "verified_export"},
 }
 _SAVED_ITEM_STATUSES = {"ready"}

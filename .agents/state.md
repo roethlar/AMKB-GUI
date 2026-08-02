@@ -76,6 +76,28 @@
   per-finding `fable-review` used explicit `claude-opus-5` at `high` once and
   returned accepted with guard and capability confirmed. Canonical evidence is
   in `.agents/review/findings/cl-20.md`. LSR-7 is closed; LSR-8 is next.
+- LSR-8 implementation is landed in the commit containing this record. The
+  strict server classifier accepts app-native profiles, recognized AM Master
+  full profiles, and AM Master AM 80 lighting-only JSON without using the
+  filename; exports remain app-native. Lighting-only imports review both exact
+  Head and Per-key tracks offline, can use validated remembered Neon geometry,
+  save explicitly to Library without a document, and apply only to an exact
+  compatible open Neon slot through one Undo checkpoint. Placeholder, track
+  mapping, Apply-signature, whole-selection, shared-playhead, and remembered-
+  layout guards are independently mutation-proven. The complete local gate
+  passes 720 Python tests with 5 skips, 178 browser tests, compile/syntax
+  checks, source and wheel builds, Windows native-tree audit, installer,
+  frozen smoke, silent uninstall, and cleanup. Read-only acceptance against all
+  seven machine-local originals classified four ALICE profiles (writer plan
+  1542 each) and three paired Neon compositions (1/50/75 frames at 90/90/100
+  ms); no original filename or LED payload entered the repository. The native
+  WebView2 behavior audit confirmed 230 Head LEDs, 89 physical Per-key LEDs,
+  exact frame-position preservation, no image-bearing Board descendant,
+  offline Save, disabled Apply without a document, and mutation-free Close.
+  GPU screen capture was black and is not accepted as visual styling evidence.
+  No dependency, FFmpeg/libav path, provider request, credential use, hardware
+  write, or release action was introduced. Push, exact-head CI/Desktop
+  qualification, and the one required `fable-review` remain pending.
 
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
@@ -281,14 +303,13 @@
 
 ## Next
 
-- Implement approved LSR-8 strict Angry Miao AM Master JSON import using only
-  minimized synthetic fixtures in the repository and read-only validation
-  against the seven machine-local originals. Keep AM Configurator exports
-  app-native with no third-party compatibility promise. Do not restart R65-2
-  until LSR-1 through LSR-10 are implemented,
-  guarded, verified, accepted, and pushed. A replacement candidate must repeat
-  every release gate and cannot mix evidence from any rejected attempt with new
-  bytes.
+- Commit and push LSR-8, qualify exact-head CI and Desktop installers, then run
+  its one exact-range `fable-review` through job `fable-review` with explicit
+  model `claude-opus-5` and effort `high`. Use the first substantive result
+  once; do not retry or resubmit without owner approval. Do not start LSR-9
+  until LSR-8 review is clean or every admitted finding is closed. A
+  replacement release candidate must repeat every release gate and cannot mix
+  evidence from any rejected attempt with new bytes.
 - The approved `0.1.65` release plan remains recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`; it records all
   three rejected candidates and is paused behind the redesign.

@@ -13,6 +13,7 @@
     "local_effect",
     "media_render",
     "procedural_result",
+    "imported_json",
   ]);
   const validatedFrameSets = new WeakSet();
 
@@ -298,7 +299,7 @@
     if (!isObject(mappedResult) || !isObject(mappedResult.tracks)) {
       fail("invalid_shape", "The rendered lighting result is unavailable.");
     }
-    if (!new Set(["media_render", "procedural_result"]).has(provenance)) {
+    if (!new Set(["media_render", "procedural_result", "imported_json"]).has(provenance)) {
       fail("invalid_context", "The rendered lighting source is invalid.");
     }
     const framesByTarget = {};
@@ -801,6 +802,33 @@
           intents: [cancelPlaybackIntent(state), {type: "render-workspace"}],
         };
       }
+      case "IMPORTED_LIGHTING_OPENED": {
+        const nextContext = {
+          ...state.context,
+          slot: event.slot === undefined ? state.context.slot : safeNonNegativeInteger(
+            event.slot,
+            "invalid_context",
+            "The lighting slot is invalid.",
+          ),
+          target: event.target === undefined ? "head" : safeTarget(event.target),
+        };
+        return {
+          state: contextTransition(state, nextContext, {
+            state: {media: null, tool: "imported_json"},
+            playheadIndex: 0,
+          }),
+          intents: [cancelPlaybackIntent(state), {type: "render-workspace"}],
+        };
+      }
+      case "IMPORTED_LIGHTING_CLOSED": {
+        return {
+          state: contextTransition(state, {...state.context}, {
+            state: {media: null, tool: "paint"},
+            playheadIndex: 0,
+          }),
+          intents: [cancelPlaybackIntent(state), {type: "render-workspace"}],
+        };
+      }
       case "DESTINATION_CHANGED": {
         const nextContext = {
           ...state.context,
@@ -816,7 +844,9 @@
           && nextContext.target === state.context.target
         ) return unchanged(state);
         return {
-          state: contextTransition(state, nextContext),
+          state: contextTransition(state, nextContext, {
+            playheadIndex: event.playhead_index,
+          }),
           intents: [cancelPlaybackIntent(state), {type: "render-workspace"}],
         };
       }

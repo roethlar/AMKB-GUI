@@ -21,7 +21,6 @@
   const VALID_ROUTES = new Set(Object.values(ROUTES));
   const DOCUMENT_ROUTES = new Set([ROUTES.KEYMAP, ROUTES.MACROS, ROUTES.EDIT]);
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const ASSIGNMENT_CODE = /^#[0-9a-f]{8}$/i;
   const RGB_COLOR = /^#[0-9a-f]{6}$/i;
 
   function escapeMarkup(value) {
@@ -31,84 +30,10 @@
     );
   }
 
-  function canonicalAssignmentCode(value, label) {
-    if (typeof value !== "string" || !ASSIGNMENT_CODE.test(value)) {
-      throw new Error(`${label} must use # followed by exactly eight hexadecimal digits.`);
-    }
-    return value.toUpperCase();
-  }
-
-  function normalizeImportedAssignmentCodes(config) {
-    if (!config || typeof config !== "object" || Array.isArray(config)) {
-      throw new Error("The imported configuration must be an object.");
-    }
-    const layerData = config.key_layer?.layer_data;
-    if (Array.isArray(layerData)) {
-      layerData.forEach((entry, layerIndex) => {
-        if (!Array.isArray(entry?.layer)) return;
-        entry.layer = entry.layer.map((code, codeIndex) => canonicalAssignmentCode(
-          code,
-          `Layer ${layerIndex + 1} assignment ${codeIndex + 1}`,
-        ));
-      });
-    }
-    if (config.macro_key !== undefined) {
-      if (!Array.isArray(config.macro_key)) {
-        throw new Error("macro_key must be an array.");
-      }
-      config.macro_key.forEach((macro, index) => {
-        if (!macro || typeof macro !== "object" || Array.isArray(macro)) {
-          throw new Error(`Macro ${index + 1} must be an object.`);
-        }
-        macro.original_key = canonicalAssignmentCode(
-          macro.original_key,
-          `Macro ${index + 1} assignment code`,
-        );
-      });
-    }
-    return config;
-  }
-
-  function canonicalRgbColor(value) {
-    if (typeof value !== "string" || !RGB_COLOR.test(value)) {
-      throw new Error("Imported lighting contains an invalid RGB color.");
-    }
-    return value.toUpperCase();
-  }
-
   function safeRgbColor(value) {
     return typeof value === "string" && RGB_COLOR.test(value)
       ? value.toUpperCase()
       : "#000000";
-  }
-
-  function normalizeImportedLightingColors(config) {
-    if (!config || typeof config !== "object" || Array.isArray(config)) {
-      throw new Error("The imported configuration must be an object.");
-    }
-    if (config.page_data === undefined) return config;
-    if (!Array.isArray(config.page_data)) {
-      throw new Error("Imported lighting page data must be an array.");
-    }
-    for (const page of config.page_data) {
-      if (!page || typeof page !== "object" || Array.isArray(page)) continue;
-      if (page.color && typeof page.color === "object" && !Array.isArray(page.color)) {
-        for (const field of ["back_rgb", "rgb"]) {
-          if (page.color[field] !== undefined) {
-            page.color[field] = canonicalRgbColor(page.color[field]);
-          }
-        }
-      }
-      for (const trackName of ["frames", "keyframes", "spotlight_frames"]) {
-        const frames = page[trackName]?.frame_data;
-        if (!Array.isArray(frames)) continue;
-        for (const frame of frames) {
-          if (!Array.isArray(frame?.frame_RGB)) continue;
-          frame.frame_RGB = frame.frame_RGB.map(canonicalRgbColor);
-        }
-      }
-    }
-    return config;
   }
 
   function normalizedRoute(value) {
@@ -452,12 +377,40 @@
     return id;
   }
 
-  function routeAvailability(route, document) {
+  function routeAvailability(route, document, importedLighting = null) {
     const candidate = normalizedRoute(route);
-    if (DOCUMENT_ROUTES.has(candidate) && !document) {
+    const importedReview = candidate === ROUTES.EDIT && importedLighting?.kind === "lighting";
+    if (DOCUMENT_ROUTES.has(candidate) && !document && !importedReview) {
       return {available: false, reason: "document-required"};
     }
     return {available: true, reason: null};
+  }
+
+  function classifyImportedJsonSelection(reports, {merge = false} = {}) {
+    if (!Array.isArray(reports) || !reports.length) {
+      throw new Error("Choose at least one JSON file.");
+    }
+    const kinds = reports.map(report => report?.kind);
+    if (kinds.some(kind => !["profile", "lighting"].includes(kind))) {
+      throw new Error("One selected JSON file has an unrecognized import result.");
+    }
+    const lightingIndexes = kinds
+      .map((kind, index) => kind === "lighting" ? index : -1)
+      .filter(index => index >= 0);
+    if (lightingIndexes.length) {
+      if (reports.length !== 1 || lightingIndexes.length !== 1) {
+        throw new Error(
+          "Open one AM Master lighting-only JSON file at a time. It cannot be combined with a keyboard profile.",
+        );
+      }
+      if (merge) {
+        throw new Error(
+          "AM Master lighting-only JSON cannot be merged. Use Open to review it without changing the current profile.",
+        );
+      }
+      return Object.freeze({kind: "lighting", index: lightingIndexes[0]});
+    }
+    return Object.freeze({kind: "profiles", indexes: Object.freeze(reports.map((_, index) => index))});
   }
 
   function applyCompatibility(job, document, destination) {
@@ -479,6 +432,51 @@
     const supported = new Set(Array.isArray(document.supportedTargets) ? document.supportedTargets.map(String) : []);
     if (targets.some(target => !supported.has(target))) {
       return {compatible: false, reason: "target-unsupported"};
+    }
+    return {compatible: true, reason: null};
+  }
+
+  function importedLightingApplyAvailability(
+    imported,
+    document,
+    destination,
+    servedTargets,
+  ) {
+    const lighting = imported?.kind === "lighting" ? imported.lighting : null;
+    const importedDestination = lighting?.destination;
+    const tracks = lighting?.tracks;
+    if (!importedDestination || !tracks || typeof tracks !== "object") {
+      return {compatible: false, reason: "import-invalid"};
+    }
+    if (!document) return {compatible: false, reason: "document-required"};
+    const importedFamily = canonicalFamily(
+      importedDestination.family || importedDestination.product_id,
+    );
+    const documentFamily = canonicalFamily(document.family || document.productId);
+    if (!importedFamily || importedFamily !== documentFamily) {
+      return {compatible: false, reason: "family-mismatch"};
+    }
+    const slot = Number(destination?.slot);
+    if (!Array.isArray(document.slots) || !document.slots.map(Number).includes(slot)) {
+      return {compatible: false, reason: "slot-unavailable"};
+    }
+    const target = String(destination?.target || "");
+    const importedTargets = Array.isArray(importedDestination.targets)
+      ? importedDestination.targets.map(String)
+      : [];
+    const supportedTargets = new Set(
+      Array.isArray(document.supportedTargets) ? document.supportedTargets.map(String) : [],
+    );
+    if (!importedTargets.includes(target) || !supportedTargets.has(target)) {
+      return {compatible: false, reason: "target-unsupported"};
+    }
+    for (const [track, metadata] of Object.entries(tracks)) {
+      if (
+        !importedTargets.includes(track)
+        || !supportedTargets.has(track)
+        || typeof metadata?.signature !== "string"
+        || servedTargets?.[track]?.signature !== metadata.signature
+      ) return {compatible: false, reason: "layout-mismatch"};
     }
     return {compatible: true, reason: null};
   }
@@ -570,18 +568,18 @@
     STAGES,
     aiStudioAvailable,
     applyCompatibility,
+    classifyImportedJsonSelection,
     createEpochLoadRegistry,
     createLaunchState,
     createPaintStrokeController,
     createLightingState,
     escapeMarkup,
     formatLightingHash,
+    importedLightingApplyAvailability,
     ollamaEndpointDataFlow,
     ollamaModelRefreshFailed,
     nextGridIndex,
     normalizeOllamaModels,
-    normalizeImportedAssignmentCodes,
-    normalizeImportedLightingColors,
     parseLightingHash,
     projectApiProviderPicker,
     projectOllamaModelPicker,

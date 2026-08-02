@@ -8,18 +8,18 @@ const {
   STAGES,
   aiStudioAvailable,
   applyCompatibility,
+  classifyImportedJsonSelection,
   escapeMarkup,
   createEpochLoadRegistry,
   createLaunchState,
   createPaintStrokeController,
   createLightingState,
   formatLightingHash,
+  importedLightingApplyAvailability,
   ollamaEndpointDataFlow,
   ollamaModelRefreshFailed,
   nextGridIndex,
   normalizeOllamaModels,
-  normalizeImportedAssignmentCodes,
-  normalizeImportedLightingColors,
   parseLightingHash,
   projectLightingJob,
   projectApiProviderPicker,
@@ -32,29 +32,6 @@ const {
 const JOB_ID = "4d36e96e-e2aa-4e72-8808-4d03b5ba7e61";
 const RESULT_ID = "result-asset";
 
-test("imported assignment codes are canonical before browser state publication", () => {
-  const config = {
-    key_layer: {layer_data: [{layer: ["#00070004", "#00951500"]}]},
-    macro_key: [{original_key: "#0095150a", layer_key: [], intvel_ms: []}],
-  };
-
-  assert.equal(normalizeImportedAssignmentCodes(config), config);
-  assert.deepEqual(config.key_layer.layer_data[0].layer, ["#00070004", "#00951500"]);
-  assert.equal(config.macro_key[0].original_key, "#0095150A");
-
-  assert.throws(
-    () => normalizeImportedAssignmentCodes({
-      key_layer: {layer_data: [{layer: ["#00070004"]}]},
-      macro_key: [{
-        original_key: '#00951500"><img src=x onerror="steal()">',
-        layer_key: [],
-        intvel_ms: [],
-      }],
-    }),
-    /Macro 1 assignment code/,
-  );
-});
-
 test("hostile assignment markup is escaped into inert attribute text", () => {
   const hostile = '#00951500"><img src=x onerror="steal()">';
   const escaped = escapeMarkup(hostile);
@@ -66,39 +43,12 @@ test("hostile assignment markup is escaped into inert attribute text", () => {
   assert.doesNotMatch(escaped, /<img|onerror="/);
 });
 
-test("imported lighting colors normalize to canonical six-digit RGB", () => {
-  const config = {
-    page_data: [{
-      color: {back_rgb: "#aabbcc", rgb: "#01020f"},
-      frames: {frame_data: [{frame_RGB: ["#123abc"]}]},
-      keyframes: {frame_data: [{frame_RGB: ["#fedcba"]}]},
-      spotlight_frames: {frame_data: [{frame_RGB: ["#00000a"]}]},
-    }],
-  };
-
-  assert.equal(normalizeImportedLightingColors(config), config);
-  assert.deepEqual(config.page_data[0].color, {back_rgb: "#AABBCC", rgb: "#01020F"});
-  assert.equal(config.page_data[0].frames.frame_data[0].frame_RGB[0], "#123ABC");
-  assert.equal(config.page_data[0].keyframes.frame_data[0].frame_RGB[0], "#FEDCBA");
-  assert.equal(config.page_data[0].spotlight_frames.frame_data[0].frame_RGB[0], "#00000A");
-});
-
 test("CSS declarations and remote URLs cannot enter lighting markup", () => {
   const hostile = [
     "#112233;background:url(https://attacker.invalid/pixel)",
     "url(https://attacker.invalid/pixel)",
   ];
   for (const value of hostile) {
-    assert.throws(
-      () => normalizeImportedLightingColors({
-        page_data: [{frames: {frame_data: [{frame_RGB: [value]}]}}],
-      }),
-      error => {
-        assert.equal(error.message, "Imported lighting contains an invalid RGB color.");
-        assert.doesNotMatch(error.message, /attacker|https|background/);
-        return true;
-      },
-    );
     const markup = `<i style="background:${safeRgbColor(value)}"></i>`;
     assert.equal(markup, '<i style="background:#000000"></i>');
     assert.doesNotMatch(markup, /https|url\(|;/);
@@ -490,7 +440,35 @@ test("Library and Settings remain document-independent without a Create route", 
   assert.deepEqual(routeAvailability(ROUTES.LIBRARY,null),{available:true,reason:null});
   assert.deepEqual(routeAvailability(ROUTES.SETTINGS,null),{available:true,reason:null});
   assert.deepEqual(routeAvailability(ROUTES.EDIT,null),{available:false,reason:"document-required"});
+  assert.deepEqual(routeAvailability(ROUTES.EDIT,null,{kind:"lighting"}),{available:true,reason:null});
   assert.equal(Object.hasOwn(ROUTES,"CREATE"),false);
+});
+
+test("JSON Open classifies the whole selection before any document action", () => {
+  const profile={kind:"profile"};
+  const lighting={kind:"lighting"};
+  assert.deepEqual(
+    classifyImportedJsonSelection([profile,profile]),
+    {kind:"profiles",indexes:[0,1]},
+  );
+  assert.deepEqual(
+    classifyImportedJsonSelection([lighting]),
+    {kind:"lighting",index:0},
+  );
+  for(const reports of [[lighting,lighting],[profile,lighting],[lighting,profile]]){
+    assert.throws(
+      ()=>classifyImportedJsonSelection(reports),
+      /one AM Master lighting-only JSON file at a time/i,
+    );
+  }
+  assert.throws(
+    ()=>classifyImportedJsonSelection([lighting],{merge:true}),
+    /cannot be merged/i,
+  );
+  assert.throws(
+    ()=>classifyImportedJsonSelection([{kind:"unknown"}]),
+    /unrecognized import result/i,
+  );
 });
 
 test("Apply compatibility fails closed with a specific reason", () => {
@@ -507,6 +485,46 @@ test("Apply compatibility fails closed with a specific reason", () => {
     assert.deepEqual(applyCompatibility(candidateJob,document,candidateDestination),{compatible:false,reason});
   }
   assert.deepEqual(applyCompatibility(job,compatibleDocument(),destination),{compatible:true,reason:null});
+});
+
+test("imported AM Master lighting applies only to an exact Neon document and slot", () => {
+  const imported={
+    kind:"lighting",
+    lighting:{
+      destination:{family:"NEON",product_id:"NEON80",targets:["head","axial"]},
+      tracks:{
+        head:{signature:"lighting:v1:head"},
+        axial:{signature:"lighting:v1:axial"},
+      },
+    },
+  };
+  const document={
+    family:"NEON",
+    productId:"NEON80",
+    slots:[5,6,7],
+    supportedTargets:["head","axial"],
+  };
+  const geometry={
+    head:{signature:"lighting:v1:head"},
+    axial:{signature:"lighting:v1:axial"},
+  };
+  assert.deepEqual(
+    importedLightingApplyAvailability(imported,document,{slot:5,target:"head"},geometry),
+    {compatible:true,reason:null},
+  );
+  const cases=[
+    [null,{slot:5,target:"head"},geometry,"document-required"],
+    [{...document,family:"ALICE"},{slot:5,target:"head"},geometry,"family-mismatch"],
+    [{...document,slots:[6,7]},{slot:5,target:"head"},geometry,"slot-unavailable"],
+    [document,{slot:5,target:"keyframes"},geometry,"target-unsupported"],
+    [document,{slot:5,target:"head"},{...geometry,axial:{signature:"wrong"}},"layout-mismatch"],
+  ];
+  for(const [candidate,destination,served,reason] of cases){
+    assert.equal(
+      importedLightingApplyAvailability(imported,candidate,destination,served).reason,
+      reason,
+    );
+  }
 });
 
 test("known product variants share their intended compatibility families", () => {

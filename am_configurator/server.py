@@ -24,7 +24,14 @@ from socketserver import TCPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, device_mapping, macro_text, profile_metadata, transport
+from . import (
+    __version__,
+    device_mapping,
+    macro_text,
+    profile_import,
+    profile_metadata,
+    transport,
+)
 
 
 _PKG = Path(__file__).resolve().parent
@@ -48,7 +55,7 @@ _KEY_FIELDS = (
     "exchange_key", "exchange_num",
 )
 _MAX_GIF_BYTES = 12_000_000
-_MAX_PROFILE_BYTES = 10_000_000
+_MAX_PROFILE_BYTES = profile_import.MAX_JSON_BYTES
 _KEYMAP_VERIFY_ATTEMPTS = 4
 _KEYMAP_VERIFY_RETRY_SECONDS = 1.0
 _MACRO_EVENTS_PER_BLOCK = 8
@@ -685,7 +692,7 @@ def _profile_name(value: object) -> str:
     return name
 
 
-def _decode_profile_data(value: object) -> tuple[bytes, dict[str, Any]]:
+def _decode_import_data(value: object) -> bytes:
     if (
         not isinstance(value, str)
         or not value
@@ -698,11 +705,16 @@ def _decode_profile_data(value: object) -> tuple[bytes, dict[str, Any]]:
         raise ValueError("The configuration file encoding is invalid.") from exc
     if not payload or len(payload) > _MAX_PROFILE_BYTES:
         raise ValueError("The configuration file is missing or too large.")
-    try:
-        decoded = json.loads(payload)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("The configuration file is not valid JSON.") from exc
-    return payload, _validated_profile_config(decoded)
+    return payload
+
+
+def _import_report(value: object) -> tuple[bytes, profile_import.ImportReport]:
+    payload = _decode_import_data(value)
+    report = profile_import.import_json_bytes(
+        payload,
+        profile_validator=_validated_profile_config,
+    )
+    return payload, report
 
 
 def _profile_device_metadata(
@@ -2576,6 +2588,8 @@ class _Handler(BaseHTTPRequestHandler):
             body = self._body()
             if path == "/api/config/validate":
                 self._json(validate_config(body.get("config")))
+            elif path == "/api/config/import":
+                self._import_json(body)
             elif path == "/api/config/export":
                 self._export_profile(body)
             elif path == "/api/keymap/assignment":
@@ -2909,6 +2923,25 @@ class _Handler(BaseHTTPRequestHandler):
             }
         )
 
+    def _import_json(self, body: dict[str, Any]) -> None:
+        if urlparse(self.path).query:
+            raise ValueError("JSON import does not accept query fields.")
+        if set(body) != {"name", "data"}:
+            raise ValueError(
+                "JSON import requires exactly one file name and encoded file."
+            )
+        name = _profile_name(body["name"])
+        _payload, report = _import_report(body["data"])
+        response = {"name": name, **report.to_response()}
+        if report.kind == profile_import.LIGHTING_KIND:
+            product_id = report.lighting()["destination"]["product_id"]
+            layout = profile_metadata.resolve_layout_evidence(
+                {"product_info": {"product_id": product_id}}
+            )
+            response["layout_evidence"] = layout["evidence"]
+            response["layout_warning"] = layout["warning"]
+        self._json(response)
+
     def _export_profile(self, body: dict[str, Any]) -> None:
         self._strict_body(
             body,
@@ -3145,14 +3178,82 @@ class _Handler(BaseHTTPRequestHandler):
             raise ValueError(
                 "Profile import requires exactly one file name and encoded file."
             )
-        configuration, config = _decode_profile_data(body["data"])
-        detail = self._bank_keyboard_profile(
-            config=config,
-            configuration=configuration,
+        configuration, report = _import_report(body["data"])
+        if report.kind == profile_import.PROFILE_KIND:
+            config = report.profile()
+            if report.source_format != profile_import.AM_CONFIGURATOR_PROFILE:
+                configuration = _profile_snapshot_bytes(config)
+            detail = self._bank_keyboard_profile(
+                config=config,
+                configuration=configuration,
+                origin="json_import",
+                name=body["name"],
+            )
+        else:
+            detail = self._bank_imported_lighting(
+                report=report,
+                name=body["name"],
+            )
+        response = {
+            **detail,
+            "source_format": report.source_format,
+            "normalizations": [
+                normalization.to_dict()
+                for normalization in report.normalizations
+            ],
+        }
+        self._json(response, HTTPStatus.CREATED)
+
+    def _bank_imported_lighting(
+        self,
+        *,
+        report: profile_import.ImportReport,
+        name: str,
+    ) -> dict[str, Any]:
+        lighting = report.lighting()
+        mapped_result = lighting["mapped_result"]
+        tracks = lighting["tracks"]
+        destination = lighting["destination"]
+        descriptor = device_mapping.device_descriptor(destination["product_id"])
+        rendered = json.dumps(
+            mapped_result,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        preview = _lighting_composition_preview(mapped_result)
+        catalog = self.state.library_catalog()
+        item = catalog.saved_items.create_item(
+            kind="lighting_composition",
             origin="json_import",
-            name=body["name"],
+            name=_profile_name(name),
+            device=_lighting_composition_device(descriptor, tracks),
+            composition={
+                "schema_version": 1,
+                "source_catalog_id": None,
+                "transform": None,
+                "effects": [],
+                "manual_overrides": [],
+                "destination": destination,
+                "tracks": tracks,
+                "rendered_asset_id": "rendered",
+                "preview_asset_id": "preview",
+            },
+            assets={
+                "rendered": {
+                    "kind": "result",
+                    "mime_type": "application/json",
+                    "data": rendered,
+                },
+                "preview": {
+                    "kind": "preview",
+                    "mime_type": "image/png",
+                    "data": preview,
+                },
+            },
         )
-        self._json(detail, HTTPStatus.CREATED)
+        return catalog.get(f"item:{item['item_id']}")
 
     def _library_save_profile(self, body: dict[str, Any]) -> None:
         if urlparse(self.path).query:

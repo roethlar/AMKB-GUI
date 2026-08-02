@@ -209,7 +209,7 @@ test("one mapped media frame becomes an exact transient Board frame", () => {
   assert.deepEqual(selected.frames_by_target.keyframes, [["#ABCDEF", "#123456"]]);
 });
 
-test("document, local effect, media, and procedural sources share one BoardFrameSet contract", () => {
+test("document, local effect, media, procedural, and imported JSON share one BoardFrameSet contract", () => {
   const documentSet = boardFrameSetFromDocument({
     context: context(),
     track: {
@@ -276,20 +276,95 @@ test("document, local effect, media, and procedural sources share one BoardFrame
     targetLengths: TARGET_LENGTHS,
     allowedDurations: FIRMWARE_DURATIONS,
   });
+  const importedSet = boardFrameSetFromMappedResult({
+    context: context({source_kind: "imported_json", revision: 13}),
+    mappedResult,
+    provenance: "imported_json",
+    targetLengths: TARGET_LENGTHS,
+    allowedDurations: FIRMWARE_DURATIONS,
+  });
 
   assert.deepEqual(mediaSet.frames_by_target, proceduralSet.frames_by_target);
+  assert.deepEqual(importedSet.frames_by_target, proceduralSet.frames_by_target);
   assert.equal(mediaSet.provenance, "media_render");
   assert.deepEqual(mediaSet.timeline, [
     {index: 0, source_frame_index: 3},
     {index: 1, source_frame_index: 1},
   ]);
   assert.equal(proceduralSet.provenance, "procedural_result");
+  assert.equal(importedSet.provenance, "imported_json");
   assert.deepEqual(projectBoardFrame(
     proceduralSet,
     "head",
     1,
     {targetLengths: TARGET_LENGTHS, allowedDurations: FIRMWARE_DURATIONS},
   ), ["#200001", "#200002", "#200003"]);
+});
+
+test("imported Head and Per-key views keep one exact timeline position", () => {
+  const targetLengths={head:3,axial:2};
+  let state=createLightingWorkspace({
+    documentEpoch:7,
+    slot:5,
+    target:"head",
+    tool:"paint",
+    route:"lighting/edit",
+  });
+  state=reduceLightingWorkspace(state,{
+    type:"IMPORTED_LIGHTING_OPENED",
+    target:"head",
+  }).state;
+  const mappedResult={
+    duration_ms:90,
+    tracks:{
+      head:{
+        frame_count:3,
+        frames:[
+          ["#100001","#100002","#100003"],
+          ["#200001","#200002","#200003"],
+          ["#300001","#300002","#300003"],
+        ],
+      },
+      axial:{
+        frame_count:3,
+        frames:[
+          ["#400001","#400002"],
+          ["#500001","#500002"],
+          ["#600001","#600002"],
+        ],
+      },
+    },
+  };
+  const publishImported=workspace=>reduceLightingWorkspace(workspace,{
+    type:"BOARD_FRAME_SET_ACCEPTED",
+    frame_set:boardFrameSetFromMappedResult({
+      context:{...workspace.context,source_kind:"imported_json",revision:1},
+      mappedResult,
+      provenance:"imported_json",
+      targetLengths,
+      allowedDurations:FIRMWARE_DURATIONS,
+    }),
+    target_lengths:targetLengths,
+    allowed_durations:FIRMWARE_DURATIONS,
+  }).state;
+
+  state=publishImported(state);
+  state=reduceLightingWorkspace(state,{type:"PLAYHEAD_SCRUBBED",index:1}).state;
+  const changed=reduceLightingWorkspace(state,{
+    type:"DESTINATION_CHANGED",
+    slot:5,
+    target:"axial",
+    playhead_index:state.playhead.index,
+  });
+  assert.equal(changed.intents[0].type,"cancel-playback");
+  assert.equal(changed.state.playhead.index,1);
+  state=publishImported(changed.state);
+  const projection=selectBoardProjection(state);
+  assert.equal(projection.index,1);
+  assert.deepEqual(projection.colors,["#500001","#500002"]);
+  assert.equal(projection.frame_set.duration_ms,90);
+  assert.equal(projection.frame_set.frame_count,3);
+  assert.deepEqual(projection.frame_set.timeline,[{index:0},{index:1},{index:2}]);
 });
 
 test("a local effect draft owns exact accepted arrays and starts destination-bound playback", () => {
@@ -453,6 +528,8 @@ test("a no-change effect explains itself without autoplay or an Apply intent", (
 test("effect playback and accepted arrays cannot leak across workspace context changes", () => {
   const transitions = [
     {type: "DOCUMENT_OPENED", document_epoch: 8, slot: 5, target: "keyframes"},
+    {type: "IMPORTED_LIGHTING_OPENED", target: "head"},
+    {type: "IMPORTED_LIGHTING_CLOSED"},
     {type: "DESTINATION_CHANGED", slot: 5, target: "head"},
     {type: "TOOL_SELECTED", tool: "paint"},
     {type: "ROUTE_CHANGED", route: "lighting/library"},

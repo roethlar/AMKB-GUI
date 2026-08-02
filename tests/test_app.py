@@ -31,8 +31,10 @@ ROOT = Path(__file__).resolve().parents[1]
 from am_configurator import __version__, profile_metadata, transport
 from am_configurator.device_mapping import (
     MAX_FRAMES,
+    device_descriptor,
     firmware_led_speed,
     frames_to_led_tracks,
+    target_capabilities,
 )
 from am_configurator.server import (
     AcceptedWriteError,
@@ -456,6 +458,65 @@ def _base_config(product: str = "80") -> dict:
         "Fn_key_num": 0,
         "key_layer": {"valid": 1, "layer_num": 2, "layer_data": [_layer(), _layer()]},
     }
+
+
+def _am_master_neon_lighting(
+    *,
+    frame_count: int = 1,
+    speed: int = 90,
+    brightness: int = 255,
+    description: str | None = None,
+) -> dict:
+    result = {
+        "speed": speed,
+        "brightness": brightness,
+        "frames": [
+            [f"{(frame * 4099 + pixel * 17 + 0x123456) & 0xFFFFFF:06x}" for pixel in range(230)]
+            for frame in range(frame_count)
+        ],
+        "frames_axial": [
+            [f"{(frame * 4099 + pixel * 17 + 0x654321) & 0xFFFFFF:06x}" for pixel in range(89)]
+            for frame in range(frame_count)
+        ],
+    }
+    if description is not None:
+        result["description"] = description
+    return result
+
+
+def _synthetic_neon_key_layout() -> list[dict[str, int | float]]:
+    axial = next(
+        target
+        for target in target_capabilities()["NEON"]["targets"]
+        if target["name"] == "axial"
+    )
+    width = axial["width"]
+    height = axial["height"]
+    pixel_map = axial["map"]
+    matrix_columns = device_descriptor("NEON80")["keymap"]["matrix_columns"]
+    result: list[dict[str, int | float]] = []
+    for row in range(height):
+        row_pixels = [
+            pixel
+            for pixel in pixel_map[row * width : (row + 1) * width]
+            if pixel >= 0
+        ]
+        key_count = min(len(row_pixels), matrix_columns)
+        key_width = 96.0 / key_count
+        for column in range(key_count):
+            result.append(
+                {
+                    "index": row * matrix_columns + column,
+                    "matrix_row": row,
+                    "matrix_col": column,
+                    "x": column * key_width,
+                    "y": row * (88.0 / height),
+                    "width": key_width,
+                    "height": 12.0,
+                    "rotation": 0.0,
+                }
+            )
+    return result
 
 
 class DesktopServerTests(unittest.TestCase):
@@ -4011,6 +4072,156 @@ class LightingStudioEndpointTests(unittest.TestCase):
 
         saved = SavedItemLibrary(self.root, minimum_free_bytes=1).scan()
         self.assertEqual([], saved["items"])
+
+    def test_json_import_endpoint_is_read_only_and_classifies_without_the_filename(
+        self,
+    ) -> None:
+        lighting = _am_master_neon_lighting(frame_count=2)
+        encoded = base64.b64encode(
+            json.dumps(lighting, separators=(",", ":")).encode("utf-8")
+        ).decode("ascii")
+        responses = []
+        for name in ("looks-like-a-profile.json", "renamed-without-a-json-suffix"):
+            status, response = self._request(
+                "POST",
+                "/api/config/import",
+                {"name": name, "data": encoded},
+            )
+            self.assertEqual(200, status)
+            self.assertEqual("am_master_am80_lighting", response["source_format"])
+            self.assertEqual("lighting", response["kind"])
+            self.assertEqual("NEON80", response["lighting"]["destination"]["product_id"])
+            self.assertEqual(2, response["lighting"]["mapped_result"]["source_frames"])
+            responses.append(response)
+        first = copy.deepcopy(responses[0])
+        second = copy.deepcopy(responses[1])
+        first.pop("name")
+        second.pop("name")
+        self.assertEqual(first, second)
+        self.assertIsNone(self._server.state.config)
+
+        status, catalog = self._request("GET", "/api/library/items")
+        self.assertEqual(200, status)
+        self.assertEqual(0, catalog["total"])
+        for path, body, token in (
+            (
+                "/api/config/import?unexpected=true",
+                {"name": "lighting.json", "data": encoded},
+                self._DEFAULT,
+            ),
+            (
+                "/api/config/import",
+                {"name": "lighting.json", "data": encoded, "extra": True},
+                self._DEFAULT,
+            ),
+            (
+                "/api/config/import",
+                {"name": "lighting.json", "data": encoded},
+                None,
+            ),
+        ):
+            with self.subTest(path=path, fields=sorted(body), authorized=token is not None):
+                status, _response = self._request("POST", path, body, token=token)
+                self.assertEqual(403 if token is None else 400, status)
+
+    def test_lighting_import_exposes_only_validated_remembered_layout_evidence(
+        self,
+    ) -> None:
+        layout = _synthetic_neon_key_layout()
+        evidence = profile_metadata.build_dynamic_layout("NEON80", layout)
+        profile_metadata.remember_dynamic_evidence(evidence)
+        lighting = _am_master_neon_lighting(frame_count=1)
+        status, response = self._request(
+            "POST",
+            "/api/config/import",
+            {
+                "name": "Offline lighting.json",
+                "data": base64.b64encode(json.dumps(lighting).encode("utf-8")).decode(
+                    "ascii"
+                ),
+            },
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("remembered", response["layout_evidence"]["source"])
+        self.assertEqual(
+            evidence["key_layout"],
+            response["layout_evidence"]["key_layout"],
+        )
+        self.assertEqual(
+            evidence["keymap_signature"],
+            response["layout_evidence"]["keymap_signature"],
+        )
+        self.assertIsNone(response["layout_warning"])
+        self.assertIsNone(self._server.state.config)
+
+    def test_library_import_banks_am_master_lighting_as_an_offline_composition(
+        self,
+    ) -> None:
+        lighting = _am_master_neon_lighting(
+            frame_count=2,
+            brightness=255,
+            description="Synthetic offline lighting",
+        )
+        encoded = base64.b64encode(json.dumps(lighting).encode("utf-8")).decode("ascii")
+        status, imported = self._request(
+            "POST",
+            "/api/library/import/profile",
+            {"name": "Offline Neon lighting.json", "data": encoded},
+        )
+        self.assertEqual(201, status)
+        self.assertEqual("lighting_composition", imported["kind"])
+        self.assertEqual("json_import", imported["item"]["origin"])
+        self.assertEqual("am_master_am80_lighting", imported["source_format"])
+        self.assertEqual("NEON", imported["item"]["device"]["family"])
+        composition = imported["item"]["composition"]
+        self.assertIsNone(composition["destination"]["slot"])
+        self.assertEqual(100, composition["destination"]["lightness"])
+        self.assertEqual(
+            "Synthetic offline lighting",
+            composition["destination"]["description"],
+        )
+        self.assertEqual({"head", "axial"}, set(composition["tracks"]))
+        rendered_id = composition["rendered_asset_id"]
+        status, headers, payload = self._raw_request(
+            f"/api/library/assets/{imported['catalog_id']}/{rendered_id}"
+        )
+        self.assertEqual(200, status)
+        self.assertEqual("application/json", headers["Content-Type"])
+        mapped = json.loads(payload)
+        self.assertEqual(2, mapped["tracks"]["head"]["frame_count"])
+        self.assertEqual(2, mapped["tracks"]["axial"]["frame_count"])
+        self.assertIsNone(self._server.state.config)
+
+    def test_am_master_profile_is_normalized_before_library_banking(self) -> None:
+        profile = _base_config("ALICE")
+        page = _page(0)
+        page["//"] = "synthetic built-in page"
+        page["frames"] = {
+            "valid": False,
+            "frame_num": 0,
+            "frame_data": [{"frame_index": "0", "frame_RGB": ["bad"]}],
+        }
+        profile["page_data"] = [page]
+        profile["page_num"] = 1
+        encoded = base64.b64encode(json.dumps(profile).encode("utf-8")).decode("ascii")
+        status, imported = self._request(
+            "POST",
+            "/api/library/import/profile",
+            {"name": "Synthetic AFA export.json", "data": encoded},
+        )
+        self.assertEqual(201, status)
+        self.assertEqual("keyboard_profile", imported["kind"])
+        self.assertEqual("am_master_profile", imported["source_format"])
+        asset_id = imported["item"]["profile"]["asset_id"]
+        status, _headers, payload = self._raw_request(
+            f"/api/library/assets/{imported['catalog_id']}/{asset_id}"
+        )
+        self.assertEqual(200, status)
+        normalized = json.loads(payload)
+        self.assertNotIn("//", normalized["page_data"][0])
+        self.assertEqual([], normalized["page_data"][0]["frames"]["frame_data"])
+        self.assertTrue(validate_config(normalized)["ok"])
+        self.assertIsNone(self._server.state.config)
 
     def test_profile_import_and_mapping_save_bank_exact_data_without_side_effects(
         self,

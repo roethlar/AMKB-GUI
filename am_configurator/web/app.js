@@ -8,7 +8,7 @@ if (queryToken) history.replaceState({}, "", `${location.pathname}${location.has
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
-const {ROUTES, STAGES, aiStudioAvailable, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, nextGridIndex, normalizeImportedAssignmentCodes, normalizeImportedLightingColors, normalizeOllamaModels, ollamaEndpointDataFlow, ollamaModelRefreshFailed, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectOllamaModelPicker, reduceLightingState, routeAvailability, safeRgbColor} = LightingState;
+const {ROUTES, STAGES, aiStudioAvailable, classifyImportedJsonSelection, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, importedLightingApplyAvailability, nextGridIndex, normalizeOllamaModels, ollamaEndpointDataFlow, ollamaModelRefreshFailed, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectOllamaModelPicker, reduceLightingState, routeAvailability, safeRgbColor} = LightingState;
 const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
 const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, mergeScannedDeviceDetails, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const {canonicalizeSourceTransform, createLatestTaskScheduler, defaultSourceTransform, interpolateMoveZoom, presetSourceTransform, renderColorEffect, resolveSourceGeometry, selectDemonstrativeEffectFrame, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
@@ -98,6 +98,7 @@ const state = {
   mediaImportError: false,
   mediaImporting: false,
   appliedLightingProvenance: null,
+  importedLighting: null,
   localAnimationEffect: null,
   localAnimationFrameCount: 8,
   localAnimationDuration: 90,
@@ -412,12 +413,12 @@ function productId() {
   return state.config?.product_info?.product_id || "—";
 }
 
-function activeFamilySpec() {
-  const spec=specForProduct(productId());
+function activeFamilySpec(product=productId()) {
+  const spec=specForProduct(product);
   const device=state.devices.find(item=>deviceKey(item)===state.loadedDevice);
   return withDeviceMacroLimits(
     spec,
-    device&&sameProductFamily(productId(),device.product_id)?device:null,
+    device&&sameProductFamily(product,device.product_id)?device:null,
   );
 }
 
@@ -430,6 +431,7 @@ function productLabel(value) {
   if(family==="80")return "Relic 80";
   if(family==="ALICE")return "AFA / AFA 2";
   if(family==="CB")return "CyberBoard";
+  if(family==="NEON")return "AM Neon 80";
   return String(value||"Unknown keyboard");
 }
 
@@ -587,11 +589,16 @@ async function readFiles(input, merge) {
   input.value = "";
   if (!files.length) return;
   try {
-    const configs = await Promise.all(files.map(async file => {
-      const parsed = JSON.parse(await file.text());
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${file.name} is not a configuration object.`);
-      return normalizeImportedLightingColors(normalizeImportedAssignmentCodes(parsed));
-    }));
+    const imported = await Promise.all(files.map(importJsonFile));
+    const selection=classifyImportedJsonSelection(
+      imported.map(entry=>entry.report),
+      {merge},
+    );
+    if(selection.kind==="lighting"){
+      adoptImportedLighting(imported[selection.index]);
+      return;
+    }
+    const configs=imported.map(entry=>entry.report.config);
     const families=new Set(configs.map(config=>productFamily(config?.product_info?.product_id)).filter(Boolean));
     if(families.size>1)throw new Error("The selected JSON files belong to different keyboard families and cannot be combined.");
     const incoming=mergeConfigs(configs);
@@ -606,7 +613,7 @@ async function readFiles(input, merge) {
       const compatibility=await api("/api/config/compatibility",{method:"POST",body:JSON.stringify({config:incoming,target_product_id:target.product_id})});
       if(!compatibility.compatible){
         const canImport=Boolean(state.config)&&sameProductFamily(productId(),target.product_id)&&compatibility.can_import_macros;
-        const choice=await chooseIncompatibleProfile(incoming,files[0].name,target,compatibility,canImport);
+        const choice=await chooseIncompatibleProfile(incoming,imported[0].report.name,target,compatibility,canImport);
         if(choice==="cancel")return;
         if(choice==="macros"){
           await importMacrosFromConfig(incoming,files[0].name);
@@ -618,6 +625,7 @@ async function readFiles(input, merge) {
 
     const combined=effectiveMerge&&state.config?mergeConfigs([state.config,...configs]):incoming;
     if (!combined?.key_layer) throw new Error("No key_layer was found in the selected JSON.");
+    closeImportedLightingReview({render:false});
     if (!effectiveMerge) {
       stashDeviceDocument();
       state.loadedDevice = null;
@@ -625,7 +633,7 @@ async function readFiles(input, merge) {
     if (effectiveMerge && state.config) pushUndo();
     state.config = combined;
     state.documentRevision=null;
-    state.fileName = cleanFileName(files[0].name);
+    state.fileName = cleanFileName(imported[0].report.name);
     if (!effectiveMerge) resetDocumentView();
     else state.ledFrame = 0;
     state.undo = [];
@@ -635,7 +643,8 @@ async function readFiles(input, merge) {
     updateMeta();
     render();
     const layoutWarning=state.layoutEvidenceWarning?`\n${state.layoutEvidenceWarning}`:"";
-    toast(effectiveMerge ? "Configurations merged" : "Configuration opened", `${productId()} · ${layers().length} layers · ${(state.config.macro_key || []).length} macros${layoutWarning}`, "success");
+    const importNotes=importNormalizationText(imported.map(entry=>entry.report));
+    toast(effectiveMerge ? "Configurations merged" : "Configuration opened", `${productId()} · ${layers().length} layers · ${(state.config.macro_key || []).length} macros${importNotes?`\n${importNotes}`:""}${layoutWarning}`, "success");
   } catch (error) {
     toast("Could not open JSON", error.message, "error");
   }
@@ -679,6 +688,72 @@ async function saveConfig() {
   } catch(error) {
     toast("Could not save JSON",error.message||String(error),"error");
   }
+}
+
+function freezeImportedValue(value) {
+  if(!value||typeof value!=="object"||Object.isFrozen(value))return value;
+  for(const child of Object.values(value))freezeImportedValue(child);
+  return Object.freeze(value);
+}
+
+function importNormalizationText(reports) {
+  return reports
+    .flatMap(report=>Array.isArray(report?.normalizations)?report.normalizations:[])
+    .map(note=>String(note?.message||"").trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+async function importJsonFile(file) {
+  const data=arrayBufferToBase64(await file.arrayBuffer());
+  const response=await api("/api/config/import",{
+    method:"POST",
+    body:JSON.stringify({name:file.name,data}),
+  });
+  if(
+    !response
+    ||!["profile","lighting"].includes(response.kind)
+    ||typeof response.source_format!=="string"
+    ||(response.kind==="profile"&&(!response.config||Array.isArray(response.config)))
+    ||(response.kind==="lighting"&&!response.lighting?.mapped_result?.tracks)
+  )throw new Error("The imported JSON response could not be read.");
+  return {file,data,report:freezeImportedValue(response)};
+}
+
+function adoptImportedLighting(entry) {
+  cancelLocalAnimationDraft({render:false});
+  mediaCompositionFrameScheduler.cancel();
+  mediaCompositionRenderScheduler.cancel();
+  state.mediaComposition=null;
+  state.importedLighting={
+    report:entry.report,
+    data:entry.data,
+    name:entry.report.name,
+    savedCatalogId:null,
+    saving:false,
+  };
+  const target=entry.report.lighting.destination.target;
+  dispatchLightingWorkspace({
+    type:"IMPORTED_LIGHTING_OPENED",
+    slot:state.ledSlot,
+    target,
+  });
+  state.ledPixel=0;
+  navigateTo(ROUTES.EDIT);
+  const notes=importNormalizationText([entry.report]);
+  toast(
+    "AM Master lighting opened",
+    `Reviewing ${entry.report.lighting.mapped_result.source_frames} frame${entry.report.lighting.mapped_result.source_frames===1?"":"s"} without changing the open keyboard profile.${notes?` ${notes}`:""}`,
+    "success",
+  );
+}
+
+function closeImportedLightingReview({render=true}={}) {
+  if(!state.importedLighting)return false;
+  state.importedLighting=null;
+  dispatchLightingWorkspace({type:"IMPORTED_LIGHTING_CLOSED"});
+  if(render)render();
+  return true;
 }
 
 // Physical geometry transcribed from Angry Miao's public configurator.
@@ -865,8 +940,8 @@ function lightingAppliedDetail(slot=state.ledSlot,target=state.ledTarget,extra="
 // Null when this build has no LED geometry for the loaded product. Callers must
 // handle that rather than substituting a default family: editing an unknown
 // device with CyberBoard maps is how wrong pixel data reaches a keyboard.
-function activeLedModel() {
-  const family=supportedFamily(productId());
+function activeLedModel(product=productId()) {
+  const family=supportedFamily(product);
   return family===null?null:LED_MODELS[family];
 }
 
@@ -1054,12 +1129,51 @@ function documentDescriptor() {
   const model = activeLedModel();
   if (!model) return null;
   const targets = model.targets.map(target => target.key);
+  const slots=pageData().map((page,index)=>{
+    const declared=Number(page?.page_index);
+    return Number.isSafeInteger(declared)?declared:index;
+  }).filter(slot=>slot>=5&&slot<=7);
   return {
     family: productFamily(productId()),
     productId: productId(),
-    slots: [5, 6, 7],
+    slots,
     supportedTargets: targets,
   };
+}
+
+function importedLightingReport() {
+  return state.importedLighting?.report?.kind==="lighting"
+    ?state.importedLighting.report
+    :null;
+}
+
+function activeLightingProductId() {
+  return importedLightingReport()?.lighting?.destination?.product_id||productId();
+}
+
+function activeLightingModel() {
+  return activeLedModel(activeLightingProductId());
+}
+
+function importedLightingGeometry() {
+  const report=importedLightingReport();
+  const family=report?.lighting?.destination?.family;
+  const targets=report?.lighting?.destination?.targets;
+  if(!family||!Array.isArray(targets))return {};
+  return Object.fromEntries(
+    targets.map(target=>[target,servedGeometry(family,target)]),
+  );
+}
+
+function importedLightingApplyDecision(target=state.ledTarget,slot=state.ledSlot) {
+  const report=importedLightingReport();
+  if(!report)return {compatible:false,reason:"import-invalid"};
+  return importedLightingApplyAvailability(
+    report,
+    documentDescriptor(),
+    {slot,target},
+    importedLightingGeometry(),
+  );
 }
 
 function renderRoute() {
@@ -1163,22 +1277,30 @@ async function importLibraryProfiles(input) {
   state.library.importing=true;
   renderLibrary();
   let imported=0;
+  let importedLighting=0;
+  let importedProfiles=0;
   const failures=[];
   try{
     for(const file of files){
       try{
         const data=arrayBufferToBase64(await file.arrayBuffer());
-        await api("/api/library/import/profile",{
+        const detail=await api("/api/library/import/profile",{
           method:"POST",
           body:JSON.stringify({name:file.name,data}),
         });
         imported++;
+        if(detail.kind==="lighting_composition")importedLighting++;
+        else if(detail.kind==="keyboard_profile")importedProfiles++;
       }catch(error){
         failures.push(`${file.name}: ${error.message}`);
       }
     }
     if(imported){
-      state.library.filter="keymaps";
+      state.library.filter=importedLighting&&importedProfiles
+        ?"all"
+        :importedLighting
+          ?"lighting"
+          :"keymaps";
       state.library.loaded=false;
       await loadLibrary({force:true});
     }
@@ -1190,8 +1312,8 @@ async function importLibraryProfiles(input) {
       );
     }else{
       toast(
-        imported===1?"Profile added to Library":"Profiles added to Library",
-        `${imported} JSON file${imported===1?" was":"s were"} saved to Library.`,
+        imported===1?"JSON added to Library":"JSON files added to Library",
+        `${imported} recognized file${imported===1?" was":"s were"} saved${importedLighting?` · ${importedLighting} lighting`:""}${importedProfiles?` · ${importedProfiles} profile${importedProfiles===1?"":"s"}`:""}.`,
         "success",
       );
     }
@@ -2174,7 +2296,8 @@ function documentRequirementMarkup(message) {
 
 function renderLightingShell() {
   const route = state.lighting.route;
-  const available = routeAvailability(route, documentDescriptor());
+  const imported=importedLightingReport();
+  const available = routeAvailability(route, documentDescriptor(), imported);
   const routes = [ROUTES.EDIT, ROUTES.LIBRARY];
   const names = ["edit", "library"];
   routes.forEach((candidate, index) => {
@@ -2186,23 +2309,40 @@ function renderLightingShell() {
     panel.hidden = !selected;
   });
 
-  $("#lighting-destination-product").textContent = state.config
-    ? `${productLabel(productId())} · ${productId()}`
-    : "No document open";
+  $("#lighting-destination-product").textContent = imported
+    ? `Reviewing AM Master lighting · ${productLabel(activeLightingProductId())}`
+    :state.config
+      ? `${productLabel(productId())} · ${productId()}`
+      :"No document open";
   const destinationLocked = Boolean(state.lighting.activeJob);
   $$('[data-lighting-slot]').forEach(button => {
-    const selected = Number(button.dataset.lightingSlot) === state.ledSlot;
+    const slot=Number(button.dataset.lightingSlot);
+    const selected = slot === state.ledSlot;
     button.classList.toggle("active", selected);
     button.setAttribute("aria-pressed", String(selected));
-    button.disabled = !state.config || destinationLocked;
+    button.disabled = !state.config || destinationLocked || Boolean(
+      imported&&!importedLightingApplyDecision(state.ledTarget,slot).compatible,
+    );
   });
 
   const targetHost = $("#lighting-target-controls");
-  const targets = (state.config && activeLedModel()?.targets) || [];
+  const importedTargets=new Set(imported?.lighting?.destination?.targets||[]);
+  const targets = imported
+    ?(activeLightingModel()?.targets||[]).filter(target=>importedTargets.has(target.key))
+    :(state.config&&activeLedModel()?.targets)||[];
   if (targets.length && !targets.some(target => target.key === state.ledTarget)) state.ledTarget = targets[0].key;
   renderTargetControls(targetHost,targets,state.ledTarget,destinationLocked,target=>{
     cancelLocalAnimationDraft({render:false});
-    state.ledTarget = target;
+    if(imported){
+      dispatchLightingWorkspace({
+        type:"DESTINATION_CHANGED",
+        slot:state.ledSlot,
+        target,
+        playhead_index:lightingWorkspace.playhead.index,
+      });
+    }else{
+      state.ledTarget = target;
+    }
     refreshMediaCompositionDestination();
     state.ledPixel = 0;
     renderLightingShell();
@@ -2374,8 +2514,11 @@ async function importMacros(input) {
   input.value="";
   if(!file||!state.config)return;
   try{
-    const parsed=JSON.parse(await file.text());
-    await importMacrosFromConfig(parsed,file.name);
+    const imported=await importJsonFile(file);
+    if(imported.report.kind!=="profile"){
+      throw new Error("This AM Master file contains lighting only, not keyboard macros.");
+    }
+    await importMacrosFromConfig(imported.report.config,imported.report.name);
   }catch(error){toast("Could not import macros",error.message,"error");}
 }
 
@@ -4152,9 +4295,12 @@ function wireStudioInspector() {
   updateSourceTransformView();
 }
 
-function lightingWorkspaceTargetLengths(model = activeLedModel()) {
+function lightingWorkspaceTargetLengths(
+  model=activeLedModel(),
+  product=productId(),
+) {
   if (!model) return {};
-  const spec = activeFamilySpec();
+  const spec = activeFamilySpec(product);
   return Object.fromEntries(
     model.targets.map(target => [target.key, trackColorCount(spec, target.key)]),
   );
@@ -4204,20 +4350,265 @@ function currentLightingBoardFrameSet({model, page, track, mediaPreviewTrack, ac
   return null;
 }
 
-function publishLightingBoardFrameSet(frameSet, model = activeLedModel()) {
+function publishLightingBoardFrameSet(
+  frameSet,
+  model=activeLedModel(),
+  product=productId(),
+) {
   if (!frameSet || !model) return selectBoardProjection(lightingWorkspace);
-  const targetLengths = lightingWorkspaceTargetLengths(model);
+  const targetLengths = lightingWorkspaceTargetLengths(model,product);
   dispatchLightingWorkspace({
     type: "BOARD_FRAME_SET_ACCEPTED",
     frame_set: frameSet,
     target_lengths: targetLengths,
     allowed_durations: LED_SPEEDS,
-    max_frames: Math.min(256, activeFamilySpec().frameCap || 256),
+    max_frames: Math.min(256, activeFamilySpec(product).frameCap || 256),
   });
   return selectBoardProjection(lightingWorkspace);
 }
 
+function importedLightingPreviewReady() {
+  const report=importedLightingReport();
+  const mapped=report?.lighting?.mapped_result;
+  const frameSet=lightingWorkspace.preview.board_frame_set;
+  if(
+    !mapped
+    ||!frameSet
+    ||frameSet.provenance!=="imported_json"
+    ||frameSet.context.target!==state.ledTarget
+    ||frameSet.duration_ms!==mapped.duration_ms
+    ||lightingWorkspace.preview.context_key!==workspaceContextKey(lightingWorkspace)
+  )return false;
+  const targets=report.lighting.destination.targets;
+  return targets.every(target=>{
+    const importedFrames=mapped.tracks?.[target]?.frames;
+    const boardFrames=frameSet.frames_by_target?.[target];
+    return Array.isArray(importedFrames)
+      &&Array.isArray(boardFrames)
+      &&importedFrames.length===boardFrames.length
+      &&importedFrames.every((frame,index)=>
+        Array.isArray(frame)
+        &&frame.length===boardFrames[index]?.length
+        &&frame.every((color,colorIndex)=>
+          String(color).toUpperCase()===boardFrames[index][colorIndex]
+        )
+      );
+  });
+}
+
+function importedLightingReasonText(reason) {
+  return ({
+    "document-required":"Open or read an AM Neon 80 profile to apply this lighting. Preview and Save to Library work without a keyboard profile.",
+    "family-mismatch":"The open profile belongs to a different keyboard. Open or read an AM Neon 80 profile to enable Apply.",
+    "slot-unavailable":"The open AM Neon 80 profile has no matching custom slot. Create or read its lighting pages first.",
+    "target-unsupported":"The open profile does not expose both Neon lighting targets.",
+    "layout-mismatch":"The imported lighting does not match this build's canonical Neon lighting map.",
+    "import-invalid":"The imported lighting report is incomplete. Open the JSON file again.",
+  })[reason]||"The imported lighting cannot be applied to the open profile.";
+}
+
+function importedLightingPixelMarkup(colors,physicalLayout,pixelMap,columns) {
+  if(physicalLayout){
+    return `<div class="pixel-grid physical neon-led-board" role="grid" aria-label="Imported Per-key LED preview">${physicalLayout.map((item,position)=>{
+      const color=safeRgbColor(colors[item.index]);
+      const label=item.label||`LED ${item.index}`;
+      return `<button class="pixel physical-pixel" type="button" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${item.index}" data-pixel-description="${esc(label)}" style="left:${item.x}%;top:${item.y}%;width:${item.w}%;height:${item.h??10.7}%;--rotation:${item.rotation}deg;background:${color};--pixel-color:${color}" aria-label="${esc(label)}, ${color}" title="${esc(label)} · ${color}"><small>LED ${item.index}</small></button>`;
+    }).join("")}</div>`;
+  }
+  return `<div class="pixel-grid display" role="grid" aria-label="Imported Head matrix LED preview" style="grid-template-columns:repeat(${columns},1fr)">${pixelMap.map((index,position)=>{
+    if(index<0)return `<span class="pixel-spacer"></span>`;
+    const color=safeRgbColor(colors[index]);
+    return `<button class="pixel" type="button" role="gridcell" tabindex="${position===state.ledPixel?0:-1}" data-pixel="${index}" style="background:${color};--pixel-color:${color}" aria-label="LED ${index}, ${color}" title="LED ${index} · ${color}"></button>`;
+  }).join("")}</div>`;
+}
+
+function importedLightingTimelineMarkup(frames,index) {
+  return `<div class="lighting-timeline-toolbar"><div class="lighting-playback-controls"><button id="lighting-previous-frame" class="icon-button" type="button" aria-label="Previous frame" ${frames.length<=1?"disabled":""}>←</button><button id="play-led" class="button ghost" type="button" aria-label="${state.playing?"Pause lighting":"Play lighting"}" ${frames.length<=1?"disabled":""}>${state.playing?"Pause":"Play"}</button><button id="lighting-next-frame" class="icon-button" type="button" aria-label="Next frame" ${frames.length<=1?"disabled":""}>→</button></div><input id="lighting-timeline-scrubber" type="range" min="0" max="${Math.max(0,frames.length-1)}" value="${index}" aria-label="Lighting frame" ${frames.length<=1?"disabled":""}><div class="lighting-timeline-position"><strong id="lighting-frame-position" aria-live="polite">Frame ${index+1} of ${frames.length}</strong><small id="lighting-loop-status">${frames.length>1?"Loops continuously":"Single frame"}</small></div></div><div class="lighting-timeline-frames" role="list" aria-label="Imported lighting timeline">${frames.map((colors,frameIndex)=>`<button class="frame-item ${frameIndex===index?"active":""}" type="button" role="listitem" data-frame="${frameIndex}" aria-pressed="${frameIndex===index}" aria-label="Frame ${frameIndex+1}${frameIndex===index?", selected":""}"><span class="frame-thumb">${colors.slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(frameIndex+1).padStart(2,"0")}</strong><small>${frameIndex===index?"Previewing":"Select"}</small></span></button>`).join("")}</div>`;
+}
+
+function renderImportedLightingReview() {
+  activeSourceTransformController?.teardown();
+  activeSourceTransformController=null;
+  const imported=state.importedLighting;
+  const report=importedLightingReport();
+  const lighting=report?.lighting;
+  const mapped=lighting?.mapped_result;
+  const model=activeLightingModel();
+  if(!imported||!lighting||!mapped||!model){
+    showLightingEditMessage(`<div class="empty-state lighting-edit-empty"><h1>Could not read imported lighting.</h1><p>Close this review and open the AM Master JSON again.</p><button id="imported-lighting-close" class="button ghost">Close review</button></div>`);
+    $("#imported-lighting-close")?.addEventListener("click",()=>closeImportedLightingReview());
+    return;
+  }
+  const targets=lighting.destination.targets;
+  if(!targets.includes(state.ledTarget))state.ledTarget=lighting.destination.target;
+  const product=lighting.destination.product_id;
+  const family=lighting.destination.family;
+  const target=state.ledTarget;
+  const targetLabel=model.targets.find(item=>item.key===target)?.label||target;
+  const targetLengths=lightingWorkspaceTargetLengths(model,product);
+  let boardProjection=null;
+  try{
+    const frameSet=boardFrameSetFromMappedResult({
+      context:lightingWorkspaceFrameContext("imported_json"),
+      mappedResult:mapped,
+      provenance:"imported_json",
+      targetLengths,
+      allowedDurations:LED_SPEEDS,
+      maxFrames:Math.min(256,activeFamilySpec(product).frameCap||256),
+    });
+    boardProjection=publishLightingBoardFrameSet(frameSet,model,product);
+  }catch(error){
+    dispatchLightingWorkspace({type:"WORKSPACE_ERROR_REPORTED",error});
+  }
+  if(!boardProjection){
+    showLightingEditMessage(`<div class="empty-state lighting-edit-empty"><h1>Could not preview imported lighting.</h1><p>The file passed import but its canonical LED frames could not be published.</p><button id="imported-lighting-close" class="button ghost">Close review</button></div>`);
+    $("#imported-lighting-close")?.addEventListener("click",()=>closeImportedLightingReview());
+    return;
+  }
+  const servedTarget=servedGeometry(family,target);
+  const importedLayoutEvidence=report.layout_evidence||null;
+  const layoutEvidence=state.config&&sameProductFamily(productId(),product)
+    ?state.layoutEvidence||importedLayoutEvidence
+    :importedLayoutEvidence;
+  const physicalLayout=target==="axial"
+    ?projectVialLedLayout(displayGeometryDevice(product,layoutEvidence),servedTarget)
+    :null;
+  const frames=boardProjection.frame_set.frames_by_target[target]||[];
+  const index=Math.min(boardProjection.index,Math.max(0,frames.length-1));
+  const colors=frames[index]||[];
+  const pixelMap=servedTarget?.map||[];
+  const columns=Math.max(1,Number(servedTarget?.width)||1);
+  const missingGeometry=!servedTarget||(target==="axial"&&!physicalLayout);
+  const missingGeometryTitle=target==="axial"
+    ?"Per-key layout unavailable."
+    :`${targetLabel} layout unavailable.`;
+  const missingGeometryDetail=target==="axial"
+    ?report.layout_warning||"Connect this Neon 80 or open a portable Neon profile containing its exact layout. Head matrix preview remains available now."
+    :"This build did not provide the canonical geometry for this lighting target. Choose Per-key if it is available, or close the review and update the app.";
+  const pixelCanvas=missingGeometry
+    ?`<div class="route-requirement"><div><strong>${esc(missingGeometryTitle)}</strong><p>${esc(missingGeometryDetail)}</p></div></div>`
+    :importedLightingPixelMarkup(colors,physicalLayout,pixelMap,columns);
+  const applyDecision=importedLightingApplyDecision(target);
+  const applyReady=applyDecision.compatible&&importedLightingPreviewReady();
+  const notes=(report.normalizations||[]).map(note=>`<li>${esc(note.message)}</li>`).join("");
+  const description=lighting.description
+    ?`<p class="control-help">${esc(lighting.description)}</p>`
+    :"";
+  const saved=Boolean(imported.savedCatalogId);
+  if(!showLightingWorkspace())return;
+  $("#lighting-preview-panes").innerHTML=`<section id="lighting-board-pane" class="card lighting-pane lighting-board-pane" aria-label="${esc(targetLabel)} Board"><div class="card-header led-canvas-heading"><div><strong>${esc(targetLabel)}</strong><small>Exact imported LED frames · ${colors.length} lights</small></div></div><div class="lighting-pane-body"><div id="led-canvas" class="led-canvas ${physicalLayout?"physical-canvas":""} draft-preview" data-lighting-destination-key="${esc(workspaceDestinationKey(lightingWorkspace))}" role="region" aria-label="Imported AM Master lighting preview">${pixelCanvas}</div></div></section>`;
+  $("#lighting-timeline").innerHTML=importedLightingTimelineMarkup(frames,index);
+  $("#lighting-studio-inspector").innerHTML=`<div class="studio-inspector-body imported-lighting-review"><div class="studio-panel-heading"><div><strong>AM Master lighting</strong><small>${esc(imported.name)}</small></div><span class="pill">Review</span></div>${description}<dl class="imported-lighting-facts"><div><dt>Frames</dt><dd>${mapped.source_frames}</dd></div><div><dt>Timing</dt><dd>${mapped.duration_ms} ms</dd></div><div><dt>Brightness</dt><dd>${lighting.destination.lightness}%</dd></div><div><dt>Tracks</dt><dd>Head + Per-key</dd></div></dl>${notes?`<details class="advanced-disclosure"><summary>Import notes</summary><ul class="control-help">${notes}</ul></details>`:""}<div class="media-composition-actions imported-lighting-actions"><button id="imported-lighting-apply" class="button primary" ${applyReady?"":"disabled"}>Apply to custom slot ${state.ledSlot-4}</button><button id="imported-lighting-save" class="button ghost" ${imported.saving||saved?"disabled":""}>${saved?"Saved to Library":imported.saving?"Saving…":"Save to Library"}</button><button id="imported-lighting-close" class="button ghost">Close review</button></div><p class="control-help">${esc(applyReady?"Apply changes only the open profile through one Undo checkpoint. It never writes the keyboard.":importedLightingReasonText(applyDecision.reason))}</p></div>`;
+  wireImportedLightingReview(columns);
+  updateLightingWorkspaceStatus(boardProjection,"Imported AM Master JSON · exact LED review");
+  renderLightingBoardProjection();
+}
+
+function wireImportedLightingReview(columns) {
+  const scrub=index=>{
+    const projection=selectBoardProjection(lightingWorkspace);
+    if(!projection)return;
+    state.ledFrame=Math.max(0,Math.min(projection.frame_set.frame_count-1,Number(index)));
+  };
+  $$('[data-frame]').forEach(button=>button.addEventListener("click",()=>{
+    scrub(button.dataset.frame);
+    renderImportedLightingReview();
+    focusSelectedFrame();
+  }));
+  $("#lighting-timeline-scrubber")?.addEventListener("input",event=>scrub(event.target.value));
+  $("#lighting-previous-frame")?.addEventListener("click",()=>{
+    const projection=selectBoardProjection(lightingWorkspace);
+    if(projection)scrub((projection.index-1+projection.frame_set.frame_count)%projection.frame_set.frame_count);
+  });
+  $("#lighting-next-frame")?.addEventListener("click",()=>{
+    const projection=selectBoardProjection(lightingWorkspace);
+    if(projection)scrub((projection.index+1)%projection.frame_set.frame_count);
+  });
+  $("#play-led")?.addEventListener("click",toggleLightingPlayback);
+  const pixels=$$(".pixel",$("#led-canvas"));
+  const focusPixel=index=>{
+    const next=Math.min(pixels.length-1,Math.max(0,index));
+    pixels.forEach((pixel,pixelIndex)=>{pixel.tabIndex=pixelIndex===next?0:-1;});
+    state.ledPixel=next;
+    pixels[next]?.focus();
+  };
+  pixels.forEach((pixel,index)=>{
+    pixel.setAttribute("aria-disabled","true");
+    pixel.addEventListener("focus",()=>{state.ledPixel=index;});
+    pixel.addEventListener("keydown",event=>{
+      if(!["ArrowLeft","ArrowRight","ArrowUp","ArrowDown","Home","End"].includes(event.key))return;
+      event.preventDefault();
+      focusPixel(nextGridIndex(index,event.key,pixels.length,columns));
+    });
+  });
+  $("#imported-lighting-apply")?.addEventListener("click",applyImportedLighting);
+  $("#imported-lighting-save")?.addEventListener("click",saveImportedLightingToLibrary);
+  $("#imported-lighting-close")?.addEventListener("click",()=>{
+    closeImportedLightingReview();
+    toast("Lighting review closed","The open keyboard profile was not changed.","success");
+  });
+}
+
+function applyImportedLighting() {
+  const report=importedLightingReport();
+  const decision=importedLightingApplyDecision();
+  if(!report||!decision.compatible||!importedLightingPreviewReady()){
+    return toast("Could not apply imported lighting",`${importedLightingReasonText(decision.reason)} Nothing was changed.`,"error");
+  }
+  const page=getPage(state.ledSlot);
+  if(!page)return toast("Could not apply imported lighting","The selected custom slot is unavailable. Nothing was changed.","error");
+  const mapped=report.lighting.mapped_result;
+  const target=state.ledTarget;
+  const lightness=report.lighting.destination.lightness;
+  const candidate=clone(page);
+  applyLedResultToPage(candidate,mapped,target,false);
+  candidate.lightness=lightness;
+  mutate(()=>{
+    applyLedResultToPage(page,mapped,target,false);
+    page.lightness=lightness;
+    state.appliedLightingProvenance=null;
+    state.importedLighting=null;
+    dispatchLightingWorkspace({type:"IMPORTED_LIGHTING_CLOSED"});
+    state.ledTarget=target;
+    state.ledFrame=0;
+  });
+  toast(
+    `Applied to ${lightingSlotLabel()}`,
+    lightingAppliedDetail(state.ledSlot,target,"Both imported Neon tracks were applied through one Undo checkpoint. Nothing was written to the keyboard."),
+    "success",
+  );
+}
+
+async function saveImportedLightingToLibrary() {
+  const imported=state.importedLighting;
+  if(!imported||imported.saving||imported.savedCatalogId)return;
+  imported.saving=true;
+  renderImportedLightingReview();
+  try{
+    const detail=await api("/api/library/import/profile",{
+      method:"POST",
+      body:JSON.stringify({name:imported.name,data:imported.data}),
+    });
+    if(detail.kind!=="lighting_composition")throw new Error("The Library did not return a lighting composition.");
+    if(state.importedLighting!==imported)return;
+    imported.savedCatalogId=detail.catalog_id;
+    state.library.loaded=false;
+    toast("Lighting saved to Library",`${detail.name} · Head + Per-key`,"success");
+  }catch(error){
+    if(state.importedLighting===imported)toast("Could not save lighting",error.message,"error");
+  }finally{
+    if(state.importedLighting===imported){
+      imported.saving=false;
+      renderImportedLightingReview();
+    }
+  }
+}
+
 function renderLightingEdit() {
+  if(importedLightingReport()){
+    renderImportedLightingReview();
+    return;
+  }
   activeSourceTransformController?.teardown();
   activeSourceTransformController=null;
   if (!pageData().length) {
@@ -4660,12 +5051,12 @@ function deviceKey(device) {
   return device?`${device.transport}:${device.address}`:null;
 }
 
-function displayGeometryDevice() {
+function displayGeometryDevice(product=productId(),layoutEvidence=state.layoutEvidence) {
   return selectVialLayoutDevice(
-    productId(),
+    product,
     state.devices,
     state.loadedDevice,
-    state.layoutEvidence,
+    layoutEvidence,
   );
 }
 
@@ -5837,7 +6228,17 @@ $$('[data-lighting-route]').forEach(tab => {
 });
 $$('[data-lighting-slot]').forEach(button=>button.addEventListener('click',()=>{
   cancelLocalAnimationDraft({render:false});
-  state.ledSlot=Number(button.dataset.lightingSlot);
+  const slot=Number(button.dataset.lightingSlot);
+  if(importedLightingReport()){
+    dispatchLightingWorkspace({
+      type:"DESTINATION_CHANGED",
+      slot,
+      target:state.ledTarget,
+      playhead_index:lightingWorkspace.playhead.index,
+    });
+  }else{
+    state.ledSlot=slot;
+  }
   state.ledPixel=0;
   renderLightingShell();
 }));

@@ -1,0 +1,42 @@
+{
+  "full_profiles": [
+    {
+      "case": "afa_variant_1",
+      "placeholder_order": ["number", "number", "string", "malformed"]
+    },
+    {
+      "case": "afa_variant_2",
+      "placeholder_order": ["number", "string", "malformed", "number"]
+    },
+    {
+      "case": "afa_variant_3",
+      "placeholder_order": ["string", "malformed", "number", "number"]
+    },
+    {
+      "case": "afa_variant_4",
+      "placeholder_order": ["malformed", "number", "number", "string"]
+    }
+  ],
+  "lighting": [
+    {
+      "case": "neon_animation_75",
+      "frame_count": 75,
+      "speed": 100,
+      "brightness": 100,
+      "description": "Synthetic 75-frame lighting"
+    },
+    {
+      "case": "neon_static_1",
+      "frame_count": 1,
+      "speed": 90,
+      "brightness": 255
+    },
+    {
+      "case": "neon_animation_50",
+      "frame_count": 50,
+      "speed": 90,
+      "brightness": 255,
+      "description": "Synthetic 50-frame lighting"
+    }
+  ]
+}

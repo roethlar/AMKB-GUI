@@ -1000,6 +1000,16 @@ feat: keep dynamic lighting layouts portable
 
 ### Slice LSR-8 — Import AM Master profiles and lighting
 
+Implementation is landed in the commit containing this status record on
+2026-08-02. Its strict app-native/full-profile/lighting-only classifier,
+offline imported-lighting review, exact Apply gate, explicit Library save, and
+remembered-layout path are mutation-proven. The complete local gate passes 720
+Python tests with 5 skips, 178 browser tests, compile/syntax and source/wheel
+builds, plus the Windows native-tree/installer/frozen-smoke chain. A read-only
+acceptance pass classified all seven machine-local examples without recording
+their filenames or payload arrays. Exact-head CI/Desktop qualification and the
+single required `fable-review` are pending; LSR-8 is not closed yet.
+
 Files:
 
 - new focused `am_configurator/profile_import.py`;
