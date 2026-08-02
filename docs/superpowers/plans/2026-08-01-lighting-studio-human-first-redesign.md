@@ -939,12 +939,16 @@ Desktop installers run `30749340465` pass. Its one explicit
 `claude-opus-5`/`high` per-finding verdict returned accepted with guard and
 capability confirmed. `cl-18` is closed; `cl-19` is next.
 
-The isolated `cl-19` repair keeps a validated Neon key layout and its deep
-descriptor/signature paired across shallow device scans; contradictory
-signatures and replacement identities inherit no stale geometry. Both focused
-guards fail against their reviewed behaviors and pass after restoration. The
-authoritative stable 707-Python/175-browser/compile/syntax/build gate is green;
-per-finding verification remains required before `cl-20`.
+The isolated `cl-19` repair
+`9ad77c2f6070982250b1a9cd6fb2d555e90daaa4` keeps a validated Neon key layout
+and its deep descriptor/signature paired across shallow device scans;
+contradictory signatures and replacement identities inherit no stale geometry.
+Both focused guards fail against their reviewed behaviors and pass after
+restoration. The authoritative stable 707-Python/175-browser/compile/syntax/
+build gate, exact-head CI run `30750225695`, and Desktop installers run
+`30750225702` pass. Its one explicit `claude-opus-5`/`high` per-finding verdict
+returned accepted with guard and capability confirmed. `cl-19` is closed;
+`cl-20` is next.
 
 Under the resolved Gate LSR-G1 contract, files are expected to include:
 
