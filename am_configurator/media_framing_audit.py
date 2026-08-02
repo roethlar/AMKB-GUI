@@ -63,6 +63,18 @@ REQUIRED_CASE_CHECKS = [
     "focus_visible",
     "layout_contained",
 ]
+REQUIRED_PROFILE_CHECKS = [
+    "effects_live",
+    "effects_apply_undo",
+    "reduced_motion",
+    "app_native_round_trip",
+    "am_master_profile",
+    "am_master_lighting_missing_layout",
+    "portable_neon_layout",
+    "am_master_lighting_offline_layout",
+    "am_master_lighting_save_library",
+    "am_master_lighting_apply_undo",
+]
 MAX_REPORT_BYTES = 32_768
 _MAX_REPORT_TEXT = 200
 _AUDIT_ROOT_PREFIX = "am-media-framing-audit-"
@@ -87,6 +99,13 @@ class MediaFixture:
     payload: bytes
     source_frame_count: int
     expected_frames: tuple[ExpectedFrame, ...]
+
+
+@dataclass(frozen=True)
+class JsonFixture:
+    kind: str
+    name: str
+    payload: bytes
 
 
 class _AuditMediaBridge:
@@ -174,6 +193,108 @@ def build_media_fixtures() -> tuple[MediaFixture, ...]:
             )
         )
     return tuple(fixtures)
+
+
+def _synthetic_neon_key_layout() -> list[dict[str, int | float]]:
+    from .device_mapping import device_descriptor, target_capabilities
+
+    axial = next(
+        target
+        for target in target_capabilities()["NEON"]["targets"]
+        if target["name"] == "axial"
+    )
+    width = axial["width"]
+    height = axial["height"]
+    pixel_map = axial["map"]
+    matrix_columns = device_descriptor("NEON80")["keymap"]["matrix_columns"]
+    layout: list[dict[str, int | float]] = []
+    key_width = 96.0 / width
+    for row in range(height):
+        for column in range(width):
+            if pixel_map[row * width + column] < 0:
+                continue
+            matrix_index = len(layout)
+            layout.append(
+                {
+                    "index": matrix_index,
+                    "matrix_row": matrix_index // matrix_columns,
+                    "matrix_col": matrix_index % matrix_columns,
+                    "x": column * key_width,
+                    "y": row * (88.0 / height),
+                    "width": key_width,
+                    "height": 12.0,
+                    "rotation": 0.0,
+                }
+            )
+    if len(layout) != 89:
+        raise RuntimeError("The synthetic Neon layout is incomplete.")
+    return layout
+
+
+def build_json_fixtures() -> tuple[JsonFixture, ...]:
+    """Build pathless app-native and recognized AM Master JSON fixtures."""
+
+    from . import profile_metadata
+    from .server import blank_config
+
+    cyberboard = build_audit_document()
+    neon = blank_config(
+        "NEON80",
+        [["#00000000"] * 90 for _ in range(4)],
+        [],
+    )
+    neon_evidence = profile_metadata.build_dynamic_layout(
+        "NEON80",
+        _synthetic_neon_key_layout(),
+    )
+    portable_neon = profile_metadata.attach_dynamic_layout(neon, neon_evidence)
+
+    am_master_profile = blank_config(
+        "ALICE",
+        [["#00000000"] * 200 for _ in range(7)],
+        [],
+    )
+    am_master_profile["page_data"][0]["//"] = "synthetic vendor page"
+    am_master_profile["page_data"][0]["frames"] = {
+        "valid": False,
+        "frame_num": 0,
+        "frame_data": [{"frame_index": "0", "frame_RGB": ["not-a-color"]}],
+    }
+
+    def color(frame: int, pixel: int, salt: int) -> str:
+        return f"{(frame * 4099 + pixel * 17 + salt) & 0xFFFFFF:06x}"
+
+    am_master_lighting = {
+        "speed": 90,
+        "brightness": 255,
+        "description": "Synthetic offline lighting",
+        "frames": [
+            [color(frame, pixel, 0x123456) for pixel in range(230)]
+            for frame in range(2)
+        ],
+        "frames_axial": [
+            [color(frame, pixel, 0x654321) for pixel in range(89)]
+            for frame in range(2)
+        ],
+    }
+
+    def fixture(kind: str, name: str, value: object) -> JsonFixture:
+        return JsonFixture(
+            kind=kind,
+            name=name,
+            payload=json.dumps(
+                value,
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ).encode("utf-8"),
+        )
+
+    return (
+        fixture("app_native_cyberboard", "audit-cyberboard.json", cyberboard),
+        fixture("portable_neon", "audit-portable-neon.json", portable_neon),
+        fixture("am_master_profile", "audit-am-master-profile.json", am_master_profile),
+        fixture("am_master_lighting", "audit-am-master-lighting.json", am_master_lighting),
+    )
 
 
 def build_audit_document() -> dict[str, Any]:
@@ -284,7 +405,7 @@ def validate_audit_report(report: object) -> dict:
         "viewports",
     }:
         raise MediaFramingAuditError("invalid_report")
-    if report["schema_version"] != 1 or report["status"] not in {"passed", "failed"}:
+    if report["schema_version"] != 2 or report["status"] not in {"passed", "failed"}:
         raise MediaFramingAuditError("invalid_report")
     failure = report["failure"]
     if report["status"] == "passed":
@@ -307,6 +428,7 @@ def validate_audit_report(report: object) -> dict:
             "cases",
             "layout_findings",
             "console_errors",
+            "profile_checks",
         }:
             raise MediaFramingAuditError("invalid_viewport")
         if (viewport["width"], viewport["height"]) != AUDIT_VIEWPORTS[index]:
@@ -325,6 +447,12 @@ def validate_audit_report(report: object) -> dict:
                 raise MediaFramingAuditError("invalid_case_checks")
         findings = _bounded_text_list(viewport["layout_findings"], "layout_findings")
         console_errors = _bounded_text_list(viewport["console_errors"], "console_errors")
+        profile_checks = _bounded_text_list(viewport["profile_checks"], "profile_checks")
+        expected_profile_checks = (
+            REQUIRED_PROFILE_CHECKS if index == len(AUDIT_VIEWPORTS) - 1 else []
+        )
+        if profile_checks != expected_profile_checks:
+            raise MediaFramingAuditError("invalid_profile_checks")
         if report["status"] == "passed" and (findings or console_errors):
             raise MediaFramingAuditError("failed_checks_in_passed_report")
     encoded = json.dumps(
@@ -400,21 +528,44 @@ def _fixture_payload(fixtures: tuple[MediaFixture, ...]) -> list[dict[str, objec
     ]
 
 
+def _json_fixture_payload(fixtures: tuple[JsonFixture, ...]) -> list[dict[str, str]]:
+    return [
+        {
+            "kind": fixture.kind,
+            "name": fixture.name,
+            "payload": base64.b64encode(fixture.payload).decode("ascii"),
+        }
+        for fixture in fixtures
+    ]
+
+
 _AUDIT_SCRIPT = r"""
 (() => {
   const resultSlot = "__RESULT_SLOT__";
   const requiredChecks = __REQUIRED_CHECKS__;
+  const requiredProfileChecks = __REQUIRED_PROFILE_CHECKS__;
   const consoleErrors = [];
+  const consoleErrorKind = value => {
+    const raw = value?.name || value?.constructor?.name || typeof value;
+    const token = String(raw || "unknown").toLowerCase().replace(/[^a-z0-9_]+/g, "_");
+    return /^[a-z0-9_]{1,40}$/.test(token) ? token : "unknown";
+  };
   const originalConsoleError = console.error.bind(console);
   console.error = (...args) => {
-    if (consoleErrors.length < 20) consoleErrors.push("console_error");
+    if (consoleErrors.length < 20) {
+      consoleErrors.push(`console_error:${consoleErrorKind(args[0])}`);
+    }
     originalConsoleError(...args);
   };
-  window.addEventListener("error", () => {
-    if (consoleErrors.length < 20) consoleErrors.push("window_error");
+  window.addEventListener("error", event => {
+    if (consoleErrors.length < 20) {
+      consoleErrors.push(`window_error:${consoleErrorKind(event.error)}`);
+    }
   });
-  window.addEventListener("unhandledrejection", () => {
-    if (consoleErrors.length < 20) consoleErrors.push("unhandled_rejection");
+  window.addEventListener("unhandledrejection", event => {
+    if (consoleErrors.length < 20) {
+      consoleErrors.push(`unhandled_rejection:${consoleErrorKind(event.reason)}`);
+    }
   });
 
   class AuditFailure extends Error {
@@ -466,6 +617,33 @@ _AUDIT_SCRIPT = r"""
     }
     return true;
   };
+  const boardPixelColors = () => [...document.querySelectorAll(
+    "#lighting-board-pane #led-canvas .pixel",
+  )].map(pixel => pixel.style.getPropertyValue("--pixel-color").trim().toUpperCase());
+  const auditJsonBlob = fixture => {
+    const bytes = Uint8Array.from(
+      atob(fixture.payload),
+      character => character.charCodeAt(0),
+    );
+    return new Blob([bytes], {type: "application/json"});
+  };
+  const auditJsonInput = (name, payload) => {
+    const file = payload instanceof Blob
+      ? payload
+      : new Blob([payload], {type: "application/json"});
+    Object.defineProperty(file, "name", {value: name, configurable: true});
+    return {files: [file], value: ""};
+  };
+  const auditJsonFixture = (fixtures, kind) => {
+    const fixture = fixtures.find(candidate => candidate.kind === kind);
+    requireAudit(fixture, `json_fixture_${kind}_missing`);
+    return fixture;
+  };
+  async function openAuditJson(fixtures, kind) {
+    const fixture = auditJsonFixture(fixtures, kind);
+    await readFiles(auditJsonInput(fixture.name, auditJsonBlob(fixture)), false);
+    return fixture;
+  }
 
   async function catalogItems(filter) {
     const query = libraryCatalogQuery({filter, page: 1, limit: 100});
@@ -698,6 +876,408 @@ _AUDIT_SCRIPT = r"""
     window.__mediaFramingAuditStep = "destination_playback_compare";
     requireAudit(sameJson(actual, expected), "playback_destination_colors_mismatch");
     requireAudit(pageFingerprint() === baseline, "playback_changed_document");
+  }
+
+  async function runProfileChecks(jsonFixtures) {
+    const originalMotionPreference = prefersReducedLightingMotion;
+    const originalCyberboardConfig = lightingFingerprint(state.config);
+    window.__mediaFramingAuditStep = "effects_live";
+    document.querySelector('[data-route="lighting/edit"]')?.click();
+    await waitFor(
+      () => state.lighting.route === ROUTES.EDIT
+        && document.querySelector('[data-lighting-target="frames"]'),
+      "effects_route_timeout",
+    );
+    if (state.ledTarget !== "frames") {
+      document.querySelector('[data-lighting-target="frames"]')?.click();
+    }
+    await waitFor(
+      () => state.ledTarget === "frames"
+        && document.querySelector('[data-studio-tool="animate"]'),
+      "effects_display_timeout",
+    );
+    document.querySelector('[data-studio-tool="animate"]').click();
+    await waitFor(
+      () => state.studioTool === "animate"
+        && document.querySelector('[data-effect-preset="pulse"]'),
+      "effects_tool_timeout",
+    );
+
+    prefersReducedLightingMotion = () => false;
+    const effectBaselinePage = pageFingerprint();
+    const effectBaselineUndo = state.undo.length;
+    document.querySelector('[data-effect-preset="pulse"]').click();
+    await waitFor(
+      () => currentLocalAnimationDraft()?.specification?.type === "pulse",
+      "effects_pulse_timeout",
+    );
+    const liveDraft = currentLocalAnimationDraft();
+    const liveFrames = liveDraft.board_frame_set.frames_by_target.frames;
+    const liveSource = canonicalLightingValue(localAnimationSourceFrame().frame.frame_RGB);
+    requireAudit(
+      liveFrames.length >= 2
+        && liveDraft.demonstrative_frame !== null
+        && liveFrames.some(frame => !sameJson(canonicalLightingValue(frame), liveSource)),
+      "effects_live_output_missing",
+    );
+    await waitFor(
+      () => {
+        const projection = selectBoardProjection(lightingWorkspace);
+        return projection
+          && sameJson(boardPixelColors(), canonicalLightingValue(projection.colors))
+          && !document.querySelector("#lighting-board-pane img,#lighting-board-pane video,#lighting-board-pane canvas");
+      },
+      "effects_live_board_mismatch",
+    );
+    await waitFor(() => lightingWorkspace.playhead.playing, "effects_autoplay_timeout");
+    const liveIndex = lightingWorkspace.playhead.index;
+    await waitFor(
+      () => lightingWorkspace.playhead.index !== liveIndex,
+      "effects_frame_advance_timeout",
+    );
+    const initialPulseFrames = lightingFingerprint(liveFrames);
+    const minimum = document.querySelector("#animate-minimum");
+    requireAudit(minimum, "effects_parameter_missing");
+    minimum.value = "65";
+    minimum.dispatchEvent(new Event("input", {bubbles: true}));
+    await waitFor(
+      () => currentLocalAnimationDraft()?.specification?.parameters?.minimum_brightness === 0.65
+        && lightingFingerprint(
+          currentLocalAnimationDraft().board_frame_set.frames_by_target.frames,
+        ) !== initialPulseFrames,
+      "effects_parameter_timeout",
+    );
+    const effectFrameSet = currentLocalAnimationDraft().board_frame_set;
+    await waitFor(
+      () => {
+        const projection = selectBoardProjection(lightingWorkspace);
+        return projection
+          && sameJson(boardPixelColors(), canonicalLightingValue(projection.colors));
+      },
+      "effects_parameter_board_mismatch",
+    );
+
+    window.__mediaFramingAuditStep = "effects_apply_undo";
+    const originalEffectApply = applyBoardFrameSetToPage;
+    let effectApplyCalls = 0;
+    applyBoardFrameSetToPage = (...args) => {
+      effectApplyCalls += 1;
+      return originalEffectApply(...args);
+    };
+    document.querySelector("#animate-accept").click();
+    await waitFor(
+      () => !currentLocalAnimationDraft()
+        && state.undo.length === effectBaselineUndo + 1,
+      "effects_apply_timeout",
+    );
+    requireAudit(effectApplyCalls === 1, "effects_apply_count_mismatch");
+    requireAudit(
+      sameJson(
+        canonicalLightingValue(
+          getPage(state.ledSlot).frames.frame_data.map(frame => frame.frame_RGB),
+        ),
+        canonicalLightingValue(effectFrameSet.frames_by_target.frames),
+      ),
+      "effects_apply_frames_mismatch",
+    );
+    applyBoardFrameSetToPage = originalEffectApply;
+    document.querySelector("#undo-button").click();
+    await waitFor(
+      () => pageFingerprint() === effectBaselinePage
+        && state.undo.length === effectBaselineUndo,
+      "effects_undo_timeout",
+    );
+    requireAudit(consoleErrors.length === 0, "effects_console_errors");
+
+    window.__mediaFramingAuditStep = "reduced_motion";
+    prefersReducedLightingMotion = () => true;
+    document.querySelector('[data-effect-preset="pulse"]').click();
+    await waitFor(
+      () => currentLocalAnimationDraft()?.specification?.type === "pulse",
+      "reduced_motion_draft_timeout",
+    );
+    const reducedDraft = currentLocalAnimationDraft();
+    const reducedIndex = reducedDraft.demonstrative_frame;
+    await delay(Math.max(250, reducedDraft.board_frame_set.duration_ms * 3));
+    const reducedProjection = selectBoardProjection(lightingWorkspace);
+    requireAudit(
+      reducedIndex !== null
+        && !lightingWorkspace.playhead.playing
+        && lightingWorkspace.playhead.index === reducedIndex
+        && reducedProjection?.index === reducedIndex
+        && sameJson(boardPixelColors(), canonicalLightingValue(reducedProjection.colors))
+        && document.querySelector("#animate-draft-status")?.textContent.includes(
+          "representative frame",
+        ),
+      "reduced_motion_autoplay_or_frame_mismatch",
+    );
+    document.querySelector("#animate-cancel").click();
+    await waitFor(() => !currentLocalAnimationDraft(), "reduced_motion_cancel_timeout");
+    requireAudit(pageFingerprint() === effectBaselinePage, "reduced_motion_changed_document");
+    prefersReducedLightingMotion = originalMotionPreference;
+    requireAudit(consoleErrors.length === 0, "reduced_motion_console_errors");
+
+    window.__mediaFramingAuditStep = "app_native_round_trip";
+    let savedBlob = null;
+    let savedName = "";
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalAnchorClick = HTMLAnchorElement.prototype.click;
+    URL.createObjectURL = blob => {
+      savedBlob = blob;
+      return originalCreateObjectURL.call(URL, blob);
+    };
+    HTMLAnchorElement.prototype.click = function auditCaptureSave() {
+      savedName = this.download;
+    };
+    await saveConfig();
+    URL.createObjectURL = originalCreateObjectURL;
+    HTMLAnchorElement.prototype.click = originalAnchorClick;
+    requireAudit(
+      savedBlob instanceof Blob
+        && savedName.endsWith(".json")
+        && !savedName.includes("/")
+        && !savedName.includes("\\"),
+      "app_native_save_capture_missing",
+    );
+    const savedConfig = JSON.parse(await savedBlob.text());
+    await readFiles(auditJsonInput("audit-round-trip.json", savedBlob), false);
+    await waitFor(
+      () => productId() === "CB04" && documentSynchronized(),
+      "app_native_reopen_timeout",
+      30000,
+    );
+    requireAudit(
+      lightingFingerprint(state.config) === lightingFingerprint(savedConfig)
+        && state.undo.length === 0,
+      "app_native_round_trip_mismatch",
+    );
+    requireAudit(consoleErrors.length === 0, "app_native_round_trip_console_errors");
+
+    window.__mediaFramingAuditStep = "am_master_lighting_missing_layout";
+    const cyberboardPage = pageFingerprint();
+    const cyberboardUndo = state.undo.length;
+    const lightingBeforeMissing = (await catalogItems("lighting"))
+      .map(item => item.catalog_id)
+      .sort();
+    await openAuditJson(jsonFixtures, "am_master_lighting");
+    await waitFor(
+      () => importedLightingReport()?.source_format === "am_master_am80_lighting"
+        && state.ledTarget === "head"
+        && boardPixelColors().length === 230,
+      "am_master_lighting_head_timeout",
+      30000,
+    );
+    const missingLayoutReport = importedLightingReport();
+    const missingHead = canonicalLightingValue(
+      missingLayoutReport.lighting.mapped_result.tracks.head.frames[
+        lightingWorkspace.playhead.index
+      ],
+    );
+    requireAudit(
+      sameJson(boardPixelColors(), missingHead)
+        && !document.querySelector("#lighting-board-pane img,#lighting-board-pane video,#lighting-board-pane canvas"),
+      "am_master_lighting_head_mismatch",
+    );
+    requireAudit(
+      consoleErrors.length === 0,
+      `missing_layout_open_console_errors:${consoleErrors[0] || "unknown"}`,
+    );
+    document.querySelector('[data-lighting-target="axial"]').click();
+    await waitFor(
+      () => state.ledTarget === "axial"
+        && document.querySelector("#led-canvas .route-requirement"),
+      "am_master_lighting_missing_layout_timeout",
+    );
+    requireAudit(
+      boardPixelColors().length === 0
+        && document.querySelector("#led-canvas").textContent.includes(
+          "Per-key layout unavailable",
+        )
+        && document.querySelector("#imported-lighting-apply").disabled,
+      "am_master_lighting_missing_layout",
+    );
+    requireAudit(
+      consoleErrors.length === 0,
+      `missing_layout_target_console_errors:${consoleErrors[0] || "unknown"}`,
+    );
+    const lightingAfterMissing = (await catalogItems("lighting"))
+      .map(item => item.catalog_id)
+      .sort();
+    requireAudit(
+      sameJson(lightingAfterMissing, lightingBeforeMissing)
+        && pageFingerprint() === cyberboardPage
+        && state.undo.length === cyberboardUndo,
+      "am_master_lighting_missing_layout_mutated_state",
+    );
+    requireAudit(
+      consoleErrors.length === 0,
+      `missing_layout_catalog_console_errors:${consoleErrors[0] || "unknown"}`,
+    );
+    document.querySelector("#imported-lighting-close").click();
+    await waitFor(() => !importedLightingReport(), "am_master_lighting_close_timeout");
+    requireAudit(
+      consoleErrors.length === 0,
+      `missing_layout_console_errors:${consoleErrors[0] || "unknown"}`,
+    );
+
+    window.__mediaFramingAuditStep = "portable_neon_layout";
+    await openAuditJson(jsonFixtures, "portable_neon");
+    await waitFor(
+      () => productId() === "NEON80"
+        && documentSynchronized()
+        && state.layoutEvidence?.key_layout?.length === 89,
+      "portable_neon_open_timeout",
+      30000,
+    );
+    document.querySelector('[data-route="lighting/edit"]')?.click();
+    await waitFor(
+      () => state.lighting.route === ROUTES.EDIT
+        && document.querySelector('[data-lighting-target="axial"]'),
+      "portable_neon_route_timeout",
+    );
+    document.querySelector('[data-lighting-target="axial"]').click();
+    await waitFor(
+      () => state.ledTarget === "axial"
+        && document.querySelectorAll("#lighting-board-pane .physical-pixel").length === 89,
+      "portable_neon_layout_timeout",
+    );
+    requireAudit(
+      state.layoutEvidence.source === "embedded"
+        && state.layoutEvidence.keymap_signature
+          === state.config._am_configurator.dynamic_layout.keymap_signature,
+      "portable_neon_layout",
+    );
+    requireAudit(consoleErrors.length === 0, "portable_neon_console_errors");
+    const neonBaselinePage = pageFingerprint();
+    const neonBaselineUndo = state.undo.length;
+
+    window.__mediaFramingAuditStep = "am_master_lighting_offline_layout";
+    await openAuditJson(jsonFixtures, "am_master_lighting");
+    await waitFor(
+      () => importedLightingReport()?.source_format === "am_master_am80_lighting"
+        && state.ledTarget === "head"
+        && boardPixelColors().length === 230,
+      "am_master_lighting_reimport_timeout",
+      30000,
+    );
+    const offlineReport = importedLightingReport();
+    const offlineHead = canonicalLightingValue(
+      offlineReport.lighting.mapped_result.tracks.head.frames[
+        lightingWorkspace.playhead.index
+      ],
+    );
+    requireAudit(
+      sameJson(boardPixelColors(), offlineHead),
+      "am_master_lighting_offline_head_mismatch",
+    );
+    document.querySelector('[data-lighting-target="axial"]').click();
+    await waitFor(
+      () => state.ledTarget === "axial"
+        && document.querySelectorAll("#lighting-board-pane .physical-pixel").length === 89,
+      "am_master_lighting_offline_layout_timeout",
+    );
+    const offlineAxial = canonicalLightingValue(
+      offlineReport.lighting.mapped_result.tracks.axial.frames[
+        lightingWorkspace.playhead.index
+      ],
+    );
+    requireAudit(
+      sameJson(boardPixelColors(), offlineAxial)
+        && !document.querySelector("#imported-lighting-apply").disabled,
+      "am_master_lighting_offline_layout",
+    );
+
+    window.__mediaFramingAuditStep = "am_master_lighting_save_library";
+    const lightingBeforeSave = (await catalogItems("lighting"))
+      .map(item => item.catalog_id);
+    document.querySelector("#imported-lighting-save").click();
+    const importedCatalogId = await waitFor(
+      () => state.importedLighting?.savedCatalogId,
+      "am_master_lighting_save_timeout",
+      30000,
+    );
+    const lightingAfterSave = (await catalogItems("lighting"))
+      .map(item => item.catalog_id);
+    requireAudit(
+      !lightingBeforeSave.includes(importedCatalogId)
+        && lightingAfterSave.includes(importedCatalogId),
+      "am_master_lighting_save_library",
+    );
+
+    window.__mediaFramingAuditStep = "am_master_lighting_apply_undo";
+    const expectedHeadFrames = canonicalLightingValue(
+      offlineReport.lighting.mapped_result.tracks.head.frames,
+    );
+    const expectedAxialFrames = canonicalLightingValue(
+      offlineReport.lighting.mapped_result.tracks.axial.frames,
+    );
+    const originalImportedApply = applyBoardFrameSetToPage;
+    let importedApplyCalls = 0;
+    applyBoardFrameSetToPage = (...args) => {
+      importedApplyCalls += 1;
+      return originalImportedApply(...args);
+    };
+    document.querySelector("#imported-lighting-apply").click();
+    await waitFor(
+      () => !importedLightingReport()
+        && state.undo.length === neonBaselineUndo + 1,
+      "am_master_lighting_apply_timeout",
+      30000,
+    );
+    const appliedNeonPage = getPage(state.ledSlot);
+    requireAudit(
+      importedApplyCalls === 1
+        && sameJson(
+          canonicalLightingValue(
+            appliedNeonPage.head.frame_data.map(frame => frame.frame_RGB),
+          ),
+          expectedHeadFrames,
+        )
+        && sameJson(
+          canonicalLightingValue(
+            appliedNeonPage.axial.frame_data.map(frame => frame.frame_RGB),
+          ),
+          expectedAxialFrames,
+        ),
+      "am_master_lighting_apply_undo",
+    );
+    applyBoardFrameSetToPage = originalImportedApply;
+    document.querySelector("#undo-button").click();
+    await waitFor(
+      () => pageFingerprint() === neonBaselinePage
+        && state.undo.length === neonBaselineUndo,
+      "am_master_lighting_undo_timeout",
+    );
+    requireAudit(consoleErrors.length === 0, "am_master_lighting_console_errors");
+
+    window.__mediaFramingAuditStep = "am_master_profile";
+    await openAuditJson(jsonFixtures, "am_master_profile");
+    await waitFor(
+      () => productId() === "ALICE" && documentSynchronized(),
+      "am_master_profile_open_timeout",
+      30000,
+    );
+    const normalizedFrames = state.config.page_data[0].frames;
+    requireAudit(
+      normalizedFrames.valid === false
+        && normalizedFrames.frame_num === 0
+        && sameJson(normalizedFrames.frame_data, []),
+      "am_master_profile",
+    );
+
+    window.__mediaFramingAuditStep = "restore_cyberboard_profile";
+    await openAuditJson(jsonFixtures, "app_native_cyberboard");
+    await waitFor(
+      () => productId() === "CB04" && documentSynchronized(),
+      "restore_cyberboard_timeout",
+      30000,
+    );
+    requireAudit(
+      lightingFingerprint(state.config) === originalCyberboardConfig,
+      "restore_cyberboard_mismatch",
+    );
+    requireAudit(consoleErrors.length === 0, "am_master_profile_console_errors");
+    return requiredProfileChecks;
   }
 
   async function runCase(fixture, width, height) {
@@ -1601,11 +2181,20 @@ _AUDIT_SCRIPT = r"""
     return {format: fixture.format, checks: requiredChecks};
   }
 
-  window.__runMediaFramingAudit = async (fixtures, width, height) => {
+  window.__runMediaFramingAudit = async (
+    fixtures,
+    jsonFixtures,
+    width,
+    height,
+    includeProfileChecks,
+  ) => {
     const cases = [];
     for (const fixture of fixtures) {
       cases.push(await runCase(fixture, width, height));
     }
+    const profileChecks = includeProfileChecks
+      ? await runProfileChecks(jsonFixtures)
+      : [];
     const findings = layoutFindings();
     requireAudit(findings.length === 0, "layout_escape");
     requireAudit(consoleErrors.length === 0, "console_errors_present");
@@ -1615,6 +2204,7 @@ _AUDIT_SCRIPT = r"""
       cases,
       layout_findings: findings,
       console_errors: consoleErrors.slice(),
+      profile_checks: profileChecks,
     };
   };
   window.__mediaFramingAuditFailure = error => ({
@@ -1635,6 +2225,14 @@ def _audit_script() -> str:
         .replace(
             "__REQUIRED_CHECKS__",
             json.dumps(REQUIRED_CASE_CHECKS, ensure_ascii=True, separators=(",", ":")),
+        )
+        .replace(
+            "__REQUIRED_PROFILE_CHECKS__",
+            json.dumps(
+                REQUIRED_PROFILE_CHECKS,
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ),
         )
     )
 
@@ -1673,7 +2271,11 @@ def _activate_webview_window(window: Any, *, timeout: float = 5) -> None:
     raise MediaFramingAuditError("webview_focus_timeout")
 
 
-def _run_webview_workflow(window: Any, fixtures: list[dict[str, object]]) -> list[dict]:
+def _run_webview_workflow(
+    window: Any,
+    fixtures: list[dict[str, object]],
+    json_fixtures: list[dict[str, str]],
+) -> list[dict]:
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         ready = window.evaluate_js(
@@ -1692,13 +2294,20 @@ def _run_webview_workflow(window: Any, fixtures: list[dict[str, object]]) -> lis
         ensure_ascii=True,
         separators=(",", ":"),
     )
+    encoded_json_fixtures = json.dumps(
+        json_fixtures,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
     results: list[dict] = []
-    for width, height in AUDIT_VIEWPORTS:
+    for index, (width, height) in enumerate(AUDIT_VIEWPORTS):
         window.resize(width, height)
         time.sleep(0.4)
         _activate_webview_window(window)
         kickoff = (
-            f"void window.__runMediaFramingAudit({encoded_fixtures},{width},{height})"
+            "void window.__runMediaFramingAudit("
+            f"{encoded_fixtures},{encoded_json_fixtures},{width},{height},"
+            f"{str(index == len(AUDIT_VIEWPORTS) - 1).lower()})"
             f".then(value=>{{window.{_RESULT_SLOT}=value;}})"
             f".catch(error=>{{window.{_RESULT_SLOT}=window.__mediaFramingAuditFailure(error);}});"
         )
@@ -1758,6 +2367,7 @@ def _native_audit_report() -> dict:
     document_path = root / "document.json"
     document = build_audit_document()
     fixtures = build_media_fixtures()
+    json_fixtures = build_json_fixtures()
     selections: list[object] = []
     for _viewport in AUDIT_VIEWPORTS:
         for fixture in fixtures:
@@ -1811,6 +2421,7 @@ def _native_audit_report() -> dict:
                     result_holder["viewports"] = _run_webview_workflow(
                         window,
                         _fixture_payload(fixtures),
+                        _json_fixture_payload(json_fixtures),
                     )
                 except Exception as exc:  # noqa: BLE001 - marshal to the GUI owner
                     result_holder["error"] = exc
@@ -1831,7 +2442,7 @@ def _native_audit_report() -> dict:
             if error is not None:
                 raise MediaFramingAuditError("webview_workflow_failed")
             report = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "status": "passed",
                 "failure": None,
                 "viewports": result_holder.get("viewports"),
@@ -1868,7 +2479,7 @@ def run_media_framing_audit(output: Path) -> int:
             else "audit_failed"
         )
         failed = {
-            "schema_version": 1,
+            "schema_version": 2,
             "status": "failed",
             "failure": failure,
             "viewports": [],

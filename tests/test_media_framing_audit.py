@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from am_configurator import desktop, device_mapping, media_composition
+from am_configurator import desktop, device_mapping, media_composition, profile_import, server
 from am_configurator import media_framing_audit
 
 
@@ -51,6 +51,60 @@ class MediaFramingFixtureTests(unittest.TestCase):
                 self.assertNotIn("/", case.name)
                 self.assertNotIn("\\", case.name)
                 self.assertLess(len(case.payload), 64_000)
+
+    def test_json_audit_fixtures_cover_both_vendor_dialects_and_portable_neon(
+        self,
+    ) -> None:
+        fixtures = media_framing_audit.build_json_fixtures()
+
+        self.assertEqual(
+            [
+                "app_native_cyberboard",
+                "portable_neon",
+                "am_master_profile",
+                "am_master_lighting",
+            ],
+            [fixture.kind for fixture in fixtures],
+        )
+        with tempfile.TemporaryDirectory() as raw_root, mock.patch(
+            "am_configurator.store.store_root",
+            return_value=Path(raw_root),
+        ):
+            reports = [
+                profile_import.import_json_bytes(
+                    fixture.payload,
+                    profile_validator=server._validated_profile_config,
+                )
+                for fixture in fixtures
+            ]
+
+        self.assertEqual(
+            ["profile", "profile", "profile", "lighting"],
+            [report.kind for report in reports],
+        )
+        self.assertEqual(
+            [
+                "am_configurator_profile",
+                "am_configurator_profile",
+                "am_master_profile",
+                "am_master_am80_lighting",
+            ],
+            [report.source_format for report in reports],
+        )
+        portable = reports[1].profile()
+        self.assertEqual(
+            89,
+            len(portable["_am_configurator"]["dynamic_layout"]["key_layout"]),
+        )
+        normalized_vendor = reports[2].profile()
+        self.assertEqual([], normalized_vendor["page_data"][0]["frames"]["frame_data"])
+        lighting = reports[3].lighting()
+        self.assertEqual({"head", "axial"}, set(lighting["mapped_result"]["tracks"]))
+        self.assertEqual(2, lighting["mapped_result"]["source_frames"])
+        for fixture in fixtures:
+            self.assertNotIn("/", fixture.name)
+            self.assertNotIn("\\", fixture.name)
+            self.assertNotIn(b"C:\\", fixture.payload)
 
     def test_audit_document_has_distinct_playback_destinations(self) -> None:
         document = media_framing_audit.build_audit_document()
@@ -173,12 +227,50 @@ class MediaFramingFixtureTests(unittest.TestCase):
         self.assertIn("library_apply_undo_timeout", script[undo:])
         self.assertNotIn("data-library-apply-lighting", script)
 
+    def test_native_script_audits_effects_and_both_json_import_dialects(self) -> None:
+        script = media_framing_audit._audit_script()
+
+        self.assertEqual(
+            {
+                "effects_live",
+                "effects_apply_undo",
+                "reduced_motion",
+                "app_native_round_trip",
+                "am_master_profile",
+                "am_master_lighting_missing_layout",
+                "portable_neon_layout",
+                "am_master_lighting_offline_layout",
+                "am_master_lighting_save_library",
+                "am_master_lighting_apply_undo",
+            },
+            set(media_framing_audit.REQUIRED_PROFILE_CHECKS),
+        )
+        effect = script.index(
+            'document.querySelector(\'[data-effect-preset="pulse"]\').click()'
+        )
+        apply = script.index('document.querySelector("#animate-accept").click()', effect)
+        undo = script.index('document.querySelector("#undo-button").click()', apply)
+        reduced = script.index("prefersReducedLightingMotion = () => true", undo)
+        missing = script.index("am_master_lighting_missing_layout", reduced)
+        portable = script.index("portable_neon_layout", missing)
+        offline = script.index("am_master_lighting_offline_layout", portable)
+        self.assertLess(effect, apply)
+        self.assertLess(apply, undo)
+        self.assertLess(undo, reduced)
+        self.assertLess(reduced, missing)
+        self.assertLess(missing, portable)
+        self.assertLess(portable, offline)
+        self.assertIn('document.querySelector("#imported-lighting-save").click()', script)
+        self.assertIn('document.querySelector("#imported-lighting-apply").click()', script)
+        self.assertIn("readFiles(auditJsonInput(", script)
+        self.assertNotIn("new DataTransfer()", script)
+
 
 class MediaFramingReportTests(unittest.TestCase):
     @staticmethod
     def _valid_report() -> dict:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "status": "passed",
             "failure": None,
             "viewports": [
@@ -194,6 +286,11 @@ class MediaFramingReportTests(unittest.TestCase):
                     ],
                     "layout_findings": [],
                     "console_errors": [],
+                    "profile_checks": (
+                        media_framing_audit.REQUIRED_PROFILE_CHECKS
+                        if (width, height) == media_framing_audit.AUDIT_VIEWPORTS[-1]
+                        else []
+                    ),
                 }
                 for width, height in media_framing_audit.AUDIT_VIEWPORTS
             ],
@@ -225,7 +322,7 @@ class MediaFramingReportTests(unittest.TestCase):
 
     def test_failed_report_accepts_only_one_sanitized_failure_code(self) -> None:
         report = {
-            "schema_version": 1,
+            "schema_version": 2,
             "status": "failed",
             "failure": "pointer_feedback_missing",
             "viewports": [],
