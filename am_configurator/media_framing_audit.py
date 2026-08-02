@@ -2305,7 +2305,23 @@ def _activate_host_application() -> None:
     appkit = importlib.import_module("AppKit")
     app_helper = importlib.import_module("PyObjCTools.AppHelper")
     application = appkit.NSApplication.sharedApplication()
-    app_helper.callAfter(application.activateIgnoringOtherApps_, True)
+
+    def activate() -> None:
+        application.activateIgnoringOtherApps_(True)
+        native_window = application.keyWindow() or application.mainWindow()
+        if native_window is None:
+            native_window = next(
+                (candidate for candidate in application.windows() if candidate.isVisible()),
+                None,
+            )
+        if native_window is None:
+            return
+        native_window.makeKeyAndOrderFront_(None)
+        content_view = native_window.contentView()
+        if content_view is not None:
+            native_window.makeFirstResponder_(content_view)
+
+    app_helper.callAfter(activate)
 
 
 def _activate_webview_window(window: Any, *, timeout: float = 5) -> None:
