@@ -1,8 +1,10 @@
 # Lighting Studio Human-First Redesign
 
-**Status:** Owner-approved on 2026-08-01 after Gate LSR-G1 and the asymmetric
-AM Configurator export / AM Master import contract were recorded in
-`.agents/decisions.md`. Implementation is authorized beginning with LSR-1.
+**Status:** Complete on 2026-08-02. Gate LSR-G1, the asymmetric AM Configurator
+export / AM Master import contract, owner visual acceptance, and LSR-1 through
+LSR-10 are closed. Exact shipped-code repair `a4d3793` passed full automation,
+exact-head CI/Desktop workflows, and Windows, Linux, and macOS source/frozen
+native qualification.
 
 ## Objective
 
@@ -62,9 +64,9 @@ problem and are corrected through one state and rendering contract.
   supersedes its source-versus-result preview toggle: source and board are now
   separate simultaneous views.
 - `2026-07-31-public-release-0.1.65.md` remains the release plan. All three
-  candidates are permanently rejected, no candidate is active, and R65-2 may
-  not restart until this redesign is implemented, verified, accepted, and
-  pushed.
+  candidates are permanently rejected and no candidate is active. This
+  redesign's prerequisite is complete; R65-2 is the next separately invoked
+  action and has not started.
 
 No provider request, credential use, hardware write, tag, Release, macOS Open
 Anyway action, security-setting change, or announcement is authorized by this
@@ -1118,7 +1120,8 @@ use, or hardware write was introduced. No external review was run under the
 owner-approved review-economy rule. Exact implementation head
 `e4f3d26134dd3926dcc9a559ff62d32877882e91` passes CI run `30762071502` and
 Desktop installers run `30762071501`, including all three platforms, candidate
-metadata, and release provenance. LSR-9 is closed; LSR-10 is next.
+metadata, and release provenance. LSR-9 closed at this point; LSR-10 proceeded
+next and is closed below.
 
 Files:
 
@@ -1259,8 +1262,32 @@ uncaptured launches stopped at the already-recorded packaged-startup race
 invocation passed against identical bytes. No external review was launched.
 Exact repair head `a4d3793` passes CI run `30770842393` on all four test jobs
 and Desktop installers run `30770842381` on Windows, macOS, Linux, candidate
-metadata, and release provenance. LSR-10 remains open only until the affected
-Windows, Linux, and macOS native qualification passes.
+metadata, and release provenance.
+
+Final exact-repair qualification (2026-08-02): affected native qualification
+at full shipped-code SHA `a4d379376e66f86ddc87ff7a92699eb2fea485d2`
+passes on Windows x64 WebView2, Linux x86-64 WebKitGTK, and macOS arm64
+WKWebView. Each platform's source and frozen schema-v2 audits pass at 1000x680
+and 1280x800 with all three GIF/PNG/BMP cases and no console or layout finding.
+Windows passes its canonical build, installer smoke, native-policy smoke, and
+native-tree audit; its frozen executable SHA-256 is
+`C78A73DDC52E82193A34512B7F45CD7ECB6267F64B9D0F1F99873287B3C0BC68`.
+Linux passes its canonical local build and local frozen checks plus the exact
+Actions AppImage audit, smoke, native-policy smoke, and extracted-tree audit;
+the exact Actions AppImage SHA-256 is
+`1ad68738271ab53aaf354a4e248d42f17f9f042c4ced44b85569af2506a0aed5`.
+macOS passes its canonical build, native-tree audit, frozen smoke,
+native-policy smoke, strict ad-hoc signature verification, and DMG verification;
+the local executable and DMG SHA-256 values are respectively
+`05bb91f6fa8f40066cef923a4ef82fb2914ed14d2ce6cf9f19340e7f6a2b19cb`
+and `43e0325c6e3f7e4b5615d00b42718349389c1f2363e795e7e3a3381ddb511420`.
+Bounded reports are preserved under ignored
+`.agents/review/lsr10-a4d-*.local.*` paths. Commits after `a4d3793` through the
+qualification base `20f2341` change records and migration control files only;
+shipped code and dependency inputs are unchanged. No hardware write, provider
+request, credential use, macOS Open Anyway action, tag, Release, announcement,
+or additional external review occurred. LSR-10 and this redesign are complete;
+R65-2 has not begun.
 
 Commit:
 

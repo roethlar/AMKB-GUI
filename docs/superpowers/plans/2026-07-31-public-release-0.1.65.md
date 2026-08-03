@@ -5,11 +5,12 @@ at `c2f6fce`, and 3 at `09232fb` were rejected during exact-candidate
 qualification. Attempt 3 was rejected during R65-6 on 2026-08-01 because
 switching from Per-key to Head matrix while preview playback remained active
 rendered incorrect Head matrix lighting. No candidate is active. A correction
-now requires completion and owner acceptance of the approved
-`2026-08-01-lighting-studio-human-first-redesign.md` before R65-2 can restart.
-Live
-provider requests, macOS Open Anyway, hardware writes, tag or GitHub Release
-creation, and announcement posting remain separate action-time gates.
+was completed, owner-accepted, and qualified on Windows, Linux, and macOS at
+exact shipped-code repair `a4d3793`; the approved
+`2026-08-01-lighting-studio-human-first-redesign.md` and LSR-10 are closed.
+R65-2 is the next separately invoked action but has not restarted. Live provider
+requests, macOS Open Anyway, hardware writes, tag or GitHub Release creation,
+and announcement posting remain separate action-time gates.
 
 ## Objective
 
@@ -364,6 +365,13 @@ Readiness record (2026-07-31 through 2026-08-01):
   security-setting change, provider request, or credential use occurred. The
   owner remains reachable for the separate fresh single-write and Open Anyway
   gates when R65-4 and R65-6 reach those action points.
+
+Redesign prerequisite update (2026-08-02): complete. Exact repair `a4d3793`
+passes owner acceptance, full automation, exact-head CI/Desktop workflows, and
+affected Windows x64 WebView2, Linux x86-64 WebKitGTK, and macOS arm64 WKWebView
+source/frozen qualification. This removes the redesign blocker but creates no
+candidate and authorizes none of the later action-time gates. R65-2 has not
+started.
 
 ### Slice R65-2 — Freeze the final source candidate
 

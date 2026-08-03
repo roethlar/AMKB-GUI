@@ -30,8 +30,13 @@
   components were recovered separately without repeating successful work. No
   external review was launched. Exact repair head `a4d3793` passes CI run
   `30770842393` on all four test jobs and Desktop installers run `30770842381`
-  on Windows, macOS, Linux, candidate metadata, and release provenance. LSR-10
-  remains open only for affected Windows, Linux, and macOS native qualification.
+  on Windows, macOS, Linux, candidate metadata, and release provenance. Exact
+  shipped-code qualification now also passes source and frozen schema-v2 audits
+  plus the applicable canonical build, frozen smoke, native-policy,
+  native-tree, signature, and installer-image checks on Windows x64 WebView2,
+  Linux x86-64 WebKitGTK, and macOS arm64 WKWebView. The redesign plan owns the
+  sanitized evidence summary. LSR-10 and the redesign are complete; no release
+  candidate is active.
 - Public-release candidate attempt 3 at
   `09232fb695a1a8b1ebc470ac470509ebbace3eb2` is rejected. Exact CI run
   `30699706921` and Desktop run `30699706913` attempt 1 passed, and the owner
@@ -137,16 +142,17 @@
 
 ## Next
 
-- Repeat affected native qualification at exact head `a4d3793` on Windows x64,
-  Linux x86-64, and macOS arm64. Close LSR-10 and R65-2 only when all three pass.
-  No further external review is authorized;
-  use one only on explicit owner request or a concrete material risk that local
-  guards and CI cannot resolve. A replacement release candidate must repeat
-  every release gate and cannot mix evidence from any rejected attempt with new
-  bytes.
+- On explicit owner go, execute R65-2 against clean, reconciled current `main`:
+  repeat the release-plan source/dependency/native preflights, run the canonical
+  gate, push, and record the resulting remote SHA as a new candidate. No further
+  external review is authorized; use one only on explicit owner request or a
+  concrete material risk that local guards and CI cannot resolve. A replacement
+  release candidate must repeat every release gate and cannot mix evidence from
+  any rejected attempt with new bytes.
 - The approved `0.1.65` release plan remains recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`; it records all
-  three rejected candidates and is paused behind the redesign.
+  three rejected candidates. Its redesign prerequisite is complete, R65-2 is
+  next, and no new candidate is active.
 - `.agents/machines.md` owns all host details, including each host's
   qualification role and connection information.
 - Tagging, release publication, hardware writes, live provider use, macOS Open
@@ -157,8 +163,8 @@
 
 ## Blockers
 
-- Owner acceptance of the complete redesign is passed. R65-2 remains blocked
-  only on affected Windows, Linux, and macOS native qualification for the final
-  LSR-10 repair at exact head `a4d3793`. Live provider requests,
-  keyboard writes, macOS Open Anyway, tag creation, release publication, and
-  announcements remain separately gated actions for their later slices.
+- No technical redesign or LSR-10 blocker remains. R65-2 has not started and
+  awaits an explicit owner go for the candidate-freeze slice. Live provider
+  requests, keyboard writes, macOS Open Anyway, tag creation, release
+  publication, and announcements remain separately gated actions for their
+  later slices.

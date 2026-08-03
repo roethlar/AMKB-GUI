@@ -508,3 +508,7 @@
   Transcript model key: `claude-opus-5`; immutable result SHA-256:
   `2123611826335EE75E75F5085301E5B0474B0D46EC4E5159712C17A28FC398C0`.
   This was the only review invocation; per-finding external review is waived.
+  Both admitted findings are closed by independently mutation-proven repairs
+  (`cl-23` at `2d450b6`, `cl-24` at `e738bb6`) and final exact-repair
+  `a4d3793` source/frozen qualification on Windows x64 WebView2, Linux x86-64
+  WebKitGTK, and macOS arm64 WKWebView.
