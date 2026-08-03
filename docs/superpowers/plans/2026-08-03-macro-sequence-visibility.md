@@ -3,6 +3,8 @@
 **Status:** In progress. `v0.1.65` was withdrawn to a GitHub draft on
 2026-08-03 pending this repair. Revised the same day after the owner rejected
 the display-only Sequence: the always-visible Sequence is the direct editor.
+Its layout is a compact wrapping flow of event chips: the owner rejected a
+one-row-per-event list as unusable for long macros.
 
 ## Owner outcome
 
@@ -20,9 +22,10 @@ any Macro screenshot.
 
 - Keep the existing macro event schema, record path, text compiler, capacity
   validation, device write boundary, and Advanced event disclosure.
-- The always-visible Sequence edits in place: each event row carries a
-  press/release toggle, a key picker for standard keyboard keys, and the
-  following pause in milliseconds, alongside the replay projection label.
+- The always-visible Sequence edits in place: the sequence is a compact
+  wrapping flow of chips, one per event, each carrying a press/release
+  toggle, a key picker for standard keyboard keys, and the following pause
+  in milliseconds, alongside the replay projection label.
 - Events outside the standard key list stay plainly labelled with no fake
   picker; malformed events are never silently rewritten to a guessed key.
 - Render modifier-held character runs unambiguously, including Shift-held
@@ -38,10 +41,11 @@ any Macro screenshot.
 1. Keep the pure macro-sequence projection helper in `app.js` that consumes
    the canonical events and delays, tracks held modifiers, and emits
    accessible display tokens and pause descriptions.
-2. Render the projection in the normal Macro editor as editable rows that
-   reuse the existing `data-action` / `data-event-key` / `data-delay`
-   mutation bindings; non-standard and malformed events render as plainly
-   labelled text without a picker or state toggle.
+2. Render the projection in the normal Macro editor as a compact wrapping
+   flow of editable event chips that reuse the existing `data-action` /
+   `data-event-key` / `data-delay` mutation bindings; non-standard and
+   malformed events render as plainly labelled text without a picker or
+   state toggle.
 3. Add browser guards for lowercase, Shift-uppercase, modifier combinations,
    key-up ordering, zero/nonzero delays, in-place editing controls, and
    plainly labelled non-standard events. Keep existing Advanced-editor tests
