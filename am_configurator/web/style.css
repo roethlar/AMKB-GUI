@@ -455,6 +455,16 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .macro-editor .card-body { padding: 0; }
 .macro-toolbar { display: flex; gap: 8px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .macro-toolbar .spacer { flex: 1; }
+.macro-sequence { padding: 14px 16px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.018); }
+.macro-sequence-heading { display: flex; align-items: baseline; gap: 9px; margin-bottom: 10px; }
+.macro-sequence-heading strong { font-size: 14px; }
+.macro-sequence-heading small { color: var(--muted); }
+.macro-sequence-events { display: grid; gap: 5px; max-height: 250px; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.macro-sequence-event { display: grid; grid-template-columns: 32px minmax(90px, 1fr) 78px minmax(120px, 1.1fr) minmax(170px, 1.3fr); gap: 8px; align-items: center; min-height: 32px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); }
+.macro-sequence-event .event-action { min-height: 30px; }
+.macro-sequence-delay { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.macro-sequence-delay input { width: 74px; }
+.macro-sequence-custom, .macro-sequence-static { color: var(--muted); font-size: 13px; }
 .text-macro-composer { display: grid; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); background: rgba(131,88,255,.045); }
 .text-macro-composer > div:first-child { display: flex; align-items: baseline; gap: 9px; }
 .text-macro-composer small { color: var(--muted); font-size: 13px; }
@@ -469,6 +479,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .event-action { min-height: 36px; border: 1px solid var(--line); background: var(--panel-2); border-radius: 7px; cursor: pointer; color: var(--green); }
 .event-action.up { color: var(--cyan); }
 .event-delay { text-align: right; }
+
+@media (max-width: 720px) {
+  .macro-sequence-event { grid-template-columns: 28px minmax(92px, 1fr) 76px; }
+  .macro-sequence-event .event-key, .macro-sequence-event .macro-sequence-custom, .macro-sequence-event .macro-sequence-delay { grid-column: 1 / -1; }
+}
 .remove-event { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 19px; }
 .remove-event:hover { color: var(--red); }
 .event-empty { color: var(--muted); min-height: 190px; display: grid; place-items: center; text-align: center; }

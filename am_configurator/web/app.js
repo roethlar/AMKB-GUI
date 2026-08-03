@@ -2654,6 +2654,61 @@ function macroEventCode(base, down) {
   return parts ? makeCode(parts.page, parts.usage, down ? 0x11 : 0x10) : "#11070004";
 }
 
+const MACRO_MODIFIER_NAMES = new Map([
+  [0xe0,"Ctrl"],[0xe1,"Shift"],[0xe2,"Alt"],[0xe3,"Cmd"],
+  [0xe4,"Right Ctrl"],[0xe5,"Right Shift"],[0xe6,"Right Alt"],[0xe7,"Right Cmd"],
+]);
+
+function macroSequenceLabel(parts, held, capsLockOn) {
+  if (!parts) return "Unrecognised event";
+  if (parts.page === 0x07 && MACRO_MODIFIER_NAMES.has(parts.usage)) return MACRO_MODIFIER_NAMES.get(parts.usage);
+  const modifiers=[...held]
+    .filter(usage=>MACRO_MODIFIER_NAMES.has(usage))
+    .map(usage=>MACRO_MODIFIER_NAMES.get(usage));
+  let key=decodeCode(makeCode(parts.page,parts.usage));
+  if (parts.page===0x07 && parts.usage>=0x04 && parts.usage<=0x1d) {
+    const letter=String.fromCharCode(97+parts.usage-0x04);
+    const shift=held.has(0xe1)||held.has(0xe5);
+    key=(shift!==capsLockOn)?letter.toUpperCase():letter;
+  }
+  return `${modifiers.length?`${modifiers.join(" + ")} + `:""}${key}`;
+}
+
+function macroSequence(macro) {
+  const held=new Set();
+  let capsLockOn=false;
+  return (macro?.layer_key||[]).map((code,index)=>{
+    const parts=codeParts(code);
+    const down=parts?.modifier!==0x10;
+    const isModifier=parts?.page===0x07&&MACRO_MODIFIER_NAMES.has(parts?.usage);
+    const isCapsLock=parts?.page===0x07&&parts?.usage===0x39;
+    const label=macroSequenceLabel(parts,held,capsLockOn);
+    if (down&&isCapsLock) capsLockOn=!capsLockOn;
+    if (parts&&isModifier) {
+      if (down) held.add(parts.usage);
+      else held.delete(parts.usage);
+    }
+    const delay=Math.max(0,Number(macro?.intvel_ms?.[index]??0)||0);
+    return {index,label,action:down?"press":"release",delay};
+  });
+}
+
+function renderMacroSequence(macro, eventOptions) {
+  const events=macroSequence(macro);
+  if (!events.length) return `<div class="event-empty">This macro is empty. Type text, record keys, or add an event to build its sequence.</div>`;
+  return `<ol class="macro-sequence-events">${events.map(event=>{
+    const parts=codeParts(macro.layer_key[event.index]);
+    const base=parts?makeCode(parts.page,parts.usage):"";
+    const action=parts
+      ? `<button type="button" class="event-action ${event.action==="press"?"":"up"}" data-action="${event.index}" title="Toggle between press and release">${event.action==="press"?"Press":"Release"}</button>`
+      : `<span class="macro-sequence-static">—</span>`;
+    const key=eventOptions.some(option=>option.code===base)
+      ? `<select class="select-field event-key" data-event-key="${event.index}" title="Key for this event">${eventOptions.map(option=>`<option value="${option.code}" ${option.code===base?"selected":""}>${esc(option.label)}</option>`).join("")}</select>`
+      : `<span class="macro-sequence-custom">${parts?"Outside the standard key list":"—"}</span>`;
+    return `<li class="macro-sequence-event"><span class="event-number">${event.index+1}</span><strong>${esc(event.label)}</strong>${action}${key}<label class="macro-sequence-delay">then wait <input class="text-field event-delay" type="number" min="0" max="15000" value="${event.delay}" data-delay="${event.index}" title="Pause after this event in milliseconds"> ms</label></li>`;
+  }).join("")}</ol>`;
+}
+
 async function applyMacroText(mode) {
   const current=macros()[state.macro];
   if(!current)return;
@@ -2698,7 +2753,7 @@ function renderMacros() {
           <div class="spacer"></div>
           <button id="assign-macro" class="button ghost" ${state.selected===null?'disabled':''}>Assign to selected key</button>
           <button id="delete-macro" class="button danger">Delete</button>
-        </div><div class="text-macro-composer">
+        </div><section class="macro-sequence" aria-labelledby="macro-sequence-title"><div class="macro-sequence-heading"><div><strong id="macro-sequence-title">Sequence</strong><small>Every key action and the pause that follows it, exactly as the keyboard replays it. Edit the key, press/release, or pause in place.</small></div></div>${renderMacroSequence(current,eventOptions)}</section><div class="text-macro-composer">
           <div><strong>Type text</strong><small>Typed text is converted into the exact keystrokes the keyboard will replay.</small></div>
           <textarea id="macro-text" class="text-field" rows="3" placeholder="Type the exact text this macro should enter…"></textarea>
           <div class="text-macro-actions"><label>Delay between keys <input id="macro-text-delay" class="text-field" type="number" min="1" max="1000" value="10"> ms</label><div class="spacer"></div><button id="text-append" class="button ghost">Append</button><button id="text-replace" class="button primary">Replace keystrokes</button></div>

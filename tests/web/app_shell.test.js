@@ -81,23 +81,112 @@ test("lossless raw assignment still round-trips", () => {
   assert.match(js, /\/api\/keymap\/assignment/);
 });
 
-test("normal macro path is Type text and Record keys; event editing stays complete under Advanced", () => {
+test("normal macro path edits the sequence in place; Advanced keeps structure and capacity", () => {
   assert.match(js, /● Record keys/);
   assert.match(js, /<strong>Type text<\/strong>/);
   assert.match(js, /Delay between keys/);
   assert.match(js, /raise it if an app drops characters/);
+  assert.match(js, /id="macro-sequence-title">Sequence</);
+  assert.match(js, /Every key action and the pause that follows it/);
+  assert.match(js, /key=\(shift!==capsLockOn\)\?letter\.toUpperCase\(\):letter/);
+  // The always-visible Sequence edits key, press/release, and pause in place.
+  const sequence = jsFunction("renderMacroSequence", "async function applyMacroText");
+  assert.match(sequence, /data-action="\$\{event\.index\}"/);
+  assert.match(sequence, /data-event-key="\$\{event\.index\}"/);
+  assert.match(sequence, /data-delay="\$\{event\.index\}"/);
+  assert.match(sequence, /then wait <input/);
+  // Events outside the standard key list stay plainly labelled — never guessed.
+  assert.match(sequence, /Outside the standard key list/);
+  // The Sequence renders before the Advanced disclosure; structure and capacity stay under it.
+  const macros = jsFunction("renderMacros", "const DOM_USAGE");
+  const template = macros.slice(0, macros.indexOf("$(\"#add-macro\")"));
+  const sequenceAt = template.indexOf("renderMacroSequence(current");
+  const advancedAt = template.indexOf('id="macro-advanced"');
+  assert.ok(sequenceAt >= 0 && advancedAt > sequenceAt, "the Sequence must render before the Advanced disclosure");
   assert.match(js, /<details id="macro-advanced" class="advanced-disclosure"/);
   assert.match(js, /<summary>Edit individual events<\/summary>/);
-  const macros = jsFunction("renderMacros", "const DOM_USAGE");
-  const advancedAt = macros.indexOf('id="macro-advanced"');
-  assert.ok(advancedAt >= 0);
-  for (const marker of ['id="add-event"', "data-action=", "data-event-key=", "data-delay=", "data-remove=", "limit-meter"]) {
-    const template = macros.slice(0, macros.indexOf("$(\"#add-macro\")"));
+  for (const marker of ['id="add-event"', "data-remove=", "limit-meter"]) {
     assert.ok(template.indexOf(marker) > advancedAt, `${marker} must sit inside the Edit individual events disclosure`);
   }
   // Track counts and the capacity meter left the normal header.
   const header = macros.slice(macros.indexOf("screen-header"), macros.indexOf("macro-layout"));
   assert.doesNotMatch(header, /tracks|limit-meter|capacity\.used/);
+});
+
+test("macro sequence keeps lowercase, Shift-uppercase, modifier combinations, key-up ordering, and pauses distinct", () => {
+  const start = js.indexOf("const MACRO_MODIFIER_NAMES");
+  const end = js.indexOf("async function applyMacroText", start);
+  assert.ok(start >= 0 && end > start, "macro sequence helpers must be defined before the editor");
+  const helpers = js.slice(start, end);
+  const codeParts = code => {
+    const match = /^#([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{4})$/i.exec(code || "");
+    return match ? {modifier: parseInt(match[1], 16), page: parseInt(match[2], 16), usage: parseInt(match[3], 16)} : null;
+  };
+  const macroSequence = new Function("codeParts", "makeCode", "decodeCode", `${helpers}; return macroSequence;`)(
+    codeParts,
+    () => "#00000000",
+    () => "other key"
+  );
+  assert.deepEqual(
+    macroSequence({layer_key:["#11070004", "#10070004"], intvel_ms:[10, 0]}),
+    [
+      {index:0, label:"a", action:"press", delay:10},
+      {index:1, label:"a", action:"release", delay:0},
+    ]
+  );
+  assert.deepEqual(
+    macroSequence({layer_key:["#110700E1", "#11070004", "#10070004", "#100700E1"], intvel_ms:[1, 10, 1, 0]}),
+    [
+      {index:0, label:"Shift", action:"press", delay:1},
+      {index:1, label:"Shift + A", action:"press", delay:10},
+      {index:2, label:"Shift + A", action:"release", delay:1},
+      {index:3, label:"Shift", action:"release", delay:0},
+    ]
+  );
+  assert.deepEqual(
+    macroSequence({layer_key:["#110700E0", "#110700E1", "#11070004", "#10070004", "#100700E1", "#100700E0"], intvel_ms:[0, 0, 5, 0, 0, 0]}),
+    [
+      {index:0, label:"Ctrl", action:"press", delay:0},
+      {index:1, label:"Shift", action:"press", delay:0},
+      {index:2, label:"Ctrl + Shift + A", action:"press", delay:5},
+      {index:3, label:"Ctrl + Shift + A", action:"release", delay:0},
+      {index:4, label:"Shift", action:"release", delay:0},
+      {index:5, label:"Ctrl", action:"release", delay:0},
+    ]
+  );
+  // An unmatched key-up stays a plainly labelled release, in order.
+  assert.deepEqual(
+    macroSequence({layer_key:["#10070004"], intvel_ms:[0]}),
+    [{index:0, label:"a", action:"release", delay:0}]
+  );
+});
+
+test("sequence rows edit in place; non-standard events stay plainly labelled", () => {
+  const start = js.indexOf("const MACRO_MODIFIER_NAMES");
+  const end = js.indexOf("async function applyMacroText", start);
+  const helpers = js.slice(start, end);
+  const codeParts = code => {
+    const match = /^#([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{4})$/i.exec(code || "");
+    return match ? {modifier: parseInt(match[1], 16), page: parseInt(match[2], 16), usage: parseInt(match[3], 16)} : null;
+  };
+  const makeCode = (page, usage, modifier = 0) =>
+    `#${modifier.toString(16).padStart(2,"0")}${page.toString(16).padStart(2,"0")}${usage.toString(16).padStart(4,"0")}`.toUpperCase();
+  const renderMacroSequence = new Function("codeParts", "makeCode", "decodeCode", "esc", `${helpers}; return renderMacroSequence;`)(
+    codeParts, makeCode, () => "Media key", String
+  );
+  const eventOptions = [{label:"A", code:"#00070004"}, {label:"L Shift", code:"#000700E1"}];
+  const standard = renderMacroSequence({layer_key:["#11070004", "#10070004"], intvel_ms:[10, 0]}, eventOptions);
+  assert.match(standard, /data-action="0"/);
+  assert.match(standard, /data-event-key="0"/);
+  assert.match(standard, /<option value="#00070004" selected>/);
+  assert.match(standard, /value="10" data-delay="0"/);
+  const media = renderMacroSequence({layer_key:["#110C00E9"], intvel_ms:[3]}, eventOptions);
+  assert.match(media, /Media key/);
+  assert.match(media, /Outside the standard key list/);
+  assert.doesNotMatch(media, /data-event-key/);
+  const malformed = renderMacroSequence({layer_key:["not-a-code"], intvel_ms:[0]}, eventOptions);
+  assert.match(malformed, /Unrecognised event/);
+  assert.doesNotMatch(malformed, /data-event-key|data-action/);
 });
 
 test("capacity failures stay pre-mutation with task language", () => {
