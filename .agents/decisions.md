@@ -1,5 +1,21 @@
 # Repository Decisions
 
+## 2026-08-02 — Keep 0.1.65 unchanged; defer JPEG and experimental ARM CI
+
+Status: approved by the owner on 2026-08-02 while authorizing the current
+release to continue.
+
+- Release `0.1.65` keeps its existing public asset and support contract:
+  macOS arm64, Windows x64, and Linux x86-64. Do not add native Windows ARM64
+  or Linux ARM64 assets, JPEG import, or related claims to this release.
+- The next release plan must include JPEG media import and best-effort native
+  Windows ARM64 and Linux ARM64 CI builds with quick architecture, native-tree,
+  policy, frozen-smoke, and package-smoke verification.
+- ARM CI remains experimental and non-blocking unless a later owner decision
+  promotes either architecture. Keep its artifacts separate from candidate
+  metadata, provenance, supported-platform documentation, and public release
+  assets.
+
 ## 2026-08-01 — App-native exports and AM Master imports are asymmetric
 
 Status: approved by the owner on 2026-08-01 as Lighting redesign Gate LSR-G1,

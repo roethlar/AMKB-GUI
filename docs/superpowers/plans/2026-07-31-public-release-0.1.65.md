@@ -373,6 +373,12 @@ source/frozen qualification. This removes the redesign blocker but creates no
 candidate and authorizes none of the later action-time gates. R65-2 has not
 started.
 
+Current-scope ruling (2026-08-02): the owner directed `0.1.65` to finish under
+this plan's existing three-platform contract. JPEG import and best-effort
+experimental Windows/Linux ARM CI are deferred to the next release plan; the
+canonical ruling is in `.agents/decisions.md` and changes no current artifact
+or gate.
+
 ### Slice R65-2 — Freeze the final source candidate
 
 Preconditions:

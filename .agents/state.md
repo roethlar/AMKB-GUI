@@ -142,17 +142,23 @@
 
 ## Next
 
-- On explicit owner go, execute R65-2 against clean, reconciled current `main`:
-  repeat the release-plan source/dependency/native preflights, run the canonical
-  gate, push, and record the resulting remote SHA as a new candidate. No further
-  external review is authorized; use one only on explicit owner request or a
-  concrete material risk that local guards and CI cannot resolve. A replacement
-  release candidate must repeat every release gate and cannot mix evidence from
-  any rejected attempt with new bytes.
+- R65-2 is owner-authorized. Execute its source/dependency/native preflights and
+  canonical gate against clean, reconciled current `main`, then push the
+  unchanged SHA and treat it as the new candidate. Once frozen, R65-3 exact
+  GitHub-candidate qualification is next and no bookkeeping commit may move
+  `main` until acceptance or rejection. No further external review is
+  authorized; use one only on explicit owner request or a concrete material
+  risk that local guards and CI cannot resolve. A replacement candidate must
+  repeat every release gate and cannot mix evidence from any rejected attempt
+  with new bytes.
 - The approved `0.1.65` release plan remains recorded at
   `docs/superpowers/plans/2026-07-31-public-release-0.1.65.md`; it records all
   three rejected candidates. Its redesign prerequisite is complete, R65-2 is
   next, and no new candidate is active.
+- The owner ruled on 2026-08-02 that `0.1.65` finishes unchanged with macOS
+  arm64, Windows x64, and Linux x86-64 public assets. JPEG import and
+  best-effort experimental Windows/Linux ARM CI belong to the next release
+  plan and do not expand this release. `.agents/decisions.md` owns the ruling.
 - `.agents/machines.md` owns all host details, including each host's
   qualification role and connection information.
 - Tagging, release publication, hardware writes, live provider use, macOS Open
@@ -163,8 +169,7 @@
 
 ## Blockers
 
-- No technical redesign or LSR-10 blocker remains. R65-2 has not started and
-  awaits an explicit owner go for the candidate-freeze slice. Live provider
-  requests, keyboard writes, macOS Open Anyway, tag creation, release
-  publication, and announcements remain separately gated actions for their
-  later slices.
+- No technical redesign or LSR-10 blocker remains, and R65-2 is authorized.
+  Live provider requests, keyboard writes, macOS Open Anyway, tag creation,
+  release publication, and announcements remain separately gated actions for
+  their later slices.
