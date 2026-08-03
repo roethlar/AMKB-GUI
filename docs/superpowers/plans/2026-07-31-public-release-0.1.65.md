@@ -1,16 +1,16 @@
 # AM Configurator 0.1.65 Public Release
 
-**Status:** Owner-approved on 2026-07-31. Candidate attempts 1 at `2685a98`, 2
-at `c2f6fce`, and 3 at `09232fb` were rejected during exact-candidate
-qualification. Attempt 3 was rejected during R65-6 on 2026-08-01 because
-switching from Per-key to Head matrix while preview playback remained active
-rendered incorrect Head matrix lighting. No candidate is active. A correction
-was completed, owner-accepted, and qualified on Windows, Linux, and macOS at
-exact shipped-code repair `a4d3793`; the approved
-`2026-08-01-lighting-studio-human-first-redesign.md` and LSR-10 are closed.
-R65-2 is the next separately invoked action but has not restarted. Live provider
-requests, macOS Open Anyway, hardware writes, tag or GitHub Release creation,
-and announcement posting remain separate action-time gates.
+**Status:** Publication is complete through R65-8. Candidate attempt 4 at
+`ebd0d043e70c31c0342a73b088f84d28357196e4` was published on 2026-08-03 as the
+normal/latest GitHub Release `v0.1.65` after CI run `30780237489` and Desktop
+installers run `30780237509` passed. The public tag targets that exact commit;
+all five anonymously downloaded assets match their qualified sizes and hashes,
+and all five GitHub build attestations verify. The owner ruled repeated
+Gatekeeper/SmartScreen reenactment, a separate Windows About launch, and another
+exact-candidate Neon write non-blocking based on the established baselines and
+explicitly authorized publication. No final-candidate hardware write, provider
+request, security bypass, or announcement occurred. R65-9 remains separately
+gated and unposted.
 
 ## Objective
 
@@ -53,36 +53,24 @@ qualification.
 
 ## Current baseline
 
-Re-verify these facts at execution time.
-
-- Canonical source version is `0.1.65` in
-  `am_configurator/_version.py`.
-- Canonical `origin/main` is
-  `09232fb695a1a8b1ebc470ac470509ebbace3eb2`; local `main` matched it when
-  candidate attempt 3 was rejected. Reconcile the exact refs again at
-  execution time.
-- CI run `30699706921` and Desktop installers run `30699706913` attempt 1
-  passed for `09232fb`. Their artifacts belong to rejected candidate attempt 3
-  and must not be published.
-- P6 implementation commit `4a3c6ebadcc5d0fc1730c06b853af8e28c686ca5`
-  passed exact-head CI and three-platform artifact qualification. That proves
-  the release pipeline and product implementation, but it is not the final
-  release candidate because this plan and the `0.1.65` release packet must land
-  first.
-- GitHub's current normal/latest Release is `v0.1.11`. Tag and Release
-  `v0.1.65` do not exist.
-- `docs/releases/0.1.64.md` and
-  `docs/announcements/reddit-0.1.64.md` are rejected historical drafts and must
-  not be copied mechanically or republished.
-- `docs/installing.md`, issue intake, package metadata, native artifact naming,
-  and About already resolve to `0.1.65`.
-- `netwatch-01` can build, install, audit, smoke, and uninstall Windows
-  packages, but SmartScreen is disabled and that host cannot prove the normal
-  SmartScreen path.
-- `michael-mac` is the known macOS arm64 packaging and Neon 80 host. Its exact
-  current availability and tool state must be rechecked before use.
-- No live provider credential, paid request, fresh hardware write, tag,
-  Release, or announcement has been used for `0.1.65`.
+- Canonical source version is `0.1.65` in `am_configurator/_version.py`.
+- Public Release: <https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.65>.
+- Tag `v0.1.65`, release target, manifest source commit, and qualified source
+  all resolve to `ebd0d043e70c31c0342a73b088f84d28357196e4`.
+- The Release is normal/latest, not draft, and not prerelease. It contains
+  exactly the three installers, `SHA256SUMS.txt`, and `release-manifest.json`.
+- Installer SHA-256 values are Linux
+  `9d949da1b3149e5caddbecdf0cb85fbd35e2f7436916066bd4391f56d5923892`,
+  Windows `3b2f9572f241f1aa191f0f38cf219e3f6333ffa08a5a1b8a68a40dda56cc34a5`,
+  and macOS `a075cbc54b09376494567387083252409035524f0fdc1c4bc7aea63b0649de89`.
+- Anonymous downloads of all five public assets match the qualified byte sizes
+  and contents, and all five attestations verify against `roethlar/AMKB-GUI`.
+- Windows remains Authenticode-unsigned; macOS remains ad-hoc signed and not
+  notarized. Their visible warning behavior is a change-triggered baseline, not
+  a per-build reenactment gate.
+- JPEG import and best-effort Windows/Linux ARM CI remain deferred to the next
+  release plan. The Reddit announcement is prepared but unposted and separately
+  gated.
 
 ## Fixed constraints
 
@@ -145,6 +133,11 @@ The final release must satisfy all of the following simultaneously:
   after publication.
 
 ## Evidence inheritance rule
+
+The owner's 2026-08-03 ruling makes repeated platform trust-warning UI,
+separate Windows About, and another final-candidate Neon write non-blocking for
+the published `0.1.65` release. The rules below remain the historical procedure
+used before that ruling and the default for other candidate-specific evidence.
 
 P6 evidence may reduce repeated exploratory work, but never replace an
 exact-candidate check named below.
@@ -668,6 +661,12 @@ candidate. No other keyboard family receives a physical write under this gate.
 If fresh authorization is declined, stop for an owner ruling; do not silently
 downgrade the gate or the release claim.
 
+**R65-6 outcome:** The owner ruled on 2026-08-03 that the established Neon 80
+physical evidence and sustained use were sufficient for this release and that
+another candidate write was non-blocking. Read-only identity, keymap, macro,
+capacity, and restore-profile preflight passed; no final-candidate hardware
+write occurred.
+
 ### Slice R65-7 — Freeze release copy and request publication approval
 
 After R65-G1 and R65-2 through R65-6 pass without moving `main`:
@@ -687,6 +686,11 @@ After R65-G1 and R65-2 through R65-6 pass without moving `main`:
    - exact Release classification: normal/latest, not draft, not prerelease;
    - the proposed action: create `v0.1.65` and publish the five assets.
 5. Silence or general plan approval does not authorize publication.
+
+**R65-7 outcome:** On 2026-08-03 the owner explicitly authorized publication
+with `publish 0.1.65`, covering creation of the exact tag and normal/latest
+GitHub Release with the five qualified assets. Announcement authority did not
+carry.
 
 ### Slice R65-8 — Publish and verify the GitHub Release
 
@@ -713,6 +717,13 @@ Only after the explicit R65-7 publication go:
    tracker with immutable URL, tag target, hashes, and outcomes; commit and push
    that bookkeeping normally. The published tag remains fixed at the release
    target even though later bookkeeping advances `main`.
+
+**R65-8 outcome:** Published and verified on 2026-08-03 at
+<https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.65>. GitHub reports the
+Release normal/latest with tag target
+`ebd0d043e70c31c0342a73b088f84d28357196e4`; its exact five public assets match
+the qualified names, byte sizes, and hashes after anonymous download, and all
+five attestations verify. The tag and published assets are immutable.
 
 ### Slice R65-9 — Finalize and gate the announcement
 

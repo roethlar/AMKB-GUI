@@ -1,5 +1,29 @@
 # Repository Decisions
 
+## 2026-08-03 — Trust-warning qualification is change-triggered; 0.1.65 is public
+
+Status: approved by the owner on 2026-08-03 while closing release
+qualification and explicitly authorizing publication of `0.1.65`.
+
+- Gatekeeper and SmartScreen warning behavior is an established baseline for
+  the permanently unsigned distributions. Do not reenact those warning flows
+  for every new build while the signing, notarization, installer format,
+  application identity, download/quarantine path, supported OS generation, and
+  security mechanism remain unchanged. Continue the automated per-build
+  signature-state, integrity, provenance, package, install, and launch checks.
+- Re-run visible trust-warning qualification only when one of those inputs
+  changes or when a concrete regression makes the baseline uncertain. A
+  periodic spot check may inform maintenance but is not a release gate.
+- A separate visible Windows About check was non-blocking for `0.1.65` because
+  the exact version was already proven across source, package metadata,
+  installer identity, and visible About evidence on the shipped application.
+- Existing Neon 80 physical validation and the owner's sustained use were
+  sufficient for `0.1.65`; another exact-candidate hardware write was not a
+  publication prerequisite. No final-candidate hardware write was performed.
+- Release `v0.1.65` is a normal/latest public release fixed at
+  `ebd0d043e70c31c0342a73b088f84d28357196e4`. The Reddit announcement remains
+  a separate outward-message gate.
+
 ## 2026-08-02 — Keep 0.1.65 unchanged; defer JPEG and experimental ARM CI
 
 Status: approved by the owner on 2026-08-02 while authorizing the current
