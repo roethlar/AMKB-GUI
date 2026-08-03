@@ -88,9 +88,9 @@ or a firmware version you have not used before.
 
 *Keymap — select a physical key, then choose what it should send.*
 
-![The Lighting Studio: a keyboard-shaped canvas of individually labelled lights, the animation frame list, and the Paint, Import media, and Effects tools](docs/images/lighting.png)
+![The Lighting Studio: the physical LED output, a horizontal animation timeline, and the Paint, Import media, and Effects tools](docs/images/lighting.png)
 
-*Lighting — paint your board frame by frame, then apply the result to a slot.*
+*Lighting — edit a slot directly, or preview a media or effect result before applying it to the open profile.*
 
 ![The Macros screen: a macro list, the Type text box, and the delay control](docs/images/macros.png)
 
@@ -118,13 +118,14 @@ to adjust a single key press or pause.
 
 ### Lighting
 
-The Lighting Studio has three manual tools. **Paint** colours individual lights,
-frame by frame, on a keyboard-shaped canvas — multi-light keys stay separately
-labelled. **Import media** brings in GIF, PNG, and BMP files that you can pan,
-zoom, or stretch inside the destination outline. **Effects** animates a still
-frame with Pulse, Hue cycle, Sweep, Shimmer, and Move & zoom. Each tool works the
-same way: **Preview** first, then **Apply to lighting slot** when you like it.
-Timing choices are limited to values the destination firmware can actually play.
+The Lighting Studio has three manual tools. **Paint** colours individual lights
+directly on the physical LED output, with one shared horizontal timeline.
+**Import media** brings in GIF, PNG, and BMP files and keeps the source frame and
+what the keyboard will show together while you pan, zoom, or stretch. **Effects**
+shows Pulse, Hue cycle, Sweep, Shimmer, and Move & zoom as a live draft. Imported
+media and effects change the open profile only when you choose **Apply**; **Save
+to Library** remains separate. Timing choices are limited to values the destination
+firmware can actually play.
 
 ### Library
 
