@@ -2,48 +2,44 @@
 
 ## Now
 
-- As of `419b797`, GitHub Release `v0.1.65` has been pulled back to a draft;
-  its tag and assets remain retained. Do not republish without an explicit
-  owner go.
-- The committed README lighting refresh (`419b797`) is rejected in part: the
-  lighting image is unhelpful, and the Macro image contains real macro data.
-  Screenshot work is incomplete; do not resume it without the owner asking.
-  Its `lighting.png` is 1203x768 instead of release-sized 1600x1000, so
-  `test_public_screenshots_are_release_sized_and_metadata_free` fails on the
-  committed tree — pre-existing, unrelated to macro work.
-- Macro repair: the three-mode editor is implemented and pushed. Plan
-  `f13d219`; slices `4c1884d` (compiler timing: fast/slow/natural with WPM,
-  cadence capture, seeded stagger), `92aad3c` (Text entry mode + JS compiler
-  inverse decode), `b7f1c39` (Flow mode rows with key/down-up/pause +
-  timing-scale), `b3b22c3` (Repeat mode with per-family cost quote), and
-  review fix `b9f226e` (Flow is the sole event editor — the Advanced
-  disclosure is gone; remove and capacity moved into Flow; decode widened so
-  hand-recorded text opens in Text entry; README Macros section matches).
-  Full verification green except the pre-existing lighting.png failure.
-  Awaiting owner review in the app. The owner confirmed 2026-08-03 that his
-  real 0 ms-delay macros work fine in practice; no zero-delay warning or
-  re-timing prompt is wanted.
+- `v0.1.65` remains a withdrawn GitHub draft; its tag and assets are retained
+  and must not be republished or moved. Its disposition is an R66-5 owner
+  decision.
+- Macro repair: complete and reviewed in the app by the owner. Three-mode
+  editor: `4c1884d` (compiler timing), `92aad3c` (Text entry), `b7f1c39`
+  (Flow), `b3b22c3` (Repeat), review fix `b9f226e` (Flow sole event editor,
+  recorded-text decode). The owner confirmed his real 0 ms-delay macros work
+  fine; no zero-delay warning is wanted.
+- README screenshots were recaptured with a synthetic profile at release size
+  (`9e714de`); the suite is fully green. The screenshot guard failure is
+  resolved.
+- Release `0.1.66` preparation is mid-flight: version bumped (`777da50`),
+  JPEG import landed (`aa1c263`), experimental ARM64 CI landed and passed on
+  both targets (`0558685`, run 30884280304), release notes drafted.
+  **Pushes are paused (owner, 2026-08-04): the owner has not yet read or
+  approved the packet. Nothing goes to origin until the owner reviews.**
+- The Reddit draft is being rewritten with the owner as a first-app
+  announcement (what/why/try-it framing). Edits are local and uncommitted.
 - A read-only static audit found six redundant labels: the QWERTY-picker
   caption, the Macros eyebrow, and four duplicate dialog/screen eyebrows.
   No audit edits were made.
 
 ## Next
 
-- Release `0.1.66` is in preparation. Done: macro editor rework, synthetic
-  README screenshots (`9e714de`), version bump (`777da50`), suite
-  fully green. Remaining per the draft plan
-  `docs/superpowers/plans/2026-08-03-public-release-0.1.66.md` (owner review):
-  R66-1 JPEG import (owner-mandated 2026-08-02), R66-2 experimental ARM64 CI,
-  R66-3 release packet, R66-4 qualification, R66-5 publication gates. Each
-  publish action (tag, Release, draft disposition, Reddit) needs an explicit
-  owner go. R66-1 landed as `aa1c263`; R66-2 experimental ARM64 CI jobs
-  landed as `0558685` and the first run passed both ARM64 targets plus all
-  supported installers, metadata, and provenance (run 30884280304); R66-3
-  release packet landed as `3345c2c`. Next: R66-4 qualification (macOS
-  native build + frozen smoke + CI candidates), then the R66-5 publication
-  gates.
+- Owner reviews the packet (`docs/announcements/reddit-0.1.66.md`,
+  `docs/releases/0.1.66.md`,
+  `docs/superpowers/plans/2026-08-03-public-release-0.1.66.md`). On approval:
+  commit local packet edits, resume pushes, then R66-4 qualification and the
+  R66-5 publication gates (each an explicit owner go).
+- After `0.1.66`: draft a plan for unsupported-board onboarding (owner
+  approved 2026-08-03): "new keyboard model detected" plus a read-only scan
+  that packages a sanitized device report (product ID, protocol responses,
+  keymap/macro capacities) for GitHub submission, so support can be added
+  without buying every board. Known limit: serial-protocol LED geometry is
+  not probeable, so lighting for new serial families still needs a physical
+  board or vendor source; keymap/macro support may ship from a scan alone.
 
 ## Blockers
 
-- No external blocker. README screenshots and the `v0.1.65` republish await
-  the owner.
+- The release packet awaits the owner's read; all origin pushes are paused
+  until then. No external blocker.
