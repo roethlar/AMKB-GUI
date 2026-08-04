@@ -465,10 +465,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .macro-sequence-delay { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; white-space: nowrap; }
 .macro-sequence-delay input { width: 74px; }
 .macro-sequence-custom, .macro-sequence-static { color: var(--muted); font-size: 13px; }
-.text-macro-composer { display: grid; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); background: rgba(131,88,255,.045); }
-.text-macro-composer > div:first-child { display: flex; align-items: baseline; gap: 9px; }
-.text-macro-composer small { color: var(--muted); font-size: 13px; }
-.text-macro-composer textarea { width: 100%; min-height: 64px; resize: vertical; line-height: 1.45; padding: 10px 12px; }
+.mode-switch { display: flex; gap: 0; padding: 10px 16px 0; border-bottom: 1px solid var(--line); }
+.mode-switch button { border: 1px solid transparent; border-bottom: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px; padding: 7px 14px; cursor: pointer; border-radius: 8px 8px 0 0; }
+.mode-switch button.active { color: var(--text); background: var(--panel-2); border-color: var(--line); font-weight: 600; }
+.mode-switch button:disabled { opacity: .45; cursor: default; }
+.mode-body { display: grid; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); background: rgba(131,88,255,.045); }
+.text-macro-mode textarea { width: 100%; min-height: 64px; resize: vertical; line-height: 1.45; padding: 10px 12px; }
+.timing-modes { display: grid; gap: 8px; }
+.timing-modes label { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; color: var(--text); }
+.timing-modes label small { color: var(--muted); }
+.timing-natural { margin-left: 26px; display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
+.timing-natural input[type="number"] { width: 64px; min-height: 26px; padding: 0 6px; }
+.timing-hint { color: var(--muted); font-size: 13px; }
+.mode-summary { color: var(--muted); font-size: 13px; margin: 0; }
 .text-macro-actions { display: flex; align-items: center; gap: 8px; }
 .text-macro-actions label { color: var(--muted); font-size: 13px; }
 .text-macro-actions input { width: 68px; min-height: 34px; margin: 0 4px 0 7px; padding: 0 8px; }

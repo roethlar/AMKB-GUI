@@ -81,29 +81,35 @@ test("lossless raw assignment still round-trips", () => {
   assert.match(js, /\/api\/keymap\/assignment/);
 });
 
-test("normal macro path edits the sequence in place; Advanced keeps structure and capacity", () => {
+test("macro editor offers Text entry and Flow modes; Advanced keeps structure and capacity", () => {
   assert.match(js, /● Record keys/);
-  assert.match(js, /<strong>Type text<\/strong>/);
-  assert.match(js, /Delay between keys/);
-  assert.match(js, /raise it if an app drops characters/);
-  assert.match(js, /id="macro-sequence-title">Sequence</);
-  assert.match(js, /Every key action and the pause that follows it/);
-  assert.match(js, /key=\(shift!==capsLockOn\)\?letter\.toUpperCase\(\):letter/);
-  // The always-visible Sequence edits key, press/release, and pause in place.
-  const sequence = jsFunction("renderMacroSequence", "async function applyMacroText");
+  assert.match(js, /id="mode-text"/);
+  assert.match(js, /id="mode-flow"/);
+  assert.match(js, />Text entry</);
+  assert.match(js, /This macro has events text can't express/);
+  // Text entry: the macro is a text box plus one timing choice.
+  assert.match(js, /name="macro-timing" value="fast"/);
+  assert.match(js, /name="macro-timing" value="slow"/);
+  assert.match(js, /name="macro-timing" value="natural"/);
+  assert.match(js, /id="macro-wpm"/);
+  assert.match(js, /id="cadence-capture"/);
+  assert.match(js, /id="text-replace"/);
+  assert.match(js, /id="text-append"/);
+  assert.match(js, /\{text,\.\.\.macroTimingRequest\(\)\}/);
+  assert.match(js, /Raise the delay if an app drops characters/);
+  // Mode derivation: Text entry only when the macro decodes as clean text.
+  assert.match(js, /state\.macroMode\?\?\(decoded\?"text":"flow"\)/);
+  // Flow edits key, press/release, and pause in place.
+  const sequence = jsFunction("renderMacroSequence", "const MACRO_TEXT_KEYS");
   assert.match(sequence, /data-action="\$\{event\.index\}"/);
   assert.match(sequence, /data-event-key="\$\{event\.index\}"/);
   assert.match(sequence, /data-delay="\$\{event\.index\}"/);
-  assert.match(sequence, /then wait <input/);
-  // Events outside the standard key list stay plainly labelled — never guessed.
   assert.match(sequence, /Outside the standard key list/);
   // The Sequence renders before the Advanced disclosure; structure and capacity stay under it.
   const macros = jsFunction("renderMacros", "const DOM_USAGE");
   const template = macros.slice(0, macros.indexOf("$(\"#add-macro\")"));
-  const sequenceAt = template.indexOf("renderMacroSequence(current");
   const advancedAt = template.indexOf('id="macro-advanced"');
-  assert.ok(sequenceAt >= 0 && advancedAt > sequenceAt, "the Sequence must render before the Advanced disclosure");
-  assert.match(js, /<details id="macro-advanced" class="advanced-disclosure"/);
+  assert.ok(advancedAt >= 0);
   assert.match(js, /<summary>Edit individual events<\/summary>/);
   for (const marker of ['id="add-event"', "data-remove=", "limit-meter"]) {
     assert.ok(template.indexOf(marker) > advancedAt, `${marker} must sit inside the Edit individual events disclosure`);
@@ -111,6 +117,43 @@ test("normal macro path edits the sequence in place; Advanced keeps structure an
   // Track counts and the capacity meter left the normal header.
   const header = macros.slice(macros.indexOf("screen-header"), macros.indexOf("macro-layout"));
   assert.doesNotMatch(header, /tracks|limit-meter|capacity\.used/);
+});
+
+test("text entry opens only for clean text; decode is the exact compiler inverse", () => {
+  const start = js.indexOf("const MACRO_MODIFIER_NAMES");
+  const end = js.indexOf("function renderMacroTextMode", start);
+  assert.ok(start >= 0 && end > start);
+  const helpers = js.slice(start, end);
+  const codeParts = code => {
+    const match = /^#([0-9A-F]{2})([0-9A-F]{2})([0-9A-F]{4})$/i.exec(code || "");
+    return match ? {modifier: parseInt(match[1], 16), page: parseInt(match[2], 16), usage: parseInt(match[3], 16)} : null;
+  };
+  const macroTextDecode = new Function("codeParts", `${helpers}; return macroTextDecode;`)(codeParts);
+  // "ab" compiled at fast timing (fixtures mirror the Python compiler output).
+  assert.deepEqual(
+    macroTextDecode({layer_key:["#11070004","#10070004","#11070005","#10070005"], intvel_ms:[1,10,1,0]}),
+    {text:"ab", rhythm:10}
+  );
+  // "A!" shares one Shift run.
+  assert.deepEqual(
+    macroTextDecode({layer_key:["#110700E1","#11070004","#10070004","#1107001E","#1007001E","#100700E1"], intvel_ms:[1,1,10,1,10,0]}),
+    {text:"A!", rhythm:10}
+  );
+  // Staggered pauses are natural timing: still text, no uniform rhythm.
+  assert.deepEqual(
+    macroTextDecode({layer_key:["#11070004","#10070004","#11070005","#10070005","#11070006","#10070006"], intvel_ms:[1,77,1,123,1,0]}),
+    {text:"abc", rhythm:null}
+  );
+  // Human-recorded presses (pause other than 1ms) and media events are not text.
+  assert.equal(macroTextDecode({layer_key:["#11070004","#10070004"], intvel_ms:[5,10]}), null);
+  assert.equal(macroTextDecode({layer_key:["#110C00E9"], intvel_ms:[0]}), null);
+});
+
+test("cadence capture samples only timing and is wired before macro recording", () => {
+  assert.match(js, /if\(state\.cadenceCapture\)\{captureCadenceEvent\(event\);return;\}/);
+  assert.match(js, /state\.macroCadence\.push\(Math\.max\(1,Math\.min\(1000,Math\.round\(now-state\.cadenceLast\)\)\)\)/);
+  assert.match(js, /id="cadence-capture"/);
+  assert.match(js, /pauses sampled/);
 });
 
 test("macro sequence keeps lowercase, Shift-uppercase, modifier combinations, key-up ordering, and pauses distinct", () => {

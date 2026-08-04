@@ -2589,7 +2589,7 @@ function addMacro() {
     const candidate = makeCode(0x95,0x1500+i);
     if (!used.has(candidate)) { tokenCode = candidate; break; }
   }
-  mutate(() => { macros().push({original_key:tokenCode, layer_key:[], intvel_ms:[]}); state.macro=macros().length-1; });
+  mutate(() => { macros().push({original_key:tokenCode, layer_key:[], intvel_ms:[]}); state.macro=macros().length-1; state.macroMode=null; state.macroTiming=null; });
 }
 
 async function loadImportableMacros(config) {
@@ -2641,6 +2641,7 @@ function removeMacro() {
     for (const layer of layers()) layer.layer = layer.layer.map(code => code.toUpperCase() === macro.original_key.toUpperCase() ? "#00000000" : code);
     macros().splice(state.macro,1);
     state.macro = Math.max(0,state.macro-1);
+    state.macroMode=null; state.macroTiming=null;
   });
 }
 
@@ -2709,13 +2710,124 @@ function renderMacroSequence(macro, eventOptions) {
   }).join("")}</ol>`;
 }
 
+const MACRO_TEXT_KEYS = (() => {
+  const map = new Map();
+  const add = (usage, plain, shifted) => { map.set(`${usage}:0`, plain); if (shifted !== undefined) map.set(`${usage}:1`, shifted); };
+  add(0x2A, "\b"); add(0x2B, "\t"); add(0x28, "\n"); add(0x29, "\x1b"); add(0x2C, " ");
+  add(0x2D, "-", "_"); add(0x2E, "=", "+"); add(0x2F, "[", "{"); add(0x30, "]", "}");
+  add(0x31, "\\", "|"); add(0x33, ";", ":"); add(0x34, "'", '"'); add(0x35, "`", "~");
+  add(0x36, ",", "<"); add(0x37, ".", ">"); add(0x38, "/", "?"); add(0x4C, "\x7f");
+  for (let i = 0; i < 26; i++) add(0x04 + i, "abcdefghijklmnopqrstuvwxyz"[i], "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[i]);
+  const digits = "1234567890", shiftedDigits = "!@#$%^&*()";
+  for (let i = 0; i < 10; i++) add(0x1E + i, digits[i], shiftedDigits[i]);
+  return map;
+})();
+
+// Inverse of the text compiler: decode events into {text, rhythm} only when
+// they exactly match what the compiler emits (1ms press/shift transitions,
+// Left Shift runs, compiler charset). The rhythm is the uniform inter-key
+// pause, or null when pauses stagger (natural timing). Anything else returns
+// null — the macro is not plain text and belongs in Flow.
+function macroTextDecode(macro) {
+  const codes = macro?.layer_key || [];
+  const delays = macro?.intvel_ms || [];
+  if (!codes.length) return null;
+  let text = "", shiftDown = false, i = 0;
+  const releases = [];
+  while (i < codes.length) {
+    const parts = codeParts(codes[i]);
+    if (!parts || parts.page !== 0x07) return null;
+    if (parts.usage === 0xE1) {
+      const down = parts.modifier !== 0x10;
+      const transition = Number(delays[i] ?? 0);
+      // The compiler zeroes the final event's pause, even a Shift transition's.
+      if (down === shiftDown || (transition !== 1 && !(i === codes.length - 1 && transition === 0))) return null;
+      shiftDown = down; i++;
+      continue;
+    }
+    if (parts.modifier !== 0x11 || Number(delays[i] ?? 0) !== 1) return null;
+    const usage = parts.usage;
+    i++;
+    if (i >= codes.length) return null;
+    const up = codeParts(codes[i]);
+    if (!up || up.page !== 0x07 || up.usage !== usage || up.modifier !== 0x10) return null;
+    releases.push(Math.max(0, Number(delays[i] ?? 0) || 0));
+    const character = MACRO_TEXT_KEYS.get(`${usage}:${shiftDown ? 1 : 0}`);
+    if (character === undefined) return null;
+    text += character; i++;
+  }
+  if (shiftDown) return null;
+  let rhythm = null;
+  if (releases.length > 1 && releases.slice(0, -1).every(pause => pause === releases[0])) rhythm = releases[0];
+  return {text, rhythm};
+}
+
+function macroTimingChoice(decoded) {
+  if (state.macroTiming) return state.macroTiming;
+  const rhythm = decoded?.rhythm;
+  if (rhythm === 10) return "fast";
+  if (rhythm === 100) return "slow";
+  if (rhythm !== null && rhythm !== undefined) return "custom";
+  return decoded ? "natural" : "fast";
+}
+
+function renderMacroTextMode(current, decoded, capacity) {
+  const rhythm = decoded?.rhythm ?? null;
+  const choice = macroTimingChoice(decoded);
+  const custom = rhythm !== null && rhythm !== 10 && rhythm !== 100;
+  const wpm = state.macroNatural?.wpm ?? 90;
+  const cadence = state.macroCadence;
+  const events = (current.layer_key || []).length;
+  return `<div class="mode-body text-macro-mode">
+    <textarea id="macro-text" class="text-field" rows="3" placeholder="Type the exact text this macro should enter…">${esc(decoded?.text ?? "")}</textarea>
+    <div class="timing-modes" role="radiogroup" aria-label="Typing speed">
+      <label><input type="radio" name="macro-timing" value="fast" ${choice === "fast" ? "checked" : ""}> Fast <small>10 ms between keys — games and terminals that keep up</small></label>
+      <label><input type="radio" name="macro-timing" value="slow" ${choice === "slow" ? "checked" : ""}> Slow <small>100 ms between keys — apps that drop characters</small></label>
+      <label><input type="radio" name="macro-timing" value="natural" ${choice === "natural" ? "checked" : ""}> Natural <small>staggered like real typing</small></label>
+      ${custom ? `<label><input type="radio" name="macro-timing" value="custom" ${choice === "custom" ? "checked" : ""}> Current <small>${rhythm} ms between keys</small></label>` : ""}
+      <div class="timing-natural" ${choice === "natural" ? "" : "hidden"}>target <input id="macro-wpm" class="text-field" type="number" min="20" max="140" value="${wpm}"> WPM · or <button id="cadence-capture" type="button" class="button ghost">${state.cadenceCapture ? "■ Stop capture" : "Capture my cadence"}</button>${cadence?.length ? `<small>${cadence.length} pauses sampled</small>` : ""}</div>
+      ${state.cadenceCapture ? `<small class="timing-hint">Type a sentence now — only your timing is recorded.</small>` : ""}
+    </div>
+    <p class="mode-summary">${events} events · editing replaces the whole macro · ${capacity.used}/${capacity.limit} ${capacity.unit} used</p>
+    <div class="text-macro-actions"><button id="text-append" class="button ghost">Append</button><div class="spacer"></div><button id="text-replace" class="button primary">Replace keystrokes</button></div>
+    <small class="timing-hint">US layout · letters, numbers, punctuation, spaces, Tab, and Enter · Shift is added automatically. Raise the delay if an app drops characters.</small>
+  </div>`;
+}
+
+function macroTimingRequest() {
+  const choice = document.querySelector('input[name="macro-timing"]:checked')?.value || "fast";
+  if (choice === "natural") {
+    const wpm = Math.max(20, Math.min(140, Number($("#macro-wpm")?.value) || 90));
+    state.macroNatural = {wpm};
+    const timing = {mode: "natural", wpm};
+    if (state.macroCadence?.length) timing.cadence = state.macroCadence;
+    return {timing};
+  }
+  if (choice === "custom") return {delay_ms: macroTextDecode(macros()[state.macro])?.rhythm ?? 25};
+  return {timing: {mode: choice}};
+}
+
+function stopCadenceCapture(announce=false) {
+  state.cadenceCapture=false;state.cadenceLast=null;
+  renderMacros();
+  if(announce&&state.macroCadence?.length)toast("Cadence captured",`${state.macroCadence.length} pauses sampled`,"success");
+}
+
+function captureCadenceEvent(event) {
+  if(event.repeat)return;
+  event.preventDefault();
+  const now=performance.now();
+  if(state.cadenceLast!=null)state.macroCadence.push(Math.max(1,Math.min(1000,Math.round(now-state.cadenceLast))));
+  state.cadenceLast=now;
+  if(state.macroCadence.length>=64)stopCadenceCapture(true);
+}
+
 async function applyMacroText(mode) {
   const current=macros()[state.macro];
   if(!current)return;
   const text=$("#macro-text").value;
-  const delay=Number($("#macro-text-delay").value);
   try{
-    const generated=await api("/api/macros/text",{method:"POST",body:JSON.stringify({text,delay_ms:delay})});
+    const generated=await api("/api/macros/text",{method:"POST",body:JSON.stringify({text,...macroTimingRequest()})});
     const oldCount=(current.layer_key||[]).length;
     const candidate=clone(macros());
     const next=candidate[state.macro];
@@ -2727,7 +2839,8 @@ async function applyMacroText(mode) {
       current.layer_key=mode==="append"?[...(current.layer_key||[]),...generated.layer_key]:generated.layer_key;
       current.intvel_ms=next.intvel_ms;
     });
-    toast("Text converted",`${generated.characters} characters · ${generated.layer_key.length} key events · ${delay}ms between keys`,"success");
+    state.macroTiming=null;
+    toast("Text converted",`${generated.characters} characters · ${generated.layer_key.length} key events`,"success");
   }catch(error){toast("Could not convert text",error.message,"error");}
 }
 
@@ -2740,6 +2853,10 @@ function renderMacros() {
   const assigned = current ? layers().reduce((sum, layer) => sum + layer.layer.filter(code => code.toUpperCase()===current.original_key.toUpperCase()).length,0) : 0;
   const missing=missingMacroTokens();
   const missingWarning=missing.length?`<div class="write-warning macro-warning"><strong>Macro assignments have no readable actions</strong><p>${missing.map(code=>esc(decodeCode(code))).join(", ")} ${missing.length===1?'is':'are'} assigned in the keymap, but the keyboard returned no matching macro definition. Loading cannot reconstruct those keystrokes; restore them from a saved JSON or recreate them before writing.</p></div>`:"";
+  const decoded=current?macroTextDecode(current):null;
+  const textAllowed=!!current&&((current.layer_key||[]).length===0||!!decoded);
+  let macroMode=state.macroMode??(decoded?"text":"flow");
+  if(macroMode==="text"&&!textAllowed)macroMode="flow";
   $("#screen").innerHTML = `<div class="screen-shell">
     <header class="screen-header"><div><p class="eyebrow">Reusable key sequences</p><h1>Macros</h1><p class="description">Type text or record keys, then assign the macro to any key on the Keymap screen.</p></div><div class="header-controls"><button id="import-macros" class="button ghost">Import macros</button><button id="save-macros-library" type="button" class="button ghost" title="Keep a reusable copy of this profile, including its macros, in Library">Save to Library</button><button id="add-macro" class="button primary">+ New macro</button></div></header>
     ${missingWarning}
@@ -2753,12 +2870,10 @@ function renderMacros() {
           <div class="spacer"></div>
           <button id="assign-macro" class="button ghost" ${state.selected===null?'disabled':''}>Assign to selected key</button>
           <button id="delete-macro" class="button danger">Delete</button>
-        </div><section class="macro-sequence" aria-labelledby="macro-sequence-title"><div class="macro-sequence-heading"><div><strong id="macro-sequence-title">Sequence</strong><small>Every key action and the pause that follows it, exactly as the keyboard replays it. Edit the key, press/release, or pause in place.</small></div></div>${renderMacroSequence(current,eventOptions)}</section><div class="text-macro-composer">
-          <div><strong>Type text</strong><small>Typed text is converted into the exact keystrokes the keyboard will replay.</small></div>
-          <textarea id="macro-text" class="text-field" rows="3" placeholder="Type the exact text this macro should enter…"></textarea>
-          <div class="text-macro-actions"><label>Delay between keys <input id="macro-text-delay" class="text-field" type="number" min="1" max="1000" value="10"> ms</label><div class="spacer"></div><button id="text-append" class="button ghost">Append</button><button id="text-replace" class="button primary">Replace keystrokes</button></div>
-          <small>The delay is how long the keyboard waits between keystrokes — raise it if an app drops characters. US layout · letters, numbers, punctuation, spaces, Tab, and Enter · Shift is added automatically.</small>
-        </div><details id="macro-advanced" class="advanced-disclosure" ${state.macroAdvancedOpen?"open":""}><summary>Edit individual events</summary>
+        </div><div class="mode-switch" role="tablist" aria-label="Macro editor mode">
+          <button id="mode-text" role="tab" class="${macroMode==="text"?"active":""}" ${textAllowed?"":"disabled"} title="${textAllowed?"Type the macro as text":"This macro has events text can't express — edit them in Flow"}">Text entry</button>
+          <button id="mode-flow" role="tab" class="${macroMode==="flow"?"active":""}" title="Edit the macro event by event">Flow</button>
+        </div>${macroMode==="text"?renderMacroTextMode(current,decoded,capacity):`<section class="macro-sequence" aria-labelledby="macro-sequence-title"><div class="macro-sequence-heading"><div><strong id="macro-sequence-title">Sequence</strong><small>Every key action and the pause that follows it, exactly as the keyboard replays it. Edit the key, press/release, or pause in place.</small></div></div>${renderMacroSequence(current,eventOptions)}</section>`}<details id="macro-advanced" class="advanced-disclosure" ${state.macroAdvancedOpen?"open":""}><summary>Edit individual events</summary>
           <div class="macro-capacity"><small>${capacity.used}/${capacity.limit} ${capacity.unit} · up to ${macroTracks} tracks</small><div class="limit-meter"><span style="width:${capacity.limit?Math.min(100,capacity.used*100/capacity.limit):0}%"></span></div></div>
           <p class="inspector-help">Each row is one key-down or key-up event and the delay that follows it, exactly as the keyboard replays them.</p>
           <div class="macro-toolbar"><button id="add-event" class="button ghost">+ Event</button></div>
@@ -2773,7 +2888,7 @@ function renderMacros() {
   $("#add-macro").addEventListener("click", addMacro);
   $("#import-macros").addEventListener("click",()=>$("#macro-import-input").click());
   $("#save-macros-library")?.addEventListener("click",()=>saveMappingToLibrary("save-macros-library"));
-  $$("[data-macro]").forEach(button => button.addEventListener("click",()=>{state.macro=Number(button.dataset.macro);renderMacros();restoreFocus(`[data-macro="${button.dataset.macro}"]`);}));
+  $$("[data-macro]").forEach(button => button.addEventListener("click",()=>{state.macro=Number(button.dataset.macro);state.macroMode=null;state.macroTiming=null;renderMacros();restoreFocus(`[data-macro="${button.dataset.macro}"]`);}));
   if (!current) return;
   $("#macro-advanced").addEventListener("toggle",event=>{state.macroAdvancedOpen=event.currentTarget.open;});
   $("#delete-macro").addEventListener("click", removeMacro);
@@ -2786,8 +2901,16 @@ function renderMacros() {
     mutate(()=>{current.layer_key.push("#11070004");current.intvel_ms.push(25);});
   });
   $("#record-macro").addEventListener("click", toggleRecording);
-  $("#text-append").addEventListener("click",()=>applyMacroText("append"));
-  $("#text-replace").addEventListener("click",()=>applyMacroText("replace"));
+  $("#mode-text")?.addEventListener("click",()=>{state.macroMode="text";renderMacros();});
+  $("#mode-flow")?.addEventListener("click",()=>{state.macroMode="flow";renderMacros();});
+  $$('input[name="macro-timing"]').forEach(radio=>radio.addEventListener("change",()=>{state.macroTiming=radio.value;renderMacros();}));
+  $("#cadence-capture")?.addEventListener("click",()=>{
+    if(state.cadenceCapture){stopCadenceCapture(true);return;}
+    state.cadenceCapture=true;state.macroCadence=[];state.cadenceLast=null;
+    renderMacros();restoreFocus("#cadence-capture");
+  });
+  $("#text-append")?.addEventListener("click",()=>applyMacroText("append"));
+  $("#text-replace")?.addEventListener("click",()=>applyMacroText("replace"));
   $("#assign-macro").addEventListener("click", () => assignSelected(current.original_key));
   $$("[data-action]").forEach(button => button.addEventListener("click",()=>mutate(()=>{
     const i=Number(button.dataset.action); current.layer_key[i]=macroEventCode(macroBaseCode(current.layer_key[i]), codeParts(current.layer_key[i])?.modifier===0x10);
@@ -6755,6 +6878,7 @@ window.addEventListener("popstate", () => {
   if (parsed.jobId && parsed.jobId !== state.lighting.activeJob?.id) restoreLightingJob();
 });
 document.addEventListener('keydown',event=>{
+  if(state.cadenceCapture){captureCadenceEvent(event);return;}
   if(state.recording){recordEvent(event,true);return;}
   if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='z'){event.preventDefault();event.shiftKey?redo():undo();}
   if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='s'){event.preventDefault();saveConfig();}
