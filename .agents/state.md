@@ -26,11 +26,14 @@
 
 ## Next
 
-- Owner reviews the packet (`docs/announcements/reddit-0.1.66.md`,
-  `docs/releases/0.1.66.md`,
-  `docs/superpowers/plans/2026-08-03-public-release-0.1.66.md`). On approval:
-  commit local packet edits, resume pushes, then R66-4 qualification and the
-  R66-5 publication gates (each an explicit owner go).
+- **The 0.1.66 release is frozen (owner, 2026-08-04): an element-level UI
+  redesign blocks publication.** R66-4 qualification and R66-5 gates do not
+  proceed until the redesign ships. The packet (release notes, plan) is
+  superseded in UI terms — it describes the current look.
+- The redesign starts from information architecture, not paint: two mockup
+  rounds (colorways, then structural reskins) were rejected as "the same
+  elements, restyled." The next step is throwaway prototypes with genuinely
+  different element arrangements for the owner to judge.
 - After `0.1.66`: draft a plan for unsupported-board onboarding (owner
   approved 2026-08-03): "new keyboard model detected" plus a read-only scan
   that packages a sanitized device report (product ID, protocol responses,
@@ -41,5 +44,5 @@
 
 ## Blockers
 
-- The release packet awaits the owner's read; all origin pushes are paused
-  until then. No external blocker.
+- Release is frozen on the element-level UI redesign (owner, 2026-08-04).
+  Origin pushes stay paused. No external blocker.
