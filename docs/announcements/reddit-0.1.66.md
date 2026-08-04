@@ -25,8 +25,7 @@ You can:
 - preview before applying a lighting slot;
 - save reusable profiles, keymaps, macros, media, and lighting to the Library;
   and
-- read or write a connected board — reading never writes, and a write only
-  starts after you type the keyboard's model in the confirmation dialog.
+- read or write a connected board — reading never changes anything on it.
 
 Changes in 0.1.66:
 
@@ -60,9 +59,8 @@ certificate. The installation guide explains hash and GitHub attestation
 checks plus the narrow per-application first-launch steps for unsigned apps;
 do not disable Gatekeeper or SmartScreen globally.
 
-A full write replaces keymaps, macros, and LED data together; the AM Neon 80
-also requires its physical **Esc+F2** unlock, and other configurators must be
-closed so they do not hold the HID interface.
+A full write replaces keymaps, macros, and LED data together, so keep a saved
+profile before writing to a board you have not used before.
 
 Download:
 https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.66
