@@ -15,11 +15,12 @@
   `f13d219`; slices `4c1884d` (compiler timing: fast/slow/natural with WPM,
   cadence capture, seeded stagger), `92aad3c` (Text entry mode + JS compiler
   inverse decode), `b7f1c39` (Flow mode rows with key/down-up/pause +
-  timing-scale), `b3b22c3` (Repeat mode with per-family cost quote). The old
-  Type-text composer and the rejected sequence shapes are gone; the Advanced
-  disclosure is retained for add/remove and the capacity meter. Full
-  verification green except the pre-existing lighting.png failure. Awaiting
-  owner review in the app.
+  timing-scale), `b3b22c3` (Repeat mode with per-family cost quote), and
+  review fix `b9f226e` (Flow is the sole event editor — the Advanced
+  disclosure is gone; remove and capacity moved into Flow; decode widened so
+  hand-recorded text opens in Text entry; README Macros section matches).
+  Full verification green except the pre-existing lighting.png failure.
+  Awaiting owner review in the app.
 - A read-only static audit found six redundant labels: the QWERTY-picker
   caption, the Macros eyebrow, and four duplicate dialog/screen eyebrows.
   No audit edits were made.
