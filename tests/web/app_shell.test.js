@@ -99,12 +99,20 @@ test("macro editor offers Text entry and Flow modes; Advanced keeps structure an
   assert.match(js, /Raise the delay if an app drops characters/);
   // Mode derivation: Text entry only when the macro decodes as clean text.
   assert.match(js, /state\.macroMode\?\?\(decoded\?"text":"flow"\)/);
-  // Flow edits key, press/release, and pause in place.
+  // Flow edits key, down/up, and pause in place, one row per event.
   const sequence = jsFunction("renderMacroSequence", "const MACRO_TEXT_KEYS");
+  assert.match(sequence, /class="flow-row"/);
   assert.match(sequence, /data-action="\$\{event\.index\}"/);
   assert.match(sequence, /data-event-key="\$\{event\.index\}"/);
   assert.match(sequence, /data-delay="\$\{event\.index\}"/);
+  assert.match(sequence, /event\.action==="press"\?"down":"up"/);
   assert.match(sequence, /Outside the standard key list/);
+  assert.match(js, /id="macro-sequence-title">Flow</);
+  assert.match(js, /id="add-step"/);
+  assert.match(js, /Combos are rows too/);
+  // Timing-scale re-times every pause with a capacity pre-check.
+  assert.match(js, /id="apply-scale"/);
+  assert.match(js, /\.map\(pause=>Math\.min\(15000,Math\.round/);
   // The Sequence renders before the Advanced disclosure; structure and capacity stay under it.
   const macros = jsFunction("renderMacros", "const DOM_USAGE");
   const template = macros.slice(0, macros.indexOf("$(\"#add-macro\")"));
@@ -219,7 +227,9 @@ test("sequence rows edit in place; non-standard events stay plainly labelled", (
   );
   const eventOptions = [{label:"A", code:"#00070004"}, {label:"L Shift", code:"#000700E1"}];
   const standard = renderMacroSequence({layer_key:["#11070004", "#10070004"], intvel_ms:[10, 0]}, eventOptions);
+  assert.match(standard, /class="flow-row"/);
   assert.match(standard, /data-action="0"/);
+  assert.match(standard, />down</);
   assert.match(standard, /data-event-key="0"/);
   assert.match(standard, /<option value="#00070004" selected>/);
   assert.match(standard, /value="10" data-delay="0"/);

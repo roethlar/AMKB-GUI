@@ -2696,17 +2696,17 @@ function macroSequence(macro) {
 
 function renderMacroSequence(macro, eventOptions) {
   const events=macroSequence(macro);
-  if (!events.length) return `<div class="event-empty">This macro is empty. Type text, record keys, or add an event to build its sequence.</div>`;
-  return `<ol class="macro-sequence-events">${events.map(event=>{
+  if (!events.length) return `<div class="event-empty">This macro is empty. Type text, record keys, or add a step to build its flow.</div>`;
+  return `<ol class="flow-rows">${events.map(event=>{
     const parts=codeParts(macro.layer_key[event.index]);
     const base=parts?makeCode(parts.page,parts.usage):"";
-    const action=parts
-      ? `<button type="button" class="event-action ${event.action==="press"?"":"up"}" data-action="${event.index}" title="Toggle between press and release">${event.action==="press"?"Press":"Release"}</button>`
-      : `<span class="macro-sequence-static">—</span>`;
     const key=eventOptions.some(option=>option.code===base)
-      ? `<select class="select-field event-key" data-event-key="${event.index}" title="Key for this event">${eventOptions.map(option=>`<option value="${option.code}" ${option.code===base?"selected":""}>${esc(option.label)}</option>`).join("")}</select>`
-      : `<span class="macro-sequence-custom">${parts?"Outside the standard key list":"—"}</span>`;
-    return `<li class="macro-sequence-event"><span class="event-number">${event.index+1}</span><strong>${esc(event.label)}</strong>${action}${key}<label class="macro-sequence-delay">then wait <input class="text-field event-delay" type="number" min="0" max="15000" value="${event.delay}" data-delay="${event.index}" title="Pause after this event in milliseconds"> ms</label></li>`;
+      ? `<select class="select-field event-key" data-event-key="${event.index}" title="Key for this event — replays as ${esc(event.label)}">${eventOptions.map(option=>`<option value="${option.code}" ${option.code===base?"selected":""}>${esc(option.label)}</option>`).join("")}</select>`
+      : `<span class="macro-sequence-static" title="${parts?"Outside the standard key list":"Unrecognised event"}">${parts?esc(event.label):"⚠ Unrecognised event"}</span>`;
+    const action=parts
+      ? `<button type="button" class="event-action ${event.action==="press"?"":"up"}" data-action="${event.index}" title="${esc(event.label)} — click to toggle down/up">${event.action==="press"?"down":"up"}</button>`
+      : `<span class="macro-sequence-static">—</span>`;
+    return `<li class="flow-row"><span class="event-number">${event.index+1}</span>${key}${action}<label class="macro-sequence-delay">then wait <input class="text-field event-delay" type="number" min="0" max="15000" value="${event.delay}" data-delay="${event.index}" title="Pause after this event in milliseconds"> ms</label></li>`;
   }).join("")}</ol>`;
 }
 
@@ -2873,7 +2873,7 @@ function renderMacros() {
         </div><div class="mode-switch" role="tablist" aria-label="Macro editor mode">
           <button id="mode-text" role="tab" class="${macroMode==="text"?"active":""}" ${textAllowed?"":"disabled"} title="${textAllowed?"Type the macro as text":"This macro has events text can't express — edit them in Flow"}">Text entry</button>
           <button id="mode-flow" role="tab" class="${macroMode==="flow"?"active":""}" title="Edit the macro event by event">Flow</button>
-        </div>${macroMode==="text"?renderMacroTextMode(current,decoded,capacity):`<section class="macro-sequence" aria-labelledby="macro-sequence-title"><div class="macro-sequence-heading"><div><strong id="macro-sequence-title">Sequence</strong><small>Every key action and the pause that follows it, exactly as the keyboard replays it. Edit the key, press/release, or pause in place.</small></div></div>${renderMacroSequence(current,eventOptions)}</section>`}<details id="macro-advanced" class="advanced-disclosure" ${state.macroAdvancedOpen?"open":""}><summary>Edit individual events</summary>
+        </div>${macroMode==="text"?renderMacroTextMode(current,decoded,capacity):`<section class="macro-sequence" aria-labelledby="macro-sequence-title"><div class="macro-sequence-heading"><div><strong id="macro-sequence-title">Flow</strong><small>One row per key action, in replay order. Edit the key, down/up, or pause in place.</small></div></div>${renderMacroSequence(current,eventOptions)}<div class="flow-actions"><button id="add-step" class="button ghost">+ Step</button><div class="spacer"></div><label>Pauses × <input id="macro-scale" class="text-field" type="number" min="0.1" max="10" step="0.1" value="1"></label><button id="apply-scale" class="button ghost">Apply</button></div><small class="timing-hint">Combos are rows too: Ctrl down, Alt down, Del down, Del up, Alt up, Ctrl up.</small></section>`}<details id="macro-advanced" class="advanced-disclosure" ${state.macroAdvancedOpen?"open":""}><summary>Edit individual events</summary>
           <div class="macro-capacity"><small>${capacity.used}/${capacity.limit} ${capacity.unit} · up to ${macroTracks} tracks</small><div class="limit-meter"><span style="width:${capacity.limit?Math.min(100,capacity.used*100/capacity.limit):0}%"></span></div></div>
           <p class="inspector-help">Each row is one key-down or key-up event and the delay that follows it, exactly as the keyboard replays them.</p>
           <div class="macro-toolbar"><button id="add-event" class="button ghost">+ Event</button></div>
@@ -2892,13 +2892,25 @@ function renderMacros() {
   if (!current) return;
   $("#macro-advanced").addEventListener("toggle",event=>{state.macroAdvancedOpen=event.currentTarget.open;});
   $("#delete-macro").addEventListener("click", removeMacro);
-  $("#add-event").addEventListener("click", () => {
+  const addMacroEvent=()=>{
     const candidate=clone(macros());
     candidate[state.macro].layer_key.push("#11070004");
     candidate[state.macro].intvel_ms.push(25);
     const capacityError=macroCapacityError(candidate);
     if(capacityError)return toast("Macro capacity reached",capacityError,"error");
     mutate(()=>{current.layer_key.push("#11070004");current.intvel_ms.push(25);});
+  };
+  $("#add-event").addEventListener("click", addMacroEvent);
+  $("#add-step")?.addEventListener("click", addMacroEvent);
+  $("#apply-scale")?.addEventListener("click",()=>{
+    const factor=Number($("#macro-scale").value);
+    if(!Number.isFinite(factor)||factor<0.1||factor>10)return toast("Invalid scale","Choose a factor between 0.1 and 10.","error");
+    const candidate=clone(macros());
+    candidate[state.macro].intvel_ms=(current.intvel_ms||[]).map(pause=>Math.min(15000,Math.round(Math.max(0,Number(pause)||0)*factor)));
+    const capacityError=macroCapacityError(candidate);
+    if(capacityError)return toast("Macro capacity reached",capacityError,"error");
+    mutate(()=>{current.intvel_ms=candidate[state.macro].intvel_ms;});
+    toast("Pauses scaled",`Every pause in this macro was multiplied by ${factor}.`,"success");
   });
   $("#record-macro").addEventListener("click", toggleRecording);
   $("#mode-text")?.addEventListener("click",()=>{state.macroMode="text";renderMacros();});
