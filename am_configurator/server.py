@@ -14,6 +14,7 @@ import secrets
 import threading
 import time
 import webbrowser
+import zlib
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -1313,11 +1314,57 @@ def key_assignment_status(product_id: Any, code: Any) -> dict[str, Any]:
     return {"ok": True, "code": normalized}
 
 
-def text_to_macro_events(text: Any, delay_ms: Any = 10) -> dict[str, Any]:
-    """Compile US-layout text into deterministic macro key-down/up events."""
+def text_to_macro_events(text: Any, delay_ms: Any = 10, timing: Any = None) -> dict[str, Any]:
+    """Compile US-layout text into deterministic macro key-down/up events.
+
+    ``timing`` is the editor's entry-mode choice: ``fast`` (10 ms between
+    keys), ``slow`` (100 ms), or ``natural`` (staggered like real typing, by
+    WPM target or a captured cadence sample). Natural timing is seeded from
+    the inputs so recompiling the same text reproduces the same macro.
+    """
     if not isinstance(text, str) or not text:
         raise ValueError("Enter some text to convert.")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    if timing is not None:
+        if not isinstance(timing, dict):
+            raise ValueError("The timing choice is malformed.")
+        mode = timing.get("mode")
+        if mode not in ("fast", "slow", "natural"):
+            raise ValueError("Choose fast, slow, or natural timing.")
+        if mode in ("fast", "slow"):
+            compiled = macro_text.compile_us_text(
+                text,
+                inter_key_delay_ms=10 if mode == "fast" else 100,
+                transition_delay_ms=1,
+                max_events=200,
+            )
+            return {**compiled, "characters": len(text)}
+        wpm = timing.get("wpm")
+        if wpm is not None:
+            try:
+                wpm = int(wpm)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("The WPM target must be a whole number.") from exc
+            if not 20 <= wpm <= 140:
+                raise ValueError("The WPM target must be between 20 and 140.")
+        cadence = timing.get("cadence")
+        if cadence is not None:
+            if (
+                not isinstance(cadence, list)
+                or not 1 <= len(cadence) <= 512
+                or any(not isinstance(pause, int) or not 1 <= pause <= 1000 for pause in cadence)
+            ):
+                raise ValueError("A cadence sample is 1 to 512 pauses, each 1 to 1000ms.")
+        seed = zlib.crc32(f"{text}|{wpm}|{cadence}".encode("utf-8"))
+        delays = macro_text.natural_delays(len(text), wpm=wpm, cadence=cadence, seed=seed)
+        compiled = macro_text.compile_us_text(
+            text,
+            inter_key_delay_ms=1,
+            transition_delay_ms=1,
+            max_events=200,
+            inter_key_delays=delays,
+        )
+        return {**compiled, "characters": len(text)}
     try:
         delay = int(delay_ms)
     except (TypeError, ValueError) as exc:
@@ -2621,7 +2668,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "product_id": str(((source or {}).get("product_info") or {}).get("product_id") or "?"),
                 })
             elif path == "/api/macros/text":
-                self._json(text_to_macro_events(body.get("text"), body.get("delay_ms", 10)))
+                self._json(text_to_macro_events(body.get("text"), body.get("delay_ms", 10), body.get("timing")))
             elif path == "/api/led/gif":
                 self._convert_gif(body)
             elif path == "/api/settings/preferences":

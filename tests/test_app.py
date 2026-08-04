@@ -4889,6 +4889,51 @@ class MacroProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "202 macro events"):
             text_to_macro_events("a" * 101, 10)
 
+    def test_text_macro_timing_fast_and_slow(self) -> None:
+        fast = text_to_macro_events("abc", timing={"mode": "fast"})
+        self.assertEqual([1, 10, 1, 10, 1, 0], fast["intvel_ms"])
+        slow = text_to_macro_events("abc", timing={"mode": "slow"})
+        self.assertEqual([1, 100, 1, 100, 1, 0], slow["intvel_ms"])
+
+    def test_text_macro_natural_timing_is_deterministic_and_bounded(self) -> None:
+        first = text_to_macro_events("hello world", timing={"mode": "natural", "wpm": 90})
+        second = text_to_macro_events("hello world", timing={"mode": "natural", "wpm": 90})
+        self.assertEqual(first, second, "natural timing must regenerate identically")
+        pauses = first["intvel_ms"]
+        # 90 WPM targets a 133ms interval; seeded jitter keeps 0.6x to 1.4x of it.
+        # The compiler zeroes the final event's pause, so it is excluded here.
+        for release_pause in pauses[1:-1:2]:
+            self.assertTrue(79 <= release_pause <= 187, release_pause)
+        for transition_pause in pauses[0::2]:
+            self.assertEqual(1, transition_pause)
+        self.assertEqual(0, pauses[-1])
+        other_text = text_to_macro_events("hello worle", timing={"mode": "natural", "wpm": 90})
+        self.assertNotEqual(first["intvel_ms"], other_text["intvel_ms"])
+
+    def test_text_macro_natural_draws_from_a_captured_cadence(self) -> None:
+        cadence = [50, 90, 130]
+        first = text_to_macro_events("typing sample", timing={"mode": "natural", "cadence": cadence})
+        second = text_to_macro_events("typing sample", timing={"mode": "natural", "cadence": cadence})
+        self.assertEqual(first, second)
+        for release_pause in first["intvel_ms"][1::2]:
+            self.assertIn(release_pause, cadence + [0])
+
+    def test_text_macro_timing_validation(self) -> None:
+        with self.assertRaisesRegex(ValueError, "fast, slow, or natural"):
+            text_to_macro_events("ab", timing={"mode": "ludicrous"})
+        with self.assertRaisesRegex(ValueError, "timing choice is malformed"):
+            text_to_macro_events("ab", timing="fast")
+        with self.assertRaisesRegex(ValueError, "whole number"):
+            text_to_macro_events("ab", timing={"mode": "natural", "wpm": "fast"})
+        with self.assertRaisesRegex(ValueError, "between 20 and 140"):
+            text_to_macro_events("ab", timing={"mode": "natural", "wpm": 400})
+        with self.assertRaisesRegex(ValueError, "cadence sample"):
+            text_to_macro_events("ab", timing={"mode": "natural", "cadence": []})
+        with self.assertRaisesRegex(ValueError, "cadence sample"):
+            text_to_macro_events("ab", timing={"mode": "natural", "cadence": [0]})
+        with self.assertRaisesRegex(ValueError, "cadence sample"):
+            text_to_macro_events("ab", timing={"mode": "natural", "cadence": [50] * 513})
+
     def test_macro_import_copies_only_modern_cross_board_definitions(self) -> None:
         source = _base_config("80")
         source["macro_key"] = [{

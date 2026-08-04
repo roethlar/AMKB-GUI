@@ -8,6 +8,7 @@ Text-to-keystrokes helper and Vial readback one canonical translation.
 
 from __future__ import annotations
 
+import random
 from typing import Any
 
 
@@ -49,6 +50,30 @@ for _offset, (_plain, _shifted) in enumerate(zip("1234567890", "!@#$%^&*()")):
     US_TEXT_KEYSTROKES[_shifted] = (0x1E + _offset, True)
 
 
+def natural_delays(
+    count: int,
+    *,
+    wpm: int | None = None,
+    cadence: list[int] | None = None,
+    seed: int = 0,
+) -> list[int]:
+    """Build per-key pauses that read as natural typing.
+
+    With ``cadence`` the pauses are drawn from the user's own recorded sample;
+    otherwise they jitter seeded-randomly around the WPM target's interval
+    (60000 / (5 * WPM) ms) or a 90 ms default. The seed makes every result
+    deterministic: the same inputs regenerate the same macro.
+    """
+
+    if count < 0:
+        raise ValueError("The key count cannot be negative.")
+    rng = random.Random(seed)
+    if cadence is not None:
+        return [rng.choice(cadence) for _ in range(count)]
+    mean = round(60000 / (5 * wpm)) if wpm else 90
+    return [max(1, min(1000, round(mean * rng.uniform(0.6, 1.4)))) for _ in range(count)]
+
+
 def compile_us_text(
     text: str,
     *,
@@ -56,19 +81,26 @@ def compile_us_text(
     transition_delay_ms: int,
     release_shift_each_character: bool = False,
     max_events: int | None = None,
+    inter_key_delays: list[int] | None = None,
 ) -> dict[str, Any]:
     """Compile text to deterministic key-down/up events.
 
     ``release_shift_each_character`` mirrors QMK ``send_char`` exactly: a
     shifted literal registers and releases Shift around that one character.
     The interactive editor leaves it false so adjacent shifted characters use
-    one readable Shift run.
+    one readable Shift run. ``inter_key_delays`` overrides the uniform
+    ``inter_key_delay_ms`` with one pause per character (natural timing).
     """
 
     if not isinstance(text, str) or not text:
         raise ValueError("Enter some text to convert.")
     if inter_key_delay_ms < 0 or transition_delay_ms < 0:
         raise ValueError("Macro event delays cannot be negative.")
+    if inter_key_delays is not None:
+        if len(inter_key_delays) != len(text):
+            raise ValueError("Natural timing needs exactly one pause per character.")
+        if any(pause < 0 for pause in inter_key_delays):
+            raise ValueError("Macro event delays cannot be negative.")
 
     events: list[str] = []
     delays: list[int] = []
@@ -90,7 +122,8 @@ def compile_us_text(
             emit(0xE1, needs_shift, transition_delay_ms)
             shift_down = needs_shift
         emit(usage, True, transition_delay_ms)
-        emit(usage, False, inter_key_delay_ms)
+        pause = inter_key_delays[index] if inter_key_delays is not None else inter_key_delay_ms
+        emit(usage, False, pause)
         if release_shift_each_character and shift_down:
             emit(0xE1, False, transition_delay_ms)
             shift_down = False
