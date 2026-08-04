@@ -36,9 +36,10 @@
   R66-1 JPEG import (owner-mandated 2026-08-02), R66-2 experimental ARM64 CI,
   R66-3 release packet, R66-4 qualification, R66-5 publication gates. Each
   publish action (tag, Release, draft disposition, Reddit) needs an explicit
-  owner go. R66-1 landed as `aa1c263`. Next: R66-2 ARM64 CI jobs; the
-  win-arm-vm credential needs the owner for local testing (see
-  `.agents/machines.md`).
+  owner go. R66-1 landed as `aa1c263`; R66-2 experimental ARM64 CI jobs
+  landed as `0558685` (first CI run 30884169588 in progress; win-arm-vm key
+  auth verified for local testing). Next: R66-3 release packet, then R66-4
+  qualification.
 
 ## Blockers
 
