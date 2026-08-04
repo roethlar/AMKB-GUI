@@ -15,6 +15,9 @@ bump after the macro editor rework and README screenshot recapture.
   source edit for a new public product release.
 - Publication of `0.1.66` — tag, builds, qualification, release notes,
   announcement — is separately gated and has not happened.
+- Announcement and release-note copy stays flat: changes are listed evenly
+  and no feature is framed as a headline (owner ruling while correcting the
+  `0.1.66` Reddit draft, 2026-08-03).
 
 ## 2026-08-03 — Trust-warning qualification is change-triggered; 0.1.65 is public
 
