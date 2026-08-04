@@ -17,7 +17,8 @@ bump after the macro editor rework and README screenshot recapture.
   announcement — is separately gated and has not happened.
 - Announcement and release-note copy stays flat: changes are listed evenly
   and no feature is framed as a headline (owner ruling while correcting the
-  `0.1.66` Reddit draft, 2026-08-03).
+  `0.1.66` Reddit draft, 2026-08-03). Copy says literally what the software
+  does — no vague abstractions such as "the manual workflow comes first".
 
 ## 2026-08-03 — Trust-warning qualification is change-triggered; 0.1.65 is public
 
