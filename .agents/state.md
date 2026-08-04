@@ -20,7 +20,9 @@
   disclosure is gone; remove and capacity moved into Flow; decode widened so
   hand-recorded text opens in Text entry; README Macros section matches).
   Full verification green except the pre-existing lighting.png failure.
-  Awaiting owner review in the app.
+  Awaiting owner review in the app. The owner confirmed 2026-08-03 that his
+  real 0 ms-delay macros work fine in practice; no zero-delay warning or
+  re-timing prompt is wanted.
 - A read-only static audit found six redundant labels: the QWERTY-picker
   caption, the Macros eyebrow, and four duplicate dialog/screen eyebrows.
   No audit edits were made.
