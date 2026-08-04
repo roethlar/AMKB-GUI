@@ -1,5 +1,21 @@
 # Repository Decisions
 
+## 2026-08-03 — The current product/release version is 0.1.66
+
+Status: approved by the owner on 2026-08-03 while authorizing the version
+bump after the macro editor rework and README screenshot recapture.
+
+- The current product/release version is `0.1.66`. It succeeds the `0.1.65`
+  line: the `v0.1.65` GitHub Release stays a withdrawn draft, its content is
+  frozen at `ebd0d043e70c31c0342a73b088f84d28357196e4`, and neither its tag
+  nor its assets may be republished or moved.
+- The 2026-07-28 canonical-version decision otherwise stands unchanged:
+  `am_configurator/_version.py` is the canonical source, every artifact
+  reports that exact version, and a version changes only through a deliberate
+  source edit for a new public product release.
+- Publication of `0.1.66` — tag, builds, qualification, release notes,
+  announcement — is separately gated and has not happened.
+
 ## 2026-08-03 — Trust-warning qualification is change-triggered; 0.1.65 is public
 
 Status: approved by the owner on 2026-08-03 while closing release
