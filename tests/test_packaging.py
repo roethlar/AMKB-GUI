@@ -1538,6 +1538,59 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, public_docs.casefold())
 
+    def test_current_0_1_66_release_packet_is_consistent(self) -> None:
+        release_path = ROOT / "docs" / "releases" / "0.1.66.md"
+        reddit_path = ROOT / "docs" / "announcements" / "reddit-0.1.66.md"
+
+        self.assertTrue(release_path.is_file(), "0.1.66 release notes are missing")
+        self.assertTrue(reddit_path.is_file(), "0.1.66 Reddit draft is missing")
+
+        release = release_path.read_text(encoding="utf-8")
+        reddit = reddit_path.read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        installing = (ROOT / "docs" / "installing.md").read_text(encoding="utf-8")
+        current_packet = "\n".join((release, reddit))
+
+        self.assertIn("# AM Configurator 0.1.66", release)
+        self.assertIn("> **Unposted draft.**", reddit)
+        self.assertIn("AM Configurator 0.1.66", reddit)
+        self.assertNotIn("docs/releases/0.1.65.md", readme)
+        self.assertIn("Release notes are published with each GitHub Release.", readme)
+
+        for filename in (
+            "AM-Configurator-0.1.66-macOS-arm64.dmg",
+            "AM-Configurator-0.1.66-Windows-x64-Setup.exe",
+            "AM-Configurator-0.1.66-Linux-x86_64.AppImage",
+        ):
+            with self.subTest(filename=filename):
+                self.assertIn(filename, release)
+                self.assertIn(filename, reddit)
+                self.assertIn(filename, installing)
+
+        for expected in (
+            "Keymap",
+            "Macros",
+            "Text entry",
+            "Flow",
+            "Repeat",
+            "JPEG",
+            "Lighting",
+            "Library",
+            "AI is optional and off by default",
+            "procedural LED settings",
+            "rendered locally",
+            "does not expose LED read-back",
+            "Remote provider paths are experimental",
+            "not affiliated with or endorsed by Angry Miao",
+            "https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.66",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, current_packet)
+
+        for prohibited in ("ff" + "mpeg", "ai video"):
+            with self.subTest(prohibited=prohibited):
+                self.assertNotIn(prohibited, current_packet.casefold())
+
     def test_current_0_1_65_release_packet_is_consistent(self) -> None:
         release_path = ROOT / "docs" / "releases" / "0.1.65.md"
         reddit_path = ROOT / "docs" / "announcements" / "reddit-0.1.65.md"
