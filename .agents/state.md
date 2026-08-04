@@ -11,15 +11,15 @@
   Its `lighting.png` is 1203x768 instead of release-sized 1600x1000, so
   `test_public_screenshots_are_release_sized_and_metadata_free` fails on the
   committed tree — pre-existing, unrelated to macro work.
-- Macro repair: after four rejected shapes (rows, chips, phrase/stone
-  script, token flow), the owner designed the editor in chat as **three
-  modes** and said go: mode 1 text entry (text box + fast/slow/natural
-  timing), mode 2 flow (one row per event with key + explicit down/up +
-  timing; record into rows; recorded rows editable), mode 3 repeat (N× at an
-  interval with a per-family cost quote, capacity pre-checked). Plan
-  `f13d219` records the agreed design. The earlier in-place-rows
-  implementation (`5b723ff`) is superseded and will be replaced. Next:
-  consolidated mock, then implementation on the owner's go.
+- Macro repair: the three-mode editor is implemented and pushed. Plan
+  `f13d219`; slices `4c1884d` (compiler timing: fast/slow/natural with WPM,
+  cadence capture, seeded stagger), `92aad3c` (Text entry mode + JS compiler
+  inverse decode), `b7f1c39` (Flow mode rows with key/down-up/pause +
+  timing-scale), `b3b22c3` (Repeat mode with per-family cost quote). The old
+  Type-text composer and the rejected sequence shapes are gone; the Advanced
+  disclosure is retained for add/remove and the capacity meter. Full
+  verification green except the pre-existing lighting.png failure. Awaiting
+  owner review in the app.
 - A read-only static audit found six redundant labels: the QWERTY-picker
   caption, the Macros eyebrow, and four duplicate dialog/screen eyebrows.
   No audit edits were made.
