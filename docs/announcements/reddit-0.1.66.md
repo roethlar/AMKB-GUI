@@ -9,26 +9,13 @@ r/AngryMiao
 
 ## Title
 
-[Release] AM Configurator 0.1.66 — rebuilt macro editor, JPEG import, keymaps and lighting for four Angry Miao keyboards
+[Release] AM Configurator 0.1.66 — keymaps, macros, and lighting for four Angry Miao keyboards
 
 ## Body
 
 I have released **AM Configurator 0.1.66**, an independent open-source desktop
 editor for Angry Miao keyboard profiles. It is a community project and is not
 affiliated with or endorsed by Angry Miao.
-
-The headline change is a rebuilt macro editor with three modes:
-
-- **Text entry** — type the text the macro should enter, with Fast (10 ms),
-  Slow (100 ms), or Natural timing (a WPM target, or your own captured typing
-  cadence);
-- **Flow** — edit every event's key, down/up, and pause in place, with combos
-  like Ctrl+Alt+Del built or recorded as ordinary rows; and
-- **Repeat** — append a key press N times at an interval, with the capacity
-  cost quoted up front in the keyboard's own budget.
-
-Recorded macros stay editable in every mode. Lighting media import now also
-accepts JPEG alongside GIF, PNG, and BMP.
 
 The manual workflow comes first:
 
@@ -40,6 +27,15 @@ The manual workflow comes first:
   and
 - read or write a connected board through an explicit identity and confirmation
   boundary.
+
+Changes in 0.1.66:
+
+- the macro editor now has three modes: **Text entry** (type the text, with
+  Fast 10 ms, Slow 100 ms, or Natural timing from a WPM target or your own
+  captured cadence), **Flow** (edit every event's key, down/up, and pause in
+  place; combos like Ctrl+Alt+Del as ordinary rows), and **Repeat** (a key
+  press N times at an interval, with the capacity cost quoted up front); and
+- lighting media import accepts JPEG alongside GIF, PNG, and BMP.
 
 The supported families are CyberBoard, AM Relic 80, AM AFA/AFA 2, and AM Neon
 80. CyberBoard uses its physical key geometry for switch LEDs while keeping
@@ -60,7 +56,6 @@ configuration does not require AI or an account.
 - `release-manifest.json`
 
 The packages have no paid Apple or Microsoft publisher identity. The
-installation guide explains hash and GitHub attestation checks plus the narrow
 installation guide explains hash and GitHub attestation checks plus the narrow
 per-application first-launch steps for unsigned apps; do not disable
 Gatekeeper or SmartScreen globally.
