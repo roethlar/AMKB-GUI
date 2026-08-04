@@ -2,38 +2,32 @@
 
 ## Now
 
-- `v0.1.65` remains a withdrawn GitHub draft; its tag and assets are retained
-  and must not be republished or moved. Its disposition is an R66-5 owner
-  decision.
-- Macro repair: complete and reviewed in the app by the owner. Three-mode
-  editor: `4c1884d` (compiler timing), `92aad3c` (Text entry), `b7f1c39`
-  (Flow), `b3b22c3` (Repeat), review fix `b9f226e` (Flow sole event editor,
-  recorded-text decode). The owner confirmed his real 0 ms-delay macros work
-  fine; no zero-delay warning is wanted.
-- README screenshots were recaptured with a synthetic profile at release size
-  (`9e714de`); the suite is fully green. The screenshot guard failure is
-  resolved.
-- Release `0.1.66` preparation is mid-flight: version bumped (`777da50`),
-  JPEG import landed (`aa1c263`), experimental ARM64 CI landed and passed on
-  both targets (`0558685`, run 30884280304), release notes drafted.
-  **Pushes are paused (owner, 2026-08-04): the owner has not yet read or
-  approved the packet. Nothing goes to origin until the owner reviews.**
-- The Reddit draft is being rewritten with the owner as a first-app
-  announcement (what/why/try-it framing). Edits are local and uncommitted.
-- A read-only static audit found six redundant labels: the QWERTY-picker
-  caption, the Macros eyebrow, and four duplicate dialog/screen eyebrows.
-  No audit edits were made.
-
-## Next
-
 - **The 0.1.66 release is frozen (owner, 2026-08-04): an element-level UI
   redesign blocks publication.** R66-4 qualification and R66-5 gates do not
   proceed until the redesign ships. The packet (release notes, plan) is
   superseded in UI terms — it describes the current look.
-- The redesign starts from information architecture, not paint: two mockup
-  rounds (colorways, then structural reskins) were rejected as "the same
-  elements, restyled." The next step is throwaway prototypes with genuinely
-  different element arrangements for the owner to judge.
+- Landed for 0.1.66 before the freeze: macro editor rework (reviewed in
+  app), synthetic screenshots `9e714de`, version bump `777da50`, JPEG import
+  `aa1c263`, experimental ARM64 CI `0558685` (first run green on both
+  targets, run 30884280304), release packet `3345c2c` + tone fixes. Suite
+  fully green as of `b88d4b7`.
+- The Reddit draft has uncommitted working-tree edits (first-app rewrite);
+  the owner stopped Reddit work outright ("LLMs are bad at writing
+  human-facing language") — its fate is undecided; do not commit it.
+- UI redesign is the active project. Two mockup rounds were rejected as
+  "same elements, restyled": `/tmp/style-v1..v5*.png` (colorways),
+  `/tmp/style-v6..v9*.png` (structural reskins). Capture scripts:
+  `/tmp/am_capture.py`, `/tmp/am_make_demo_config.py`,
+  `/tmp/am_style_variants{,2}.py`; synthetic profile
+  `/tmp/am-demo-config.json` (NEON80, layout evidence attached).
+- Pushes are paused by owner order; bookkeeping commits stay local.
+
+## Next
+
+- Owner rules on the redesign setup: (1) pilot screen — Lighting workspace
+  or whole shell; (2) prototype form — throwaway HTML with new DOM or
+  straight into `app.js`; (3) arrangements per round — 2 or 3. Then the
+  first element-level prototype round.
 - After `0.1.66`: draft a plan for unsupported-board onboarding (owner
   approved 2026-08-03): "new keyboard model detected" plus a read-only scan
   that packages a sanitized device report (product ID, protocol responses,
