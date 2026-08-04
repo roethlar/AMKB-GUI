@@ -130,7 +130,7 @@ def _media_dialog_type() -> Any:
     return webview.FileDialog.OPEN
 
 
-_MEDIA_FILE_TYPES = ("Supported images (*.gif;*.GIF;*.png;*.PNG;*.bmp;*.BMP)",)
+_MEDIA_FILE_TYPES = ("Supported images (*.gif;*.GIF;*.png;*.PNG;*.bmp;*.BMP;*.jpg;*.JPG;*.jpeg;*.JPEG)",)
 
 
 def _open_reveal_target(target: Path) -> None:

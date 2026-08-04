@@ -122,7 +122,7 @@ assuming one budget for every model.
 
 The Lighting Studio has three manual tools. **Paint** colours individual lights
 directly on the physical LED output, with one shared horizontal timeline.
-**Import media** brings in GIF, PNG, and BMP files and keeps the source frame and
+**Import media** brings in GIF, PNG, BMP, and JPEG files and keeps the source frame and
 what the keyboard will show together while you pan, zoom, or stretch. **Effects**
 shows Pulse, Hue cycle, Sweep, Shimmer, and Move & zoom as a live draft. Imported
 media and effects change the open profile only when you choose **Apply**; **Save

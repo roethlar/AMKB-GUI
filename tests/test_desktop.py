@@ -99,9 +99,8 @@ class DesktopBridgeTests(unittest.TestCase):
                 )
 
             filters = " ".join(desktop._MEDIA_FILE_TYPES)
-            for extension in ("*.gif", "*.GIF", "*.png", "*.PNG", "*.bmp", "*.BMP"):
+            for extension in ("*.gif", "*.GIF", "*.png", "*.PNG", "*.bmp", "*.BMP", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG"):
                 self.assertIn(extension, filters)
-            self.assertNotIn("*.jpg", filters)
             self.assertNotIn("*.*", filters)
 
             for selection in (None, []):

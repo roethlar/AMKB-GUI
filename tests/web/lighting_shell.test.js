@@ -385,7 +385,7 @@ test("media import banks before composition and applies only an accepted preview
   const mediaInput=js.match(/<input id="media-input"[^>]*>/)?.[0]||"";
   assert.match(mediaInput,/type="file"/);
   assert.match(mediaInput,/\shidden(?:\s|>)/);
-  assert.match(mediaInput,/accept="\.gif,\.png,\.bmp,image\/gif,image\/png,image\/bmp"/);
+  assert.match(mediaInput,/accept="\.gif,\.png,\.bmp,\.jpg,\.jpeg,image\/gif,image\/png,image\/bmp,image\/jpeg"/);
   assert.match(js,/async function chooseMedia\(\)/);
   assert.match(js,/api\("\/api\/native\/choose-media"/);
   assert.match(js,/error\.status===404/);

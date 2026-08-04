@@ -37,6 +37,7 @@ MIN_TRANSFORM_SCALE = 0.01
 MAX_TRANSFORM_SCALE = 32.0
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_JPEG_SIGNATURE = b"\xFF\xD8\xFF"
 _TRANSFORM_FIELDS = {
     "version",
     "offset_x",
@@ -222,9 +223,11 @@ def _sniff_media(payload: bytes) -> str:
         return "image/gif"
     if payload.startswith(_PNG_SIGNATURE):
         return "image/png"
+    if payload.startswith(_JPEG_SIGNATURE):
+        return "image/jpeg"
     if payload.startswith(b"BM"):
         return "image/bmp"
-    raise ValueError("The file is not a supported GIF, PNG, or BMP image.")
+    raise ValueError("The file is not a supported GIF, PNG, BMP, or JPEG image.")
 
 
 def _validate_png_container(payload: bytes) -> tuple[int, int]:
@@ -320,6 +323,10 @@ def _validate_container(payload: bytes, mime_type: str) -> tuple[int, int] | Non
         return _validate_gif_container(payload)
     if mime_type == "image/png":
         return _validate_png_container(payload)
+    if mime_type == "image/jpeg":
+        # JPEG carries no fixed-length header worth pre-checking here; the
+        # full Pillow verify pass below is the container proof.
+        return None
     if len(payload) < 26:
         raise ValueError("The BMP is truncated.")
     declared_size = struct.unpack("<I", payload[2:6])[0]
@@ -359,7 +366,7 @@ def decode_media(
     *,
     work_check: Callable[[], None] | None = None,
 ) -> DecodedMedia:
-    """Sniff, fully decode, and normalize one bounded GIF, PNG, or BMP."""
+    """Sniff, fully decode, and normalize one bounded GIF, PNG, BMP, or JPEG."""
 
     if work_check is not None:
         work_check()

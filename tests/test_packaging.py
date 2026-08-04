@@ -1477,7 +1477,7 @@ class ReleaseInfoTests(unittest.TestCase):
             "46×5",
             "four keymap layers",
             "16 macros",
-            "GIF, PNG, and BMP",
+            "GIF, PNG, BMP, and JPEG",
             "pan, zoom, or stretch",
             "Pulse, Hue cycle, Sweep, Shimmer, and Move & zoom",
             "AI is off by default",

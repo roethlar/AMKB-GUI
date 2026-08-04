@@ -3823,7 +3823,7 @@ function setMediaImportBusy(busy) {
   const button=$("#import-media");
   if(button){
     button.disabled=state.mediaImporting;
-    button.textContent=busy?"Opening…":"Add GIF, PNG, or BMP";
+    button.textContent=busy?"Opening…":"Add GIF, PNG, BMP, or JPEG";
   }
 }
 
@@ -3892,7 +3892,7 @@ async function importMedia(input) {
   if(!file)return;
   setMediaImportStatus();
   if(file.size>12_000_000){
-    reportMediaImportError(new Error("Choose a GIF, PNG, or BMP smaller than 12 MB."));
+    reportMediaImportError(new Error("Choose a GIF, PNG, BMP, or JPEG smaller than 12 MB."));
     return;
   }
   setMediaImportBusy(true);
@@ -5324,7 +5324,7 @@ function renderLightingEdit() {
   const edgeAutomation=model===LED_MODELS["80"]&&state.ledTarget==="spotlight_frames";
   const keyFrameCount=Math.max(1,page?.keyframes?.frame_data?.length||1);
   const encodedSpeed=firmwareLedSpeed(page?.speed_ms??90);
-  const gifButtonLabel="Add GIF, PNG, or BMP";
+  const gifButtonLabel="Add GIF, PNG, BMP, or JPEG";
   const gifHelp=pairsRelicGif
     ? "Saves the media to Library, previews one framing across both the keys and the edge lights, then applies it only after you confirm."
     : relicKeyTarget?"Saves the media to Library and previews it on the keys, keeping and retiming the separate edge animation.":edgeAutomation?`Saves the media to Library and previews it on the 7 edge lights, matched to the ${keyFrameCount} frames of the key animation.`:`Saves the media to Library, then previews every frame on ${gifSize} before you apply it.`;
@@ -5361,7 +5361,7 @@ function renderLightingEdit() {
         </details>
       </div>`;
   const sourceBody=`<div id="studio-source-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-source-tab" ${state.studioTool==="source"?"":"hidden"}>
-        <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Imported media</h3><input id="media-input" type="file" accept=".gif,.png,.bmp,image/gif,image/png,image/bmp" hidden><div class="gif-import-row"><button id="import-media" class="button ghost" ${state.mediaImporting?"disabled":""}>${state.mediaImporting?"Opening…":gifButtonLabel}</button></div>${relicGifOption}<small class="control-help">${gifHelp}</small><small id="media-import-status" class="control-help media-import-status ${state.mediaImportError?"failed":""}" aria-live="polite">${esc(state.mediaImportStatus)}</small></div>
+        <div class="control-group" role="group" aria-labelledby="animation-source-label"><h3 id="animation-source-label" class="control-label">Imported media</h3><input id="media-input" type="file" accept=".gif,.png,.bmp,.jpg,.jpeg,image/gif,image/png,image/bmp,image/jpeg" hidden><div class="gif-import-row"><button id="import-media" class="button ghost" ${state.mediaImporting?"disabled":""}>${state.mediaImporting?"Opening…":gifButtonLabel}</button></div>${relicGifOption}<small class="control-help">${gifHelp}</small><small id="media-import-status" class="control-help media-import-status ${state.mediaImportError?"failed":""}" aria-live="polite">${esc(state.mediaImportStatus)}</small></div>
         <div class="media-composition-actions"><button id="media-compose-apply" class="button primary" ${mediaApplyReady?"":"disabled"}>${mediaApplyLabel}</button><button id="media-compose-cancel" class="button ghost" ${mediaDraft?"":"disabled"}>Cancel</button></div>
         <div class="control-group source-transform-controls" aria-disabled="${String(!sourceReady)}"><span class="control-label">Framing</span><div class="source-preset-grid"><button class="button ghost" data-source-preset="fit" ${sourceDisabled}>Fit</button><button class="button ghost" data-source-preset="fill" ${sourceDisabled}>Fill</button><button class="button ghost" data-source-preset="center" ${sourceDisabled}>Center</button><button class="button ghost" data-source-preset="reset" ${sourceDisabled}>Reset</button></div><label id="source-zoom-label" class="control-label secondary-label" for="source-zoom">${state.sourceTransform.aspect_locked?"Zoom":"Width"}</label><div class="range-row"><input id="source-zoom" type="range" min="1" max="3200" value="${Math.round(state.sourceTransform.scale_x*100)}" ${sourceDisabled}><span id="source-zoom-value" class="range-value">${Math.round(state.sourceTransform.scale_x*100)}%</span></div><small class="control-help">${sourceReady?"Drag on the canvas to pan; use the wheel or sliders to resize.":"Import media to save it to Library and open the framing controls."}</small></div>
         <details id="media-advanced" class="advanced-disclosure" ${state.mediaAdvancedOpen?"open":""}><summary>Advanced</summary>
@@ -6451,7 +6451,7 @@ function populateApiProviderControls(apiState) {
   const label=projection.providerLabel;
   $("#settings-api-key-label").textContent=`${label} API key`;
   $("#settings-api-key").placeholder=`Enter ${label} key`;
-  $("#settings-api-disclosure-detail").textContent=`Your lighting prompt and the selected keyboard's size go to ${label}. Imported GIF, PNG, and BMP files, keymaps, macros, device paths, and Library files never leave this computer. API use may cost money under your provider account.`;
+  $("#settings-api-disclosure-detail").textContent=`Your lighting prompt and the selected keyboard's size go to ${label}. Imported GIF, PNG, BMP, and JPEG files, keymaps, macros, device paths, and Library files never leave this computer. API use may cost money under your provider account.`;
   $("#settings-api-test").textContent=`Test ${label} setup`;
   return projection;
 }

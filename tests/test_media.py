@@ -32,7 +32,7 @@ def _still_bytes(format_name: str, *, mode: str = "RGBA") -> bytes:
         (0, 0, 0, 255),
     )
     image.putdata(colors)
-    if format_name == "BMP":
+    if format_name == "BMP" or (format_name == "JPEG" and image.mode == "RGBA"):
         image = image.convert("RGB")
     payload = io.BytesIO()
     image.save(payload, format=format_name)
@@ -66,6 +66,7 @@ class ImportedMediaValidationTests(unittest.TestCase):
             ("image/gif", _gif_bytes(), 2, 100),
             ("image/png", _still_bytes("PNG"), 1, 0),
             ("image/bmp", _still_bytes("BMP"), 1, 0),
+            ("image/jpeg", _still_bytes("JPEG"), 1, 0),
         )
         for mime_type, payload, frame_count, duration_ms in cases:
             with self.subTest(mime_type=mime_type):
@@ -114,8 +115,19 @@ class ImportedMediaValidationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     media_composition.decode_media(payload + b"trailing")
 
-        with self.assertRaisesRegex(ValueError, "supported GIF, PNG, or BMP"):
+        with self.assertRaisesRegex(ValueError, "supported GIF, PNG, BMP, or JPEG"):
             media_composition.decode_media(b"GIF89x" + b"\0" * 64)
+
+    def test_jpeg_decodes_like_a_png_still_and_rejects_unsupported_modes(self) -> None:
+        jpeg = media_composition.decode_media(_still_bytes("JPEG"))
+        png = media_composition.decode_media(_still_bytes("PNG"))
+        self.assertEqual("image/jpeg", jpeg.mime_type)
+        self.assertEqual(1, jpeg.frame_count)
+        self.assertEqual((0,), jpeg.durations_ms)
+        self.assertEqual((png.width, png.height), (jpeg.width, jpeg.height))
+        self.assertEqual(len(png.frames[0].tobytes()), len(jpeg.frames[0].tobytes()))
+        with self.assertRaisesRegex(ValueError, "mode is unsupported"):
+            media_composition.decode_media(_still_bytes("JPEG", mode="CMYK"))
 
     def test_every_media_limit_is_enforced_before_publication(self) -> None:
         png = _still_bytes("PNG")
