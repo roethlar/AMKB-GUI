@@ -283,6 +283,27 @@ class ReleaseManifestTests(unittest.TestCase):
         self.assertIn("SHA256SUMS.txt", metadata_job)
         self.assertIn("retention-days: 30", metadata_job)
 
+    def test_experimental_arm_ci_is_nonblocking_and_isolated(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
+            encoding="utf-8"
+        )
+        arm_job = workflow.split("  experimental-arm:\n", 1)[1].split(
+            "  candidate-metadata:\n", 1
+        )[0]
+        self.assertIn("continue-on-error: true", arm_job)
+        self.assertIn("windows-11-arm", arm_job)
+        self.assertIn("ubuntu-24.04-arm", arm_job)
+        self.assertIn("native_tree_audit.py", arm_job)
+        self.assertIn("--native-policy-smoke", arm_job)
+        self.assertIn("--smoke-test", arm_job)
+        self.assertIn("0xAA64", arm_job)
+        self.assertIn("aarch64", arm_job)
+        self.assertIn("Experimental-ARM64-${{ matrix.artifact }}", arm_job)
+        self.assertNotIn("AM-Configurator-${{", arm_job)
+        remainder = workflow.split("  candidate-metadata:\n", 1)[1]
+        self.assertIn("needs: installer", remainder)
+        self.assertNotIn("experimental-arm", remainder)
+
 
 class ReleaseInfoTests(unittest.TestCase):
     def test_build_script_dispatches_without_mutating_canonical_version(self) -> None:
@@ -487,12 +508,12 @@ class ReleaseInfoTests(unittest.TestCase):
         action_refs = Counter(ref for ref in uses_refs if not ref.startswith("./"))
         expected_refs = Counter(
             {
-                "actions/checkout@v7": 4,
+                "actions/checkout@v7": 5,
                 (
                     "astral-sh/setup-uv@"
                     "c771a70e6277c0a99b617c7a806ffedaca235ff9"
-                ): 2,
-                "actions/upload-artifact@v7": 2,
+                ): 3,
+                "actions/upload-artifact@v7": 3,
                 (
                     "actions/download-artifact@"
                     "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
@@ -531,15 +552,16 @@ class ReleaseInfoTests(unittest.TestCase):
                 if "uses: astral-sh/setup-uv@" in block
             ]
             with self.subTest(workflow=name):
-                self.assertEqual(1, len(setup_steps))
-                self.assertRegex(
-                    setup_steps[0],
-                    (
-                        r"(?m)^        with:\n"
-                        r"(?:          .*\n)*"
-                        r"          prune-cache: true$"
-                    ),
-                )
+                self.assertGreaterEqual(len(setup_steps), 1)
+                for setup_step in setup_steps:
+                    self.assertRegex(
+                        setup_step,
+                        (
+                            r"(?m)^        with:\n"
+                            r"(?:          .*\n)*"
+                            r"          prune-cache: true$"
+                        ),
+                    )
 
     def test_release_tags_do_not_rebuild_a_different_version(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
@@ -606,7 +628,8 @@ class ReleaseInfoTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertEqual(3, workflow.count("--native-policy-smoke"))
+        # Three supported platforms plus the two experimental ARM64 targets.
+        self.assertEqual(5, workflow.count("--native-policy-smoke"))
         for platform_name in ("macos", "windows", "linux"):
             with self.subTest(platform=platform_name):
                 self.assertIn(
@@ -737,7 +760,8 @@ class ReleaseInfoTests(unittest.TestCase):
 
         audit_command = "build_tools/native_tree_audit.py"
         self.assertIn(audit_command, build_script)
-        self.assertEqual(1, workflow.count(audit_command))
+        # Once per supported build and once per experimental ARM64 target.
+        self.assertEqual(2, workflow.count(audit_command))
         self.assertLess(
             workflow.index("Build native application"),
             workflow.index("Audit frozen native tree"),

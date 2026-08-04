@@ -101,6 +101,99 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  experimental-arm:
+    # Owner decision 2026-08-02: best-effort only. This job never blocks a
+    # run, its artifacts stay out of candidate metadata, provenance, docs,
+    # and public releases, and it makes no support claim for either ARM64
+    # architecture.
+    name: Experimental ARM · ${{ matrix.name }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows ARM64
+            os: windows-11-arm
+            platform: windows
+            bundle: dist/AM Configurator
+            artifact: Windows-ARM64-Installer
+            installer: dist/*-Setup.exe
+          - name: Linux ARM64
+            os: ubuntu-24.04-arm
+            platform: linux
+            bundle: dist/AM Configurator
+            artifact: Linux-ARM64-AppImage
+            installer: dist/*.AppImage
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          prune-cache: true
+      - name: Install native build prerequisites (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc \
+            pkg-config \
+            libcairo2-dev \
+            libgirepository1.0-dev \
+            gir1.2-gtk-3.0 \
+            gir1.2-webkit2-4.1 \
+            libwebkit2gtk-4.1-dev \
+            xauth \
+            xvfb
+      - name: Install desktop build environment
+        run: uv sync --locked --extra desktop --extra build
+      - name: Build native application
+        run: uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
+      - name: Verify ARM64 architecture (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $bytes = [System.IO.File]::ReadAllBytes("dist/AM Configurator/AM Configurator.exe")
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          if ($machine -ne 0xAA64) { throw ("PE machine 0x{0:X4} is not ARM64 (0xAA64)" -f $machine) }
+      - name: Verify ARM64 architecture (Linux)
+        if: matrix.platform == 'linux'
+        run: file "dist/AM Configurator/AM Configurator" | tee /dev/stderr | grep -q aarch64
+      - name: Audit frozen native tree
+        run: uv run --frozen python build_tools/native_tree_audit.py "${{ matrix.bundle }}"
+      - name: Verify native webview policy (windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: '& "dist/AM Configurator/AM Configurator.exe" --native-policy-smoke'
+      - name: Verify native webview policy (linux)
+        if: matrix.platform == 'linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" "dist/AM Configurator/AM Configurator" --native-policy-smoke
+      - name: Frozen smoke test (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: '& "dist/AM Configurator/AM Configurator.exe" --smoke-test'
+      - name: Frozen smoke test (Linux)
+        if: matrix.platform == 'linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" "dist/AM Configurator/AM Configurator" --smoke-test
+      - name: Build and test Windows installer
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: ./packaging/windows/build_installer.ps1
+      - name: Build and test Linux AppImage
+        if: matrix.platform == 'linux'
+        run: packaging/linux/build_appimage.sh
+      - name: Upload experimental ARM installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: Experimental-ARM64-${{ matrix.artifact }}
+          path: ${{ matrix.installer }}
+          if-no-files-found: error
+          retention-days: 30
+
   candidate-metadata:
     name: Candidate metadata
     needs: installer
