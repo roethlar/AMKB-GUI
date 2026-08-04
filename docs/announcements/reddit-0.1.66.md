@@ -17,7 +17,7 @@ I have released **AM Configurator 0.1.66**, an independent open-source desktop
 editor for Angry Miao keyboard profiles. It is a community project and is not
 affiliated with or endorsed by Angry Miao.
 
-With it you can:
+You can:
 
 - edit Keymap assignments on a keyboard-shaped layout;
 - type, record, import, or edit Macros;
@@ -25,8 +25,8 @@ With it you can:
 - preview before applying a lighting slot;
 - save reusable profiles, keymaps, macros, media, and lighting to the Library;
   and
-- read or write a connected board through an explicit identity and confirmation
-  boundary.
+- read or write a connected board — reading never writes, and a write asks
+  for typed confirmation of the device first.
 
 Changes in 0.1.66:
 
@@ -55,10 +55,10 @@ configuration does not require AI or an account.
 - `SHA256SUMS.txt`
 - `release-manifest.json`
 
-The packages have no paid Apple or Microsoft publisher identity. The
-installation guide explains hash and GitHub attestation checks plus the narrow
-per-application first-launch steps for unsigned apps; do not disable
-Gatekeeper or SmartScreen globally.
+The installers aren't signed with a paid Apple or Microsoft publisher
+certificate. The installation guide explains hash and GitHub attestation
+checks plus the narrow per-application first-launch steps for unsigned apps;
+do not disable Gatekeeper or SmartScreen globally.
 
 A full write replaces keymaps, macros, and LED data together; the AM Neon 80
 also requires its physical **Esc+F2** unlock, and other configurators must be
