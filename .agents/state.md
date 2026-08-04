@@ -11,13 +11,15 @@
   Its `lighting.png` is 1203x768 instead of release-sized 1600x1000, so
   `test_public_screenshots_are_release_sized_and_metadata_free` fails on the
   committed tree — pre-existing, unrelated to macro work.
-- Macro-page repair was reworked on the owner's go and pushed as `5b723ff`
-  (plan revision `d09ce50`): the always-visible Sequence is now the direct
-  editor — per-row key picker, press/release toggle, and pause input reusing
-  the existing mutation bindings. Non-standard keys stay plainly labelled
-  with no picker; malformed events get no toggle or picker. Add/remove and
-  the capacity meter remain under the Advanced disclosure. Awaiting owner
-  review of the rework.
+- Macro repair: after four rejected shapes (rows, chips, phrase/stone
+  script, token flow), the owner designed the editor in chat as **three
+  modes** and said go: mode 1 text entry (text box + fast/slow/natural
+  timing), mode 2 flow (one row per event with key + explicit down/up +
+  timing; record into rows; recorded rows editable), mode 3 repeat (N× at an
+  interval with a per-family cost quote, capacity pre-checked). Plan
+  `f13d219` records the agreed design. The earlier in-place-rows
+  implementation (`5b723ff`) is superseded and will be replaced. Next:
+  consolidated mock, then implementation on the owner's go.
 - A read-only static audit found six redundant labels: the QWERTY-picker
   caption, the Macros eyebrow, and four duplicate dialog/screen eyebrows.
   No audit edits were made.
