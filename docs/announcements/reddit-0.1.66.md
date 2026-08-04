@@ -17,7 +17,7 @@ I have released **AM Configurator 0.1.66**, an independent open-source desktop
 editor for Angry Miao keyboard profiles. It is a community project and is not
 affiliated with or endorsed by Angry Miao.
 
-The manual workflow comes first:
+With it you can:
 
 - edit Keymap assignments on a keyboard-shaped layout;
 - type, record, import, or edit Macros;
