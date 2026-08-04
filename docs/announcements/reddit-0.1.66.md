@@ -25,8 +25,8 @@ You can:
 - preview before applying a lighting slot;
 - save reusable profiles, keymaps, macros, media, and lighting to the Library;
   and
-- read or write a connected board — reading never writes, and a write asks
-  for typed confirmation of the device first.
+- read or write a connected board — reading never writes, and a write only
+  starts after you type the keyboard's model in the confirmation dialog.
 
 Changes in 0.1.66:
 
