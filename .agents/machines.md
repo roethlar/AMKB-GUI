@@ -46,7 +46,10 @@ last verified 2026-07-29._
 
 ## win-arm-vm (Windows 11, ARM64)
 
-_Last verified over SSH: 2026-07-31._
+_Last verified over SSH: 2026-07-31. The owner re-pointed us at this host for
+0.1.66 Windows ARM testing on 2026-08-03; TCP/SSH reachability was confirmed
+the same day, but key auth from nagatha's current agent was denied, so ask the
+owner to unlock or name the credential before ARM testing starts._
 
 - Reachable as `michael@10.1.10.211`; hostname `WIN-RRRKRP63HA6`, Windows 11
   Pro 24H2 build 26100, ARM64. The clean VM has no SmartScreen-disabling user,
