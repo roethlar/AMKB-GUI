@@ -109,12 +109,14 @@ click away and round-trip whatever the keyboard reported.
 
 ### Macros
 
-**Type text** turns whatever you type into the exact keystrokes the keyboard
-replays, with one delay setting to slow it down if an app drops characters.
-**Record keys** captures a sequence as you press it. The editor shows the
-selected keyboard's own macro capacity instead of assuming one budget for every
-model, and **Edit individual events** opens the full per-event list when you want
-to adjust a single key press or pause.
+**Text entry** turns typed text into the exact keystrokes the keyboard replays,
+with one timing choice: Fast, Slow, or Natural — a WPM target or your own
+captured cadence. **Flow** edits the macro event by event — key, down/up, and
+pause in place — and combos such as Ctrl+Alt+Del are built or recorded as
+ordinary rows. **Repeat** appends a repeated key press and quotes the capacity
+cost before anything changes. **Record keys** captures a sequence as you press
+it. The editor shows the selected keyboard's own macro capacity instead of
+assuming one budget for every model.
 
 ### Lighting
 

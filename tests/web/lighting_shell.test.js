@@ -1190,7 +1190,7 @@ test("connected Neon macro capacity owns the editor meter and mutation gates", (
   assert.match(macros,/capacity\.used[\s\S]*capacity\.limit[\s\S]*capacity\.unit/);
   assert.match(macros,/applyImportedMacros[\s\S]*macroCapacityError\(incoming\)/);
   assert.match(macros,/applyMacroText[\s\S]*macroCapacityError\(candidate\)/);
-  assert.match(macros,/add-event[\s\S]*macroCapacityError\(candidate\)/);
+  assert.match(macros,/add-step[\s\S]*macroCapacityError\(candidate\)/);
   assert.match(macros,/recordEvent[\s\S]*macroCapacityError\(candidate\)/);
   assert.match(server,/macro_state\.device_macro_count/);
   assert.match(server,/"macro_buffer_bytes": macro_state\.device_macro_buffer_bytes/);

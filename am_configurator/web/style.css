@@ -457,7 +457,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .macro-toolbar .spacer { flex: 1; }
 .macro-sequence { padding: 14px 16px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.018); }
 .macro-sequence-heading { display: flex; align-items: baseline; gap: 9px; margin-bottom: 10px; }
-.macro-sequence-heading strong { font-size: 14px; }
+.macro-sequence-heading strong { font-size: 14px; margin-right: 8px; }
 .macro-sequence-heading small { color: var(--muted); }
 .flow-rows { display: grid; gap: 5px; max-height: 300px; margin: 0; padding: 0; overflow: auto; list-style: none; }
 .flow-row { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); }

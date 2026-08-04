@@ -81,7 +81,7 @@ test("lossless raw assignment still round-trips", () => {
   assert.match(js, /\/api\/keymap\/assignment/);
 });
 
-test("macro editor offers Text entry and Flow modes; Advanced keeps structure and capacity", () => {
+test("macro editor offers Text entry, Flow, and Repeat modes with no duplicated editor", () => {
   assert.match(js, /● Record keys/);
   assert.match(js, /id="mode-text"/);
   assert.match(js, /id="mode-flow"/);
@@ -99,30 +99,27 @@ test("macro editor offers Text entry and Flow modes; Advanced keeps structure an
   assert.match(js, /Raise the delay if an app drops characters/);
   // Mode derivation: Text entry only when the macro decodes as clean text.
   assert.match(js, /state\.macroMode\?\?\(decoded\?"text":"flow"\)/);
-  // Flow edits key, down/up, and pause in place, one row per event.
+  // Flow is the one event editor: key, down/up, pause, and remove in place.
   const sequence = jsFunction("renderMacroSequence", "const MACRO_TEXT_KEYS");
   assert.match(sequence, /class="flow-row"/);
   assert.match(sequence, /data-action="\$\{event\.index\}"/);
   assert.match(sequence, /data-event-key="\$\{event\.index\}"/);
   assert.match(sequence, /data-delay="\$\{event\.index\}"/);
+  assert.match(sequence, /data-remove="\$\{event\.index\}"/);
   assert.match(sequence, /event\.action==="press"\?"down":"up"/);
   assert.match(sequence, /Outside the standard key list/);
   assert.match(js, /id="macro-sequence-title">Flow</);
   assert.match(js, /id="add-step"/);
   assert.match(js, /Combos are rows too/);
+  assert.match(js, /\$\{capacity\.used\}\/\$\{capacity\.limit\} \$\{capacity\.unit\} used/);
   // Timing-scale re-times every pause with a capacity pre-check.
   assert.match(js, /id="apply-scale"/);
   assert.match(js, /\.map\(pause=>Math\.min\(15000,Math\.round/);
-  // The Sequence renders before the Advanced disclosure; structure and capacity stay under it.
+  // No second event editor may survive anywhere else in the app.
+  assert.doesNotMatch(js, /macro-advanced|Edit individual events|id="add-event"/);
+  assert.doesNotMatch(js, /macroAdvancedOpen/);
+  // Track counts and the capacity meter stay out of the normal header.
   const macros = jsFunction("renderMacros", "const DOM_USAGE");
-  const template = macros.slice(0, macros.indexOf("$(\"#add-macro\")"));
-  const advancedAt = template.indexOf('id="macro-advanced"');
-  assert.ok(advancedAt >= 0);
-  assert.match(js, /<summary>Edit individual events<\/summary>/);
-  for (const marker of ['id="add-event"', "data-remove=", "limit-meter"]) {
-    assert.ok(template.indexOf(marker) > advancedAt, `${marker} must sit inside the Edit individual events disclosure`);
-  }
-  // Track counts and the capacity meter left the normal header.
   const header = macros.slice(macros.indexOf("screen-header"), macros.indexOf("macro-layout"));
   assert.doesNotMatch(header, /tracks|limit-meter|capacity\.used/);
 });
@@ -152,9 +149,15 @@ test("text entry opens only for clean text; decode is the exact compiler inverse
     macroTextDecode({layer_key:["#11070004","#10070004","#11070005","#10070005","#11070006","#10070006"], intvel_ms:[1,77,1,123,1,0]}),
     {text:"abc", rhythm:null}
   );
-  // Human-recorded presses (pause other than 1ms) and media events are not text.
-  assert.equal(macroTextDecode({layer_key:["#11070004","#10070004"], intvel_ms:[5,10]}), null);
+  // Hand-recorded text with human (zero) presses is still text: "Di".
+  assert.deepEqual(
+    macroTextDecode({layer_key:["#110700E1","#11070007","#10070007","#100700E1","#1107000C","#1007000C"], intvel_ms:[0,0,0,0,0,0]}),
+    {text:"Di", rhythm:0}
+  );
+  // Media events, doubled modifiers, and dangling presses are not text.
   assert.equal(macroTextDecode({layer_key:["#110C00E9"], intvel_ms:[0]}), null);
+  assert.equal(macroTextDecode({layer_key:["#110700E1","#110700E1"], intvel_ms:[0,0]}), null);
+  assert.equal(macroTextDecode({layer_key:["#11070004"], intvel_ms:[0]}), null);
 });
 
 test("cadence capture samples only timing and is wired before macro recording", () => {
@@ -291,9 +294,7 @@ test("disclosures are native and focus is restored after re-renders", () => {
   assert.match(js, /restoreFocus\(`\[data-macro="\$\{button\.dataset\.macro\}"\]`\)/);
   // Disclosure state survives re-renders instead of snapping shut.
   assert.match(js, /state\.advancedKeycodeOpen = event\.currentTarget\.open/);
-  assert.match(js, /state\.macroAdvancedOpen=event\.currentTarget\.open/);
   assert.match(js, /\$\{state\.advancedKeycodeOpen\?"open":""\}/);
-  assert.match(js, /\$\{state\.macroAdvancedOpen\?"open":""\}/);
 });
 
 function parseLayout(name) {

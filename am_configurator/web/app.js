@@ -91,7 +91,6 @@ const state = {
   advancedKeycodeOpen: false,
   keyAssignmentEpoch: 0,
   macro: 0,
-  macroAdvancedOpen: false,
   recording: false,
   recordLast: 0,
   ledPixel: 0,
@@ -2706,7 +2705,7 @@ function renderMacroSequence(macro, eventOptions) {
     const action=parts
       ? `<button type="button" class="event-action ${event.action==="press"?"":"up"}" data-action="${event.index}" title="${esc(event.label)} — click to toggle down/up">${event.action==="press"?"down":"up"}</button>`
       : `<span class="macro-sequence-static">—</span>`;
-    return `<li class="flow-row"><span class="event-number">${event.index+1}</span>${key}${action}<label class="macro-sequence-delay">then wait <input class="text-field event-delay" type="number" min="0" max="15000" value="${event.delay}" data-delay="${event.index}" title="Pause after this event in milliseconds"> ms</label></li>`;
+    return `<li class="flow-row"><span class="event-number">${event.index+1}</span>${key}${action}<label class="macro-sequence-delay">then wait <input class="text-field event-delay" type="number" min="0" max="15000" value="${event.delay}" data-delay="${event.index}" title="Pause after this event in milliseconds"> ms</label><button type="button" class="remove-event" data-remove="${event.index}" title="Remove this event">×</button></li>`;
   }).join("")}</ol>`;
 }
 
@@ -2723,11 +2722,13 @@ const MACRO_TEXT_KEYS = (() => {
   return map;
 })();
 
-// Inverse of the text compiler: decode events into {text, rhythm} only when
-// they exactly match what the compiler emits (1ms press/shift transitions,
-// Left Shift runs, compiler charset). The rhythm is the uniform inter-key
-// pause, or null when pauses stagger (natural timing). Anything else returns
-// null — the macro is not plain text and belongs in Flow.
+// Inverse of the text compiler's structure: decode events into {text, rhythm}
+// when they form proper tap pairs with correctly nested Left Shift runs in the
+// compiler's charset. Pauses are *reported*, never required — a macro you
+// recorded by hand is still text. The rhythm is the uniform inter-key pause,
+// or null when pauses stagger (natural timing or human recording). Anything
+// structurally off returns null — the macro is not plain text and belongs in
+// Flow.
 function macroTextDecode(macro) {
   const codes = macro?.layer_key || [];
   const delays = macro?.intvel_ms || [];
@@ -2739,13 +2740,11 @@ function macroTextDecode(macro) {
     if (!parts || parts.page !== 0x07) return null;
     if (parts.usage === 0xE1) {
       const down = parts.modifier !== 0x10;
-      const transition = Number(delays[i] ?? 0);
-      // The compiler zeroes the final event's pause, even a Shift transition's.
-      if (down === shiftDown || (transition !== 1 && !(i === codes.length - 1 && transition === 0))) return null;
+      if (down === shiftDown) return null;
       shiftDown = down; i++;
       continue;
     }
-    if (parts.modifier !== 0x11 || Number(delays[i] ?? 0) !== 1) return null;
+    if (parts.modifier !== 0x11) return null;
     const usage = parts.usage;
     i++;
     if (i >= codes.length) return null;
@@ -2767,14 +2766,14 @@ function macroTimingChoice(decoded) {
   const rhythm = decoded?.rhythm;
   if (rhythm === 10) return "fast";
   if (rhythm === 100) return "slow";
-  if (rhythm !== null && rhythm !== undefined) return "custom";
+  if (rhythm !== null && rhythm !== undefined) return rhythm >= 1 && rhythm <= 1000 ? "custom" : "fast";
   return decoded ? "natural" : "fast";
 }
 
 function renderMacroTextMode(current, decoded, capacity) {
   const rhythm = decoded?.rhythm ?? null;
   const choice = macroTimingChoice(decoded);
-  const custom = rhythm !== null && rhythm !== 10 && rhythm !== 100;
+  const custom = rhythm !== null && rhythm !== 10 && rhythm !== 100 && rhythm >= 1 && rhythm <= 1000;
   const wpm = state.macroNatural?.wpm ?? 90;
   const cadence = state.macroCadence;
   const events = (current.layer_key || []).length;
@@ -2882,7 +2881,6 @@ function renderMacros() {
   state.macro = Math.min(state.macro, Math.max(0,macros().length-1));
   const current = macros()[state.macro];
   const capacity=macroCapacity();
-  const macroTracks=capacity.tracks;
   const eventOptions = KEY_OPTIONS.filter(option => ["Letters","Numbers","Basic","Function"].includes(option.category) && option.code !== "#00000000");
   const assigned = current ? layers().reduce((sum, layer) => sum + layer.layer.filter(code => code.toUpperCase()===current.original_key.toUpperCase()).length,0) : 0;
   const missing=missingMacroTokens();
@@ -2908,24 +2906,13 @@ function renderMacros() {
           <button id="mode-text" role="tab" class="${macroMode==="text"?"active":""}" ${textAllowed?"":"disabled"} title="${textAllowed?"Type the macro as text":"This macro has events text can't express — edit them in Flow"}">Text entry</button>
           <button id="mode-flow" role="tab" class="${macroMode==="flow"?"active":""}" title="Edit the macro event by event">Flow</button>
           <button id="mode-repeat" role="tab" class="${macroMode==="repeat"?"active":""}" title="Append a repeated key press with its cost quoted up front">Repeat</button>
-        </div>${macroMode==="text"?renderMacroTextMode(current,decoded,capacity):macroMode==="repeat"?renderMacroRepeatMode(current,capacity,eventOptions):`<section class="macro-sequence" aria-labelledby="macro-sequence-title"><div class="macro-sequence-heading"><div><strong id="macro-sequence-title">Flow</strong><small>One row per key action, in replay order. Edit the key, down/up, or pause in place.</small></div></div>${renderMacroSequence(current,eventOptions)}<div class="flow-actions"><button id="add-step" class="button ghost">+ Step</button><div class="spacer"></div><label>Pauses × <input id="macro-scale" class="text-field" type="number" min="0.1" max="10" step="0.1" value="1"></label><button id="apply-scale" class="button ghost">Apply</button></div><small class="timing-hint">Combos are rows too: Ctrl down, Alt down, Del down, Del up, Alt up, Ctrl up.</small></section>`}<details id="macro-advanced" class="advanced-disclosure" ${state.macroAdvancedOpen?"open":""}><summary>Edit individual events</summary>
-          <div class="macro-capacity"><small>${capacity.used}/${capacity.limit} ${capacity.unit} · up to ${macroTracks} tracks</small><div class="limit-meter"><span style="width:${capacity.limit?Math.min(100,capacity.used*100/capacity.limit):0}%"></span></div></div>
-          <p class="inspector-help">Each row is one key-down or key-up event and the delay that follows it, exactly as the keyboard replays them.</p>
-          <div class="macro-toolbar"><button id="add-event" class="button ghost">+ Event</button></div>
-          <div class="event-list">
-          ${(current.layer_key||[]).length ? current.layer_key.map((code,i) => {
-            const down = codeParts(code)?.modifier !== 0x10;
-            const base = macroBaseCode(code);
-            return `<div class="event-row" data-event="${i}"><span class="event-number">${i+1}</span><button class="event-action ${down?'':'up'}" data-action="${i}">${down?'Key down':'Key up'}</button><select class="select-field event-key" data-event-key="${i}">${eventOptions.map(option=>`<option value="${option.code}" ${option.code===base?'selected':''}>${esc(option.label)}</option>`).join("")}</select><input class="text-field event-delay" type="number" min="0" max="15000" value="${Number(current.intvel_ms?.[i]??25)}" data-delay="${i}" title="Delay after event in milliseconds"><button class="remove-event" data-remove="${i}" title="Remove">×</button></div>`;
-          }).join("") : `<div class="event-empty">${state.recording?'Press keys now. Recording captures both down and up events.':'Record keys or type text above, or add an event here.'}</div>`}
-        </div></details></div>` : `<div class="event-empty">Create a macro to open the editor.</div>`}</section>
+        </div>${macroMode==="text"?renderMacroTextMode(current,decoded,capacity):macroMode==="repeat"?renderMacroRepeatMode(current,capacity,eventOptions):`<section class="macro-sequence" aria-labelledby="macro-sequence-title"><div class="macro-sequence-heading"><div><strong id="macro-sequence-title">Flow</strong><small>One row per key action, in replay order. Edit the key, down/up, or pause in place.</small></div></div>${renderMacroSequence(current,eventOptions)}<div class="flow-actions"><button id="add-step" class="button ghost">+ Step</button><div class="spacer"></div><label>Pauses × <input id="macro-scale" class="text-field" type="number" min="0.1" max="10" step="0.1" value="1"></label><button id="apply-scale" class="button ghost">Apply</button></div><p class="mode-summary">${(current.layer_key||[]).length} events · ${capacity.used}/${capacity.limit} ${capacity.unit} used</p><small class="timing-hint">Combos are rows too: Ctrl down, Alt down, Del down, Del up, Alt up, Ctrl up.</small></section>`}</div>` : `<div class="event-empty">Create a macro to open the editor.</div>`}</section>
     </div></div>`;
   $("#add-macro").addEventListener("click", addMacro);
   $("#import-macros").addEventListener("click",()=>$("#macro-import-input").click());
   $("#save-macros-library")?.addEventListener("click",()=>saveMappingToLibrary("save-macros-library"));
   $$("[data-macro]").forEach(button => button.addEventListener("click",()=>{state.macro=Number(button.dataset.macro);state.macroMode=null;state.macroTiming=null;renderMacros();restoreFocus(`[data-macro="${button.dataset.macro}"]`);}));
   if (!current) return;
-  $("#macro-advanced").addEventListener("toggle",event=>{state.macroAdvancedOpen=event.currentTarget.open;});
   $("#delete-macro").addEventListener("click", removeMacro);
   const addMacroEvent=()=>{
     const candidate=clone(macros());
@@ -2935,7 +2922,6 @@ function renderMacros() {
     if(capacityError)return toast("Macro capacity reached",capacityError,"error");
     mutate(()=>{current.layer_key.push("#11070004");current.intvel_ms.push(25);});
   };
-  $("#add-event").addEventListener("click", addMacroEvent);
   $("#add-step")?.addEventListener("click", addMacroEvent);
   $("#apply-scale")?.addEventListener("click",()=>{
     const factor=Number($("#macro-scale").value);
