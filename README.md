@@ -92,7 +92,7 @@ or a firmware version you have not used before.
 
 *Lighting — edit a slot directly, or preview a media or effect result before applying it to the open profile.*
 
-![The Macros screen: a macro list, the Type text box, and the delay control](docs/images/macros.png)
+![The Macros screen: a macro list and the Text entry editor with its Fast, Slow, and Natural timing choices](docs/images/macros.png)
 
 *Macros — type the text you want, or record the keys you press.*
 
