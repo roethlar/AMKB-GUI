@@ -29,9 +29,14 @@
 
 ## Next
 
-- Owner reviews the reworked Macro editor (run the app, open Macros). If it
-  satisfies the outcome, the remaining repair items are the deferred README
-  screenshots (owner-gated) and the republish decision (explicit owner go).
+- Release `0.1.66` is in preparation. Done: macro editor rework, synthetic
+  README screenshots (`9e714de`), version bump (`777da50`), suite
+  fully green. Remaining per the draft plan
+  `docs/superpowers/plans/2026-08-03-public-release-0.1.66.md` (owner review):
+  R66-1 JPEG import (owner-mandated 2026-08-02), R66-2 experimental ARM64 CI,
+  R66-3 release packet, R66-4 qualification, R66-5 publication gates. Each
+  publish action (tag, Release, draft disposition, Reddit) needs an explicit
+  owner go.
 
 ## Blockers
 
