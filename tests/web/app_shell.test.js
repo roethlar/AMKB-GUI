@@ -164,6 +164,36 @@ test("cadence capture samples only timing and is wired before macro recording", 
   assert.match(js, /pauses sampled/);
 });
 
+test("repeat quotes cost from the real capacity model and pre-checks apply", () => {
+  assert.match(js, /id="mode-repeat"/);
+  assert.match(js, /id="repeat-key"/);
+  assert.match(js, /id="repeat-interval"/);
+  assert.match(js, /id="repeat-count"/);
+  assert.match(js, /id="repeat-apply"/);
+  // The quote runs the candidate through the same capacity model the validators use.
+  const repeatMode = jsFunction("renderMacroRepeatMode", "async function applyMacroText");
+  assert.match(repeatMode, /macroCapacity\(candidate\)/);
+  assert.match(repeatMode, /after\.used-capacity\.used/);
+  assert.match(repeatMode, /6677-byte buffer/);
+  assert.match(repeatMode, /200-event total/);
+  // Apply is capacity pre-checked before anything mutates.
+  assert.match(js, /const candidate=macroRepeatCandidate\(repeat\.key,interval,count\);\s*const capacityError=macroCapacityError\(candidate\);/);
+  // The candidate appends alternating down/up pairs; the interval rides on the up.
+  const start = js.indexOf("function macroRepeatCandidate");
+  const end = js.indexOf("function renderMacroRepeatMode", start);
+  assert.ok(start >= 0 && end > start);
+  const macroRepeatCandidate = new Function("clone", "macros", "state", "macroEventCode",
+    `${js.slice(start, end)}; return macroRepeatCandidate;`)(
+    structuredClone,
+    () => [{layer_key:[], intvel_ms:[]}],
+    {macro: 0},
+    (base, down) => `${base}${down ? "D" : "U"}`
+  );
+  const built = macroRepeatCandidate("#00070008", 60, 3);
+  assert.deepEqual(built[0].layer_key, ["#00070008D", "#00070008U", "#00070008D", "#00070008U", "#00070008D", "#00070008U"]);
+  assert.deepEqual(built[0].intvel_ms, [0, 60, 0, 60, 0, 60]);
+});
+
 test("macro sequence keeps lowercase, Shift-uppercase, modifier combinations, key-up ordering, and pauses distinct", () => {
   const start = js.indexOf("const MACRO_MODIFIER_NAMES");
   const end = js.indexOf("async function applyMacroText", start);

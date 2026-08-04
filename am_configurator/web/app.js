@@ -2822,6 +2822,40 @@ function captureCadenceEvent(event) {
   if(state.macroCadence.length>=64)stopCadenceCapture(true);
 }
 
+function macroRepeatCandidate(key, interval, count) {
+  const candidate=clone(macros());
+  const target=candidate[state.macro];
+  for(let n=0;n<count;n++){
+    target.layer_key.push(macroEventCode(key,true));
+    target.intvel_ms.push(0);
+    target.layer_key.push(macroEventCode(key,false));
+    target.intvel_ms.push(interval);
+  }
+  return candidate;
+}
+
+function renderMacroRepeatMode(current, capacity, eventOptions) {
+  const repeat=state.macroRepeat??{key:"#00070004",interval:60,count:10};
+  const interval=Math.max(0,Math.min(15000,Number(repeat.interval)||0));
+  const count=Math.max(1,Math.min(100,Number(repeat.count)||1));
+  const candidate=macroRepeatCandidate(repeat.key,interval,count);
+  const after=macroCapacity(candidate);
+  const over=!after.fits;
+  const otherNote=capacity.unit==="events"
+    ?`an AM Neon 80 would budget this as ≈${count*(6+(interval>0?4:0))} bytes of its 6677-byte buffer`
+    :`the serial boards would budget this as ${2*count} events of their 200-event total`;
+  return `<div class="mode-body repeat-mode">
+    <div class="repeat-panel">
+      Press <select id="repeat-key" class="select-field event-key">${eventOptions.map(option=>`<option value="${option.code}" ${option.code===repeat.key?"selected":""}>${esc(option.label)}</option>`).join("")}</select>
+      every <input id="repeat-interval" class="text-field" type="number" min="0" max="15000" value="${interval}"> ms ·
+      <input id="repeat-count" class="text-field" type="number" min="1" max="100" value="${count}"> times
+      <button id="repeat-apply" class="button primary" ${over?"disabled":""}>Apply</button>
+    </div>
+    <div class="repeat-cost ${over?"over":""}">Adds <strong>${after.used-capacity.used} ${capacity.unit}</strong> → this profile would use <strong>${after.used}/${after.limit} ${capacity.unit}</strong>${over?" — over this keyboard's budget":""}. <small>Elsewhere: ${otherNote}.</small></div>
+    <small class="timing-hint">Repeat appends ${2*count} events to this macro — each press is a down and an up, and the pause rides on the up.</small>
+  </div>`;
+}
+
 async function applyMacroText(mode) {
   const current=macros()[state.macro];
   if(!current)return;
@@ -2873,7 +2907,8 @@ function renderMacros() {
         </div><div class="mode-switch" role="tablist" aria-label="Macro editor mode">
           <button id="mode-text" role="tab" class="${macroMode==="text"?"active":""}" ${textAllowed?"":"disabled"} title="${textAllowed?"Type the macro as text":"This macro has events text can't express — edit them in Flow"}">Text entry</button>
           <button id="mode-flow" role="tab" class="${macroMode==="flow"?"active":""}" title="Edit the macro event by event">Flow</button>
-        </div>${macroMode==="text"?renderMacroTextMode(current,decoded,capacity):`<section class="macro-sequence" aria-labelledby="macro-sequence-title"><div class="macro-sequence-heading"><div><strong id="macro-sequence-title">Flow</strong><small>One row per key action, in replay order. Edit the key, down/up, or pause in place.</small></div></div>${renderMacroSequence(current,eventOptions)}<div class="flow-actions"><button id="add-step" class="button ghost">+ Step</button><div class="spacer"></div><label>Pauses × <input id="macro-scale" class="text-field" type="number" min="0.1" max="10" step="0.1" value="1"></label><button id="apply-scale" class="button ghost">Apply</button></div><small class="timing-hint">Combos are rows too: Ctrl down, Alt down, Del down, Del up, Alt up, Ctrl up.</small></section>`}<details id="macro-advanced" class="advanced-disclosure" ${state.macroAdvancedOpen?"open":""}><summary>Edit individual events</summary>
+          <button id="mode-repeat" role="tab" class="${macroMode==="repeat"?"active":""}" title="Append a repeated key press with its cost quoted up front">Repeat</button>
+        </div>${macroMode==="text"?renderMacroTextMode(current,decoded,capacity):macroMode==="repeat"?renderMacroRepeatMode(current,capacity,eventOptions):`<section class="macro-sequence" aria-labelledby="macro-sequence-title"><div class="macro-sequence-heading"><div><strong id="macro-sequence-title">Flow</strong><small>One row per key action, in replay order. Edit the key, down/up, or pause in place.</small></div></div>${renderMacroSequence(current,eventOptions)}<div class="flow-actions"><button id="add-step" class="button ghost">+ Step</button><div class="spacer"></div><label>Pauses × <input id="macro-scale" class="text-field" type="number" min="0.1" max="10" step="0.1" value="1"></label><button id="apply-scale" class="button ghost">Apply</button></div><small class="timing-hint">Combos are rows too: Ctrl down, Alt down, Del down, Del up, Alt up, Ctrl up.</small></section>`}<details id="macro-advanced" class="advanced-disclosure" ${state.macroAdvancedOpen?"open":""}><summary>Edit individual events</summary>
           <div class="macro-capacity"><small>${capacity.used}/${capacity.limit} ${capacity.unit} · up to ${macroTracks} tracks</small><div class="limit-meter"><span style="width:${capacity.limit?Math.min(100,capacity.used*100/capacity.limit):0}%"></span></div></div>
           <p class="inspector-help">Each row is one key-down or key-up event and the delay that follows it, exactly as the keyboard replays them.</p>
           <div class="macro-toolbar"><button id="add-event" class="button ghost">+ Event</button></div>
@@ -2915,6 +2950,33 @@ function renderMacros() {
   $("#record-macro").addEventListener("click", toggleRecording);
   $("#mode-text")?.addEventListener("click",()=>{state.macroMode="text";renderMacros();});
   $("#mode-flow")?.addEventListener("click",()=>{state.macroMode="flow";renderMacros();});
+  $("#mode-repeat")?.addEventListener("click",()=>{state.macroMode="repeat";renderMacros();});
+  for(const id of ["repeat-key","repeat-interval","repeat-count"]){
+    $(`#${id}`)?.addEventListener("change",()=>{
+      state.macroRepeat={
+        key:$("#repeat-key").value,
+        interval:Math.max(0,Math.min(15000,Number($("#repeat-interval").value)||0)),
+        count:Math.max(1,Math.min(100,Number($("#repeat-count").value)||1)),
+      };
+      renderMacros();
+    });
+  }
+  $("#repeat-apply")?.addEventListener("click",()=>{
+    const repeat=state.macroRepeat??{key:"#00070004",interval:60,count:10};
+    const interval=Math.max(0,Math.min(15000,Number(repeat.interval)||0));
+    const count=Math.max(1,Math.min(100,Number(repeat.count)||1));
+    const candidate=macroRepeatCandidate(repeat.key,interval,count);
+    const capacityError=macroCapacityError(candidate);
+    if(capacityError)return toast("Macro capacity reached",capacityError,"error");
+    mutate(()=>{
+      const target=macros()[state.macro];
+      for(let n=0;n<count;n++){
+        target.layer_key.push(macroEventCode(repeat.key,true));target.intvel_ms.push(0);
+        target.layer_key.push(macroEventCode(repeat.key,false));target.intvel_ms.push(interval);
+      }
+    });
+    toast("Repeat added",`${count} presses · ${2*count} events appended`,"success");
+  });
   $$('input[name="macro-timing"]').forEach(radio=>radio.addEventListener("change",()=>{state.macroTiming=radio.value;renderMacros();}));
   $("#cadence-capture")?.addEventListener("click",()=>{
     if(state.cadenceCapture){stopCadenceCapture(true);return;}

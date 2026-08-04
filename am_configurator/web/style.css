@@ -484,6 +484,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .timing-natural input[type="number"] { width: 64px; min-height: 26px; padding: 0 6px; }
 .timing-hint { color: var(--muted); font-size: 13px; }
 .mode-summary { color: var(--muted); font-size: 13px; margin: 0; }
+.repeat-panel { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13.5px; }
+.repeat-panel .event-key { width: 110px; min-height: 28px; }
+.repeat-panel input[type="number"] { width: 64px; min-height: 28px; padding: 0 6px; }
+.repeat-cost { border: 1px solid var(--line); border-radius: 7px; background: var(--panel-2); padding: 8px 12px; color: var(--muted); font-size: 13px; }
+.repeat-cost strong { color: var(--text); }
+.repeat-cost.over { border-color: var(--red); }
+.repeat-cost.over strong { color: var(--red); }
 .text-macro-actions { display: flex; align-items: center; gap: 8px; }
 .text-macro-actions label { color: var(--muted); font-size: 13px; }
 .text-macro-actions input { width: 68px; min-height: 34px; margin: 0 4px 0 7px; padding: 0 8px; }
