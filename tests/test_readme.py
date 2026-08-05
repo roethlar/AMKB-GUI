@@ -50,6 +50,10 @@ SCREENSHOTS = (
     "docs/images/lighting.png",
     "docs/images/macros.png",
 )
+AI_SCREENSHOTS = (
+    "docs/images/ai-setup.png",
+    "docs/images/ai-generate.png",
+)
 
 # Actions the README tells a user to take. Each one must exist verbatim in the
 # interface it describes; a renamed control has to reach this file before the
@@ -198,11 +202,15 @@ class ReadmeStructureTest(unittest.TestCase):
                     readme.index(image),
                     readme.index("\n## What you can do\n"),
                 )
-        # Exactly three markdown screenshots, each with alt text a screen
-        # reader can use. The per-board gallery uses HTML <img> and is checked
+        # Exactly five markdown screenshots, each with alt text a screen
+        # reader can use: the three section leads plus the two Optional AI
+        # illustrations. The per-board gallery uses HTML <img> and is checked
         # separately, so it does not inflate this count.
+        for image in AI_SCREENSHOTS:
+            with self.subTest(image=image):
+                self.assertEqual(1, readme.count(image))
         alts = re.findall(r"!\[([^\]]*)\]\(docs/images/[^)]+\)", readme)
-        self.assertEqual(len(SCREENSHOTS), len(alts))
+        self.assertEqual(len(SCREENSHOTS) + len(AI_SCREENSHOTS), len(alts))
         for alt in alts:
             with self.subTest(alt=alt):
                 self.assertGreaterEqual(len(alt.split()), 8, alt)

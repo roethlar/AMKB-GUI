@@ -922,6 +922,8 @@ class ReleaseInfoTests(unittest.TestCase):
             "keymap.png": (1600, 1000),
             "macros.png": (1600, 1000),
             "lighting.png": (1600, 1000),
+            "ai-setup.png": (1600, 1000),
+            "ai-generate.png": (1600, 1000),
             "board-cyberboard.png": (1600, 1000),
             "board-relic80.png": (1600, 1000),
             "board-afa.png": (1600, 1000),

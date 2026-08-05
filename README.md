@@ -154,6 +154,16 @@ your prompt and the selected keyboard's size are sent — imported media, keymap
 macros, device identifiers, and Library files stay on your computer. Anything
 generated lands in the same Library as your manual and imported work.
 
+![Settings with AI features turned on and an Ollama backend ready](docs/images/ai-setup.png)
+
+With a backend ready, the Lighting Studio's **AI** tab opens a prompt. Describe
+the effect you want and **Generate lighting** turns it into lighting frames
+rendered on your own computer — one request per click, never retried on its
+own. The result previews on the keyboard canvas like any other lighting, and
+nothing changes the open profile until you apply it yourself.
+
+![The Lighting Studio's AI tab with an effect described, ready to generate](docs/images/ai-generate.png)
+
 ## Before you write to a keyboard
 
 Selecting a keyboard, or reading one, never changes it. Writing does.
