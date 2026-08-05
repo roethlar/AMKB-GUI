@@ -2,32 +2,32 @@
 
 ## Now
 
-- **The 0.1.66 release is frozen (owner, 2026-08-04): an element-level UI
-  redesign blocks publication.** R66-4 qualification and R66-5 gates do not
-  proceed until the redesign ships. The packet (release notes, plan) is
-  superseded in UI terms — it describes the current look.
-- Landed for 0.1.66 before the freeze: macro editor rework (reviewed in
-  app), synthetic screenshots `9e714de`, version bump `777da50`, JPEG import
-  `aa1c263`, experimental ARM64 CI `0558685` (first run green on both
-  targets, run 30884280304), release packet `3345c2c` + tone fixes. Suite
-  fully green as of `b88d4b7`.
+- **Freeze reversed (owner, 2026-08-04): the redesign comes after the
+  release.** 0.1.66 proceeds to qualification and the publication gates.
+- Landed for 0.1.66: macro editor rework (reviewed in app), synthetic
+  screenshots `9e714de`, version bump `777da50`, JPEG import `aa1c263`,
+  experimental ARM64 CI `0558685` (first run green on both targets, run
+  30884280304), release packet `3345c2c` + tone fixes. Suite fully green as
+  of `b88d4b7`.
 - The Reddit draft has uncommitted working-tree edits (first-app rewrite);
   the owner stopped Reddit work outright ("LLMs are bad at writing
   human-facing language") — its fate is undecided; do not commit it.
-- UI redesign is the active project. Two mockup rounds were rejected as
-  "same elements, restyled": `/tmp/style-v1..v5*.png` (colorways),
-  `/tmp/style-v6..v9*.png` (structural reskins). Capture scripts:
-  `/tmp/am_capture.py`, `/tmp/am_make_demo_config.py`,
-  `/tmp/am_style_variants{,2}.py`; synthetic profile
-  `/tmp/am-demo-config.json` (NEON80, layout evidence attached).
-- Pushes are paused by owner order; bookkeeping commits stay local.
+- The UI redesign is parked until after release: element-level, not restyle.
+  Two rejected mockup rounds: `/tmp/style-v1..v5*.png` (colorways),
+  `/tmp/style-v6..v9*.png` (structural reskins). Capture tooling in `/tmp`
+  (`am_capture.py`, `am_make_demo_config.py`, `am_style_variants{,2}.py`,
+  `am-demo-config.json`). Setup rulings (pilot screen, prototype form,
+  arrangements per round) still open.
+- Pushes are paused by owner order; bookkeeping commits stay local. CI
+  candidates for qualification need origin, so R66-4's CI half waits on push
+  resumption.
 
 ## Next
 
-- Owner rules on the redesign setup: (1) pilot screen — Lighting workspace
-  or whole shell; (2) prototype form — throwaway HTML with new DOM or
-  straight into `app.js`; (3) arrangements per round — 2 or 3. Then the
-  first element-level prototype round.
+- R66-4 qualification: local macOS build + frozen smoke first; then, once
+  pushes resume, CI candidates on the final commit with hash and attestation
+  verification. Then the R66-5 gates, each an explicit owner go: tag
+  `v0.1.66`, publish the Release, dispose of the `v0.1.65` draft.
 - After `0.1.66`: draft a plan for unsupported-board onboarding (owner
   approved 2026-08-03): "new keyboard model detected" plus a read-only scan
   that packages a sanitized device report (product ID, protocol responses,
@@ -38,5 +38,5 @@
 
 ## Blockers
 
-- Release is frozen on the element-level UI redesign (owner, 2026-08-04).
-  Origin pushes stay paused. No external blocker.
+- Pushes paused by owner order; the CI-candidate half of R66-4 waits on
+  resumption. No external blocker.
