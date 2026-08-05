@@ -1,8 +1,14 @@
 # AM Configurator 0.1.66 Public Release
 
-**Status:** Drafted 2026-08-03 for owner review. Not yet authorized past the
-landed prerequisites. Publication — tag, builds, Release, announcement —
-remains separately gated and has not happened.
+**Status:** Published 2026-08-04. Tag `v0.1.66` targets
+`f19a806a0df298b2b461ef867ffb3d128d17baa1`; CI run `30969081189` built all
+three supported installers plus both experimental ARM64 targets green; all
+five public assets passed SHA-256, GitHub attestation, and anonymous-download
+verification. Local macOS qualification (frozen smoke, ad-hoc deep/strict
+signature, `hdiutil verify`) passed. The owner authorized tag and Release
+publication directly. The Reddit announcement was stopped by the owner and
+never posted. The withdrawn `v0.1.65` draft's disposition remains an open
+owner decision.
 
 ## Objective
 
