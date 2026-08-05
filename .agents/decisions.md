@@ -6,9 +6,10 @@ Status: approved by the owner on 2026-08-03 while authorizing the version
 bump after the macro editor rework and README screenshot recapture.
 
 - The current product/release version is `0.1.66`. It succeeds the `0.1.65`
-  line: the `v0.1.65` GitHub Release stays a withdrawn draft, its content is
-  frozen at `ebd0d043e70c31c0342a73b088f84d28357196e4`, and neither its tag
-  nor its assets may be republished or moved.
+  line: the `v0.1.65` GitHub Release draft was deleted on 2026-08-04 by owner
+  ruling; the `v0.1.65` tag is retained at
+  `ebd0d043e70c31c0342a73b088f84d28357196e4` and must not be moved or
+  republished.
 - The 2026-07-28 canonical-version decision otherwise stands unchanged:
   `am_configurator/_version.py` is the canonical source, every artifact
   reports that exact version, and a version changes only through a deliberate
