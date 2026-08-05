@@ -248,3 +248,6 @@ GeneralD's copyright and license are preserved in
 [`licenses/cyberboard-cli-LICENSE.txt`](licenses/cyberboard-cli-LICENSE.txt), and
 all bundled third-party notices are listed in
 [`THIRD_PARTY_NOTICES`](THIRD_PARTY_NOTICES).
+
+If AM Configurator is useful to you, you can
+[support it on Ko-fi](https://ko-fi.com/michaelcoelho).
