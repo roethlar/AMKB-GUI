@@ -249,5 +249,6 @@ GeneralD's copyright and license are preserved in
 all bundled third-party notices are listed in
 [`THIRD_PARTY_NOTICES`](THIRD_PARTY_NOTICES).
 
-If AM Configurator is useful to you, you can
-[support it on Ko-fi](https://ko-fi.com/michaelcoelho).
+If AM Configurator is useful to you, you can support it on
+[GitHub Sponsors](https://github.com/sponsors/roethlar) or
+[Ko-fi](https://ko-fi.com/michaelcoelho).
