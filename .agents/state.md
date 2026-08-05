@@ -39,4 +39,6 @@
 ## Blockers
 
 - Pushes paused by owner order; the CI-candidate half of R66-4 waits on
-  resumption. No external blocker.
+  resumption. Local macOS qualification passed (frozen smoke, ad-hoc
+  signature deep/strict OK, spctl rejection as expected, hdiutil verify
+  VALID; SHA-256 b0641b78…367). No external blocker.
