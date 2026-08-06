@@ -9,42 +9,47 @@ r/AngryMiao
 
 ## Title
 
-[Release] AM Configurator 0.1.66 — keymaps, macros, and lighting for four Angry Miao keyboards
+[Release] AM Configurator — a local, open-source editor for Angry Miao keyboards
 
 ## Body
 
-I have released **AM Configurator 0.1.66**, an independent open-source desktop
-editor for Angry Miao keyboard profiles. It is a community project and is not
-affiliated with or endorsed by Angry Miao.
+**AM Configurator 0.1.66** is out — the first public release of a free,
+open-source desktop editor for Angry Miao keyboards: keymaps, macros, and
+lighting for CyberBoard, AM Relic 80, AM AFA/AFA 2, and AM Neon 80. It's a
+community project, not affiliated with or endorsed by Angry Miao.
 
-You can:
+Why it exists: the vendor tooling is a web app, and I wanted an editor that
+lives on my own computer. Profiles are plain JSON you can keep and diff,
+nothing needs an account, everything works offline, and the code is right
+there to read. I couldn't find that, so I wrote it.
 
-- edit Keymap assignments on a keyboard-shaped layout;
-- type, record, import, or edit Macros;
-- paint Lighting frame by frame, import media, or use local effects;
+What you can do with it:
+
+- edit keymaps on a keyboard-shaped layout, with every layer in reach;
+- build macros three ways:
+  - **Text entry** — type the text, with Fast (10 ms), Slow (100 ms), or
+    Natural timing (a WPM target or your own captured cadence);
+  - **Flow** — edit every event's key, down/up, and pause in place; combos
+    like Ctrl+Alt+Del are ordinary rows; and
+  - **Repeat** — a key press N times at an interval, with the capacity cost
+    quoted up front;
+- paint lighting frame by frame, import GIF, PNG, BMP, or JPEG media, or use
+  local effects;
 - preview before applying a lighting slot;
-- save reusable profiles, keymaps, macros, media, and lighting to the Library;
-  and
+- keep reusable profiles, keymaps, macros, media, and lighting in a local
+  Library; and
 - read or write a connected board — reading never changes anything on it.
 
-Changes in 0.1.66:
+Where it honestly stands: it runs on macOS, Windows, and Linux, and the
+installers are built and smoke-tested on all three. My own Neon 80 gets daily
+use with it; the other families are implemented against protocol fixtures and
+geometry tests, not hardware-tested boards. You'd be among the first people
+outside my desk to run it — expect rough edges.
 
-- the macro editor now has three modes: **Text entry** (type the text, with
-  Fast 10 ms, Slow 100 ms, or Natural timing from a WPM target or your own
-  captured cadence), **Flow** (edit every event's key, down/up, and pause in
-  place; combos like Ctrl+Alt+Del as ordinary rows), and **Repeat** (a key
-  press N times at an interval, with the capacity cost quoted up front); and
-- lighting media import accepts JPEG alongside GIF, PNG, and BMP.
-
-The supported families are CyberBoard, AM Relic 80, AM AFA/AFA 2, and AM Neon
-80. CyberBoard uses its physical key geometry for switch LEDs while keeping
-the 40×5 top display as its own rectangular canvas.
-
-AI is optional and off by default. If you enable it and configure your own
-Ollama server or Direct API provider, it produces validated procedural LED
-settings that are rendered locally. Every Generate action makes one request
-without an automatic retry. Remote provider paths are experimental; manual
-configuration does not require AI or an account.
+AI is optional and off by default, and nothing above needs it. With your own
+Ollama server or a Direct API provider it produces validated procedural LED
+settings, rendered locally — one Generate click, one request, no retries.
+Remote provider paths are experimental.
 
 ### Downloads
 
@@ -57,10 +62,13 @@ configuration does not require AI or an account.
 The installers aren't signed with a paid Apple or Microsoft publisher
 certificate. The installation guide explains hash and GitHub attestation
 checks plus the narrow per-application first-launch steps for unsigned apps;
-do not disable Gatekeeper or SmartScreen globally.
+do not disable Gatekeeper or SmartScreen globally. A full write replaces
+keymaps, macros, and LED data together, so keep a saved profile before
+writing to a board you have not used before.
 
-A full write replaces keymaps, macros, and LED data together, so keep a saved
-profile before writing to a board you have not used before.
+**The ask:** if you have one of these boards, try it and tell me what breaks,
+what's missing, and what's confusing. Bug reports and feature ideas both
+help — links below.
 
 Download:
 https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.66
