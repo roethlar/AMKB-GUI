@@ -494,6 +494,7 @@ class ReleaseInfoTests(unittest.TestCase):
             for path in (
                 ROOT / ".github" / "workflows" / "ci.yml",
                 ROOT / ".github" / "workflows" / "desktop.yml",
+                ROOT / ".github" / "workflows" / "release.yml",
             )
         }
         uses_refs = [
@@ -508,12 +509,12 @@ class ReleaseInfoTests(unittest.TestCase):
         action_refs = Counter(ref for ref in uses_refs if not ref.startswith("./"))
         expected_refs = Counter(
             {
-                "actions/checkout@v7": 5,
+                "actions/checkout@v7": 9,
                 (
                     "astral-sh/setup-uv@"
                     "c771a70e6277c0a99b617c7a806ffedaca235ff9"
-                ): 3,
-                "actions/upload-artifact@v7": 3,
+                ): 6,
+                "actions/upload-artifact@v7": 6,
                 (
                     "actions/download-artifact@"
                     "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"

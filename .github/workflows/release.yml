@@ -1,0 +1,372 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Signed release installers
+
+# The Desktop installers workflow keeps building the unsigned candidate set on
+# every pull request and `main` push. This workflow is the signed lane: it only
+# ever runs on a deliberate tag push or manual dispatch, so it hard-requires the
+# signing secrets instead of degrading to an unsigned build.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  # A release run reaches Apple's notary service and Azure Trusted Signing.
+  # Cancelling one mid-submission wastes a notarization and can leave a signed
+  # artifact half-verified, so a release run always finishes.
+  cancel-in-progress: false
+
+jobs:
+  release-identity:
+    # Gate the expensive signed builds on release identity first: a tag that
+    # does not name the canonical version would publish artifacts whose
+    # filenames disagree with the tag they were cut from.
+    name: Release identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read canonical application version
+        id: build_version
+        run: python build_tools/release_info.py version --github-output
+      - name: Verify the tag names the canonical version
+        if: github.event_name == 'push'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ steps.build_version.outputs.version }}
+        run: |
+          if [ "$RELEASE_TAG" != "v$RELEASE_VERSION" ]; then
+            echo "::error title=Release tag mismatch::$RELEASE_TAG does not name canonical version $RELEASE_VERSION"
+            exit 1
+          fi
+
+  macos:
+    name: Signed macOS installer
+    needs: release-identity
+    runs-on: macos-latest
+    # Notarization waits on Apple's queue, which is slower than the build.
+    timeout-minutes: 90
+    steps:
+      - name: Require macOS signing and notarization secrets
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        # A missing repository secret renders as an empty-but-defined variable,
+        # so every gate here tests for a non-empty value.
+        run: |
+          missing=0
+          for name in \
+            APPLE_CERTIFICATE \
+            APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY \
+            APPLE_API_ISSUER \
+            APPLE_API_KEY \
+            APPLE_API_KEY_P8 \
+            KEYCHAIN_PASSWORD
+          do
+            if [ -z "${!name}" ]; then
+              echo "::error title=Missing macOS release secret::$name is required for a signed and notarized macOS release"
+              missing=1
+            fi
+          done
+          exit "$missing"
+      - uses: actions/checkout@v7
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          prune-cache: true
+      - name: Install desktop build environment
+        run: uv sync --locked --extra desktop --extra build
+      - name: Read canonical application version
+        id: build_version
+        run: uv run --frozen python build_tools/release_info.py version --github-output
+      - name: Build native application
+        run: uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
+      - name: Audit frozen native tree
+        run: uv run --frozen python build_tools/native_tree_audit.py "dist/AM Configurator.app"
+      - name: Verify native webview policy (macos)
+        run: '"dist/AM Configurator.app/Contents/MacOS/AM Configurator" --native-policy-smoke'
+      - name: Import Developer ID certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        # The keychain is disposable and lives only in the runner temp
+        # directory; KEYCHAIN_PASSWORD is a throwaway, not an Apple credential.
+        run: |
+          certificate="$RUNNER_TEMP/developer-id.p12"
+          keychain="$RUNNER_TEMP/am-configurator-signing.keychain-db"
+
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$certificate"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security list-keychains -d user -s "$keychain"
+          security default-keychain -s "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
+          security find-identity -v -p codesigning "$keychain"
+      - name: Write App Store Connect API key
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          key_dir="$RUNNER_TEMP/private_keys"
+          key_path="$key_dir/AuthKey_${APPLE_API_KEY}.p8"
+          mkdir -p "$key_dir"
+          printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
+          chmod 600 "$key_path"
+          echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+      - name: Build, sign and test macOS DMG
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        # build_dmg.sh signs the bundle with this identity under the hardened
+        # runtime, then smoke-tests the app from the mounted image, which is
+        # also the runtime check for the hardened-runtime signature.
+        run: |
+          packaging/macos/build_dmg.sh
+          echo "RELEASE_DMG=dist/$(uv run --frozen python build_tools/release_info.py artifact macos)" >> "$GITHUB_ENV"
+      - name: Notarize and staple DMG
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          test -f "$RELEASE_DMG"
+          xcrun notarytool submit "$RELEASE_DMG" \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+          xcrun stapler staple "$RELEASE_DMG"
+      - name: Verify signed and notarized macOS artifacts
+        # A signing step can no-op and still exit 0, so the signature state is
+        # asserted here rather than inferred from the build succeeding.
+        run: |
+          app="dist/AM Configurator.app"
+          test -d "$app"
+          test -f "$RELEASE_DMG"
+
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv --verbose=4 "$app" 2>&1 | tee "$RUNNER_TEMP/codesign.txt"
+          grep 'Authority=Developer ID Application' "$RUNNER_TEMP/codesign.txt"
+
+          spctl --assess --type execute --verbose=4 "$app"
+          xcrun stapler validate "$RELEASE_DMG"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$RELEASE_DMG"
+      - name: Upload signed macOS installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: AM-Configurator-${{ steps.build_version.outputs.version }}-macOS-Installer-signed
+          path: ${{ env.RELEASE_DMG }}
+          if-no-files-found: error
+          retention-days: 30
+
+  windows:
+    name: Signed Windows installer
+    needs: release-identity
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Require Windows signing secrets
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+        shell: pwsh
+        # A missing repository secret renders as an empty-but-defined variable,
+        # so every gate here tests for a non-empty value.
+        run: |
+          $missing = $false
+          foreach ($name in @(
+            'AZURE_TENANT_ID',
+            'AZURE_CLIENT_ID',
+            'AZURE_CLIENT_SECRET',
+            'AZURE_SIGNING_ENDPOINT',
+            'AZURE_SIGNING_ACCOUNT',
+            'AZURE_CERT_PROFILE'
+          )) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              Write-Output "::error title=Missing Windows release secret::$name is required for a signed Windows release"
+              $missing = $true
+            }
+          }
+          if ($missing) { exit 1 }
+      - uses: actions/checkout@v7
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          prune-cache: true
+      - name: Install desktop build environment
+        run: uv sync --locked --extra desktop --extra build
+      - name: Read canonical application version
+        id: build_version
+        run: uv run --frozen python build_tools/release_info.py version --github-output
+      - name: Build native application
+        run: uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
+      - name: Audit frozen native tree
+        run: uv run --frozen python build_tools/native_tree_audit.py "dist/AM Configurator"
+      - name: Verify native webview policy (windows)
+        shell: pwsh
+        run: '& "dist/AM Configurator/AM Configurator.exe" --native-policy-smoke'
+      - name: Install Trusted Signing module
+        shell: pwsh
+        run: |
+          # The NuGet provider is usually already present on the hosted image;
+          # bootstrapping it is best effort, and Install-Module reports the real
+          # failure if it is genuinely missing.
+          try {
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force -Scope CurrentUser | Out-Null
+          } catch {
+            Write-Output "NuGet provider bootstrap skipped: $($_.Exception.Message)"
+          }
+          Install-Module -Name TrustedSigning -MinimumVersion 0.5.0 -Force -Repository PSGallery -Scope CurrentUser
+      - name: Sign native application executable
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+        shell: pwsh
+        # Inno Setup packs dist\AM Configurator\* verbatim, so the executable
+        # the user launches has to be signed before the installer is built.
+        # Invoke-TrustedSigning authenticates from the three AZURE_* variables
+        # through EnvironmentCredential.
+        run: |
+          Invoke-TrustedSigning `
+            -Endpoint $env:AZURE_SIGNING_ENDPOINT `
+            -CodeSigningAccountName $env:AZURE_SIGNING_ACCOUNT `
+            -CertificateProfileName $env:AZURE_CERT_PROFILE `
+            -TimestampRfc3161 'http://timestamp.acs.microsoft.com' `
+            -TimestampDigest SHA256 `
+            -FileDigest SHA256 `
+            -Files "dist\AM Configurator\AM Configurator.exe"
+      - name: Verify native application signature
+        shell: pwsh
+        # A signing step can no-op and still exit 0, so the signature state is
+        # asserted rather than inferred. Trusted Signing certificates are
+        # short-lived, which makes the RFC3161 countersignature load-bearing.
+        run: |
+          $target = "dist\AM Configurator\AM Configurator.exe"
+          $signature = Get-AuthenticodeSignature -LiteralPath $target
+          $signature | Format-List * | Out-String | Write-Output
+          if ($signature.Status -ne 'Valid') {
+            throw "$target signature status is $($signature.Status), expected Valid"
+          }
+          if (-not $signature.TimeStamperCertificate) {
+            throw "$target carries no RFC3161 timestamp countersignature"
+          }
+      - name: Build and test Windows installer
+        shell: pwsh
+        run: |
+          ./packaging/windows/build_installer.ps1
+          $artifact = (& uv run --frozen python build_tools/release_info.py artifact windows).Trim()
+          # Forward slashes: the same value feeds Invoke-TrustedSigning,
+          # Get-AuthenticodeSignature, and the artifact upload glob.
+          "RELEASE_INSTALLER=dist/$artifact" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Sign Windows installer
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+        shell: pwsh
+        run: |
+          Invoke-TrustedSigning `
+            -Endpoint $env:AZURE_SIGNING_ENDPOINT `
+            -CodeSigningAccountName $env:AZURE_SIGNING_ACCOUNT `
+            -CertificateProfileName $env:AZURE_CERT_PROFILE `
+            -TimestampRfc3161 'http://timestamp.acs.microsoft.com' `
+            -TimestampDigest SHA256 `
+            -FileDigest SHA256 `
+            -Files $env:RELEASE_INSTALLER
+      - name: Verify Windows installer signature
+        shell: pwsh
+        run: |
+          $signature = Get-AuthenticodeSignature -LiteralPath $env:RELEASE_INSTALLER
+          $signature | Format-List * | Out-String | Write-Output
+          if ($signature.Status -ne 'Valid') {
+            throw "$($env:RELEASE_INSTALLER) signature status is $($signature.Status), expected Valid"
+          }
+          if (-not $signature.TimeStamperCertificate) {
+            throw "$($env:RELEASE_INSTALLER) carries no RFC3161 timestamp countersignature"
+          }
+      - name: Upload signed Windows installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: AM-Configurator-${{ steps.build_version.outputs.version }}-Windows-x64-Installer-signed
+          path: ${{ env.RELEASE_INSTALLER }}
+          if-no-files-found: error
+          retention-days: 30
+
+  linux:
+    # Linux has no publisher-signing equivalent to Developer ID or
+    # Authenticode, so this lane is unsigned by nature, not by omission. It
+    # rides the same run so one tag produces the whole artifact set.
+    name: Linux AppImage
+    needs: release-identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          prune-cache: true
+      - name: Install native build prerequisites (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc \
+            pkg-config \
+            libcairo2-dev \
+            libgirepository1.0-dev \
+            gir1.2-gtk-3.0 \
+            gir1.2-webkit2-4.1 \
+            libwebkit2gtk-4.1-dev \
+            xauth \
+            xvfb
+      - name: Install desktop build environment
+        run: uv sync --locked --extra desktop --extra build
+      - name: Read canonical application version
+        id: build_version
+        run: uv run --frozen python build_tools/release_info.py version --github-output
+      - name: Build native application
+        run: uv run --frozen --extra desktop --extra build pyinstaller --noconfirm --clean packaging/am_configurator.spec
+      - name: Audit frozen native tree
+        run: uv run --frozen python build_tools/native_tree_audit.py "dist/AM Configurator"
+      - name: Verify native webview policy (linux)
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" "dist/AM Configurator/AM Configurator" --native-policy-smoke
+      - name: Build and test Linux AppImage
+        run: |
+          packaging/linux/build_appimage.sh
+          echo "RELEASE_APPIMAGE=dist/$(uv run --frozen python build_tools/release_info.py artifact linux)" >> "$GITHUB_ENV"
+      - name: Upload Linux AppImage
+        uses: actions/upload-artifact@v7
+        with:
+          name: AM-Configurator-${{ steps.build_version.outputs.version }}-Linux-x86_64-AppImage
+          path: ${{ env.RELEASE_APPIMAGE }}
+          if-no-files-found: error
+          retention-days: 30
