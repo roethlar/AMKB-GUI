@@ -1,5 +1,33 @@
 # Repository Decisions
 
+## 2026-08-07 — Installers are platform-signed
+
+Status: approved by the owner on 2026-08-07, explicitly superseding the
+2026-07-28 "Installers are permanently platform-unsigned" constraint. Owner's
+words: "override. we're signing them. that's a relic from before today" — the
+2026-07-28 decision predated the owner holding any signing accounts, which now
+exist.
+
+- Releases sign with the owner's account-level identities, shared across the
+  owner's applications: macOS with the Developer ID Application certificate
+  (Team `27R2KCAHN7`) plus notarization through an App Store Connect Team API
+  key; Windows through Azure Trusted Signing. Credentials live only as GitHub
+  Actions secrets on this repository — never in the tree.
+- The signed lane is `.github/workflows/release.yml` (landed 2026-08-07).
+  `packaging/macos/build_dmg.sh` signs with `APPLE_SIGNING_IDENTITY` when set
+  and keeps deterministic ad-hoc signing as the identity-less local fallback.
+- Superseded from 2026-07-28: the never-pursue-accounts clause, the
+  never-represented-as-Developer-ID clause, and the Windows
+  Authenticode-unsigned clause. Still in force from that entry: signing does
+  not determine product maturity or release channel; documentation never
+  directs users to disable Gatekeeper, SmartScreen, Defender, or equivalent
+  protections; hashes/provenance are not described as substitutes for platform
+  publisher trust; and no build, test, packaging, provenance, hardware-safety,
+  release-identity, or public-claim gate is waived.
+- Consequential docs work, not yet done: README/`docs/installing.md` unsigned
+  copy and the per-OS unsigned-install instructions become stale once the
+  first signed release ships, and should be updated with that release.
+
 ## 2026-08-03 — The current product/release version is 0.1.66
 
 Status: approved by the owner on 2026-08-03 while authorizing the version
@@ -224,7 +252,9 @@ application.
 
 ## 2026-07-28 — Installers are permanently platform-unsigned
 
-Status: approved by the owner on 2026-07-28 as a permanent product constraint.
+Status: superseded on 2026-08-07 by "Installers are platform-signed" (owner
+override; see that entry for which clauses survive). Originally approved by
+the owner on 2026-07-28 as a permanent product constraint.
 
 - Releases never depend on or pursue an Apple Developer Program membership,
   Authenticode certificate, paid developer/signing account, or borrowed signing

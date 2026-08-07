@@ -23,19 +23,17 @@
   tests: no run has ever executed, so no signature, notarization, or Trusted
   Signing call has been observed. Bundled Windows DLLs and `.pyd` files stay
   unsigned; only the launched executable and the installer are signed.
-- **Conflict awaiting an owner ruling.** The 2026-07-28 decision "Installers
-  are permanently platform-unsigned" (`.agents/decisions.md`) says releases
-  never depend on or pursue an Apple Developer Program membership or an
-  Authenticode certificate, and that the app must never be represented as
-  Developer ID-signed. The signed lane above contradicts it, as does the
-  presence of `APPLE_*` and `AZURE_*` signing secrets on the GitHub
-  repository. Until the owner supersedes or reaffirms that decision, no
-  signed artifact may be published and README/`docs/installing.md` unsigned
-  copy stays as written. Related: the 2026-07-28 public-release plan removed
-  the `push.tags: ["v*"]` trigger from Desktop installers so a tag could not
-  rebuild a candidate; `tests/test_packaging.py` still guards that for
-  `desktop.yml`, and the new lane reintroduces a tag trigger deliberately,
-  because a signed asset cannot come from the unsigned candidate lane.
+- **Signing conflict RESOLVED by owner override (2026-08-07).** The
+  2026-07-28 "permanently platform-unsigned" decision is superseded — see
+  `.agents/decisions.md` "2026-08-07 — Installers are platform-signed" for
+  the ruling and which of the old clauses survive. The signed lane is now
+  legitimate; README/`docs/installing.md` unsigned copy becomes stale with
+  the first signed release and updates with it. Still relevant: the
+  2026-07-28 public-release plan removed the `push.tags: ["v*"]` trigger
+  from Desktop installers so a tag could not rebuild a candidate;
+  `tests/test_packaging.py` still guards that for `desktop.yml`, and the new
+  lane reintroduces a tag trigger deliberately, because a signed asset
+  cannot come from the unsigned candidate lane.
 - The UI redesign is parked until after release and now unblocked to plan:
   element-level, not restyle. Two rejected mockup rounds:
   `/tmp/style-v1..v9*.png`; capture tooling in `/tmp`. Setup rulings (pilot
@@ -52,7 +50,8 @@
 
 ## Blockers
 
-- Publication is complete; owner rulings remain, and one of them now gates
-  work: the platform-signing conflict recorded under Now. Signing correctness
-  itself is only provable by a real run of the new release workflow, which
-  needs a `workflow_dispatch` the owner triggers.
+- Publication is complete. The platform-signing conflict is resolved (owner
+  override, 2026-08-07 — see Now). Remaining gate: signing correctness is
+  only provable by a real run of the new release workflow, which needs the
+  local commits pushed (owner-gated) and then a `workflow_dispatch` the
+  owner triggers.
