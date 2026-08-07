@@ -10,7 +10,22 @@ if [[ ! -d "$app_path" ]]; then
   exit 1
 fi
 
-codesign --force --sign - "$app_path"
+# A release build passes a real Developer ID through APPLE_SIGNING_IDENTITY —
+# the same spelling as the CI secret, so no second name has to be kept in sync.
+# A missing secret arrives as an empty-but-defined variable, so the test must be
+# for a non-empty value, never for mere definition. PyInstaller ad-hoc signs
+# every nested Mach-O file it collects, and notarization refuses a bundle whose
+# nested code is not Developer ID signed under the hardened runtime, so the
+# identity path has to re-sign the bundle inside-out with --deep. Without the
+# identity the bundle keeps its deterministic ad-hoc signature: bundle
+# integrity, no publisher trust.
+if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
+  codesign --force --deep --options runtime --timestamp \
+    --sign "$APPLE_SIGNING_IDENTITY" "$app_path"
+else
+  echo "note: APPLE_SIGNING_IDENTITY is unset; $app_path is ad-hoc signed" >&2
+  codesign --force --sign - "$app_path"
+fi
 codesign --verify --deep --strict "$app_path"
 
 artifact_name="$(uv run --frozen python build_tools/release_info.py artifact macos)"
