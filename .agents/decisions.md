@@ -1,5 +1,80 @@
 # Repository Decisions
 
+## 2026-08-08 — Install docs list options only; no inflated trust narrative
+
+Status: approved by the owner on 2026-08-08 while rejecting agent-proposed
+README/install copy about Linux signing, gaps, and comparative trust framing.
+Owner's words: "none of this is needed or even warranted. the readme just
+needs to show the install options, not artificially inflate things that this
+chat thinks are important."
+
+- README and install docs present install options plainly (what to download or
+  which package-manager command). They do not invent or emphasize secondary
+  narratives the agent finds interesting: platform signing comparisons,
+  “unsigned Linux” as a gap, publisher-trust essays, or other inflated caveats.
+- Integrity and signature checks that already exist for a platform may stay as
+  ordinary how-to steps where a user actually verifies a file; they are not
+  framed as product maturity claims or as Linux lacking something.
+- When package managers land, add their install commands as options. Do not
+  demote, promote, or moralize relative to GitHub Releases beyond listing what
+  works.
+- Supersedes any package-manager plan language that required “docs honesty”
+  copy about unsigned Linux or signature-coverage essays as standing user-facing
+  framing.
+
+## 2026-08-08 — Package-manager identifiers (D2)
+
+Status: approved by the owner on 2026-08-08 ("yes") as Decision D2 of the
+package-manager distribution plan.
+
+| Field | Value |
+|---|---|
+| AUR package | `am-configurator-bin` |
+| Desktop / command name | `am-configurator` |
+| App display name | `AM Configurator` |
+| Homepage | `https://github.com/roethlar/AMKB-GUI` |
+| License | MIT |
+| Flatpak app id (later) | `io.github.roethlar.AMConfigurator` |
+
+- These identifiers are stable for AUR packaging and later Flatpak work.
+- Plan: `docs/superpowers/plans/2026-08-08-package-manager-distribution.md`.
+
+## 2026-08-08 — Package-manager P1 channel set is AUR first (option A)
+
+Status: approved by the owner on 2026-08-08 ("A") as Decision D1b of the
+package-manager distribution plan.
+
+- First implementation pass ships **AUR** `am-configurator-bin` (identifiers
+  confirmed in D2): thin wrap of the published Linux AppImage plus desktop
+  entry and Neon 80 udev rule install — not URL re-host only.
+- **Flatpak** stays in the Linux-P1 *program* as the immediate next authorized
+  slice after AUR is live; it must not block AUR from landing.
+- nixpkgs, Snap, Homebrew, winget, Scoop, Chocolatey, and PyPI are out of this
+  first pass unless a later owner ruling pulls them forward.
+- Parent priority: "2026-08-08 — Linux friction reduction is P1 for
+  package-manager distribution".
+- Plan: `docs/superpowers/plans/2026-08-08-package-manager-distribution.md`.
+
+## 2026-08-08 — Linux friction reduction is P1 for package-manager distribution
+
+Status: approved by the owner on 2026-08-08 while correcting the package-manager
+plan. Owner's words: "the point to this app is to close the linux gap for these
+keyboards. reducing linux friction is P1."
+
+- Package-manager and install-distribution work prioritizes reducing Linux
+  install and device-access friction over macOS/Windows package-manager
+  convenience. The product purpose is closing the Linux gap for supported
+  Angry Miao keyboards.
+- GitHub Releases remain the canonical binary host. Linux package channels
+  wrap those assets (or, if later authorized, rebuild under the same version
+  identity with an explicit plan) and must improve discoverability, desktop
+  integration, and Neon 80 udev install — not only re-host the AppImage URL.
+- macOS and Windows package managers (Homebrew, winget, Scoop, Chocolatey)
+  remain in scope as secondary phases unless the owner reorders them.
+- First-pass Linux channel set is settled in "2026-08-08 — Package-manager P1
+  channel set is AUR first (option A)".
+- Plan: `docs/superpowers/plans/2026-08-08-package-manager-distribution.md`.
+
 ## 2026-08-08 — The current product/release version is 0.1.68
 
 Status: approved by the owner on 2026-08-08 ("go") while authorizing the
