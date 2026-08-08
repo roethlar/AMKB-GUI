@@ -12,17 +12,23 @@
 - The Reddit announcement was stopped by the owner and never posted. The
   Reddit draft has uncommitted working-tree edits; its fate is undecided —
   do not commit it.
-- **A signed release lane exists but has never run**
-  (`.github/workflows/release.yml`, landed 2026-08-07): `workflow_dispatch` or
-  a `v*` tag, hard-requiring its signing secrets. macOS signs with a Developer
-  ID in a disposable keychain, notarizes and staples; Windows signs the frozen
-  executable and then the Inno installer through Azure Trusted Signing; Linux
-  rides along unsigned. `packaging/macos/build_dmg.sh` now takes its identity
-  from a non-empty `APPLE_SIGNING_IDENTITY` and otherwise ad-hoc signs as
-  before. Nothing about it is proven beyond YAML/shell validity and local
-  tests: no run has ever executed, so no signature, notarization, or Trusted
-  Signing call has been observed. Bundled Windows DLLs and `.pyd` files stay
-  unsigned; only the launched executable and the installer are signed.
+- **The signed release lane is PROVEN GREEN on all three platforms** (run
+  31228842806, 2026-08-07; `.github/workflows/release.yml`, landed the same
+  day): `workflow_dispatch` or a `v*` tag, hard-requiring its signing
+  secrets. macOS signs with a Developer ID in a disposable keychain,
+  codesigns the dmg itself, notarizes, staples — all verification
+  assertions passed. Windows signs the frozen executable and then the Inno
+  installer through Azure Trusted Signing — both `Get-AuthenticodeSignature`
+  assertions passed. Linux rides along unsigned. Two defects were found and
+  fixed by the first exercise (`b1d34fa`): the dmg had no primary signature
+  of its own (spctl --type open rejected it; notarization attaches a ticket
+  but signs nothing), and `Invoke-TrustedSigning -Files` refuses non-rooted
+  paths. One repo-secret correction rode along: `AZURE_SIGNING_ACCOUNT` is
+  `roethlar-app-signing` (the Artifact Signing account name; the app
+  registration's name 403s). `packaging/macos/build_dmg.sh` takes its
+  identity from a non-empty `APPLE_SIGNING_IDENTITY` and otherwise ad-hoc
+  signs as before. Bundled Windows DLLs and `.pyd` files stay unsigned;
+  only the launched executable and the installer are signed.
 - **Signing conflict RESOLVED by owner override (2026-08-07).** The
   2026-07-28 "permanently platform-unsigned" decision is superseded — see
   `.agents/decisions.md` "2026-08-07 — Installers are platform-signed" for
