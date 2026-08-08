@@ -25,11 +25,14 @@ should appear on the AUR (not after every CI build).
 
 ## Every public release
 
-From the **application repo** root (Mac or Linux; needs network to GitHub):
+From the **application repo** root (Mac or Linux; needs network to GitHub).
+Either the shell wrapper or the Python module is fine — same thing.
 
 ```sh
 # Version defaults to am_configurator/_version.py — pass --version if needed.
-uv run --frozen python -m build_tools.package_managers prepare-aur
+./build_tools/release_aur.sh prepare
+# equivalent:
+#   uv run --frozen python -m build_tools.package_managers prepare-aur
 ```
 
 That downloads `SHA256SUMS.txt` for the release and writes:
@@ -43,10 +46,18 @@ On a host with **AUR SSH** (Arch is fine; `makepkg` optional):
 # Optional local proof:
 #   cd dist/package-managers/am-configurator-bin && makepkg -f
 
-uv run --frozen python -m build_tools.package_managers push-aur
+./build_tools/release_aur.sh push
+# equivalent:
+#   uv run --frozen python -m build_tools.package_managers push-aur
 ```
 
-`push-aur` clones `ssh://aur@aur.archlinux.org/am-configurator-bin.git` into
+Or one shot when AUR SSH works on the same machine:
+
+```sh
+./build_tools/release_aur.sh all
+```
+
+`push` clones `ssh://aur@aur.archlinux.org/am-configurator-bin.git` into
 `$AUR_GIT` or `~/aur/am-configurator-bin` if needed, copies the package files,
 commits `am-configurator-bin <version>-1`, and pushes.
 
@@ -54,6 +65,8 @@ If the package tree already lives only on another machine, copy
 `dist/package-managers/am-configurator-bin` there first, then:
 
 ```sh
+./build_tools/release_aur.sh push --package-dir /path/to/am-configurator-bin
+# or:
 uv run --frozen python -m build_tools.package_managers push-aur \
   --package-dir /path/to/am-configurator-bin
 ```
