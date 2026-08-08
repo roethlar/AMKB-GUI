@@ -1,22 +1,21 @@
 # Package-manager distribution
 
-**Status:** Approved for implementation through AUR P1 (slices S0–S3). D1a,
-D1b (option A), and D2 (identifiers) recorded 2026-08-08. Flatpak remains the
-next Linux-P1 slice after AUR is live and must not block AUR.
+**Status:** AUR **parked** (Arch AUR lock, 2026). **Flatpak is the active
+Linux publish channel.** D1a/D1b/D2 still apply; identifiers include
+`io.github.roethlar.AMConfigurator`.
 
-**S1 landed:** `build_tools/package_managers/` generates `am-configurator-bin`
-PKGBUILD + `.SRCINFO` from release digests; golden tests in
-`tests/test_package_managers.py`.
+**AUR (parked):** tooling ready (`./build_tools/release_aur.sh`); do not spin
+on push until Arch reopens package create/push.
 
-**S2 status (2026-08-08):** Package builds on gabrielle; fuse2 depends removed.
-AUR SSH works as `roethlar`. **Push blocked only when AUR is in maintenance.**
-
-**Repeatable process (no agent):** `packaging/aur/PROCESS.md`
+**Flatpak (active):**
 
 ```sh
-uv run --frozen python -m build_tools.package_managers prepare-aur
-uv run --frozen python -m build_tools.package_managers push-aur   # AUR SSH host
+./build_tools/release_flatpak.sh prepare   # after a public GitHub Release
+./build_tools/release_flatpak.sh build     # needs flatpak-builder
+# flatpak run io.github.roethlar.AMConfigurator
 ```
+
+Process: `packaging/flatpak/PROCESS.md`. AppImage via extra-data from Releases.
 
 ## Product priority (owner, 2026-08-08)
 

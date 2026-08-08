@@ -411,5 +411,110 @@ class ReleaseAurProcessTests(unittest.TestCase):
             self.assertTrue((out / "PKGBUILD").is_file())
 
 
+class FlatpakGeneratorTests(unittest.TestCase):
+    VERSION = "9.9.9"
+    APPIMAGE = "AM-Configurator-9.9.9-Linux-x86_64.AppImage"
+    APPIMAGE_SHA256 = "a" * 64
+    APPIMAGE_SIZE = 12345678
+
+    def _digests(self) -> dict[str, str]:
+        return {self.APPIMAGE: self.APPIMAGE_SHA256}
+
+    def test_manifest_pins_release_appimage_and_device_access(self) -> None:
+        from build_tools.package_managers.flatpak import (
+            FLATPAK_APP_ID,
+            generate_flatpak_package,
+            render_manifest,
+            build_inputs,
+        )
+
+        inputs = build_inputs(
+            version=self.VERSION,
+            digests=self._digests(),
+            appimage_size=self.APPIMAGE_SIZE,
+        )
+        text = render_manifest(inputs)
+        self.assertIn(f"app-id: {FLATPAK_APP_ID}", text)
+        self.assertIn("type: extra-data", text)
+        self.assertIn(self.APPIMAGE_SHA256, text)
+        self.assertIn(f"size: {self.APPIMAGE_SIZE}", text)
+        self.assertIn(
+            f"url: https://github.com/roethlar/AMKB-GUI/releases/download/v{self.VERSION}/{self.APPIMAGE}",
+            text,
+        )
+        self.assertIn("--device=all", text)
+        self.assertIn("--share=network", text)
+
+        with TemporaryDirectory() as temporary:
+            out = Path(temporary) / "flatpak"
+            generate_flatpak_package(
+                version=self.VERSION,
+                digests=self._digests(),
+                appimage_size=self.APPIMAGE_SIZE,
+                repo_root=PROJECT_ROOT,
+                output_dir=out,
+            )
+            self.assertTrue((out / f"{FLATPAK_APP_ID}.yml").is_file())
+            self.assertTrue((out / "am-configurator.sh").is_file())
+            self.assertTrue((out / "apply_extra").is_file())
+            self.assertTrue((out / "60-am-neon-80.rules").is_file())
+
+    def test_missing_size_and_digest_rejected(self) -> None:
+        from build_tools.package_managers.flatpak import build_inputs
+
+        with self.assertRaises(PackageManagerError):
+            build_inputs(
+                version=self.VERSION,
+                digests=self._digests(),
+                appimage_size=0,
+            )
+        with self.assertRaises(PackageManagerError):
+            build_inputs(
+                version=self.VERSION,
+                digests={},
+                appimage_size=self.APPIMAGE_SIZE,
+            )
+
+    def test_cli_flatpak_from_manifest(self) -> None:
+        with TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            manifest = workspace / "release-manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "app_version": self.VERSION,
+                        "artifacts": [
+                            {
+                                "filename": self.APPIMAGE,
+                                "sha256": self.APPIMAGE_SHA256,
+                                "byte_size": self.APPIMAGE_SIZE,
+                                "platform": "linux",
+                                "architecture": "x86_64",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            out = workspace / "flatpak"
+            code = package_managers_main(
+                [
+                    "flatpak",
+                    "--version",
+                    self.VERSION,
+                    "--manifest",
+                    str(manifest),
+                    "--out",
+                    str(out),
+                    "--repo-root",
+                    str(PROJECT_ROOT),
+                ]
+            )
+            self.assertEqual(0, code)
+            self.assertTrue(
+                (out / "io.github.roethlar.AMConfigurator.yml").is_file()
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

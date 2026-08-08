@@ -18,24 +18,34 @@ from build_tools.package_managers.common import (
     require_digest,
     validate_version,
 )
+from build_tools.package_managers.flatpak import (
+    FLATPAK_APP_ID,
+    generate_flatpak_package,
+    render_manifest,
+)
 from build_tools.package_managers.release_aur import (
     default_sums_url,
     prepare_aur_package,
     push_aur_package,
 )
+from build_tools.package_managers.release_flatpak import prepare_flatpak_package
 
 __all__ = [
     "AUR_PACKAGE_NAME",
     "DEFAULT_RELEASE_ASSET_BASE",
+    "FLATPAK_APP_ID",
     "PackageManagerError",
     "default_sums_url",
     "digests_from_manifest",
     "digests_from_sums",
     "generate_aur_package",
+    "generate_flatpak_package",
     "linux_appimage_filename",
     "prepare_aur_package",
+    "prepare_flatpak_package",
     "push_aur_package",
     "release_download_url",
+    "render_manifest",
     "render_pkgbuild",
     "render_srcinfo",
     "require_digest",

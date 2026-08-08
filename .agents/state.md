@@ -138,20 +138,13 @@
 
 ## Next
 
-- **Package-manager distribution (Linux-first):** plan
-  `docs/superpowers/plans/2026-08-08-package-manager-distribution.md`. S1
-  + fuse2-depends fix + **repeatable AUR process** landed:
-  `packaging/aur/PROCESS.md`,
-  `python -m build_tools.package_managers prepare-aur|push-aur`. **S2 push
-  still blocked on AUR maintenance** (SSH as roethlar works; git clone does
-  not). When AUR is back: `prepare-aur` then `push-aur` from a host with AUR
-  SSH — no agent required. Then S3 (README install option only after package
-  is live).
-- **Unsupported-board report (in progress):** plan
-  `docs/superpowers/plans/2026-08-08-unsupported-board-report.md`. UB-1+UB-2
-  landed: `device_report` sanitizer + `GET /api/devices/support-report`.
-  Next implementable: UB-3 UI (device list empty state + copy report).
-  AUR remains parked (Arch AUR lock).
+- **Package-manager distribution (Linux-first):** AUR **parked** (Arch AUR
+  lock). **Flatpak active:** `./build_tools/release_flatpak.sh prepare|build`,
+  `packaging/flatpak/PROCESS.md`, app id
+  `io.github.roethlar.AMConfigurator` (extra-data AppImage from Releases).
+  Prepare for 0.1.68 works. Build/install proof needs `flatpak-builder`.
+  No user-facing README Flatpak line until installable (Flathub or owner go).
+  Plan: `docs/superpowers/plans/2026-08-08-package-manager-distribution.md`.
 
 ## Blockers
 

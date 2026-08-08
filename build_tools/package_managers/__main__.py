@@ -1,33 +1,19 @@
-"""CLI for package-manager stubs and the AUR release process.
+"""CLI for package-manager stubs (AUR parked; Flatpak active).
 
-Subcommands
------------
-prepare-aur
-  Download SHA256SUMS for a published GitHub Release version and write the
-  AUR package tree. Run from this application repo (any OS with network).
+prepare-flatpak / prepare-aur
+  Fetch published release digests and write a package tree.
 
 push-aur
-  Copy that tree into an AUR git clone, commit, and push. Run on a machine
-  that can `ssh -T aur@aur.archlinux.org` (typically Arch).
+  AUR git push (parked while Arch locks the AUR).
 
-aur
-  Low-level generate from a local --sums or --manifest file (used by tests).
-
-Repeatable maintainer process (no agent)::
-
-  # After vX.Y.Z exists on GitHub Releases:
-  uv run --frozen python -m build_tools.package_managers prepare-aur --version X.Y.Z
-
-  # Optional proof on Arch:
-  #   cd dist/package-managers/am-configurator-bin && makepkg -f
-
-  # Publish (AUR SSH required):
-  uv run --frozen python -m build_tools.package_managers push-aur
+flatpak / aur
+  Offline generate from local sums/manifest (tests and debugging).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -38,11 +24,22 @@ from build_tools.package_managers.common import (
     digests_from_sums,
     validate_version,
 )
+from build_tools.package_managers.flatpak import (
+    FLATPAK_APP_ID,
+    generate_flatpak_package,
+    manifest_path,
+)
 from build_tools.package_managers.release_aur import (
     DEFAULT_PACKAGE_OUT,
     aur_git_default,
     prepare_aur_package,
     push_aur_package,
+)
+from build_tools.package_managers.release_flatpak import (
+    DEFAULT_FLATPAK_OUT,
+    appimage_size_from_manifest_payload,
+    build_flatpak_command,
+    prepare_flatpak_package,
 )
 from build_tools.release_info import PROJECT_ROOT, project_version
 
@@ -58,86 +55,61 @@ def _add_repo_root(parser: argparse.ArgumentParser) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=(
-            "Package-manager stubs and AUR release process for AM Configurator."
-        )
+        description="Package-manager release tools for AM Configurator."
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
+    prepare_fp = sub.add_parser(
+        "prepare-flatpak",
+        help="fetch release digests/size and write the Flatpak package tree",
+    )
+    prepare_fp.add_argument("--version", help="release version")
+    prepare_fp.add_argument("--out", type=Path, help="output directory")
+    prepare_fp.add_argument("--asset-base", help="asset base URL template")
+    _add_repo_root(prepare_fp)
+
     prepare = sub.add_parser(
         "prepare-aur",
-        help="fetch published SHA256SUMS and write the AUR package tree",
+        help="fetch SHA256SUMS and write the AUR package tree (AUR publish parked)",
     )
-    prepare.add_argument(
-        "--version",
-        help="release version (default: am_configurator/_version.py)",
-    )
-    prepare.add_argument(
-        "--out",
-        type=Path,
-        help=f"output directory (default: <repo>/{DEFAULT_PACKAGE_OUT})",
-    )
-    prepare.add_argument(
-        "--sums-url",
-        help="override SHA256SUMS URL (default: GitHub Release for this version)",
-    )
-    prepare.add_argument(
-        "--asset-base",
-        help="release asset base URL template; may include {version}",
-    )
+    prepare.add_argument("--version", help="release version")
+    prepare.add_argument("--out", type=Path)
+    prepare.add_argument("--sums-url", help="override SHA256SUMS URL")
+    prepare.add_argument("--asset-base", help="asset base URL template")
     _add_repo_root(prepare)
 
-    push = sub.add_parser(
-        "push-aur",
-        help="sync package tree into AUR git clone, commit, and push",
-    )
-    push.add_argument(
-        "--package-dir",
-        type=Path,
-        help=(
-            "generated package directory "
-            f"(default: <repo>/{DEFAULT_PACKAGE_OUT})"
-        ),
-    )
-    push.add_argument(
-        "--aur-git",
-        type=Path,
-        help=(
-            "AUR package git clone path "
-            f"(default: $AUR_GIT or ~/aur/{AUR_PACKAGE_NAME})"
-        ),
-    )
-    push.add_argument(
-        "--version",
-        help="version for the commit message (default: read pkgver from PKGBUILD)",
-    )
-    push.add_argument(
-        "--no-push",
-        action="store_true",
-        help="commit only; do not git push",
-    )
-    push.add_argument(
-        "--no-commit",
-        action="store_true",
-        help="copy files only; do not commit or push",
-    )
+    push = sub.add_parser("push-aur", help="AUR git push (blocked while AUR is locked)")
+    push.add_argument("--package-dir", type=Path)
+    push.add_argument("--aur-git", type=Path)
+    push.add_argument("--version")
+    push.add_argument("--no-push", action="store_true")
+    push.add_argument("--no-commit", action="store_true")
     _add_repo_root(push)
 
-    generate = sub.add_parser(
-        "aur",
-        help="generate AUR tree from a local sums/manifest file (no download)",
+    generate_fp = sub.add_parser(
+        "flatpak",
+        help="generate Flatpak tree from local manifest/sums (no download)",
     )
-    generate.add_argument("--version", help="canonical three-part version")
-    source = generate.add_mutually_exclusive_group(required=True)
-    source.add_argument("--sums", type=Path, help="path to SHA256SUMS.txt")
-    source.add_argument("--manifest", type=Path, help="path to release-manifest.json")
-    generate.add_argument(
-        "--out",
-        type=Path,
-        required=True,
-        help="directory to write the package tree into",
+    generate_fp.add_argument("--version", help="canonical version")
+    generate_fp.add_argument("--out", type=Path, required=True)
+    generate_fp.add_argument("--asset-base")
+    generate_fp.add_argument(
+        "--size",
+        type=int,
+        help="AppImage byte size (required with --sums; taken from --manifest)",
     )
-    generate.add_argument("--asset-base", help="asset base URL template")
+    src = generate_fp.add_mutually_exclusive_group(required=True)
+    src.add_argument("--sums", type=Path)
+    src.add_argument("--manifest", type=Path)
+    _add_repo_root(generate_fp)
+
+    generate = sub.add_parser("aur", help="generate AUR tree from local sums/manifest")
+    generate.add_argument("--version")
+    gen_src = generate.add_mutually_exclusive_group(required=True)
+    gen_src.add_argument("--sums", type=Path)
+    gen_src.add_argument("--manifest", type=Path)
+    generate.add_argument("--out", type=Path, required=True)
+    generate.add_argument("--asset-base")
     _add_repo_root(generate)
 
     return parser
@@ -148,6 +120,21 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "prepare-flatpak":
+            destination = prepare_flatpak_package(
+                version=args.version,
+                repo_root=args.repo_root,
+                output_dir=args.out,
+                asset_base=args.asset_base,
+            )
+            print(manifest_path(destination))
+            print(f"prepared {FLATPAK_APP_ID} -> {destination}")
+            print(
+                "next: ./build_tools/release_flatpak.sh build "
+                "(needs flatpak-builder)"
+            )
+            return 0
+
         if args.command == "prepare-aur":
             destination = prepare_aur_package(
                 version=args.version,
@@ -157,12 +144,8 @@ def main(argv: list[str] | None = None) -> int:
                 sums_url=args.sums_url,
             )
             print(destination / "PKGBUILD")
-            print(destination / ".SRCINFO")
             print(f"prepared {AUR_PACKAGE_NAME} -> {destination}")
-            print(
-                "next: on a host with AUR SSH, "
-                "./build_tools/release_aur.sh push"
-            )
+            print("AUR push is parked until Arch reopens package create/push.")
             return 0
 
         if args.command == "push-aur":
@@ -183,6 +166,49 @@ def main(argv: list[str] | None = None) -> int:
             print(f"aur-git: {aur_git}")
             return 0
 
+        if args.command == "flatpak":
+            if args.manifest is not None:
+                manifest_version, digests = digests_from_manifest(args.manifest)
+                version = (
+                    validate_version(args.version)
+                    if args.version
+                    else manifest_version
+                )
+                if version != manifest_version:
+                    raise PackageManagerError(
+                        f"--version {version} does not match manifest "
+                        f"app_version {manifest_version}"
+                    )
+                payload = json.loads(
+                    Path(args.manifest).read_text(encoding="utf-8")
+                )
+                size = appimage_size_from_manifest_payload(
+                    payload, version=version
+                )
+            else:
+                digests = digests_from_sums(args.sums)
+                version = (
+                    validate_version(args.version)
+                    if args.version
+                    else project_version(args.repo_root)
+                )
+                if args.size is None:
+                    raise PackageManagerError(
+                        "--size is required when generating Flatpak from --sums"
+                    )
+                size = args.size
+            destination = generate_flatpak_package(
+                version=version,
+                digests=digests,
+                appimage_size=size,
+                repo_root=args.repo_root,
+                output_dir=args.out,
+                asset_base=args.asset_base,
+            )
+            print(manifest_path(destination))
+            print(f"generated {FLATPAK_APP_ID} {version} -> {destination}")
+            return 0
+
         if args.command == "aur":
             if args.manifest is not None:
                 manifest_version, digests = digests_from_manifest(args.manifest)
@@ -193,8 +219,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 if version != manifest_version:
                     raise PackageManagerError(
-                        f"--version {version} does not match manifest app_version "
-                        f"{manifest_version}"
+                        f"--version {version} does not match manifest "
+                        f"app_version {manifest_version}"
                     )
             else:
                 digests = digests_from_sums(args.sums)
@@ -211,7 +237,6 @@ def main(argv: list[str] | None = None) -> int:
                 asset_base=args.asset_base,
             )
             print(destination / "PKGBUILD")
-            print(destination / ".SRCINFO")
             print(f"generated {AUR_PACKAGE_NAME} {version} -> {destination}")
             return 0
 
