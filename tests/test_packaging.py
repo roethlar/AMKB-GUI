@@ -1676,6 +1676,16 @@ class ReleaseInfoTests(unittest.TestCase):
                 self.assertNotIn(prohibited, collapsed.casefold())
         self.assertNotRegex(collapsed.casefold(), r"\b(?:beta|prerelease)\b")
 
+        # The 2026-08-03 copy ruling: announcement and release-note copy states
+        # benefits and safety properties, never dialog-level mechanics (how a
+        # confirmation or unlock is performed). Commit 4c60d3c stripped exactly
+        # this kind of button copy out of the 0.1.66 announcement draft. The
+        # per-operating-system first-launch steps belong to
+        # docs/installing.md, which this body links.
+        for mechanics in (r"\bmore info\b", r"\brun anyway\b", r"\bopen anyway\b"):
+            with self.subTest(mechanics=mechanics):
+                self.assertNotRegex(collapsed.casefold(), mechanics)
+
     def test_current_0_1_66_release_packet_is_consistent(self) -> None:
         release_path = ROOT / "docs" / "releases" / "0.1.66.md"
         reddit_path = ROOT / "docs" / "announcements" / "reddit-0.1.66.md"
