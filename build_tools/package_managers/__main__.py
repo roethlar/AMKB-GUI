@@ -161,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"prepared {AUR_PACKAGE_NAME} -> {destination}")
             print(
                 "next: on a host with AUR SSH, "
-                "uv run --frozen python -m build_tools.package_managers push-aur"
+                "./build_tools/release_aur.sh push"
             )
             return 0
 
