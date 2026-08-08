@@ -1582,12 +1582,16 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.assertIn(expected, collapsed)
 
+        # Verification steps a user can actually perform on a signed release:
+        # digest, publisher signature, and the one platform prompt that survives
+        # signing (SmartScreen reputation on Windows). The macOS Privacy &
+        # Security "Open Anyway" detour belonged to the unsigned era and is
+        # prohibited below, not expected here.
         for expected in (
             "SHA256SUMS.txt",
             "gh attestation verify",
-            "System Settings",
-            "Privacy & Security",
-            "Open Anyway",
+            "xcrun stapler validate",
+            "Get-AuthenticodeSignature",
             "More info",
             "Run anyway",
             "Get-FileHash",
@@ -1603,6 +1607,14 @@ class ReleaseInfoTests(unittest.TestCase):
             "disable smartscreen",
             "disable defender",
             "defender exclusion",
+            # Unsigned-era copy. Installers are platform-signed as of the
+            # 2026-08-07 owner override, so instructions that route a user
+            # through the Gatekeeper override, or that call the packages
+            # unsigned, are now false rather than merely stale.
+            "open anyway",
+            "not code-signed",
+            "not notarized",
+            "no authenticode publisher signature",
         ):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, public_docs.casefold())

@@ -29,10 +29,13 @@ The [GitHub Releases page](https://github.com/roethlar/AMKB-GUI/releases) is the
 only public installer source. Workflow artifacts are temporary candidates for
 maintainers, not downloads.
 
-The packages are not code-signed, so macOS or Windows may ask you to approve the
-app the first time you open it. Follow the narrow per-application steps in
-[Installing AM Configurator](docs/installing.md); never turn off an operating
-system's security checks globally.
+The macOS application is signed with an Apple Developer ID certificate and
+notarized by Apple, and the Windows executable and installer are signed through
+Azure Trusted Signing. Windows SmartScreen weighs how widely a signing
+certificate has been seen as well as whether it is valid, so it may still show a
+caution prompt while this certificate is new. The Linux AppImage is unsigned.
+[Installing AM Configurator](docs/installing.md) has the per-system steps; never
+turn off an operating system's security checks globally.
 
 Release notes are published with each GitHub Release.
 
@@ -181,11 +184,12 @@ Selecting a keyboard, or reading one, never changes it. Writing does.
 
 ## Verify your download
 
-Every release publishes `SHA256SUMS.txt`, a `release-manifest.json`, and free
-GitHub build attestations alongside the installers.
-[Installing AM Configurator](docs/installing.md) walks through checking the
-SHA-256 digest, running `gh attestation verify`, and approving the app on each
-operating system.
+Every release publishes `SHA256SUMS.txt` and a `release-manifest.json` beside
+the installers, and the macOS and Windows downloads carry a publisher signature
+you can check yourself. [Installing AM Configurator](docs/installing.md) walks
+through the SHA-256 digest, the signature, and opening the app on each operating
+system. Signed release files carry no GitHub build attestation, so
+`gh attestation verify` reports none for them.
 
 ## For developers
 
