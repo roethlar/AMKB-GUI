@@ -15,6 +15,7 @@ license = "MIT"
 # copyright notice MIT requires in every copy.
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES", "licenses/cyberboard-cli-LICENSE.txt"]
 dependencies = [
+  "certifi>=2026.7.22",
   "hidapi>=0.14.0",
   "keyring==25.7.0",
   "pillow>=10.0",

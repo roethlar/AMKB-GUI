@@ -12,6 +12,8 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
+import certifi
+
 # --- Pinned design constants -------------------------------------------------
 #
 # Fixed by design v3 (docs/design/llm-led-generator.md); do not re-derive here.
@@ -258,9 +260,19 @@ class _NoXaiRedirects(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def default_tls_context() -> ssl.SSLContext:
+    """Verifying TLS context anchored to the packaged certifi CA bundle.
+
+    Frozen builds ship an OpenSSL whose default cert path is baked to the
+    build machine's filesystem, so the system trust store is empty on user
+    machines; certifi makes the trust anchors deterministic everywhere.
+    """
+    return ssl.create_default_context(cafile=certifi.where())
+
+
 def _default_opener():
     """Build a verifying, proxy-free opener that refuses every redirect."""
-    context = ssl.create_default_context()
+    context = default_tls_context()
     director = urllib.request.build_opener(
         urllib.request.ProxyHandler({}),
         urllib.request.HTTPSHandler(context=context),

@@ -8,7 +8,6 @@ import json
 import os
 import platform
 import re
-import ssl
 import subprocess
 import sys
 import tempfile
@@ -854,7 +853,9 @@ def run_smoke_test() -> int:
     if importlib.util.find_spec(backend) is None:
         raise SystemExit(f"Desktop smoke test failed: {backend} is unavailable.")
 
-    tls_context = ssl.create_default_context()
+    from . import llm
+
+    tls_context = llm.default_tls_context()
     _assert_ollama_api_only_bundle()
     _run_disabled_ai_smoke()
     _run_api_recipe_smoke()

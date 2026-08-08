@@ -1679,6 +1679,28 @@ class GrokTransportTests(unittest.TestCase):
                     )
                 )
 
+    def test_default_opener_trusts_packaged_cas_without_system_cert_paths(self) -> None:
+        # The frozen app's OpenSSL bakes a CA path that only exists on the
+        # build machine; with no system trust the opener must still verify TLS
+        # from the packaged certifi bundle instead of failing every request.
+        with tempfile.TemporaryDirectory() as empty:
+            with patch.dict(
+                os.environ,
+                {
+                    "SSL_CERT_FILE": os.path.join(empty, "missing.pem"),
+                    "SSL_CERT_DIR": empty,
+                },
+            ):
+                open_call = llm._default_opener()
+        https_handler = next(
+            handler
+            for handler in open_call.__self__.handlers
+            if isinstance(handler, urllib.request.HTTPSHandler)
+        )
+        context = https_handler._context
+        self.assertEqual(ssl.CERT_REQUIRED, context.verify_mode)
+        self.assertGreater(context.cert_store_stats()["x509_ca"], 0)
+
     def test_actual_xai_request_ignores_environment_proxy(self) -> None:
         sentinel_proxy = ("127.0.0.1", 54322)
         attempted_connections = []
