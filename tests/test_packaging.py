@@ -509,7 +509,7 @@ class ReleaseInfoTests(unittest.TestCase):
         action_refs = Counter(ref for ref in uses_refs if not ref.startswith("./"))
         expected_refs = Counter(
             {
-                "actions/checkout@v7": 9,
+                "actions/checkout@v7": 10,
                 (
                     "astral-sh/setup-uv@"
                     "c771a70e6277c0a99b617c7a806ffedaca235ff9"
@@ -518,11 +518,12 @@ class ReleaseInfoTests(unittest.TestCase):
                 (
                     "actions/download-artifact@"
                     "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
-                ): 2,
+                ): 3,
                 (
                     "actions/attest-build-provenance@"
                     "0f67c3f4856b2e3261c31976d6725780e5e4c373"
                 ): 4,
+                "softprops/action-gh-release@v2": 1,
             }
         )
 
@@ -563,6 +564,71 @@ class ReleaseInfoTests(unittest.TestCase):
                             r"          prune-cache: true$"
                         ),
                     )
+
+    def test_signed_release_publishes_one_release_only_from_a_tag(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+            encoding="utf-8"
+        )
+        signed, publish = workflow.split("  publish:\n", 1)
+        version = "${{ steps.build_version.outputs.version }}"
+
+        # Publication is one downstream upload, never three concurrent ones.
+        self.assertEqual(1, workflow.count("softprops/action-gh-release@v2"))
+        self.assertNotIn("softprops/action-gh-release", signed)
+        self.assertIn("needs: [macos, windows, linux]", publish)
+
+        # A manual dispatch has no tag to attach assets to.
+        self.assertIn(
+            "if: github.event_name == 'push' && "
+            "startsWith(github.ref, 'refs/tags/v')",
+            publish,
+        )
+
+        # Only this job may write to the repository.
+        self.assertNotIn("contents: write", signed)
+        self.assertIn("permissions:\n      contents: write", publish)
+
+        self.assertIn(
+            "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+            publish,
+        )
+        self.assertIn(f"pattern: AM-Configurator-{version}-*", publish)
+        self.assertIn("merge-multiple: true", publish)
+        self.assertIn("build_tools/release_manifest.py", publish)
+        self.assertIn(f'--version "{version}"', publish)
+        self.assertIn('--commit "${{ github.sha }}"', publish)
+        self.assertIn('--run-id "${{ github.run_id }}"', publish)
+        self.assertIn('--run-number "${{ github.run_number }}"', publish)
+        self.assertIn('--repository "${{ github.repository }}"', publish)
+
+        # Title, body source, and flags of every release published so far.
+        self.assertIn("tag_name: ${{ github.ref_name }}", publish)
+        self.assertIn(f"name: AM Configurator {version}", publish)
+        self.assertIn(f"body_path: docs/releases/{version}.md", publish)
+        self.assertIn("draft: false", publish)
+        self.assertIn("prerelease: false", publish)
+        self.assertIn("make_latest: true", publish)
+        self.assertNotIn("generate_release_notes", publish)
+
+        # An unmatched file is otherwise ignored, publishing a short release.
+        self.assertIn("fail_on_unmatched_files: true", publish)
+        for filename in (
+            f"AM-Configurator-{version}-macOS-arm64.dmg",
+            f"AM-Configurator-{version}-Windows-x64-Setup.exe",
+            f"AM-Configurator-{version}-Linux-x86_64.AppImage",
+        ):
+            with self.subTest(asset=filename):
+                self.assertIn(f"release-installers/{filename}", publish)
+        self.assertIn("release-metadata/SHA256SUMS.txt", publish)
+        self.assertIn("release-metadata/release-manifest.json", publish)
+
+        # The release body is committed, so a tag without it fails in seconds
+        # instead of after signing and notarization.
+        identity = workflow.split("  release-identity:\n", 1)[1].split(
+            "  macos:\n", 1
+        )[0]
+        self.assertIn('notes="docs/releases/$RELEASE_VERSION.md"', identity)
+        self.assertIn('if [ ! -s "$notes" ]; then', identity)
 
     def test_release_tags_do_not_rebuild_a_different_version(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "desktop.yml").read_text(
