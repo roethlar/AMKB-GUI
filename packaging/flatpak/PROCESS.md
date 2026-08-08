@@ -2,46 +2,37 @@
 
 Maintainer-only. App id: `io.github.roethlar.AMConfigurator`.
 
-Installs the **published Linux AppImage** from GitHub Releases (same bytes as
-the release asset). AUR is parked separately.
+Embeds the **published Linux AppImage** from GitHub Releases (build-time
+download + extract).
 
-## One-time host setup (build machine)
+## Remember this
+
+**Once per machine** (distro package):
 
 ```sh
-# User Flathub remote (avoids polkit "Deploy not allowed for user")
-flatpak remote-add --if-not-exists --user flathub \
-  https://dl.flathub.org/repo/flathub.flatpakrepo
-
-flatpak install -y --user flathub \
-  org.freedesktop.Platform//24.08 \
-  org.freedesktop.Sdk//24.08
-
-# Also need flatpak-builder (distro package), e.g. Arch:
-#   sudo pacman -S flatpak-builder
+sudo pacman -S flatpak-builder   # Arch; use apt/dnf equivalent elsewhere
 ```
 
-## Every public release
-
-From the application repo root (needs network to GitHub):
+**Every public release** (from the app repo):
 
 ```sh
-./build_tools/release_flatpak.sh prepare
-# optional: --version 0.1.68
+./build_tools/release_flatpak.sh
+# or pin a version:
+./build_tools/release_flatpak.sh all --version 0.1.68
 ```
 
-Writes `dist/package-managers/flatpak/`.
+That single command:
 
-On a machine with **flatpak-builder** + SDK/Platform above:
+1. Prepares the manifest from the GitHub Release digests  
+2. Adds user Flathub + installs Platform/Sdk 24.08 if missing  
+3. Builds and installs the Flatpak  
+4. Runs `--smoke-test`
+
+Run the app:
 
 ```sh
-./build_tools/release_flatpak.sh build
 flatpak run io.github.roethlar.AMConfigurator
-# smoke:
-flatpak run io.github.roethlar.AMConfigurator --smoke-test
 ```
-
-`flatpak-builder` downloads the Release AppImage at **build** time and extracts
-it into `/app/am-configurator.AppDir` (no FUSE at runtime).
 
 ## Flathub
 
@@ -57,6 +48,6 @@ tree and `docs/neon-80-linux.md`.
 
 | Piece | Location |
 |---|---|
-| prepare | `build_tools/package_managers/release_flatpak.py` |
+| one-shot script | `build_tools/release_flatpak.sh` |
+| prepare logic | `build_tools/package_managers/release_flatpak.py` |
 | manifest | `build_tools/package_managers/flatpak.py` |
-| CLI / script | `prepare-flatpak` / `release_flatpak.sh` |
