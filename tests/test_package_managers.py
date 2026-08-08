@@ -445,6 +445,19 @@ class FlatpakGeneratorTests(unittest.TestCase):
         self.assertIn("--device=all", text)
         self.assertIn("--share=network", text)
 
+        from build_tools.package_managers.flatpak import (
+            render_apply_extra,
+            render_wrapper,
+        )
+
+        apply_extra = render_apply_extra(inputs)
+        self.assertIn("--appimage-extract", apply_extra)
+        self.assertIn("am-configurator.AppDir", apply_extra)
+        wrapper = render_wrapper()
+        self.assertIn("am-configurator.AppDir", wrapper)
+        self.assertIn('"$APPDIR/AppRun"', wrapper)
+        self.assertNotIn("am-configurator.AppImage", wrapper)
+
         with TemporaryDirectory() as temporary:
             out = Path(temporary) / "flatpak"
             generate_flatpak_package(

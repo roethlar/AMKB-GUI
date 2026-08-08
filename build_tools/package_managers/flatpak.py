@@ -139,26 +139,33 @@ def render_manifest(inputs: FlatpakPackageInputs) -> str:
 
 
 def render_apply_extra(inputs: FlatpakPackageInputs) -> str:
-    # Flatpak invokes apply_extra with the extra-data directory as cwd.
+    # Flatpak invokes apply_extra in the extra-data download directory.
+    # AppImages need FUSE to mount; Flatpak sandboxes do not provide that
+    # reliably. Extract once at install time and run the unpacked tree.
     return (
         "#!/bin/sh\n"
         "set -eu\n"
-        f'install -Dm755 "{inputs.appimage_filename}" '
-        f'am-configurator.AppImage\n'
+        f'chmod +x "{inputs.appimage_filename}"\n'
+        f'./"{inputs.appimage_filename}" --appimage-extract\n'
+        f'rm -f "{inputs.appimage_filename}"\n'
+        "rm -rf am-configurator.AppDir\n"
+        "mv squashfs-root am-configurator.AppDir\n"
     )
 
 
 def render_wrapper() -> str:
-    # Installed AppImage lives under /app/extra after first run apply_extra.
+    # apply_extra leaves an extracted AppDir under /app/extra (no FUSE at run).
     return (
         "#!/bin/sh\n"
         "set -eu\n"
-        "APPIMAGE=/app/extra/am-configurator.AppImage\n"
-        'if [ ! -x "$APPIMAGE" ]; then\n'
-        '  echo "AM Configurator AppImage is missing under /app/extra." >&2\n'
+        "APPDIR=/app/extra/am-configurator.AppDir\n"
+        'if [ ! -x "$APPDIR/AppRun" ]; then\n'
+        '  echo "AM Configurator is not installed under /app/extra '
+        '(missing AppRun)." >&2\n'
         "  exit 1\n"
         "fi\n"
-        'exec "$APPIMAGE" "$@"\n'
+        'export APPDIR\n'
+        'exec "$APPDIR/AppRun" "$@"\n'
     )
 
 
