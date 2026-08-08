@@ -134,13 +134,18 @@
 
 ## Blockers
 
-- **Shipping the TLS-trust fix is the next action and it is owner-gated.**
-  The published 0.1.67 cannot reach AI providers over HTTPS on user machines
-  (see Now). The fix commits (`028e73b`, `328a738`, plus state records) sit
-  locally after the `v0.1.67` tag, unpushed per `.agents/push-policy.md`.
-  Releasing it needs an owner go for: push, a version bump (0.1.68), release
-  notes, and the tag. Whether 0.1.67's release notes or listing should carry
-  a known-issue warning in the meantime is also the owner's call.
+- **`v0.1.68` is prepared; push and tag are the owner's next move.** The
+  release slice is committed locally (owner "go", 2026-08-08): canonical
+  version `0.1.68` (`7dac422` — version literals, issue-form placeholders,
+  install docs, packaging tests, decisions entry) and `docs/releases/0.1.68.md`
+  as the Release body with its guard test (`d07f5c4`), on top of the TLS fix
+  (`028e73b`) and CI guard (`328a738`). Full local verification green
+  (738 unittest tests, compileall, node tests and syntax checks, `uv build`
+  producing 0.1.68 artifacts); `release-identity` requirements hold for a
+  `v0.1.68` tag. What remains is pushing the local commits and creating the
+  tag, which `.agents/push-policy.md` reserves to explicit owner
+  authorization. Whether the published 0.1.67 listing should carry a
+  known-issue note about unreachable AI providers is also the owner's call.
 - Two things for the owner to rule on before or with that tag: whether the
   unobserved first-launch trust behaviour on a signed package gates publication,
   and whether `release.yml` should attest its assets (the docs currently state
