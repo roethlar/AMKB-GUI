@@ -140,12 +140,13 @@
 
 - **Package-manager distribution (Linux-first):** plan
   `docs/superpowers/plans/2026-08-08-package-manager-distribution.md`. S1
-  landed (generator + tests). **S2 prepared for 0.1.68, not published:** tree
-  at `dist/package-managers/am-configurator-bin/` (AppImage sha256
-  `da72358be994…` matches release); AUR name free. **Blocked:** this machine’s
-  SSH key is not authorized on AUR (`Permission denied (publickey)`); no
-  makepkg/Arch here. Owner action: AUR account + SSH key → git push package.
-  S3 (README install option) only after `am-configurator-bin` is queryable.
+  landed. **S2 almost done for 0.1.68:** AUR SSH works as `roethlar` from
+  gabrielle; `makepkg` produced
+  `am-configurator-bin-0.1.68-1-x86_64.pkg.tar.zst` (sha256sums passed;
+  tree has AppImage, wrapper, desktop, icon, udev). Sources on gabrielle at
+  `~/aur-work/am-configurator-bin-src` and `…-build`. **Blocked only on AUR
+  maintenance** (`git clone` → “The AUR is down due to maintenance”). Retry
+  push when AUR is back; then S3 (README install option).
 - The UI redesign project (rulings needed: pilot screen, prototype form,
   arrangements per round), and the unsupported-board onboarding plan (owner
   approved 2026-08-03): "new keyboard model detected" plus a read-only scan
