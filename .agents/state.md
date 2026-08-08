@@ -140,13 +140,13 @@
 
 - **Package-manager distribution (Linux-first):** plan
   `docs/superpowers/plans/2026-08-08-package-manager-distribution.md`. S1
-  landed. **S2 almost done for 0.1.68:** AUR SSH works as `roethlar` from
-  gabrielle; `makepkg` produced
-  `am-configurator-bin-0.1.68-1-x86_64.pkg.tar.zst` (sha256sums passed;
-  tree has AppImage, wrapper, desktop, icon, udev). Sources on gabrielle at
-  `~/aur-work/am-configurator-bin-src` and `…-build`. **Blocked only on AUR
-  maintenance** (`git clone` → “The AUR is down due to maintenance”). Retry
-  push when AUR is back; then S3 (README install option).
+  + fuse2-depends fix + **repeatable AUR process** landed:
+  `packaging/aur/PROCESS.md`,
+  `python -m build_tools.package_managers prepare-aur|push-aur`. **S2 push
+  still blocked on AUR maintenance** (SSH as roethlar works; git clone does
+  not). When AUR is back: `prepare-aur` then `push-aur` from a host with AUR
+  SSH — no agent required. Then S3 (README install option only after package
+  is live).
 - The UI redesign project (rulings needed: pilot screen, prototype form,
   arrangements per round), and the unsupported-board onboarding plan (owner
   approved 2026-08-03): "new keyboard model detected" plus a read-only scan

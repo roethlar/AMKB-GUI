@@ -291,5 +291,125 @@ class AurGeneratorTests(unittest.TestCase):
             self.assertEqual(1, code)
 
 
+class ReleaseAurProcessTests(unittest.TestCase):
+    VERSION = "9.9.9"
+    APPIMAGE = "AM-Configurator-9.9.9-Linux-x86_64.AppImage"
+    APPIMAGE_SHA256 = "a" * 64
+
+    def test_default_sums_url(self) -> None:
+        from build_tools.package_managers.release_aur import default_sums_url
+
+        self.assertEqual(
+            "https://github.com/roethlar/AMKB-GUI/releases/download/v9.9.9/"
+            "SHA256SUMS.txt",
+            default_sums_url("9.9.9"),
+        )
+
+    def test_prepare_aur_downloads_sums_and_writes_tree(self) -> None:
+        from unittest.mock import patch
+
+        from build_tools.package_managers.release_aur import prepare_aur_package
+
+        sums_body = f"{self.APPIMAGE_SHA256}  {self.APPIMAGE}\n"
+        with TemporaryDirectory() as temporary:
+            out = Path(temporary) / "pkg"
+            with patch(
+                "build_tools.package_managers.release_aur.download_text",
+                return_value=sums_body,
+            ) as download:
+                destination = prepare_aur_package(
+                    version=self.VERSION,
+                    repo_root=PROJECT_ROOT,
+                    output_dir=out,
+                )
+            download.assert_called_once()
+            self.assertEqual(out, destination)
+            self.assertTrue((out / "PKGBUILD").is_file())
+            self.assertIn(self.APPIMAGE_SHA256, (out / "PKGBUILD").read_text())
+            sums_copy = out.parent / f"SHA256SUMS-{self.VERSION}.txt"
+            self.assertEqual(sums_body, sums_copy.read_text(encoding="utf-8"))
+
+    def test_push_aur_syncs_commit_without_remote(self) -> None:
+        import subprocess
+
+        from build_tools.package_managers.release_aur import (
+            prepare_aur_package,
+            push_aur_package,
+        )
+        from unittest.mock import patch
+
+        sums_body = f"{self.APPIMAGE_SHA256}  {self.APPIMAGE}\n"
+        with TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            package_dir = workspace / "pkg"
+            aur_git = workspace / "aur-clone"
+            subprocess.run(["git", "init", str(aur_git)], check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-C", str(aur_git), "config", "user.email", "test@example.com"],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(aur_git), "config", "user.name", "test"],
+                check=True,
+                capture_output=True,
+            )
+            # empty initial commit so status is clean before sync
+            subprocess.run(
+                ["git", "-C", str(aur_git), "commit", "--allow-empty", "-m", "init"],
+                check=True,
+                capture_output=True,
+            )
+            with patch(
+                "build_tools.package_managers.release_aur.download_text",
+                return_value=sums_body,
+            ):
+                prepare_aur_package(
+                    version=self.VERSION,
+                    repo_root=PROJECT_ROOT,
+                    output_dir=package_dir,
+                )
+            message = push_aur_package(
+                package_dir=package_dir,
+                aur_git=aur_git,
+                version=self.VERSION,
+                commit=True,
+                push=False,
+            )
+            self.assertEqual("am-configurator-bin 9.9.9-1", message)
+            self.assertTrue((aur_git / "PKGBUILD").is_file())
+            log = subprocess.run(
+                ["git", "-C", str(aur_git), "log", "-1", "--pretty=%s"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual("am-configurator-bin 9.9.9-1", log)
+
+    def test_cli_prepare_aur(self) -> None:
+        from unittest.mock import patch
+
+        sums_body = f"{self.APPIMAGE_SHA256}  {self.APPIMAGE}\n"
+        with TemporaryDirectory() as temporary:
+            out = Path(temporary) / "pkg"
+            with patch(
+                "build_tools.package_managers.release_aur.download_text",
+                return_value=sums_body,
+            ):
+                code = package_managers_main(
+                    [
+                        "prepare-aur",
+                        "--version",
+                        self.VERSION,
+                        "--out",
+                        str(out),
+                        "--repo-root",
+                        str(PROJECT_ROOT),
+                    ]
+                )
+            self.assertEqual(0, code)
+            self.assertTrue((out / "PKGBUILD").is_file())
+
+
 if __name__ == "__main__":
     unittest.main()

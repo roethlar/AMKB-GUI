@@ -18,15 +18,23 @@ from build_tools.package_managers.common import (
     require_digest,
     validate_version,
 )
+from build_tools.package_managers.release_aur import (
+    default_sums_url,
+    prepare_aur_package,
+    push_aur_package,
+)
 
 __all__ = [
     "AUR_PACKAGE_NAME",
     "DEFAULT_RELEASE_ASSET_BASE",
     "PackageManagerError",
+    "default_sums_url",
     "digests_from_manifest",
     "digests_from_sums",
     "generate_aur_package",
     "linux_appimage_filename",
+    "prepare_aur_package",
+    "push_aur_package",
     "release_download_url",
     "render_pkgbuild",
     "render_srcinfo",

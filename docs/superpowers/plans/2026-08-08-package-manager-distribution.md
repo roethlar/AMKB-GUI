@@ -8,14 +8,15 @@ next Linux-P1 slice after AUR is live and must not block AUR.
 PKGBUILD + `.SRCINFO` from release digests; golden tests in
 `tests/test_package_managers.py`.
 
-**S2 status (2026-08-08):** Package tree for **0.1.68** generated from the
-published `SHA256SUMS.txt` into `dist/package-managers/am-configurator-bin/`
-(gitignored). AUR name `am-configurator-bin` is free (RPC resultcount 0).
-**Blocked on owner:** no AUR SSH public key accepted from this machine
-(`Permission denied (publickey)` to `aur@aur.archlinux.org`); no
-`makepkg`/Arch container here for install proof. Owner must register an SSH
-key on AUR, create the package repo, and push. S3 stays gated on the package
-being queryable.
+**S2 status (2026-08-08):** Package builds on gabrielle; fuse2 depends removed.
+AUR SSH works as `roethlar`. **Push blocked only when AUR is in maintenance.**
+
+**Repeatable process (no agent):** `packaging/aur/PROCESS.md`
+
+```sh
+uv run --frozen python -m build_tools.package_managers prepare-aur
+uv run --frozen python -m build_tools.package_managers push-aur   # AUR SSH host
+```
 
 ## Product priority (owner, 2026-08-08)
 
