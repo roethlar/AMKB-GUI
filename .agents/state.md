@@ -14,25 +14,27 @@
   fix (passes; `certifi/cacert.pem` rides in the bundle). The fix anchors
   `llm.default_tls_context()` to certifi and both workflows now export
   `AM_SMOKE_NET=1` so the packaged-CA reach check gates every frozen smoke.
-  Consequence for release: the prepared-but-untagged 0.1.67 must include these
-  commits, or AI providers stay broken in the shipped app; the 0.1.67 release
-  notes do not yet mention the fix (owner-ruled copy — not edited).
+  **Reviewed clean** (2026-08-08): codereview codex (gpt-5.6-sol @ xhigh,
+  standard — codex defaults per owner dispatch) over `6c1d652..328a738`, no
+  material issue; record in `.agents/review/outcomes.md`. Release
+  consequence: **v0.1.67 was tagged and published at `6c1d652`, before these
+  commits** (observed 2026-08-08: `git ls-remote` shows the tag and
+  `origin/main` at `6c1d652`; the GitHub Release published 02:42Z), so the
+  shipped 0.1.67 still carries the broken TLS trust and AI providers fail in
+  it on machines without the build-machine cert path. Shipping the fix needs
+  a new owner-gated release (push, version bump, tag); the 0.1.67 release
+  notes do not mention the fix (owner-ruled copy — not edited).
 - **Separate, environmental:** the owner's Anthropic API account answered
   HTTP 400 "credit balance is too low" (2026-08-08) — Anthropic generation
   needs credits regardless of the TLS fix. Known cosmetic gap, unrecorded as
   work: the app classifies that billing 400 as `bad_response`, whose UI copy
   ("model sent back lighting this app could not use") misleads; reclassifying
   it is unscoped and owner-gated.
-- **0.1.67 is prepared and unpublished** (2026-08-07): canonical version
-  `0.1.67` (`am_configurator/_version.py`), `docs/releases/0.1.67.md` written as
-  the Release body, and the unsigned-era install copy retired from README and
-  `docs/installing.md`. Five local commits, unpushed by instruction:
-  `1aca8e6` (version bump and its literals), `f995119` (release notes plus the
-  guard that keeps 0.1.66's false signing claims from returning), `0c31c0f`
-  (README/`docs/installing.md`, and the public-docs guard moved with them),
-  this record, and `267f3ce` (release-note copy back inside the 2026-08-03
-  ruling). Full local verification green (736 unittest tests, compileall,
-  node tests and syntax checks, `uv build`).
+- **0.1.67 is published** (2026-08-08): the owner pushed the prepared commits
+  and cut `v0.1.67` at `6c1d652`; the GitHub Release "AM Configurator 0.1.67"
+  published 2026-08-08T02:42Z, normal/latest. It predates the TLS-trust fix
+  above, so its installed builds cannot reach any AI provider over HTTPS on
+  machines without the build-machine cert path.
 - **The 2026-08-03 copy ruling binds the release-note body, not just the
   announcement.** Its first sentence names release-note copy; the
   no-dialog-mechanics sentence that `4c60d3c` added names announcement copy.
@@ -132,13 +134,13 @@
 
 ## Blockers
 
-- **`v0.1.67` is the next action and it is owner-gated.** Everything the tag
-  needs is committed locally: `release-identity` checks the tag against the
-  canonical version and requires a non-empty `docs/releases/0.1.67.md`, and both
-  hold for `v0.1.67`. What remains is pushing the local commits and creating the
-  tag, which `.agents/push-policy.md` reserves to explicit owner authorization —
-  the tag publishes a real public release, so it is not a rehearsal. The
-  tag-triggered publish path has still never run; the first tag proves it.
+- **Shipping the TLS-trust fix is the next action and it is owner-gated.**
+  The published 0.1.67 cannot reach AI providers over HTTPS on user machines
+  (see Now). The fix commits (`028e73b`, `328a738`, plus state records) sit
+  locally after the `v0.1.67` tag, unpushed per `.agents/push-policy.md`.
+  Releasing it needs an owner go for: push, a version bump (0.1.68), release
+  notes, and the tag. Whether 0.1.67's release notes or listing should carry
+  a known-issue warning in the meantime is also the owner's call.
 - Two things for the owner to rule on before or with that tag: whether the
   unobserved first-launch trust behaviour on a signed package gates publication,
   and whether `release.yml` should attest its assets (the docs currently state

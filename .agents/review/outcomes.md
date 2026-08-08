@@ -512,3 +512,5 @@
   (`cl-23` at `2d450b6`, `cl-24` at `e738bb6`) and final exact-repair
   `a4d3793` source/frozen qualification on Windows x64 WebView2, Linux x86-64
   WebKitGTK, and macOS arm64 WKWebView.
+
+- 2026-08-08 — codereview codex (codex-cli 0.146.1, CLI transport, schema-enforced final message via --output-schema plus --output-last-message; codex default model/effort per owner dispatch, resolved gpt-5.6-sol @ xhigh, standard tier) over 6c1d652ddf8579776dbead0bf20ed5f09480a292..328a73824db3bdfd33429584da97a96a0f9f2952 — the packaged-TLS-trust fix and the CI smoke-net guard. Verdict clean, capability_ok true, both SHAs matched the dispatched pins; no material issue, no findings admitted. The first dispatch died with a dropped MCP connection before any verdict (transport failure; one fresh-process retry per playbook), and the retry completed normally with the same pins. The owner capped this loop at two rounds; round one returned clean, so the loop closed without a second round.
