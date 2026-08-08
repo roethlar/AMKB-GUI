@@ -2,6 +2,27 @@
 
 ## Now
 
+- **Packaged TLS trust is fixed and committed, unpushed** (2026-08-08):
+  `028e73b` (fix) and `328a738` (CI guard). Root cause: frozen builds bundle
+  an OpenSSL whose default CA path is baked to the build machine
+  (`/Library/Frameworks/Python.framework/.../etc/openssl/cert.pem`), so every
+  installed build to date — 0.1.66 and the installed 0.1.67 artifact included —
+  had zero trusted roots and every HTTPS provider call failed
+  `CERTIFICATE_VERIFY_FAILED`, surfaced as the offline "AI service could not
+  be reached" error for all API providers. Proven on the installed 0.1.67 via
+  `AM_SMOKE_NET=1 --smoke-test` (fails) and on a fresh local build after the
+  fix (passes; `certifi/cacert.pem` rides in the bundle). The fix anchors
+  `llm.default_tls_context()` to certifi and both workflows now export
+  `AM_SMOKE_NET=1` so the packaged-CA reach check gates every frozen smoke.
+  Consequence for release: the prepared-but-untagged 0.1.67 must include these
+  commits, or AI providers stay broken in the shipped app; the 0.1.67 release
+  notes do not yet mention the fix (owner-ruled copy — not edited).
+- **Separate, environmental:** the owner's Anthropic API account answered
+  HTTP 400 "credit balance is too low" (2026-08-08) — Anthropic generation
+  needs credits regardless of the TLS fix. Known cosmetic gap, unrecorded as
+  work: the app classifies that billing 400 as `bad_response`, whose UI copy
+  ("model sent back lighting this app could not use") misleads; reclassifying
+  it is unscoped and owner-gated.
 - **0.1.67 is prepared and unpublished** (2026-08-07): canonical version
   `0.1.67` (`am_configurator/_version.py`), `docs/releases/0.1.67.md` written as
   the Release body, and the unsigned-era install copy retired from README and
