@@ -1607,6 +1607,63 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, public_docs.casefold())
 
+    def test_current_0_1_67_release_notes_describe_the_signed_release(self) -> None:
+        """0.1.67 is the first platform-signed release.
+
+        The release notes are the published Release body (`release-identity`
+        refuses a tag without them), so the signing claims in this file are the
+        public claims. 0.1.66 stated the opposite — not notarized, no
+        Authenticode publisher signature — and that copy must not survive a
+        version bump, in either direction: an unsigned-era sentence left behind,
+        or a warning-free Windows promise the certificate has not earned yet.
+        """
+
+        release_path = ROOT / "docs" / "releases" / "0.1.67.md"
+        self.assertTrue(release_path.is_file(), "0.1.67 release notes are missing")
+
+        release = release_path.read_text(encoding="utf-8")
+        installing = (ROOT / "docs" / "installing.md").read_text(encoding="utf-8")
+        collapsed = " ".join(release.split())
+
+        self.assertIn("# AM Configurator 0.1.67", release)
+
+        for filename in (
+            "AM-Configurator-0.1.67-macOS-arm64.dmg",
+            "AM-Configurator-0.1.67-Windows-x64-Setup.exe",
+            "AM-Configurator-0.1.67-Linux-x86_64.AppImage",
+        ):
+            with self.subTest(filename=filename):
+                self.assertIn(filename, release)
+                self.assertIn(filename, installing)
+
+        for expected in (
+            "Apple Developer ID Application certificate",
+            "notarized by Apple",
+            "Azure Trusted Signing",
+            "The Linux AppImage is unsigned",
+            "SmartScreen",
+            "reports no attestation for them",
+            "AI is optional and off by default",
+            "procedural LED settings",
+            "rendered locally",
+            "does not expose LED read-back",
+            "Remote provider paths are experimental",
+            "not affiliated with or endorsed by Angry Miao",
+            "https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.67",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, collapsed)
+
+        for prohibited in (
+            "not notarized",
+            "no Authenticode publisher signature",
+            "not code-signed",
+            "unsigned by design",
+        ):
+            with self.subTest(prohibited=prohibited):
+                self.assertNotIn(prohibited, collapsed.casefold())
+        self.assertNotRegex(collapsed.casefold(), r"\b(?:beta|prerelease)\b")
+
     def test_current_0_1_66_release_packet_is_consistent(self) -> None:
         release_path = ROOT / "docs" / "releases" / "0.1.66.md"
         reddit_path = ROOT / "docs" / "announcements" / "reddit-0.1.66.md"
