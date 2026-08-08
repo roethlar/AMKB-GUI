@@ -1,5 +1,27 @@
 # Repository Decisions
 
+## 2026-08-07 — The current product/release version is 0.1.67
+
+Status: approved by the owner on 2026-08-07 while authorizing the version bump
+for the first platform-signed public release.
+
+- The current product/release version is `0.1.67`. It succeeds the published
+  `0.1.66` release (tag `v0.1.66` at `f19a806`), which stays published,
+  unmoved, and unmodified.
+- The 2026-07-28 canonical-version decision otherwise stands unchanged:
+  `am_configurator/_version.py` is the canonical source, every artifact
+  reports that exact version, and a version changes only through a deliberate
+  source edit for a new public product release.
+- `0.1.67` is the release that carries platform signing to users, so it is the
+  release that retires the unsigned-era install copy named as outstanding in
+  "2026-08-07 — Installers are platform-signed": README, `docs/installing.md`,
+  and the release notes describe a Developer ID-signed, notarized macOS image
+  and an Azure Trusted Signing-signed Windows installer, and no longer teach
+  the macOS Privacy & Security approval detour. The Linux AppImage is still
+  unsigned and its copy is unchanged.
+- Publication of `0.1.67` — tag, builds, qualification, announcement — is
+  separately gated and has not happened.
+
 ## 2026-08-07 — Installers are platform-signed
 
 Status: approved by the owner on 2026-08-07, explicitly superseding the
