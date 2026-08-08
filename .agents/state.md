@@ -2,6 +2,32 @@
 
 ## Now
 
+- **0.1.67 is prepared and unpublished** (2026-08-07): canonical version
+  `0.1.67` (`am_configurator/_version.py`), `docs/releases/0.1.67.md` written as
+  the Release body, and the unsigned-era install copy retired from README and
+  `docs/installing.md`. Four local commits, unpushed by instruction:
+  `1aca8e6` (version bump and its literals), `f995119` (release notes plus the
+  guard that keeps 0.1.66's false signing claims from returning), `0c31c0f`
+  (README/`docs/installing.md`, and the public-docs guard moved with them), and
+  this record. Full local verification green (736 unittest tests, compileall,
+  node tests and syntax checks, `uv build`).
+- **The only functional change since `v0.1.66` is the About panel's Sponsors and
+  Ko-fi links** (`am_configurator/web/index.html`). Everything else in
+  `v0.1.66..HEAD` was signing/CI, docs, tests, or README images — no keymap,
+  macro, lighting, Library, protocol, or AI behaviour moved. The 0.1.67 notes
+  say so rather than implying new behaviour.
+- **Release-lane assets carry no build attestation, and the docs now say that
+  instead of pointing users at it.** `desktop.yml`'s `provenance` job is
+  `main`-push-only, so `gh attestation verify` finds nothing for a file built by
+  `release.yml`. `docs/installing.md` scopes attestation to candidate builds and
+  0.1.67's notes tell users to verify digest plus publisher signature. Adding an
+  attest step to `release.yml` remains an open option, not a decision.
+- **Visible first-launch trust behaviour on a signed package has never been
+  observed.** The 2026-08-03 change-triggered qualification decision names
+  signing as a trigger, and signing changed, so the unsigned baseline no longer
+  carries. CI asserts signature state, notarization ticket, and Gatekeeper
+  primary-signature assessment; nobody has downloaded a signed dmg or installer
+  through a browser and opened it. Owner call whether that gates publication.
 - **0.1.66 is published** (2026-08-04): GitHub Release
   <https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.66>, normal/latest,
   tag `v0.1.66` at `f19a806`. All five assets verified by hash, attestation,
@@ -29,7 +55,8 @@
   identity from a non-empty `APPLE_SIGNING_IDENTITY` and otherwise ad-hoc
   signs as before. Bundled Windows DLLs and `.pyd` files stay unsigned;
   only the launched executable and the installer are signed.
-- **The signed lane now publishes** (`1f096dc`, committed locally, unpushed):
+- **The signed lane now publishes** (`1f096dc`, pushed; `origin/main` was at
+  `c0c489e` on 2026-08-07):
   a `publish` job needs `[macos, windows, linux]`, downloads the three signed
   artifacts into one directory, regenerates `release-manifest.json` and
   `SHA256SUMS.txt` through `build_tools/release_manifest.py`, and makes one
@@ -42,23 +69,16 @@
   prerelease, no generated changelog; `release-identity` fails a tag push in
   seconds when that notes file is missing. Nothing about the publish path is
   provable without a real tag run.
-- **Blocking the next tag:** `docs/releases/0.1.66.md` is now a release
-  *body*, and it states the macOS bundle is not notarized and the Windows
-  installer has no Authenticode publisher signature. That copy is false for a
-  signed release and must be corrected in the release-notes doc for the
-  version being tagged — the same stale-copy work README and
-  `docs/installing.md` need.
-- Assets published by the tag lane carry no build attestation:
-  `desktop.yml`'s `provenance` job is `main`-push-only, so
-  `gh attestation verify` covers candidate builds, not signed release assets.
-  Unchanged by this slice; decide before the next release whether release
-  notes may keep pointing at attestation.
+- The stale-copy block on the next tag is **cleared**: 0.1.67's notes, README,
+  and `docs/installing.md` describe the signatures that exist. `0.1.66.md` keeps
+  its own now-false signing sentences as published history and must not be
+  edited.
 - **Signing conflict RESOLVED by owner override (2026-08-07).** The
   2026-07-28 "permanently platform-unsigned" decision is superseded — see
   `.agents/decisions.md` "2026-08-07 — Installers are platform-signed" for
   the ruling and which of the old clauses survive. The signed lane is now
-  legitimate; README/`docs/installing.md` unsigned copy becomes stale with
-  the first signed release and updates with it. Still relevant: the
+  legitimate; the README/`docs/installing.md` unsigned copy that entry named as
+  outstanding was corrected with 0.1.67 (see the top of Now). Still relevant: the
   2026-07-28 public-release plan removed the `push.tags: ["v*"]` trigger
   from Desktop installers so a tag could not rebuild a candidate;
   `tests/test_packaging.py` still guards that for `desktop.yml`, and the new
@@ -80,11 +100,14 @@
 
 ## Blockers
 
-- `0.1.66` publication is complete and the platform-signing conflict is
-  resolved (owner override, 2026-08-07 — see Now). Signing itself is proven
-  (run 31228842806). Remaining gate: the tag-triggered publish path has never
-  run. Proving it needs the local commits pushed and then a real `v*` tag,
-  and creating or pushing a tag is explicitly owner-authorized work per
-  `.agents/push-policy.md` — it also publishes a real public release, so it
-  is not a rehearsal. The stale unsigned release-notes copy must be fixed
-  first (see Now).
+- **`v0.1.67` is the next action and it is owner-gated.** Everything the tag
+  needs is committed locally: `release-identity` checks the tag against the
+  canonical version and requires a non-empty `docs/releases/0.1.67.md`, and both
+  hold for `v0.1.67`. What remains is pushing the local commits and creating the
+  tag, which `.agents/push-policy.md` reserves to explicit owner authorization —
+  the tag publishes a real public release, so it is not a rehearsal. The
+  tag-triggered publish path has still never run; the first tag proves it.
+- Two things for the owner to rule on before or with that tag: whether the
+  unobserved first-launch trust behaviour on a signed package gates publication,
+  and whether `release.yml` should attest its assets (the docs currently state
+  plainly that it does not).
