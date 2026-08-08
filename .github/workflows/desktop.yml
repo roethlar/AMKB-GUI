@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+# Frozen smoke tests must prove the packaged CA trust works: the bundled
+# OpenSSL bakes the build machine's cert path, so a build that verifies TLS
+# only through system trust would pass here and fail on every user machine.
+env:
+  AM_SMOKE_NET: "1"
+
 concurrency:
   group: desktop-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
