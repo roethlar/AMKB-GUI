@@ -137,7 +137,13 @@ jobs:
         # also the runtime check for the hardened-runtime signature.
         run: |
           packaging/macos/build_dmg.sh
-          echo "RELEASE_DMG=dist/$(uv run --frozen python build_tools/release_info.py artifact macos)" >> "$GITHUB_ENV"
+          release_dmg="dist/$(uv run --frozen python build_tools/release_info.py artifact macos)"
+          # The dmg needs its own primary signature: notarization and stapling
+          # attach a ticket but sign nothing, and the verification step's
+          # spctl --type open assessment rejects an unsigned image (first run
+          # failed exactly there).
+          codesign --sign "$APPLE_SIGNING_IDENTITY" --timestamp "$release_dmg"
+          echo "RELEASE_DMG=$release_dmg" >> "$GITHUB_ENV"
       - name: Notarize and staple DMG
         env:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
@@ -249,7 +255,9 @@ jobs:
         # Inno Setup packs dist\AM Configurator\* verbatim, so the executable
         # the user launches has to be signed before the installer is built.
         # Invoke-TrustedSigning authenticates from the three AZURE_* variables
-        # through EnvironmentCredential.
+        # through EnvironmentCredential. -Files must be rooted: the module
+        # throws "file path ... is not rooted" on a relative path (first run
+        # failed exactly there).
         run: |
           Invoke-TrustedSigning `
             -Endpoint $env:AZURE_SIGNING_ENDPOINT `
@@ -258,7 +266,7 @@ jobs:
             -TimestampRfc3161 'http://timestamp.acs.microsoft.com' `
             -TimestampDigest SHA256 `
             -FileDigest SHA256 `
-            -Files "dist\AM Configurator\AM Configurator.exe"
+            -Files (Join-Path $env:GITHUB_WORKSPACE 'dist\AM Configurator\AM Configurator.exe')
       - name: Verify native application signature
         shell: pwsh
         # A signing step can no-op and still exit 0, so the signature state is
@@ -291,6 +299,9 @@ jobs:
           AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
           AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
         shell: pwsh
+        # -Files must be rooted (same constraint as the executable signing
+        # step above); RELEASE_INSTALLER is workspace-relative by design so
+        # the upload glob keeps working.
         run: |
           Invoke-TrustedSigning `
             -Endpoint $env:AZURE_SIGNING_ENDPOINT `
@@ -299,7 +310,7 @@ jobs:
             -TimestampRfc3161 'http://timestamp.acs.microsoft.com' `
             -TimestampDigest SHA256 `
             -FileDigest SHA256 `
-            -Files $env:RELEASE_INSTALLER
+            -Files (Join-Path $env:GITHUB_WORKSPACE $env:RELEASE_INSTALLER)
       - name: Verify Windows installer signature
         shell: pwsh
         run: |
