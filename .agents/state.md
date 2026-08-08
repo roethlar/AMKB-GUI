@@ -140,11 +140,12 @@
 
 - **Package-manager distribution (Linux-first):** plan
   `docs/superpowers/plans/2026-08-08-package-manager-distribution.md`. S1
-  landed: `build_tools/package_managers/` + `tests/test_package_managers.py`
-  generate `am-configurator-bin` from release digests (AppImage URL/sha256,
-  desktop, icon, udev, wrapper). Next: S2 — publish to AUR (needs owner AUR
-  account / SSH); then S3 — list the live install command as a plain option
-  in README/`docs/installing.md` (options only).
+  landed (generator + tests). **S2 prepared for 0.1.68, not published:** tree
+  at `dist/package-managers/am-configurator-bin/` (AppImage sha256
+  `da72358be994…` matches release); AUR name free. **Blocked:** this machine’s
+  SSH key is not authorized on AUR (`Permission denied (publickey)`); no
+  makepkg/Arch here. Owner action: AUR account + SSH key → git push package.
+  S3 (README install option) only after `am-configurator-bin` is queryable.
 - The UI redesign project (rulings needed: pilot screen, prototype form,
   arrangements per round), and the unsupported-board onboarding plan (owner
   approved 2026-08-03): "new keyboard model detected" plus a read-only scan
