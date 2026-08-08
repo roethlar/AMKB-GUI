@@ -1,16 +1,14 @@
-"""Generate a Flatpak package tree that installs the published Linux AppImage.
+"""Generate a Flatpak package tree that embeds the published Linux AppImage.
 
 App id (D2): io.github.roethlar.AMConfigurator
 
-Uses Flatpak extra-data so the build downloads the exact GitHub Release
-AppImage by URL + sha256 + size. finish-args grant device access so HID/serial
-keyboards can be opened (same practical need as a host AppImage).
+flatpak-builder downloads the Release AppImage (type: file + url + sha256) and
+extracts it at **build** time into /app/am-configurator.AppDir. That avoids
+FUSE at runtime and avoid apply_extra /proc/self/exe failures at install time.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,7 +23,6 @@ from build_tools.package_managers.common import (
     validate_version,
 )
 
-# D2
 FLATPAK_APP_ID = "io.github.roethlar.AMConfigurator"
 COMMAND_NAME = "am-configurator"
 DISPLAY_NAME = "AM Configurator"
@@ -33,7 +30,6 @@ RUNTIME = "org.freedesktop.Platform"
 RUNTIME_VERSION = "24.08"
 SDK = "org.freedesktop.Sdk"
 
-_DESKTOP_RELATIVE = Path("packaging/linux/am-configurator.desktop")
 _ICON_RELATIVE = Path("assets/am-configurator-512.png")
 _UDEV_RELATIVE = Path("am_configurator/data/60-am-neon-80.rules")
 
@@ -42,7 +38,6 @@ _METAINFO_NAME = f"{FLATPAK_APP_ID}.metainfo.xml"
 _DESKTOP_NAME = f"{FLATPAK_APP_ID}.desktop"
 _ICON_NAME = f"{FLATPAK_APP_ID}.png"
 _WRAPPER_NAME = "am-configurator.sh"
-_APPLY_EXTRA_NAME = "apply_extra"
 _UDEV_NAME = "60-am-neon-80.rules"
 _README_UDEV = "README-udev.txt"
 
@@ -87,7 +82,7 @@ def build_inputs(
 def render_manifest(inputs: FlatpakPackageInputs) -> str:
     """YAML Flatpak manifest (deterministic field order)."""
 
-    # finish-args: network for AI HTTPS; devices for HID/serial keyboards.
+    name = inputs.appimage_filename
     lines = [
         f"app-id: {FLATPAK_APP_ID}",
         f"runtime: {RUNTIME}",
@@ -106,7 +101,12 @@ def render_manifest(inputs: FlatpakPackageInputs) -> str:
         "  - name: am-configurator",
         "    buildsystem: simple",
         "    build-commands:",
-        f"      - install -Dm755 {_APPLY_EXTRA_NAME} /app/bin/apply_extra",
+        # Extract on the build host (works); do not use extra-data/apply_extra.
+        f"      - chmod +x {name}",
+        f"      - ./{name} --appimage-extract",
+        f"      - rm -f {name}",
+        "      - rm -rf /app/am-configurator.AppDir",
+        "      - mv squashfs-root /app/am-configurator.AppDir",
         f"      - install -Dm755 {_WRAPPER_NAME} /app/bin/{COMMAND_NAME}",
         f"      - install -Dm644 {_DESKTOP_NAME} /app/share/applications/{_DESKTOP_NAME}",
         f"      - install -Dm644 {_METAINFO_NAME} /app/share/metainfo/{_METAINFO_NAME}",
@@ -114,13 +114,10 @@ def render_manifest(inputs: FlatpakPackageInputs) -> str:
         f"      - install -Dm644 {_UDEV_NAME} /app/share/am-configurator/{_UDEV_NAME}",
         f"      - install -Dm644 {_README_UDEV} /app/share/am-configurator/{_README_UDEV}",
         "    sources:",
-        "      - type: extra-data",
-        f"        filename: {inputs.appimage_filename}",
+        "      - type: file",
         f"        url: {inputs.appimage_url}",
         f"        sha256: {inputs.appimage_sha256}",
-        f"        size: {inputs.appimage_size}",
-        "      - type: file",
-        f"        path: {_APPLY_EXTRA_NAME}",
+        f"        dest-filename: {name}",
         "      - type: file",
         f"        path: {_WRAPPER_NAME}",
         "      - type: file",
@@ -138,33 +135,17 @@ def render_manifest(inputs: FlatpakPackageInputs) -> str:
     return "\n".join(lines)
 
 
-def render_apply_extra(inputs: FlatpakPackageInputs) -> str:
-    # Flatpak invokes apply_extra in the extra-data download directory.
-    # AppImages need FUSE to mount; Flatpak sandboxes do not provide that
-    # reliably. Extract once at install time and run the unpacked tree.
-    return (
-        "#!/bin/sh\n"
-        "set -eu\n"
-        f'chmod +x "{inputs.appimage_filename}"\n'
-        f'./"{inputs.appimage_filename}" --appimage-extract\n'
-        f'rm -f "{inputs.appimage_filename}"\n'
-        "rm -rf am-configurator.AppDir\n"
-        "mv squashfs-root am-configurator.AppDir\n"
-    )
-
-
 def render_wrapper() -> str:
-    # apply_extra leaves an extracted AppDir under /app/extra (no FUSE at run).
     return (
         "#!/bin/sh\n"
         "set -eu\n"
-        "APPDIR=/app/extra/am-configurator.AppDir\n"
+        "APPDIR=/app/am-configurator.AppDir\n"
         'if [ ! -x "$APPDIR/AppRun" ]; then\n'
-        '  echo "AM Configurator is not installed under /app/extra '
+        '  echo "AM Configurator AppDir is missing under /app '
         '(missing AppRun)." >&2\n'
         "  exit 1\n"
         "fi\n"
-        'export APPDIR\n'
+        "export APPDIR\n"
         'exec "$APPDIR/AppRun" "$@"\n'
     )
 
@@ -194,7 +175,7 @@ def render_metainfo(inputs: FlatpakPackageInputs) -> str:
   <description>
     <p>
       Set up Angry Miao keyboards — keymaps, macros, and lighting — from one
-      app on your own computer. This package installs the published Linux
+      app on your own computer. This package embeds the published Linux
       AppImage from the project GitHub Releases.
     </p>
   </description>
@@ -213,16 +194,10 @@ def render_metainfo(inputs: FlatpakPackageInputs) -> str:
 def render_udev_readme() -> str:
     return (
         "AM Neon 80 on Linux needs a host udev rule for raw HID access.\n"
-        "Flatpak cannot install system udev rules. On the host, run:\n"
-        "\n"
-        "  flatpak run --command=sh io.github.roethlar.AMConfigurator \\\n"
-        "    -c '/app/extra/am-configurator.AppImage --print-udev-rule' \\\n"
-        "    | sudo tee /etc/udev/rules.d/60-am-neon-80.rules >/dev/null\n"
-        "\n"
-        "Or copy /app/share/am-configurator/60-am-neon-80.rules from the\n"
-        "installed app (see docs/neon-80-linux.md in the source repository).\n"
-        "Then: sudo udevadm control --reload-rules && sudo udevadm trigger\n"
-        "Unplug and replug the keyboard.\n"
+        "Flatpak cannot install system udev rules. On the host, run the\n"
+        "AppImage --print-udev-rule path from docs/neon-80-linux.md, or copy\n"
+        "/app/share/am-configurator/60-am-neon-80.rules to\n"
+        "/etc/udev/rules.d/ then reload udev and replug the keyboard.\n"
     )
 
 
@@ -267,28 +242,24 @@ def generate_flatpak_package(
                 _DESKTOP_NAME,
                 _ICON_NAME,
                 _WRAPPER_NAME,
-                _APPLY_EXTRA_NAME,
                 _UDEV_NAME,
                 _README_UDEV,
+                "build",  # flatpak-builder output; allow re-prepare after build
             }
-            if {p.name for p in existing} - expected:
+            names = {p.name for p in existing}
+            if names - expected:
                 raise PackageManagerError(
                     f"refusing to write into non-empty directory: {destination}"
                 )
 
     destination.mkdir(parents=True, exist_ok=True)
 
-    apply_extra = render_apply_extra(inputs)
     wrapper = render_wrapper()
     desktop = render_desktop()
     metainfo = render_metainfo(inputs)
     udev_readme = render_udev_readme()
     manifest = render_manifest(inputs)
 
-    (destination / _APPLY_EXTRA_NAME).write_text(
-        apply_extra, encoding="utf-8", newline="\n"
-    )
-    (destination / _APPLY_EXTRA_NAME).chmod(0o755)
     (destination / _WRAPPER_NAME).write_text(wrapper, encoding="utf-8", newline="\n")
     (destination / _WRAPPER_NAME).chmod(0o755)
     (destination / _DESKTOP_NAME).write_text(desktop, encoding="utf-8", newline="\n")
@@ -303,9 +274,6 @@ def generate_flatpak_package(
     )
     shutil.copy2(icon_src, destination / _ICON_NAME)
     shutil.copy2(udev_src, destination / _UDEV_NAME)
-
-    # Sanity: wrapper and apply_extra digests are content we control.
-    _ = hashlib.sha256(wrapper.encode("utf-8")).hexdigest()
     _ = file_sha256(destination / _ICON_NAME)
 
     return destination

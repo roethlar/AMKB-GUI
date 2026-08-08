@@ -435,28 +435,24 @@ class FlatpakGeneratorTests(unittest.TestCase):
         )
         text = render_manifest(inputs)
         self.assertIn(f"app-id: {FLATPAK_APP_ID}", text)
-        self.assertIn("type: extra-data", text)
+        self.assertIn("type: file", text)
+        self.assertIn("dest-filename:", text)
+        self.assertIn("--appimage-extract", text)
+        self.assertIn("/app/am-configurator.AppDir", text)
         self.assertIn(self.APPIMAGE_SHA256, text)
-        self.assertIn(f"size: {self.APPIMAGE_SIZE}", text)
         self.assertIn(
             f"url: https://github.com/roethlar/AMKB-GUI/releases/download/v{self.VERSION}/{self.APPIMAGE}",
             text,
         )
         self.assertIn("--device=all", text)
         self.assertIn("--share=network", text)
+        self.assertNotIn("extra-data", text)
 
-        from build_tools.package_managers.flatpak import (
-            render_apply_extra,
-            render_wrapper,
-        )
+        from build_tools.package_managers.flatpak import render_wrapper
 
-        apply_extra = render_apply_extra(inputs)
-        self.assertIn("--appimage-extract", apply_extra)
-        self.assertIn("am-configurator.AppDir", apply_extra)
         wrapper = render_wrapper()
-        self.assertIn("am-configurator.AppDir", wrapper)
+        self.assertIn("/app/am-configurator.AppDir", wrapper)
         self.assertIn('"$APPDIR/AppRun"', wrapper)
-        self.assertNotIn("am-configurator.AppImage", wrapper)
 
         with TemporaryDirectory() as temporary:
             out = Path(temporary) / "flatpak"
@@ -469,7 +465,7 @@ class FlatpakGeneratorTests(unittest.TestCase):
             )
             self.assertTrue((out / f"{FLATPAK_APP_ID}.yml").is_file())
             self.assertTrue((out / "am-configurator.sh").is_file())
-            self.assertTrue((out / "apply_extra").is_file())
+            self.assertFalse((out / "apply_extra").exists())
             self.assertTrue((out / "60-am-neon-80.rules").is_file())
 
     def test_missing_size_and_digest_rejected(self) -> None:

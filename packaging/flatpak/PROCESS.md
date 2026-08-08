@@ -40,8 +40,8 @@ flatpak run io.github.roethlar.AMConfigurator
 flatpak run io.github.roethlar.AMConfigurator --smoke-test
 ```
 
-The Flatpak downloads the Release AppImage at install time and **extracts** it
-(no FUSE inside the sandbox).
+`flatpak-builder` downloads the Release AppImage at **build** time and extracts
+it into `/app/am-configurator.AppDir` (no FUSE at runtime).
 
 ## Flathub
 
