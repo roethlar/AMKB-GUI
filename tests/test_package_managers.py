@@ -148,6 +148,9 @@ class AurGeneratorTests(unittest.TestCase):
 
         self.assertIn(f"pkgname={AUR_PACKAGE_NAME}", pkgbuild)
         self.assertIn(f"pkgver={self.VERSION}", pkgbuild)
+        self.assertIn("depends=()", pkgbuild)
+        self.assertNotIn("fuse2", pkgbuild)
+        self.assertNotIn("fuse3", pkgbuild)
         self.assertIn(self.APPIMAGE_SHA256, pkgbuild)
         self.assertIn(
             f"https://github.com/roethlar/AMKB-GUI/releases/download/v{self.VERSION}/"

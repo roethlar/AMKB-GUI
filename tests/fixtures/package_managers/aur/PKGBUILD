@@ -6,8 +6,7 @@ pkgdesc='Standalone Angry Miao keyboard configurator'
 arch=('x86_64')
 url='https://github.com/roethlar/AMKB-GUI'
 license=('MIT')
-# fuse2: AppImage runtime on typical Arch desktops
-depends=('fuse2')
+depends=()
 options=('!strip' '!debug')
 install=am-configurator-bin.install
 source=(

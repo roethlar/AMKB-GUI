@@ -6,7 +6,6 @@ pkgbase = am-configurator-bin
 	install = am-configurator-bin.install
 	arch = x86_64
 	license = MIT
-	depends = fuse2
 	options = !strip
 	options = !debug
 	source = AM-Configurator-9.9.9-Linux-x86_64.AppImage::https://github.com/roethlar/AMKB-GUI/releases/download/v9.9.9/AM-Configurator-9.9.9-Linux-x86_64.AppImage

@@ -123,8 +123,10 @@ def render_pkgbuild(inputs: AurPackageInputs) -> str:
         "arch=('x86_64')",
         f"url='{inputs.homepage}'",
         f"license=('{LICENSE_ID}')",
-        "# fuse2: AppImage runtime on typical Arch desktops",
-        "depends=('fuse2')",
+        # No fuse2/fuse3 depends: the published AppImage ships a static-pie
+        # runtime (appimagetool). Proven on Arch without fuse2: --smoke-test
+        # passes with only the host's ordinary fuse3/kernel setup.
+        "depends=()",
         "options=('!strip' '!debug')",
         f"install={_LOCAL_INSTALL}",
         "source=(",
@@ -172,7 +174,6 @@ def render_srcinfo(inputs: AurPackageInputs) -> str:
         f"\tinstall = {_LOCAL_INSTALL}",
         f"\tarch = x86_64",
         f"\tlicense = {LICENSE_ID}",
-        f"\tdepends = fuse2",
         f"\toptions = !strip",
         f"\toptions = !debug",
         f"\tsource = {source_appimage}",
