@@ -49,13 +49,13 @@ _SDIST_FORBIDDEN = (
 
 
 class ReleaseManifestTests(unittest.TestCase):
-    VERSION = "0.1.67"
+    VERSION = "0.1.68"
     COMMIT = "0123456789abcdef0123456789abcdef01234567"
     REPOSITORY = "roethlar/AMKB-GUI"
     FILENAMES = (
-        "AM-Configurator-0.1.67-macOS-arm64.dmg",
-        "AM-Configurator-0.1.67-Windows-x64-Setup.exe",
-        "AM-Configurator-0.1.67-Linux-x86_64.AppImage",
+        "AM-Configurator-0.1.68-macOS-arm64.dmg",
+        "AM-Configurator-0.1.68-Windows-x64-Setup.exe",
+        "AM-Configurator-0.1.68-Linux-x86_64.AppImage",
     )
 
     def _write_candidates(self, root: Path) -> dict[str, bytes]:
@@ -384,19 +384,19 @@ class ReleaseInfoTests(unittest.TestCase):
 
     def test_release_names_use_project_version_and_normalized_architecture(self) -> None:
         self.assertEqual(__version__, project_version(ROOT))
-        self.assertEqual("0.1.67", project_version(ROOT))
+        self.assertEqual("0.1.68", project_version(ROOT))
         self.assertEqual("x86_64", normalize_arch("AMD64"))
         self.assertEqual("aarch64", normalize_arch("arm64"))
         self.assertEqual(
-            "AM-Configurator-0.1.67-macOS-arm64.dmg",
+            "AM-Configurator-0.1.68-macOS-arm64.dmg",
             artifact_filename("macos", "arm64", root=ROOT),
         )
         self.assertEqual(
-            "AM-Configurator-0.1.67-Windows-x64-Setup.exe",
+            "AM-Configurator-0.1.68-Windows-x64-Setup.exe",
             artifact_filename("windows", "AMD64", root=ROOT),
         )
         self.assertEqual(
-            "AM-Configurator-0.1.67-Linux-x86_64.AppImage",
+            "AM-Configurator-0.1.68-Linux-x86_64.AppImage",
             artifact_filename("linux", "x86_64", root=ROOT),
         )
 
@@ -414,7 +414,7 @@ class ReleaseInfoTests(unittest.TestCase):
             "am_configurator/_version.py",
             project["tool"]["hatch"]["version"]["path"],
         )
-        self.assertEqual("0.1.67", __version__)
+        self.assertEqual("0.1.68", __version__)
         installer_job = workflow.split("  candidate-metadata:\n", 1)[0]
         self.assertNotIn("github.run_number", installer_job)
         self.assertEqual(1, workflow.count("github.run_number"))
@@ -433,7 +433,7 @@ class ReleaseInfoTests(unittest.TestCase):
         ):
             with self.subTest(path=path.relative_to(ROOT)):
                 text = path.read_text(encoding="utf-8")
-                self.assertIn("AM-Configurator-0.1.67", text)
+                self.assertIn("AM-Configurator-0.1.68", text)
                 self.assertNotIn("AM-Configurator-0.1.64", text)
 
         decisions = (ROOT / ".agents" / "decisions.md").read_text(encoding="utf-8")
@@ -453,7 +453,7 @@ class ReleaseInfoTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         release_preamble = release_plan.split("## Objective", 1)[0]
 
-        self.assertIn("current product/release version is `0.1.67`", decisions)
+        self.assertIn("current product/release version is `0.1.68`", decisions)
         self.assertIn("rejected unpublished `0.1.64` candidate", decisions)
         self.assertIn("distinct `0.1.65` candidate", backend_plan)
         self.assertIn("status: historical", release_preamble.casefold())
@@ -1628,13 +1628,14 @@ class ReleaseInfoTests(unittest.TestCase):
         Authenticode publisher signature — and that copy must not survive a
         version bump, in either direction: an unsigned-era sentence left behind,
         or a warning-free Windows promise the certificate has not earned yet.
+        The `docs/installing.md` filename examples moved to 0.1.68 with the
+        version bump, so this test no longer asserts them.
         """
 
         release_path = ROOT / "docs" / "releases" / "0.1.67.md"
         self.assertTrue(release_path.is_file(), "0.1.67 release notes are missing")
 
         release = release_path.read_text(encoding="utf-8")
-        installing = (ROOT / "docs" / "installing.md").read_text(encoding="utf-8")
         collapsed = " ".join(release.split())
 
         self.assertIn("# AM Configurator 0.1.67", release)
@@ -1646,7 +1647,6 @@ class ReleaseInfoTests(unittest.TestCase):
         ):
             with self.subTest(filename=filename):
                 self.assertIn(filename, release)
-                self.assertIn(filename, installing)
 
         for expected in (
             "Apple Developer ID Application certificate",
@@ -1875,7 +1875,7 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(operation=operation):
                 self.assertIn(operation, form)
         self.assertIn("AM Neon 80", form)
-        self.assertIn("0.1.67", form)
+        self.assertIn("0.1.68", form)
         self.assertIn("Remove API keys", form)
         self.assertIn("sanitized", form)
         self.assertIn("blank_issues_enabled: false", config)

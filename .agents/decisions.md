@@ -1,5 +1,25 @@
 # Repository Decisions
 
+## 2026-08-08 — The current product/release version is 0.1.68
+
+Status: approved by the owner on 2026-08-08 ("go") while authorizing the
+release slice that ships the packaged-TLS-trust fix.
+
+- The current product/release version is `0.1.68`. It succeeds the published
+  `0.1.67` release (tag `v0.1.67` at `6c1d652`), which stays published,
+  unmoved, and unmodified.
+- The 2026-07-28 canonical-version decision otherwise stands unchanged:
+  `am_configurator/_version.py` is the canonical source, every artifact
+  reports that exact version, and a version changes only through a deliberate
+  source edit for a new public product release.
+- `0.1.68` exists to ship the packaged-TLS-trust fix (`028e73b`, reviewed
+  clean): 0.1.67's installed builds carry an empty CA trust store, so no AI
+  provider is reachable over HTTPS from them on machines without the build
+  machine's certificate path. Signing claims and install copy are unchanged
+  from 0.1.67.
+- Publication of `0.1.68` — push, tag, builds, qualification — is separately
+  gated and has not happened.
+
 ## 2026-08-07 — The current product/release version is 0.1.67
 
 Status: approved by the owner on 2026-08-07 while authorizing the version bump
