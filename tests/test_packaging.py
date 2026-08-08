@@ -1619,6 +1619,74 @@ class ReleaseInfoTests(unittest.TestCase):
             with self.subTest(prohibited=prohibited):
                 self.assertNotIn(prohibited, public_docs.casefold())
 
+    def test_current_0_1_68_release_notes_describe_the_fixed_signed_release(self) -> None:
+        """0.1.68 ships the packaged-TLS-trust fix.
+
+        The release notes are the published Release body (`release-identity`
+        refuses a tag without them). 0.1.68 exists because 0.1.67's installed
+        builds carried an empty certificate trust store and could not reach any
+        AI provider over HTTPS, so the body must state that fix plainly, keep
+        the signing claims 0.1.67 established, and never regress to unsigned-era
+        copy or dialog-level mechanics.
+        """
+
+        release_path = ROOT / "docs" / "releases" / "0.1.68.md"
+        self.assertTrue(release_path.is_file(), "0.1.68 release notes are missing")
+
+        release = release_path.read_text(encoding="utf-8")
+        installing = (ROOT / "docs" / "installing.md").read_text(encoding="utf-8")
+        collapsed = " ".join(release.split())
+
+        self.assertIn("# AM Configurator 0.1.68", release)
+
+        for filename in (
+            "AM-Configurator-0.1.68-macOS-arm64.dmg",
+            "AM-Configurator-0.1.68-Windows-x64-Setup.exe",
+            "AM-Configurator-0.1.68-Linux-x86_64.AppImage",
+        ):
+            with self.subTest(filename=filename):
+                self.assertIn(filename, release)
+                self.assertIn(filename, installing)
+
+        for expected in (
+            "packaged certificate trust store",
+            "The AI service could not be reached",
+            "one real HTTPS connection",
+            "Apple Developer ID Application certificate",
+            "notarized by Apple",
+            "Azure Trusted Signing",
+            "the Linux AppImage is unsigned",
+            "SmartScreen",
+            "reports no attestation for them",
+            "AI is optional and off by default",
+            "procedural LED settings",
+            "rendered locally",
+            "does not expose LED read-back",
+            "Remote provider paths are experimental",
+            "not affiliated with or endorsed by Angry Miao",
+            "https://github.com/roethlar/AMKB-GUI/releases/tag/v0.1.68",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, collapsed)
+
+        for prohibited in (
+            "not notarized",
+            "no Authenticode publisher signature",
+            "not code-signed",
+            "unsigned by design",
+        ):
+            with self.subTest(prohibited=prohibited):
+                self.assertNotIn(prohibited, collapsed.casefold())
+        self.assertNotRegex(collapsed.casefold(), r"\b(?:beta|prerelease)\b")
+
+        # The 2026-08-03 copy ruling: release-note copy states benefits and
+        # safety properties, never dialog-level mechanics; the per-OS
+        # first-launch steps belong to docs/installing.md, which this body
+        # links.
+        for mechanics in (r"\bmore info\b", r"\brun anyway\b", r"\bopen anyway\b"):
+            with self.subTest(mechanics=mechanics):
+                self.assertNotRegex(collapsed.casefold(), mechanics)
+
     def test_current_0_1_67_release_notes_describe_the_signed_release(self) -> None:
         """0.1.67 is the first platform-signed release.
 
