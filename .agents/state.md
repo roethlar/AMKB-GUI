@@ -29,6 +29,30 @@
   identity from a non-empty `APPLE_SIGNING_IDENTITY` and otherwise ad-hoc
   signs as before. Bundled Windows DLLs and `.pyd` files stay unsigned;
   only the launched executable and the installer are signed.
+- **The signed lane now publishes** (`1f096dc`, committed locally, unpushed):
+  a `publish` job needs `[macos, windows, linux]`, downloads the three signed
+  artifacts into one directory, regenerates `release-manifest.json` and
+  `SHA256SUMS.txt` through `build_tools/release_manifest.py`, and makes one
+  `softprops/action-gh-release@v2` upload of the five files. It is the only
+  job with `contents: write` and runs only on a `v*` tag push — a
+  `workflow_dispatch` still stops at the uploaded artifacts, because it has
+  no tag to attach assets to. Release title, body, and flags follow the
+  hand-published convention: `AM Configurator <version>`, the committed
+  `docs/releases/<version>.md` as the body, normal/latest, never draft or
+  prerelease, no generated changelog; `release-identity` fails a tag push in
+  seconds when that notes file is missing. Nothing about the publish path is
+  provable without a real tag run.
+- **Blocking the next tag:** `docs/releases/0.1.66.md` is now a release
+  *body*, and it states the macOS bundle is not notarized and the Windows
+  installer has no Authenticode publisher signature. That copy is false for a
+  signed release and must be corrected in the release-notes doc for the
+  version being tagged — the same stale-copy work README and
+  `docs/installing.md` need.
+- Assets published by the tag lane carry no build attestation:
+  `desktop.yml`'s `provenance` job is `main`-push-only, so
+  `gh attestation verify` covers candidate builds, not signed release assets.
+  Unchanged by this slice; decide before the next release whether release
+  notes may keep pointing at attestation.
 - **Signing conflict RESOLVED by owner override (2026-08-07).** The
   2026-07-28 "permanently platform-unsigned" decision is superseded — see
   `.agents/decisions.md` "2026-08-07 — Installers are platform-signed" for
@@ -56,8 +80,11 @@
 
 ## Blockers
 
-- Publication is complete. The platform-signing conflict is resolved (owner
-  override, 2026-08-07 — see Now). Remaining gate: signing correctness is
-  only provable by a real run of the new release workflow, which needs the
-  local commits pushed (owner-gated) and then a `workflow_dispatch` the
-  owner triggers.
+- `0.1.66` publication is complete and the platform-signing conflict is
+  resolved (owner override, 2026-08-07 — see Now). Signing itself is proven
+  (run 31228842806). Remaining gate: the tag-triggered publish path has never
+  run. Proving it needs the local commits pushed and then a real `v*` tag,
+  and creating or pushing a tag is explicitly owner-authorized work per
+  `.agents/push-policy.md` — it also publishes a real public release, so it
+  is not a rehearsal. The stale unsigned release-notes copy must be fixed
+  first (see Now).
