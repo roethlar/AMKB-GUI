@@ -2438,6 +2438,57 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(1, len(workers))
         self.assertTrue(workers[0].startswith("am-device-io"))
 
+    def test_support_report_route_is_read_only_and_sanitized(self) -> None:
+        from am_configurator.transport import DeviceHandle
+
+        def fake_discovery():
+            return [
+                (
+                    DeviceHandle("serial", "/Users/secret/ttyUSB0"),
+                    {
+                        "product_id": "FUTURE80",
+                        "is_keyboard": True,
+                        "version": "9.9.9",
+                        "pages": 4,
+                        "path": "/Users/secret/ttyUSB0",
+                        "serial_number": "do-not-leak",
+                    },
+                )
+            ]
+
+        # Minimal stand-in: device_json is used by _device_payload path.
+        # Use create_server with discovery that returns handle+info pairs.
+        isolated_server, url = create_server(device_discovery=fake_discovery)
+        isolated_thread = threading.Thread(
+            target=isolated_server.serve_forever,
+            daemon=True,
+        )
+        isolated_thread.start()
+        try:
+            token = parse_qs(urlparse(url).query)["token"][0]
+            request = Request(
+                f"http://127.0.0.1:{isolated_server.server_port}/api/devices/support-report",
+                headers={"X-AM-Token": token},
+            )
+            with urlopen(request, timeout=5) as response:
+                payload = json.loads(response.read())
+                self.assertEqual(200, response.status)
+        finally:
+            isolated_server.shutdown()
+            isolated_server.server_close()
+            isolated_thread.join(timeout=2)
+
+        self.assertEqual("New keyboard model detected", payload["headline"])
+        self.assertEqual(1, payload["counts"]["unsupported_keyboards"])
+        blob = json.dumps(payload)
+        self.assertNotIn("/Users/secret", blob)
+        self.assertNotIn("do-not-leak", blob)
+        self.assertNotIn("ttyUSB0", blob)
+        device = payload["devices"]["unsupported_keyboards"][0]
+        self.assertEqual("FUTURE80", device["product_id"])
+        self.assertNotIn("address", device)
+        self.assertNotIn("path", device)
+
     def test_non_ascii_auth_header_is_cleanly_rejected(self) -> None:
         for method, body in ((b"GET", b""), (b"POST", b"{}")):
             with self.subTest(method=method.decode("ascii")):

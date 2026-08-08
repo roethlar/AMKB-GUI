@@ -28,6 +28,7 @@ from urllib.parse import parse_qs, urlparse
 from . import (
     __version__,
     device_mapping,
+    device_report,
     macro_text,
     profile_import,
     profile_metadata,
@@ -2566,6 +2567,21 @@ class _Handler(BaseHTTPRequestHandler):
                     for device in devices:
                         _remember_device_layout(device)
                     self._json({"devices": devices})
+                elif path == "/api/devices/support-report":
+                    # Read-only: same discovery as /api/devices, then sanitize
+                    # for a GitHub-ready report. Never opens a write path.
+                    def scan_for_report():
+                        discover = self.state._device_discovery or transport.discover
+                        found = discover()
+                        self.state.last_device_scan = time.monotonic()
+                        return found
+
+                    found = self.state.device_io(scan_for_report)
+                    devices = [
+                        _device_payload(handle, info)
+                        for handle, info in found
+                    ]
+                    self._json(device_report.build_support_report(devices))
                 elif path == "/api/settings":
                     self._json(
                         _settings_view(

@@ -147,12 +147,11 @@
   not). When AUR is back: `prepare-aur` then `push-aur` from a host with AUR
   SSH — no agent required. Then S3 (README install option only after package
   is live).
-- The UI redesign project (rulings needed: pilot screen, prototype form,
-  arrangements per round), and the unsupported-board onboarding plan (owner
-  approved 2026-08-03): "new keyboard model detected" plus a read-only scan
-  packaging a sanitized device report for GitHub submission. Known limit:
-  serial-protocol LED geometry is not probeable, so lighting for new serial
-  families still needs a physical board or vendor source.
+- **Unsupported-board report (in progress):** plan
+  `docs/superpowers/plans/2026-08-08-unsupported-board-report.md`. UB-1+UB-2
+  landed: `device_report` sanitizer + `GET /api/devices/support-report`.
+  Next implementable: UB-3 UI (device list empty state + copy report).
+  AUR remains parked (Arch AUR lock).
 
 ## Blockers
 
