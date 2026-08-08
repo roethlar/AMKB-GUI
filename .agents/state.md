@@ -5,12 +5,23 @@
 - **0.1.67 is prepared and unpublished** (2026-08-07): canonical version
   `0.1.67` (`am_configurator/_version.py`), `docs/releases/0.1.67.md` written as
   the Release body, and the unsigned-era install copy retired from README and
-  `docs/installing.md`. Four local commits, unpushed by instruction:
+  `docs/installing.md`. Five local commits, unpushed by instruction:
   `1aca8e6` (version bump and its literals), `f995119` (release notes plus the
   guard that keeps 0.1.66's false signing claims from returning), `0c31c0f`
-  (README/`docs/installing.md`, and the public-docs guard moved with them), and
-  this record. Full local verification green (736 unittest tests, compileall,
+  (README/`docs/installing.md`, and the public-docs guard moved with them),
+  this record, and `267f3ce` (release-note copy back inside the 2026-08-03
+  ruling). Full local verification green (736 unittest tests, compileall,
   node tests and syntax checks, `uv build`).
+- **The 2026-08-03 copy ruling binds the release-note body, not just the
+  announcement.** Its first sentence names release-note copy; the
+  no-dialog-mechanics sentence that `4c60d3c` added names announcement copy.
+  0.1.67 first shipped a `## First launch` section carrying SmartScreen button
+  steps; `267f3ce` removed it and folded the trust facts into Downloads, which
+  is how 0.1.64, 0.1.65, and 0.1.66 all did it. The per-OS button-level steps
+  stay in `docs/installing.md`, which the notes link, and the 0.1.67 notes test
+  now refuses those button phrases in the release body. If the owner reads the
+  ruling as announcement-only, the section can come back — nothing else
+  depends on its absence.
 - **The only functional change since `v0.1.66` is the About panel's Sponsors and
   Ko-fi links** (`am_configurator/web/index.html`). Everything else in
   `v0.1.66..HEAD` was signing/CI, docs, tests, or README images — no keymap,
