@@ -2,6 +2,19 @@
 
 ## Now
 
+- **0.1.68 is published** (2026-08-08): tag `v0.1.68` at `cdcf841`, signed
+  release run 31240024617 fully green (Release identity, signed Windows
+  installer, signed macOS installer, Linux AppImage, Publish), GitHub Release
+  "AM Configurator 0.1.68" normal/latest published 04:43Z with all five
+  assets. It ships the packaged-TLS-trust fix, and — via the new
+  `AM_SMOKE_NET=1` workflow env — every frozen smoke test in that run proved
+  the packaged CA trust with a real HTTPS connection. This is the first
+  release whose installed builds can reach AI providers over HTTPS on
+  ordinary user machines. Owner authorized push, tag, and publication via
+  the 2026-08-08 goal directive ("do not stop until there is a signed
+  download for all possible platforms on github"); "all possible platforms"
+  reads as macOS and Windows signed, Linux unsigned by standing decision
+  (no publisher-signing equivalent).
 - **Packaged TLS trust is fixed and committed, unpushed** (2026-08-08):
   `028e73b` (fix) and `328a738` (CI guard). Root cause: frozen builds bundle
   an OpenSSL whose default CA path is baked to the build machine
@@ -134,18 +147,9 @@
 
 ## Blockers
 
-- **`v0.1.68` is prepared; push and tag are the owner's next move.** The
-  release slice is committed locally (owner "go", 2026-08-08): canonical
-  version `0.1.68` (`7dac422` — version literals, issue-form placeholders,
-  install docs, packaging tests, decisions entry) and `docs/releases/0.1.68.md`
-  as the Release body with its guard test (`d07f5c4`), on top of the TLS fix
-  (`028e73b`) and CI guard (`328a738`). Full local verification green
-  (738 unittest tests, compileall, node tests and syntax checks, `uv build`
-  producing 0.1.68 artifacts); `release-identity` requirements hold for a
-  `v0.1.68` tag. What remains is pushing the local commits and creating the
-  tag, which `.agents/push-policy.md` reserves to explicit owner
-  authorization. Whether the published 0.1.67 listing should carry a
-  known-issue note about unreachable AI providers is also the owner's call.
+- Whether the published 0.1.67 listing should carry a known-issue note about
+  its unreachable AI providers, now that 0.1.68 supersedes it, is the owner's
+  call.
 - Two things for the owner to rule on before or with that tag: whether the
   unobserved first-launch trust behaviour on a signed package gates publication,
   and whether `release.yml` should attest its assets (the docs currently state
