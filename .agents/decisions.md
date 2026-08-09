@@ -1,5 +1,34 @@
 # Repository Decisions
 
+## 2026-08-08 — OpenKeeb is a firmware manager; OpenRGB is last resort
+
+Status: approved by the owner on 2026-08-08 while rejecting the proposed
+external-OpenRGB-service-first policy. Owner's words: "running lighting
+software all the time is not a tradeoff I would ever make" and "This is a
+keyboard formware manager. not a frontend to a TSR."
+
+- OpenKeeb's primary integrations talk directly to keyboard firmware through
+  Vial, VIA, XAP, documented vendor protocols, or an approved companion
+  firmware protocol.
+- A normal configuration or Lighting Studio write persists on the keyboard and
+  keeps working after OpenKeeb exits and after the keyboard reconnects. If a
+  device cannot persist a capability, OpenKeeb does not imply that it can.
+- OpenRGB is a last-resort adapter only for keyboards that cannot be supported
+  directly. It may be used during a finite, user-initiated configuration
+  session only when it can leave the selected hardware state persisted on the
+  device.
+- OpenKeeb does not bundle, install, auto-start, supervise, or require a
+  continuously running OpenRGB server. Host-driven RGB streaming is not a core
+  product capability or a public Lighting Studio support claim.
+- If a keyboard's only arbitrary per-LED path requires a resident host process,
+  OpenKeeb may still support its keymap, macros, or firmware-defined lighting
+  effects, but not persistent custom-frame upload.
+- This supersedes the OpenKeeb plan's earlier external-service-first
+  recommendation and narrows the capability-based contract: technical output
+  modes remain distinct, but resident live streaming is not a primary v2 lane.
+- This decision settles product architecture only. It does not authorize an
+  implementation slice or firmware flashing.
+
 ## 2026-08-08 — OpenKeeb support is capability-based
 
 Status: approved by the owner on 2026-08-08 ("approval") after the plan asked
