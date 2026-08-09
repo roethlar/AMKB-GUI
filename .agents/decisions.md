@@ -1,5 +1,30 @@
 # Repository Decisions
 
+## 2026-08-08 — OpenKeeb is the in-place v2 successor
+
+Status: approved by the owner on 2026-08-08. After choosing an in-place
+successor rather than a separately installed product, the owner selected the
+public name: "OpenKeeb".
+
+- OpenKeeb is the planned `2.0.0` successor to AM Configurator, not a second
+  product installed beside it.
+- The existing repository, release history, publisher-signing identities,
+  Windows installer `AppId`, and macOS bundle identifier remain the product
+  lineage. Existing users must have an upgrade path rather than being left on
+  an unrelated install identity.
+- User-facing branding and identifiers that have not yet been published to a
+  package-manager registry move to OpenKeeb before v2 publication.
+- Existing AM Configurator releases, tags, artifact names, and published copy
+  remain historical records and are not renamed.
+- Hidden implementation names such as the `am_configurator` Python module do
+  not need a churn-only rename. A later approved plan may add new public
+  command/package aliases while retaining compatibility internally.
+- "OpenKeeb" still requires namespace, domain, and legal/trademark clearance
+  before a public v2 release. A preliminary search is not legal clearance.
+- This decision authorizes product planning and supersedes future use of the
+  old package-manager identifiers for v2. It does not by itself authorize a
+  git branch, source rebrand, identifier migration, or release.
+
 ## 2026-08-08 — Install docs list options only; no inflated trust narrative
 
 Status: approved by the owner on 2026-08-08 while rejecting agent-proposed
@@ -25,7 +50,9 @@ chat thinks are important."
 ## 2026-08-08 — Package-manager identifiers (D2)
 
 Status: approved by the owner on 2026-08-08 ("yes") as Decision D2 of the
-package-manager distribution plan.
+package-manager distribution plan. Superseded for OpenKeeb v2 by
+"2026-08-08 — OpenKeeb is the in-place v2 successor"; remains the historical
+AM Configurator 0.x identifier set.
 
 | Field | Value |
 |---|---|
@@ -36,7 +63,9 @@ package-manager distribution plan.
 | License | MIT |
 | Flatpak app id (later) | `io.github.roethlar.AMConfigurator` |
 
-- These identifiers are stable for AUR packaging and later Flatpak work.
+- These identifiers remain stable for AM Configurator 0.x artifacts. Do not
+  publish them as OpenKeeb identifiers; v2 identifiers require a later owner
+  ruling.
 - Plan: `docs/superpowers/plans/2026-08-08-package-manager-distribution.md`.
 
 ## 2026-08-08 — Package-manager P1 channel set is AUR first (option A)

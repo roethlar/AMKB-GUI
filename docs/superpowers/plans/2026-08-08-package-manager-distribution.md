@@ -1,13 +1,16 @@
 # Package-manager distribution
 
-**Status:** AUR **parked** (Arch AUR lock, 2026). **Flatpak is the active
-Linux publish channel.** D1a/D1b/D2 still apply; identifiers include
-`io.github.roethlar.AMConfigurator`.
+**Status:** **Paused before registry publication** by the 2026-08-08 OpenKeeb
+v2 identity decision. AUR was already parked by the Arch lock; Flatpak
+prepare/build tooling exists but must not be published under
+`io.github.roethlar.AMConfigurator`. D1a/D1b remain product-direction history;
+D2 identifiers apply only to AM Configurator 0.x. OpenKeeb identifiers require
+a later owner ruling.
 
 **AUR (parked):** tooling ready (`./build_tools/release_aur.sh`); do not spin
 on push until Arch reopens package create/push.
 
-**Flatpak (active):**
+**Flatpak tooling (do not publish under the old app id):**
 
 ```sh
 ./build_tools/release_flatpak.sh prepare   # after a public GitHub Release
@@ -16,6 +19,8 @@ on push until Arch reopens package create/push.
 ```
 
 Process: `packaging/flatpak/PROCESS.md`. AppImage via extra-data from Releases.
+Retargeting belongs to `2026-08-08-openkeeb-v2.md`; do not mechanically rename
+identifiers until that plan records the owner-approved namespace set.
 
 ## Product priority (owner, 2026-08-08)
 

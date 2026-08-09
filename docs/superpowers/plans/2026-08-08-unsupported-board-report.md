@@ -1,7 +1,9 @@
 # Unsupported-board detection and support report
 
-**Status:** Approved in principle (owner 2026-08-03, state.md). Implementation
-started 2026-08-08 with slice UB-1. AUR work is parked independently.
+**Status:** UB-1 and UB-2 landed. UB-3 and UB-4 are folded into OpenKeeb v2
+planning (`2026-08-08-openkeeb-v2.md`) so unsupported-device discovery uses
+the same future capability contract rather than adding an Angry-Miao-only UI
+that v2 immediately replaces.
 
 ## Objective
 

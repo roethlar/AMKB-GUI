@@ -2,6 +2,14 @@
 
 ## Now
 
+- **OpenKeeb v2 direction approved (planning only, 2026-08-08):** OpenKeeb is
+  the public name for an in-place `2.0.0` successor to AM Configurator. Keep
+  the repository/release lineage, publisher signing, Windows installer
+  `AppId`, and macOS bundle identifier; do not create a side-by-side product.
+  Existing 0.x releases remain unchanged. No v2 git branch, source rename,
+  identifier migration, or implementation has been authorized or performed.
+  Plan: `docs/superpowers/plans/2026-08-08-openkeeb-v2.md`.
+
 - **0.1.68 is published** (2026-08-08): tag `v0.1.68` at `cdcf841`, signed
   release run 31240024617 fully green (Release identity, signed Windows
   installer, signed macOS installer, Linux AppImage, Publish), GitHub Release
@@ -137,13 +145,15 @@
 
 ## Next
 
-- **Package-manager distribution (Linux-first):** AUR **parked** (Arch AUR
-  lock). **Flatpak active:** `./build_tools/release_flatpak.sh prepare|build`,
-  `packaging/flatpak/PROCESS.md`, app id
-  `io.github.roethlar.AMConfigurator` (extra-data AppImage from Releases).
-  Prepare for 0.1.68 works. Build/install proof needs `flatpak-builder`.
-  No user-facing README Flatpak line until installable (Flathub or owner go).
-  Plan: `docs/superpowers/plans/2026-08-08-package-manager-distribution.md`.
+- **OpenKeeb v2 planning:** settle capability-based support, external-lighting
+  dependency policy, exact pilot boards, and public technical identifiers one
+  owner decision at a time. No implementation until the durable plan is
+  approved.
+- **Package-manager distribution paused before publication:** AUR remains
+  parked by the Arch lock; Flatpak prepare/build tooling exists but must not be
+  published under `io.github.roethlar.AMConfigurator`. Retarget both only after
+  OpenKeeb identifiers are approved. Plan:
+  `docs/superpowers/plans/2026-08-08-package-manager-distribution.md`.
 
 ## Blockers
 
