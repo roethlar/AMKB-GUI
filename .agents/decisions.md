@@ -21,9 +21,11 @@ public name: "OpenKeeb".
   command/package aliases while retaining compatibility internally.
 - "OpenKeeb" still requires namespace, domain, and legal/trademark clearance
   before a public v2 release. A preliminary search is not legal clearance.
-- This decision authorizes product planning and supersedes future use of the
-  old package-manager identifiers for v2. It does not by itself authorize a
-  git branch, source rebrand, identifier migration, or release.
+- The owner's preceding request to branch the v2 product is implemented as
+  `v2/openkeeb`, created at planning commit `59f0bb1`. This decision otherwise
+  authorizes product planning and supersedes future use of the old
+  package-manager identifiers for v2; it does not authorize a source rebrand,
+  identifier migration, push, or release.
 
 ## 2026-08-08 — Install docs list options only; no inflated trust narrative
 

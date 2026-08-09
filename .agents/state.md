@@ -6,8 +6,10 @@
   the public name for an in-place `2.0.0` successor to AM Configurator. Keep
   the repository/release lineage, publisher signing, Windows installer
   `AppId`, and macOS bundle identifier; do not create a side-by-side product.
-  Existing 0.x releases remain unchanged. No v2 git branch, source rename,
-  identifier migration, or implementation has been authorized or performed.
+  Existing 0.x releases remain unchanged. Development branch `v2/openkeeb`
+  was created at planning commit `59f0bb1`; no source rename, identifier
+  migration, implementation, push, or release has been authorized or
+  performed.
   Plan: `docs/superpowers/plans/2026-08-08-openkeeb-v2.md`.
 
 - **0.1.68 is published** (2026-08-08): tag `v0.1.68` at `cdcf841`, signed
