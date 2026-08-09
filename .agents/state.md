@@ -11,12 +11,11 @@
   and qualified independently. A board can have RGB support without animation
   upload. OpenKeeb is a firmware/configuration manager, not a resident lighting
   host; OpenRGB is finite-session last resort only, never a required background
-  service. Initial v2 uses firmware already installed on target boards; an
-  OpenKeeb QMK companion module, companion binaries/protocol, and firmware
-  flashing work are deferred beyond initial v2. The architecture retains only
-  a future extension seam. Public language remains broad and capability-specific,
-  never universal; the owner's reference to "the second largest" still needs
-  its exact ecosystem or product identified.
+  service. Initial v2 includes both direct integrations with firmware already
+  installed on target boards and a companion-firmware lane needed for broad
+  ecosystem coverage. The companion's source/binary/protocol delivery boundary
+  remains undecided, and automated firmware flashing is not authorized. Public
+  claims remain capability- and hardware-qualified until broader evidence exists.
   Existing 0.x releases remain unchanged. Development branch `v2/openkeeb`
   was created at planning commit `59f0bb1`; no source rename, identifier
   migration, implementation, push, or release has been authorized or
@@ -159,9 +158,9 @@
 ## Next
 
 - **OpenKeeb v2 planning:** capability-based support, firmware-resident lighting,
-  and stock-firmware-first initial scope are settled. The companion-firmware
-  effort is deferred beyond initial v2. Next clarify what the owner meant by
-  "the second largest," then decide exact pilot boards and public technical
+  and the companion-firmware lane in initial v2 are settled. Next decide whether
+  OpenKeeb maintains companion source integrations, complete firmware binaries,
+  or only a public protocol; then choose exact pilot boards and public technical
   identifiers one owner decision at a time. No implementation until the durable
   plan is approved.
 - **Package-manager distribution paused before publication:** AUR remains

@@ -1,27 +1,28 @@
 # Repository Decisions
 
-## 2026-08-08 — Initial v2 uses installed firmware; companion firmware is deferred
+## 2026-08-08 — Companion firmware is in initial v2 scope
 
-Status: approved by the owner on 2026-08-08 in response to the recommendation
-to support stock-firmware capabilities first and defer an OpenKeeb QMK
-companion. Owner's words: "yes, we can't claim universal if we don't support
-the second largest".
+Status: approved by the owner on 2026-08-08 ("yes, we can't claim universal if
+we don't support the second largest"), then explicitly corrected after the
+first record inverted that ruling ("no, you got that backwards"). The owner
+gave a go to correct the durable record.
 
-- Initial v2 integrates with firmware already installed on supported boards
-  through Vial, VIA, XAP, or documented vendor protocols.
-- Initial v2 does not include an OpenKeeb-maintained QMK companion module,
-  companion firmware binaries, a companion-only protocol implementation, or
-  firmware flashing work.
-- The provider architecture retains an extension seam for a possible future
-  companion firmware effort. That effort needs a concrete capability gap and
-  its own owner-approved source, binary, recovery, licensing, and hardware
-  qualification plan.
-- OpenKeeb must not claim universal keyboard compatibility. The owner's phrase
-  "the second largest" is not yet tied to a named ecosystem, configurator,
-  vendor, or board family, so its exact support implication remains an open
-  clarification rather than an inferred decision.
-- Pilot hardware is the next product-planning decision. This decision does not
-  authorize implementation, firmware work, hardware writes, push, or release.
+- Initial v2 includes a companion-firmware lane. Deferring that lane beyond v2
+  would omit a major keyboard ecosystem and make the broad-compatibility goal
+  incomplete.
+- Direct support for firmware already installed on boards through Vial, VIA,
+  XAP, and documented vendor protocols remains first-class. It complements the
+  companion lane rather than replacing it.
+- The companion delivery boundary remains undecided: OpenKeeb-maintained source
+  integrations, complete firmware binaries, and a public protocol carry
+  different maintenance, recovery, licensing, and qualification obligations.
+- Automated firmware flashing is not authorized. Any installation or recovery
+  workflow needs its own approved safety plan.
+- Supporting the companion lane is necessary but not sufficient for a
+  universal public claim. Claims remain capability- and hardware-qualified
+  until evidence supports anything broader.
+- This decision does not authorize implementation, firmware distribution,
+  hardware writes, push, or release.
 
 ## 2026-08-08 — Persistent RGB support does not require animation upload
 
