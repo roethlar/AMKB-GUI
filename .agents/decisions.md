@@ -1,5 +1,35 @@
 # Repository Decisions
 
+## 2026-08-08 — OpenKeeb support is capability-based
+
+Status: approved by the owner on 2026-08-08 ("approval") after the plan asked
+whether a keyboard may count as supported when it exposes only a safe subset
+of keymap, macros, lighting, and persistent upload.
+
+- OpenKeeb supports a keyboard capability by capability. A board may be
+  supported for keymapping and macros without controllable lighting, or for
+  lighting without runtime remapping.
+- Device discovery, API payloads, UI surfaces, documentation, and compatibility
+  records state each capability independently. They never imply an unavailable
+  capability merely because another capability works.
+- Lighting output modes are distinct capabilities: host-driven live streaming,
+  firmware-defined hardware effects, and persistent custom-frame upload. UI and
+  receipts must not call a live stream "saved to the keyboard".
+- Every mutating capability retains exact device/endpoint matching, complete
+  preflight, typed confirmation, and model/revision/firmware qualification.
+- Public support claims name the capabilities proven on an exact hardware and
+  firmware target. A family-wide claim requires evidence that identity,
+  protocol, geometry, and limits are shared.
+- The 2026-07-25 Neon 80 full-parity decision remains satisfied for Neon and
+  remains historical evidence; it is not a parity requirement for new v2
+  devices.
+- For OpenKeeb v2 this supersedes the product-wide implication of the
+  2026-08-08 Linux-priority decision that product scope is limited to supported
+  Angry Miao keyboards. Linux friction remains important, but v2 scope is
+  cross-vendor.
+- This decision settles the product contract only. It does not authorize an
+  implementation slice.
+
 ## 2026-08-08 — OpenKeeb is the in-place v2 successor
 
 Status: approved by the owner on 2026-08-08. After choosing an in-place

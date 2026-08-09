@@ -6,6 +6,8 @@
   the public name for an in-place `2.0.0` successor to AM Configurator. Keep
   the repository/release lineage, publisher signing, Windows installer
   `AppId`, and macOS bundle identifier; do not create a side-by-side product.
+  Support is capability-based: keymap, macros, live lighting, hardware effects,
+  and persistent upload are advertised and qualified independently.
   Existing 0.x releases remain unchanged. Development branch `v2/openkeeb`
   was created at planning commit `59f0bb1`; no source rename, identifier
   migration, implementation, push, or release has been authorized or
@@ -147,10 +149,10 @@
 
 ## Next
 
-- **OpenKeeb v2 planning:** settle capability-based support, external-lighting
-  dependency policy, exact pilot boards, and public technical identifiers one
-  owner decision at a time. No implementation until the durable plan is
-  approved.
+- **OpenKeeb v2 planning:** capability-based support is settled. Next decide
+  external-lighting dependency policy, then exact pilot boards and public
+  technical identifiers one owner decision at a time. No implementation until
+  the durable plan is approved.
 - **Package-manager distribution paused before publication:** AUR remains
   parked by the Arch lock; Flatpak prepare/build tooling exists but must not be
   published under `io.github.roethlar.AMConfigurator`. Retarget both only after
