@@ -1,5 +1,28 @@
 # Repository Decisions
 
+## 2026-08-08 — Initial v2 uses installed firmware; companion firmware is deferred
+
+Status: approved by the owner on 2026-08-08 in response to the recommendation
+to support stock-firmware capabilities first and defer an OpenKeeb QMK
+companion. Owner's words: "yes, we can't claim universal if we don't support
+the second largest".
+
+- Initial v2 integrates with firmware already installed on supported boards
+  through Vial, VIA, XAP, or documented vendor protocols.
+- Initial v2 does not include an OpenKeeb-maintained QMK companion module,
+  companion firmware binaries, a companion-only protocol implementation, or
+  firmware flashing work.
+- The provider architecture retains an extension seam for a possible future
+  companion firmware effort. That effort needs a concrete capability gap and
+  its own owner-approved source, binary, recovery, licensing, and hardware
+  qualification plan.
+- OpenKeeb must not claim universal keyboard compatibility. The owner's phrase
+  "the second largest" is not yet tied to a named ecosystem, configurator,
+  vendor, or board family, so its exact support implication remains an open
+  clarification rather than an inferred decision.
+- Pilot hardware is the next product-planning decision. This decision does not
+  authorize implementation, firmware work, hardware writes, push, or release.
+
 ## 2026-08-08 — Persistent RGB support does not require animation upload
 
 Status: approved by the owner on 2026-08-08 while correcting an implication
