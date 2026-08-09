@@ -15,7 +15,6 @@
   download for all possible platforms on github"); "all possible platforms"
   reads as macOS and Windows signed, Linux unsigned by standing decision
   (no publisher-signing equivalent).
-- **Packaged TLS trust is fixed and committed, unpushed** (2026-08-08):
   `028e73b` (fix) and `328a738` (CI guard). Root cause: frozen builds bundle
   an OpenSSL whose default CA path is baked to the build machine
   (`/Library/Frameworks/Python.framework/.../etc/openssl/cert.pem`), so every
