@@ -6,11 +6,12 @@
   the public name for an in-place `2.0.0` successor to AM Configurator. Keep
   the repository/release lineage, publisher signing, Windows installer
   `AppId`, and macOS bundle identifier; do not create a side-by-side product.
-  Support is capability-based: keymap, macros, firmware-defined lighting
-  effects, and persistent custom upload are advertised and qualified
-  independently. OpenKeeb is a firmware/configuration manager, not a resident
-  lighting host; OpenRGB is finite-session last resort only, never a required
-  background service.
+  Support is capability-based: keymap, macros, persistent static RGB,
+  firmware-defined lighting effects, and custom animation upload are advertised
+  and qualified independently. A board can have RGB support without animation
+  upload. OpenKeeb is a firmware/configuration manager, not a resident lighting
+  host; OpenRGB is finite-session last resort only, never a required background
+  service.
   Existing 0.x releases remain unchanged. Development branch `v2/openkeeb`
   was created at planning commit `59f0bb1`; no source rename, identifier
   migration, implementation, push, or release has been authorized or

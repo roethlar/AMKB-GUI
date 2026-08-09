@@ -1,5 +1,32 @@
 # Repository Decisions
 
+## 2026-08-08 — Persistent RGB support does not require animation upload
+
+Status: approved by the owner on 2026-08-08 while correcting an implication
+that RGB boards without custom animation storage would lack OpenKeeb lighting
+support. Owner's words: "some boards support rgb but not animation. we can
+still support those. that covers the drop boards, if I recall."
+
+- Persistent lighting is a capability group, not one boolean. At minimum,
+  OpenKeeb models these independent firmware capabilities:
+  - static color control, with explicit global/zone/per-key granularity;
+  - firmware-defined effect selection and supported parameters;
+  - custom animation/frame upload and device-side playback.
+- A keyboard may receive full OpenKeeb RGB support for its static colors and
+  hardware effects while custom animation upload remains unavailable.
+- The Lighting surface exposes only controls backed by the connected device.
+  It must not hide all lighting merely because the animation timeline is
+  unavailable, and it must not show an animation write action that firmware
+  cannot perform.
+- A companion firmware module is not required to support a board's existing
+  persistent RGB features. It is considered only if adding richer custom
+  animation is worthwhile and practical.
+- Drop CTRL/ALT are expected candidates for persistent hardware-effect support,
+  not assumed custom-animation targets. Exact model, revision, firmware, and
+  protocol behavior must be read and qualified before the claim becomes public.
+- This clarifies the capability-based and firmware-manager decisions above; it
+  does not authorize an implementation slice or a hardware write.
+
 ## 2026-08-08 — OpenKeeb is a firmware manager; OpenRGB is last resort
 
 Status: approved by the owner on 2026-08-08 while rejecting the proposed
@@ -41,9 +68,10 @@ of keymap, macros, lighting, and persistent upload.
 - Device discovery, API payloads, UI surfaces, documentation, and compatibility
   records state each capability independently. They never imply an unavailable
   capability merely because another capability works.
-- Lighting output modes are distinct capabilities: host-driven live streaming,
-  firmware-defined hardware effects, and persistent custom-frame upload. UI and
-  receipts must not call a live stream "saved to the keyboard".
+- Persistent lighting capabilities are distinct: static colors,
+  firmware-defined hardware effects, and custom-frame upload. Any last-resort
+  host-driven preview is separately labeled and never called "saved to the
+  keyboard".
 - Every mutating capability retains exact device/endpoint matching, complete
   preflight, typed confirmation, and model/revision/firmware qualification.
 - Public support claims name the capabilities proven on an exact hardware and
