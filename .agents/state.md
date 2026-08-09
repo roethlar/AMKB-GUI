@@ -16,6 +16,9 @@
   ecosystem coverage. The companion's source/binary/protocol delivery boundary
   remains undecided, and automated firmware flashing is not authorized. Public
   claims remain capability- and hardware-qualified until broader evidence exists.
+  The planning record is current as of `ec152c1` (2026-08-09), which corrects
+  and supersedes the inverted companion-firmware ruling in `79a3d5e` without
+  rewriting history.
   Existing 0.x releases remain unchanged. Development branch `v2/openkeeb`
   was created at planning commit `59f0bb1`; no source rename, identifier
   migration, implementation, push, or release has been authorized or
