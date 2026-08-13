@@ -166,9 +166,11 @@
   `docs/superpowers/plans/2026-08-13-am-led-effect-techniques.md`. It adopts
   two techniques (new raster-domain effect kinds; reactive panel→key track
   derivation for CB/NEON) and rejects per-key geometry sampling, LCM frame
-  counts, hash-noise-as-change, and word_page text authoring. Owner rulings
-  outstanding, in order: kind subset, reactive mode + switch location,
-  rejection confirmations. No implementation authorized.
+  counts, hash-noise-as-change, and word_page text authoring. Ruling 1
+  landed 2026-08-13: seven kinds (breathe, chase, ripple, matrix_rain,
+  heartbeat, fire, twinkle), strobe excluded. Rulings outstanding, in
+  order: reactive mode + switch location, rejection confirmations. No
+  implementation authorized.
 - **OpenKeeb v2 planning:** capability-based support, firmware-resident lighting,
   and the companion-firmware lane in initial v2 are settled. Next decide whether
   OpenKeeb maintains companion source integrations, complete firmware binaries,

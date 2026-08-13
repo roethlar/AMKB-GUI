@@ -1,10 +1,12 @@
 # Procedural Effect Expansion from AM LED Builder Techniques
 
-**Status:** Draft. Owner rulings pending, in order: (1) which new effect
-kinds to adopt, (2) whether to add the reactive panel-coupled key track and
-where its switch lives, (3) confirmation of the rejections recorded below.
-No implementation is authorized until the rulings land and this status line
-records them.
+**Status:** Draft. Ruling (1) landed 2026-08-13: adopt seven kinds —
+breathe, chase, ripple, matrix_rain, heartbeat, fire, twinkle; strobe is
+excluded ("Seven, no strobe"). Rulings pending, in order: (2) whether to
+add the reactive panel-coupled key track and where its switch lives,
+(3) confirmation of the rejections recorded below. No implementation is
+authorized until the remaining rulings land and this status line records
+them.
 
 ## Source analysis
 
@@ -50,10 +52,13 @@ Engine characteristics observed:
 - True per-key x/y geometry exists only for NEON dynamic layouts read from
   the device; the three fixed families are raster-placement only.
 
-## Adopt 1 — new raster-domain layer kinds (subset per owner ruling)
+## Adopt 1 — new raster-domain layer kinds (ruled: seven, no strobe)
 
-Add kinds to `procedural._KINDS`, implemented in `_sample_layer` in the
-existing raster/phase domain. Hard constraints for every new kind:
+Add `breathe`, `chase`, `ripple`, `matrix_rain`, `heartbeat`, `fire`, and
+`twinkle` to `procedural._KINDS`, implemented in `_sample_layer` in the
+existing raster/phase domain. `strobe` is excluded by the 2026-08-13
+ruling; its sketch below is retained only as the record of what was
+declined. Hard constraints for every new kind:
 
 - Reuse only existing `_LAYER_KEYS` parameters; no schema key additions.
 - Periodic in `local_phase` so loop-by-construction is preserved.
@@ -72,9 +77,10 @@ Candidate kinds, each returning `(amount, mix)` like existing kinds:
   `amount = (0.5 - 0.5*cos(2π*local_phase))^gamma`, `gamma` from `width`
   (smaller width → sharper); `mix` = the oscillation value. Distinct from
   `pulse`, which is an expanding radial ring.
-- `strobe` — global square wave: on when `frac(local_phase) < duty`,
-  `duty = 0.1 + 0.4*width`; `amount` 1/0, `mix` fixed 0. Bound `speed` to
-  keep adjacent-difference within gates; drop if impossible.
+- `strobe` (**declined 2026-08-13, do not implement**) — global square
+  wave: on when `frac(local_phase) < duty`, `duty = 0.1 + 0.4*width`;
+  `amount` 1/0, `mix` fixed 0. Declined for its adjacent-frame-difference
+  conflict with the quality gates.
 - `chase` — `count` runners with exponential tails traversing lit raster
   cells in serpentine row-major order; runner head position =
   `frac(local_phase + i/count) * n_cells`; tail length from `trail`;
@@ -97,10 +103,7 @@ Candidate kinds, each returning `(amount, mix)` like existing kinds:
   offset and rate; contrast with `sparkle`, which places `count` discrete
   points from the seed.
 
-Ripple/breathe overlap least with existing kinds; strobe is the most
-gate-hostile. The owner ruling selects the subset.
-
-Companion work required by the selected subset:
+Companion work required by the adopted kinds:
 
 - Extend semantic validation and `recipe_schema()` enums.
 - Extend `recipe_system_prompt()` with one-line guidance per kind
