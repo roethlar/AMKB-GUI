@@ -89,6 +89,8 @@
 
 ## Next
 
+- **Lighting-creation direction reopened (2026-08-14):** the owner reports that the LLM integration has added no meaningful product value and is considering removing it. An owner-supplied Cyberboard export from the community AM LED builder was inspected and verified to contain finished per-frame `frame_RGB` board data inside a full profile, not a recipe. The discussion rejected three proposed framings: direct LLM-to-frame output as unlikely to be reliable, economical, and good on the first request; generated recipe/program JSON as not what the owner meant; and an elaborate layer/timeline compositor as not the desired improvement. Do not infer the replacement. The unanswered question is whether the owner wants a non-AI procedural effect generator close to the reference builder's interaction model, and what specifically should improve beyond it. No LLM removal, replacement design, plan revision, implementation, or push for this direction is authorized. Next action: get the owner's answer before changing the existing effect-techniques plan or code.
+
 - **Procedural effect expansion plan drafted, rulings pending (2026-08-13):**
   assessment of <https://am-led.nanakumi.net> (community AM LED JSON builder;
   unlicensed, no public source — clean-room only) produced
