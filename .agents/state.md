@@ -98,8 +98,21 @@
   counts, hash-noise-as-change, and word_page text authoring. Ruling 1
   landed 2026-08-13: seven kinds (breathe, chase, ripple, matrix_rain,
   heartbeat, fire, twinkle), strobe excluded. Rulings outstanding, in
-  order: reactive mode + switch location, rejection confirmations. No
+  order: reactive mode + switch location, remaining rejection confirmations. No
   implementation authorized.
+  Ruling 2 landed 2026-08-14: **text banner authoring is in v2 scope**,
+  reversing the plan's `word_page` rejection. NEON and Cyberboard only — the
+  billboard panel is the reason the feature exists — and panel display becomes a
+  persistent-lighting subcapability. Text authoring needs its own plan before
+  implementation. See `.agents/decisions.md` "2026-08-14 — Text banner authoring
+  is in v2 scope".
+  Strobe is **not declined**; the 2026-08-13 record was wrong twice over. Its
+  written rationale (an adjacent-frame-difference conflict) is contradicted by
+  the code — `validate_quality` requires adjacent difference greater than zero
+  and a strobe maximizes it. And strobe is not a per-key kind at all: on the
+  reference builder it is a *text effect* toggle beside Pulse, Flicker, and
+  Glow. It belongs to the text banner feature above and arrives with it.
+  Ruling 1 stands unchanged at seven per-key kinds.
 - **OpenKeeb v2 planning:** capability-based support, firmware-resident lighting,
   and the companion-firmware lane in initial v2 are settled. Next decide whether
   OpenKeeb maintains companion source integrations, complete firmware binaries,

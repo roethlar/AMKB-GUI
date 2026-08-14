@@ -52,13 +52,13 @@ Engine characteristics observed:
 - True per-key x/y geometry exists only for NEON dynamic layouts read from
   the device; the three fixed families are raster-placement only.
 
-## Adopt 1 — new raster-domain layer kinds (ruled: seven, no strobe)
+## Adopt 1 — new raster-domain layer kinds (ruled: seven)
 
 Add `breathe`, `chase`, `ripple`, `matrix_rain`, `heartbeat`, `fire`, and
 `twinkle` to `procedural._KINDS`, implemented in `_sample_layer` in the
-existing raster/phase domain. `strobe` is excluded by the 2026-08-13
-ruling; its sketch below is retained only as the record of what was
-declined. Hard constraints for every new kind:
+existing raster/phase domain. `strobe` is not among them because it is not
+a per-key kind — see the corrected note below. Hard constraints for every
+new kind:
 
 - Reuse only existing `_LAYER_KEYS` parameters; no schema key additions.
 - Periodic in `local_phase` so loop-by-construction is preserved.
@@ -77,10 +77,22 @@ Candidate kinds, each returning `(amount, mix)` like existing kinds:
   `amount = (0.5 - 0.5*cos(2π*local_phase))^gamma`, `gamma` from `width`
   (smaller width → sharper); `mix` = the oscillation value. Distinct from
   `pulse`, which is an expanding radial ring.
-- `strobe` (**declined 2026-08-13, do not implement**) — global square
-  wave: on when `frac(local_phase) < duty`, `duty = 0.1 + 0.4*width`;
-  `amount` 1/0, `mix` fixed 0. Declined for its adjacent-frame-difference
-  conflict with the quality gates.
+- `strobe` (**not a per-key kind — corrected 2026-08-14**) — on the
+  reference builder, strobe is a *text effect* toggle beside Bold, Outline,
+  Glow, Motion Blur, Shadow, Pulse, Flicker, Sparkle, and Shake. It applies
+  to scrolling panel text, not to key LEDs, so it was never comparable to
+  the seven kinds above. It belongs to text banner authoring (Adopt 3) and
+  arrives with that feature.
+  The 2026-08-13 record declined it "for its adjacent-frame-difference
+  conflict with the quality gates." That rationale is false: the only
+  adjacent-difference check in `validate_quality` requires motion *greater*
+  than zero (`procedural.py:659`), and a square wave maximizes it. The
+  interaction that does exist is with the density floor — dark off-frames
+  drive `minimum_lit_ratio` to zero, failing `balanced` (≥ 0.35) and
+  `dense` (≥ 0.70) while passing `sparse`, which sets no floor. That check
+  runs only on the AI generation path, so it never governed whether a
+  hand-authored effect may exist. Both facts are recorded so the error is
+  not re-derived.
 - `chase` — `count` runners with exponential tails traversing lit raster
   cells in serpentine row-major order; runner head position =
   `frac(local_phase + i/count) * n_cells`; tail length from `trail`;
@@ -141,6 +153,22 @@ Wiring:
   rendering, before `validate_mapped_result` (mapped shape unchanged).
 - The imported-media path is untouched in this plan.
 
+## Adopt 3 — text banner authoring (owner-scoped 2026-08-14, own plan)
+
+The owner scoped scrolling-text banner authoring into v2 on 2026-08-14. The
+NEON and Cyberboard billboard panels are the reason the feature exists, and
+those two families are its only targets. This reverses the `word_page`
+rejection this plan recorded on 2026-08-13.
+
+Implementation stays out of *this* plan. A text composer carries its own UI,
+bitmap font, per-scene text effects, and wire-format surface, and it is gated
+on the v2 capability model rather than on the seven raster kinds. It needs its
+own plan before any implementation.
+
+Today the app passes `word_page` through untouched: `writer.py` replays it,
+`server.py` emits an empty stub, and `profile_import.py` does not validate it.
+That pass-through is the baseline the future plan starts from.
+
 ## Rejected
 
 - **Per-key `xCenterEm` geometry sampling.** Contradicts the raster
@@ -156,11 +184,9 @@ Wiring:
   `random.Random` rendering is already reproducible; the hash construction
   enters only as an implementation detail of new kinds that need per-cell,
   per-bucket noise.
-- **`word_page` text authoring** (5×5 font scrolling text). The app
-  currently passes `word_page` through untouched (`writer.py` replays it;
-  `server.py` emits an empty stub; `profile_import.py` does not validate
-  it). A text-page composer is a separate feature with its own UI, font,
-  and wire-format surface — its own plan if ever wanted.
+- ~~**`word_page` text authoring** (5×5 font scrolling text)~~ — **reversed
+  2026-08-14 by owner scoping; see "Adopt 3" above.** Retained here as the
+  record of what was declined on 2026-08-13.
 
 ## Verification
 

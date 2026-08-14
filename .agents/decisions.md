@@ -1,5 +1,32 @@
 # Repository Decisions
 
+## 2026-08-14 — Text banner authoring is in v2 scope; panel display is a capability
+
+Status: approved by the owner on 2026-08-14. Owner's words: "for the AM Neon
+and Cyberboard with their billboards at the top of the board are good for text
+banners, so that needs to be included in the next version," and "when we expand
+to qmk, vial, via, and whatever else, we'll need to make the lighting studio
+adapt to the capabilities of the board."
+
+- Scrolling-text banner authoring is in v2 scope. This reverses the 2026-08-13
+  `word_page` rejection in
+  `docs/superpowers/plans/2026-08-13-am-led-effect-techniques.md`, which is
+  updated to match.
+- NEON and Cyberboard are its only targets, because the billboard panel is what
+  the feature drives. Boards without a panel do not get the surface.
+- Panel/text display is therefore a persistent-lighting subcapability alongside
+  `static_color`, `hardware_effect`, and `custom_animation` — not a feature
+  assumed present. Most QMK/VIA/Vial boards will not have it.
+- The requirement that the Lighting surface render only the connected board's
+  supported subset is not new; it is the 2026-08-08 capability contract. This
+  decision adds the panel capability to that contract and confirms the contract
+  governs the expansion to QMK, Vial, VIA, and later lanes.
+- Text authoring needs its own plan before implementation. It carries a UI,
+  bitmap font, per-scene text effects, and wire-format surface that the raster
+  effect plan does not cover.
+- This decision does not authorize implementation, a hardware write, push, or
+  release.
+
 ## 2026-08-08 — Companion firmware is in initial v2 scope
 
 Status: approved by the owner on 2026-08-08 ("yes, we can't claim universal if
