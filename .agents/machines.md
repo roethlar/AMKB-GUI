@@ -96,9 +96,10 @@ console/RDP session were last verified 2026-08-01._
 - Exact-artifact qualification tools are available: `hdiutil`, `codesign`,
   `spctl`, `xattr`, `shasum`, `curl`, `file`, `open`, and `ditto`. The temporary
   directory is writable and the data volume had about 204 GB free on 2026-08-02.
-- Homebrew now supplies GitHub CLI 2.96.0, `uv` 0.11.32, and Node 26.5.0 on
-  `PATH`, so attestation and Node checks no longer have to be delegated to
-  `netwatch-01` and rebound by SHA-256.
+- Homebrew supplies GitHub CLI, `uv`, and Node on `PATH`, so attestation and
+  Node checks no longer have to be delegated to `netwatch-01` and rebound by
+  SHA-256. Exact versions drift and are not recorded; all three were present
+  and current on 2026-08-14.
 - This host now carries the active working checkout at
   `/Users/michael/Dev/AMKB-GUI` (case-insensitive, same directory as the
   lowercase `dev` path recorded earlier). It has both the canonical `origin`
