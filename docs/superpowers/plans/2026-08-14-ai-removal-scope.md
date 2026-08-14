@@ -16,15 +16,16 @@ are authorized by this document.
 | `am_configurator/ai_capability.py` | — | AI capability service wiring |
 | `am_configurator/procedural_generation.py` | 1025 | AI generation job pipeline (imports `llm`, `recipe_provider`) |
 | `am_configurator/generation_admission.py` | 208 | Admission/gating for AI generation jobs |
-| `am_configurator/credentials.py` | — | AI provider key storage (verify no non-AI use before delete) |
+| `am_configurator/credentials.py` | — | AI provider key storage (verified 2026-08-14: AI-only, all call sites are AI settings paths) |
+| `am_configurator/recipe_inference.py` | 81 | Ollama request contract, imported only by `recipe_provider.py` (verified 2026-08-14: AI-only) |
 
 ## Stays (deterministic core)
 
 - `am_configurator/procedural.py` — deterministic recipe/effect renderer. The
   recipe schema (seven kinds) and its validation stay; recipes become a
   user-authored/imported format, not an LLM output format.
-- `am_configurator/recipe_inference.py` (81 lines) — verify: keep if it is
-  schema inference/validation for imported recipes, remove if AI-only.
+- ~~`am_configurator/recipe_inference.py`~~ — resolved 2026-08-14: AI-only
+  (Ollama request contract), moved to the Removed table above.
 - `am_configurator/library.py` — generated-asset library becomes the imported
   pixel-art/recipe library.
 - `am_configurator/device_mapping.py`, `media_framing_audit.py` — core; strip

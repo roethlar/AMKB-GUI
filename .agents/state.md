@@ -7,9 +7,11 @@
   `.agents/decisions.md` (2026-08-14). Blast-radius scope:
   `docs/superpowers/plans/2026-08-14-ai-removal-scope.md` — deterministic
   engine (`procedural.py`, recipe schema, library) stays; LLM/provider modules,
-  `/api/ai/*` routes, and AI UI go. No removal code change is authorized yet;
-  next step is a sliced removal plan for owner approval. Open question (owner):
-  whether a plugin/external-provider surface lands in OpenKeeb v2.
+  `/api/ai/*` routes, and AI UI go. Sliced removal plan drafted:
+  `docs/superpowers/plans/2026-08-14-ai-removal.md` — awaiting owner approval;
+  no removal code change is authorized yet. Open questions (owner): which
+  branch the removal lands on (v1 default vs `v2/openkeeb`), and whether a
+  plugin/external-provider surface lands in OpenKeeb v2.
 
 - **OpenKeeb v2 direction approved (planning only, 2026-08-08):** OpenKeeb is
   the public name for an in-place `2.0.0` successor to AM Configurator. Keep
