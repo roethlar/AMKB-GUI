@@ -113,6 +113,28 @@
   reference builder it is a *text effect* toggle beside Pulse, Flicker, and
   Glow. It belongs to the text banner feature above and arrives with it.
   Ruling 1 stands unchanged at seven per-key kinds.
+  **Verification pass 2026-08-14 (`2a3391e`, then this commit): the plan was
+  drafted against premises the code contradicts.** Three corrections, each
+  marked and dated inline:
+  1. **Effect kinds are reachable only by an LLM.** `procedural._KINDS` is
+     `{comet, wave, pulse, sparkle, orbit, sweep, noise}`, fed to providers
+     through `recipe_schema()`; no effect picker exists in the browser UI.
+     Adopting seven more kinds widens what a model may emit and gives users
+     nothing. The reference builder is the inverse — 14 user-picked patterns,
+     no model. **Delivering its options to users needs a user-facing effect
+     picker that does not exist and is unscoped.**
+  2. **Ruling 2 is withdrawn, not pending.** It proposed a mode on existing
+     panel→key mirroring; there is none. Panel and keys are independent
+     surfaces (separate UI targets, separate hardware controls), procedural
+     generation refuses to render both at once (`device_mapping.py:1302`),
+     and the imported-media path resamples a shared source per track rather
+     than deriving keys from panel output. Panel-coupled keys would be new
+     feature work.
+  3. `FamilySpec` does not hold lighting geometry (`_LAYOUTS` does); the
+     OpenKeeb v2 architecture note was corrected to match.
+  Ruling 3 (rejection confirmations) remains outstanding. Scope of the pass:
+  the effect-techniques plan claim by claim, plus a spot-check of the OpenKeeb
+  v2 architecture section. Other docs were not audited.
 - **OpenKeeb v2 planning:** capability-based support, firmware-resident lighting,
   and the companion-firmware lane in initial v2 are settled. Next decide whether
   OpenKeeb maintains companion source integrations, complete firmware binaries,

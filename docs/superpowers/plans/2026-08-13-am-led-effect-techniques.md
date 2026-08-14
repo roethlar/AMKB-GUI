@@ -1,12 +1,22 @@
 # Procedural Effect Expansion from AM LED Builder Techniques
 
-**Status:** Draft. Ruling (1) landed 2026-08-13: adopt seven kinds —
-breathe, chase, ripple, matrix_rain, heartbeat, fire, twinkle; strobe is
-excluded ("Seven, no strobe"). Rulings pending, in order: (2) whether to
-add the reactive panel-coupled key track and where its switch lives,
-(3) confirmation of the rejections recorded below. No implementation is
-authorized until the remaining rulings land and this status line records
-them.
+**Status:** Draft, and **partly built on premises the code contradicts**. A
+2026-08-14 verification pass against the source corrected three of them; the
+corrections are marked inline and dated.
+
+- Ruling (1) landed 2026-08-13: adopt seven kinds — breathe, chase, ripple,
+  matrix_rain, heartbeat, fire, twinkle. Stands unchanged.
+- Strobe is **not** declined. The 2026-08-13 rationale was false, and strobe
+  is a text effect rather than a per-key kind; it belongs to text banner
+  authoring (Adopt 3).
+- Ruling (2) is **withdrawn, not pending.** Its premise — existing panel→key
+  mirroring to add a mode to — does not hold. See Adopt 2.
+- The open scoping question this plan does not answer: **effect kinds are
+  reachable only by an LLM.** There is no user-facing effect picker, so
+  adopting kinds does not give users the reference builder's options.
+- Ruling (3), confirmation of the rejections below, is still outstanding.
+
+No implementation is authorized.
 
 ## Source analysis
 
@@ -42,13 +52,33 @@ Engine characteristics observed:
   speeds, so every layer completes whole cycles and loops are seamless by
   construction (`validate_quality` additionally gates the seam). Frame
   count is pinned to `device_mapping.MODEL_FRAME_CAPS` per family.
-- Effect kinds are LLM-facing only: `procedural.recipe_schema()` is handed
-  to providers by `recipe_provider.py`; there is no user-facing effect
-  picker. `lighting_composer.js` has an independent media-compositing
-  vocabulary that this plan does not touch.
-- `device_mapping.frames_to_led_tracks` already resamples one source raster
-  into every target track, which is the `mirrorPanel` behavior for boards
-  with both a display and a key track.
+- **Effect kinds are LLM-facing only, and that is a scope problem, not a
+  footnote** (verified 2026-08-14). `procedural._KINDS` is
+  `{comet, wave, pulse, sparkle, orbit, sweep, noise}`; `recipe_schema()`
+  hands those names to providers via `recipe_provider.py`. No effect picker
+  exists anywhere in the browser UI — every `kind` in `app.js` refers to
+  asset or document kinds, never an effect. Adding kinds to `_KINDS`
+  therefore widens only what a model may emit; a user cannot choose one.
+  The reference builder is the opposite: the user picks from 14 named
+  patterns and no model is involved. **Delivering the builder's lighting
+  options to users needs a user-facing effect picker, which does not exist
+  and is not in this plan.** `lighting_composer.js` has an independent
+  media-compositing vocabulary that this plan does not touch.
+- Source-raster fan-out differs by path (verified 2026-08-14), and the
+  earlier blanket claim here was wrong:
+  - **Imported media:** `frames_to_led_tracks` accepts several targets and
+    resamples the source *independently per target size* — crop to each
+    track's aspect ratio, then resize (`device_mapping.py:981-995`).
+    `validate_gif_targets` imposes no same-raster restriction, so one GIF
+    can drive a display track and a key track together.
+  - **Procedural generation:** `generation_spec` refuses targets whose
+    rasters differ — "generate one target at a time"
+    (`device_mapping.py:1302`). CB `frames` 40×5 vs `keyframes` 15×6 and
+    NEON `head` 46×5 vs `axial` 19×6 are both refused, so a generated
+    animation cannot feed panel and keys at once.
+  - Neither path is the builder's `mirrorPanel`. Both resample a shared
+    source picture; neither derives a key's color from the panel's rendered
+    output above it.
 - True per-key x/y geometry exists only for NEON dynamic layouts read from
   the device; the three fixed families are raster-placement only.
 
@@ -129,10 +159,32 @@ Companion work required by the adopted kinds:
 
 ## Adopt 2 — reactive panel-coupled key derivation
 
-New derivation mode for families with two tracks driven by one source:
-CB (`frames` 40×5 → `keyframes` 15×6) and NEON (`head` 46×5 → `axial`
-19×6). Today both destinations get the same resampled source raster
-("mirror"). Add "reactive":
+**Premise corrected 2026-08-14; this section is not ready to rule on.** It
+was written as a new *mode* on existing panel→key mirroring. No such
+mirroring exists to add a mode to:
+
+- The panel and key sections are independent surfaces in this app. The UI
+  offers them as separate targets ("Top display 40×5" / "Switch LEDs" on CB,
+  "Head matrix 46×5" / "Per-key" on NEON, `lighting_targets.js:15-31`), and
+  the boards carry separate hardware controls for each — the keycode table
+  lists independent power, brightness, speed, and effect keys under "Top
+  display lighting" and "Under-key lighting" (`lighting_targets.js:40-53`).
+- Procedural generation cannot even produce both at once: `generation_spec`
+  refuses targets with differing rasters (`device_mapping.py:1302`), which
+  both of these pairs are.
+- Imported media can write both from one GIF, but by resampling the shared
+  source separately per track — not by deriving key color from panel output.
+
+So panel-coupled key lighting does not exist here in any form. The reference
+builder has it as one of its 14 per-key patterns (`mirror panel`), and
+`reactiveScroll` is a second, distinct one. Building either is **new
+feature work on an independent key surface**, not a switch on existing
+behavior, and it lands downstream of the missing user-facing effect picker
+noted above. Whether to scope it is an open question, not a pending ruling.
+
+The original sketch is retained below as the technique description, should
+that scoping happen. Its "today both destinations get the same resampled
+source raster" premise is the false one:
 
 For each destination raster cell, map its x-extent onto the source track's
 column band. Compute the band's mean Rec.709 luma
