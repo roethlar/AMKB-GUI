@@ -2,6 +2,13 @@
 
 ## Now
 
+- **v1 is done and locked; all new work is OpenKeeb v2 (2026-08-14):** owner
+  ruling, recorded in `.agents/decisions.md`. The v1 default branch is frozen
+  (no new feature work or releases; owner-directed fixes only). All new work —
+  including the approved AI removal — lands on `v2/openkeeb`. This settles the
+  v2 plan's v1-maintenance open question and the AI-removal branch question.
+  No implementation slice is authorized by the ruling itself.
+
 - **AI removal decided and scoped (2026-08-14):** AI generation leaves the core
   app; the core consumes pixel art and recipes only. Decision:
   `.agents/decisions.md` (2026-08-14). Blast-radius scope:
@@ -9,9 +16,10 @@
   engine (`procedural.py`, recipe schema, library) stays; LLM/provider modules,
   `/api/ai/*` routes, and AI UI go. Sliced removal plan drafted:
   `docs/superpowers/plans/2026-08-14-ai-removal.md` — awaiting owner approval;
-  no removal code change is authorized yet. Open questions (owner): which
-  branch the removal lands on (v1 default vs `v2/openkeeb`), and whether a
-  plugin/external-provider surface lands in OpenKeeb v2.
+  no removal code change is authorized yet. Branch question settled 2026-08-14:
+  the removal lands on `v2/openkeeb` (v1 is done and locked). Remaining open
+  question (owner): whether a plugin/external-provider surface lands in
+  OpenKeeb v2.
 
 - **OpenKeeb v2 direction approved (planning only, 2026-08-08):** OpenKeeb is
   the public name for an in-place `2.0.0` successor to AM Configurator. Keep
@@ -110,8 +118,9 @@
   decision authorizes the record and a removal scope only — the removal itself
   needs its own approved plan. An owner-supplied Cyberboard export from the
   community builder was verified to contain finished per-frame `frame_RGB`
-  data, not a recipe; that fact grounded the boundary. Next action: draft the
-  AI-removal plan from the recorded blast-radius scope, then the picker plan.
+  data, not a recipe; that fact grounded the boundary. The AI-removal plan is
+  drafted (see Now) and lands on `v2/openkeeb`; the picker plan is still to be
+  drafted.
 
 - **Procedural effect expansion plan drafted, rulings pending (2026-08-13):**
   assessment of <https://am-led.nanakumi.net> (community AM LED JSON builder;

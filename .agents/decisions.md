@@ -1,5 +1,22 @@
 # Repository Decisions
 
+## 2026-08-14 — AMKB-GUI v1 is done and locked; all new work is OpenKeeb v2
+
+Status: approved by the owner on 2026-08-14. Owner's words: "AMKB-GUI is done
+and locked. all new work is openkeep." (Assumption, from the established
+project name: "openkeep" is the OpenKeeb rename recorded in the v2 plan.)
+
+- v1 (the current default branch) is frozen: no new feature work, no further
+  v1 releases. Only owner-directed fixes would touch it.
+- All new work — including the approved AI-removal scope — lands on the
+  `v2/openkeeb` branch, not on the v1 default branch. This settles the
+  AI-removal branch question that was awaiting an owner ruling.
+- This also settles the v2 plan's open question on v1 maintenance/
+  default-branch policy before the first implementation slice: the policy is
+  "done and locked," so the first v2 slice is not blocked on it.
+- This decision is a ruling and a record only; it does not by itself authorize
+  any implementation slice. Slices still need their own go.
+
 ## 2026-08-14 — AI generation leaves the core; the core consumes pixel art
 
 Status: approved by the owner on 2026-08-14. Owner's words: "that's why I said

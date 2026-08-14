@@ -69,6 +69,7 @@ packaging metadata changes.
 
 - Generator plugin surface for OpenKeeb v2 (open question 5 in
   `docs/superpowers/plans/2026-08-08-openkeeb-v2.md`).
-- Any v2 work; this lands on the current default branch as v1 cleanup unless
-  the owner rules it belongs on `v2/openkeeb` — **open question, ask before
-  slice 1.**
+- Other v2 work. Branch question settled by the owner on 2026-08-14 ("AMKB-GUI
+  is done and locked. all new work is openkeep," recorded in
+  `.agents/decisions.md`): this removal lands on `v2/openkeeb`, not the v1
+  default branch, which is frozen.
