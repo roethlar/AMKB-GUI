@@ -1,5 +1,40 @@
 # Repository Decisions
 
+## 2026-08-14 — AI generation leaves the core; the core consumes pixel art
+
+Status: approved by the owner on 2026-08-14. Owner's words: "that's why I said
+rip it out," then "maybe we separate them. this consumes pixel art. if there's
+already a model out there that's good at generating compatible art, that's a
+separate path. tying them together maybe means we add a plugin or something for
+openkeep v2," then "go" to record.
+
+- AI recipe generation is removed from the core application: the recipe-LLM
+  path, all provider backends (xAI, Anthropic, OpenAI, Gemini, Kimi/Moonshot,
+  DeepSeek, and Ollama local), the master AI switch, readiness gating, AI
+  settings surface, and generation UI. This supersedes the 2026-07-27 AI
+  master switch and optional-backends decisions wherever they keep AI
+  generation in product scope.
+- Grounds, recorded so the reversal stands on evidence: the seven recipe kinds
+  are reachable only through a model and cannot express scene requests (the
+  owner's "pacman chasing ghosts" request produced jerky, half-baked output —
+  a vocabulary limit, not a model-quality limit); owner field tests of image
+  generation failed at LED-matrix resolutions (high-res output does not
+  downscale to a pixel grid); fine-tuning a local model on the community
+  builder's JSONs was rejected because those files are finished per-frame RGB
+  data — the already-rejected direct-to-frame framing, on unlicensed content.
+- The boundary: the core consumes pixel art; it does not manufacture it.
+  Creation paths in core are import (GIF/PNG/BMP), manual per-frame painting,
+  and a deterministic procedural effect engine with a user-facing picker (to
+  be planned; replaces the model-only reachability of effect kinds).
+- External generation is out of scope for the core. Any tool that produces a
+  compatible asset at the target resolution is an equal citizen through the
+  import path; the app never depends on any generator.
+- A possible OpenKeeb v2 plugin surface for external generators is recorded in
+  the v2 plan as an open question, explicitly not a commitment.
+- This decision authorizes the record and a removal scope only. The removal
+  itself is code change and needs its own approved plan; no implementation,
+  hardware write, push, or release is authorized.
+
 ## 2026-08-14 — Text banner authoring is in v2 scope; panel display is a capability
 
 Status: approved by the owner on 2026-08-14. Owner's words: "for the AM Neon
