@@ -11,16 +11,10 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const {
-  REVIEW_BLOCK_REASONS,
-  reviewBlockedMessage,
-} = require("../../am_configurator/web/lighting_review.js");
-
 const root = path.resolve(__dirname, "../..");
 const read = relative => fs.readFileSync(path.join(root, relative), "utf8");
 const html = read("am_configurator/web/index.html");
 const js = read("am_configurator/web/app.js");
-const review = read("am_configurator/web/lighting_review.js");
 const workspace = read("am_configurator/web/lighting_workspace.js");
 const libraryState = read("am_configurator/web/library_state.js");
 
@@ -64,7 +58,6 @@ test("no banned implementation vocabulary reaches user-visible copy", () => {
   const surfaces = [
     ["index.html", html],
     ["app.js", stringLiterals(js)],
-    ["lighting_review.js", stringLiterals(review)],
     ["lighting_workspace.js", stringLiterals(workspace)],
     ["library_state.js", stringLiterals(libraryState)],
   ];
@@ -78,23 +71,6 @@ test("no banned implementation vocabulary reaches user-visible copy", () => {
       );
     }
   }
-});
-
-test("every blocked review explains the block, the state, and the next step", () => {
-  for (const reason of [...REVIEW_BLOCK_REASONS, "unknown-reason"]) {
-    const message = reviewBlockedMessage(reason);
-    assert.match(message, /Nothing was changed|nothing has changed/i, `${reason} must state that nothing changed`);
-    assert.match(message, /open|switch|try again/i, `${reason} must offer a next action`);
-  }
-});
-
-test("generated-result review speaks in lighting effects and lighting frames", () => {
-  assert.match(review, /"Lighting effect"/);
-  assert.match(review, /lighting frames/);
-  assert.match(review, /physical Board/);
-  assert.doesNotMatch(review, /Animated lighting preview|<img\b|previewUrl/);
-  assert.match(review, /Loading the lighting effect/);
-  assert.doesNotMatch(stringLiterals(review), /\brecipe\b/i);
 });
 
 test("mapped and stored counts sit behind Technical details, not the canvas heading", () => {
@@ -123,5 +99,4 @@ test("internal manifest, route, and element contracts are unchanged", () => {
   assert.match(html, /data-library-filter="sources"/);
   assert.match(js, /id="lighting-source-pane"/);
   assert.doesNotMatch(js, /data-source-preview|sourcePreviewMode/);
-  assert.match(review, /id="apply-procedural-effect"/);
 });

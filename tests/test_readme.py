@@ -80,7 +80,6 @@ ACTION_LABELS = (
     "Apply",
     "Save to Library",
     "Ollama",
-    "Direct API",
 )
 
 # The same table tests/web/plain_language.test.js enforces on the interface,

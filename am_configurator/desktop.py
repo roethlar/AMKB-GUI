@@ -37,7 +37,6 @@ _NATIVE_POLICY_VERIFY_KEYS = (
     "downloads_supported",
     "csp_enforced",
     "loopback_loaded",
-    "settings_provider_catalog_only",
 )
 _NATIVE_POLICY_TIMEOUT_SECONDS = 45
 
@@ -319,33 +318,6 @@ def _native_policy_probe_script(phase: str) -> str:
   );
   const bridgeKeys = Object.keys(api).sort();
   const settings = document.querySelector("#settings-screen");
-  const settingsButton = document.querySelector("#settings-button");
-  const aiDetails = document.querySelector("#settings-ai-details");
-  const localPanel = document.querySelector("#settings-ollama-panel");
-  const apiPanel = document.querySelector("#settings-api-panel");
-  const backendValues = settings
-    ? Array.from(settings.querySelectorAll(
-        'input[name="settings-ai-backend"]'
-      )).map(input => input.value).sort()
-    : [];
-  const expectedProviders = [
-    "anthropic",
-    "deepseek",
-    "gemini",
-    "moonshot",
-    "openai",
-    "xai"
-  ];
-  const providerValues = () => settings
-    ? Array.from(settings.querySelectorAll(
-        "#settings-api-provider option"
-      )).map(option => option.value).filter(Boolean).sort()
-    : [];
-  if (providerValues().join(",") !== expectedProviders.join(",")) {{
-    if (settings && settings.hidden && settingsButton) settingsButton.click();
-    return;
-  }}
-  const settingsText = settings ? settings.textContent : "";
   const anchor = document.createElement("a");
   const ALLOW_DOWNLOADS = "download" in anchor &&
     typeof Blob === "function" &&
@@ -389,14 +361,6 @@ def _native_policy_probe_script(phase: str) -> str:
     loopback_loaded: location.protocol === "http:" &&
       location.hostname === "127.0.0.1" &&
       document.title.includes("AM Configurator") && Boolean(settings),
-    settings_provider_catalog_only:
-      backendValues.join(",") === "api,ollama" &&
-      providerValues().join(",") === expectedProviders.join(",") &&
-      /Ollama/.test(settingsText) &&
-      !/(GGUF|llama\\.cpp|direct model)/i.test(settingsText) &&
-      Boolean(localPanel) && Boolean(apiPanel) &&
-      Boolean(aiDetails) && aiDetails.hidden &&
-      !settings.querySelector('input[type="file"]'),
     csp
   }});
 }})()

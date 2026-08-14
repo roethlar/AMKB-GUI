@@ -18,10 +18,6 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const {
-  createReviewView,
-  renderReview,
-} = require("../../am_configurator/web/lighting_review.js");
-const {
   boardFrameSetFromDocument,
   boardFrameSetFromMappedResult,
   createBoardFrameSet,
@@ -35,8 +31,6 @@ const root = path.resolve(__dirname, "../..");
 const read = relative => fs.readFileSync(path.join(root, relative), "utf8");
 const html = read("am_configurator/web/index.html");
 const js = read("am_configurator/web/app.js");
-const review = read("am_configurator/web/lighting_review.js");
-const lightingState = read("am_configurator/web/lighting_state.js");
 const css = read("am_configurator/web/style.css");
 
 function jsFunction(name) {
@@ -60,20 +54,6 @@ function detailsBlock(source, id) {
   const end = source.indexOf("</details>", start);
   assert.ok(end > start, `${id} disclosure must be closed`);
   return source.slice(start, end);
-}
-
-class ReviewDom {
-  set innerHTML(value) {
-    this.html = String(value);
-  }
-
-  get innerHTML() {
-    return this.html || "";
-  }
-
-  querySelector() {
-    return null;
-  }
 }
 
 // ---- Tool names and the two-step boundary ---------------------------------
@@ -139,10 +119,8 @@ test("media builds its preview automatically while effect cards update the Board
   assert.match(jsFunction("regenerateLocalAnimationDraft"), /type:"EFFECT_DRAFT_ACCEPTED"/);
   assert.match(jsFunction("regenerateLocalAnimationDraft"), /autoplay:!prefersReducedLightingMotion\(\)/);
 
-  assert.match(review, /id="apply-procedural-effect"[^>]*>Apply to lighting slot</);
   // The old per-tool verbs are gone; one boundary is named the same everywhere.
   assert.doesNotMatch(js, />Apply preview</);
-  assert.doesNotMatch(review, /class="button primary"[^>]*>Apply</);
 });
 
 test("Studio and Library navigation preserves accepted and applied media work", () => {
@@ -653,35 +631,6 @@ test("every Apply names the slot, the document-only change, and the Write action
   assert.match(jsFunction("updateLightingWorkspaceStatus"), /The keyboard is unchanged/);
 });
 
-test("the generated-result review states the destination, scope, and next action", () => {
-  const view = createReviewView({
-    assetUrls: new Map(),
-    jobId: "8a3f0a4e-2a3c-4f0f-9d0a-2f4b6b9f2c11",
-    attempt: {preview_asset_id: "preview", mapped_result_asset_id: "mapped"},
-    recipe: {name: "Violet aurora", density: "dense", layers: [{}]},
-    quality: {frame_count: 24},
-    targetLabel: "Keys",
-    destinationSlot: 6,
-    mappedResultLoaded: true,
-    boardPreviewReady: true,
-    writeActionLabel: "Write to CB04",
-  });
-  assert.match(view.applyHint, /Custom slot 2/);
-  assert.match(view.applyHint, /Keys/);
-  assert.match(view.applyHint, /changes the open document only/);
-  assert.match(view.applyHint, /Nothing has been written to the keyboard yet/);
-  assert.match(view.applyHint, /Write to CB04 button/);
-
-  const dom = new ReviewDom();
-  renderReview(dom, view, () => {});
-  assert.ok(dom.innerHTML.includes("Custom slot 2"), "the rendered review must show the destination slot");
-  assert.ok(dom.innerHTML.includes("Write to CB04"), "the rendered review must name the Write action");
-
-  // Without a known keyboard the hint still names the toolbar button.
-  const fallback = createReviewView({destinationSlot: 5, targetLabel: "Keys"});
-  assert.match(fallback.applyHint, /Write to keyboard button/);
-});
-
 // ---- Save to Library stays a separate, consistently labelled action --------
 
 test("Save to Library is one label everywhere and never merged into Apply", () => {
@@ -782,30 +731,4 @@ test("normal lighting controls are friendly presets constrained to firmware valu
   assert.match(js, /data-speed-preset/);
   assert.match(js, /data-length-preset/);
   assert.match(css, /\.speed-presets, \.length-presets \{[^}]*flex-wrap: wrap/);
-});
-
-// ---- Settings --------------------------------------------------------------
-
-test("Settings offers Ollama and Direct API with the full Ollama server panel", () => {
-  const ollamaPanel = html.slice(html.indexOf('id="settings-ollama-panel"'), html.indexOf('id="settings-api-panel"'));
-  assert.match(ollamaPanel, /Ollama server URL/);
-  assert.match(ollamaPanel, /http:\/\/127\.0\.0\.1:11434/, "the loopback default must be shown");
-  assert.match(ollamaPanel, /192\.168\./, "a LAN example must be shown");
-  assert.match(ollamaPanel, /id="settings-ollama-runtime"/, "the configured host's connection status");
-  assert.match(ollamaPanel, /id="settings-ollama-refresh"[^>]*>Refresh models</);
-  assert.match(ollamaPanel, /id="settings-ollama-select"[^>]*>Use model</);
-  assert.match(ollamaPanel, /id="settings-ollama-test"[^>]*>Test setup</);
-  assert.match(ollamaPanel, /id="settings-ollama-clear"[^>]*>Clear selection</);
-  assert.match(ollamaPanel, /id="settings-ollama-disclosure"/);
-  // Connection status never carries a credential.
-  assert.doesNotMatch(ollamaPanel, /API key|password|token|credential/i);
-  // The picker labels come from the backend contract and stay unchanged.
-  assert.match(lightingState, /Ollama Cloud/);
-  assert.match(lightingState, /On this Ollama server/);
-  // Superseded provider vocabulary is gone from every user-visible surface.
-  for (const banned of [/Primary computer/i, /Secondary provider/i, /Installed model/i, /eligible local/i]) {
-    for (const [name, source] of [["index.html", html], ["app.js", js], ["lighting_state.js", lightingState]]) {
-      assert.doesNotMatch(source, banned, `${name} still uses superseded provider wording`);
-    }
-  }
 });

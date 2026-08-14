@@ -64,8 +64,6 @@
       </aside>
 
       <main id="main" class="main-content">
-        <div id="lighting-job-host"></div>
-
         <div id="route-content">
           <section id="empty-state" class="empty-state" hidden>
             <div class="empty-orbit"><div></div><img src="/icon.png" alt=""></div>
@@ -159,7 +157,7 @@
 
           <section id="settings-screen" class="settings-screen screen-shell" hidden aria-labelledby="settings-title">
             <header class="screen-header settings-header">
-              <div><p class="eyebrow">Preferences</p><h1 id="settings-title" tabindex="-1">Settings</h1><p class="description">Set up optional AI generation and choose where your Library is kept.</p></div>
+              <div><p class="eyebrow">Preferences</p><h1 id="settings-title" tabindex="-1">Settings</h1><p class="description">Choose where your Library is kept.</p></div>
               <div class="settings-header-actions">
                 <button id="settings-save" type="button" class="button ghost">Save changes</button>
                 <button id="settings-done" type="button" class="button primary">Done</button>
@@ -172,50 +170,6 @@
                 <button id="settings-migration-discard" type="button" class="button danger" disabled>Continue without the legacy API credential</button>
               </section>
               <div id="settings-mutable">
-              <section class="settings-section" aria-labelledby="settings-ai-title">
-                <div class="settings-section-heading"><div><h2 id="settings-ai-title">AI features</h2><p>One switch controls all optional AI setup and generation.</p></div><span id="settings-ai-state" class="pill muted">Off</span></div>
-                <label class="settings-row" for="settings-ai-enabled"><span><strong>AI features</strong><small>Turn on to configure AI. Turning off hides all AI controls without affecting the manual editor or Library.</small></span><input id="settings-ai-enabled" type="checkbox" role="switch" aria-controls="settings-ai-details"></label>
-                <div id="settings-ai-details" hidden>
-                <fieldset id="settings-ai-panels" class="settings-ai-panels">
-                  <legend>Backend</legend>
-                  <label class="check-row"><input id="settings-ai-ollama" type="radio" name="settings-ai-backend" value="ollama"><span><strong>Ollama</strong><small>Connect to Ollama on this computer or another server.</small></span></label>
-                  <label class="check-row"><input id="settings-ai-api" type="radio" name="settings-ai-backend" value="api"><span><strong>Direct API</strong><small>Send your prompt and the keyboard size straight to an AI service you choose.</small></span></label>
-                </fieldset>
-                <div id="settings-ollama-panel" class="settings-backend-panel">
-                  <div class="settings-section-heading"><div><h3>Ollama model</h3><p id="settings-ollama-state">Checking Ollama…</p></div><span id="settings-ollama-runtime" class="pill muted">Checking</span></div>
-                  <div class="settings-library-row">
-                    <label for="settings-ollama-base-url"><span class="control-label">Ollama server URL</span><input id="settings-ollama-base-url" class="text-field" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="http://127.0.0.1:11434"></label>
-                    <button id="settings-ollama-save-url" type="button" class="button ghost">Save server</button>
-                  </div>
-                  <p id="settings-ollama-url-help" class="control-help">Ollama on this computer is <code>http://127.0.0.1:11434</code>. For Ollama on another machine on your network, use its address — for example <code>http://192.168.1.20:11434</code>. Saving a server address does not contact it; use Refresh models or Test setup for that.</p>
-                  <p id="settings-ollama-transport-warning" class="settings-key-state" hidden>This server uses unencrypted HTTP. Your lighting prompt and keyboard dimensions can be read in transit on the network.</p>
-                  <div class="settings-local-picker">
-                    <label for="settings-ollama-model-select"><span class="control-label">Available model</span><select id="settings-ollama-model-select" class="select-field"><option value="">Refresh to check models…</option></select></label>
-                    <button id="settings-ollama-refresh" type="button" class="button ghost">Refresh models</button>
-                    <button id="settings-ollama-select" type="button" class="button ghost">Use model</button>
-                  </div>
-                  <p id="settings-ollama-model" class="settings-key-state">No Ollama model selected.</p>
-                  <div id="settings-ollama-disclosure" class="settings-disclosure" hidden>
-                    <label class="check-row"><input id="settings-ollama-disclosure-ack" type="checkbox"><span><strong>I understand where Ollama sends this request</strong><small id="settings-ollama-disclosure-detail"></small></span></label>
-                  </div>
-                  <div class="button-row settings-local-actions"><button id="settings-ollama-test" type="button" class="button primary">Test setup</button><button id="settings-ollama-clear" type="button" class="button ghost">Clear selection</button></div>
-                  <p class="control-help">AM Configurator lists models reported by this Ollama server. It never downloads, pulls, or removes models.</p>
-                </div>
-                <div id="settings-api-panel" class="settings-backend-panel" hidden>
-                  <div class="settings-rows">
-                    <label class="settings-row" for="settings-api-provider"><span><strong>Provider</strong><small>Choose which AI service to use.</small></span><select id="settings-api-provider" class="select-field"><option value="">Loading providers…</option></select></label>
-                    <label class="settings-row" for="settings-api-model"><span><strong>Model</strong><small>Choose the model that designs your lighting.</small></span><select id="settings-api-model" class="select-field"><option value="">Loading models…</option></select></label>
-                  </div>
-                  <div class="settings-key-row">
-                    <div><label id="settings-api-key-label" class="control-label" for="settings-api-key">API key</label><input id="settings-api-key" class="text-field" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter provider key"><p id="settings-api-credential-state" class="settings-key-state">No credential is configured.</p></div>
-                    <div class="button-row settings-key-actions"><button id="settings-api-save-key" type="button" class="button ghost">Save key</button><button id="settings-api-remove" type="button" class="button ghost">Remove</button></div>
-                  </div>
-                  <label class="check-row"><input id="settings-api-disclosure-ack" type="checkbox"><span><strong id="settings-api-disclosure-title">Allow prompt data to leave this computer</strong><small id="settings-api-disclosure-detail">Your prompt and the selected keyboard's size go to the provider you chose. Imported media, keymaps, macros, device paths, and Library files do not. API use may cost money under your provider account.</small></span></label>
-                  <button id="settings-api-test" type="button" class="button primary">Test setup</button>
-                </div>
-                </div>
-              </section>
-
               <section class="settings-section" aria-labelledby="settings-storage-title">
                 <div class="settings-section-heading"><div><h2 id="settings-storage-title">Library folder</h2><p>Everything you save to Library is kept in this folder.</p></div></div>
                 <div class="settings-library-row">

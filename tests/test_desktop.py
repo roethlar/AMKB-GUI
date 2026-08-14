@@ -525,48 +525,9 @@ class DesktopNativePolicyTests(unittest.TestCase):
             "ALLOW_DOWNLOADS",
             "Content-Security-Policy",
             "script-src",
-            "settings-button",
-            "settings-ai-details",
-            "settings-ollama-panel",
-            "settings-api-panel",
-            "settings-api-provider",
-            "anthropic",
-            "deepseek",
-            "gemini",
-            "moonshot",
-            "openai",
-            "xai",
-            "settings_provider_catalog_only",
-            "GGUF",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, script)
-
-    def test_probe_settings_contract_matches_the_shipped_dom(self) -> None:
-        # The probe runs only inside the frozen app, so nothing else fails
-        # when it drifts from the Settings DOM (that drift broke the macOS
-        # and Linux installer smokes after the Ollama rename).
-        script = desktop._native_policy_probe_script("verify")
-        html = (
-            Path(__file__).resolve().parents[1]
-            / "am_configurator"
-            / "web"
-            / "index.html"
-        ).read_text(encoding="utf-8")
-        values = sorted(
-            part.split('"', 1)[0]
-            for part in html.split('name="settings-ai-backend" value="')[1:]
-        )
-        self.assertTrue(values)
-        self.assertIn('backendValues.join(",") === "%s"' % ",".join(values), script)
-        for element in (
-            "settings-ollama-panel",
-            "settings-api-panel",
-            "settings-ai-details",
-        ):
-            with self.subTest(element=element):
-                self.assertIn(element, script)
-                self.assertIn(f'id="{element}"', html)
 
     def test_native_probe_reports_only_the_missing_backend_module(self) -> None:
         fake_webview = types.SimpleNamespace(settings={})

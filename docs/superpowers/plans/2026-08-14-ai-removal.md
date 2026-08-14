@@ -23,6 +23,11 @@ slice runs the full verification entry point before commit.
    panel/flows. Lighting studio, composer, targets, review, and library UI
    untouched. Trim AI-flow assertions from `tests/web/*.test.js` (including
    `plain_language.test.js` strings that exist only for AI screens).
+1b. **Web UI leftovers** (added 2026-08-14 after slice 1 landed; authorized by
+   owner blanket go for remaining slices). Slice 1 revealed `index.html`,
+   `style.css`, and `lighting_review.js` still ship orphaned AI settings
+   markup, selectors, and rules with no live handlers. Remove them; trim any
+   tests asserting that markup exists.
 2. **Server routes.** Remove `/api/ai/*` routes and AI imports from
    `am_configurator/server.py` (imports at ~1960–2823). Delete
    `tests/test_ai_routes.py`; trim AI-route cases from `tests/test_app.py`.
