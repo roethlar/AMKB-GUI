@@ -480,66 +480,18 @@ test("lighting color style interpolation uses only canonical RGB", () => {
   assert.match(workspace,/setProperty\?\.\("--pixel-color", color\)/);
 });
 
-test("persistent job strip remains available outside routed content", () => {
-  const strip=html.indexOf('id="lighting-job-host"');
-  const routeContent=html.indexOf('id="route-content"');
-  assert.ok(strip>=0&&strip<routeContent);
-  assert.doesNotMatch(html,/id="lighting-job-strip"|Lighting job|lighting-job-view/);
-  assert.match(js,/id="lighting-job-phase-live"[^>]*aria-live="polite"/);
-  assert.match(js,/\$\("#lighting-job-view",host\)\.addEventListener\("click",revealGenerationStudio\)/);
-  assert.match(js,/if \(!job \|\| !aiReady\(\)\) \{\s*host\.replaceChildren\(\)/);
-});
-
-test("disabled first paint exposes no generation control outside Settings", () => {
+test("no generation control is exposed anywhere in the app", () => {
   assert.doesNotMatch(html,/lighting-generate-open|lighting-generate-dialog/);
   const beforeSettings=html.slice(0,html.indexOf('id="settings-screen"'));
   assert.doesNotMatch(beforeSettings,/GGUF|xAI|API key|Optional AI|Generate lighting|Test &amp; enable/);
   assert.doesNotMatch(js,/data-library-create/);
-  assert.match(js,/const generationTab=aiReady\(\)\?/);
-  assert.match(js,/const generationPanel=aiReady\(\)\?/);
-  assert.match(js,/id="lighting-generate-tool"/);
-  assert.match(js,/function renderGenerationStudio\(\)/);
-  assert.match(js,/return Boolean\(aiStudioAvailable\(state\.aiStatus\)\)/);
   assert.doesNotMatch(js,/ROUTES\.CREATE|openGenerationDialog|renderGenerationDialog/);
-  const loader=js.slice(js.indexOf("async function loadAiConfig"),js.indexOf("function refreshAiGate"));
-  assert.doesNotMatch(loader,/\/api\/ai\/ollama\/models|shouldDiscoverOllamaModels/);
-  assert.equal((js.match(/\/api\/ai\/ollama\/models/g)||[]).length,1);
+  assert.doesNotMatch(js,/id="lighting-generate-tool"|function renderGenerationStudio/);
+  assert.doesNotMatch(js,/\/api\/ai\//);
 });
 
-test("Settings exposes Ollama server and cloud models plus the curated API", () => {
-  const ollama=html.indexOf('id="settings-ai-ollama"');
-  const api=html.indexOf('id="settings-ai-api"');
-  assert.ok(ollama>=0&&ollama<api);
-  for(const id of [
-    "settings-ai-enabled","settings-ai-ollama","settings-ai-api","settings-ollama-state",
-    "settings-ollama-base-url","settings-ollama-save-url","settings-ollama-model",
-    "settings-ollama-model-select","settings-ollama-refresh",
-    "settings-ollama-select","settings-ollama-test","settings-ollama-clear",
-    "settings-ollama-transport-warning","settings-ollama-disclosure",
-    "settings-ollama-disclosure-ack","settings-ollama-disclosure-detail",
-    "settings-api-provider","settings-api-model","settings-api-key","settings-api-credential-state",
-    "settings-api-disclosure-ack","settings-api-test","settings-api-remove",
-  ])assert.match(html,new RegExp(`id="${id}"`));
-  assert.match(html,/never downloads, pulls, or removes models/);
-  const ollamaPanel=html.slice(html.indexOf('id="settings-ollama-panel"'),html.indexOf('id="settings-api-panel"'));
-  assert.match(ollamaPanel,/Ollama/);
-  assert.doesNotMatch(ollamaPanel,/GGUF|llama\.cpp|GPU backend|direct model/i);
-  assert.doesNotMatch(html,/settings-gguf|settings-local-advanced/);
-  assert.match(js,/api\("\/api\/ai\/ollama\/models"/);
-  assert.match(js,/api\("\/api\/ai\/ollama\/select"/);
-  assert.match(js,/JSON\.stringify\(\{model_id:model\.model_id,model_digest:model\.digest,model_location:model\.location\}\)/);
-  assert.match(js,/api\("\/api\/ai\/ollama\/clear"/);
-  assert.match(js,/api\("\/api\/ai\/test"/);
-  assert.match(js,/api\(\"\/api\/settings\/ollama\/disclosure\"/);
-  assert.match(js,/On this Ollama server/);
-  assert.match(js,/Ollama Cloud/);
-  assert.doesNotMatch(js,/\/api\/ai\/ollama\/gguf|settings-gguf|chooseAdvancedLocalModel/);
-  assert.doesNotMatch(server,/\/api\/ai\/ollama\/gguf|_select_advanced_local_model|_choose_local_model/);
-  assert.match(js,/model_id/);
+test("the open document is synchronized at every entry point", () => {
   assert.match(css,/\.check-row\s*>\s*span\s*\{[^}]*display:\s*grid[^}]*gap:/);
-  const effect=js.slice(js.indexOf("async function startProceduralGeneration"),js.indexOf("function applyReviewedLighting",js.indexOf("async function startProceduralGeneration")));
-  assert.match(effect,/JSON\.stringify\(\{prompt,backend:state\.aiStatus\.backend,target:state\.ledTarget,document_revision:state\.documentRevision\}\)/);
-  assert.doesNotMatch(effect,/model_path|model_id|frame_count|product_id:|source_transform|media/);
   assert.match(js,/api\("\/api\/document\/sync"/);
   const fileOpen=js.slice(js.indexOf("async function readFiles"),js.indexOf("function saveConfig",js.indexOf("async function readFiles")));
   assert.match(fileOpen,/await synchronizeOpenDocument\(\)/);
@@ -570,40 +522,9 @@ test("portable layout export and write verification happen at server-owned bound
 
   const confirm=js.slice(
     js.indexOf("async function confirmDeviceWrite"),
-    js.indexOf("// ---- Optional procedural generation"),
+    js.indexOf("// Device geometry decides whether the editor can render"),
   );
   assert.match(confirm,/layout_signature:trustedDocumentLayoutSignature\(\)/);
-});
-
-test("one master switch owns and hides every AI setup control", () => {
-  const toggle=html.match(/<input id="settings-ai-enabled"[^>]*>/)?.[0]||"";
-  const details=html.match(/<div id="settings-ai-details"[^>]*>/)?.[0]||"";
-  assert.match(toggle,/type="checkbox"/);
-  assert.match(toggle,/role="switch"/);
-  assert.match(toggle,/aria-controls="settings-ai-details"/);
-  assert.match(details,/\shidden(?:\s|>)/);
-  assert.ok(
-    html.indexOf('id="settings-ai-enabled"')<
-    html.indexOf('id="settings-ai-details"') &&
-    html.indexOf('id="settings-ai-details"')<
-    html.indexOf('id="settings-ai-ollama"')
-  );
-  assert.doesNotMatch(html,/Enable after setup passes|Test &amp; enable/);
-  assert.match(html,/Test setup/);
-
-  const populate=js.slice(js.indexOf("function populateSettings"),js.indexOf("async function refreshSettingsData"));
-  assert.match(populate,/\$\("#settings-ai-details"\)\.hidden=!enabled/);
-  const toggleAction=js.slice(js.indexOf("async function setAiEnabled"),js.indexOf("async function selectAiBackend"));
-  assert.match(toggleAction,/api\("\/api\/settings\/ai"/);
-  assert.match(toggleAction,/JSON\.stringify\(\{enabled,backend\}\)/);
-  const backendAction=js.slice(js.indexOf("async function selectAiBackend"),js.indexOf("async function refreshOllamaModels"));
-  assert.doesNotMatch(backendAction,/enabled\s*:/);
-  const setupAction=js.slice(js.indexOf("async function testAiBackend"),js.indexOf("async function saveApiCredential"));
-  assert.doesNotMatch(setupAction,/enabled\s*:\s*false/);
-  assert.match(js,/\$\("#settings-ai-enabled"\)\.addEventListener\("change",event=>void setAiEnabled\(event\.target\.checked\)\)/);
-  assert.match(css,/\.settings-row input\[role="switch"\]\s*\{[^}]*appearance:\s*none[^}]*width:\s*44px[^}]*border-radius:\s*999px/);
-  assert.match(css,/\.settings-row input\[role="switch"\]:checked\s*\{[^}]*background:\s*var\(--violet\)/);
-  assert.match(css,/\.settings-row input\[role="switch"\]:checked::before\s*\{[^}]*translateX\(20px\)/);
 });
 
 test("About is the only normal application-version surface", () => {
@@ -611,13 +532,6 @@ test("About is the only normal application-version surface", () => {
   assert.match(html,/id="about-dialog"[\s\S]*Version __AM_VERSION__[\s\S]*<\/dialog>/);
   assert.doesNotMatch(html,/id="app-version"|class="app-version"/);
   assert.match(css,/\.about-link\s*\{[^}]*background:\s*transparent[^}]*font-size:\s*13px/);
-});
-
-test("Settings explains incompatible Ollama discovery without adding show", () => {
-  assert.match(js,/normalizeOllamaModels\(await api\("\/api\/ai\/ollama\/models"\)\)/);
-  assert.match(js,/configured Ollama server must be upgraded/);
-  assert.match(js,/Upgrade the configured Ollama server/);
-  assert.doesNotMatch(js,/\/api\/show/);
 });
 
 test("Settings exposes an explicit blocked-migration credential discard", () => {
@@ -632,26 +546,6 @@ test("Settings exposes an explicit blocked-migration credential discard", () => 
   assert.match(js,/settings_migration_invalid/);
 });
 
-test("API setup stays secondary, explicit, and confined to Settings", () => {
-  assert.match(js,/api\("\/api\/settings\/credential"/);
-  assert.match(js,/api\("\/api\/settings\/privacy"/);
-  assert.match(html,/id="settings-api-disclosure-detail"/);
-  assert.match(html,/API use may cost money/);
-  assert.match(js,/projectApiProviderPicker\(/);
-  assert.match(js,/async function selectApiProvider/);
-  assert.match(js,/async function selectApiModel/);
-  assert.match(js,/provider:selection\.providerId,model_id:selection\.modelId/);
-  assert.doesNotMatch(js,/provider:"xai"|model_id:"grok-4\.5"/);
-  const generation=js.slice(js.indexOf("async function startProceduralGeneration"),js.indexOf("function applyReviewedLighting",js.indexOf("async function startProceduralGeneration")));
-  assert.doesNotMatch(generation,/settings-api|credential|privacy|disclosure|provider|model_id/);
-});
-
-test("saving Settings persists intent without client-side readiness forgery", () => {
-  const save=js.slice(js.indexOf("async function saveSettings"),js.indexOf("function showDeviceDialog"));
-  assert.match(save,/api\("\/api\/settings\/ai"/);
-  assert.doesNotMatch(save,/enabled\s*&&\s*!aiReady\(\)/);
-});
-
 test("the LED editor delegates every pointer stroke to release-safe state", () => {
   const wire=js.slice(js.indexOf("function wireLedEditor"),js.indexOf("function showDeviceDialog"));
   assert.match(wire,/createPaintStrokeController\(/);
@@ -660,61 +554,17 @@ test("the LED editor delegates every pointer stroke to release-safe state", () =
   assert.doesNotMatch(wire,/pointerup[^\n]*once:true/);
 });
 
-test("generation is one prompt, durable progress, exact Board review, and explicit Apply", () => {
-  const generationSurface=`${js}\n${review}`;
-  for(const id of ["effect-prompt","generate-effect","cancel-effect","apply-procedural-effect"]){
-    assert.match(generationSurface,new RegExp(`id="${id}"`));
-  }
-  assert.match(js,/api\("\/api\/lighting\/effects"/);
-  assert.match(js,/backend:state\.aiStatus\.backend/);
-  assert.match(js,/scheduleLightingJobPoll\(started\.job_id\)/);
-  for(const phase of ["rendering","quality_check","banking"]){
-    assert.match(js,new RegExp(`${phase}:`));
-  }
-  assert.match(js,/proceduralProgressLabel\(/);
-  assert.doesNotMatch(js,/frames saved/);
-  assert.match(js,/procedural_attempts/);
-  assert.match(js,/recipe_asset_id/);
-  assert.match(js,/mapped_result_asset_id/);
-  assert.match(review,/physical Board/);
-  assert.doesNotMatch(review,/Animated lighting preview|<img\b|previewUrl/);
-  assert.match(js,/createReviewView\(\{attempt,recipe,quality/);
-  assert.match(js,/renderReview\(\$\("#lighting-generate-content"\),view,applyReviewedLighting\)/);
-  assert.match(js,/function renderGenerationStudio\(\)/);
-  assert.match(js,/This earlier failure does not turn anything off/);
-  assert.match(js,/syncLightingJob\(null,\{renderPage:false\}\)/);
-  assert.match(js,/type:"APPLY_REQUESTED"/);
-  const applyStart=js.lastIndexOf("function applyReviewedLighting");
-  const applyEnd=js.indexOf("async function loadAiConfig",applyStart);
-  const apply=js.slice(applyStart,applyEnd);
-  assert.equal((apply.match(/mutate\(/g)||[]).length,1);
-  // Slice P3 moved this sentence into the shared post-Apply feedback helper so
-  // every Apply says the same thing. The intent is unchanged: applying a
-  // generated result must state that the keyboard has not been written.
-  assert.match(apply,/lightingAppliedDetail\(/);
+test("the post-Apply message states that the keyboard is unwritten", () => {
   const detail=js.slice(js.indexOf("function lightingAppliedDetail"),js.indexOf("\nfunction ",js.indexOf("function lightingAppliedDetail")+10));
   assert.match(detail,/Nothing has been written to the keyboard yet/);
+  assert.match(js,/type:"APPLY_REQUESTED"/);
 });
 
-test("inline generation tool omits backend identity and keeps the exact target destination", () => {
-  const prompt=js.slice(js.indexOf("function renderPromptStage"),js.indexOf("function renderProgressStage"));
-  assert.doesNotMatch(prompt,/state\.aiStatus\?\.backend/);
-  assert.doesNotMatch(prompt,/===\s*"api"\s*\?\s*"API"\s*:\s*"Local"/);
-  assert.match(prompt,/Custom \$\{destinationSlot-4\} · \$\{esc\(targetLabel\)\}/);
-  const settings=html.slice(html.indexOf('id="settings-screen"'));
-  assert.match(settings,/settings-ai-ollama/);
-  assert.match(settings,/settings-ai-api/);
-  assert.match(js,/manifest\?\.costs\?\.actual_incomplete/);
-});
-
-test("generation is inline with no detached dialog or Create route", () => {
+test("no detached generation dialog or Create route survives", () => {
   assert.doesNotMatch(html,/lighting-generate-dialog|lighting-generate-open/);
   assert.doesNotMatch(js,/openRenderedDialog|handleGenerationDialogClose|ROUTES\.CREATE/);
   assert.doesNotMatch(review,/openRenderedDialog|generation dialog/i);
-  assert.match(js,/You can open Library while this finishes/);
-  assert.match(js,/function revealGenerationStudio\(\)/);
   assert.match(js,/navigateTo\(ROUTES\.EDIT/);
-  assert.match(js,/scrollIntoView/);
 });
 
 test("Library remains document-independent and browses every saved kind", () => {
@@ -835,7 +685,6 @@ test("Settings remains saveable without a procedural loop preference", () => {
     assert.match(html,new RegExp(`id="${id}"`));
   }
   assert.doesNotMatch(html,/settings-loop-mode|Generation default|Animation loop/);
-  assert.match(js,/api\("\/api\/settings\/ai"/);
   assert.match(js,/api\("\/api\/settings\/library"/);
   assert.match(js,/api\("\/api\/native\/choose-library"/);
   assert.match(js,/api\("\/api\/native\/reveal-library"/);

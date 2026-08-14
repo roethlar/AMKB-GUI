@@ -1,4 +1,4 @@
-# AI Removal Plan (2026-08-14) — DRAFT, awaiting owner approval
+# AI Removal Plan (2026-08-14) — APPROVED by owner 2026-08-14; slices land as work proceeds
 
 Decision: `.agents/decisions.md` (2026-08-14). Scope:
 `docs/superpowers/plans/2026-08-14-ai-removal-scope.md`. This plan slices the

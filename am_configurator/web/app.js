@@ -8,8 +8,7 @@ if (queryToken) history.replaceState({}, "", `${location.pathname}${location.has
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
-const {ROUTES, STAGES, aiStudioAvailable, classifyImportedJsonSelection, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, importedLightingApplyAvailability, nextGridIndex, normalizeOllamaModels, ollamaEndpointDataFlow, ollamaModelRefreshFailed, parseLightingHash, projectApiProviderPicker, projectLightingJob, projectOllamaModelPicker, reduceLightingState, routeAvailability, safeRgbColor} = LightingState;
-const {createReviewView, renderReview, reviewBlockedMessage} = LightingReview;
+const {ROUTES, classifyImportedJsonSelection, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, importedLightingApplyAvailability, nextGridIndex, parseLightingHash, reduceLightingState, routeAvailability, safeRgbColor} = LightingState;
 const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, mergeScannedDeviceDetails, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const {canonicalizeSourceTransform, createLatestTaskScheduler, defaultSourceTransform, interpolateMoveZoom, presetSourceTransform, renderColorEffect, resolveSourceGeometry, selectDemonstrativeEffectFrame, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
 const {boardFrameSetFromDocument, boardFrameSetFromLocalEffect, boardFrameSetFromMappedFrame, boardFrameSetFromMappedResult, captureWorkspaceAsyncContext, createLightingPlaybackRuntime, createLightingWorkspace, friendlyWorkspaceError, mappedResultFromBoardFrameSet, paintBoardProjection, reduceLightingWorkspace, selectBoardProjection, selectSourceProjection, workspaceAsyncContextMatches, workspaceContextKey, workspaceDestinationKey} = LightingWorkspace;
@@ -84,7 +83,6 @@ const state = {
   fileName: "AM-config.json",
   dirty: false,
   lighting: restoredLighting.lighting,
-  lightingJobId: restoredLighting.jobId,
   layer: 0,
   selected: null,
   showTechnicalLabels: false,
@@ -128,30 +126,8 @@ const state = {
   pendingWrite: null,
   capabilities: null,
   settings: null,
-  aiStatus: null,
-  ollamaModels: {available:null,models:[],reason:null,loading:false},
-  ollamaInventoryEpoch: 0,
   settingsReturnRoute: null,
   settingsSaveBusy: false,
-  aiPrompt: "",
-  conceptQuantity: 1,
-  conceptManifest: null,
-  conceptExpectedCount: 0,
-  conceptSubmitting: false,
-  conceptError: "",
-  conceptPollTimer: null,
-  conceptPollEpoch: 0,
-  conceptPollFailures: 0,
-  conceptDestination: null,
-  animationMotion: "",
-  animationSubmitting: false,
-  animationError: "",
-  reviewTab: "device",
-  reviewFrameIndex: 0,
-  mappedLightingResults: new Map(),
-  mappedLightingResultLoads: new Set(),
-  proceduralRecipes: new Map(),
-  proceduralRecipeLoads: new Set(),
   library: {
     items: [],
     details: new Map(),
@@ -382,10 +358,6 @@ async function api(path, options = {}) {
     throw error;
   }
   return data;
-}
-
-function documentSynchronized() {
-  return Boolean(state.config&&state.documentRevision&&!state.documentSyncing);
 }
 
 async function synchronizeOpenDocument() {
@@ -1130,7 +1102,6 @@ function keyClass(code) {
 
 function render() {
   renderRoute();
-  renderLightingJobStrip();
   updateMeta();
 }
 
@@ -1150,8 +1121,7 @@ function navigateTo(route, {replace = false, focusHeading = false} = {}) {
   state.recording = false;
   state.lighting = reduceLightingState(state.lighting, {type: "NAVIGATE", route}).state;
   persistLightingState();
-  const jobId = state.lighting.activeJob?.id || state.lightingJobId;
-  const hash = formatLightingHash(state.lighting.route, jobId);
+  const hash = formatLightingHash(state.lighting.route);
   const nextUrl = `${location.pathname}${location.search}${hash}`;
   history[replace ? "replaceState" : "pushState"]({}, "", nextUrl);
   render();
@@ -1250,53 +1220,6 @@ function renderRoute() {
   $("#screen").hidden = false;
   if (route === ROUTES.KEYMAP) renderKeymap();
   else if (route === ROUTES.MACROS) renderMacros();
-}
-
-function renderLightingJobStrip() {
-  const host = $("#lighting-job-host");
-  const job = state.lighting.activeJob;
-  if (!job || !aiReady()) {
-    host.replaceChildren();
-    return;
-  }
-  let strip = $("#lighting-job-strip",host);
-  if (!strip) {
-    host.innerHTML=`<section id="lighting-job-strip" class="lighting-job-strip">
-      <span class="job-state-mark" aria-hidden="true"></span>
-      <div class="job-strip-copy"><strong id="lighting-job-phase">Lighting</strong><span id="lighting-job-detail">Getting ready…</span></div>
-      <progress id="lighting-job-progress" max="1" value="0" hidden></progress>
-      <div class="job-strip-actions"><button id="lighting-job-view" type="button" class="button ghost">View</button><button id="lighting-job-cancel" type="button" class="button ghost">Cancel</button></div>
-      <span id="lighting-job-phase-live" class="sr-only" aria-live="polite"></span>
-    </section>`;
-    strip=$("#lighting-job-strip",host);
-    $("#lighting-job-view",host).addEventListener("click",revealGenerationStudio);
-    $("#lighting-job-cancel",host).addEventListener("click",cancelLightingJob);
-  }
-  const phaseLabel = job.phase ? proceduralPhaseLabel(job.phase) : "Ready";
-  if ($("#lighting-job-phase").textContent !== phaseLabel) {
-    $("#lighting-job-phase").textContent = phaseLabel;
-    $("#lighting-job-phase-live").textContent = `Lighting: ${phaseLabel}`;
-  }
-  const progress = job.progress;
-  const hasProgress = progress && Number(progress.total) > 0;
-  $("#lighting-job-detail").textContent = hasProgress
-    ? `${progress.completed} of ${progress.total} complete`
-    : "Your work is saved to Library as it finishes.";
-  const progressNode = $("#lighting-job-progress");
-  progressNode.hidden = !hasProgress;
-  if (!progressNode.hidden) {
-    progressNode.max = progress.total;
-    progressNode.value = Math.min(progress.total, progress.completed);
-  }
-  $("#lighting-job-cancel").disabled = !["in_progress", "accepted", "processing"].includes(job.status);
-}
-
-function clearProceduralResultCache() {
-  state.mappedLightingResults.clear();
-  state.mappedLightingResultLoads.clear();
-  if(state.transientLightingPreview?.kind==="procedural"){
-    state.transientLightingPreview=null;
-  }
 }
 
 function arrayBufferToBase64(buffer) {
@@ -2330,74 +2253,6 @@ function renderLibrary() {
   if(!state.library.loaded&&!state.library.loading)void loadLibrary();
 }
 
-async function loadMappedLightingResult(jobId,assetId) {
-  const key=`${jobId}:${assetId}`;
-  if(state.mappedLightingResults.has(key)||state.mappedLightingResultLoads.has(key))return;
-  state.mappedLightingResultLoads.add(key);
-  try{
-    const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
-    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||"The generated lighting could not be loaded.");}
-    const result=await response.json();
-    if(!result||typeof result!=="object"||!result.tracks)throw new Error("The generated lighting could not be read.");
-    if(state.conceptManifest?.job_id!==jobId)return;
-    state.mappedLightingResults.set(key,result);
-    if(state.lighting.route===ROUTES.EDIT&&state.studioTool==="generate")renderLightingEdit();
-    else refreshGenerationStudio();
-  }catch(error){
-    if(state.conceptManifest?.job_id===jobId){state.animationError=error.message;refreshGenerationStudio();}
-  }finally{state.mappedLightingResultLoads.delete(key);}
-}
-
-function scheduleLightingJobPoll(jobId,delay=800) {
-  if(state.conceptPollTimer)clearTimeout(state.conceptPollTimer);
-  const epoch=state.conceptPollEpoch;
-  state.conceptPollTimer=setTimeout(()=>pollLightingJob(jobId,epoch),delay);
-}
-
-async function pollLightingJob(jobId,epoch=state.conceptPollEpoch) {
-  if(epoch!==state.conceptPollEpoch||state.lighting.activeJob?.id!==jobId)return;
-  try{
-    const manifest=await api(`/api/lighting/jobs/${encodeURIComponent(jobId)}`);
-    if(epoch===state.conceptPollEpoch&&state.lighting.activeJob?.id===jobId)syncLightingJob(manifest,{renderPage:false});
-  }catch(error){
-    if(epoch!==state.conceptPollEpoch||state.lighting.activeJob?.id!==jobId)return;
-    if(error.status===400||error.status===404){syncLightingJob(null,{renderPage:false});return;}
-    state.conceptError=error.message;
-    state.conceptPollFailures++;
-    refreshGenerationStudio();
-    scheduleLightingJobPoll(jobId,Math.min(5000,800*(2**Math.min(3,state.conceptPollFailures))));
-  }
-}
-
-async function restoreLightingJob() {
-  if (!state.lightingJobId) return;
-  const jobId=state.lightingJobId;
-  const epoch=++state.conceptPollEpoch;
-  if(state.conceptPollTimer)clearTimeout(state.conceptPollTimer);
-  try {
-    const manifest=await api(`/api/lighting/jobs/${encodeURIComponent(jobId)}`);
-    if(epoch===state.conceptPollEpoch&&state.lightingJobId===jobId)syncLightingJob(manifest);
-  } catch (error) {
-    if (epoch===state.conceptPollEpoch&&state.lightingJobId===jobId&&(error.status === 404 || error.status === 400)) syncLightingJob(null);
-    else if(epoch===state.conceptPollEpoch&&state.lightingJobId===jobId)scheduleLightingJobPoll(jobId);
-  }
-}
-
-async function cancelLightingJob() {
-  const job = state.lighting.activeJob;
-  if (!job || $("#lighting-job-cancel").disabled) return;
-  state.conceptPollEpoch++;
-  if(state.conceptPollTimer)clearTimeout(state.conceptPollTimer);
-  $("#lighting-job-cancel").disabled = true;
-  try {
-    await api(`/api/lighting/jobs/${encodeURIComponent(job.id)}/cancel`, {method: "POST", body: "{}"});
-    await restoreLightingJob();
-  } catch (error) {
-    toast("Could not cancel", `${error.message} The generation is still running; try Cancel again.`, "error");
-    renderLightingJobStrip();
-  }
-}
-
 function documentRequirementMarkup(message) {
   return `<div class="route-requirement"><span class="route-requirement-icon" aria-hidden="true">⌨</span><div><strong>Open a keyboard configuration first.</strong><p>${esc(message)} Use Open or Devices in the toolbar above.</p></div></div>`;
 }
@@ -3121,7 +2976,7 @@ function replaceEdgeAnimation(mode) {
 }
 
 function availableStudioTools() {
-  return ["paint","source","animate",...(aiReady()?["generate"]:[])];
+  return ["paint","source","animate"];
 }
 
 function resumeUnfinishedMediaComposition() {
@@ -4857,7 +4712,6 @@ function activeTransientLightingPreview() {
     ||preview.documentEpoch!==lightingWorkspace.context.document_epoch
     ||preview.slot!==state.ledSlot
     ||preview.target!==state.ledTarget
-    ||(preview.kind==="procedural"&&state.studioTool!=="generate")
   )return null;
   return preview;
 }
@@ -4870,41 +4724,6 @@ function libraryBoardPreviewInspectorMarkup(preview,targetLabel) {
 function wireLibraryBoardPreview() {
   $("#library-preview-apply")?.addEventListener("click",applyLibraryPreview);
   $("#library-preview-cancel")?.addEventListener("click",cancelLibraryBoardPreview);
-}
-
-function proceduralPreviewIdentity(manifest,attempt) {
-  return manifest?.job_id&&attempt?.mapped_result_asset_id
-    ?`${manifest.job_id}:${attempt.mapped_result_asset_id}`
-    :null;
-}
-
-function ensureProceduralBoardPreview() {
-  if(state.studioTool!=="generate"||state.lighting.create.stage!==STAGES.REVIEW)return null;
-  const manifest=state.conceptManifest;
-  const attempt=latestProceduralAttempt(manifest);
-  const identity=proceduralPreviewIdentity(manifest,attempt);
-  const destination=state.conceptDestination;
-  const result=identity?state.mappedLightingResults.get(identity):null;
-  if(
-    !identity
-    ||!destination
-    ||!result
-    ||destination.slot!==state.ledSlot
-    ||destination.target!==state.ledTarget
-  )return null;
-  const existing=state.transientLightingPreview;
-  if(existing?.kind==="procedural"&&existing.identity===identity){
-    return activeTransientLightingPreview();
-  }
-  state.transientLightingPreview=mappedResultBoardPreview({
-    kind:"procedural",
-    identity,
-    name:"Generated lighting",
-    mappedResult:result,
-    slot:destination.slot,
-    target:destination.target,
-  });
-  return state.transientLightingPreview;
 }
 
 function currentLightingBoardFrameSet({
@@ -5239,8 +5058,6 @@ function renderLightingEdit() {
   let previewTimelineActive=Boolean(activeDraft||mediaPreviewActive||transientPreview);
   let boardProjection=null;
   try{
-    transientPreview=ensureProceduralBoardPreview()||transientPreview;
-    previewTimelineActive=Boolean(activeDraft||mediaPreviewActive||transientPreview);
     const boardFrameSet=currentLightingBoardFrameSet({
       model,
       page,
@@ -5341,7 +5158,6 @@ function renderLightingEdit() {
     previewTimelineActive
     ||sourceActive
     ||(state.studioTool==="animate"&&state.localAnimationEffect)
-    ||(state.studioTool==="generate"&&state.lighting.create.stage===STAGES.REVIEW)
   );
   const primaryDestination=mediaDestinationSize();
   const sourceReady=Boolean(sourceActive&&mediaSourceSize()&&primaryDestination);
@@ -5378,19 +5194,17 @@ function renderLightingEdit() {
         ${animationDraftMarkup()}
         <div class="animation-draft-actions"><button id="animate-accept" class="button primary" ${animationDraft&&animationDraft.demonstrative_frame!==null?"":"disabled"}>Apply to lighting slot</button><button id="animate-cancel" class="button ghost" ${animationDraft||state.localAnimationEffect?"":"disabled"}>Cancel</button></div>
       </div>`;
-  const generationTab=aiReady()?`<button id="studio-generate-tab" role="tab" aria-controls="studio-generate-panel" aria-selected="${String(state.studioTool==="generate")}" tabindex="${state.studioTool==="generate"?0:-1}" data-studio-tool="generate">AI</button>`:"";
   // Mapped/stored counts are a Technical details fact, not normal canvas copy.
   const canvasSubtitle=[
     physicalLayout?"Layer 1 labels":"",
     mutationPreviewActive?"Exact preview":"",
   ].filter(Boolean).join(" · ")||"Editing this slot";
-  const generationPanel=aiReady()?`<section id="studio-generate-panel" class="studio-tool-panel lighting-generate-tool" role="tabpanel" aria-labelledby="studio-generate-tab" ${state.studioTool==="generate"?"":"hidden"}><div id="lighting-generate-tool" tabindex="-1"><div class="studio-panel-heading"><strong id="lighting-generate-title">Generate lighting with AI</strong><small>Lighting effect · ${esc(targetLabel)}</small></div><div id="lighting-generate-content" aria-live="polite"></div></div></section>`:"";
   const timelineIndex=boardProjection?.index??0;
   const mediaPlaybackReady=!sourceActive||mediaCompositionCanPresent(mediaDraft);
   const sourcePane=sourceActive?`<section id="lighting-source-pane" class="card lighting-pane lighting-source-pane" aria-label="Source"><div class="card-header lighting-pane-heading"><div><strong>Source</strong><small>Actual imported frame</small></div></div><div class="lighting-pane-body"><div id="media-compositor-stage" class="media-compositor-stage ${sourceReady?'source-ready':''}" tabindex="${sourceReady?'0':'-1'}" aria-label="Pan and zoom the imported frame" style="--destination-width:${primaryDestination?.width||1};--destination-height:${primaryDestination?.height||1}"><div class="media-compositor-plane"><div class="media-source-viewport" aria-hidden="false"><img id="lighting-source-frame" class="source-frame-image" alt="Imported source frame" hidden><div id="lighting-source-placeholder" class="source-frame-placeholder">Building the synchronized preview…</div></div><div class="destination-overlay" aria-hidden="true"></div></div></div></div></section>`:"";
   const boardPane=`<section id="lighting-board-pane" class="card lighting-pane lighting-board-pane" aria-label="${esc(targetLabel)} Board"><div class="card-header led-canvas-heading"><div><strong>${esc(targetLabel)}</strong><small>What the keyboard will show · ${esc(canvasSubtitle)}</small><details class="advanced-disclosure technical-details"><summary>Technical details</summary><p class="control-help">${mappedCount} of ${length} stored colors are mapped to lights on this keyboard${raster?` · ${esc(raster)} grid`:""} · ${esc(model.name)}.</p></details></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost" ${mutationPreviewActive&&!mediaResultApplied?'hidden':''} title="Keep a reusable copy of this slot in Library. Separate from Apply, which only changes the open document.">Save to Library</button></div></div><div class="lighting-pane-body"><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${mutationPreviewActive?'draft-preview':''}" data-lighting-destination-key="${esc(workspaceDestinationKey(lightingWorkspace))}" role="region" aria-label="${mutationPreviewActive?'Read-only preview of this lighting':'Paint the selected animation frame'}">${pixelCanvas}</div></div></section>`;
   const timelineMarkup=`<div class="lighting-timeline-toolbar"><div class="lighting-playback-controls"><button id="lighting-previous-frame" class="icon-button" type="button" aria-label="Previous frame" ${timelineFrames.length<=1?'disabled':''}>←</button><button id="play-led" class="button ghost" type="button" aria-label="${state.playing?'Pause lighting':'Play lighting'}" ${timelineFrames.length<=1||!mediaPlaybackReady?'disabled':''}>${state.playing?'Pause':'Play'}</button><button id="lighting-next-frame" class="icon-button" type="button" aria-label="Next frame" ${timelineFrames.length<=1?'disabled':''}>→</button></div><input id="lighting-timeline-scrubber" type="range" min="0" max="${Math.max(0,timelineFrames.length-1)}" value="${timelineIndex}" aria-label="Lighting frame" ${timelineFrames.length<=1?'disabled':''}><div class="lighting-timeline-position"><strong id="lighting-frame-position" aria-live="polite">${timelineFrames.length?`Frame ${timelineIndex+1} of ${timelineFrames.length}`:'No frames'}</strong><small id="lighting-loop-status">${timelineFrames.length>1?'Loops continuously':'Single frame'}</small></div></div><div class="lighting-timeline-frames" role="list" aria-label="Lighting timeline">${timelineFrames.map((item,i)=>`<button class="frame-item ${i===timelineIndex?'active':''}" type="button" role="listitem" data-frame="${i}" aria-pressed="${i===timelineIndex}" aria-label="Frame ${i+1}${i===timelineIndex?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===timelineIndex?(mutationPreviewActive?'Previewing':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="lighting-timeline-actions"><button id="add-frame" class="button ghost" ${mutationPreviewActive?'disabled':''}>+ Duplicate</button><button id="remove-frame" class="button ghost" ${timelineFrames.length<=1||mutationPreviewActive?'disabled':''}>Delete</button></div>`;
-  const normalInspectorMarkup=`<div class="studio-tool-tabs ${aiReady()?'with-generate':''}" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Import media</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Effects</button>${generationTab}</div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}${generationPanel}</div>`;
+  const normalInspectorMarkup=`<div class="studio-tool-tabs" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Import media</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Effects</button></div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}</div>`;
   const inspectorMarkup=libraryPreviewActive
     ?`${libraryBoardPreviewInspectorMarkup(transientPreview,targetLabel)}<div hidden aria-hidden="true">${normalInspectorMarkup}</div>`
     :normalInspectorMarkup;
@@ -5406,7 +5220,6 @@ function renderLightingEdit() {
   renderLightingSourceProjection();
   void loadLightingSourceProjection();
   updateLightingWorkspaceStatus(boardProjection,mediaCompositionStatusText(mediaDraft));
-  renderGenerationStudio();
 }
 
 function focusSelectedFrame() {
@@ -5598,35 +5411,6 @@ function stopPlayback(rerender=true) {
     {type: "PAUSE_REQUESTED"},
     {renderWorkspace: rerender && state.lighting.route === ROUTES.EDIT},
   );
-}
-
-// ---- AI LED generation -----------------------------------------------------
-
-// Typed provider-error codes → plain-language copy. Every message says what
-// failed, that nothing was saved or changed, and the next action. Raw exception
-// text is never surfaced here: it stays in local diagnostics and tests.
-const AI_ERROR_MESSAGES = {
-  config: "AI setup isn’t finished, so nothing was generated. Finish setup in Settings, then try again.",
-  auth: "The AI service rejected your key, so nothing was generated. Update the key in Settings, then try again.",
-  rate_limited: "The AI service is busy right now, so nothing was generated. Wait a moment, then try again.",
-  timeout: "The AI service took too long, so nothing was generated. Try a shorter description, then try again.",
-  offline: "The AI service could not be reached, so nothing was generated. Check its setup in Settings, then try again.",
-  moderation: "The AI service declined this description, so nothing was generated. Describe the effect differently, then try again.",
-  bad_response: "The model sent back lighting this app could not use, so nothing was changed. Try another description or model, then try again.",
-  unavailable: "The AI service is temporarily unavailable, so nothing was generated. Try again shortly.",
-};
-
-const AI_ERROR_FALLBACK =
-  "Lighting could not be generated, so nothing was changed. Try again.";
-
-function aiErrorMessage(error) {
-  if (error?.status === 404) {
-    return "That generation is no longer available, so nothing was changed. Start it again.";
-  }
-  const code = error?.code;
-  let message = AI_ERROR_MESSAGES[code] || AI_ERROR_FALLBACK;
-  if (code === "rate_limited" && error?.retry_after) message += ` Retry after ${error.retry_after}s.`;
-  return message;
 }
 
 // ---- Settings route --------------------------------------------------------
@@ -6047,426 +5831,33 @@ async function confirmDeviceWrite() {
   }
 }
 
-// ---- Optional procedural generation ---------------------------------------
-
-function aiReady() {
-  return Boolean(aiStudioAvailable(state.aiStatus));
-}
-
-function selectedAiBackend() {
-  return $("input[name='settings-ai-backend']:checked")?.value || state.aiStatus?.backend || "ollama";
-}
-
-function proceduralTargetSnapshot() {
-  const family=productFamily(productId());
-  return {
-    family,
-    productId:productId(),
-    targets:[state.ledTarget],
-    frameCap:Number(activeFamilySpec().frameCap||0),
-  };
-}
-
-function latestProceduralAttempt(manifest=state.conceptManifest) {
-  const attempts=manifest?.procedural_attempts||[];
-  return attempts.length?attempts[attempts.length-1]:null;
-}
-
-async function loadProceduralRecipe(jobId,assetId) {
-  const key=`${jobId}:${assetId}`;
-  if(state.proceduralRecipes.has(key)||state.proceduralRecipeLoads.has(key))return;
-  state.proceduralRecipeLoads.add(key);
-  try{
-    const response=await fetch(`/api/lighting/assets/${encodeURIComponent(jobId)}/${encodeURIComponent(assetId)}`,{headers:{"X-AM-Token":token}});
-    if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.error||"The lighting effect could not be loaded.");}
-    const recipe=await response.json();
-    if(!recipe||typeof recipe!=="object"||!Array.isArray(recipe.layers))throw new Error("The lighting effect could not be read.");
-    if(state.conceptManifest?.job_id===jobId){state.proceduralRecipes.set(key,recipe);refreshGenerationStudio();}
-  }catch(error){
-    if(state.conceptManifest?.job_id===jobId){state.animationError=error.message;refreshGenerationStudio();}
-  }finally{state.proceduralRecipeLoads.delete(key);}
-}
-
-function hydrateProceduralAssets(manifest) {
-  const attempt=latestProceduralAttempt(manifest);
-  if(!attempt)return;
-  if(attempt.recipe_asset_id)void loadProceduralRecipe(manifest.job_id,attempt.recipe_asset_id);
-  if(attempt.mapped_result_asset_id)void loadMappedLightingResult(manifest.job_id,attempt.mapped_result_asset_id);
-}
-
-function refreshGenerationStudio() {
-  if($("#lighting-generate-tool"))renderGenerationStudio();
-}
-
-function syncLightingJob(manifest,{renderPage=true}={}) {
-  const previousId=state.conceptManifest?.job_id;
-  if(previousId&&previousId!==manifest?.job_id){
-    clearProceduralResultCache();
-    state.proceduralRecipes.clear();
-    state.animationError="";
-  }
-  state.conceptManifest=manifest||null;
-  if(manifest){
-    state.conceptPollFailures=0;
-    state.aiPrompt=manifest.prompt||state.aiPrompt;
-    state.conceptDestination={slot:state.conceptDestination?.slot||state.ledSlot,target:manifest.target?.targets?.[0]||state.ledTarget};
-  }else state.conceptDestination=null;
-  state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:manifest?projectLightingJob(manifest):null}).state;
-  state.lightingJobId=state.lighting.activeJob?.id||null;
-  persistLightingState();
-  history.replaceState({},"",`${location.pathname}${location.search}${formatLightingHash(state.lighting.route,state.lightingJobId)}`);
-  hydrateProceduralAssets(manifest);
-  if(renderPage)render();
-  else{renderLightingJobStrip();refreshGenerationStudio();}
-  if(manifest&&["in_progress","accepted","processing"].includes(manifest.status))scheduleLightingJobPoll(manifest.job_id);
-}
-
-function proceduralPhaseLabel(phase) {
-  return ({
-    accepted:"Getting ready",
-    recipe_about_to_start:"Creating lighting",
-    recipe_generating:"Creating lighting",
-    quality_check:"Checking the result",
-    rendering:"Creating lighting",
-    banking:"Saving to Library",
-    ready_for_review:"Ready for review",
-    cancelled_saved:"Cancelled. Anything already finished stays in Library.",
-  })[phase]||"Working";
-}
-
-function proceduralProgressLabel(phase, completed, total) {
-  const verb = ({rendering:"created",quality_check:"checked",banking:"prepared"})[phase]||"processed";
-  return `${completed} of ${total} frames ${verb}`;
-}
-
-// The AI panel names the model it will actually use. The backend choice is
-// resolved here, not in the prompt renderer, so the prompt stage stays free of
-// backend identity plumbing.
-function selectedAiModelLabel() {
-  const status=state.aiStatus;
-  if(status?.backend==="api"){
-    const apiState=status.api||{};
-    const projection=apiProviderSelection(apiState.provider,apiState.model_id);
-    const modelLabel=projection.models.find(model=>model.id===apiState.model_id)?.label||apiState.model_id;
-    return modelLabel
-      ?`Direct API · ${projection.providerLabel} · ${modelLabel}`
-      :"Direct API · no model selected";
-  }
-  const ollama=status?.ollama||{};
-  if(!ollama.model_id)return "Ollama · no model selected";
-  const location=ollama.model_location==="ollama_cloud"?"Ollama Cloud":"On this Ollama server";
-  return `Ollama · ${ollama.model_id} — ${location}`;
-}
-
-function generationStudioContext() {
-  const manifest=state.conceptManifest?.job_id===state.lighting.activeJob?.id?state.conceptManifest:null;
-  const target=manifest?.target||proceduralTargetSnapshot();
-  const targetKey=target.targets?.[0]||state.ledTarget;
-  const model=LED_MODELS[productFamily(target.family||target.product_id)]||activeLedModel();
-  const targetLabel=model?.targets.find(item=>item.key===targetKey)?.label||targetKey;
-  const destinationSlot=state.conceptDestination?.slot||state.ledSlot;
-  return {manifest,target,targetKey,targetLabel,destinationSlot,modelLabel:selectedAiModelLabel(),busy:state.conceptSubmitting||["in_progress","accepted","processing"].includes(state.lighting.activeJob?.status)};
-}
-
-// Clearing a finished-but-failed attempt is a local state reset. It must never
-// start another model request: the backend contract is one request per explicit
-// Generate, and Cancel is not that action.
-function dismissGenerationPrompt() {
-  state.aiPrompt="";
-  state.conceptError="";
-  state.animationError="";
-  const job=state.lighting.activeJob;
-  if(job&&!["in_progress","accepted","processing"].includes(job.status)){
-    syncLightingJob(null,{renderPage:false});
-  }
-  renderGenerationStudio();
-}
-
-function renderPromptStage(context) {
-  const {manifest,targetLabel,destinationSlot,modelLabel,busy}=context;
-  const stopped=latestProceduralAttempt(manifest)?.error_code;
-  const failed=Boolean(state.conceptError||state.animationError||state.documentSyncError||stopped);
-  $("#lighting-generate-content").innerHTML=`<div class="concept-stage">
-    <p class="concept-destination">Custom ${destinationSlot-4} · ${esc(targetLabel)}</p>
-    <p class="concept-model">${esc(modelLabel)}</p>
-    <div class="concept-prompt"><label class="control-label" for="effect-prompt">Describe the lighting</label><textarea id="effect-prompt" class="text-field" rows="5" maxlength="4000" placeholder="Dense violet aurora moving across the whole keyboard…" ${busy?'disabled':''}>${esc(state.aiPrompt)}</textarea></div>
-    <div class="concept-actions"><button id="cancel-generation" type="button" class="button ghost">Cancel</button><button id="generate-effect" type="button" class="button primary" ${busy||!state.aiPrompt.trim()||!aiReady()||!documentSynchronized()?'disabled':''}>${failed?"Try again":"Generate lighting"}</button></div>
-    ${failed?`<p class="ai-error" role="alert">${esc(state.conceptError||state.animationError||state.documentSyncError||`${aiErrorMessage({code:stopped})} This earlier failure does not turn anything off — you can generate again.`)}</p>`:""}
-  </div>`;
-  $("#effect-prompt")?.addEventListener("input",event=>{state.aiPrompt=event.target.value;$("#generate-effect").disabled=!event.target.value.trim()||!aiReady()||!documentSynchronized();});
-  $("#generate-effect")?.addEventListener("click",startProceduralGeneration);
-  $("#cancel-generation")?.addEventListener("click",dismissGenerationPrompt);
-}
-
-function renderProgressStage(context) {
-  const manifest=context.manifest;
-  const progress=manifest?.progress||state.lighting.activeJob?.progress;
-  const completed=Number(progress?.completed||0),total=Number(progress?.total||0);
-  $("#lighting-generate-content").innerHTML=`<div class="concept-stage generation-progress">
-    <div class="loader" aria-hidden="true"></div><h3>${esc(proceduralPhaseLabel(manifest?.phase||state.lighting.activeJob?.phase))}</h3>
-    <p>You can open Library while this finishes. Closing the progress view does not cancel generation.</p>
-    ${total?`<progress max="${total}" value="${Math.min(completed,total)}" aria-label="Generation progress"></progress><p>${proceduralProgressLabel(manifest?.phase||state.lighting.activeJob?.phase,completed,total)}</p>`:""}
-    <div class="button-row"><button id="cancel-effect" type="button" class="button ghost">Cancel</button></div>
-    ${state.conceptError?`<p class="ai-error" role="alert">${esc(state.conceptError)}</p>`:""}
-  </div>`;
-  $("#cancel-effect")?.addEventListener("click",cancelLightingJob);
-}
-
-function proceduralBoardPreviewReady(manifest,attempt) {
-  const preview=activeTransientLightingPreview();
-  if(
-    preview?.kind!=="procedural"
-    ||preview.identity!==proceduralPreviewIdentity(manifest,attempt)
-  )return false;
-  try{
-    return acceptedBoardFrameSetForApply({
-      provenance:"procedural_result",
-      slot:preview.slot,
-      target:preview.target,
-      expected:preview.boardFrameSet,
-    })===preview.boardFrameSet;
-  }catch(error){
-    return false;
-  }
-}
-
-function renderProceduralReview(context) {
-  const manifest=context.manifest;
-  const attempt=latestProceduralAttempt(manifest);
-  const recipe=attempt?.recipe_asset_id?state.proceduralRecipes.get(`${manifest.job_id}:${attempt.recipe_asset_id}`):null;
-  const quality=attempt?.quality||{};
-  const decision=reduceLightingState(state.lighting,{type:"APPLY_REQUESTED"},{document:documentDescriptor(),destination:state.conceptDestination});
-  const mappedResultLoaded=Boolean(attempt?.mapped_result_asset_id&&state.mappedLightingResults.has(`${manifest.job_id}:${attempt.mapped_result_asset_id}`));
-  const boardPreviewReady=proceduralBoardPreviewReady(manifest,attempt);
-  const view=createReviewView({attempt,recipe,quality,frameCap:manifest?.target?.frame_cap,targetLabel:context.targetLabel,destinationSlot:context.destinationSlot,blockedReason:decision.blocked,mappedResultLoaded,boardPreviewReady,errorMessage:state.animationError,writeActionLabel:writeActionLabel()});
-  renderReview($("#lighting-generate-content"),view,applyReviewedLighting);
-}
-
-function renderGenerationStudio() {
-  const container=$("#lighting-generate-content");
-  if(!container||!aiReady())return;
-  const active=Boolean(state.lighting.activeJob);
-  const context=generationStudioContext();
-  if(state.lighting.create.stage===STAGES.REVIEW&&context.manifest)renderProceduralReview(context);
-  else if(state.lighting.create.stage===STAGES.PROGRESS&&active)renderProgressStage(context);
-  else renderPromptStage(context);
-}
-
-function revealGenerationStudio() {
-  if(!aiReady()||!state.config||!pageData().length)return;
-  if(state.lighting.route!==ROUTES.EDIT)navigateTo(ROUTES.EDIT);
-  state.studioTool="generate";
-  renderLightingEdit();
-  requestAnimationFrame(()=>{
-    const tool=$("#lighting-generate-tool");
-    tool?.scrollIntoView({behavior:"smooth",block:"start"});
-    (tool?.querySelector("#effect-prompt")||tool)?.focus({preventScroll:true});
-  });
-}
-
-async function startProceduralGeneration() {
-  if(state.conceptSubmitting||!aiReady()||!documentSynchronized())return;
-  if(state.lighting.activeJob){
-    if(["in_progress","accepted","processing"].includes(state.lighting.activeJob.status))return;
-    syncLightingJob(null,{renderPage:false});
-  }
-  const prompt=state.aiPrompt.trim();
-  if(!prompt)return;
-  state.conceptSubmitting=true;
-  state.conceptError="";
-  state.animationError="";
-  const target=proceduralTargetSnapshot();
-  state.conceptDestination={slot:state.ledSlot,target:target.targets[0]};
-  renderGenerationStudio();
-  try{
-    const started=await api("/api/lighting/effects",{method:"POST",body:JSON.stringify({prompt,backend:state.aiStatus.backend,target:state.ledTarget,document_revision:state.documentRevision})});
-    state.conceptPollEpoch++;
-    state.conceptDestination={slot:state.ledSlot,target:started.target.targets[0]};
-    state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:{id:started.job_id,status:"in_progress",phase:"accepted",progress:null,resultAssetId:null,previewAssetId:null,recipeAssetId:null,target:started.target}}).state;
-    state.lightingJobId=started.job_id;
-    persistLightingState();
-    renderLightingJobStrip();
-    renderGenerationStudio();
-    scheduleLightingJobPoll(started.job_id);
-  }catch(error){state.conceptError=aiErrorMessage(error);}
-  finally{state.conceptSubmitting=false;refreshGenerationStudio();}
-}
-
-function applyReviewedLighting() {
-  const manifest=state.conceptManifest;
-  const attempt=latestProceduralAttempt(manifest);
-  const destination=state.conceptDestination;
-  if(!manifest||!attempt?.mapped_result_asset_id||!destination)return;
-  const decision=reduceLightingState(state.lighting,{type:"APPLY_REQUESTED"},{document:documentDescriptor(),destination});
-  if(decision.blocked){state.animationError=reviewBlockedMessage(decision.blocked);renderGenerationStudio();return;}
-  const preview=activeTransientLightingPreview();
-  if(
-    preview?.kind!=="procedural"
-    ||preview.identity!==proceduralPreviewIdentity(manifest,attempt)
-  ){
-    state.animationError="The exact Board preview is not ready. Nothing was changed; wait for it to appear, then try Apply again.";
-    renderGenerationStudio();
-    return;
-  }
-  let frameSet;
-  try{
-    frameSet=acceptedBoardFrameSetForApply({
-      provenance:"procedural_result",
-      slot:destination.slot,
-      target:destination.target,
-      expected:preview.boardFrameSet,
-    });
-  }catch(error){
-    state.animationError=`${error.message} Nothing was changed.`;
-    renderGenerationStudio();
-    return;
-  }
-  mutate(()=>{
-    applyBoardFrameSetToPage(getPage(destination.slot),frameSet,destination.target);
-    state.ledFrame=0;
-  },false);
-  state.conceptPollEpoch++;
-  if(state.conceptPollTimer)clearTimeout(state.conceptPollTimer);
-  clearProceduralResultCache();
-  state.proceduralRecipes.clear();
-  state.conceptManifest=null;
-  state.conceptDestination=null;
-  state.lighting=reduceLightingState(state.lighting,{type:"JOB_SYNCED",job:null}).state;
-  state.lightingJobId=null;
-  state.library.loaded=false;
-  persistLightingState();
-  history.replaceState({},"",`${location.pathname}${location.search}${formatLightingHash(state.lighting.route)}`);
-  render();
-  toast(
-    `Applied to ${lightingSlotLabel(destination.slot)}`,
-    lightingAppliedDetail(
-      destination.slot,
-      destination.target,
-      `${frameSet.frame_count} lighting frames arrived there. This effect is already saved to Library.`,
-    ),
-    "success",
-  );
-}
-
-// Device geometry is not an AI concern and must not wait on one. It decides
-// whether the editor can render at all, so it is fetched on its own before the
-// first render; bundling it with the optional AI calls meant a slow or failing
-// AI status could leave the editor with no layout.
+// Device geometry decides whether the editor can render at all, so it is
+// fetched on its own before the first render.
 async function loadDeviceGeometry() {
   try{state.capabilities=await api("/api/led/capabilities");}
   catch(error){state.capabilities=undefined;}
 }
 
-async function loadAiConfig() {
-  const requests=await Promise.allSettled([api("/api/settings"),api("/api/ai/status")]);
-  if(requests[0].status==="fulfilled")state.settings=requests[0].value;
-  if(requests[1].status==="fulfilled")state.aiStatus=requests[1].value;
-  state.ollamaModels={available:null,models:[],reason:null,loading:false};
-  refreshAiGate();
+async function loadSettings() {
+  try{state.settings=await api("/api/settings");}
+  catch(error){}
+  refreshSettingsGate();
 }
 
-function refreshAiGate() {
-  renderLightingJobStrip();
+function refreshSettingsGate() {
   if(state.lighting.route===ROUTES.SETTINGS)populateSettings();
   else if(state.lighting.route===ROUTES.LIBRARY)renderLibrary();
   else renderScreen();
-}
-
-function aiReasonText(reason,status=state.aiStatus) {
-  return ({
-    disabled:"AI features are off.",backend_unselected:"Choose Ollama or Direct API.",ollama_unavailable:"The configured Ollama server is unavailable.",upgrade_required:"Upgrade the configured Ollama server, then refresh its models.",model_missing:"Refresh and choose a model from the configured Ollama server.",model_unavailable:"The model was updated. Refresh, choose it again, then run Test setup.",setup_required:"Run Test setup for the selected service.",credential_store_unavailable:"Secure credential storage is unavailable.",credential_invalid:"The API key is invalid.",credential_missing:"Save an API key.",disclosure_required:status?.backend==="ollama"?"Accept the Ollama data disclosure.":"Accept the Direct API data disclosure.",auth_invalid:"The API key was rejected.",ready:"Ready.",
-  })[reason]||"Setup needs attention.";
-}
-
-function populateOllamaModelSelect(ollama) {
-  const select=$("#settings-ollama-model-select");
-  const projection=projectOllamaModelPicker(state.ollamaModels,ollama,select.value);
-  select.replaceChildren();
-  const placeholder=document.createElement("option");
-  placeholder.value="";
-  placeholder.textContent=projection.placeholder;
-  select.append(placeholder);
-  projection.options.forEach(projected=>{
-    const option=document.createElement("option");
-    option.value=projected.value;
-    option.textContent=projected.label;
-    option.disabled=projected.disabled;
-    select.append(option);
-  });
-  select.value=projection.value;
-  select.disabled=projection.disabled;
-  select.dataset.inventoryState=projection.inventoryState;
-  select.dataset.selectionState=projection.selectionState;
-  return projection;
-}
-
-function apiProviderSelection(
-  provider=state.aiStatus?.api?.provider,
-  model=state.aiStatus?.api?.model_id,
-) {
-  return projectApiProviderPicker(
-    state.capabilities?.ai_catalog,
-    state.settings?.ai?.api,
-    provider,
-    model,
-  );
-}
-
-function populateApiProviderControls(apiState) {
-  const projection=apiProviderSelection(apiState.provider,apiState.model_id);
-  const providerSelect=$("#settings-api-provider");
-  providerSelect.replaceChildren();
-  projection.providers.forEach(provider=>{
-    const option=document.createElement("option");
-    option.value=provider.id;
-    option.textContent=provider.label;
-    providerSelect.append(option);
-  });
-  if(!projection.providers.length){
-    const option=document.createElement("option");
-    option.value="";
-    option.textContent="Provider catalog unavailable";
-    providerSelect.append(option);
-  }
-  providerSelect.value=projection.providerId||"";
-  providerSelect.disabled=!projection.providerId;
-
-  const modelSelect=$("#settings-api-model");
-  modelSelect.replaceChildren();
-  projection.models.forEach(model=>{
-    const option=document.createElement("option");
-    option.value=model.id;
-    option.textContent=model.label;
-    modelSelect.append(option);
-  });
-  if(!projection.models.length){
-    const option=document.createElement("option");
-    option.value="";
-    option.textContent="No curated models available";
-    modelSelect.append(option);
-  }
-  modelSelect.value=projection.modelId||"";
-  modelSelect.disabled=!projection.modelId;
-
-  const label=projection.providerLabel;
-  $("#settings-api-key-label").textContent=`${label} API key`;
-  $("#settings-api-key").placeholder=`Enter ${label} key`;
-  $("#settings-api-disclosure-detail").textContent=`Your lighting prompt and the selected keyboard's size go to ${label}. Imported GIF, PNG, BMP, and JPEG files, keymaps, macros, device paths, and Library files never leave this computer. API use may cost money under your provider account.`;
-  $("#settings-api-test").textContent=`Test ${label} setup`;
-  return projection;
 }
 
 async function openSettings() {
   if(state.lighting.route!==ROUTES.SETTINGS)state.settingsReturnRoute=state.lighting.route;
   navigateTo(ROUTES.SETTINGS,{focusHeading:true});
   setSettingsStatus("");
-  await loadAiConfig();
+  await loadSettings();
 }
 
 function populateSettings() {
-  const status=state.aiStatus;
-  const enabled=Boolean(status?.enabled);
-  const backend=status?.backend||"ollama";
   const migration=state.settings?.migration||{};
   const migrationBlocked=migration.required===true;
   const canDiscardLegacyCredential=migrationBlocked&&["credential_store_unavailable","credential_invalid"].includes(migration.reason);
@@ -6484,267 +5875,8 @@ function populateSettings() {
   $("#settings-migration-discard").disabled=!canDiscardLegacyCredential||!confirm.checked;
   $("#settings-mutable").inert=migrationBlocked;
   $("#settings-save").disabled=migrationBlocked||state.settingsSaveBusy;
-  $("#settings-ai-enabled").checked=enabled;
-  $("#settings-ai-details").hidden=!enabled;
-  $("#settings-ai-ollama").checked=backend==="ollama";
-  $("#settings-ai-api").checked=backend==="api";
-  $("#settings-ai-state").textContent=aiReady()?"Ready":enabled?"Setup needed":"Off";
-  $("#settings-ai-state").className=`pill ${aiReady()?"":"muted"}`;
-  $("#settings-ollama-panel").hidden=backend!=="ollama";
-  $("#settings-api-panel").hidden=backend!=="api";
-  const ollama=status?.ollama||{};
-  const pickerProjection=populateOllamaModelSelect(ollama);
-  const ollamaAvailable=state.ollamaModels.available===true;
-  const upgradeRequired=state.ollamaModels.reason==="upgrade_required"||status?.reason==="upgrade_required";
-  const ollamaBaseUrl=ollama.base_url||state.settings?.ai?.ollama?.base_url||"";
-  const ollamaFlow=ollamaEndpointDataFlow(ollamaBaseUrl,ollama.model_location);
-  $("#settings-ollama-base-url").value=ollamaBaseUrl;
-  $("#settings-ollama-runtime").textContent=state.ollamaModels.loading?"Checking":upgradeRequired?"Upgrade needed":ollamaAvailable?"Server reached":state.ollamaModels.available===false?"Unavailable":"Not checked";
-  $("#settings-ollama-runtime").className=`pill ${ollamaAvailable&&!upgradeRequired?"":"muted"}`;
-  $("#settings-ollama-transport-warning").hidden=!ollamaFlow.insecureRemote;
-  const ollamaDisclosureRequired=Boolean(ollama.disclosure_required);
-  $("#settings-ollama-disclosure").hidden=!ollamaDisclosureRequired;
-  $("#settings-ollama-disclosure-detail").textContent=[
-    !ollamaFlow.loopback?"The configured Ollama server receives your lighting prompt and the selected keyboard dimensions.":null,
-    ollama.model_location==="ollama_cloud"?"The configured Ollama server may forward the request to Ollama Cloud.":null,
-    "Imported media, profiles, keymaps, macros, device paths, and Library files are not sent.",
-  ].filter(Boolean).join(" ");
-  $("#settings-ollama-disclosure-ack").checked=Boolean(ollama.disclosure_current);
-  let ollamaGuidance="Refresh models from the configured Ollama server.";
-  if(backend==="ollama"){
-    if(upgradeRequired)ollamaGuidance="Upgrade the configured Ollama server, then refresh models.";
-    else if(pickerProjection.inventoryState==="transient_failure")ollamaGuidance="Ollama could not be refreshed. The previous model choice is preserved; try Refresh again.";
-    else if(pickerProjection.inventoryState==="not_refreshed")ollamaGuidance=ollama.model_selected?"Run Test setup, or Refresh to update the model list.":"Refresh models from the configured Ollama server.";
-    else if(!ollamaAvailable)ollamaGuidance="Check the Ollama server URL, then refresh models.";
-    else if(pickerProjection.selectionState==="none")ollamaGuidance="Choose one of the models reported by this Ollama server.";
-    else if(pickerProjection.selectionState==="removed")ollamaGuidance="The selected model is no longer available. Refresh and choose another model.";
-    else if(pickerProjection.selectionState==="digest_changed")ollamaGuidance="The model was updated. Select it again, then run Test setup.";
-    else if(ollamaDisclosureRequired&&!ollama.disclosure_current)ollamaGuidance="Review and accept the Ollama data disclosure, then run Test setup.";
-    else if(!ollama.setup_tested)ollamaGuidance="Run Test setup to check that this model can create lighting.";
-    else ollamaGuidance="Ready.";
-  }
-  $("#settings-ollama-state").textContent=ollamaGuidance;
-  const selectedLocation=ollama.model_location==="ollama_cloud"?"Ollama Cloud":"On this Ollama server";
-  const selectedSuffix=pickerProjection.selectionState==="removed"?" · no longer available":pickerProjection.selectionState==="digest_changed"?" · updated":pickerProjection.selectionState==="transient_failure"?" · refresh to check":"";
-  $("#settings-ollama-model").textContent=ollama.model_selected?`Selected: ${ollama.model_id} — ${selectedLocation}${selectedSuffix}`:"No Ollama model selected.";
-  const picker=$("#settings-ollama-model-select");
-  $("#settings-ollama-refresh").disabled=state.ollamaModels.loading;
-  $("#settings-ollama-select").disabled=picker.disabled||!picker.value||!state.ollamaModels.models.some(model=>model.model_id===picker.value);
-  $("#settings-ollama-clear").disabled=!ollama.model_selected;
-  $("#settings-ollama-test").disabled=!ollama.model_selected;
-  const apiState=status?.api||{};
-  const apiProjection=populateApiProviderControls(apiState);
-  $("#settings-api-credential-state").textContent=apiState.credential_set?`A ${apiProjection.providerLabel} credential is stored securely.`:`No ${apiProjection.providerLabel} credential is configured.`;
-  $("#settings-api-remove").disabled=!apiState.credential_set;
-  $("#settings-api-disclosure-ack").checked=Boolean(apiState.disclosure_current);
   $("#settings-library-root").value=state.settings?.library?.current_root||"";
   $("#settings-reveal-library").disabled=!state.settings?.library?.current_root;
-}
-
-async function refreshSettingsData() {
-  const [settings,status]=await Promise.all([api("/api/settings"),api("/api/ai/status")]);
-  state.settings=settings;
-  state.aiStatus=status;
-  populateSettings();
-  refreshAiGate();
-}
-
-async function setAiEnabled(enabled) {
-  const toggle=$("#settings-ai-enabled");
-  const backend=selectedAiBackend();
-  toggle.disabled=true;
-  $("#settings-ai-details").hidden=!enabled;
-  setSettingsStatus(enabled?"Turning on AI features…":"Turning off AI features…","working");
-  try{
-    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled,backend})});
-    if(!enabled)state.ollamaModels={available:null,models:[],reason:null,loading:false};
-    populateSettings();
-    refreshAiGate();
-    setSettingsStatus(enabled?(aiReady()?"AI features are on and ready.":`${aiReasonText(state.aiStatus.reason)} Configure the selected backend below.`):"AI features are off. All AI setup and generation controls are hidden.");
-  }catch(error){
-    populateSettings();
-    refreshAiGate();
-    setSettingsStatus(error.message,"error");
-  }finally{toggle.disabled=false;}
-}
-
-async function selectAiBackend(backend) {
-  setSettingsStatus("Updating backend…","working");
-  try{
-    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend})});
-    populateSettings();
-    refreshAiGate();
-    setSettingsStatus(backend==="ollama"?"Ollama selected. Refresh models, choose one, then run Test setup.":"Direct API selected. Save a key, accept the disclosure, then run Test setup.");
-  }catch(error){setSettingsStatus(error.message,"error");}
-}
-
-async function selectApiProvider() {
-  const selection=apiProviderSelection($("#settings-api-provider").value,null);
-  if(!selection.providerId||!selection.modelId){
-    setSettingsStatus("The API provider catalog is unavailable.","error");
-    return;
-  }
-  setSettingsStatus(`Selecting ${selection.providerLabel}…`,"working");
-  try{
-    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend:"api",provider:selection.providerId,model_id:selection.modelId})});
-    state.settings=await api("/api/settings");
-    populateSettings();
-    refreshAiGate();
-    setSettingsStatus(`${selection.providerLabel} selected. Save its credential, accept its disclosure, and run Test setup.`);
-  }catch(error){populateSettings();setSettingsStatus(error.message,"error");}
-}
-
-async function selectApiModel() {
-  const selection=apiProviderSelection(
-    $("#settings-api-provider").value,
-    $("#settings-api-model").value,
-  );
-  if(!selection.providerId||!selection.modelId){
-    setSettingsStatus("Choose a curated API model first.","error");
-    return;
-  }
-  setSettingsStatus(`Selecting ${selection.models.find(model=>model.id===selection.modelId)?.label||selection.modelId}…`,"working");
-  try{
-    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend:"api",provider:selection.providerId,model_id:selection.modelId})});
-    state.settings=await api("/api/settings");
-    populateSettings();
-    refreshAiGate();
-    setSettingsStatus("Model selected. Run Test setup.");
-  }catch(error){populateSettings();setSettingsStatus(error.message,"error");}
-}
-
-async function saveOllamaBaseUrl({quiet=false}={}) {
-  const input=$("#settings-ollama-base-url");
-  const baseUrl=input.value.trim();
-  if(!baseUrl){
-    if(!quiet)setSettingsStatus("Enter an Ollama server URL.","error");
-    return false;
-  }
-  const current=state.settings?.ai?.ollama?.base_url||state.aiStatus?.ollama?.base_url||"";
-  if(baseUrl===current)return true;
-  if(!quiet)setSettingsStatus("Saving Ollama server…","working");
-  try{
-    const result=await api("/api/settings/ollama",{method:"POST",body:JSON.stringify({base_url:baseUrl})});
-    state.settings={...state.settings,ai:{...state.settings?.ai,ollama:result.ollama}};
-    state.ollamaInventoryEpoch++;
-    state.ollamaModels={available:null,models:[],reason:null,loading:false};
-    state.aiStatus={
-      ...state.aiStatus,
-      ready:false,
-      reason:state.aiStatus?.enabled?"model_missing":"disabled",
-      ollama:{
-        ...state.aiStatus?.ollama,
-        base_url:result.ollama.base_url,
-        model_selected:false,
-        model_id:null,
-        model_digest:null,
-        model_location:null,
-        model_verified:false,
-        setup_tested:false,
-        disclosure_required:!ollamaEndpointDataFlow(result.ollama.base_url).loopback,
-        disclosure_current:ollamaEndpointDataFlow(result.ollama.base_url).loopback,
-        provider:"ollama",
-      },
-    };
-    populateSettings();
-    refreshAiGate();
-    if(!quiet)setSettingsStatus("Ollama server saved. Refresh models when you are ready.");
-    return true;
-  }catch(error){
-    populateSettings();
-    if(!quiet)setSettingsStatus(error.message,"error");
-    return false;
-  }
-}
-
-async function refreshOllamaModels({quiet=false}={}) {
-  const epoch=state.ollamaInventoryEpoch;
-  state.ollamaModels={...state.ollamaModels,loading:true};
-  populateSettings();
-  if(!quiet)setSettingsStatus("Refreshing models from the configured Ollama server…","working");
-  try{
-    const models=normalizeOllamaModels(await api("/api/ai/ollama/models"));
-    if(epoch!==state.ollamaInventoryEpoch)return;
-    state.ollamaModels=models;
-    populateSettings();
-    if(!quiet)setSettingsStatus(state.ollamaModels.reason==="upgrade_required"?"The configured Ollama server must be upgraded before models can be discovered.":state.ollamaModels.available?(state.ollamaModels.models.length?`${state.ollamaModels.models.length} completion model${state.ollamaModels.models.length===1?"":"s"} reported.`:"The configured Ollama server reported no completion models."):"The configured Ollama server is unavailable.",state.ollamaModels.reason==="upgrade_required"||!state.ollamaModels.available?"error":"");
-  }catch(error){if(epoch!==state.ollamaInventoryEpoch)return;state.ollamaModels=ollamaModelRefreshFailed(state.ollamaModels);populateSettings();if(!quiet)setSettingsStatus("The configured Ollama server could not be reached. The previous model choice is preserved; try Refresh again.","error");}
-}
-
-async function selectOllamaModel() {
-  const modelId=$("#settings-ollama-model-select").value;
-  const model=state.ollamaModels.models.find(candidate=>candidate.model_id===modelId);
-  if(!model){setSettingsStatus("Refresh and choose an Ollama model first.","error");return;}
-  setSettingsStatus(`Selecting ${modelId}…`,"working");
-  try{state.aiStatus=await api("/api/ai/ollama/select",{method:"POST",body:JSON.stringify({model_id:model.model_id,model_digest:model.digest,model_location:model.location})});populateSettings();refreshAiGate();setSettingsStatus(`${model.label} selected. Run Test setup.`);}
-  catch(error){setSettingsStatus(error.message,"error");}
-}
-
-async function clearOllamaModel() {
-  setSettingsStatus("Clearing selection…","working");
-  try{state.aiStatus=await api("/api/ai/ollama/clear",{method:"POST",body:"{}"});populateSettings();refreshAiGate();setSettingsStatus("Ollama model selection cleared. No model was changed or removed.");}
-  catch(error){setSettingsStatus(error.message,"error");}
-}
-
-async function testAiBackend(backend) {
-  setSettingsStatus(backend==="ollama"?"Testing the selected model through Ollama…":"Testing the Direct API setup…","working");
-  try{
-    if(state.aiStatus?.backend!==backend)state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({backend})});
-    if(backend==="ollama"){
-      if(state.aiStatus?.ollama?.disclosure_required&&!state.aiStatus.ollama.disclosure_current){
-        // A local setup gate is not a provider failure: report it directly so the
-        // typed-error mapper never has to fall back to raw exception text.
-        if(!$("#settings-ollama-disclosure-ack").checked){
-          setSettingsStatus("Nothing was tested. Accept the Ollama data disclosure, then run Test setup.","error");
-          return;
-        }
-        state.aiStatus=await api("/api/settings/ollama/disclosure",{method:"POST",body:JSON.stringify({version:state.aiStatus.ollama.disclosure_version})});
-      }
-    }else{
-      const selection=apiProviderSelection();
-      if(!selection.providerId||!selection.modelId||!selection.disclosureVersion){
-        setSettingsStatus("Nothing was tested. This provider is unavailable; choose another provider and model.","error");
-        return;
-      }
-      if(state.aiStatus?.api?.provider!==selection.providerId||state.aiStatus?.api?.model_id!==selection.modelId){
-        state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({provider:selection.providerId,model_id:selection.modelId})});
-        state.settings=await api("/api/settings");
-      }
-      const key=$("#settings-api-key").value.trim();
-      if(key){state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:selection.providerId,key})});$("#settings-api-key").value="";}
-      if(!state.aiStatus.api.disclosure_current){
-        if(!$("#settings-api-disclosure-ack").checked){
-          setSettingsStatus("Nothing was tested. Accept the Direct API data disclosure, then run Test setup.","error");
-          return;
-        }
-        state.settings=await api("/api/settings/privacy",{method:"POST",body:JSON.stringify({provider:selection.providerId,version:selection.disclosureVersion})});
-      }
-    }
-    state.aiStatus=await api("/api/ai/test",{method:"POST",body:JSON.stringify({backend})});
-    await refreshSettingsData();
-    setSettingsStatus(backend==="ollama"?"Ollama setup passed. AI generation is ready.":"Direct API setup passed. AI generation is ready.");
-  }catch(error){
-    try{state.aiStatus=await api("/api/ai/status");populateSettings();refreshAiGate();}catch(refreshError){}
-    setSettingsStatus(aiErrorMessage(error),"error");
-  }
-}
-
-async function saveApiCredential() {
-  const key=$("#settings-api-key").value.trim();
-  if(!key){setSettingsStatus("Enter an API key to save.","error");return;}
-  const selection=apiProviderSelection();
-  if(!selection.providerId){setSettingsStatus("Choose an API provider first.","error");return;}
-  setSettingsStatus("Saving credential securely…","working");
-  try{state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:selection.providerId,key})});$("#settings-api-key").value="";populateSettings();setSettingsStatus(`${selection.providerLabel} credential saved. Run Test setup.`);}
-  catch(error){setSettingsStatus(error.message,"error");}
-}
-
-async function clearSettingsKey() {
-  const selection=apiProviderSelection();
-  if(!selection.providerId){setSettingsStatus("Choose an API provider first.","error");return;}
-  setSettingsStatus("Removing credential…","working");
-  try{state.aiStatus=await api("/api/settings/credential",{method:"POST",body:JSON.stringify({provider:selection.providerId,key:""})});populateSettings();refreshAiGate();setSettingsStatus(`${selection.providerLabel} credential removed.`);}
-  catch(error){setSettingsStatus(error.message,"error");}
 }
 
 async function discardLegacyApiCredential() {
@@ -6757,7 +5889,7 @@ async function discardLegacyApiCredential() {
   setSettingsStatus("Repairing older settings…","working");
   try{
     state.settings=await api("/api/settings/migration/discard-credential",{method:"POST",body:JSON.stringify({confirm:true})});
-    await loadAiConfig();
+    await loadSettings();
     populateSettings();
     setSettingsStatus("Settings repaired. The legacy file credential was discarded; the OS credential vault was not changed.");
   }catch(error){setSettingsStatus(error.message,"error");populateSettings();}
@@ -6770,15 +5902,11 @@ async function saveSettings({exit=false}={}) {
   $("#settings-done").disabled=true;
   setSettingsStatus("Saving…","working");
   try{
-    const backend=selectedAiBackend();
-    const enabled=$("#settings-ai-enabled").checked;
-    if(backend==="ollama"&&!await saveOllamaBaseUrl({quiet:true}))throw new Error("The Ollama server URL could not be saved.");
-    state.aiStatus=await api("/api/settings/ai",{method:"POST",body:JSON.stringify({enabled,backend})});
     const requestedRoot=$("#settings-library-root").value.trim()||null;
     if(requestedRoot!==state.settings.library?.current_root)state.settings=await api("/api/settings/library",{method:"POST",body:JSON.stringify({current_root:requestedRoot})});
     state.library.loaded=false;
     populateSettings();
-    refreshAiGate();
+    refreshSettingsGate();
     setSettingsStatus("Settings saved.");
     if(exit)finishSettings();
     return true;
@@ -6818,21 +5946,6 @@ $("#settings-save").addEventListener("click",()=>saveSettings());
 $("#settings-done").addEventListener("click",()=>state.settings?.migration?.required?finishSettings():saveSettings({exit:true}));
 $("#settings-migration-confirm").addEventListener("change",populateSettings);
 $("#settings-migration-discard").addEventListener("click",discardLegacyApiCredential);
-$("#settings-ai-enabled").addEventListener("change",event=>void setAiEnabled(event.target.checked));
-$("#settings-ai-ollama").addEventListener("change",()=>selectAiBackend("ollama"));
-$("#settings-ai-api").addEventListener("change",()=>selectAiBackend("api"));
-$("#settings-ollama-save-url").addEventListener("click",saveOllamaBaseUrl);
-$("#settings-ollama-refresh").addEventListener("click",()=>refreshOllamaModels());
-$("#settings-ollama-model-select").addEventListener("change",populateSettings);
-$("#settings-ollama-select").addEventListener("click",selectOllamaModel);
-$("#settings-ollama-test").addEventListener("click",()=>testAiBackend("ollama"));
-$("#settings-ollama-clear").addEventListener("click",clearOllamaModel);
-$("#settings-api-provider").addEventListener("change",selectApiProvider);
-$("#settings-api-model").addEventListener("change",selectApiModel);
-$("#settings-api-key").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();saveApiCredential();}});
-$("#settings-api-save-key").addEventListener("click",saveApiCredential);
-$("#settings-api-test").addEventListener("click",()=>testAiBackend("api"));
-$("#settings-api-remove").addEventListener("click",clearSettingsKey);
 $("#settings-choose-library").addEventListener("click",chooseLibraryFolder);
 $("#settings-reveal-library").addEventListener("click",revealLibraryFolder);
 $("#library-add-files").addEventListener("click",()=>$("#library-profile-input").click());
@@ -6931,11 +6044,9 @@ $$('[data-lighting-slot]').forEach(button=>button.addEventListener('click',()=>{
 }));
 window.addEventListener("popstate", () => {
   const parsed = parseLightingHash(location.hash);
-  state.lightingJobId = parsed.jobId;
   state.lighting = reduceLightingState(state.lighting, {type: "NAVIGATE", route: parsed.route}).state;
   persistLightingState();
   render();
-  if (parsed.jobId && parsed.jobId !== state.lighting.activeJob?.id) restoreLightingJob();
 });
 document.addEventListener('keydown',event=>{
   if(state.cadenceCapture){captureCadenceEvent(event);return;}
@@ -6945,7 +6056,6 @@ document.addEventListener('keydown',event=>{
 });
 document.addEventListener('keyup',event=>{if(state.recording)recordEvent(event,false);});
 window.addEventListener('beforeunload',event=>{if(state.dirty){event.preventDefault();event.returnValue='';}});
-window.addEventListener('pagehide',clearProceduralResultCache);
 window.addEventListener('pagehide',clearLibraryAssetUrls);
 lightingMotionPreference?.addEventListener?.("change",event=>{
   if(event.matches&&lightingWorkspace.playhead.playing){
@@ -6968,8 +6078,7 @@ lightingMotionPreference?.addEventListener?.("change",event=>{
     }
     await loadDeviceGeometry();
     render();
-    restoreLightingJob();
     scanDevices();
-    loadAiConfig();
+    loadSettings();
   }catch(error){toast('Could not start configurator',error.message,'error');}
 })();

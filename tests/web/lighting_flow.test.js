@@ -78,12 +78,11 @@ class ReviewDom {
 
 // ---- Tool names and the two-step boundary ---------------------------------
 
-test("Studio tools read Paint, Import media, Effects, and AI over stable keys", () => {
+test("Studio tools read Paint, Import media, and Effects over stable keys", () => {
   for (const [key, label] of [
     ["paint", "Paint"],
     ["source", "Import media"],
     ["animate", "Effects"],
-    ["generate", "AI"],
   ]) {
     assert.match(
       js,
@@ -94,13 +93,12 @@ test("Studio tools read Paint, Import media, Effects, and AI over stable keys", 
   // Internal keys and element ids are unchanged so state, focus management, and
   // every existing selector keep working.
   for (const id of [
-    "studio-paint-tab", "studio-source-tab", "studio-animate-tab", "studio-generate-tab",
-    "studio-paint-panel", "studio-source-panel", "studio-animate-panel", "studio-generate-panel",
+    "studio-paint-tab", "studio-source-tab", "studio-animate-tab",
+    "studio-paint-panel", "studio-source-panel", "studio-animate-panel",
   ]) assert.match(js, new RegExp(`id="${id}"`), `${id} must stay stable`);
   // The implementation-led labels are gone from the tab row.
   assert.doesNotMatch(js, /data-studio-tool="source">Source</);
   assert.doesNotMatch(js, /data-studio-tool="animate">Animate</);
-  assert.doesNotMatch(js, /data-studio-tool="generate">Generate</);
   // Longer task names cannot blow the tab row out of the narrow tool column.
   assert.match(css, /\.studio-tool-tabs \{[^}]*grid-template-columns: repeat\(auto-fit, minmax\(88px, 1fr\)\)/);
   assert.match(css, /\.studio-tool-tabs > \* \{ min-width: 0; \}/);
@@ -577,7 +575,6 @@ test("every preview-backed Apply consumes the currently accepted BoardFrameSet",
   for (const name of [
     "applyMediaCompositionDraft",
     "applyLocalEffectFrameSet",
-    "applyReviewedLighting",
     "applyImportedLighting",
     "applyLibraryPreview",
   ]) {
@@ -588,10 +585,9 @@ test("every preview-backed Apply consumes the currently accepted BoardFrameSet",
     assert.doesNotMatch(body, /resampleEdgeAnimation\(/, `${name} must not derive an unpreviewed track`);
   }
   assert.doesNotMatch(jsFunction("applyLedResultToPage"), /resampleEdgeAnimation\(/);
-  const procedural = jsFunction("applyReviewedLighting");
-  assert.match(procedural, /preview\?\.kind!=="procedural"/);
-  assert.match(procedural, /preview\.identity!==proceduralPreviewIdentity\(manifest,attempt\)/);
-  assert.match(procedural, /expected:preview\.boardFrameSet/);
+  const libraryPreview = jsFunction("applyLibraryPreview");
+  assert.match(libraryPreview, /preview\.kind\.startsWith\("library_"\)/);
+  assert.match(libraryPreview, /expected:preview\.boardFrameSet/);
 });
 
 test("Library actions open a read-only Board preview before a separate Apply", () => {
@@ -642,7 +638,6 @@ test("every Apply names the slot, the document-only change, and the Write action
   for (const name of [
     "applyMediaCompositionDraft",
     "applyLocalEffectFrameSet",
-    "applyReviewedLighting",
     "applyImportedLighting",
     "applyLibraryPreview",
     "replaceEdgeAnimation",
@@ -656,27 +651,6 @@ test("every Apply names the slot, the document-only change, and the Write action
   assert.match(mediaStatus, /open profile/);
   assert.doesNotMatch(mediaStatus, /lightingAppliedDetail\(\)/);
   assert.match(jsFunction("updateLightingWorkspaceStatus"), /The keyboard is unchanged/);
-});
-
-test("a stale model refresh cannot fill inventory from a previous origin", () => {
-  // cx-3: an in-flight refresh against origin A must not populate the
-  // inventory after origin B is saved.
-  const refresh = jsFunction("refreshOllamaModels");
-  assert.match(refresh, /const epoch=state\.ollamaInventoryEpoch/);
-  // Each branch carries its own discard: a single loose match would stay
-  // green if only the success-path check were removed (cx-3 reopen round 1).
-  assert.match(
-    refresh,
-    /const models=normalizeOllamaModels\(await api\("\/api\/ai\/ollama\/models"\)\);\s*if\(epoch!==state\.ollamaInventoryEpoch\)return;\s*state\.ollamaModels=models;/,
-    "the success path must discard stale results before assigning"
-  );
-  assert.match(
-    refresh,
-    /catch\(error\)\{if\(epoch!==state\.ollamaInventoryEpoch\)return;/,
-    "the failure path must discard stale results before assigning"
-  );
-  const save = jsFunction("saveOllamaBaseUrl");
-  assert.match(save, /state\.ollamaInventoryEpoch\+\+/);
 });
 
 test("the generated-result review states the destination, scope, and next action", () => {
@@ -706,9 +680,6 @@ test("the generated-result review states the destination, scope, and next action
   // Without a known keyboard the hint still names the toolbar button.
   const fallback = createReviewView({destinationSlot: 5, targetLabel: "Keys"});
   assert.match(fallback.applyHint, /Write to keyboard button/);
-
-  // app.js supplies the real device name to the pure renderer.
-  assert.match(js, /writeActionLabel:writeActionLabel\(\)/);
 });
 
 // ---- Save to Library stays a separate, consistently labelled action --------
@@ -724,7 +695,6 @@ test("Save to Library is one label everywhere and never merged into Apply", () =
   for (const name of [
     "applyMediaCompositionDraft",
     "applyLocalAnimationDraft",
-    "applyReviewedLighting",
   ]) assert.doesNotMatch(
     jsFunction(name),
     /\/api\/library\/save\//,
@@ -736,54 +706,11 @@ test("Save to Library is one label everywhere and never merged into Apply", () =
   assert.match(js, /\$\("#save-macros-library"\)\?\.addEventListener\("click",\(\)=>saveMappingToLibrary\("save-macros-library"\)\)/);
 });
 
-// ---- AI panel --------------------------------------------------------------
-
-test("the AI panel shows destination, model, one prompt, one action, and Cancel", () => {
-  const prompt = js.slice(js.indexOf("function renderPromptStage"), js.indexOf("function renderProgressStage"));
-  assert.match(prompt, /class="concept-destination">Custom \$\{destinationSlot-4\} · \$\{esc\(targetLabel\)\}/);
-  assert.match(prompt, /class="concept-model">\$\{esc\(modelLabel\)\}/);
-  assert.equal((prompt.match(/id="effect-prompt"/g) || []).length, 1, "one prompt field");
-  assert.equal((prompt.match(/id="generate-effect"/g) || []).length, 1, "one generate action");
-  assert.match(prompt, /id="cancel-generation"[^>]*>Cancel</);
-
-  const model = jsFunction("selectedAiModelLabel");
-  assert.match(model, /Direct API/);
-  assert.match(model, /Ollama/);
-  assert.match(model, /Ollama Cloud/);
-  assert.match(model, /On this Ollama server/);
-  assert.match(js, /modelLabel:selectedAiModelLabel\(\)/);
-});
-
-test("a generation failure exposes exactly one Try again action and starts no call", () => {
-  const prompt = js.slice(js.indexOf("function renderPromptStage"), js.indexOf("function renderProgressStage"));
-  assert.match(prompt, /const failed=Boolean\(state\.conceptError\|\|state\.animationError\|\|state\.documentSyncError\|\|stopped\)/);
-  assert.match(prompt, /\$\{failed\?"Try again":"Generate lighting"\}/);
-  assert.equal((prompt.match(/id="generate-effect"/g) || []).length, 1, "a failure must not add a second retry control");
-  // Rendering a failure never issues a request; only the explicit click does.
-  assert.doesNotMatch(prompt, /await api\(|fetch\(/);
-  const dismiss = jsFunction("dismissGenerationPrompt");
-  assert.doesNotMatch(dismiss, /api\(|fetch\(/, "Cancel must not contact the backend");
-  // The one-request contract from the backend plan stays visible here: a single
-  // generation entry point, reached only from the explicit action.
-  assert.equal((js.match(/\/api\/lighting\/effects/g) || []).length, 1);
-  assert.match(js, /\$\("#generate-effect"\)\?\.addEventListener\("click",startProceduralGeneration\)/);
-  assert.doesNotMatch(js, /retry_prompt|retry_seed|generate_attempt/);
-});
-
-test("AI-off hides AI-only controls while every manual tool stays available", () => {
-  const context = {aiReady: () => false};
+test("every manual studio tool stays available and reachable", () => {
+  const context = {};
   vm.runInNewContext(`${jsFunction("availableStudioTools")}\nglobalThis.tools=availableStudioTools();`, context);
   assert.deepEqual(Array.from(context.tools), ["paint", "source", "animate"]);
-  const onContext = {aiReady: () => true};
-  vm.runInNewContext(`${jsFunction("availableStudioTools")}\nglobalThis.tools=availableStudioTools();`, onContext);
-  assert.deepEqual(Array.from(onContext.tools), ["paint", "source", "animate", "generate"]);
-  assert.match(js, /const generationTab=aiReady\(\)\?/);
-  assert.match(js, /const generationPanel=aiReady\(\)\?/);
-  assert.match(jsFunction("renderGenerationStudio"), /if\(!container\|\|!aiReady\(\)\)return/);
   assert.match(jsFunction("setStudioTool"), /if\(!availableStudioTools\(\)\.includes\(tool\)\)return/);
-  assert.doesNotMatch(js, /conceptAssetUrls|conceptAssetLoads|loadConceptAsset/);
-  assert.doesNotMatch(jsFunction("hydrateProceduralAssets"), /preview_asset_id|MEDIA_OPENED|preview-session/);
-  assert.match(jsFunction("renderProceduralReview"), /boardPreviewReady/);
 });
 
 // ---- Advanced disclosures --------------------------------------------------
@@ -881,19 +808,4 @@ test("Settings offers Ollama and Direct API with the full Ollama server panel", 
       assert.doesNotMatch(source, banned, `${name} still uses superseded provider wording`);
     }
   }
-});
-
-test("saving a server URL performs no inventory or setup request", () => {
-  const save = jsFunction("saveOllamaBaseUrl");
-  assert.match(save, /api\("\/api\/settings\/ollama"/, "the URL is persisted");
-  assert.doesNotMatch(save, /\/api\/ai\/ollama\/models/);
-  assert.doesNotMatch(save, /\/api\/ai\/test/);
-  assert.doesNotMatch(save, /refreshOllamaModels\(|testAiBackend\(/);
-  // Refresh models and Test setup are the only actions that reach out.
-  assert.equal((js.match(/\/api\/ai\/ollama\/models/g) || []).length, 1);
-  assert.equal((js.match(/api\("\/api\/ai\/test"/g) || []).length, 1);
-  assert.match(jsFunction("refreshOllamaModels"), /\/api\/ai\/ollama\/models/);
-  assert.match(jsFunction("testAiBackend"), /api\("\/api\/ai\/test"/);
-  assert.match(js, /\$\("#settings-ollama-refresh"\)\.addEventListener/);
-  assert.match(js, /\$\("#settings-ollama-test"\)\.addEventListener/);
 });

@@ -5199,7 +5199,7 @@ class NeonEditorGeometryGuardTests(unittest.TestCase):
         compact = re.sub(r"\s+", "", source)
 
         self.assertIn("awaitloadDeviceGeometry();render();", compact)
-        # The capabilities call must not sit in the AI bundle any more.
-        ai_bundle = re.search(r"asyncfunctionloadAiConfig\(\)\{(.*?)\}", compact)
-        self.assertIsNotNone(ai_bundle)
-        self.assertNotIn("led/capabilities", ai_bundle.group(1))
+        # The capabilities call must not sit in the deferred settings bundle.
+        settings_bundle = re.search(r"asyncfunctionloadSettings\(\)\{(.*?)\}", compact)
+        self.assertIsNotNone(settings_bundle)
+        self.assertNotIn("led/capabilities", settings_bundle.group(1))
