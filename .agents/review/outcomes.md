@@ -514,3 +514,36 @@
   WebKitGTK, and macOS arm64 WKWebView.
 
 - 2026-08-08 — codereview codex (codex-cli 0.146.1, CLI transport, schema-enforced final message via --output-schema plus --output-last-message; codex default model/effort per owner dispatch, resolved gpt-5.6-sol @ xhigh, standard tier) over 6c1d652ddf8579776dbead0bf20ed5f09480a292..328a73824db3bdfd33429584da97a96a0f9f2952 — the packaged-TLS-trust fix and the CI smoke-net guard. Verdict clean, capability_ok true, both SHAs matched the dispatched pins; no material issue, no findings admitted. The first dispatch died with a dropped MCP connection before any verdict (transport failure; one fresh-process retry per playbook), and the retry completed normally with the same pins. The owner capped this loop at two rounds; round one returned clean, so the loop closed without a second round.
+
+- 2026-08-15 — codereview codex (codex-cli 0.147.0, MCP transport, first
+  substantive result used as returned; codex default model/effort per owner
+  dispatch, resolved gpt-5.6-sol, read-only sandbox) over
+  `27a01ae4dfe956693fdc0418dc5114503bc611f1..474a9f78fb050e5cc061bdd2274e0d8d291e65c9`
+  — the complete six-slice AI-removal diff on `v2/openkeeb`, dispatched under
+  the owner's 2026-08-14 session goal ("is a per-slice codereview codex worth
+  doing? if so, do one now and after each slice"); per-slice reviews were
+  declined as no-material-risk, and this single whole-diff review closed the
+  plan's remaining review item. Verdict: `material issues found` — four
+  MEDIUM findings, no HIGH: (1) provider API keys already saved by upgrading
+  users remain stranded in OS credential storage with no in-app deletion path
+  (service `dev.amconfigurator.ai`; the migration UI deliberately leaves
+  vault entries unchanged); (2) AI-specific residue inside the retained
+  deterministic boundary — `recipe_system_prompt()` LLM prompt generator
+  surviving in `am_configurator/procedural.py` with no production caller, and
+  the empty `lighting_review.js` stub still loaded/served — both missed by
+  the absence guard's token regex; (3) deleting `tests/test_credentials.py`
+  also deleted still-live settings-safety coverage (transient read errors,
+  newer-schema rejection) whose behaviors survive in non-AI `store.py`; (4)
+  the retained `/api/settings/migration/discard-credential` route lost its
+  behavioral integration test, leaving only source-text assertions.
+  Reviewer's own verification under the read-only sandbox: 166 browser tests,
+  absence/dependency/packaging guards, JS syntax, Python AST parse — full
+  Python/build/native runs and remote freshness not possible there (GitHub
+  DNS failed); working-agent spot-check independently confirmed findings 1
+  and 2 against the live tree. The schema-enforced first substantive result
+  was used unchanged without retry, re-emission, replacement, reformatting,
+  or resubmission. Transcript session
+  `01a003cc-b0c3-78c3-8d16-f649387b503e`; immutable result SHA-256
+  `07EC13783A74D1982A07F4F85DC9A8D63B99EFE2E2290CAAC92BD4AB7E724194`.
+  Dispositions: all four findings pending owner decision; no code changed in
+  response to the review.
