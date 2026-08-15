@@ -2127,6 +2127,27 @@ class LibraryCatalogTests(unittest.TestCase):
             [item["catalog_id"] for item in page["items"]],
         )
 
+    def test_job_origin_follows_the_pipeline_that_produced_it(self) -> None:
+        """A locally rendered effect must not inherit the removed pipeline's label."""
+        job = self.jobs.create_job(
+            prompt="Comet",
+            target={
+                "family": "CB",
+                "product_id": "CB_TEST",
+                "product_label": "Test board",
+                "raster": {"width": 15, "height": 6},
+                "targets": ["keyframes"],
+            },
+        )
+        self.assertEqual("procedural", job["pipeline"])
+
+        detail = self.catalog.get(f"job:{job['job_id']}")
+        self.assertEqual("lighting_effect", detail["origin"])
+        self.assertNotIn("ai", detail["origin"])
+
+        legacy = dict(job, pipeline="legacy_video", procedural_attempts=[])
+        self.assertEqual("ai_generation", LibraryCatalog._job_summary(legacy)["origin"])
+
     def test_mixed_catalog_namespaces_jobs_and_items_without_reconciling(self) -> None:
         job = self.jobs.create_job(
             prompt="Violet legacy pulse",

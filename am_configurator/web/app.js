@@ -8,7 +8,7 @@ if (queryToken) history.replaceState({}, "", `${location.pathname}${location.has
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
-const {ROUTES, classifyImportedJsonSelection, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, escapeMarkup:esc, formatLightingHash, importedLightingApplyAvailability, nextGridIndex, parseLightingHash, reduceLightingState, routeAvailability, safeRgbColor} = LightingState;
+const {PATTERN_COLORS, PATTERN_KINDS, PATTERN_SPEEDS, ROUTES, buildPatternRecipe, clampPatternSettings, classifyImportedJsonSelection, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, defaultPatternSettings, escapeMarkup:esc, formatLightingHash, importedLightingApplyAvailability, nextGridIndex, nextPatternSeed, parseLightingHash, patternControlValues, patternKindById, reduceLightingState, routeAvailability, safeRgbColor} = LightingState;
 const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, mergeScannedDeviceDetails, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
 const {canonicalizeSourceTransform, createLatestTaskScheduler, defaultSourceTransform, interpolateMoveZoom, presetSourceTransform, renderColorEffect, resolveSourceGeometry, selectDemonstrativeEffectFrame, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
 const {boardFrameSetFromDocument, boardFrameSetFromLocalEffect, boardFrameSetFromMappedFrame, boardFrameSetFromMappedResult, captureWorkspaceAsyncContext, createLightingPlaybackRuntime, createLightingWorkspace, friendlyWorkspaceError, mappedResultFromBoardFrameSet, paintBoardProjection, reduceLightingWorkspace, selectBoardProjection, selectSourceProjection, workspaceAsyncContextMatches, workspaceContextKey, workspaceDestinationKey} = LightingWorkspace;
@@ -117,6 +117,9 @@ const state = {
   localAnimationShimmerDepth: 0.6,
   localAnimationSeed: 824,
   localAnimationCoordinates: [],
+  patternSettings: null,
+  patternBusy: false,
+  patternError: "",
   undo: [],
   redo: [],
   devices: [],
@@ -2976,7 +2979,7 @@ function replaceEdgeAnimation(mode) {
 }
 
 function availableStudioTools() {
-  return ["paint","source","animate"];
+  return ["paint","source","animate","pattern"];
 }
 
 function resumeUnfinishedMediaComposition() {
@@ -4540,6 +4543,225 @@ function updateLocalAnimationDraftStatus() {
   if(cancel)cancel.disabled=!draft&&!state.localAnimationEffect;
 }
 
+// Patterns tool: ready-made lighting the app builds on request.
+//
+// Every control is one of the bounded steps `lighting_state.js` publishes, so
+// nothing this panel can reach falls outside the settings the lighting engine
+// accepts. The browser holds no second copy of that engine: Create posts the
+// settings to /api/lighting/render, which builds the lighting on this computer,
+// keeps it in Library, and returns the finished item. The result then opens on
+// the Board through the same path a Library item made this way already uses.
+function currentPatternSettings() {
+  state.patternSettings=clampPatternSettings(
+    state.patternSettings||defaultPatternSettings(PATTERN_KINDS[0].id),
+  );
+  return state.patternSettings;
+}
+
+function updatePatternSettings(changes) {
+  state.patternSettings=clampPatternSettings({...currentPatternSettings(),...changes});
+  state.patternError="";
+  renderLightingEdit();
+}
+
+function patternControlById(controlId) {
+  return patternKindById(currentPatternSettings().kind)
+    ?.controls.find(control=>control.id===controlId)||null;
+}
+
+function patternStepReadout(control,index,values) {
+  return control.integer
+    ?String(values[index])
+    :`${Math.round(index/(values.length-1)*100)}%`;
+}
+
+function patternKindCardsMarkup(settings) {
+  return `<div class="effect-card-grid" role="group" aria-label="Choose a pattern">${PATTERN_KINDS.map(kind=>`<button type="button" class="effect-card" data-pattern-kind="${esc(kind.id)}" aria-pressed="${String(settings.kind===kind.id)}"><strong>${esc(kind.label)}</strong><small>${esc(kind.blurb)}</small></button>`).join("")}</div>`;
+}
+
+function patternColorGroupMarkup(field,label,selected) {
+  return `<div class="control-group"><span class="control-label">${esc(label)}</span><div class="pattern-swatches" role="group" aria-label="${esc(label)}">${PATTERN_COLORS.map(color=>`<button type="button" class="pattern-swatch" data-pattern-color="${esc(field)}" data-pattern-value="${esc(color.value)}" aria-pressed="${String(selected===color.value)}" aria-label="${esc(color.label)}" title="${esc(color.label)}" style="background:${esc(color.value)}"></button>`).join("")}</div></div>`;
+}
+
+function patternSpeedMarkup(settings) {
+  return `<div class="control-group"><span class="control-label">Speed</span><div class="button-row">${PATTERN_SPEEDS.map(entry=>`<button type="button" class="button ghost ${entry.value===settings.speed?"active":""}" data-pattern-speed="${entry.value}" aria-pressed="${String(entry.value===settings.speed)}">${esc(entry.label)}</button>`).join("")}</div></div>`;
+}
+
+function patternControlMarkup(control,settings) {
+  if(control.directions){
+    return `<div class="control-group"><label class="control-label" for="pattern-${esc(control.id)}">${esc(control.label)}</label><select id="pattern-${esc(control.id)}" class="select-field" data-pattern-control="${esc(control.id)}">${control.directions.map(entry=>`<option value="${entry.value}" ${entry.value===settings[control.id]?"selected":""}>${esc(entry.label)}</option>`).join("")}</select></div>`;
+  }
+  const values=patternControlValues(control);
+  const index=Math.max(0,values.indexOf(settings[control.id]));
+  return `<div class="control-group"><label class="control-label" for="pattern-${esc(control.id)}">${esc(control.label)}</label><div class="range-row"><input id="pattern-${esc(control.id)}" type="range" min="0" max="${values.length-1}" step="1" value="${index}" data-pattern-control="${esc(control.id)}"><span class="range-value">${esc(patternStepReadout(control,index,values))}</span></div></div>`;
+}
+
+function patternShuffleMarkup(kind,settings) {
+  if(!kind.shuffle)return "";
+  return `<div class="control-group"><span class="control-label">Arrangement</span><div class="range-row"><button id="pattern-shuffle" type="button" class="button ghost">Shuffle</button><span id="pattern-seed-value" class="range-value">${settings.seed}</span></div><small class="control-help">Shuffle picks a different arrangement. The same number always builds the same lighting.</small></div>`;
+}
+
+function patternStatus() {
+  const kind=patternKindById(currentPatternSettings().kind);
+  if(state.patternBusy)return {
+    tone:"playing",
+    title:`Building ${kind.label}…`,
+    detail:"This is built on this computer and takes a few seconds.",
+  };
+  if(state.patternError)return {
+    tone:"no-change",
+    title:"Could not create this lighting",
+    detail:state.patternError,
+  };
+  return {
+    tone:"empty",
+    title:`${kind.label} is ready to create`,
+    detail:"Create keeps a copy in Library and shows the finished lighting on the Board. Nothing is written to the keyboard.",
+  };
+}
+
+function patternToolMarkup() {
+  const settings=currentPatternSettings();
+  const kind=patternKindById(settings.kind);
+  const status=patternStatus();
+  return `<div id="studio-pattern-panel" class="studio-tool-panel" role="tabpanel" aria-labelledby="studio-pattern-tab" ${state.studioTool==="pattern"?"":"hidden"}>
+        <div id="pattern-status" class="animation-draft-status ${status.tone}" aria-live="polite"><strong>${esc(status.title)}</strong><small>${esc(status.detail)}</small></div>
+        <div class="control-group"><span class="control-label">Choose a pattern</span>${patternKindCardsMarkup(settings)}<small class="control-help">${esc(kind.blurb)}</small></div>
+        ${patternColorGroupMarkup("main_color","Main color",settings.main_color)}
+        ${patternColorGroupMarkup("second_color","Second color",settings.second_color)}
+        ${patternSpeedMarkup(settings)}
+        ${kind.controls.map(control=>patternControlMarkup(control,settings)).join("")}
+        ${patternShuffleMarkup(kind,settings)}
+        <div class="pattern-actions"><button id="pattern-create" class="button primary" ${state.patternBusy?"disabled":""}>${state.patternBusy?"Creating…":"Create this lighting"}</button></div>
+      </div>`;
+}
+
+function wirePatternTool() {
+  $$("[data-pattern-kind]").forEach(button=>button.addEventListener(
+    "click",
+    ()=>updatePatternSettings({kind:button.dataset.patternKind}),
+  ));
+  $$("[data-pattern-color]").forEach(button=>button.addEventListener(
+    "click",
+    ()=>updatePatternSettings({[button.dataset.patternColor]:button.dataset.patternValue}),
+  ));
+  $$("[data-pattern-speed]").forEach(button=>button.addEventListener(
+    "click",
+    ()=>updatePatternSettings({speed:Number(button.dataset.patternSpeed)}),
+  ));
+  $$("[data-pattern-control]").forEach(field=>{
+    const control=patternControlById(field.dataset.patternControl);
+    if(!control)return;
+    if(control.directions){
+      field.addEventListener("change",()=>updatePatternSettings({[control.id]:Number(field.value)}));
+      return;
+    }
+    // Dragging must not rebuild the panel, so the slider writes the snapped
+    // value and its own readout and leaves the rest of the panel alone.
+    field.addEventListener("input",()=>{
+      const values=patternControlValues(control);
+      const index=Math.max(0,Math.min(values.length-1,Number(field.value)));
+      state.patternSettings=clampPatternSettings({
+        ...currentPatternSettings(),
+        [control.id]:values[index],
+      });
+      state.patternError="";
+      const readout=field.nextElementSibling;
+      if(readout)readout.textContent=patternStepReadout(control,index,values);
+    });
+  });
+  $("#pattern-shuffle")?.addEventListener("click",()=>{
+    state.patternSettings=clampPatternSettings({
+      ...currentPatternSettings(),
+      seed:nextPatternSeed(),
+    });
+    const readout=$("#pattern-seed-value");
+    if(readout)readout.textContent=String(state.patternSettings.seed);
+  });
+  $("#pattern-create")?.addEventListener("click",createPatternLighting);
+}
+
+function patternFailureDetail(error) {
+  if(error?.code==="quality_failed"){
+    return "These settings did not make lighting this app can use. Nothing was saved. Choose another pattern or change a setting.";
+  }
+  if(error?.status===409){
+    return "This lighting took too long to build and was stopped. Nothing was saved. Try again.";
+  }
+  return `${error?.message||"The lighting could not be created."} Nothing was saved.`;
+}
+
+async function loadPatternMappedResult(catalogId,assetId) {
+  const response=await fetch(
+    `/api/library/assets/${libraryCatalogPath(catalogId)}/${encodeURIComponent(assetId)}`,
+    {headers:{"X-AM-Token":token}},
+  );
+  if(!response.ok){
+    const data=await response.json().catch(()=>({}));
+    throw new Error(data.error||"The saved lighting could not be read from Library.");
+  }
+  const result=await response.json();
+  if(!result?.tracks)throw new Error("The saved lighting could not be read.");
+  return result;
+}
+
+async function createPatternLighting() {
+  if(state.patternBusy||!state.config)return;
+  const settings=currentPatternSettings();
+  const target=state.ledTarget;
+  const slot=state.ledSlot;
+  const product=productId();
+  state.patternBusy=true;
+  state.patternError="";
+  renderLightingEdit();
+  let opened=false;
+  try{
+    const detail=await api("/api/lighting/render",{
+      method:"POST",
+      body:JSON.stringify({
+        recipe:buildPatternRecipe(settings),
+        product_id:product,
+        targets:[target],
+      }),
+    });
+    state.library.loaded=false;
+    state.library.details.set(detail.catalog_id,detail);
+    const attempt=latestLibraryGeneratedAttempt(detail);
+    const assetId=attempt?.mapped_result_asset_id;
+    if(!assetId)throw new Error("This lighting is in Library but could not be shown here.");
+    const mappedResult=await loadPatternMappedResult(detail.catalog_id,assetId);
+    state.patternBusy=false;
+    if(
+      state.lighting.route!==ROUTES.EDIT
+      ||state.ledTarget!==target
+      ||state.ledSlot!==slot
+      ||productId()!==product
+    ){
+      toast("Lighting saved to Library",`${detail.name} is waiting in Library.`,"success");
+    }else{
+      openLibraryBoardPreview({
+        kind:"library_generated",
+        identity:`${detail.catalog_id}:${assetId}`,
+        name:detail.name,
+        mappedResult,
+        target,
+        catalogId:detail.catalog_id,
+      });
+      opened=true;
+      toast(
+        "Lighting created",
+        `${detail.name} is saved in Library and showing on the Board.`,
+        "success",
+      );
+    }
+  }catch(error){
+    state.patternError=patternFailureDetail(error);
+  }finally{
+    state.patternBusy=false;
+    if(!opened&&state.lighting.route===ROUTES.EDIT)renderLightingEdit();
+  }
+}
+
 function wireStudioInspector() {
   activeSourceTransformController?.teardown();
   activeSourceTransformController=null;
@@ -4553,6 +4775,7 @@ function wireStudioInspector() {
       setStudioTool(tabs[next].dataset.studioTool);
     });
   });
+  wirePatternTool();
   $("#media-advanced")?.addEventListener("toggle",event=>{state.mediaAdvancedOpen=event.currentTarget.open;});
   $("#effects-advanced")?.addEventListener("toggle",event=>{state.effectsAdvancedOpen=event.currentTarget.open;});
   $$('[data-effect-preset]').forEach(button=>button.addEventListener("click",()=>{
@@ -5204,7 +5427,8 @@ function renderLightingEdit() {
   const sourcePane=sourceActive?`<section id="lighting-source-pane" class="card lighting-pane lighting-source-pane" aria-label="Source"><div class="card-header lighting-pane-heading"><div><strong>Source</strong><small>Actual imported frame</small></div></div><div class="lighting-pane-body"><div id="media-compositor-stage" class="media-compositor-stage ${sourceReady?'source-ready':''}" tabindex="${sourceReady?'0':'-1'}" aria-label="Pan and zoom the imported frame" style="--destination-width:${primaryDestination?.width||1};--destination-height:${primaryDestination?.height||1}"><div class="media-compositor-plane"><div class="media-source-viewport" aria-hidden="false"><img id="lighting-source-frame" class="source-frame-image" alt="Imported source frame" hidden><div id="lighting-source-placeholder" class="source-frame-placeholder">Building the synchronized preview…</div></div><div class="destination-overlay" aria-hidden="true"></div></div></div></div></section>`:"";
   const boardPane=`<section id="lighting-board-pane" class="card lighting-pane lighting-board-pane" aria-label="${esc(targetLabel)} Board"><div class="card-header led-canvas-heading"><div><strong>${esc(targetLabel)}</strong><small>What the keyboard will show · ${esc(canvasSubtitle)}</small><details class="advanced-disclosure technical-details"><summary>Technical details</summary><p class="control-help">${mappedCount} of ${length} stored colors are mapped to lights on this keyboard${raster?` · ${esc(raster)} grid`:""} · ${esc(model.name)}.</p></details></div><div class="led-canvas-actions"><button id="save-lighting-library" class="button ghost" ${mutationPreviewActive&&!mediaResultApplied?'hidden':''} title="Keep a reusable copy of this slot in Library. Separate from Apply, which only changes the open document.">Save to Library</button></div></div><div class="lighting-pane-body"><div id="led-canvas" class="led-canvas ${physicalLayout?'physical-canvas':''} ${mutationPreviewActive?'draft-preview':''}" data-lighting-destination-key="${esc(workspaceDestinationKey(lightingWorkspace))}" role="region" aria-label="${mutationPreviewActive?'Read-only preview of this lighting':'Paint the selected animation frame'}">${pixelCanvas}</div></div></section>`;
   const timelineMarkup=`<div class="lighting-timeline-toolbar"><div class="lighting-playback-controls"><button id="lighting-previous-frame" class="icon-button" type="button" aria-label="Previous frame" ${timelineFrames.length<=1?'disabled':''}>←</button><button id="play-led" class="button ghost" type="button" aria-label="${state.playing?'Pause lighting':'Play lighting'}" ${timelineFrames.length<=1||!mediaPlaybackReady?'disabled':''}>${state.playing?'Pause':'Play'}</button><button id="lighting-next-frame" class="icon-button" type="button" aria-label="Next frame" ${timelineFrames.length<=1?'disabled':''}>→</button></div><input id="lighting-timeline-scrubber" type="range" min="0" max="${Math.max(0,timelineFrames.length-1)}" value="${timelineIndex}" aria-label="Lighting frame" ${timelineFrames.length<=1?'disabled':''}><div class="lighting-timeline-position"><strong id="lighting-frame-position" aria-live="polite">${timelineFrames.length?`Frame ${timelineIndex+1} of ${timelineFrames.length}`:'No frames'}</strong><small id="lighting-loop-status">${timelineFrames.length>1?'Loops continuously':'Single frame'}</small></div></div><div class="lighting-timeline-frames" role="list" aria-label="Lighting timeline">${timelineFrames.map((item,i)=>`<button class="frame-item ${i===timelineIndex?'active':''}" type="button" role="listitem" data-frame="${i}" aria-pressed="${i===timelineIndex}" aria-label="Frame ${i+1}${i===timelineIndex?', selected':''}"><span class="frame-thumb">${(item.frame_RGB||[]).slice(0,12).map(color=>`<i style="background:${safeRgbColor(color)}"></i>`).join("")}</span><span><strong>Frame ${String(i+1).padStart(2,"0")}</strong><small>${i===timelineIndex?(mutationPreviewActive?'Previewing':'Editing'):'Select'}</small></span></button>`).join("")||`<div class="event-empty">No frames</div>`}</div><div class="lighting-timeline-actions"><button id="add-frame" class="button ghost" ${mutationPreviewActive?'disabled':''}>+ Duplicate</button><button id="remove-frame" class="button ghost" ${timelineFrames.length<=1||mutationPreviewActive?'disabled':''}>Delete</button></div>`;
-  const normalInspectorMarkup=`<div class="studio-tool-tabs" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Import media</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Effects</button></div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}</div>`;
+  const patternBody=patternToolMarkup();
+  const normalInspectorMarkup=`<div class="studio-tool-tabs" role="tablist" aria-label="Studio tools"><button id="studio-paint-tab" role="tab" aria-controls="studio-paint-panel" aria-selected="${String(state.studioTool==="paint")}" tabindex="${state.studioTool==="paint"?0:-1}" data-studio-tool="paint">Paint</button><button id="studio-source-tab" role="tab" aria-controls="studio-source-panel" aria-selected="${String(state.studioTool==="source")}" tabindex="${state.studioTool==="source"?0:-1}" data-studio-tool="source">Import media</button><button id="studio-animate-tab" role="tab" aria-controls="studio-animate-panel" aria-selected="${String(state.studioTool==="animate")}" tabindex="${state.studioTool==="animate"?0:-1}" data-studio-tool="animate">Effects</button><button id="studio-pattern-tab" role="tab" aria-controls="studio-pattern-panel" aria-selected="${String(state.studioTool==="pattern")}" tabindex="${state.studioTool==="pattern"?0:-1}" data-studio-tool="pattern">Patterns</button></div><div class="studio-inspector-body">${paintBody}${sourceBody}${animateBody}${patternBody}</div>`;
   const inspectorMarkup=libraryPreviewActive
     ?`${libraryBoardPreviewInspectorMarkup(transientPreview,targetLabel)}<div hidden aria-hidden="true">${normalInspectorMarkup}</div>`
     :normalInspectorMarkup;

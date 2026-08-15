@@ -302,6 +302,184 @@ deleting or reviving anything.
    save-to-Library. Composer vocabulary and job scaffolding untouched.
    Web tests for state, bounds, and determinism of preview requests;
    plain-language sweep for user-facing copy.
+
+   DONE 2026-08-15: the tool ships as **Patterns**, a fourth studio tool.
+
+   **Name correction to this plan's Product shape.** The plan said "a new
+   Effects tool beside Paint and Import media"; the studio already has three
+   tools and the third is already labelled **Effects** (`data-studio-tool=
+   "animate"`, `am_configurator/web/app.js`) — the client-side colour effects
+   (Pulse, Hue cycle, Sweep, Shimmer, Move & zoom) that transform an already
+   painted frame. That tool is live, tested, and out of this plan's scope, so
+   the picker could not take its name. The new tool is `pattern`, labelled
+   **Patterns**, and the four tabs now read Paint · Import media · Effects ·
+   Patterns. The plan's own premise ("no effect picker exists in the browser
+   UI") remains true of the *engine kinds*; it was never true that only two
+   tools existed. No existing tool was renamed or altered.
+
+   **Preview architecture: the server render, opened the way a generated
+   Library entry already opens.** Of the two options this plan allowed, the
+   studio supports the second natively and the first not at all. Create posts
+   to `/api/lighting/render`, and on `201` the panel fetches the banked
+   `mapped_result` and calls `openLibraryBoardPreview({kind:
+   "library_generated", …})` — the exact function `previewLibraryGenerated`
+   uses for a Library entry made this way, which feeds
+   `boardFrameSetFromMappedResult` under provenance `procedural_result` and
+   drives the existing playback runtime. The Board therefore animates the real
+   mapped LED result, not an approximation, and Apply is the already-tested
+   `applyLibraryPreview` path. A client-side approximation was rejected: it
+   would mean a second copy of `_sample_layer` in the browser that can drift
+   from the engine, and a preview that lies is worse than no preview when the
+   next step is a gate the server owns. No background job system was added and
+   `lighting_state.js`'s dormant job scaffolding was not touched.
+
+   **Bounded space, and the two structural choices that made it provable.**
+   Density and the background are chosen by the app, never by the user:
+   **every** pattern uses `density: "dense"` over a wash that is the main
+   colour at 40/255. Every offered colour has a 255 channel, so the wash's
+   brightest channel is exactly 40 — above the engine's lit threshold of 32 —
+   which makes `minimum_lit_ratio` 1.0 on every frame and the dense band
+   unconditional for all fourteen kinds. That subsumes slice 1's
+   breathe/heartbeat requirement rather than special-casing it. Loop seam and
+   motion are structural: every kind is periodic with period 1 in
+   `local_phase` and speeds are whole numbers, so the seam is one ordinary
+   step of an exactly periodic sequence and can never exceed the largest
+   interior step. **Brightness (`peak_brightness > 180`) is the only gate that
+   ever failed**, and it failed on geometry, not colour: the metric reads the
+   4-subsample average of a pixel, so a bright region narrower than one light
+   never clears the threshold however saturated it is.
+
+   Controls are short lists of allowed steps, not free ranges — five steps per
+   continuous control, the whole integer range for small counts, eight compass
+   points for direction (four for Rainfall), three speeds, nine colours. Each
+   control is offered only where `_sample_layer` reads it; everything else is
+   written at a fixed value the panel never shows (`phase` 0, centre 0.5/0.5,
+   `intensity` 1). Per kind: Comet head size/how many/tail/direction; Wave
+   band width/spacing/direction; Pulse ring width/reach; Sparkle how
+   many + shuffle; Orbit dot size/circle size/how many; Sweep band
+   width/direction; Drift (`noise`) cloud fullness + shuffle; Breathe glow
+   fullness; Chase how many/tail; Ripple ring width/spacing; Rainfall
+   (`matrix_rain`) streak length/direction + shuffle; Heartbeat beat length;
+   Fire flame softness/height + shuffle; Twinkle fade fullness + shuffle.
+
+   Slice 1's recorded caps are all honoured and asserted: chase ≤ 2 runners,
+   `matrix_rain` trail ≤ 0.1, fire height ≤ 0.9, heartbeat width ≤ 0.6.
+   Seven kinds needed a tighter floor than first drafted, every one of them
+   for brightness and every one found by sweep, not by argument: comet head
+   size ≥ 0.75, orbit dot size ≥ 0.45, Drift cloud fullness ≥ 0.45, wave band
+   spacing ≥ 0.6, ripple ring spacing ≥ 0.5, fire flame height ≥ 0.75.
+
+   **Sparkle is the one kind bounding alone could not fix**, and the fix
+   changed the shuffle contract for every seeded kind. Its points sit at
+   seeded random positions, so on a coarse board a whole arrangement can miss
+   every light centre — at point size 0.9 and 12 points, 20 of 288
+   (seed, speed, board) combinations were still too dim. Sparkle's point size
+   is therefore pinned at the checked constant 1.0 (not offered as a step) and
+   **Shuffle now steps through a recorded list of sixteen checked arrangement
+   numbers** (`PATTERN_ARRANGEMENTS`) instead of any whole number 0–9999. That
+   applies to all five seeded kinds and has a second benefit that matters more
+   than sparkle: it makes the entire reachable space **finite**, so "every
+   combination the interface can reach" is something a sweep can actually
+   enumerate rather than sample. The list was searched by checking candidates
+   against every seeded kind, every control step, every speed and every board;
+   roughly half of all candidates fail and are excluded.
+
+   **Evidence.** The reachable space is 6,585 recipes. Verified with the worst
+   colour pair the palette can offer — Orange + Blue, whose blend can dim a
+   channel to 140.2 of 255, established by searching all 81 offered pairs for
+   the one minimising the brightest channel of any blend.
+   - Every reachable recipe × all six board sizes and frame budgets
+     (CB keys 15×6×80, ALICE 16×5×186, CB display 40×5×80, Relic 18×7×200,
+     NEON axial 19×6×256, NEON head 46×5×256): **39,510 brightness checks,
+     0 dim**.
+   - Every reachable recipe through the real `render_recipe` +
+     `validate_quality` on CB keys: **6,585 renders, 0 failing**.
+   - A stratified sample (40 per kind) through the real checks on the other
+     five boards: **2,500 renders, 0 failing**.
+   No threshold was weakened and no kind was dropped. This is empirical
+   evidence against today's six board geometries; slice 4's per-key placement
+   seam changes the sampled geometry, so the sweep and the arrangement list
+   must be re-run when it lands.
+
+   **Library origin fixed (the slice-2 finding).**
+   `LibraryCatalog._job_summary` now reads `_JOB_ORIGINS[manifest["pipeline"]]`
+   — `procedural` → `lighting_effect`, `legacy_video` → `ai_generation` (only
+   manifests migrated from schema version 1 can carry that). The browser
+   renders it through `libraryStatusLabel(item.origin)` on the Library card and
+   the detail header, so a locally rendered effect now reads "Lighting effect"
+   where it would have read "Ai generation". No test asserted the old constant,
+   so none needed trimming.
+
+   Files changed: `am_configurator/web/lighting_state.js` (+306: the pattern
+   tables, step snapping, arrangement list, recipe builder — the dormant job
+   scaffolding untouched), `am_configurator/web/app.js` (+227/-3: the Patterns
+   panel, its wiring, and the create/preview flow), `am_configurator/web/
+   style.css` (+6: swatch grid and the panel's action row),
+   `am_configurator/library.py` (+9/-1: `_JOB_ORIGINS`),
+   `tests/web/lighting_patterns.test.js` (new, 376 lines, 13 tests),
+   `tests/web/plain_language.test.js` (+4: `lighting_state.js` added to the
+   swept surfaces, two rules added), `tests/web/lighting_flow.test.js` (+1/-1:
+   the studio-tool list), `tests/test_app.py` (+43),
+   `tests/test_library.py` (+21). No change to `index.html`, no new web file,
+   and `lighting_composer.js` untouched.
+
+   Verification: 597 Python tests OK (up from 595), `compileall` clean, 179
+   node tests OK (up from 166), all seven `node --check` targets clean,
+   `uv build` OK (0.1.68 sdist + wheel), `git diff --check` clean. Native
+   build + frozen smoke test run once for this plan on macOS:
+   `Native tree audit passed.` … `Desktop smoke test passed (Darwin).`, and
+   the frozen binary run directly with `--smoke-test` printed
+   `Desktop smoke test passed (Darwin).` and exited 0.
+
+   Bite proof — each mutation applied, the named test run, then the file
+   restored and confirmed byte-identical (22 mutations; `restored: True`
+   after every pass):
+
+   | # | Mutation | Test | Result |
+   | --- | --- | --- | --- |
+   | M1 | Rename a pattern to an id the engine does not publish | fourteen offered patterns | fails |
+   | M2 | Widen chase to 6 runners | reachable space inside the bounds | fails |
+   | M3 | Widen Rainfall streak length to 0.4 | reachable space inside the bounds | fails |
+   | M4 | Widen flame height to 1.2 | reachable space inside the bounds | fails |
+   | M5 | Widen heartbeat beat length to 0.9 | reachable space inside the bounds | fails |
+   | M6 | Build recipes at `balanced` instead of `dense` | reachable space inside the bounds | fails |
+   | M7 | Drop the wash (background `#000000`) | the always-on wash keeps the fullness band | fails |
+   | M8 | Shuffle returns a free number again | the same arrangement builds the same lighting | fails |
+   | M9 | Clamp lets a stored arrangement through unsnapped | arrangements come from the checked list | fails |
+   | M10 | Clamp returns control values unsnapped | settings snap onto an allowed step | fails |
+   | M11 | Remove sparkle's pinned point size | arrangements come from the checked list | fails |
+   | M12 | Offer wave a tail control it never reads | only the consumed controls are offered | fails |
+   | M13 | Post to `/api/lighting/generate` | Create sends exactly the accepted body | fails |
+   | M14 | Add a fourth key to the request body | Create sends exactly the accepted body | fails |
+   | M15 | Drop `pattern` from the studio tools | Patterns is a studio tool | fails |
+   | M15b | Same mutation | every manual studio tool stays reachable | fails |
+   | M16 | Surface the engine's failure names in the panel | a rejected effect is explained plainly | fails |
+   | M17 | Put "Ai generation" in a toast | banned vocabulary sweep | fails |
+   | M18 | Restore the hardcoded `ai_generation` origin | catalog origin test | fails |
+   | M18b | Same mutation | render route labels the entry | fails |
+   | M19 | Show Shuffle only where it does nothing | the panel renders one complete control set | fails |
+   | M20 | Drop the per-pattern controls from the panel | the panel renders one complete control set | fails |
+   | M21 | Replace the Create copy with engine words | the panel says plainly what Create does | fails |
+
+   One honest negative worth recording: M8 does **not** bite the
+   "arrangements come from the checked list" test, because
+   `clampPatternSettings` snaps whatever Shuffle returns back onto the list —
+   the two guards are independent, and the shuffle contract is held by the
+   determinism test instead. Two earlier drafts also had to be strengthened
+   before they bit: the request-shape test originally only matched the three
+   keys it wanted, so adding a fourth key passed until it asserted the exact
+   key set; and the Patterns action row first reused `animation-draft-actions`,
+   which silently broke an existing Effects test that slices the file at the
+   first occurrence of that class — the row now has its own `pattern-actions`
+   class.
+
+   Not done, deliberately: no per-control live preview (each Create is a full
+   local render, so the Board updates on Create rather than on drag); no
+   multi-layer stacking (the format allows three, this plan's V1 is one layer
+   plus background); no render-without-saving path, because the route always
+   banks and adding one is backend work this slice does not own; the existing
+   Effects tool, `lighting_composer.js`, and the dormant job scaffolding are
+   unchanged.
 4. **Geometry seam.** Optional per-key/per-LED placement table accepted at
    the mapping seam (`device_mapping`), default preserves today's
    byte-exact behavior — proven by the existing byte-exact tests running

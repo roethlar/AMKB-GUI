@@ -121,9 +121,20 @@
   needs its own approved plan. An owner-supplied Cyberboard export from the
   community builder was verified to contain finished per-frame `frame_RGB`
   data, not a recipe; that fact grounded the boundary. The AI-removal plan is
-  drafted (see Now) and lands on `v2/openkeeb`. The picker/engine plan is
-  drafted (`docs/superpowers/plans/2026-08-15-effect-picker-and-engine.md`,
-  2026-08-15) and awaits owner approval; no implementation authorized.
+  drafted (see Now) and lands on `v2/openkeeb`. The picker/engine plan
+  (`docs/superpowers/plans/2026-08-15-effect-picker-and-engine.md`) was
+  approved 2026-08-15 and slices 1–3 have landed: fourteen effect kinds in
+  `procedural.py` (`3a58b8b`), the synchronous `POST /api/lighting/render`
+  render-and-bank route ending the module's dormancy (`2800389`), and the
+  **Patterns** studio tool (slice 3) — the picker ships as a fourth tool
+  because the plan's proposed "Effects" name was already taken by the
+  shipped live-colour-effects tool; recorded as a dated correction in the
+  plan. Slice 3 also fixed `LibraryCatalog._job_summary`'s hardcoded
+  `origin: "ai_generation"` (procedural entries now read "Lighting
+  effect"), enumerated the picker's finite reachable recipe space (6,585
+  recipes; zero quality-gate failures across all six board rasters), and
+  passed the plan's once-per-plan native build + `--smoke-test` (Darwin).
+  Remaining: slice 4, the geometry seam. No hardware writes anywhere.
 
 - **Procedural effect expansion plan drafted; all rulings closed 2026-08-15:**
   assessment of <https://am-led.nanakumi.net> (community AM LED JSON builder;

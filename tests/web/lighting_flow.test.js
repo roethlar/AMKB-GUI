@@ -658,7 +658,7 @@ test("Save to Library is one label everywhere and never merged into Apply", () =
 test("every manual studio tool stays available and reachable", () => {
   const context = {};
   vm.runInNewContext(`${jsFunction("availableStudioTools")}\nglobalThis.tools=availableStudioTools();`, context);
-  assert.deepEqual(Array.from(context.tools), ["paint", "source", "animate"]);
+  assert.deepEqual(Array.from(context.tools), ["paint", "source", "animate", "pattern"]);
   assert.match(jsFunction("setStudioTool"), /if\(!availableStudioTools\(\)\.includes\(tool\)\)return/);
 });
 

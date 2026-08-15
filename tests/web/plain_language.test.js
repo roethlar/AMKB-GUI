@@ -17,6 +17,7 @@ const html = read("am_configurator/web/index.html");
 const js = read("am_configurator/web/app.js");
 const workspace = read("am_configurator/web/lighting_workspace.js");
 const libraryState = read("am_configurator/web/library_state.js");
+const lightingState = read("am_configurator/web/lighting_state.js");
 
 // Interpolated expressions inside a template literal are code, not copy.
 function stripInterpolations(source) {
@@ -52,6 +53,8 @@ const BANNED = [
   [/identity changed/i, "model identity changed → the model was updated"],
   [/catalog identity/i, "catalog identity → saved Library item"],
   [/asset identity/i, "asset identity → saved Library item"],
+  [/\bai[ _-]?generation\b/i, "ai generation → name what actually made the item"],
+  [/quality (?:check|gate|failure)/i, "quality gate → plain reason the lighting was not made"],
 ];
 
 test("no banned implementation vocabulary reaches user-visible copy", () => {
@@ -60,6 +63,7 @@ test("no banned implementation vocabulary reaches user-visible copy", () => {
     ["app.js", stringLiterals(js)],
     ["lighting_workspace.js", stringLiterals(workspace)],
     ["library_state.js", stringLiterals(libraryState)],
+    ["lighting_state.js", stringLiterals(lightingState)],
   ];
   for (const [name, copy] of surfaces) {
     for (const [pattern, replacement] of BANNED) {

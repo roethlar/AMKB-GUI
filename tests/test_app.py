@@ -3884,6 +3884,49 @@ class LightingStudioEndpointTests(unittest.TestCase):
         )
         self.assertNotIn(str(self.root), json.dumps(detail))
 
+    def test_effect_render_labels_the_entry_by_what_made_it(self) -> None:
+        """The Library card must never call a locally rendered effect an AI one."""
+        # The shape the Patterns panel sends: one layer, the app's fixed
+        # density and lit wash, and only the bounded controls moved.
+        picker_recipe = {
+            "schema_version": 1,
+            "name": "Comet",
+            "density": "dense",
+            "background": "#150E28",
+            "palette": ["#8358FF", "#00E5FF"],
+            "layers": [
+                {
+                    "kind": "comet",
+                    "color_index": 0,
+                    "secondary_color_index": 1,
+                    "speed": 2,
+                    "phase": 0,
+                    "direction_degrees": 0,
+                    "center_x": 0.5,
+                    "center_y": 0.5,
+                    "scale": 0.5,
+                    "width": 0.875,
+                    "trail": 0.45,
+                    "count": 3,
+                    "intensity": 1,
+                    "seed": 0,
+                }
+            ],
+        }
+        status, detail = self._render_effect(picker_recipe)
+        self.assertEqual(201, status)
+        self.assertEqual("lighting_effect", detail["origin"])
+        self.assertNotIn("ai", detail["origin"])
+        self.assertEqual("procedural", detail["job"]["pipeline"])
+        # The Library browser reads the same label off the catalog listing.
+        listing = self._request("GET", "/api/library/items?page=1&limit=25")[1]
+        origins = {
+            item["origin"]
+            for item in listing["items"]
+            if item["catalog_id"] == detail["catalog_id"]
+        }
+        self.assertEqual({"lighting_effect"}, origins)
+
     def test_effect_render_rejects_unusable_requests_without_banking(self) -> None:
         rejections = (
             ("unsupported primitive", {"recipe": self._effect_recipe(kind="spiral")}),

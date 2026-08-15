@@ -274,6 +274,14 @@ _MANIFEST_V1_FIELDS = {
 }
 _MANIFEST_V2_FIELDS = _MANIFEST_V1_FIELDS | {"pipeline", "procedural_attempts"}
 _PIPELINES = {"legacy_video", "procedural"}
+# What produced a generated job, projected for the browser. The pipeline
+# discriminator is the only truth about this: a job the local effect engine
+# rendered must never inherit the label of the removed model-driven pipeline,
+# which only pre-existing manifests migrated from schema version 1 still carry.
+_JOB_ORIGINS = {
+    "procedural": "lighting_effect",
+    "legacy_video": "ai_generation",
+}
 _PROCEDURAL_ATTEMPT_FIELDS = {
     "attempt_id",
     "index",
@@ -3111,7 +3119,7 @@ class LibraryCatalog:
             "catalog_id": _catalog_id("job", manifest["job_id"]),
             "namespace": "job",
             "kind": "generation_job",
-            "origin": "ai_generation",
+            "origin": _JOB_ORIGINS[manifest["pipeline"]],
             "name": name,
             "created_at": manifest["created_at"],
             "updated_at": manifest["updated_at"],

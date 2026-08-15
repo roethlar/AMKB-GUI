@@ -116,6 +116,301 @@
     });
   }
 
+  // Ready-made lighting patterns (the studio Patterns tool).
+  //
+  // Every control here is a short list of allowed steps, and every list was
+  // checked against the engine's own acceptance rules on each supported board
+  // size and frame budget. That is the contract: anything the interface can
+  // reach renders and is accepted without weakening a single check. The engine
+  // fills the rest of the layer from fixed values the interface never shows.
+  const PATTERN_SCHEMA_VERSION = 1;
+  const PATTERN_STEPS = 5;
+  const PATTERN_BACKGROUND_LEVEL = 40;
+  const PATTERN_SPEEDS = Object.freeze([
+    Object.freeze({value: 1, label: "Slow"}),
+    Object.freeze({value: 2, label: "Medium"}),
+    Object.freeze({value: 3, label: "Fast"}),
+  ]);
+  // Six-digit colors whose brightest channel is 255, so the brightest point of
+  // any pattern always clears the engine's brightness requirement.
+  const PATTERN_COLORS = Object.freeze([
+    Object.freeze({value: "#FF3B30", label: "Red"}),
+    Object.freeze({value: "#FF9500", label: "Orange"}),
+    Object.freeze({value: "#FFD60A", label: "Yellow"}),
+    Object.freeze({value: "#00FF66", label: "Green"}),
+    Object.freeze({value: "#00E5FF", label: "Aqua"}),
+    Object.freeze({value: "#2E6BFF", label: "Blue"}),
+    Object.freeze({value: "#8358FF", label: "Violet"}),
+    Object.freeze({value: "#FF2D95", label: "Pink"}),
+    Object.freeze({value: "#FFFFFF", label: "White"}),
+  ]);
+  // Degrees grow clockwise from "right" because the lights are addressed with
+  // the top row first, so 90 degrees travels down the keyboard.
+  const PATTERN_DIRECTIONS = Object.freeze([
+    Object.freeze({value: 0, label: "Right"}),
+    Object.freeze({value: 45, label: "Down and right"}),
+    Object.freeze({value: 90, label: "Down"}),
+    Object.freeze({value: 135, label: "Down and left"}),
+    Object.freeze({value: 180, label: "Left"}),
+    Object.freeze({value: 225, label: "Up and left"}),
+    Object.freeze({value: 270, label: "Up"}),
+    Object.freeze({value: 315, label: "Up and right"}),
+  ]);
+  const PATTERN_STRAIGHT_DIRECTIONS = Object.freeze(
+    PATTERN_DIRECTIONS.filter(entry => entry.value % 90 === 0),
+  );
+  // Values the interface never shows. They are the engine defaults every
+  // pattern is bounded around, and they are written into every layer so the
+  // saved settings are complete whichever pattern is chosen.
+  const PATTERN_FIXED = Object.freeze({
+    size: 0.5,
+    spread: 0.5,
+    direction: 0,
+    count: 1,
+    trail: 0,
+    seed: 0,
+  });
+  // Shuffle steps through this list rather than any whole number, so the
+  // arrangements a pattern can reach are a short checked set instead of ten
+  // thousand unchecked ones. Every entry was checked against the engine's
+  // acceptance rules for every pattern, every control step, and every
+  // supported keyboard.
+  const PATTERN_ARRANGEMENTS = Object.freeze([
+    0, 14, 21, 42, 63, 70, 77, 84, 91, 112, 119, 140, 147, 154, 161, 168,
+  ]);
+
+  function patternControl(id, label, extra = {}) {
+    return Object.freeze({id, label, ...extra});
+  }
+
+  // `fixed` overrides a value the interface never shows for this pattern —
+  // used where one setting has to sit at a checked constant for the pattern to
+  // be usable at all, rather than offering a step nothing accepts.
+  function patternKind(id, label, blurb, controls, {shuffle = false, fixed = null} = {}) {
+    return Object.freeze({
+      id,
+      label,
+      blurb,
+      shuffle,
+      fixed: Object.freeze({...fixed}),
+      controls: Object.freeze(controls),
+    });
+  }
+
+  const PATTERN_KINDS = Object.freeze([
+    patternKind("comet", "Comet", "A bright head that draws a tail behind it.", [
+      patternControl("size", "Head size", {min: 0.75, max: 1}),
+      patternControl("count", "How many", {min: 1, max: 4, integer: true}),
+      patternControl("trail", "Tail length", {min: 0.1, max: 0.8}),
+      patternControl("direction", "Direction", {directions: PATTERN_DIRECTIONS}),
+    ]),
+    patternKind("wave", "Wave", "Rolling bands of light crossing the keyboard.", [
+      patternControl("size", "Band width", {min: 0.25, max: 0.9}),
+      patternControl("spread", "Band spacing", {min: 0.6, max: 1}),
+      patternControl("direction", "Direction", {directions: PATTERN_DIRECTIONS}),
+    ]),
+    patternKind("pulse", "Pulse", "A ring of light growing out of the middle.", [
+      patternControl("size", "Ring width", {min: 0.25, max: 0.9}),
+      patternControl("spread", "Ring reach", {min: 0.2, max: 1.2}),
+    ]),
+    // Sparkle's points sit wherever its arrangement puts them, so a small point
+    // can miss every light on a coarse keyboard. Point size stays at its widest
+    // and the arrangement comes from the checked list below.
+    patternKind("sparkle", "Sparkle", "Scattered points of light fading in and out.", [
+      patternControl("count", "How many", {min: 8, max: 12, integer: true}),
+    ], {shuffle: true, fixed: {size: 1}}),
+    patternKind("orbit", "Orbit", "Dots circling around the middle.", [
+      patternControl("size", "Dot size", {min: 0.45, max: 0.9}),
+      patternControl("spread", "Circle size", {min: 0.2, max: 1}),
+      patternControl("count", "How many", {min: 1, max: 6, integer: true}),
+    ]),
+    patternKind("sweep", "Sweep", "One wide band passing over and over.", [
+      patternControl("size", "Band width", {min: 0.25, max: 0.9}),
+      patternControl("direction", "Direction", {directions: PATTERN_DIRECTIONS}),
+    ]),
+    patternKind("noise", "Drift", "Soft clouds of light drifting across.", [
+      patternControl("size", "Cloud fullness", {min: 0.45, max: 0.9}),
+    ], {shuffle: true}),
+    patternKind("breathe", "Breathe", "The whole keyboard rising and falling together.", [
+      patternControl("size", "Glow fullness", {min: 0.25, max: 0.9}),
+    ]),
+    patternKind("chase", "Chase", "Light walking the keys one after another.", [
+      patternControl("count", "How many", {min: 1, max: 2, integer: true}),
+      patternControl("trail", "Tail length", {min: 0.05, max: 0.3}),
+    ]),
+    patternKind("ripple", "Ripple", "Rings spreading out from the middle, one after another.", [
+      patternControl("size", "Ring width", {min: 0.25, max: 0.9}),
+      patternControl("spread", "Ring spacing", {min: 0.5, max: 0.8}),
+    ]),
+    patternKind("matrix_rain", "Rainfall", "Falling streaks, each lane on its own timing.", [
+      patternControl("trail", "Streak length", {min: 0.02, max: 0.1}),
+      patternControl("direction", "Direction", {directions: PATTERN_STRAIGHT_DIRECTIONS}),
+    ], {shuffle: true}),
+    patternKind("heartbeat", "Heartbeat", "A double beat with a rest between.", [
+      patternControl("size", "Beat length", {min: 0.2, max: 0.6}),
+    ]),
+    patternKind("fire", "Fire", "Flickering heat rising from the bottom row.", [
+      patternControl("size", "Flame softness", {min: 0.3, max: 0.9}),
+      patternControl("spread", "Flame height", {min: 0.75, max: 0.9}),
+    ], {shuffle: true}),
+    patternKind("twinkle", "Twinkle", "Every light fading on its own timing.", [
+      patternControl("size", "Fade fullness", {min: 0.3, max: 0.9}),
+    ], {shuffle: true}),
+  ]);
+
+  const PATTERN_KINDS_BY_ID = new Map(PATTERN_KINDS.map(kind => [kind.id, kind]));
+
+  function patternKindById(id) {
+    return PATTERN_KINDS_BY_ID.get(String(id ?? "")) || null;
+  }
+
+  function patternControlSteps(control) {
+    if (!control || control.directions) return [];
+    const span = (control.max - control.min) / (PATTERN_STEPS - 1);
+    if (control.integer) {
+      if (control.max - control.min + 1 <= PATTERN_STEPS) {
+        return Array.from(
+          {length: control.max - control.min + 1},
+          (_, index) => control.min + index,
+        );
+      }
+      return [...new Set(
+        Array.from({length: PATTERN_STEPS}, (_, index) => Math.round(control.min + span * index)),
+      )].sort((left, right) => left - right);
+    }
+    return Array.from(
+      {length: PATTERN_STEPS},
+      (_, index) => Number((control.min + span * index).toFixed(6)),
+    );
+  }
+
+  function patternControlValues(control) {
+    return control?.directions
+      ? control.directions.map(entry => entry.value)
+      : patternControlSteps(control);
+  }
+
+  function nearestAllowedValue(values, candidate) {
+    const number = Number(candidate);
+    if (!Number.isFinite(number)) return values[Math.floor(values.length / 2)];
+    return values.reduce(
+      (best, value) => Math.abs(value - number) < Math.abs(best - number) ? value : best,
+      values[0],
+    );
+  }
+
+  function patternColorValue(candidate, fallback) {
+    const value = safeRgbColor(candidate);
+    return PATTERN_COLORS.some(color => color.value === value) ? value : fallback;
+  }
+
+  function defaultPatternSettings(kindId) {
+    const kind = patternKindById(kindId) || PATTERN_KINDS[0];
+    const settings = {
+      kind: kind.id,
+      main_color: PATTERN_COLORS[6].value,
+      second_color: PATTERN_COLORS[4].value,
+      speed: PATTERN_SPEEDS[1].value,
+      ...PATTERN_FIXED,
+      ...kind.fixed,
+    };
+    for (const control of kind.controls) {
+      const values = patternControlValues(control);
+      settings[control.id] = values[Math.floor(values.length / 2)];
+    }
+    if (kind.shuffle) settings.seed = PATTERN_ARRANGEMENTS[0];
+    return settings;
+  }
+
+  // Snapping, not rejecting: any stored or restored value collapses onto the
+  // nearest step this pattern allows, so no interface path can produce settings
+  // outside the checked space.
+  function clampPatternSettings(value) {
+    const requested = value && typeof value === "object" ? value : {};
+    const kind = patternKindById(requested.kind) || PATTERN_KINDS[0];
+    const defaults = defaultPatternSettings(kind.id);
+    const settings = {
+      kind: kind.id,
+      main_color: patternColorValue(requested.main_color, defaults.main_color),
+      second_color: patternColorValue(requested.second_color, defaults.second_color),
+      speed: nearestAllowedValue(
+        PATTERN_SPEEDS.map(entry => entry.value),
+        requested.speed ?? defaults.speed,
+      ),
+      ...PATTERN_FIXED,
+      ...kind.fixed,
+      seed: PATTERN_FIXED.seed,
+    };
+    for (const control of kind.controls) {
+      settings[control.id] = nearestAllowedValue(
+        patternControlValues(control),
+        requested[control.id] ?? defaults[control.id],
+      );
+    }
+    if (kind.shuffle) {
+      settings.seed = nearestAllowedValue(PATTERN_ARRANGEMENTS, requested.seed ?? defaults.seed);
+    }
+    return settings;
+  }
+
+  function patternUsesControl(kindId, controlId) {
+    const kind = patternKindById(kindId);
+    if (!kind) return false;
+    if (controlId === "seed") return kind.shuffle;
+    return kind.controls.some(control => control.id === controlId);
+  }
+
+  // A dim always-on wash under the pattern. Every offered color has a 255
+  // channel, so this is always brighter than the engine's "lit" threshold and
+  // the chosen fullness band is met on every frame of every pattern.
+  function patternBackgroundColor(color) {
+    const value = safeRgbColor(color);
+    const channels = [1, 3, 5].map(index => parseInt(value.slice(index, index + 2), 16));
+    return `#${channels
+      .map(channel => Math.round(channel * PATTERN_BACKGROUND_LEVEL / 255)
+        .toString(16)
+        .padStart(2, "0"))
+      .join("")}`.toUpperCase();
+  }
+
+  function nextPatternSeed(random = Math.random) {
+    const roll = Number(random());
+    const normalized = Number.isFinite(roll) ? Math.abs(roll) % 1 : 0;
+    const index = Math.min(
+      PATTERN_ARRANGEMENTS.length - 1,
+      Math.floor(normalized * PATTERN_ARRANGEMENTS.length),
+    );
+    return PATTERN_ARRANGEMENTS[index];
+  }
+
+  function buildPatternRecipe(value) {
+    const settings = clampPatternSettings(value);
+    const kind = patternKindById(settings.kind);
+    return {
+      schema_version: PATTERN_SCHEMA_VERSION,
+      name: kind.label,
+      density: "dense",
+      background: patternBackgroundColor(settings.main_color),
+      palette: [settings.main_color, settings.second_color],
+      layers: [{
+        kind: settings.kind,
+        color_index: 0,
+        secondary_color_index: 1,
+        speed: settings.speed,
+        phase: 0,
+        direction_degrees: settings.direction,
+        center_x: 0.5,
+        center_y: 0.5,
+        scale: settings.spread,
+        width: settings.size,
+        trail: settings.trail,
+        count: settings.count,
+        intensity: 1,
+        seed: settings.seed,
+      }],
+    };
+  }
+
   function copyProgress(value) {
     if (!value || typeof value !== "object") return null;
     const completed = Number(value.completed);
@@ -358,19 +653,30 @@
   }
 
   return Object.freeze({
+    PATTERN_ARRANGEMENTS,
+    PATTERN_COLORS,
+    PATTERN_KINDS,
+    PATTERN_SPEEDS,
     ROUTES,
     STAGES,
     applyCompatibility,
+    buildPatternRecipe,
+    clampPatternSettings,
     classifyImportedJsonSelection,
     createEpochLoadRegistry,
     createLaunchState,
     createPaintStrokeController,
     createLightingState,
+    defaultPatternSettings,
     escapeMarkup,
     formatLightingHash,
     importedLightingApplyAvailability,
     nextGridIndex,
+    nextPatternSeed,
     parseLightingHash,
+    patternControlValues,
+    patternKindById,
+    patternUsesControl,
     projectLightingJob,
     reduceLightingState,
     routeAvailability,

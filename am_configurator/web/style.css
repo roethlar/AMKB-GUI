@@ -511,6 +511,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .animation-draft-status small { color: var(--muted); }
 .animation-draft-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; }
 .animation-draft-actions > * { min-width: 0; }
+.pattern-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.pattern-actions > * { min-width: 0; white-space: normal; }
+.pattern-swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(28px, 1fr)); gap: 6px; }
+.pattern-swatch { min-width: 0; height: 28px; border: 1px solid var(--control-line); border-radius: 7px; cursor: pointer; }
+.pattern-swatch:hover { border-color: var(--violet-2); }
+.pattern-swatch[aria-pressed="true"] { border-color: var(--text); box-shadow: 0 0 0 2px var(--violet); }
 .control-group { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--line); }
 .control-group:last-child { border-bottom: 0; margin-bottom: 0; }
 .control-label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .1em; display: block; margin-bottom: 9px; }
