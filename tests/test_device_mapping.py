@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from am_configurator import llm, server
+from am_configurator import server
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,22 +26,23 @@ class DeviceMappingArchitectureTests(unittest.TestCase):
         mapping_source = Path(mapping.__file__).read_text(encoding="utf-8")
         self.assertNotIn("from .server", mapping_source)
         self.assertNotIn("from am_configurator.server", mapping_source)
-        for relative in (
-            "am_configurator/procedural.py",
-            "build_tools/qualify_recipe_model.py",
-        ):
+        for relative in ("am_configurator/procedural.py",):
             with self.subTest(relative=relative):
                 source = (ROOT / relative).read_text(encoding="utf-8")
                 self.assertNotIn("from .server import", source)
                 self.assertNotIn("from am_configurator.server import", source)
 
+        # The retired LLM provider layer used to compete for ownership of
+        # these device-raster constants; it is gone, so device_mapping is
+        # their sole owner.
+        self.assertIsNone(importlib.util.find_spec("am_configurator.llm"))
         for name in (
             "RasterSpec",
             "MODEL_FRAME_CAPS",
             "LED_SPEEDS_MS",
         ):
-            with self.subTest(retired_llm_owner=name):
-                self.assertFalse(hasattr(llm, name))
+            with self.subTest(mapping_owner=name):
+                self.assertTrue(hasattr(mapping, name))
         for name in (
             "frames_to_led_tracks",
             "generation_spec",

@@ -18,7 +18,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from am_configurator import library as library_module
-from am_configurator.credentials import MemoryCredentialStore
 from am_configurator.library import (
     AssetNotFoundError,
     GeneratedAssetLibrary,
@@ -267,7 +266,6 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
             self.assertNotIn(str(malformed_dir), json.dumps(result))
 
         server, _state = create_server(
-            credential_store=MemoryCredentialStore(),
             lighting_library=self.library,
         )
         try:
@@ -1114,24 +1112,6 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
                 raise PermissionError("denied at /private/work")
             real_purge(job_dir)
 
-        class ProceduralCoordinator:
-            active_job_id = None
-
-            def __init__(self) -> None:
-                self.errors: list[dict] = []
-
-            def reconcile_startup(
-                self,
-                *,
-                _admission_token=None,
-            ) -> list[dict]:
-                del _admission_token
-                result = combined.reconcile()
-                self.errors = result["errors"]
-                return result["actions"]
-
-        startup = ProceduralCoordinator()
-
         with (
             patch("am_configurator.library._job_lock", controlled_lock),
             patch.object(
@@ -1141,11 +1121,7 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
             ),
         ):
             report = combined.reconcile()
-            server, _url = create_server(
-                lighting_library=combined,
-                credential_store=MemoryCredentialStore(),
-                procedural_coordinator=startup,
-            )
+            server, _url = create_server(lighting_library=combined)
             try:
                 self.assertGreater(server.server_port, 0)
             finally:
@@ -1167,10 +1143,6 @@ class GeneratedAssetLibraryTests(unittest.TestCase):
         rendered = json.dumps(report["errors"])
         self.assertNotIn(str(self.base), rendered)
         self.assertNotIn("/private/", rendered)
-        self.assertEqual(
-            {error["job_id"] for error in report["errors"]},
-            {error["job_id"] for error in startup.errors},
-        )
         self.assertEqual(
             "interrupted", combined.load_manifest(healthy["job_id"])["status"]
         )

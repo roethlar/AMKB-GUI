@@ -1,6 +1,6 @@
 # Repository State
 
-- 2026-08-14 — AI-removal slice 1 (web UI strip: `am_configurator/web/app.js` + web tests) landed; full verification green (769 Python, 178 web). Slices 2–5 pending. Known gap: `index.html`/`style.css`/`lighting_review.js` still carry orphaned AI markup/selectors — plan has no slice for them yet (owner question open).
+- 2026-08-15 — AI-removal slices 1–5 all landed on `v2/openkeeb` (slice 1 `a9fa41a` through combined 4+5): web UI strip, orphaned markup/native probe, `/api/ai/*` routes, desktop AI wiring, and core AI modules + `store.py` AI-settings persistence + orphaned consumers all removed. Full verification green (577 Python, 171 web). `procedural.py` kept and deliberately dormant — allowlisted in `tests/test_dependencies.py`; ruling recorded in the plan (2026-08-15). Remaining: slice 6 (absence guard + docs/packaging/CI sweep, incl. `web/lighting_state.js` residue), then one codex review of the complete AI-removal diff.
 
 ## Now
 
@@ -16,9 +16,9 @@
   `.agents/decisions.md` (2026-08-14). Blast-radius scope:
   `docs/superpowers/plans/2026-08-14-ai-removal-scope.md` — deterministic
   engine (`procedural.py`, recipe schema, library) stays; LLM/provider modules,
-  `/api/ai/*` routes, and AI UI go. Sliced removal plan drafted:
-  `docs/superpowers/plans/2026-08-14-ai-removal.md` — awaiting owner approval;
-  no removal code change is authorized yet. Branch question settled 2026-08-14:
+  `/api/ai/*` routes, and AI UI go. Sliced removal plan:
+  `docs/superpowers/plans/2026-08-14-ai-removal.md` — approved 2026-08-14;
+  slices 1–5 landed (see above), slice 6 remains. Branch question settled 2026-08-14:
   the removal lands on `v2/openkeeb` (v1 is done and locked). Remaining open
   question (owner): whether a plugin/external-provider surface lands in
   OpenKeeb v2.

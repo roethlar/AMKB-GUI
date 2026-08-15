@@ -8,6 +8,7 @@ import json
 import os
 import platform
 import re
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,8 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlsplit
 from urllib.request import Request, urlopen
+
+import certifi
 
 from .server import create_server
 
@@ -530,12 +533,6 @@ def _native_policy_child_command(phase: str, root: Path) -> list[str]:
     return [*prefix, "--native-policy-probe", phase, "--native-policy-dir", str(root)]
 
 
-class _OfflineOllamaInventory:
-    def list_models(self, *, deadline: float) -> tuple:
-        del deadline
-        return ()
-
-
 def _offline_device_discovery() -> list[tuple[Any, Any]]:
     """Keep automated native acceptance away from attached keyboards."""
     return []
@@ -602,6 +599,16 @@ def run_native_policy_smoke() -> int:
     return 0
 
 
+def _default_tls_context() -> ssl.SSLContext:
+    """Verifying TLS context anchored to the packaged certifi CA bundle.
+
+    Frozen builds ship an OpenSSL whose default cert path is baked to the
+    build machine's filesystem, so the system trust store is empty on user
+    machines; certifi makes the trust anchors deterministic everywhere.
+    """
+    return ssl.create_default_context(cafile=certifi.where())
+
+
 def _assert_ollama_api_only_bundle() -> None:
     frozen_root = getattr(sys, "_MEIPASS", None)
     if frozen_root is None:
@@ -632,9 +639,7 @@ def run_smoke_test() -> int:
     if importlib.util.find_spec(backend) is None:
         raise SystemExit(f"Desktop smoke test failed: {backend} is unavailable.")
 
-    from . import llm
-
-    tls_context = llm.default_tls_context()
+    tls_context = _default_tls_context()
     _assert_ollama_api_only_bundle()
     if os.environ.get("AM_SMOKE_NET") == "1":
         request = Request("https://example.com/", method="HEAD")

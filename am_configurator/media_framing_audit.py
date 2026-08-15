@@ -2442,13 +2442,9 @@ def _run_webview_workflow(
 
 @contextmanager
 def _isolated_environment(data_root: Path) -> Iterator[None]:
-    from .ai_catalog import PROVIDER_ENVIRONMENT_VARIABLES
-
-    names = ("AM_CONFIGURATOR_DATA_DIR", *PROVIDER_ENVIRONMENT_VARIABLES.values())
+    names = ("AM_CONFIGURATOR_DATA_DIR",)
     previous = {name: os.environ.get(name) for name in names}
     os.environ["AM_CONFIGURATOR_DATA_DIR"] = str(data_root)
-    for name in PROVIDER_ENVIRONMENT_VARIABLES.values():
-        os.environ.pop(name, None)
     try:
         yield
     finally:
@@ -2467,9 +2463,7 @@ def _native_audit_report() -> dict:
             raise MediaFramingAuditError("webview_unavailable") from None
         raise
 
-    from .credentials import MemoryCredentialStore
     from .desktop import (
-        _OfflineOllamaInventory,
         _disable_macos_automatic_window_tabbing,
         _native_webview_policy,
         _native_webview_start_options,
@@ -2516,8 +2510,6 @@ def _native_audit_report() -> dict:
             server, url = create_server(
                 [str(document_path)],
                 lighting_library=library,
-                ollama_client=_OfflineOllamaInventory(),
-                credential_store=MemoryCredentialStore(),
                 device_discovery=_offline_device_discovery,
             )
             server.state.desktop_bridge = media_bridge

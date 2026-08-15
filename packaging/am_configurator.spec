@@ -31,28 +31,22 @@ def required_linux_license(component, candidates):
 
 
 hidden_imports = [
-    "am_configurator.ai_capability",
-    "am_configurator.credentials",
     "am_configurator.device",
-    "am_configurator.llm",
     "am_configurator.macros",
     "am_configurator.protocol",
     "am_configurator.procedural",
-    "am_configurator.procedural_generation",
     "am_configurator.reader",
-    "am_configurator.recipe_provider",
     "am_configurator.server",
     "am_configurator.store",
     "am_configurator.writer",
 ]
 if sys.platform == "darwin":
-    hidden_imports.extend(("webview.platforms.cocoa", "keyring.backends.macOS"))
+    hidden_imports.extend(("webview.platforms.cocoa",))
 elif sys.platform == "win32":
     hidden_imports.extend(
         (
             "webview.platforms.winforms",
             "webview.platforms.edgechromium",
-            "keyring.backends.Windows",
         )
     )
 elif sys.platform.startswith("linux"):
@@ -66,7 +60,6 @@ elif sys.platform.startswith("linux"):
             "gi.repository.WebKit2",
             "gi.repository.Soup",
             "gi.repository.JavaScriptCore",
-            "keyring.backends.SecretService",
         )
     )
     bundle_datas.extend(

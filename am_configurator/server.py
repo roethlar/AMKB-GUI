@@ -72,17 +72,7 @@ _LIGHTING_ASSET_MIMES = frozenset(
         "application/json",
     }
 )
-# ProviderError.code -> local HTTP status (design §Typed errors).
-_PROVIDER_ERROR_HTTP: dict[str, HTTPStatus] = {
-    "config": HTTPStatus.BAD_REQUEST,
-    "auth": HTTPStatus.BAD_REQUEST,
-    "rate_limited": HTTPStatus.TOO_MANY_REQUESTS,
-    "timeout": HTTPStatus.GATEWAY_TIMEOUT,
-    "offline": HTTPStatus.SERVICE_UNAVAILABLE,
-    "moderation": HTTPStatus.BAD_REQUEST,
-    "bad_response": HTTPStatus.BAD_GATEWAY,
-    "unavailable": HTTPStatus.BAD_GATEWAY,
-}
+
 
 class AcceptedWriteError(RuntimeError):
     """The device ACKed the full write, but a later verification step failed."""
@@ -1889,18 +1879,12 @@ def _probe_keyboard(handle: transport.DeviceHandle, attempts: int = 3) -> Any:
     return result
 
 
-def _settings_view(*, credential_store=None) -> dict[str, Any]:
-    """Return the active credential-free settings schema used by the UI."""
+def _settings_view() -> dict[str, Any]:
+    """Return the active settings schema used by the UI."""
     from . import store
 
-    settings, reason = store.load_settings_with_status(
-        credential_store=credential_store
-    )
-    api_settings = settings["ai"]["api"]
-    selected_api = api_settings["providers"][api_settings["selected_provider"]]
+    settings, reason = store.load_settings_with_status()
     migration_required = reason in {
-        store.InvalidAPICredentialError.code,
-        store.SettingsMigrationCredentialError.code,
         store.SettingsMigrationValidationError.code,
         store.SettingsMigrationWriteError.code,
     }
@@ -1910,58 +1894,22 @@ def _settings_view(*, credential_store=None) -> dict[str, Any]:
             "required": migration_required,
             "reason": reason if migration_required else None,
         },
-        "ai": {
-            "enabled": settings["ai"]["enabled"],
-            "backend": settings["ai"]["backend"],
-            "ollama": {
-                field: settings["ai"]["ollama"][field]
-                for field in (
-                    "base_url",
-                    "model_id",
-                    "model_digest",
-                    "model_location",
-                    "disclosure_version",
-                    "disclosure_at",
-                )
-            },
-            "api": {
-                "selected_provider": api_settings["selected_provider"],
-                "providers": {
-                    provider: {
-                        "model_id": provider_settings["model_id"],
-                        "disclosure_version": provider_settings[
-                            "disclosure_version"
-                        ],
-                        "disclosure_at": provider_settings["disclosure_at"],
-                    }
-                    for provider, provider_settings in api_settings[
-                        "providers"
-                    ].items()
-                },
-            },
-        },
         "library": {
             "current_root": settings["library"]["current_root"],
             "roots": list(settings["library"]["roots"]),
         },
         "generation": {
             "loop_mode": settings["generation"]["loop_mode"],
-            "privacy_ack_version": selected_api["disclosure_version"],
-            "privacy_ack_at": selected_api["disclosure_at"],
         },
     }
 
 
 def _capabilities() -> dict[str, Any]:
-    """Provider/model/target capabilities for the UI — the single source of truth.
+    """Model/target capabilities for the UI — the single source of truth.
 
     Target geometry is projected by the lower-level device mapping core.
     """
-    from . import ai_catalog
-
     return {
-        "ai_catalog": ai_catalog.catalog_view(),
-        "privacy_disclosure_version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
         "model_frame_caps": dict(device_mapping.MODEL_FRAME_CAPS),
         "targets": device_mapping.target_capabilities(),
     }
@@ -1981,11 +1929,6 @@ class _State:
         config: dict[str, Any] | None,
         token: str,
         lighting_library: Any = None,
-        operation_gate: Any = None,
-        ai_capability: Any = None,
-        credential_store: Any = None,
-        procedural_coordinator: Any = None,
-        ollama_client: Any = None,
         device_discovery: (
             Callable[[], list[tuple[transport.DeviceHandle, Any]]] | None
         ) = None,
@@ -2013,26 +1956,13 @@ class _State:
         self.desktop_bridge: Any = None
         self._lighting_lock = threading.Lock()
         self._lighting_library = lighting_library
-        self._ai_lock = threading.Lock()
-        self._ai_capability = ai_capability
-        self._credential_store = credential_store
-        self._procedural_coordinator = procedural_coordinator
-        self._ollama_client = ollama_client
         self._device_discovery = device_discovery
-        self._procedural_library_identity: int | None = (
-            id(lighting_library) if procedural_coordinator is not None else None
-        )
         self._library_catalog: Any = None
         self._library_catalog_identity: int | None = None
         self._media_renderer: Any = None
         self._media_renderer_catalog_identity: int | None = None
-        from .generation_admission import PROCESS_OPERATION_GATE
-
-        self._generation_gate = operation_gate or PROCESS_OPERATION_GATE
         self._lighting_root_signature: tuple[Any, ...] | None = None
-        self._lighting_reconcile_signature: tuple[int, int] | None = None
-        self._lighting_reconcile_pending = False
-        self._lighting_reconcile_worker: threading.Thread | None = None
+        self._lighting_reconcile_signature: int | None = None
         if config is not None:
             try:
                 self.synchronize_document(config)
@@ -2117,81 +2047,6 @@ class _State:
                 )
         return json.loads(snapshot)
 
-    def procedural_target(self, revision: str, target: str) -> dict:
-        if not isinstance(target, str) or not target:
-            raise ValueError("target must name one selected LED destination.")
-        with self._document_lock:
-            snapshot = self._document_snapshot
-            current = self._document_revision
-            if snapshot is None or current is None:
-                raise DocumentRevisionError(
-                    "document_required",
-                    "Open or read a compatible device profile before generation.",
-                )
-            if not secrets.compare_digest(revision, current):
-                raise DocumentRevisionError(
-                    "document_stale",
-                    "The open document changed before generation. Try again.",
-                )
-        document = json.loads(snapshot)
-        product_id = document["product_info"]["product_id"]
-        return _Handler._lighting_target(product_id, [target])
-
-    def ai_services(self) -> Any:
-        """Return the Ollama/API-only capability service."""
-        with self._ai_lock:
-            if self._ai_capability is None:
-                from . import store
-                from .ai_capability import AICapabilityService
-
-                credential_store = self._credential_store
-                self._ai_capability = AICapabilityService(
-                    settings_loader=lambda: store.load_settings(
-                        credential_store=credential_store
-                    ),
-                    credential_status_loader=lambda provider: store.credential_status(
-                        provider,
-                        credential_store=credential_store
-                    ),
-                    credential_resolver=lambda provider: store.resolve_api_key(
-                        provider,
-                        credential_store=credential_store
-                    ),
-                    fingerprint_writer=lambda backend, fingerprint, **kwargs: (
-                        store.set_ai_setup_fingerprint(
-                            backend,
-                            fingerprint,
-                            provider=kwargs.get("provider"),
-                            credential_store=credential_store,
-                        )
-                    ),
-                    ollama_client=self._ollama_client,
-                )
-            return self._ai_capability
-
-    def procedural_services(self) -> tuple[Any, Any]:
-        """Return the current Library and its local-first procedural coordinator."""
-        from .library import GeneratedAssetLibrary
-
-        library = self.lighting_library()
-        if (
-            self._procedural_coordinator is not None
-            and self._procedural_library_identity == id(library)
-        ):
-            return library, self._procedural_coordinator
-        if not isinstance(library, GeneratedAssetLibrary):
-            raise RuntimeError("Procedural generation services are unavailable.")
-        from .procedural_generation import ProceduralGenerationCoordinator
-
-        capability = self.ai_services()
-        self._procedural_coordinator = ProceduralGenerationCoordinator(
-            library,
-            capability,
-            operation_gate=self._generation_gate,
-        )
-        self._procedural_library_identity = id(library)
-        return library, self._procedural_coordinator
-
     def library_catalog(self) -> Any:
         """Return the mixed catalog for the current generated-asset root set."""
         from .library import GeneratedAssetLibrary, LibraryCatalog
@@ -2234,13 +2089,7 @@ class _State:
             if callable(close_renderer):
                 close_renderer()
         finally:
-            try:
-                capability = self._ai_capability
-                close_capability = getattr(capability, "close", None)
-                if callable(close_capability):
-                    close_capability()
-            finally:
-                self._device_executor.shutdown(wait=True)
+            self._device_executor.shutdown(wait=True)
 
     def device_io(self, operation):
         """Run one complete device operation on the stable HID worker thread."""
@@ -2263,9 +2112,6 @@ class _State:
         roots = tuple(settings["library"]["roots"])
         signature = (current_root, *roots)
         with self._lighting_lock:
-            procedural_active = getattr(
-                self._procedural_coordinator, "active_job_id", None
-            )
             media_active = (
                 bool(self._media_renderer.active_catalog_ids())
                 if self._media_renderer is not None
@@ -2275,7 +2121,6 @@ class _State:
                 self._lighting_library is not None
                 and (
                     self._lighting_root_signature == signature
-                    or procedural_active is not None
                     or media_active
                 )
             ):
@@ -2293,76 +2138,24 @@ class _State:
                 close()
             return library
 
-    def reconcile_lighting(self, *, force: bool = False) -> list[dict]:
-        """Reconcile procedural work without consulting retired video credentials."""
-        from .generation_admission import GenerationBusyError
+    def reconcile_lighting(self, *, force: bool = False) -> dict[str, list[dict]]:
+        """Reconcile the durable Library's on-disk job state directly."""
 
-        if self._generation_gate.is_active:
-            self._defer_lighting_reconciliation()
-            return []
-
-        library, procedural = self.procedural_services()
-        signature = (id(library), id(procedural))
+        library = self.lighting_library()
+        signature = id(library)
         with self._lighting_lock:
             if not force and signature == self._lighting_reconcile_signature:
-                return []
-            # Claim this exact local pipeline before reconciliation. A failure
-            # clears the claim, allowing the next safe trigger to retry.
+                return {"actions": [], "errors": []}
+            # Claim this exact library before reconciliation. A failure clears
+            # the claim, allowing the next safe trigger to retry.
             self._lighting_reconcile_signature = signature
         try:
-            token, _cancelled = self._generation_gate.begin()
-            try:
-                return procedural.reconcile_startup(_admission_token=token)
-            finally:
-                self._generation_gate.finish(token)
-        except GenerationBusyError:
-            with self._lighting_lock:
-                if self._lighting_reconcile_signature == signature:
-                    self._lighting_reconcile_signature = None
-            self._defer_lighting_reconciliation()
-            return []
+            return library.reconcile()
         except BaseException:
             with self._lighting_lock:
                 if self._lighting_reconcile_signature == signature:
                     self._lighting_reconcile_signature = None
             raise
-
-    def _defer_lighting_reconciliation(self) -> None:
-        """Coalesce settings/startup recovery until shared admission is idle."""
-        with self._lighting_lock:
-            self._lighting_reconcile_pending = True
-            if (
-                self._lighting_reconcile_worker is not None
-                and self._lighting_reconcile_worker.is_alive()
-            ):
-                return
-
-            def resume_when_idle() -> None:
-                while True:
-                    self._generation_gate.wait_until_idle()
-                    with self._lighting_lock:
-                        if not self._lighting_reconcile_pending:
-                            self._lighting_reconcile_worker = None
-                            return
-                        self._lighting_reconcile_pending = False
-                    try:
-                        self.reconcile_lighting(force=True)
-                    except Exception:
-                        with self._lighting_lock:
-                            self._lighting_reconcile_worker = None
-                        return
-                    with self._lighting_lock:
-                        if not self._lighting_reconcile_pending:
-                            self._lighting_reconcile_worker = None
-                            return
-
-            worker = threading.Thread(
-                target=resume_when_idle,
-                name="am-lighting-reconcile",
-                daemon=True,
-            )
-            self._lighting_reconcile_worker = worker
-            worker.start()
 
     def settle_after_scan(self, seconds: float = 1.5) -> None:
         remaining = seconds - (time.monotonic() - self.last_device_scan)
@@ -2434,13 +2227,6 @@ class _Handler(BaseHTTPRequestHandler):
             raise ValueError(f"Invalid request: {exc}") from exc
 
     def _lighting_error(self, exc: Exception) -> bool:
-        from . import llm
-        from .ai_capability import AICapabilityError
-        from .generation_admission import (
-            GenerationBusyError,
-            GenerationNotActiveError,
-            GenerationValidationError,
-        )
         from .library import (
             AssetNotFoundError,
             InvalidIdentifierError,
@@ -2450,27 +2236,6 @@ class _Handler(BaseHTTPRequestHandler):
         )
         from .media_composition import MediaRenderSuperseded
 
-        if isinstance(exc, AICapabilityError):
-            self._json(
-                {"code": exc.reason, "error": "Optional AI is not ready."},
-                HTTPStatus.CONFLICT,
-            )
-            return True
-        if isinstance(exc, llm.ProviderError):
-            payload: dict[str, Any] = {
-                "code": exc.code,
-                "error": exc.message,
-            }
-            if exc.retry_after is not None:
-                payload["retry_after"] = exc.retry_after
-            self._json(
-                payload,
-                _PROVIDER_ERROR_HTTP.get(exc.code, HTTPStatus.BAD_GATEWAY),
-            )
-            return True
-        if isinstance(exc, (GenerationBusyError, GenerationNotActiveError)):
-            self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
-            return True
         if isinstance(exc, MediaRenderSuperseded):
             self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
             return True
@@ -2489,7 +2254,7 @@ class _Handler(BaseHTTPRequestHandler):
                 HTTPStatus.NOT_FOUND,
             )
             return True
-        if isinstance(exc, (GenerationValidationError, LibraryRootError, ValueError)):
+        if isinstance(exc, (LibraryRootError, ValueError)):
             self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return True
         return False
@@ -2573,19 +2338,13 @@ class _Handler(BaseHTTPRequestHandler):
                     ]
                     self._json(device_report.build_support_report(devices))
                 elif path == "/api/settings":
-                    self._json(
-                        _settings_view(
-                            credential_store=self.state._credential_store
-                        )
-                    )
+                    self._json(_settings_view())
                 elif path == "/api/led/capabilities":
                     self._json(_capabilities())
                 elif path.startswith("/api/library/"):
                     self._library_get(path, parsed.query)
                 elif path.startswith("/api/lighting/"):
                     self._lighting_get(path, parsed.query)
-                elif path == "/api/led/generate/status":
-                    self._retired_ai_mutation()
                 else:
                     self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
             except Exception as exc:  # noqa: BLE001 - API boundary
@@ -2666,8 +2425,6 @@ class _Handler(BaseHTTPRequestHandler):
                 self._save_settings_preferences(body)
             elif path == "/api/settings/library":
                 self._save_settings_library(body)
-            elif path == "/api/settings/privacy":
-                self._save_settings_privacy(body)
             elif path == "/api/settings/migration/discard-credential":
                 self._discard_legacy_ai_credential(body)
             elif path == "/api/native/choose-library":
@@ -2684,16 +2441,6 @@ class _Handler(BaseHTTPRequestHandler):
                 self._library_save_profile(body)
             elif path.startswith("/api/library/items/"):
                 self._library_post(path, body)
-            elif path == "/api/lighting/effects":
-                self._start_procedural_effect(body)
-            elif path == "/api/lighting/concepts" or path.startswith(
-                "/api/lighting/jobs/"
-            ):
-                self._lighting_post(path, body)
-            elif path == "/api/led/generate":
-                self._retired_ai_mutation()
-            elif path == "/api/led/generate/cancel":
-                self._retired_ai_mutation()
             elif path == "/api/device/read":
                 self._read_device(body)
             elif path == "/api/device/preflight":
@@ -2779,21 +2526,12 @@ class _Handler(BaseHTTPRequestHandler):
         if unknown or missing:
             raise ValueError("The lighting request body has unsupported fields.")
 
-    def _require_ai_idle(self) -> None:
-        if self.state._generation_gate.is_active:
-            from .generation_admission import GenerationBusyError
-
-            raise GenerationBusyError("another generation operation is already active")
-
     def _discard_legacy_ai_credential(self, body: dict[str, Any]) -> None:
         from . import store
 
         self._strict_body(body, allowed={"confirm"}, required={"confirm"})
-        self._require_ai_idle()
         store.discard_legacy_api_credential(body)
-        self._json(
-            _settings_view(credential_store=self.state._credential_store)
-        )
+        self._json(_settings_view())
 
     def _synchronize_document(self, body: dict[str, Any]) -> None:
         self._strict_body(
@@ -2852,97 +2590,6 @@ class _Handler(BaseHTTPRequestHandler):
                 "layout_warning": result["warning"],
             }
         )
-
-    def _start_procedural_effect(self, body: dict[str, Any]) -> None:
-        self._strict_body(
-            body,
-            allowed={"prompt", "backend", "target", "document_revision"},
-            required={"prompt", "backend", "target", "document_revision"},
-        )
-        revision = body["document_revision"]
-        if not isinstance(revision, str) or not 24 <= len(revision) <= 200:
-            raise ValueError("document_revision must be an opaque revision string.")
-        try:
-            target = self.state.procedural_target(revision, body["target"])
-        except DocumentRevisionError as exc:
-            self._json({"code": exc.code, "error": str(exc)}, HTTPStatus.CONFLICT)
-            return
-        capability = self.state.ai_services()
-        status = capability.require_ready()
-        if body["backend"] != status["backend"]:
-            self._json(
-                {
-                    "code": "backend_mismatch",
-                    "error": "The selected AI backend changed before generation.",
-                },
-                HTTPStatus.CONFLICT,
-            )
-            return
-        _library, coordinator = self.state.procedural_services()
-        manifest = coordinator.start_effect(
-            prompt=body["prompt"],
-            target=target,
-        )
-        self._json(
-            {"job_id": manifest["job_id"], "target": manifest["target"]},
-            HTTPStatus.ACCEPTED,
-        )
-
-    def _retired_ai_mutation(self) -> None:
-        self._json(
-            {
-                "code": "retired",
-                "error": "This legacy AI generation route is retired.",
-            },
-            HTTPStatus.GONE,
-        )
-
-    @staticmethod
-    def _lighting_target(product_id: object, targets: object) -> dict:
-        if not isinstance(product_id, str) or not product_id:
-            raise ValueError("product_id must be a non-empty string.")
-        if (
-            not isinstance(targets, list)
-            or not targets
-            or not all(isinstance(target, str) and target for target in targets)
-        ):
-            raise ValueError("targets must be a non-empty list of LED track names.")
-        spec, resolved = device_mapping.generation_spec(product_id, targets, None)
-        return {
-            "family": spec.model,
-            "product_id": product_id,
-            "raster": {"width": spec.width, "height": spec.height},
-            "targets": resolved,
-            "frame_cap": spec.max_frames,
-        }
-
-    def _lighting_post(self, path: str, body: dict[str, Any]) -> None:
-        if path == "/api/lighting/concepts":
-            self._retired_ai_mutation()
-            return
-
-        parts = path.strip("/").split("/")
-        if len(parts) != 5 or parts[:3] != ["api", "lighting", "jobs"]:
-            self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
-            return
-        job_id, action = parts[3], parts[4]
-        if action in {"concepts", "animate", "process"}:
-            self._retired_ai_mutation()
-            return
-        if action != "cancel":
-            self._json({"error": "Not found."}, HTTPStatus.NOT_FOUND)
-            return
-        library = self.state.lighting_library()
-        # Resolve through the manifest boundary before any coordinator action;
-        # this validates canonical IDs and historical-root ownership uniformly.
-        manifest = library.load_manifest(job_id)
-        if manifest.get("pipeline") != "procedural":
-            self._retired_ai_mutation()
-            return
-        self._strict_body(body, allowed=set())
-        _procedural_library, procedural = self.state.procedural_services()
-        manifest = procedural.cancel(job_id)
-        self._json({"job_id": manifest["job_id"]})
 
     @staticmethod
     def _validate_media_import_name(name: object) -> str:
@@ -3451,19 +3098,10 @@ class _Handler(BaseHTTPRequestHandler):
         )
 
     def _active_library_catalog_ids(self) -> set[str]:
-        active_ids = {
-            getattr(self.state._generation_gate, "active_job_id", None),
-            getattr(self.state._procedural_coordinator, "active_job_id", None),
-        }
-        catalog_ids = {
-            f"job:{job_id}"
-            for job_id in active_ids
-            if isinstance(job_id, str) and job_id
-        }
         renderer = self.state._media_renderer
-        if renderer is not None:
-            catalog_ids.update(renderer.active_catalog_ids())
-        return catalog_ids
+        if renderer is None:
+            return set()
+        return set(renderer.active_catalog_ids())
 
     def _library_post(self, path: str, body: dict[str, Any]) -> None:
         if urlparse(self.path).query:
@@ -3712,11 +3350,6 @@ class _Handler(BaseHTTPRequestHandler):
             self._lighting_library_page(library, query)
             return
         parts = path.strip("/").split("/")
-        if len(parts) == 4 and parts[:3] == ["api", "lighting", "jobs"]:
-            if query:
-                raise ValueError("The job status route does not accept query fields.")
-            self._json(library.get_job(parts[3]))
-            return
         if len(parts) == 4 and parts[:3] == ["api", "lighting", "library"]:
             if query:
                 raise ValueError("The library detail route does not accept query fields.")
@@ -3888,12 +3521,6 @@ class _Handler(BaseHTTPRequestHandler):
 
         store.update_library_root(body)
         self.state.reconcile_lighting(force=True)
-        self._json(_settings_view())
-
-    def _save_settings_privacy(self, body: dict[str, Any]) -> None:
-        from . import store
-
-        store.acknowledge_privacy(body)
         self._json(_settings_view())
 
     def _native_choose_library(self, body: dict[str, Any]) -> None:
@@ -4276,20 +3903,14 @@ def create_server(
     *,
     port: int = 0,
     lighting_library: Any = None,
-    operation_gate: Any = None,
-    ai_capability: Any = None,
-    credential_store: Any = None,
-    procedural_coordinator: Any = None,
-    ollama_client: Any = None,
     device_discovery: (
         Callable[[], list[tuple[transport.DeviceHandle, Any]]] | None
     ) = None,
 ) -> tuple[_Server, str]:
     """Create the loopback configurator server without starting its event loop.
 
-    Tests may inject the durable library, procedural coordinator, operation
-    gate, capability service, and credential store. These seams keep endpoint
-    tests offline.
+    Tests may inject the durable library. This seam keeps endpoint tests
+    offline.
     """
     configs: list[dict[str, Any]] = []
     for raw_path in config_paths or []:
@@ -4307,11 +3928,6 @@ def create_server(
         merge_configs(configs),
         token,
         lighting_library=lighting_library,
-        operation_gate=operation_gate,
-        ai_capability=ai_capability,
-        credential_store=credential_store,
-        procedural_coordinator=procedural_coordinator,
-        ollama_client=ollama_client,
         device_discovery=device_discovery,
     )
     state.reconcile_lighting(force=True)

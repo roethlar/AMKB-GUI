@@ -63,86 +63,20 @@ from am_configurator.device import candidate_ports
 from am_configurator.protocol import exclusive_serial_kwargs
 from am_configurator.macros import macro_frames, parse_macro_frames
 from am_configurator.writer import car_light_data_frames, car_light_info_frames
-from am_configurator import ai_catalog, credentials, device_mapping, llm, server, store
-from am_configurator import generation_admission as generation, media_composition
+from am_configurator import device_mapping, server, store
+from am_configurator import media_composition
 from build_tools.release_info import project_version
 from am_configurator.library import (
     GeneratedAssetLibrary,
-    LibraryRootError,
     SavedItemLibrary,
 )
 
 
 _DEFAULT_SETTINGS = {
     "schema_version": 7,
-    "ai": {
-        "enabled": False,
-        "backend": None,
-        "ollama": {
-            "base_url": "http://127.0.0.1:11434",
-            "model_id": None,
-            "model_digest": None,
-            "model_location": None,
-            "setup_fingerprint": None,
-            "disclosure_version": None,
-            "disclosure_at": None,
-        },
-        "api": {
-            "selected_provider": "xai",
-            "providers": {
-                provider: {
-                    "model_id": "grok-4.5" if provider == "xai" else None,
-                    "setup_fingerprint": None,
-                    "disclosure_version": None,
-                    "disclosure_at": None,
-                }
-                for provider in ai_catalog.API_PROVIDER_IDS
-            },
-        },
-    },
     "library": {"current_root": None, "roots": []},
     "generation": {"loop_mode": "smooth"},
 }
-class _ScopedTestCredentialStore:
-    """Keep test credentials isolated by each test's temporary data root."""
-
-    def __init__(self) -> None:
-        self.values: dict[tuple[str, str], str] = {}
-
-    @staticmethod
-    def _key(provider: str) -> tuple[str, str]:
-        return (str(store.store_root()), provider)
-
-    def available(self) -> bool:
-        return True
-
-    def get(self, provider: str) -> str | None:
-        return self.values.get(self._key(provider))
-
-    def set(self, provider: str, value: str) -> None:
-        self.values[self._key(provider)] = value
-
-    def delete(self, provider: str) -> None:
-        self.values.pop(self._key(provider), None)
-
-
-_TEST_CREDENTIALS = _ScopedTestCredentialStore()
-_CREDENTIAL_PATCHER = None
-
-
-def setUpModule() -> None:
-    global _CREDENTIAL_PATCHER
-    _CREDENTIAL_PATCHER = patch.object(
-        credentials,
-        "default_credential_store",
-        return_value=_TEST_CREDENTIALS,
-    )
-    _CREDENTIAL_PATCHER.start()
-
-
-def tearDownModule() -> None:
-    if _CREDENTIAL_PATCHER is not None:
-        _CREDENTIAL_PATCHER.stop()
 
 
 class SettingsStoreTests(unittest.TestCase):
@@ -152,10 +86,9 @@ class SettingsStoreTests(unittest.TestCase):
         self._tmp = tempfile.mkdtemp(prefix="am_settings_test_")
         self._saved_env = {
             k: os.environ.get(k)
-            for k in ("AM_CONFIGURATOR_DATA_DIR", "XDG_DATA_HOME", "XAI_API_KEY")
+            for k in ("AM_CONFIGURATOR_DATA_DIR", "XDG_DATA_HOME")
         }
         os.environ.pop("XDG_DATA_HOME", None)
-        os.environ.pop("XAI_API_KEY", None)
         os.environ["AM_CONFIGURATOR_DATA_DIR"] = self._tmp
 
     def tearDown(self) -> None:
@@ -171,37 +104,7 @@ class SettingsStoreTests(unittest.TestCase):
         # A missing file must not be created as a side effect of reading it.
         self.assertFalse(store.settings_path().exists())
 
-    def test_catalog_has_only_curated_recipe_models_and_integer_prices(self) -> None:
-        catalog = ai_catalog.catalog_view()
-        self.assertEqual(catalog["schema_version"], 2)
-        self.assertEqual(catalog["pricing_as_of"], ai_catalog.PRICING_AS_OF)
-        self.assertEqual(set(catalog["providers"]), set(ai_catalog.API_PROVIDER_IDS))
-        self.assertNotIn("roles", catalog)
-        for provider, metadata in catalog["providers"].items():
-            self.assertIsInstance(metadata["label"], str)
-            self.assertTrue(metadata["label"])
-            self.assertEqual(
-                metadata["disclosure_version"],
-                ai_catalog.provider_disclosure_version(provider),
-            )
-            self.assertIn(
-                metadata["structured_output"],
-                {"json_schema", "json_object"},
-            )
-            ids = [model["id"] for model in metadata["models"]]
-            self.assertEqual(len(ids), len(set(ids)))
-            if metadata["default_model"] is not None:
-                self.assertIn(metadata["default_model"], ids)
-            for model in metadata["models"]:
-                pricing = model.get("pricing")
-                if pricing is not None:
-                    self.assertTrue(pricing)
-                    self.assertTrue(
-                        all(type(value) is int for value in pricing.values())
-                    )
-        self.assertEqual(ai_catalog.DEFAULT_MODELS, {"interpreter": "grok-4.5"})
-
-    def test_v1_file_migrates_in_place_without_losing_key(self) -> None:
+    def test_v1_file_migrates_to_v7_defaults_and_discards_legacy_llm_block(self) -> None:
         legacy = {
             "llm": {
                 "interpreter": "grok",
@@ -214,7 +117,6 @@ class SettingsStoreTests(unittest.TestCase):
         path.write_text(json.dumps(legacy), encoding="utf-8")
 
         self.assertEqual(store.load_settings(), _DEFAULT_SETTINGS)
-        self.assertEqual("sk-existing", store.resolve_xai_key())
         self.assertFalse(path.with_name(path.name + ".bad").exists())
         saved = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(saved["schema_version"], 7)
@@ -223,63 +125,49 @@ class SettingsStoreTests(unittest.TestCase):
 
     def test_v7_round_trip(self) -> None:
         payload = copy.deepcopy(_DEFAULT_SETTINGS)
-        payload["ai"]["backend"] = "ollama"
-        payload["ai"]["ollama"]["setup_fingerprint"] = "a" * 64
         payload["generation"]["loop_mode"] = "ping_pong"
         store.save_settings(payload)
         self.assertEqual(store.load_settings(), payload)
 
-    def test_v6_migrates_exactly_to_v7_and_resets_ollama_setup_identity(self) -> None:
+    def test_v6_migrates_to_v7_discarding_the_legacy_ai_block(self) -> None:
         library_root = str((Path(self._tmp) / "library").resolve())
-        legacy = copy.deepcopy(_DEFAULT_SETTINGS)
-        legacy["schema_version"] = 6
-        legacy["ai"]["enabled"] = True
-        legacy["ai"]["backend"] = "local"
-        legacy["ai"]["local"] = {
-            "model_id": "ornith:latest",
-            "model_digest": "b" * 64,
-            "setup_fingerprint": "c" * 64,
+        legacy = {
+            "schema_version": 6,
+            "ai": {
+                "enabled": True,
+                "backend": "local",
+                "local": {
+                    "model_id": "ornith:latest",
+                    "model_digest": "b" * 64,
+                    "setup_fingerprint": "c" * 64,
+                },
+            },
+            "library": {
+                "current_root": library_root,
+                "roots": [library_root],
+            },
+            "generation": {"loop_mode": "ping_pong"},
         }
-        del legacy["ai"]["ollama"]
-        legacy["ai"]["api"]["providers"]["xai"].update(
-            {
-                "setup_fingerprint": "d" * 64,
-                "disclosure_version": "xai-api-disclosure-v1",
-                "disclosure_at": "2026-07-29T12:00:00+00:00",
-            }
-        )
-        legacy["library"] = {
-            "current_root": library_root,
-            "roots": [library_root],
-        }
-        legacy["generation"]["loop_mode"] = "ping_pong"
         path = store.settings_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(legacy), encoding="utf-8")
 
         migrated = store.load_settings()
         expected = copy.deepcopy(_DEFAULT_SETTINGS)
-        expected["ai"]["enabled"] = True
-        expected["ai"]["backend"] = "ollama"
-        expected["ai"]["ollama"].update(
-            {
-                "model_id": "ornith:latest",
-                "model_digest": "b" * 64,
-            }
-        )
-        expected["ai"]["api"] = copy.deepcopy(legacy["ai"]["api"])
-        expected["library"] = copy.deepcopy(legacy["library"])
+        expected["library"] = {
+            "current_root": library_root,
+            "roots": [library_root],
+        }
         expected["generation"]["loop_mode"] = "ping_pong"
         self.assertEqual(expected, migrated)
         self.assertEqual(expected, json.loads(path.read_text(encoding="utf-8")))
+        self.assertNotIn("ai", migrated)
 
     def test_unknown_fields_rejected(self) -> None:
         with self.assertRaises(ValueError):
             store.save_settings({**copy.deepcopy(_DEFAULT_SETTINGS), "bogus": 1})
         with self.assertRaises(ValueError):
             store.update_preferences({"models": {}, "bogus": 1})
-        with self.assertRaises(ValueError):
-            store.update_api_key({"provider": "bogus", "key": "x"})
         with self.assertRaises(ValueError):
             store.update_library_root({"current_root": None, "bogus": 1})
         # A rejected save must persist nothing.
@@ -302,36 +190,14 @@ class SettingsStoreTests(unittest.TestCase):
                 store.update_preferences(payload)
         self.assertFalse(store.settings_path().exists())
 
-    def test_mask_sentinel_rejected(self) -> None:
-        with self.assertRaises(ValueError):
-            store.update_api_key({"provider": "xai", "key": store.KEY_MASK})
-        self.assertFalse(store.settings_path().exists())
-
-    def test_empty_key_clears(self) -> None:
-        store.update_api_key({"provider": "xai", "key": "sk-test"})
-        store.update_api_key({"provider": "xai", "key": ""})
-        self.assertNotIn("sk-test", store.settings_path().read_text("utf-8"))
-        self.assertIsNone(store.resolve_xai_key())
-
-    def test_independent_updates_preserve_key_loop_mode_and_library(self) -> None:
+    def test_independent_updates_preserve_loop_mode_and_library(self) -> None:
         root = Path(self._tmp) / "library"
-        store.update_api_key({"provider": "xai", "key": "sk-stays-put"})
         store.update_preferences({"loop_mode": "none"})
         store.update_library_root({"current_root": str(root)})
         settings = store.load_settings()
-        self.assertEqual(store.resolve_xai_key(), "sk-stays-put")
         self.assertNotIn("llm", settings)
         self.assertNotIn("candidate_count", settings["generation"])
         self.assertEqual(settings["generation"]["loop_mode"], "none")
-        self.assertEqual(settings["library"]["current_root"], str(root.resolve()))
-
-        # The legacy whole-object POST remains a key-only compatibility seam
-        # and must not reset the active Library or loop preference.
-        store.save_settings({
-            "llm": {"interpreter": "grok", "renderer": "grok", "keys": {"xai": ""}}
-        })
-        settings = store.load_settings()
-        self.assertIsNone(store.resolve_xai_key())
         self.assertEqual(settings["library"]["current_root"], str(root.resolve()))
 
     def test_v2_model_preferences_are_discarded_during_migration(self) -> None:
@@ -375,35 +241,6 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertIsNone(library["current_root"])
         self.assertEqual(library["roots"], [str(first.resolve()), str(second.resolve())])
 
-    def test_privacy_acknowledges_only_current_version(self) -> None:
-        from am_configurator import ai_catalog
-
-        store.update_api_key({"provider": "xai", "key": "sk-private"})
-        with self.assertRaises(ValueError):
-            store.acknowledge_privacy(
-                {"provider": "xai", "version": "older-disclosure"}
-            )
-        with self.assertRaises(ValueError):
-            store.acknowledge_privacy({
-                "provider": "xai",
-                "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
-                "extra": True,
-            })
-        saved = store.acknowledge_privacy({
-            "provider": "xai",
-            "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
-        })
-        api = saved["ai"]["api"]["providers"]["xai"]
-        self.assertEqual(
-            api["disclosure_version"],
-            ai_catalog.PRIVACY_DISCLOSURE_VERSION,
-        )
-        self.assertRegex(
-            api["disclosure_at"],
-            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$",
-        )
-        self.assertEqual(store.resolve_xai_key(), "sk-private")
-
     def test_corrupt_file_recovers(self) -> None:
         path = store.settings_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -412,24 +249,8 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertFalse(path.exists())
         self.assertTrue(path.with_name(path.name + ".bad").exists())
 
-    def test_env_override(self) -> None:
-        store.update_api_key({"provider": "xai", "key": "sk-disk"})
-        before = store.settings_path().read_text(encoding="utf-8")
-        os.environ["XAI_API_KEY"] = "sk-env"
-        self.assertEqual(store.resolve_xai_key(), "sk-env")
-        # The env override is never persisted; disk content is untouched.
-        self.assertEqual(store.settings_path().read_text(encoding="utf-8"), before)
-        os.environ.pop("XAI_API_KEY")
-        self.assertEqual(store.resolve_xai_key(), "sk-disk")
-
-    def test_error_message_omits_secret(self) -> None:
-        secret = "sk-super-secret-should-never-be-logged"
-        with self.assertRaises(ValueError) as ctx:
-            store.update_api_key({"provider": "xai", "key": [secret]})
-        self.assertNotIn(secret, str(ctx.exception))
-
     def test_file_permissions(self) -> None:
-        store.update_api_key({"provider": "xai", "key": "sk-test"})
+        store.update_preferences({"loop_mode": "none"})
         if sys.platform.startswith("win"):
             self.skipTest("POSIX file permissions are not enforced on Windows")
         mode = stat.S_IMODE(os.stat(store.settings_path()).st_mode)
@@ -1337,595 +1158,11 @@ class FramesToLedTracksTests(unittest.TestCase):
             )
 
 
-# A sentinel API key used only in transport tests. It is deliberately
-# distinctive so redaction assertions can prove it never reaches an error
-# string or log line. It is not a real credential.
-_FAKE_KEY = "sk-fake-SENTINEL-do-not-log-0123456789"
-
-
-class _FakeResponse:
-    """Minimal stand-in for a urllib response: bounded ``read`` plus ``close``."""
-
-    def __init__(self, body: bytes) -> None:
-        self._body = body
-        self.read_amounts: list[int | None] = []
-        self.closed = False
-
-    def read(self, amt: int | None = None) -> bytes:
-        self.read_amounts.append(amt)
-        if amt is None:
-            data, self._body = self._body, b""
-        else:
-            data, self._body = self._body[:amt], self._body[amt:]
-        return data
-
-    def close(self) -> None:
-        self.closed = True
-
-
-class _RecordingOpener:
-    """Fake urllib opener callable: records each call, then returns or raises.
-
-    Mirrors the real opener contract used by ``llm._xai_request``
-    (``opener(request, timeout=...)``) so the transport's parsing and error
-    mapping are exercised with zero network I/O.
-    """
-
-    def __init__(self, *, response=None, error: BaseException | None = None) -> None:
-        self._response = response
-        self._error = error
-        self.calls: list[tuple[Request, object]] = []
-
-    def __call__(self, request, timeout=None):
-        self.calls.append((request, timeout))
-        if self._error is not None:
-            raise self._error
-        return self._response
-
-
-def _request_header(request, name: str) -> str | None:
-    """Case-insensitive lookup of a header on a urllib ``Request``."""
-    for key, value in request.header_items():
-        if key.lower() == name.lower():
-            return value
-    return None
-
-
-def _responses_envelope(plan_dict: dict) -> dict:
-    """A minimal xAI ``/v1/responses`` structured-output envelope carrying
-    ``plan_dict`` as the assistant message's ``output_text`` JSON."""
-    return {
-        "output": [
-            {"type": "reasoning", "content": []},
-            {
-                "type": "message",
-                "role": "assistant",
-                "content": [
-                    {"type": "output_text", "text": json.dumps(plan_dict)}
-                ],
-            },
-        ],
-        "usage": {"input_tokens": 128, "output_tokens": 64},
-    }
-
-
-def _image_envelope(b64: str) -> dict:
-    """A minimal xAI ``/v1/images/generations`` envelope carrying one inline
-    base64 image — the ``response_format: "b64_json"`` shape the renderer reads."""
-    return {"data": [{"b64_json": b64}]}
-
-
-def _encode_image(image, fmt: str = "PNG") -> str:
-    """Serialize a Pillow image to ``fmt`` and base64-encode the bytes for a fake
-    image-generation response body (no network, no temp files)."""
-    buf = io.BytesIO()
-    image.save(buf, fmt)
-    return base64.b64encode(buf.getvalue()).decode("ascii")
-
-
-class GrokTransportTests(unittest.TestCase):
-    """Shared speed constants and bounded xAI transport behavior."""
+class DeviceMappingConstantsTests(unittest.TestCase):
+    """Shared firmware-speed constants used by the device protocol layer."""
 
     def test_device_mapping_owns_firmware_speed_steps(self) -> None:
-        # Single source of truth: llm duplicates the tuple so it need not import
-        # server; this guard fails loudly if the two ever drift apart.
         self.assertEqual(34, min(device_mapping.LED_SPEEDS_MS))
-
-    _URL = "https://api.x.ai/v1/responses"
-
-    def _future_deadline(self) -> float:
-        return time.monotonic() + 30.0
-
-    def _http_error(
-        self, code: int, *, retry_after=None, body: bytes = b"{}"
-    ) -> urllib.error.HTTPError:
-        hdrs = Message()
-        if retry_after is not None:
-            hdrs["Retry-After"] = str(retry_after)
-        return urllib.error.HTTPError(
-            self._URL, code, f"HTTP {code}", hdrs, io.BytesIO(body)
-        )
-
-    def test_xai_request_success_sets_headers_and_returns_dict(self) -> None:
-        payload = {"model": "grok-4.5", "input": "hi"}
-        expected = {"ok": True, "value": 42}
-        opener = _RecordingOpener(
-            response=_FakeResponse(json.dumps(expected).encode("utf-8"))
-        )
-
-        result = llm._xai_request(
-            self._URL, payload, _FAKE_KEY, self._future_deadline(), opener=opener
-        )
-
-        self.assertEqual(result, expected)
-        self.assertEqual(len(opener.calls), 1)
-        request, timeout = opener.calls[0]
-        self.assertEqual(request.get_method(), "POST")
-        self.assertEqual(
-            _request_header(request, "Authorization"), f"Bearer {_FAKE_KEY}"
-        )
-        self.assertEqual(
-            _request_header(request, "Content-Type"), "application/json"
-        )
-        self.assertEqual(json.loads(request.data.decode("utf-8")), payload)
-        # Per-call timeout is capped at 30s and never exceeds the deadline.
-        self.assertLessEqual(timeout, 30.0)
-        self.assertGreater(timeout, 0.0)
-
-    def test_provider_json_transport_uses_only_its_pinned_origin_and_headers(self) -> None:
-        opener = _RecordingOpener(response=_FakeResponse(b'{"ok":true}'))
-        spec = llm.ANTHROPIC_MESSAGES_TRANSPORT
-
-        result = llm._provider_json_request(
-            spec,
-            {"messages": []},
-            "provider-secret",
-            self._future_deadline(),
-            opener=opener,
-        )
-
-        self.assertEqual({"ok": True}, result)
-        self.assertEqual(1, len(opener.calls))
-        request, timeout = opener.calls[0]
-        self.assertEqual("https://api.anthropic.com/v1/messages", request.full_url)
-        self.assertEqual(
-            "provider-secret",
-            _request_header(request, "x-api-key"),
-        )
-        self.assertEqual(
-            "2023-06-01",
-            _request_header(request, "anthropic-version"),
-        )
-        self.assertEqual("api.anthropic.com", spec.host)
-        self.assertEqual("https://api.anthropic.com/v1/messages", spec.url)
-        self.assertNotIn("provider-secret", request.full_url)
-        self.assertGreater(timeout, 0)
-
-        opener = _RecordingOpener(response=_FakeResponse(b'{"ok":true}'))
-        spec = llm.OPENAI_RESPONSES_TRANSPORT
-        result = llm._provider_json_request(
-            spec,
-            {"input": []},
-            "provider-secret",
-            self._future_deadline(),
-            opener=opener,
-        )
-
-        self.assertEqual({"ok": True}, result)
-        self.assertEqual(1, len(opener.calls))
-        request, timeout = opener.calls[0]
-        self.assertEqual("https://api.openai.com/v1/responses", request.full_url)
-        self.assertEqual(
-            "Bearer provider-secret",
-            _request_header(request, "Authorization"),
-        )
-        self.assertEqual("api.openai.com", spec.host)
-        self.assertEqual("https://api.openai.com/v1/responses", spec.url)
-        self.assertNotIn("provider-secret", request.full_url)
-        self.assertGreater(timeout, 0)
-
-        opener = _RecordingOpener(response=_FakeResponse(b'{"ok":true}'))
-        spec = llm.GEMINI_INTERACTIONS_TRANSPORT
-        result = llm._provider_json_request(
-            spec,
-            {"input": "hello"},
-            "provider-secret",
-            self._future_deadline(),
-            opener=opener,
-        )
-
-        self.assertEqual({"ok": True}, result)
-        self.assertEqual(1, len(opener.calls))
-        request, timeout = opener.calls[0]
-        self.assertEqual(
-            "https://generativelanguage.googleapis.com/v1beta/interactions",
-            request.full_url,
-        )
-        self.assertEqual(
-            "provider-secret",
-            _request_header(request, "x-goog-api-key"),
-        )
-        self.assertIsNone(_request_header(request, "Authorization"))
-        self.assertEqual("generativelanguage.googleapis.com", spec.host)
-        self.assertNotIn("provider-secret", request.full_url)
-        self.assertEqual("", request.selector.partition("?")[2])
-        self.assertGreater(timeout, 0)
-
-        opener = _RecordingOpener(response=_FakeResponse(b'{"ok":true}'))
-        spec = llm.MOONSHOT_CHAT_COMPLETIONS_TRANSPORT
-        result = llm._provider_json_request(
-            spec,
-            {"messages": []},
-            "provider-secret",
-            self._future_deadline(),
-            opener=opener,
-        )
-
-        self.assertEqual({"ok": True}, result)
-        self.assertEqual(1, len(opener.calls))
-        request, timeout = opener.calls[0]
-        self.assertEqual(
-            "https://api.moonshot.ai/v1/chat/completions",
-            request.full_url,
-        )
-        self.assertEqual(
-            "Bearer provider-secret",
-            _request_header(request, "Authorization"),
-        )
-        self.assertEqual("api.moonshot.ai", spec.host)
-        self.assertNotIn("provider-secret", request.full_url)
-        self.assertGreater(timeout, 0)
-
-        opener = _RecordingOpener(response=_FakeResponse(b'{"ok":true}'))
-        spec = llm.DEEPSEEK_CHAT_COMPLETIONS_TRANSPORT
-        result = llm._provider_json_request(
-            spec,
-            {"messages": []},
-            "provider-secret",
-            self._future_deadline(),
-            opener=opener,
-        )
-
-        self.assertEqual({"ok": True}, result)
-        self.assertEqual(1, len(opener.calls))
-        request, timeout = opener.calls[0]
-        self.assertEqual(
-            "https://api.deepseek.com/chat/completions",
-            request.full_url,
-        )
-        self.assertEqual(
-            "Bearer provider-secret",
-            _request_header(request, "Authorization"),
-        )
-        self.assertEqual("api.deepseek.com", spec.host)
-        self.assertNotIn("provider-secret", request.full_url)
-        self.assertGreater(timeout, 0)
-
-        invalid = llm.ProviderTransportSpec(
-            provider="anthropic",
-            url="https://attacker.invalid/v1/messages",
-            host="api.anthropic.com",
-            auth_header="x-api-key",
-            auth_prefix="",
-        )
-        with self.assertRaises(llm.ProviderError):
-            llm._provider_json_request(
-                invalid,
-                {},
-                "provider-secret",
-                self._future_deadline(),
-                opener=lambda *_args, **_kwargs: self.fail(
-                    "invalid origin reached opener"
-                ),
-            )
-
-    def test_xai_transport_pins_origin_and_never_contacts_invalid_urls(self) -> None:
-        invalid_urls = (
-            "http://api.x.ai/v1/responses",
-            "https://api.x.ai:443/v1/responses",
-            "https://api.x.ai.evil.example/v1/responses",
-            "https://api.x.ai@evil.example/v1/responses",
-            "https://api.x.ai/v1/responses?next=https://evil.example",
-            "https://api.x.ai/v1/responses#fragment",
-        )
-        for url in invalid_urls:
-            with self.subTest(url=url):
-                opener = _RecordingOpener(response=_FakeResponse(b"{}"))
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm._xai_request(
-                        url,
-                        {},
-                        _FAKE_KEY,
-                        self._future_deadline(),
-                        opener=opener,
-                    )
-                self.assertEqual(ctx.exception.code, "config")
-                self.assertEqual(opener.calls, [])
-                self.assertNotIn(_FAKE_KEY, str(ctx.exception))
-
-    def test_default_xai_opener_ignores_proxies_and_refuses_redirects(self) -> None:
-        with patch.dict(
-            os.environ,
-            {
-                "HTTP_PROXY": "http://proxy.invalid:8000",
-                "HTTPS_PROXY": "http://proxy.invalid:8443",
-                "ALL_PROXY": "socks5://proxy.invalid:1080",
-            },
-        ):
-            open_call = llm._default_opener()
-        handlers = open_call.__self__.handlers
-        self.assertFalse(
-            any(isinstance(handler, urllib.request.ProxyHandler) for handler in handlers)
-        )
-        redirect_handler = next(
-            handler
-            for handler in handlers
-            if isinstance(handler, llm._NoXaiRedirects)
-        )
-        request = urllib.request.Request(
-            self._URL,
-            headers={"Authorization": f"Bearer {_FAKE_KEY}"},
-        )
-        for code in (301, 302, 303, 307, 308):
-            with self.subTest(code=code):
-                self.assertIsNone(
-                    redirect_handler.redirect_request(
-                        request,
-                        None,
-                        code,
-                        "redirect",
-                        Message(),
-                        "https://evil.example/collect",
-                    )
-                )
-
-    def test_default_opener_trusts_packaged_cas_without_system_cert_paths(self) -> None:
-        # The frozen app's OpenSSL bakes a CA path that only exists on the
-        # build machine; with no system trust the opener must still verify TLS
-        # from the packaged certifi bundle instead of failing every request.
-        with tempfile.TemporaryDirectory() as empty:
-            with patch.dict(
-                os.environ,
-                {
-                    "SSL_CERT_FILE": os.path.join(empty, "missing.pem"),
-                    "SSL_CERT_DIR": empty,
-                },
-            ):
-                open_call = llm._default_opener()
-        https_handler = next(
-            handler
-            for handler in open_call.__self__.handlers
-            if isinstance(handler, urllib.request.HTTPSHandler)
-        )
-        context = https_handler._context
-        self.assertEqual(ssl.CERT_REQUIRED, context.verify_mode)
-        self.assertGreater(context.cert_store_stats()["x509_ca"], 0)
-
-    def test_actual_xai_request_ignores_environment_proxy(self) -> None:
-        sentinel_proxy = ("127.0.0.1", 54322)
-        attempted_connections = []
-
-        def block_network(address, *_args, **_kwargs):
-            attempted_connections.append(address)
-            raise OSError("test socket blocked")
-
-        with patch.dict(
-            os.environ,
-            {
-                "HTTPS_PROXY": f"http://{sentinel_proxy[0]}:{sentinel_proxy[1]}",
-                "HTTP_PROXY": "",
-                "ALL_PROXY": "",
-                "NO_PROXY": "",
-            },
-            clear=False,
-        ):
-            opener = llm._default_opener()
-        with patch.object(socket, "create_connection", side_effect=block_network):
-            with self.assertRaises(llm.ProviderError) as captured:
-                llm._xai_request(
-                    self._URL,
-                    {},
-                    _FAKE_KEY,
-                    self._future_deadline(),
-                    opener=opener,
-                )
-
-        self.assertEqual("offline", captured.exception.code)
-        self.assertEqual([("api.x.ai", 443)], attempted_connections)
-        self.assertNotIn(sentinel_proxy, attempted_connections)
-        self.assertNotIn(_FAKE_KEY, str(captured.exception))
-
-    def test_xai_request_auth_error(self) -> None:
-        for code in (401, 403):
-            with self.subTest(code=code):
-                opener = _RecordingOpener(error=self._http_error(code))
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm._xai_request(
-                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-                    )
-                self.assertEqual(ctx.exception.code, "auth")
-
-    def test_xai_request_rate_limited_passes_retry_after(self) -> None:
-        opener = _RecordingOpener(error=self._http_error(429, retry_after=7))
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm._xai_request(
-                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-            )
-        self.assertEqual(ctx.exception.code, "rate_limited")
-        self.assertEqual(ctx.exception.retry_after, 7)
-
-    def test_xai_request_http_error_retains_exact_usage_without_retry(self) -> None:
-        body = json.dumps(
-            {"error": {"message": _FAKE_KEY}, "usage": {"cost_in_usd_ticks": 91}}
-        ).encode("utf-8")
-        error = self._http_error(429, retry_after=7, body=body)
-        opener = _RecordingOpener(error=error)
-
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm._xai_request(
-                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-            )
-
-        self.assertEqual(ctx.exception.code, "rate_limited")
-        self.assertEqual(ctx.exception.retry_after, 7)
-        self.assertEqual(
-            ctx.exception.usage,
-            llm.ProviderUsage(cost_in_usd_ticks=91, reported=True),
-        )
-        self.assertNotIn(_FAKE_KEY, str(ctx.exception))
-        self.assertEqual(len(opener.calls), 1)
-        self.assertTrue(error.fp.closed)
-
-    def test_xai_request_rate_limited_without_retry_after(self) -> None:
-        opener = _RecordingOpener(error=self._http_error(429))
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm._xai_request(
-                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-            )
-        self.assertEqual(ctx.exception.code, "rate_limited")
-        self.assertIsNone(ctx.exception.retry_after)
-
-    def test_xai_request_server_errors_unavailable(self) -> None:
-        for code in (500, 502, 503):
-            with self.subTest(code=code):
-                opener = _RecordingOpener(error=self._http_error(code))
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm._xai_request(
-                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-                    )
-                self.assertEqual(ctx.exception.code, "unavailable")
-
-    def test_xai_request_other_4xx_bad_response(self) -> None:
-        for code in (400, 404, 422):
-            with self.subTest(code=code):
-                opener = _RecordingOpener(error=self._http_error(code))
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm._xai_request(
-                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-                    )
-                self.assertEqual(ctx.exception.code, "bad_response")
-
-    def test_xai_request_offline_on_network_failure(self) -> None:
-        errors = {
-            "urlerror": urllib.error.URLError(socket.gaierror("name resolution")),
-            "connection_reset": ConnectionResetError("peer reset"),
-            "ssl": ssl.SSLError("handshake failed"),
-        }
-        for name, error in errors.items():
-            with self.subTest(case=name):
-                opener = _RecordingOpener(error=error)
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm._xai_request(
-                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-                    )
-                self.assertEqual(ctx.exception.code, "offline")
-
-    def test_xai_request_timeout_on_expired_deadline_skips_opener(self) -> None:
-        opener = _RecordingOpener(response=_FakeResponse(b"{}"))
-        past_deadline = time.monotonic() - 1.0
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm._xai_request(self._URL, {}, _FAKE_KEY, past_deadline, opener=opener)
-        self.assertEqual(ctx.exception.code, "timeout")
-        # The deadline is enforced before any network contact.
-        self.assertEqual(opener.calls, [])
-
-    def test_xai_request_timeout_on_socket_timeout(self) -> None:
-        # A per-call timeout firing is a deadline overrun, not an offline
-        # condition (design: timeout == "deadline exceeded (any phase)").
-        for name, error in {
-            "raw": TimeoutError("slow"),
-            "wrapped": urllib.error.URLError(TimeoutError("slow")),
-        }.items():
-            with self.subTest(case=name):
-                opener = _RecordingOpener(error=error)
-                with self.assertRaises(llm.ProviderError) as ctx:
-                    llm._xai_request(
-                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-                    )
-                self.assertEqual(ctx.exception.code, "timeout")
-
-    def test_xai_request_oversized_body_bad_response(self) -> None:
-        # Shrink the cap so the test proves the bounded read without allocating
-        # 25 MB. The read must be bounded to cap+1 bytes, not trust in length.
-        with patch.object(llm, "MAX_PROVIDER_RESPONSE", 8):
-            body = b"x" * 20
-            response = _FakeResponse(body)
-            opener = _RecordingOpener(response=response)
-            with self.assertRaises(llm.ProviderError) as ctx:
-                llm._xai_request(
-                    self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-                )
-            self.assertEqual(ctx.exception.code, "bad_response")
-            # Bounded read: exactly cap+1 bytes requested, never the whole stream.
-            self.assertEqual(response.read_amounts, [9])
-
-    def test_xai_request_non_json_bad_response(self) -> None:
-        opener = _RecordingOpener(response=_FakeResponse(b"not json {["))
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm._xai_request(
-                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-            )
-        self.assertEqual(ctx.exception.code, "bad_response")
-
-    def test_xai_request_non_object_json_bad_response(self) -> None:
-        opener = _RecordingOpener(response=_FakeResponse(b"[1, 2, 3]"))
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm._xai_request(
-                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-            )
-        self.assertEqual(ctx.exception.code, "bad_response")
-
-    def test_xai_request_no_auto_retry(self) -> None:
-        # Exactly one opener call per invocation on every path — no paid call is
-        # ever retried, including on 5xx/429 which look retryable.
-        scenarios = {
-            "success": _RecordingOpener(response=_FakeResponse(b"{}")),
-            "server_error": _RecordingOpener(error=self._http_error(503)),
-            "rate_limited": _RecordingOpener(error=self._http_error(429, retry_after=3)),
-        }
-        for name, opener in scenarios.items():
-            with self.subTest(case=name):
-                try:
-                    llm._xai_request(
-                        self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-                    )
-                except llm.ProviderError:
-                    pass
-                self.assertEqual(len(opener.calls), 1)
-
-    def test_xai_request_redacts_secret_in_error(self) -> None:
-        # Force the key into a raised exception's own text; the transport must
-        # scrub it before it reaches ProviderError.message / str().
-        leaky = urllib.error.URLError(f"connection failed with key {_FAKE_KEY}")
-        opener = _RecordingOpener(error=leaky)
-        with self.assertRaises(llm.ProviderError) as ctx:
-            llm._xai_request(
-                self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-            )
-        self.assertEqual(ctx.exception.code, "offline")
-        self.assertNotIn(_FAKE_KEY, str(ctx.exception))
-        self.assertNotIn(_FAKE_KEY, ctx.exception.message)
-
-    def test_xai_request_secret_absent_across_all_error_paths(self) -> None:
-        # Sweep every error mapping and assert the key never surfaces.
-        openers = [
-            _RecordingOpener(error=self._http_error(401)),
-            _RecordingOpener(error=self._http_error(429, retry_after=7)),
-            _RecordingOpener(error=self._http_error(500)),
-            _RecordingOpener(error=self._http_error(404)),
-            _RecordingOpener(error=urllib.error.URLError("boom")),
-            _RecordingOpener(error=TimeoutError("slow")),
-            _RecordingOpener(response=_FakeResponse(b"not json")),
-        ]
-        for opener in openers:
-            with self.assertRaises(llm.ProviderError) as ctx:
-                llm._xai_request(
-                    self._URL, {}, _FAKE_KEY, self._future_deadline(), opener=opener
-                )
-            self.assertNotIn(_FAKE_KEY, str(ctx.exception))
-            self.assertNotIn(_FAKE_KEY, ctx.exception.message)
-
-
 
 
 class LedGenerateEndpointTests(unittest.TestCase):
@@ -1933,8 +1170,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
 
     Each test starts a real ``create_server`` instance on a background thread and
     drives it over localhost with ``X-AM-Token``. Settings persistence is isolated
-    to a temp ``AM_CONFIGURATOR_DATA_DIR`` and the ``XAI_API_KEY`` override is
-    cleared, so nothing here reads a real environment or credential.
+    to a temp ``AM_CONFIGURATOR_DATA_DIR``, so nothing here reads a real environment.
     """
 
     _DEFAULT = object()  # sentinel: use the server's own token
@@ -1943,10 +1179,9 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self._tmp = tempfile.mkdtemp(prefix="am_endpoint_test_")
         self._saved_env = {
             k: os.environ.get(k)
-            for k in ("AM_CONFIGURATOR_DATA_DIR", "XDG_DATA_HOME", "XAI_API_KEY")
+            for k in ("AM_CONFIGURATOR_DATA_DIR", "XDG_DATA_HOME")
         }
         os.environ.pop("XDG_DATA_HOME", None)
-        os.environ.pop("XAI_API_KEY", None)
         os.environ["AM_CONFIGURATOR_DATA_DIR"] = self._tmp
         self._server, url = create_server()
         self._token = parse_qs(urlparse(url).query)["token"][0]
@@ -2564,8 +1799,6 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertNotIn(private_detail, json.dumps(response))
 
     def test_split_settings_routes_update_sections_independently(self) -> None:
-        from am_configurator import ai_catalog
-
         status, data = self._request(
             "POST", "/api/settings/preferences", {"loop_mode": "ping_pong"}
         )
@@ -2580,24 +1813,11 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data["library"]["current_root"], str(library.resolve()))
 
-        status, data = self._request("POST", "/api/settings/privacy", {
-            "provider": "xai",
-            "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
-        })
-        self.assertEqual(status, 200)
-        self.assertEqual(
-            data["generation"]["privacy_ack_version"],
-            ai_catalog.PRIVACY_DISCLOSURE_VERSION,
-        )
-        self.assertTrue(data["generation"]["privacy_ack_at"])
-
         status, data = self._request("GET", "/api/settings")
         self.assertEqual(status, 200)
         self.assertEqual(data["library"]["current_root"], str(library.resolve()))
 
     def test_split_settings_routes_are_strict_and_never_echo_secrets(self) -> None:
-        from am_configurator import ai_catalog
-
         secret = "sk-must-not-appear-anywhere"
         invalid_cases = (
             ("/api/settings/preferences", {"models": {"interpreter": "future"}}),
@@ -2605,15 +1825,6 @@ class LedGenerateEndpointTests(unittest.TestCase):
             ("/api/settings/preferences", {"loop_mode": "crossfade"}),
             ("/api/settings/preferences", {"unknown": True}),
             ("/api/settings/library", {"current_root": None, "unknown": True}),
-            ("/api/settings/privacy", {"provider": "xai", "version": "old"}),
-            (
-                "/api/settings/privacy",
-                {
-                    "provider": "xai",
-                    "version": ai_catalog.PRIVACY_DISCLOSURE_VERSION,
-                    "unknown": True,
-                },
-            ),
         )
         for path, body in invalid_cases:
             with self.subTest(path=path, body=body):
@@ -2623,16 +1834,9 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertFalse(store.settings_path().exists())
 
     def test_capabilities(self) -> None:
-        from am_configurator import ai_catalog
-
         status, data = self._request("GET", "/api/led/capabilities")
         self.assertEqual(status, 200)
 
-        self.assertEqual(data["ai_catalog"], ai_catalog.catalog_view())
-        self.assertEqual(
-            data["privacy_disclosure_version"],
-            ai_catalog.PRIVACY_DISCLOSURE_VERSION,
-        )
         self.assertEqual(
             data["model_frame_caps"],
             dict(device_mapping.MODEL_FRAME_CAPS),
@@ -2640,6 +1844,8 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertNotIn("models", data)
         self.assertNotIn("providers", data)
         self.assertNotIn("max_rendered_keyframes", data)
+        self.assertNotIn("ai_catalog", data)
+        self.assertNotIn("privacy_disclosure_version", data)
 
         # Single-CB-target rule: CB's two targets are different rasters, so exactly
         # one may be generated at a time and neither pairs with the other.
@@ -2657,36 +1863,16 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertIn("keyframes", by_name["spotlight_frames"]["extra_targets"])
 
     def test_obsolete_ai_settings_routes_and_raw_key_helper_are_gone(self) -> None:
-        class TrackingCredentialStore:
-            def __init__(self) -> None:
-                self.calls: list[tuple] = []
-
-            def get(self, provider):
-                self.calls.append(("get", provider))
-                return "existing-key"
-
-            def set(self, provider, value):
-                self.calls.append(("set", provider, value))
-
-            def delete(self, provider):
-                self.calls.append(("delete", provider))
-
-        vault = TrackingCredentialStore()
-        self._server.state._credential_store = vault
         for path, body in (
             ("/api/settings/key", {"provider": "xai", "key": "must-not-land"}),
             ("/api/settings/test", {}),
         ):
             with self.subTest(path=path):
                 status, response = self._request("POST", path, body)
-                self.assertIn(status, {404, 410})
+                self.assertEqual(404, status)
                 self.assertNotIn("must-not-land", json.dumps(response))
 
-        self.assertEqual([], vault.calls)
-        self.assertFalse(hasattr(llm, "_xai_get_request"))
-        self.assertFalse(hasattr(server._Handler, "_lighting_settings"))
         self.assertFalse(hasattr(server, "_xai_get"))
-        self.assertFalse(hasattr(self._server.state, "llm_transport"))
 
     def test_native_folder_actions_dispatch_through_the_desktop_bridge(self) -> None:
         revealed: list[str] = []
@@ -2798,174 +1984,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
         for method, path, body in cases:
             with self.subTest(method=method, path=path):
                 status, data = self._request(method, path, body)
-                self.assertEqual(410, status)
-                self.assertEqual("retired", data["code"])
-
-
-class _ProceduralEndpointCoordinator:
-    def __init__(self, library: GeneratedAssetLibrary) -> None:
-        self.library = library
-        self.calls: list[tuple[str, tuple, dict]] = []
-        self.reconcile_tokens: list[object | None] = []
-        self.failure: Exception | None = None
-        self.active_job_id: str | None = None
-
-    def reconcile_startup(
-        self,
-        *,
-        _admission_token: object | None = None,
-    ):
-        self.reconcile_tokens.append(_admission_token)
-        return []
-
-    def _raise_or_record(self, name: str, args: tuple, kwargs: dict) -> None:
-        self.calls.append((name, args, kwargs))
-        if self.failure is not None:
-            raise self.failure
-
-    def cancel(self, job_id: str):
-        self._raise_or_record("cancel", (job_id,), {})
-        return self.library.load_manifest(job_id)
-
-
-class CombinedReconciliationAdmissionTests(unittest.TestCase):
-    def test_startup_reconciliation_never_resolves_a_video_credential(self) -> None:
-        gate = generation.OperationGate()
-
-        class ProceduralCoordinator:
-            active_job_id = None
-
-            def __init__(self) -> None:
-                self.tokens: list[object | None] = []
-
-            def reconcile_startup(self, *, _admission_token=None) -> list[dict]:
-                self.tokens.append(_admission_token)
-                return []
-
-        procedural = ProceduralCoordinator()
-        state = server._State(
-            None,
-            "test-token",
-            lighting_library=object(),
-            operation_gate=gate,
-            credential_store=credentials.MemoryCredentialStore(),
-            procedural_coordinator=procedural,
-        )
-        try:
-            with patch.object(store, "resolve_xai_key") as resolve_key:
-                self.assertEqual([], state.reconcile_lighting(force=True))
-        finally:
-            state.close()
-
-        resolve_key.assert_not_called()
-        self.assertEqual(1, len(procedural.tokens))
-        self.assertIsNotNone(procedural.tokens[0])
-
-    def test_procedural_reconciliation_holds_one_state_lease(self) -> None:
-        gate = generation.OperationGate()
-        procedural_entered = threading.Event()
-        release_procedural = threading.Event()
-
-        class ProceduralCoordinator:
-            active_job_id = None
-
-            def __init__(self) -> None:
-                self.tokens: list[object | None] = []
-
-            def reconcile_startup(self, *, _admission_token=None) -> list[dict]:
-                self.tokens.append(_admission_token)
-                procedural_entered.set()
-                if not release_procedural.wait(2):
-                    raise TimeoutError("test did not release procedural reconciliation")
-                if _admission_token is None:
-                    token, _cancelled = gate.begin()
-                    gate.finish(token)
-                return []
-
-        library = object()
-        procedural = ProceduralCoordinator()
-        state = server._State(
-            None,
-            "test-token",
-            lighting_library=library,
-            operation_gate=gate,
-            credential_store=credentials.MemoryCredentialStore(),
-            procedural_coordinator=procedural,
-        )
-        failures: list[BaseException] = []
-
-        def run_reconciliation() -> None:
-            try:
-                state.reconcile_lighting(force=True)
-            except BaseException as error:
-                failures.append(error)
-
-        worker = threading.Thread(target=run_reconciliation)
-        worker.start()
-        admitted = None
-        try:
-            self.assertTrue(procedural_entered.wait(1))
-            with self.assertRaises(generation.GenerationBusyError):
-                admitted = gate.begin("concurrent-generation")
-        finally:
-            if admitted is not None:
-                gate.finish(admitted[0])
-            release_procedural.set()
-            worker.join(2)
-
-        self.assertFalse(worker.is_alive())
-        self.assertEqual([], failures)
-        self.assertEqual(1, len(procedural.tokens))
-        self.assertIsNotNone(procedural.tokens[0])
-        replacement_token, _replacement_cancelled = gate.begin("after-reconcile")
-        gate.finish(replacement_token)
-
-
-class AIServiceConstructionTests(unittest.TestCase):
-    def test_concurrent_requests_publish_one_capability_service(self) -> None:
-        state = server._State(
-            None,
-            "test-token",
-            credential_store=credentials.MemoryCredentialStore(),
-        )
-        created: list[object] = []
-        first_factory_entered = threading.Event()
-        second_factory_entered = threading.Event()
-        release_factory = threading.Event()
-        results: list[object] = []
-
-        def build_service(**_kwargs):
-            service = object()
-            created.append(service)
-            first_factory_entered.set()
-            if len(created) > 1:
-                second_factory_entered.set()
-            if not release_factory.wait(2):
-                raise TimeoutError("test did not release service construction")
-            return service
-
-        def resolve_service() -> None:
-            results.append(state.ai_services())
-
-        with patch(
-            "am_configurator.ai_capability.AICapabilityService",
-            side_effect=build_service,
-        ):
-            first = threading.Thread(target=resolve_service)
-            second = threading.Thread(target=resolve_service)
-            first.start()
-            self.assertTrue(first_factory_entered.wait(1))
-            second.start()
-            second_factory_entered.wait(0.2)
-            release_factory.set()
-            first.join(2)
-            second.join(2)
-
-        self.assertFalse(first.is_alive())
-        self.assertFalse(second.is_alive())
-        self.assertEqual(1, len(created))
-        self.assertEqual(2, len(results))
-        self.assertIs(results[0], results[1])
+                self.assertEqual(404, status)
 
 
 class MediaRendererLifecycleTests(unittest.TestCase):
@@ -2990,7 +2009,6 @@ class MediaRendererLifecycleTests(unittest.TestCase):
             state = server._State(
                 None,
                 "test-token",
-                credential_store=credentials.MemoryCredentialStore(),
             )
             second_renderer = None
             try:
@@ -3051,24 +2069,15 @@ class LightingStudioEndpointTests(unittest.TestCase):
         self._tmp = tempfile.mkdtemp(prefix="am_lighting_endpoint_")
         self._saved_env = {
             key: os.environ.get(key)
-            for key in ("AM_CONFIGURATOR_DATA_DIR", "XDG_DATA_HOME", "XAI_API_KEY")
+            for key in ("AM_CONFIGURATOR_DATA_DIR", "XDG_DATA_HOME")
         }
         os.environ.pop("XDG_DATA_HOME", None)
-        os.environ.pop("XAI_API_KEY", None)
         os.environ["AM_CONFIGURATOR_DATA_DIR"] = self._tmp
         self.root = Path(self._tmp) / "generated"
         store.update_library_root({"current_root": str(self.root)})
-        store.update_api_key({"provider": "xai", "key": "sk-lighting-secret"})
-        store.acknowledge_privacy(
-            {"provider": "xai", "version": "2026-07-20-xai-v1"}
-        )
         self.library = GeneratedAssetLibrary(self.root, minimum_free_bytes=1)
-        self.gate = generation.OperationGate()
-        self.coordinator = _ProceduralEndpointCoordinator(self.library)
         self._server, url = create_server(
             lighting_library=self.library,
-            operation_gate=self.gate,
-            procedural_coordinator=self.coordinator,
         )
         self._token = parse_qs(urlparse(url).query)["token"][0]
         self._base = f"http://127.0.0.1:{self._server.server_port}"
@@ -3179,9 +2188,8 @@ class LightingStudioEndpointTests(unittest.TestCase):
             manifest["job_id"], {"status": status, "phase": status}
         )
 
-    def test_routes_are_authenticated_and_legacy_creation_is_retired(self) -> None:
+    def test_routes_require_authentication(self) -> None:
         paths = (
-            ("POST", "/api/lighting/concepts", {"prompt": "p", "product_id": "CB04", "targets": ["frames"]}),
             ("GET", "/api/lighting/library", None),
             ("GET", "/api/library/items", None),
             ("GET", "/api/library/items/item:00000000-0000-4000-8000-000000000000", None),
@@ -3210,8 +2218,6 @@ class LightingStudioEndpointTests(unittest.TestCase):
                 "item:00000000-0000-4000-8000-000000000000",
                 None,
             ),
-            ("GET", "/api/lighting/jobs/00000000-0000-4000-8000-000000000000", None),
-            ("POST", "/api/lighting/jobs/00000000-0000-4000-8000-000000000000/cancel", {}),
             ("GET", "/api/lighting/assets/00000000-0000-4000-8000-000000000000/00000000-0000-4000-8000-000000000000", None),
         )
         for method, path, body in paths:
@@ -3221,147 +2227,6 @@ class LightingStudioEndpointTests(unittest.TestCase):
                 else:
                     status, _data = self._request(method, path, body, token=None)
                 self.assertEqual(403, status)
-
-        with patch("am_configurator.writer.write_config") as write_config:
-            status, data = self._request(
-                "POST",
-                "/api/lighting/concepts",
-                {
-                    "prompt": "A violet comet",
-                    "product_id": "CB04",
-                    "targets": ["frames"],
-                    "candidate_count": 3,
-                    "loop_mode": "smooth",
-                },
-            )
-        self.assertEqual(410, status)
-        self.assertEqual("retired", data["code"])
-        self.assertNotIn("sk-lighting-secret", json.dumps(data))
-        self.assertEqual([], self.coordinator.calls)
-        write_config.assert_not_called()
-
-    def test_reconciliation_waits_for_active_generation_to_finish(self) -> None:
-        gate = generation.OperationGate()
-        coordinator = _ProceduralEndpointCoordinator(self.library)
-        self._server.shutdown()
-        self._server.server_close()
-        self._thread.join(timeout=2)
-        self._server, url = create_server(
-            lighting_library=self.library,
-            operation_gate=gate,
-            procedural_coordinator=coordinator,
-        )
-        self._token = parse_qs(urlparse(url).query)["token"][0]
-        self._base = f"http://127.0.0.1:{self._server.server_port}"
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
-        self._thread.start()
-        coordinator.reconcile_tokens.clear()
-
-        token, _cancelled = gate.begin("active-generation")
-        try:
-            self.assertEqual([], self._server.state.reconcile_lighting(force=True))
-            self.assertEqual([], coordinator.reconcile_tokens)
-        finally:
-            gate.finish(token)
-
-        deadline = time.monotonic() + 2
-        while not coordinator.reconcile_tokens and time.monotonic() < deadline:
-            time.sleep(0.01)
-        self.assertEqual(1, len(coordinator.reconcile_tokens))
-        self.assertIsNotNone(coordinator.reconcile_tokens[0])
-
-    def test_retired_generation_stays_gone_while_admission_is_busy(self) -> None:
-        gate = generation.OperationGate()
-        self._server.shutdown()
-        self._server.server_close()
-        self._thread.join(timeout=2)
-        self._server, url = create_server(
-            operation_gate=gate,
-        )
-        self._token = parse_qs(urlparse(url).query)["token"][0]
-        self._base = f"http://127.0.0.1:{self._server.server_port}"
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
-        self._thread.start()
-        legacy_body = {
-            "prompt": "violet pulse",
-            "product_id": "CB04",
-            "targets": ["frames"],
-            "frame_count": 1,
-        }
-
-        durable_token, _cancelled = gate.begin("durable-test-job")
-        try:
-            status, data = self._request("POST", "/api/led/generate", legacy_body)
-        finally:
-            gate.finish(durable_token)
-        self.assertEqual(410, status)
-        self.assertEqual("retired", data["code"])
-
-    def test_retired_mutations_and_legacy_cancel_start_no_work(self) -> None:
-        job = self._job()
-        job_id = job["job_id"]
-        manifest_path = self.root / "jobs" / job_id / "manifest.json"
-        retired_manifest = json.loads(manifest_path.read_text("utf-8"))
-        retired_manifest["pipeline"] = "legacy_video"
-        retired_manifest["loop_mode"] = "smooth"
-        manifest_path.write_text(
-            json.dumps(retired_manifest) + "\n",
-            encoding="utf-8",
-        )
-        retired = (
-            ("/api/lighting/concepts", {"prompt": "old"}),
-            (f"/api/lighting/jobs/{job_id}/concepts", {"candidate_count": 2}),
-            (
-                f"/api/lighting/jobs/{job_id}/animate",
-                {"candidate_id": "00000000-0000-4000-8000-000000000001", "motion": "pulse", "loop_mode": "none"},
-            ),
-            (f"/api/lighting/jobs/{job_id}/process", {}),
-        )
-        with patch("am_configurator.writer.write_config") as write_config:
-            for path, body in retired:
-                with self.subTest(path=path):
-                    status, data = self._request("POST", path, body)
-                    self.assertEqual(410, status)
-                    self.assertEqual("retired", data["code"])
-            status, data = self._request(
-                "POST", f"/api/lighting/jobs/{job_id}/cancel", {}
-            )
-            self.assertEqual(410, status)
-            self.assertEqual("retired", data["code"])
-            self.assertEqual([], self.coordinator.calls)
-            write_config.assert_not_called()
-
-        status, _ = self._request(
-            "POST", f"/api/lighting/jobs/{job_id}/cancel", {"extra": True}
-        )
-        self.assertEqual(410, status)
-        status, _ = self._request(
-            "POST", "/api/lighting/jobs/not-a-job/cancel", {}
-        )
-        self.assertEqual(400, status)
-        self.assertEqual([], self.coordinator.calls)
-
-    def test_retired_creation_never_dispatches_provider_errors(self) -> None:
-        cases = (
-            LibraryRootError("library unavailable"),
-            generation.GenerationBusyError("busy"),
-            generation.GenerationNotActiveError("not active"),
-            llm.ProviderError("rate_limited", "slow", retry_after=9),
-            llm.ProviderError("unavailable", "provider unavailable"),
-        )
-        for error in cases:
-            with self.subTest(error=type(error).__name__):
-                self.coordinator.failure = error
-                status, data = self._request(
-                    "POST",
-                    "/api/lighting/concepts",
-                    {"prompt": "p", "product_id": "CB04", "targets": ["frames"]},
-                )
-                self.assertEqual(410, status)
-                self.assertEqual("retired", data["code"])
-                self.assertNotIn("sk-lighting-secret", json.dumps(data))
-                self.assertEqual([], self.coordinator.calls)
-        self.coordinator.failure = None
 
     def test_unexpected_lighting_errors_never_expose_local_paths(self) -> None:
         secret_path = self.root / "jobs" / "private-asset.png"
@@ -3393,17 +2258,12 @@ class LightingStudioEndpointTests(unittest.TestCase):
         )
         self._job(prompt="blue ocean", status="failed")
         self._job(prompt="violet pulse", status="ready")
-        status, snapshot = self._request(
-            "GET", f"/api/lighting/jobs/{first['job_id']}"
-        )
-        self.assertEqual(200, status)
-        self.assertEqual(first["job_id"], snapshot["job_id"])
-        self.assertNotIn(str(self.root), json.dumps(snapshot))
         status, library_detail = self._request(
             "GET", f"/api/lighting/library/{first['job_id']}"
         )
         self.assertEqual(200, status)
-        self.assertEqual(snapshot, library_detail)
+        self.assertEqual(first["job_id"], library_detail["job_id"])
+        self.assertNotIn(str(self.root), json.dumps(library_detail))
 
         status, page = self._request(
             "GET", "/api/lighting/library?page=1&limit=1&status=ready&query=violet"
@@ -4716,17 +3576,6 @@ class LightingStudioEndpointTests(unittest.TestCase):
         status, _ = self._request("DELETE", route)
         self.assertEqual(409, status)
 
-        job = self._job(prompt="active removal", status="ready")
-        self.coordinator.active_job_id = job["job_id"]
-        status, _ = self._request(
-            "POST",
-            f"/api/library/items/job:{job['job_id']}/remove",
-            {},
-        )
-        self.assertEqual(409, status)
-        self.coordinator.active_job_id = None
-        self.assertTrue((self.root / "jobs" / job["job_id"]).is_dir())
-
         status, _ = self._request("POST", f"{route}/remove", {})
         self.assertEqual(200, status)
         status, _ = self._request("DELETE", f"{route}?force=true")
@@ -4784,22 +3633,6 @@ class LightingStudioEndpointTests(unittest.TestCase):
         for name in ("lighting_coordinator", "lighting_dependencies"):
             self.assertNotIn(name, inspect.signature(server._State).parameters)
             self.assertNotIn(name, inspect.signature(create_server).parameters)
-        self._server.shutdown()
-        self._server.server_close()
-        self._thread.join(timeout=2)
-        self._server, url = create_server(
-            operation_gate=generation.OperationGate(),
-        )
-        self._token = parse_qs(urlparse(url).query)["token"][0]
-        self._base = f"http://127.0.0.1:{self._server.server_port}"
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
-        self._thread.start()
-
-        status, response = self._request(
-            "POST", "/api/lighting/concepts", {"prompt": "offline violet"}
-        )
-        self.assertEqual(410, status)
-        self.assertEqual("retired", response["code"])
 
     def test_static_csp_allows_only_local_media(self) -> None:
         request = Request(self._base + "/", method="GET")

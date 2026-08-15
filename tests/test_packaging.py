@@ -1194,23 +1194,25 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("--print-udev-rule", doc)
         self.assertNotIn("from am_configurator.hid_transport import udev_rule_path", doc)
 
-    def test_spec_bundles_the_llm_module(self) -> None:
+    def test_spec_has_no_retired_llm_hidden_import(self) -> None:
+        # The AI recipe-generation LLM provider layer is gone; the frozen app
+        # renders effects deterministically via am_configurator.procedural, so
+        # no lazy-import hidden-import workaround for llm.py should remain.
+        self.assertFalse((ROOT / "am_configurator" / "llm.py").exists())
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
+        self.assertNotIn('"am_configurator.llm"', spec)
+        self.assertIn('"am_configurator.procedural"', spec)
 
-        # The LLM provider layer is imported lazily inside server.py, so
-        # PyInstaller's static analysis misses it; it must be a hidden import or
-        # the frozen app cannot generate effects.
-        self.assertIn("hidden_imports", spec)
-        self.assertIn('"am_configurator.llm"', spec)
-
-    def test_secure_credential_dependency_and_os_backends_are_frozen(self) -> None:
+    def test_no_secure_credential_dependency_or_os_backends_ship(self) -> None:
+        # The AI provider credential store is gone; nothing in the app needs
+        # an OS-keychain-backed secret store anymore.
+        self.assertFalse((ROOT / "am_configurator" / "credentials.py").exists())
         metadata = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))
+        self.assertNotIn("keyring==25.7.0", metadata["project"]["dependencies"])
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text("utf-8")
-
-        self.assertIn("keyring==25.7.0", metadata["project"]["dependencies"])
-        self.assertIn('"am_configurator.credentials"', spec)
+        self.assertNotIn('"am_configurator.credentials"', spec)
         for backend in ("macOS", "SecretService", "Windows"):
-            self.assertIn(f'"keyring.backends.{backend}"', spec)
+            self.assertNotIn(f'"keyring.backends.{backend}"', spec)
 
     def test_native_bundle_and_build_surface_have_no_retired_video_stack(self) -> None:
         paths = (
@@ -1335,7 +1337,7 @@ class ReleaseInfoTests(unittest.TestCase):
 
         product_surface = "\n".join(
             (ROOT / "am_configurator" / name).read_text("utf-8")
-            for name in ("procedural_generation.py", "server.py", "web/app.js")
+            for name in ("server.py", "web/app.js")
         ).lower()
         self.assertNotIn("llama.cpp", product_surface)
         self.assertNotIn("/api/ai/local/gguf", product_surface)
@@ -1344,13 +1346,12 @@ class ReleaseInfoTests(unittest.TestCase):
             self.assertIn(forbidden_artifact, smoke)
 
     def test_active_ollama_contract_has_no_local_backend_alias(self) -> None:
+        for retired in ("ai_capability.py", "procedural_generation.py", "recipe_provider.py"):
+            self.assertFalse((ROOT / "am_configurator" / retired).exists(), retired)
         active_sources = {
             name: (ROOT / "am_configurator" / name).read_text("utf-8")
             for name in (
-                "ai_capability.py",
                 "desktop.py",
-                "procedural_generation.py",
-                "recipe_provider.py",
                 "server.py",
                 "web/app.js",
                 "web/index.html",
@@ -1375,20 +1376,21 @@ class ReleaseInfoTests(unittest.TestCase):
                 self.assertNotIn(forbidden, combined)
 
         store_source = (ROOT / "am_configurator" / "store.py").read_text("utf-8")
-        active_store = store_source[store_source.index("def update_ai_settings(") :]
         for forbidden in (
+            "def update_ai_settings(",
             "update_local_ai_settings",
             '["ai"]["local"]',
             '"backend": "local"',
         ):
             with self.subTest(store_forbidden=forbidden):
-                self.assertNotIn(forbidden, active_store)
+                self.assertNotIn(forbidden, store_source)
 
     def test_application_forbids_managed_llama_processes_and_credentials(self) -> None:
+        for retired in ("ai_capability.py", "recipe_provider.py"):
+            self.assertFalse((ROOT / "am_configurator" / retired).exists(), retired)
+
         executable_modules = (
-            "ai_capability.py",
             "desktop.py",
-            "recipe_provider.py",
             "server.py",
         )
         sources = {
@@ -1406,9 +1408,6 @@ class ReleaseInfoTests(unittest.TestCase):
             "Bearer {token}",
         ):
             self.assertNotIn(forbidden, combined)
-        for name in ("ai_capability.py", "recipe_provider.py"):
-            self.assertNotIn("subprocess", sources[name])
-            self.assertNotIn("Popen", sources[name])
 
     def test_local_model_and_runtime_attestations_cannot_return(self) -> None:
         removed_paths = (
@@ -1462,17 +1461,7 @@ class ReleaseInfoTests(unittest.TestCase):
             self.assertNotIn(".gguf", lowered)
             self.assertNotIn("local-model.json", lowered)
 
-        capability = (ROOT / "am_configurator" / "ai_capability.py").read_text("utf-8")
-        for forbidden in (
-            "attestation",
-            "from .local_model",
-            "import local_model",
-            "localmodelmanager",
-            "local_ai_runtime",
-            "model_path",
-            "verify_runtime_attestation",
-        ):
-            self.assertNotIn(forbidden, capability.lower())
+        self.assertFalse((ROOT / "am_configurator" / "ai_capability.py").exists())
 
         with TemporaryDirectory(prefix="am-attestation-artifact-") as temporary:
             root = Path(temporary)

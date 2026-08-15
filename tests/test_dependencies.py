@@ -24,6 +24,16 @@ _OPTIONAL_IMPORT_ROOTS = {
 _PLATFORM_IMPORT_OWNERS = {
     "AppKit": "pywebview",
 }
+# Modules kept deliberately without a current production importer or entry
+# point. Each entry must record why it is dormant rather than orphaned by
+# accident, so a future reader can tell "intentionally parked" from "dead code
+# nobody noticed."
+#
+# procedural: the deterministic recipe/GIF rendering engine. Its only caller,
+# the AI recipe-generation pipeline, was removed; the engine itself was kept
+# because it is not AI-generation code, pending a future slice that wires
+# manual painting or imported media into it as a direct production caller.
+_INTENTIONALLY_DORMANT_MODULES = {"procedural"}
 _JAVASCRIPT_PACKAGE_FILES = {
     "package.json",
     "package-lock.json",
@@ -383,7 +393,9 @@ class DependencyOwnershipTests(unittest.TestCase):
         orphans = sorted(
             module
             for module, owners in incoming.items()
-            if not owners and module not in entry_points
+            if not owners
+            and module not in entry_points
+            and module not in _INTENTIONALLY_DORMANT_MODULES
         )
         self.assertFalse(
             orphans,

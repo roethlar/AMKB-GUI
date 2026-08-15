@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from am_configurator import ai_catalog, llm, server, store
+from am_configurator import server, store
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,23 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class LegacyInlineGeneratorRemovalTests(unittest.TestCase):
     def test_legacy_llm_pipeline_is_not_importable(self) -> None:
-        retired = (
-            "EffectPlan",
-            "RenderedFrames",
-            "GrokInterpreter",
-            "GrokImagineRenderer",
-            "plan_from_json",
-            "expand_keyframes",
-            "generate_effect",
-            "MAX_RENDERED_KEYFRAMES",
-            "MAX_LLM_FRAMES",
-            "LLM_TOTAL_BUDGET",
-            "INTERPRETERS",
-            "RENDERERS",
-        )
-        for name in retired:
-            with self.subTest(name=name):
-                self.assertFalse(hasattr(llm, name))
+        self.assertIsNone(importlib.util.find_spec("am_configurator.llm"))
+        self.assertIsNone(importlib.util.find_spec("am_configurator.ai_catalog"))
 
     def test_legacy_server_worker_is_not_injectable_or_callable(self) -> None:
         self.assertFalse(hasattr(server, "_default_llm_factories"))
@@ -66,24 +51,9 @@ class LegacyInlineGeneratorRemovalTests(unittest.TestCase):
 
     def test_retired_paid_mutation_stack_is_not_importable_or_configurable(self) -> None:
         self.assertIsNone(importlib.util.find_spec("am_configurator.generation"))
+        self.assertIsNone(importlib.util.find_spec("am_configurator.llm"))
+        self.assertIsNone(importlib.util.find_spec("am_configurator.ai_catalog"))
 
-        for name in (
-            "ConceptPlan",
-            "ConceptPlanResult",
-            "ConceptImageResult",
-            "GrokConceptPlanner",
-            "GrokConceptImageProvider",
-            "GrokVideoPlanner",
-            "VideoAnimationPlan",
-            "VideoAnimationPlanResult",
-            "VideoSubmission",
-            "prepare_led_video_source",
-        ):
-            with self.subTest(provider_symbol=name):
-                self.assertFalse(hasattr(llm, name))
-        self.assertFalse(hasattr(llm, "XaiVideoProvider"))
-
-        self.assertEqual({"interpreter"}, set(ai_catalog.MODEL_CATALOG))
         with (
             patch.object(store, "_mutate_settings") as mutate,
             self.assertRaises(ValueError),

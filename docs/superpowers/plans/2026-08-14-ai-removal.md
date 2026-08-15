@@ -240,6 +240,64 @@ slice runs the full verification entry point before commit.
    procedural jobs keep their assets but stop being repaired, which matches
    the removal's intent. Kept library reconciliation must still run at
    every point it runs today.
+   RULING 2026-08-15 (boundary ruling, same pattern as the reconcile_lighting
+   ADDENDUM above): the combined-slice agent surfaced that
+   `am_configurator/procedural.py` — explicitly kept by this plan as the
+   deterministic recipe/GIF-rendering engine — has zero production importers
+   once `procedural_generation.py` (its only caller, explicitly deleted by
+   this same combined slice) is gone. This trips
+   `tests/test_dependencies.py::DependencyOwnershipTests::test_every_top_level_module_is_imported_or_an_entry_point`,
+   a general non-AI dependency-hygiene guard with no allowlist for
+   "intentionally kept but currently unreferenced" modules. Ruling: adopt the
+   minimal allowlist entry (`_INTENTIONALLY_DORMANT_MODULES = {"procedural"}`
+   in `tests/test_dependencies.py`, with a comment recording why). Rationale:
+   the plan explicitly keeps `procedural.py` and explicitly deletes its only
+   production caller; the hygiene-test failure is the direct, foreseeable
+   consequence of those two approved rulings taken together, so the minimal
+   allowlist edit is the inherent consequence of the approved scope, not a
+   widening. The two alternatives considered — deleting `procedural.py`
+   despite this plan's explicit "keep," or fabricating an unauthorized
+   production caller to satisfy the guard mechanically — each violate an
+   explicit ruling already on record, so they're out.
+   DONE 2026-08-15: combined slice 4+5 lands as a single unit. Deleted the
+   nine AI modules (`llm.py`, `recipe_provider.py`, `recipe_inference.py`,
+   `ollama_client.py`, `ai_catalog.py`, `ai_capability.py`,
+   `procedural_generation.py`, `generation_admission.py`, `credentials.py`)
+   and their seven named test files plus `tests/test_ai_routes.py` and
+   `build_tools/qualify_recipe_model.py`. Removed the AI settings persistence
+   surface from `store.py` (tolerate-and-drop for on-disk settings carrying a
+   persisted `ai` key), the `/api/lighting/effects`,
+   `/api/lighting/jobs/*`, `_start_procedural_effect`, the
+   `ai_services()`/`procedural_services()` coordinator arm,
+   `POST /api/settings/privacy`, and the `/api/led/generate*` dead stubs from
+   `server.py`, keeping `POST /api/settings/migration/discard-credential`
+   live. Stripped the `ai_catalog`/`credentials` imports and
+   `_OfflineOllamaInventory`/`credential_store` cleanup from
+   `media_framing_audit.py`. Inlined `llm.default_tls_context()`'s 8-line
+   stdlib body into `desktop.py` as `_default_tls_context()` before deleting
+   `llm.py`, preserving `run_smoke_test()`'s packaged-CA-trust check. Rewired
+   `_State.reconcile_lighting()` and its call sites to call
+   `library.reconcile()` directly per the ADDENDUM above, and dropped the
+   `pipeline == "procedural"` AI-job-repair walk. Removed the now-orphaned
+   `keyring` dependency from `pyproject.toml`/`uv.lock` (it existed solely to
+   back the deleted OS-keychain credential store) and the matching stale
+   PyInstaller hidden-import entries (5 deleted modules, 3 keyring backends)
+   from `packaging/am_configurator.spec`. Trimmed/rewrote tests throughout
+   (`tests/test_app.py`, `tests/test_library.py`, `tests/test_procedural.py`,
+   `tests/test_device_mapping.py`, `tests/test_packaging.py`,
+   `tests/test_legacy_inline_generator_removed.py`) to match, keeping
+   `tests/test_packaging.py`'s "no local backend" absence guard passing, and
+   applied the `procedural` dormant-module allowlist ruling above in
+   `tests/test_dependencies.py`. Kept `procedural.py`, `recipe_*` schema
+   validation outside the deleted modules, `library.py`, `device_mapping.py`,
+   `store.discard_legacy_api_credential`, and the migration-repair UI. Full
+   verification entry point green: 577 Python tests, 171 JS tests, `uv build`
+   clean, `git diff --check` clean. Grep gate
+   (`ollama|recipe_provider|ai_catalog|/api/ai/|ai_capability`) has no hits
+   in `am_configurator/` outside `desktop.py`'s
+   `_assert_ollama_api_only_bundle()` packaging guard (unrelated to AI
+   generation, kept) and the known `web/lighting_state.js` residue deferred
+   to slice 6.
 6. **Absence guard + sweep.** Add a guard test following the
    `test_legacy_inline_generator_removed.py` precedent: assert no module,
    route, or UI string from the removed surface reappears (grep gate: no hits
