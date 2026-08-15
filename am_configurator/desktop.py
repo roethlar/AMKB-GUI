@@ -88,32 +88,6 @@ def _safe_native_import_failure(exc: ImportError) -> str:
     return _safe_native_failure_name(exc.name, "ImportError")
 
 
-def _smoke_recipe() -> dict[str, Any]:
-    return {
-        "schema_version": 1,
-        "name": "Offline procedural smoke",
-        "density": "dense",
-        "background": "#080810",
-        "palette": ["#00E5C9", "#8B4FFF"],
-        "layers": [{
-            "kind": "wave",
-            "color_index": 0,
-            "secondary_color_index": 1,
-            "speed": 1,
-            "phase": 0.25,
-            "direction_degrees": 45.0,
-            "center_x": 0.5,
-            "center_y": 0.5,
-            "scale": 1.2,
-            "width": 0.8,
-            "trail": 0.6,
-            "count": 3,
-            "intensity": 1.0,
-            "seed": 42,
-        }],
-    }
-
-
 def _folder_dialog_type() -> Any:
     """Resolve pywebview's folder-dialog enum without making it a base install."""
     import webview
@@ -569,8 +543,6 @@ def _offline_device_discovery() -> list[tuple[Any, Any]]:
 
 def run_native_policy_smoke() -> int:
     """Verify native renderer policy in two isolated frozen child processes."""
-    from .credentials import MemoryCredentialStore
-
     _assert_ollama_api_only_bundle()
     prior_data_dir = os.environ.get("AM_CONFIGURATOR_DATA_DIR")
     with tempfile.TemporaryDirectory(prefix="am-native-policy-") as raw_root:
@@ -580,8 +552,6 @@ def run_native_policy_smoke() -> int:
         server_thread = None
         try:
             server, url = create_server(
-                ollama_client=_OfflineOllamaInventory(),
-                credential_store=MemoryCredentialStore(),
                 device_discovery=_offline_device_discovery,
             )
             server_thread = threading.Thread(
@@ -651,163 +621,8 @@ def _assert_ollama_api_only_bundle() -> None:
             )
 
 
-def _run_disabled_ai_smoke() -> None:
-    """Verify disabled startup does not construct an inference provider."""
-    from unittest.mock import patch
-
-    from . import store
-    from .ai_capability import AICapabilityService
-    from .credentials import MemoryCredentialStore
-    provider_calls: list[str] = []
-
-    def provider_created(*_args):
-        provider_calls.append("created")
-        raise AssertionError("disabled AI constructed an inference provider")
-
-    with tempfile.TemporaryDirectory(prefix="am-disabled-ai-smoke-") as temporary:
-        credentials = MemoryCredentialStore()
-        with patch.dict(os.environ, {"AM_CONFIGURATOR_DATA_DIR": temporary}):
-            service = AICapabilityService(
-                settings_loader=lambda: store.load_settings(
-                    credential_store=credentials
-                ),
-                credential_status_loader=lambda provider: store.credential_status(
-                    provider,
-                    credential_store=credentials
-                ),
-                credential_resolver=lambda _provider: None,
-                api_provider_factory=provider_created,
-            )
-            try:
-                status = service.status()
-            finally:
-                service.close()
-    if status.get("enabled") or status.get("ready") or provider_calls:
-        raise SystemExit("Desktop smoke test failed: disabled AI started a backend.")
-
-
-def _run_api_recipe_smoke() -> None:
-    """Exercise the production API recipe adapter through an offline transport."""
-    from . import procedural
-    from .recipe_provider import RecipeRequest, XaiRecipeProvider
-
-    recipe = _smoke_recipe()
-    calls: list[tuple[str, dict]] = []
-
-    def fake_transport(url: str, payload: dict, api_key: str, deadline: float) -> dict:
-        del deadline
-        if api_key != "smoke-test-key":
-            raise AssertionError("API smoke used an unexpected credential")
-        calls.append((url, payload))
-        return {
-            "output": [{
-                "type": "message",
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": json.dumps(recipe)}],
-            }]
-        }
-
-    result = XaiRecipeProvider(
-        "smoke-test-key", transport=fake_transport
-    ).generate(
-        RecipeRequest(
-            prompt="offline API smoke test",
-            width=18,
-            height=7,
-            frame_count=32,
-            density_default="dense",
-        ),
-        time.monotonic() + 10,
-        lambda: False,
-    )
-    frames = procedural.render_recipe(
-        result.recipe, width=18, height=7, frame_count=32
-    )
-    mapped = procedural.map_frames_to_led_tracks(
-        frames,
-        duration_ms=34,
-        product_id="AM21",
-        targets=["keyframes", "spotlight_frames"],
-    )
-    if (
-        result.backend != "api"
-        or result.model_id != "grok-4.5"
-        or len(calls) != 1
-        or mapped.get("source_frames") != 32
-    ):
-        raise SystemExit("Desktop smoke test failed: fake API recipe generation was invalid.")
-
-
-def _run_ollama_recipe_smoke() -> None:
-    """Exercise the primary local recipe adapter through an offline client."""
-    from . import procedural
-    from .ollama_client import OllamaModel
-    from .recipe_provider import OllamaRecipeProvider, RecipeRequest
-
-    recipe = _smoke_recipe()
-
-    class FakeOllamaClient:
-        calls: list[dict] = []
-
-        def chat(self, payload: dict, *, deadline: float, cancelled) -> dict:
-            del deadline
-            if cancelled():
-                raise AssertionError("Ollama smoke was unexpectedly cancelled")
-            self.calls.append(payload)
-            return {"message": {"content": json.dumps(recipe)}}
-
-    client = FakeOllamaClient()
-    provider = OllamaRecipeProvider(
-        OllamaModel(
-            model_id="smoke:latest",
-            digest="a" * 64,
-            size_bytes=1,
-            parameter_size=None,
-            quantization=None,
-        ),
-        client=client,
-    )
-    result = provider.generate(
-        RecipeRequest(
-            prompt="offline Ollama smoke test",
-            width=18,
-            height=7,
-            frame_count=32,
-            density_default="dense",
-        ),
-        time.monotonic() + 10,
-        lambda: False,
-    )
-    frames = procedural.render_recipe(
-        result.recipe,
-        width=18,
-        height=7,
-        frame_count=32,
-    )
-    mapped = procedural.map_frames_to_led_tracks(
-        frames,
-        duration_ms=34,
-        product_id="AM21",
-        targets=["keyframes", "spotlight_frames"],
-    )
-    if (
-        result.backend != "ollama"
-        or result.provider != "ollama"
-        or result.model_id != "smoke:latest"
-        or len(client.calls) != 1
-        or client.calls[0].get("model") != "smoke:latest"
-        or mapped.get("source_frames") != 32
-        or mapped.get("duration_ms") != 34
-    ):
-        raise SystemExit(
-            "Desktop smoke test failed: fake Ollama recipe generation was invalid."
-        )
-
-
 def run_smoke_test() -> int:
     """Exercise the frozen entry point, bundled assets, and loopback server."""
-    from .credentials import MemoryCredentialStore
-
     try:
         import webview  # noqa: F401 - verifies the desktop dependency is bundled
     except ModuleNotFoundError:
@@ -821,9 +636,6 @@ def run_smoke_test() -> int:
 
     tls_context = llm.default_tls_context()
     _assert_ollama_api_only_bundle()
-    _run_disabled_ai_smoke()
-    _run_api_recipe_smoke()
-    _run_ollama_recipe_smoke()
     if os.environ.get("AM_SMOKE_NET") == "1":
         request = Request("https://example.com/", method="HEAD")
         with urlopen(  # noqa: S310 - explicit opt-in packaged CA trust check
@@ -841,10 +653,7 @@ def run_smoke_test() -> int:
         server_thread = None
         server_started = False
         try:
-            server, url = create_server(
-                credential_store=MemoryCredentialStore(),
-                ollama_client=_OfflineOllamaInventory(),
-            )
+            server, url = create_server()
             server_thread = threading.Thread(
                 target=server.serve_forever,
                 kwargs={"poll_interval": 0.05},

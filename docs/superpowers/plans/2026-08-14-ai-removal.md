@@ -45,6 +45,25 @@ slice runs the full verification entry point before commit.
    tests).
 3. **Desktop wiring.** Remove `AICapabilityService` and provider wiring from
    `am_configurator/desktop.py` (~608–856). Trim `tests/test_desktop.py`.
+   DONE 2026-08-14: removed the offline-AI-recipe smoke machinery
+   (`_run_disabled_ai_smoke`, `_run_api_recipe_smoke`, `_run_ollama_recipe_smoke`,
+   `_smoke_recipe`) and their invocations from `run_smoke_test`, and dropped the
+   now-vestigial `credential_store`/`ollama_client` kwargs from desktop.py's own
+   `create_server()` calls in `run_smoke_test` and `run_native_policy_smoke`
+   (neither smoke path exercises a credential- or Ollama-touching route, so the
+   in-memory fakes had nothing left to guard). Kept `_OfflineOllamaInventory` and
+   `_assert_ollama_api_only_bundle`: `media_framing_audit.py` (slice 5 territory)
+   still imports `_OfflineOllamaInventory` from `desktop.py` for its own
+   `create_server()` wiring, and `_assert_ollama_api_only_bundle` is a packaging
+   bundle-content guard (no shipped `.gguf`/`llama-cli`/`llama-server`) with its
+   own independent coverage in `tests/test_packaging.py`, not an AI-recipe-only
+   check — removing either would have widened this slice into slice 5/6
+   territory. Trimmed `tests/test_desktop.py`: deleted the two AI-recipe-smoke
+   tests, renamed and simplified the full-smoke test to assert no AI kwargs
+   reach `create_server()`, and dropped the now-unused
+   `credentials`/`device`/`llm`/`ollama_client`/`procedural`/`recipe_provider`/
+   `store`/`AICapabilityService`/`socket` imports. Full verification entry point
+   green (754 Python tests, 171 JS tests).
 4. **Store/settings.** Remove Ollama/provider/credential settings persistence
    from `am_configurator/store.py` (all `ollama_client`, `ai_catalog`,
    `credentials` import sites). Profile/library store logic untouched. Trim

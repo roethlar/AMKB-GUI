@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 import json
-import socket
 import tempfile
 import types
 import unittest
@@ -11,8 +10,6 @@ from urllib.parse import quote, urlsplit
 from unittest import mock
 
 from am_configurator import desktop
-from am_configurator import credentials, device, llm, ollama_client, procedural, recipe_provider, store
-from am_configurator.ai_capability import AICapabilityService
 
 
 class _FakeWindow:
@@ -176,7 +173,7 @@ class DesktopBridgeTests(unittest.TestCase):
 
 
 class DesktopSmokeTests(unittest.TestCase):
-    def test_full_smoke_uses_only_in_memory_credentials_and_offline_ollama(self) -> None:
+    def test_full_smoke_loads_the_bundled_ui_without_ai_wiring(self) -> None:
         captured: dict = {}
         opened_assets: list[str] = []
         payloads = {
@@ -238,20 +235,12 @@ class DesktopSmokeTests(unittest.TestCase):
             ),
             mock.patch.object(desktop.importlib.util, "find_spec", return_value=object()),
             mock.patch.object(desktop, "_assert_ollama_api_only_bundle"),
-            mock.patch.object(desktop, "_run_disabled_ai_smoke"),
-            mock.patch.object(desktop, "_run_api_recipe_smoke"),
-            mock.patch.object(desktop, "_run_ollama_recipe_smoke"),
             mock.patch.object(desktop, "create_server", side_effect=create_server),
             mock.patch.object(desktop, "urlopen", side_effect=open_loopback),
         ):
             self.assertEqual(desktop.run_smoke_test(), 0)
 
-        self.assertIsInstance(
-            captured.get("credential_store"), credentials.MemoryCredentialStore
-        )
-        self.assertIsInstance(
-            captured.get("ollama_client"), desktop._OfflineOllamaInventory
-        )
+        self.assertEqual({}, captured)
         self.assertEqual(
             [
                 "/",
@@ -263,165 +252,6 @@ class DesktopSmokeTests(unittest.TestCase):
             ],
             opened_assets,
         )
-
-    def test_every_offline_ai_smoke_executes_without_external_side_effects(self) -> None:
-        calls = {
-            "disabled_status": 0,
-            "api_generate": 0,
-            "ollama_generate": 0,
-            "render": 0,
-            "map": 0,
-        }
-
-        original_status = AICapabilityService.status
-        original_api_generate = recipe_provider.XaiRecipeProvider.generate
-        original_ollama_generate = recipe_provider.OllamaRecipeProvider.generate
-        original_render = procedural.render_recipe
-        original_map = procedural.map_frames_to_led_tracks
-
-        def disabled_status(service):
-            calls["disabled_status"] += 1
-            return original_status(service)
-
-        def api_generate(provider, *args, **kwargs):
-            calls["api_generate"] += 1
-            return original_api_generate(provider, *args, **kwargs)
-
-        def ollama_generate(provider, *args, **kwargs):
-            calls["ollama_generate"] += 1
-            return original_ollama_generate(provider, *args, **kwargs)
-
-        def render(*args, **kwargs):
-            calls["render"] += 1
-            return original_render(*args, **kwargs)
-
-        def map_frames(*args, **kwargs):
-            calls["map"] += 1
-            return original_map(*args, **kwargs)
-
-        def external_side_effect(*_args, **_kwargs):
-            raise AssertionError("offline desktop smoke crossed an external boundary")
-
-        with (
-            mock.patch.object(AICapabilityService, "status", new=disabled_status),
-            mock.patch.object(recipe_provider.XaiRecipeProvider, "generate", new=api_generate),
-            mock.patch.object(recipe_provider.OllamaRecipeProvider, "generate", new=ollama_generate),
-            mock.patch.object(procedural, "render_recipe", new=render),
-            mock.patch.object(procedural, "map_frames_to_led_tracks", new=map_frames),
-            mock.patch.object(socket, "create_connection", side_effect=external_side_effect),
-            mock.patch.object(desktop, "urlopen", side_effect=external_side_effect),
-            mock.patch.object(llm, "_default_opener", side_effect=external_side_effect),
-            mock.patch.object(ollama_client.OllamaClient, "list_models", side_effect=external_side_effect),
-            mock.patch.object(ollama_client.OllamaClient, "chat", side_effect=external_side_effect),
-            mock.patch.object(credentials, "default_credential_store", side_effect=external_side_effect),
-            mock.patch.object(credentials.KeyringCredentialStore, "get", side_effect=external_side_effect),
-            mock.patch.object(credentials.KeyringCredentialStore, "set", side_effect=external_side_effect),
-            mock.patch.object(credentials.KeyringCredentialStore, "delete", side_effect=external_side_effect),
-            mock.patch.object(store, "update_ollama_ai_settings", side_effect=external_side_effect),
-            mock.patch.object(desktop.subprocess, "Popen", side_effect=external_side_effect),
-            mock.patch.object(device.serial, "Serial", side_effect=external_side_effect),
-        ):
-            desktop._run_disabled_ai_smoke()
-            desktop._run_api_recipe_smoke()
-            desktop._run_ollama_recipe_smoke()
-
-        self.assertEqual(
-            {
-                "disabled_status": 1,
-                "api_generate": 1,
-                "ollama_generate": 1,
-                "render": 2,
-                "map": 2,
-            },
-            calls,
-        )
-        self.assertFalse(hasattr(desktop, "_run_local_recipe_smoke"))
-
-    def test_recipe_smokes_construct_real_adapters_and_propagate_stage_failures(self) -> None:
-        constructors = {"api": 0, "ollama": 0}
-        real_api_provider = recipe_provider.XaiRecipeProvider
-        real_ollama_provider = recipe_provider.OllamaRecipeProvider
-
-        def api_provider(*args, **kwargs):
-            constructors["api"] += 1
-            return real_api_provider(*args, **kwargs)
-
-        def ollama_provider(*args, **kwargs):
-            constructors["ollama"] += 1
-            return real_ollama_provider(*args, **kwargs)
-
-        with (
-            mock.patch.object(recipe_provider, "XaiRecipeProvider", side_effect=api_provider),
-            mock.patch.object(recipe_provider, "OllamaRecipeProvider", side_effect=ollama_provider),
-            mock.patch.object(procedural, "render_recipe", wraps=procedural.render_recipe) as render,
-            mock.patch.object(
-                procedural,
-                "map_frames_to_led_tracks",
-                wraps=procedural.map_frames_to_led_tracks,
-            ) as map_frames,
-        ):
-            desktop._run_api_recipe_smoke()
-            desktop._run_ollama_recipe_smoke()
-
-        self.assertEqual({"api": 1, "ollama": 1}, constructors)
-        self.assertEqual(2, render.call_count)
-        self.assertEqual(2, map_frames.call_count)
-
-        class SmokeStageFailure(RuntimeError):
-            pass
-
-        cases = (
-            (
-                "disabled status",
-                desktop._run_disabled_ai_smoke,
-                mock.patch.object(
-                    AICapabilityService,
-                    "status",
-                    side_effect=SmokeStageFailure("disabled status failed"),
-                ),
-            ),
-            (
-                "api provider construction",
-                desktop._run_api_recipe_smoke,
-                mock.patch.object(
-                    recipe_provider,
-                    "XaiRecipeProvider",
-                    side_effect=SmokeStageFailure("api construction failed"),
-                ),
-            ),
-            (
-                "api rendering",
-                desktop._run_api_recipe_smoke,
-                mock.patch.object(
-                    procedural,
-                    "render_recipe",
-                    side_effect=SmokeStageFailure("api rendering failed"),
-                ),
-            ),
-            (
-                "ollama provider construction",
-                desktop._run_ollama_recipe_smoke,
-                mock.patch.object(
-                    recipe_provider,
-                    "OllamaRecipeProvider",
-                    side_effect=SmokeStageFailure("ollama construction failed"),
-                ),
-            ),
-            (
-                "ollama mapping",
-                desktop._run_ollama_recipe_smoke,
-                mock.patch.object(
-                    procedural,
-                    "map_frames_to_led_tracks",
-                    side_effect=SmokeStageFailure("ollama mapping failed"),
-                ),
-            ),
-        )
-        for name, smoke, failure_patch in cases:
-            with self.subTest(stage=name), failure_patch:
-                with self.assertRaises(SmokeStageFailure):
-                    smoke()
-
 
 class DesktopWindowTests(unittest.TestCase):
     def test_macos_automatic_window_tabbing_is_disabled(self) -> None:
