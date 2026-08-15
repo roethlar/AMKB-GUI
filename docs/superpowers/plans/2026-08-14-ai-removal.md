@@ -305,6 +305,73 @@ slice runs the full verification entry point before commit.
    `am_configurator/` outside the guard itself). Sweep README, packaging
    metadata, CI workflow env vars (provider API keys), and `docs/` references.
    Update `.agents/state.md` and close this plan.
+   DONE 2026-08-15: removed the six remaining ollama/AI-generation functions
+   (`normalizeOllamaModels`, `ollamaModelRefreshFailed`,
+   `ollamaEndpointDataFlow`, `aiStudioAvailable`, `projectApiProviderPicker`,
+   `projectOllamaModelPicker`) from `am_configurator/web/lighting_state.js`
+   (212 lines; zero production callers, confirmed via grep and stale `dist/`
+   artifacts as orphaned siblings of slice 1b's UI strip) and their exports
+   from the module's frozen return object; trimmed the matching tests,
+   constants, and helpers from `tests/web/lighting_state.test.js` (191
+   lines). Added `tests/test_ai_removal_absence.py`, following the
+   `test_legacy_inline_generator_removed.py` precedent: absence checks for
+   the nine deleted core modules, the eight deleted test files, the deleted
+   server routes (keeping the live `/api/settings/migration/discard-credential`
+   migration-repair route), the six deleted browser identifiers, and a
+   line-by-line grep-gate scan of `am_configurator/` allowlisting only
+   `desktop.py`'s `_assert_ollama_api_only_bundle()` packaging guard (kept
+   per slice 3/4+5's own rulings). Guard-bite proven: injected a fake
+   `ai_capability` residue line, watched `test_grep_gate_has_no_unallowed_hits`
+   fail with that exact line reported, restored the file, and re-ran green.
+   Swept `README.md`: removed the "### Optional AI" section (Ollama/Direct
+   API backends, six providers, the Lighting Studio AI tab) and its two
+   screenshots; the unrelated "Effects" (Pulse/Hue cycle/Sweep/Shimmer/Move &
+   zoom local-animation) copy was untouched — confirmed live and non-AI via
+   grep against `app.js`. Deleted the now-orphaned
+   `docs/images/ai-setup.png`/`ai-generate.png` (referenced only from the
+   removed section). Removed the "Optional AI / Ollama" and "Optional AI /
+   remote API" dropdown options from `.github/ISSUE_TEMPLATE/bug_report.yml`
+   (a living, user-facing surface referencing the deleted feature; in scope
+   as a docs/CI-adjacent sweep target, not a widening). Updated the tests
+   coupled to the README/issue-template structure so the tree stays green:
+   `tests/test_readme.py` (dropped `### Optional AI` from `CAPABILITY_ORDER`,
+   the `AI_SCREENSHOTS` tuple and its assertions, and `Ollama` from
+   `ACTION_LABELS`; added a one-line `**Settings**` mention to the Library
+   section's prose so that still-live, still-tested action label keeps a
+   home in the README) and `tests/test_packaging.py` (dropped the two AI
+   screenshot dimension entries, the "AI is off by default"/"no automatic
+   Ollama discovery" collapsed-prose checks, and the two AI operation
+   options from the bug-report-form test). Checked `.github/workflows/ci.yml`
+   line-by-line against `.agents/repo-guidance.md`'s Verification section:
+   already in sync (same nine steps, same order), no edit needed. Checked
+   `docs/*.md` top-level living docs, `packaging/`, and
+   `.github/workflows/*.yml` for AI/provider terms: already clean (zero
+   hits), no edit needed; historical records under `docs/superpowers/plans/`,
+   `docs/releases/`, `docs/announcements/`, `docs/history/`, and
+   `docs/verification/` were left untouched as dated records, per the
+   `.agents/state.md` "0.1.67 release notes" precedent. Full verification
+   entry point green: 582 Python tests, 166 JS tests, all seven `node
+   --check` files clean, `uv build` clean, `git diff --check` clean. Native
+   build + `--smoke-test` run once on macOS per this plan's Verification
+   section ("since packaging metadata changes"): `python build.py
+   --skip-sync` succeeded (0 errors), and the frozen `AM Configurator.app`
+   reported "Desktop smoke test passed (Darwin)". Grep gate
+   (`ollama|recipe_provider|ai_catalog|/api/ai/|ai_capability`) has no hits
+   in `am_configurator/` outside the same `desktop.py`
+   `_assert_ollama_api_only_bundle()` packaging guard slices 3 and 4+5 already
+   allowlisted. Out-of-scope finding, not fixed: `lighting_state.js` still
+   carries generic job/progress-tracking scaffolding (`activeJob`, `STAGES`,
+   the `JOB_SYNCED`/`SHOW_REVIEW`/`SHOW_PROMPT`/`APPLY_REQUESTED` reducer
+   cases, `projectLightingJob`, `applyCompatibility`, `copyJob`,
+   `copyProgress`, `copyTarget`, `jobStage`) that is dead in production (no
+   current `app.js` dispatch reaches those event types) but is not AI-named,
+   is still read by live `app.js` code (`state.lighting.activeJob` backing
+   `destinationLocked`), and has its own dedicated test coverage — left in
+   place rather than removed, since neither the grep gate nor this slice's
+   named scope reaches it, and `.agents/state.md`'s "Next" section records a
+   still-planned deterministic effect engine that may reuse this job
+   machinery. This closes the AI-removal plan; see `.agents/state.md` for the
+   final summary.
 
 ## Slice-boundary caveat
 

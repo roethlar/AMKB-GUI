@@ -6,7 +6,6 @@ const assert = require("node:assert/strict");
 const {
   ROUTES,
   STAGES,
-  aiStudioAvailable,
   applyCompatibility,
   classifyImportedJsonSelection,
   escapeMarkup,
@@ -16,14 +15,9 @@ const {
   createLightingState,
   formatLightingHash,
   importedLightingApplyAvailability,
-  ollamaEndpointDataFlow,
-  ollamaModelRefreshFailed,
   nextGridIndex,
-  normalizeOllamaModels,
   parseLightingHash,
   projectLightingJob,
-  projectApiProviderPicker,
-  projectOllamaModelPicker,
   reduceLightingState,
   routeAvailability,
   safeRgbColor,
@@ -74,25 +68,6 @@ class FakeEventTarget {
   }
 }
 
-test("Ollama endpoint data flow is classified without DNS or network access", () => {
-  assert.deepEqual(
-    ollamaEndpointDataFlow("http://127.0.0.1:11434","ollama_server"),
-    {disclosureRequired:false,insecureRemote:false,loopback:true},
-  );
-  assert.deepEqual(
-    ollamaEndpointDataFlow("http://ollama.lan:11434","ollama_server"),
-    {disclosureRequired:true,insecureRemote:true,loopback:false},
-  );
-  assert.deepEqual(
-    ollamaEndpointDataFlow("https://ollama.lan","ollama_cloud"),
-    {disclosureRequired:true,insecureRemote:false,loopback:false},
-  );
-  assert.equal(
-    ollamaEndpointDataFlow("http://localhost:11434","ollama_cloud").disclosureRequired,
-    true,
-  );
-});
-
 test("epoch load ownership lets refresh supersede an in-flight asset safely", () => {
   const registry=createEpochLoadRegistry();
   const oldLoad=registry.begin("job:asset",1);
@@ -106,105 +81,6 @@ test("epoch load ownership lets refresh supersede an in-flight asset safely", ()
   assert.equal(refreshedLoad.current(2),true);
   refreshedLoad.release();
   assert.ok(registry.begin("job:asset",2));
-});
-
-const MODEL_A = Object.freeze({
-  model_id: "ornith:latest",
-  digest: "a".repeat(64),
-  size_bytes: 5000000,
-  location: "ollama_server",
-  parameter_size: "9.0B",
-  quantization: "Q4_K_M",
-});
-const MODEL_B = Object.freeze({
-  model_id: "small:latest",
-  digest: "b".repeat(64),
-  size_bytes: 3000000,
-  location: "ollama_cloud",
-  parameter_size: "4.0B",
-  quantization: "Q4_K_M",
-});
-
-test("local model picker distinguishes inventory and selected-model states", () => {
-  const available=normalizeOllamaModels({available:true,models:[MODEL_A,MODEL_B,null,{model_id:"bad"}]});
-  assert.deepEqual(available.models.map(model=>model.model_id),["ornith:latest","small:latest"]);
-  assert.equal(projectOllamaModelPicker(available,{}).inventoryState,"available");
-  assert.equal(projectOllamaModelPicker(available,{}).disabled,false);
-
-  const empty=normalizeOllamaModels({available:true,models:[]});
-  assert.equal(projectOllamaModelPicker(empty,{}).inventoryState,"empty");
-  assert.equal(projectOllamaModelPicker(empty,{}).disabled,true);
-
-  const unavailable=normalizeOllamaModels({available:false,models:[]});
-  assert.equal(projectOllamaModelPicker(unavailable,{}).inventoryState,"unavailable");
-
-  assert.deepEqual(
-    available.models.map(model=>model.label),
-    [
-      "ornith:latest — On this Ollama server",
-      "small:latest — Ollama Cloud",
-    ],
-  );
-
-  const selected={
-    model_id:MODEL_A.model_id,
-    model_digest:MODEL_A.digest,
-    model_location:MODEL_A.location,
-  };
-  assert.equal(projectOllamaModelPicker(available,selected).selectionState,"selected");
-
-  const removed=projectOllamaModelPicker(
-    normalizeOllamaModels({available:true,models:[MODEL_B]}),
-    {
-      model_id:MODEL_A.model_id,
-      model_digest:MODEL_A.digest,
-      model_location:MODEL_A.location,
-    },
-  );
-  assert.equal(removed.selectionState,"removed");
-  assert.equal(removed.value,MODEL_A.model_id);
-  assert.deepEqual(removed.options.at(-1),{
-    value:MODEL_A.model_id,
-    label:"ornith:latest — not currently available",
-    disabled:true,
-  });
-
-  const changed=projectOllamaModelPicker(
-    normalizeOllamaModels({available:true,models:[{...MODEL_A,digest:"c".repeat(64)}]}),
-    {
-      model_id:MODEL_A.model_id,
-      model_digest:MODEL_A.digest,
-      model_location:MODEL_A.location,
-    },
-  );
-  assert.equal(changed.selectionState,"digest_changed");
-  assert.equal(changed.value,MODEL_A.model_id);
-
-  const upgrade=projectOllamaModelPicker(
-    normalizeOllamaModels({available:true,models:[],reason:"upgrade_required"}),
-    {},
-  );
-  assert.equal(upgrade.inventoryState,"upgrade_required");
-  assert.match(upgrade.placeholder,/Upgrade Ollama/);
-});
-
-test("local model picker preserves a preferred choice after transient refresh failure", () => {
-  const available=normalizeOllamaModels({available:true,models:[MODEL_A,MODEL_B]});
-  const failed=ollamaModelRefreshFailed(available);
-  const picker=projectOllamaModelPicker(
-    failed,
-    {
-      model_id:MODEL_A.model_id,
-      model_digest:MODEL_A.digest,
-      model_location:MODEL_A.location,
-    },
-    MODEL_B.model_id,
-  );
-  assert.equal(picker.inventoryState,"transient_failure");
-  assert.equal(picker.selectionState,"transient_failure");
-  assert.equal(picker.value,MODEL_B.model_id);
-  assert.deepEqual(picker.options.map(option=>option.value),[MODEL_A.model_id,MODEL_B.model_id]);
-  assert.equal(picker.disabled,true);
 });
 
 function deepFreeze(value) {
@@ -243,73 +119,6 @@ function compatibleDocument(overrides = {}) {
     ...overrides,
   };
 }
-
-function apiCatalog() {
-  const entries = [
-    ["xai", "xAI", "grok-4.5", [["grok-4.5", "Grok 4.5"]]],
-    ["anthropic", "Anthropic", "claude-sonnet-5", [
-      ["claude-sonnet-5", "Claude Sonnet 5"],
-      ["claude-opus-5", "Claude Opus 5"],
-    ]],
-    ["openai", "OpenAI", "gpt-5.6-sol", [["gpt-5.6-sol", "GPT-5.6 Sol"]]],
-    ["gemini", "Gemini", "gemini-3.6-flash", [["gemini-3.6-flash", "Gemini 3.6 Flash"]]],
-    ["moonshot", "Kimi / Moonshot", "kimi-k3", [["kimi-k3", "Kimi K3"]]],
-    ["deepseek", "DeepSeek", "deepseek-v4-pro", [["deepseek-v4-pro", "DeepSeek V4 Pro"]]],
-  ];
-  return {
-    schema_version: 2,
-    providers: Object.fromEntries(entries.map(([id, label, defaultModel, models]) => [
-      id,
-      {
-        label,
-        default_model: defaultModel,
-        disclosure_version: `disclosure-${id}`,
-        models: models.map(([modelId, modelLabel]) => ({id: modelId, label: modelLabel})),
-      },
-    ])),
-  };
-}
-
-function apiSettings() {
-  return {
-    selected_provider: "xai",
-    providers: Object.fromEntries(
-      Object.keys(apiCatalog().providers).map(provider => [
-        provider,
-        {model_id: provider === "xai" ? "grok-4.5" : null},
-      ]),
-    ),
-  };
-}
-
-test("AI Studio exists only for enabled and currently ready capability", () => {
-  assert.equal(aiStudioAvailable(null), false);
-  assert.equal(aiStudioAvailable({enabled: false, ready: true}), false);
-  assert.equal(aiStudioAvailable({enabled: true, ready: false}), false);
-  assert.equal(aiStudioAvailable({enabled: true, ready: true}), true);
-});
-
-test("provider picker uses all six catalog providers and submits the first default", () => {
-  const catalog = apiCatalog();
-  const settings = apiSettings();
-  const initial = projectApiProviderPicker(catalog, settings, "anthropic");
-
-  assert.deepEqual(
-    initial.providers.map(provider => provider.id),
-    ["xai", "anthropic", "openai", "gemini", "moonshot", "deepseek"],
-  );
-  assert.equal(initial.providerId, "anthropic");
-  assert.equal(initial.modelId, "claude-sonnet-5");
-  assert.equal(initial.disclosureVersion, "disclosure-anthropic");
-
-  settings.providers.anthropic.model_id = "claude-opus-5";
-  const restored = projectApiProviderPicker(catalog, settings, "anthropic");
-  assert.equal(restored.modelId, "claude-opus-5");
-  assert.deepEqual(
-    restored.models.map(model => model.id),
-    ["claude-sonnet-5", "claude-opus-5"],
-  );
-});
 
 test("defaults to Keymap at the prompt stage", () => {
   assert.deepEqual(createLightingState(), {

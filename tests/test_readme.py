@@ -36,7 +36,6 @@ CAPABILITY_ORDER = (
     "### Macros",
     "### Lighting",
     "### Library",
-    "### Optional AI",
 )
 
 GALLERY = (
@@ -49,10 +48,6 @@ SCREENSHOTS = (
     "docs/images/keymap.png",
     "docs/images/lighting.png",
     "docs/images/macros.png",
-)
-AI_SCREENSHOTS = (
-    "docs/images/ai-setup.png",
-    "docs/images/ai-generate.png",
 )
 
 # Actions the README tells a user to take. Each one must exist verbatim in the
@@ -79,7 +74,6 @@ ACTION_LABELS = (
     "Effects",
     "Apply",
     "Save to Library",
-    "Ollama",
 )
 
 # The same table tests/web/plain_language.test.js enforces on the interface,
@@ -201,15 +195,12 @@ class ReadmeStructureTest(unittest.TestCase):
                     readme.index(image),
                     readme.index("\n## What you can do\n"),
                 )
-        # Exactly five markdown screenshots, each with alt text a screen
-        # reader can use: the three section leads plus the two Optional AI
-        # illustrations. The per-board gallery uses HTML <img> and is checked
-        # separately, so it does not inflate this count.
-        for image in AI_SCREENSHOTS:
-            with self.subTest(image=image):
-                self.assertEqual(1, readme.count(image))
+        # Exactly three markdown screenshots, each with alt text a screen
+        # reader can use: the three section leads. The per-board gallery uses
+        # HTML <img> and is checked separately, so it does not inflate this
+        # count.
         alts = re.findall(r"!\[([^\]]*)\]\(docs/images/[^)]+\)", readme)
-        self.assertEqual(len(SCREENSHOTS) + len(AI_SCREENSHOTS), len(alts))
+        self.assertEqual(len(SCREENSHOTS), len(alts))
         for alt in alts:
             with self.subTest(alt=alt):
                 self.assertGreaterEqual(len(alt.split()), 8, alt)

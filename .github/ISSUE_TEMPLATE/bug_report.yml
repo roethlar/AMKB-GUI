@@ -63,8 +63,6 @@ body:
         - Macros
         - Lighting paint / media import / local animation
         - Library / profile import
-        - Optional AI / Ollama
-        - Optional AI / remote API
         - Other
     validations:
       required: true

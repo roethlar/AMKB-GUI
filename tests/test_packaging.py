@@ -989,8 +989,6 @@ class ReleaseInfoTests(unittest.TestCase):
             "keymap.png": (1600, 1000),
             "macros.png": (1600, 1000),
             "lighting.png": (1600, 1000),
-            "ai-setup.png": (1600, 1000),
-            "ai-generate.png": (1600, 1000),
             "board-cyberboard.png": (1600, 1000),
             "board-relic80.png": (1600, 1000),
             "board-afa.png": (1600, 1000),
@@ -1562,8 +1560,6 @@ class ReleaseInfoTests(unittest.TestCase):
             "GIF, PNG, BMP, and JPEG",
             "pan, zoom, or stretch",
             "Pulse, Hue cycle, Sweep, Shimmer, and Move & zoom",
-            "AI is off by default",
-            "no automatic Ollama discovery",
             "full write replaces keymaps, macros, and LED data",
             "does not expose LED read-back",
             "docs/neon-80-linux.md",
@@ -1926,8 +1922,6 @@ class ReleaseInfoTests(unittest.TestCase):
             "Macros",
             "Lighting paint / media import / local animation",
             "Library / profile import",
-            "Optional AI / Ollama",
-            "Optional AI / remote API",
         ):
             with self.subTest(operation=operation):
                 self.assertIn(operation, form)
