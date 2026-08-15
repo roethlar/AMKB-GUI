@@ -487,6 +487,129 @@ deleting or reviving anything.
    honored. No QMK/VIA/Vial integration here; that lands with the v2
    multi-firmware lanes and consumes this seam.
 
+   DONE 2026-08-15: the seam is one optional keyword on
+   `device_mapping.frames_to_led_tracks`, the function every engine render
+   already passes through (`procedural.map_frames_to_led_tracks` →
+   `frames_to_led_tracks`).
+
+   **Signature and contract.** `frames_to_led_tracks(..., *, placements:
+   Mapping[str, Sequence[Sequence[float]]] | None = None)`. A placement table
+   maps an LED target to the physical position of every one of its output
+   LEDs, in firmware payload order: `{"keyframes": [(x, y), ...]}`. Positions
+   are normalized to the board's lit extent — `x` and `y` both run 0.0 to 1.0,
+   `(0.0, 0.0)` is the top-left corner and `(1.0, 1.0)` the bottom-right, the
+   same origin and direction as the raster — and a named target must carry
+   exactly one position per output LED (`layout["pixels"]`). A target the
+   table does not name keeps grid placement. Output LED *i* then samples the
+   raster cell its position falls in, so several LEDs may read one cell and a
+   cell may feed no LED; the layout's derived `copies` do not apply, because
+   the table has already placed every LED. A table is checked before anything
+   renders: unknown target, wrong count, a non-pair entry, or a coordinate
+   that is not a finite number in 0.0-1.0 each raise `ValueError`. The whole
+   contract is the docstring on `_resolve_placements`, which
+   `frames_to_led_tracks`'s own docstring points at, and it says plainly that
+   the AM fixed families never supply a table.
+
+   **Why the resolved table runs output → cell, not cell → output.**
+   `_LAYOUTS`' `map` runs source cell → output index, which can express at
+   most one LED per raster cell. Real geometry does not obey that: two lights
+   can sit inside one cell of a coarse raster, and a QMK `led_config` is free
+   to place them there. The resolved table therefore runs the other way,
+   output index → source cell — a superset of what the grid map can say, and
+   it leaves the grid map untouched as the default rather than trying to
+   widen it.
+
+   **The default is the literal existing code path.** `_resolve_placements(
+   None, layouts)` returns `{}`, so no target has a sample map and
+   `_track_colors` takes the same `layout["map"]`-then-`copies` branch this
+   repository has always run, with `_mapped_pixels` still counting distinct
+   mapped outputs. The byte-exact mapping tests were not touched and pass
+   unchanged, and no locked test or `_LAYOUTS` entry had to move. The new
+   default-path test adds a second, independent proof: it writes the
+   pre-slice mapping out literally in the test and compares it against the
+   mapper for all seven family/target pairs (CB keyframes and frames, ALICE
+   keyframes, Relic keyframes and spotlight_frames, NEON axial and head) on a
+   frame sized exactly to each raster, so no crop or resize stands between
+   the source pixels and the assertion.
+
+   The only other production edit is a dedup, so the extracted helpers are
+   the file's single authority rather than one copy among four:
+   `_map_prepared_media_frame` now fills its track through `_track_colors`,
+   and it plus the two compose mappers count through `_mapped_pixels`.
+   Behaviour there is unchanged and none of them accepts a table — the
+   imported-media path is not this plan's, and giving it a placement input
+   with no consumer would be exactly the speculative surface this slice
+   avoids.
+
+   Files changed: `am_configurator/device_mapping.py` (+130/-26 — the two
+   helpers, the resolver, the keyword, and the dedup),
+   `tests/test_device_mapping.py` (+218: `PlacementTableSeamTests`, 4 tests).
+   No server, UI, or `procedural.py` change: nothing consumes the seam yet,
+   by design. `procedural.map_frames_to_led_tracks` deliberately does not
+   forward a table either — the multi-firmware lane that first needs one can
+   thread it in the same commit that builds tables from board definitions.
+
+   Verification: 601 Python tests OK (up from 597), `compileall` clean, 179
+   node tests OK, all seven `node --check` targets clean, `uv build` OK
+   (0.1.68 sdist + wheel), `git diff --check` clean. No native build this
+   slice: the plan's once-per-plan frozen smoke ran with slice 3 and this
+   slice changes no packaged surface beyond one Python module.
+
+   Bite proof — each mutation applied to `am_configurator/device_mapping.py`,
+   the whole of `tests/test_device_mapping.py` run (it holds both the new
+   tests and the existing byte-exact ones), then the file restored and
+   confirmed byte-identical by sha256 (9 mutations; `restored: True` after
+   every pass):
+
+   | # | Mutation | Test | Result |
+   | --- | --- | --- | --- |
+   | M1 | Resolve the table but never pass it to `_track_colors` | samples the physical positions; places every LED | fails |
+   | M2 | Transpose column and row when indexing the sampled cell | samples the physical positions; places every LED | fails |
+   | M3 | Apply the layout's derived `copies` in the placement path too | places every LED and supersedes copies | fails |
+   | M4 | Let an absent table take the placement path with an identity table | unchanged grid path (5 of 7 targets); places every LED | fails |
+   | M5 | Drop the one-position-per-LED count check | a placement table is checked | fails |
+   | M6 | Clamp out-of-range coordinates instead of refusing them | a placement table is checked | fails |
+   | M7 | Drop the unknown-target check | a placement table is checked | fails |
+   | M8 | `mapped_pixels` ignores the table | places every LED and supersedes copies | fails |
+   | M9 | Drop the x/y pair-shape check | a placement table is checked | fails |
+
+   M4 is the mutation that justifies the new default-path test, and it is
+   worth recording why. Under M4 the existing byte-exact tests in
+   `tests/test_device_mapping.py` all still passed: the one that routes
+   through this mapper compares the legacy and composed paths on the
+   CyberBoard display, whose map is the identity, so an identity default table
+   is invisible to it, and the others never reach `frames_to_led_tracks`. The
+   new test caught it on five of seven targets — every family whose map is a
+   real permutation.
+
+   Methodology note, because the first pass produced one wrong reading. The
+   harness's first M4 run reported only the copies test failing — the exact
+   signature M3 leaves — while the same mutation applied by hand failed six
+   tests. Clearing `__pycache__` and running the suite under
+   `-B`/`PYTHONDONTWRITEBYTECODE=1` made the harness agree with the
+   hand-checked run, and the matrix above is from that run. The assumed cause
+   is stale bytecode: mutations land within the same second and CPython
+   invalidates a cached `.pyc` on (source mtime in seconds, source size), so a
+   mutation whose file matches the previous one on both runs the previous
+   one's bytecode. Any future mutation harness in this repository should
+   disable the cache from the start.
+
+   Not done, deliberately: no QMK/VIA/Vial reader and no board-definition
+   parsing (the v2 multi-firmware lanes own that and consume this seam); no
+   consumer anywhere in the app, so today the parameter is exercised only by
+   tests; no placement input on the imported-media mappers; no change to
+   `_LAYOUTS`, to any byte-exact test, or to the Patterns picker — slice 3's
+   recorded caveat stands, that its reachable-space sweep and arrangement
+   list are evidence against today's six grid geometries and must be re-run
+   for any board that actually supplies a placement table.
+
+**Plan closed 2026-08-15.** All four slices landed: engine kinds (`3a58b8b`),
+the synchronous render-and-bank route (`2800389`), the Patterns picker
+(`4b665d2`), and the geometry seam (this slice). The deterministic effect
+engine is reachable by people, banked in the Library, and applied through the
+existing manual typed-confirmation flow; no hardware write was performed
+anywhere in this plan.
+
 ## Verification
 
 Every slice: the full entry point from `.agents/repo-guidance.md`

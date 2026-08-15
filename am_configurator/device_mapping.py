@@ -828,6 +828,118 @@ def media_timeline_indices(
     return indices, speed, True
 
 
+def _normalized_axis(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or not 0.0 <= number <= 1.0:
+        return None
+    return number
+
+
+def _resolve_placements(
+    placements: Mapping[str, Sequence[Sequence[float]]] | None,
+    layouts: Mapping[str, Mapping[str, Any]],
+) -> dict[str, tuple[int, ...]]:
+    """Resolve an optional per-LED placement table into raster sample indices.
+
+    A placement table is a board's real geometry. For one LED track it lists,
+    in firmware payload order, the physical position of every output LED:
+    ``{"keyframes": [(x, y), ...]}``. Positions are normalized to the board's
+    lit extent, so ``x`` and ``y`` both run 0.0 to 1.0 with ``(0.0, 0.0)`` at
+    the top-left corner and ``(1.0, 1.0)`` at the bottom-right — the same
+    origin and direction as the raster. A named target must carry exactly one
+    position per output LED (``layout["pixels"]``); a target the table does
+    not name keeps grid placement.
+
+    With a table, output LED *i* samples the raster cell its position falls
+    in, so several LEDs may read one cell and a cell may feed no LED. Derived
+    ``copies`` do not apply, because the table has already placed every LED.
+
+    The Angry Miao families never supply one. Their LEDs carry no authored
+    physical geometry, so ``_LAYOUTS`` places each output by grid cell and
+    that mapping is byte-exact against the vendor converters. ``None``
+    resolves to an empty mapping, which leaves every target on that unchanged
+    grid path. The seam exists for board definitions that do carry positions
+    (QMK ``info.json`` ``led_config``, VIA and Vial definitions), which the
+    multi-firmware lanes supply later.
+    """
+
+    if placements is None:
+        return {}
+    if not isinstance(placements, Mapping):
+        raise ValueError("The LED placement table must be a mapping of LED targets.")
+    unknown = sorted(str(name) for name in placements if name not in layouts)
+    if unknown:
+        raise ValueError(
+            "The LED placement table names targets this mapping does not use: "
+            f"{', '.join(unknown)}."
+        )
+    resolved: dict[str, tuple[int, ...]] = {}
+    for target, entries in placements.items():
+        layout = layouts[target]
+        width, height = (int(value) for value in layout["size"])
+        expected = int(layout["pixels"])
+        positions = list(entries)
+        if len(positions) != expected:
+            raise ValueError(
+                f"The {target} placement table needs one position for each of "
+                f"its {expected} LEDs; it has {len(positions)}."
+            )
+        samples: list[int] = []
+        for position in positions:
+            if (
+                isinstance(position, (str, bytes, bytearray))
+                or not isinstance(position, Sequence)
+                or len(position) != 2
+            ):
+                raise ValueError(
+                    f"Each {target} LED placement is an x and y position."
+                )
+            x = _normalized_axis(position[0])
+            y = _normalized_axis(position[1])
+            if x is None or y is None:
+                raise ValueError(
+                    f"Each {target} LED placement is normalized to 0.0-1.0."
+                )
+            column = min(width - 1, int(x * width))
+            row = min(height - 1, int(y * height))
+            samples.append(row * width + column)
+        resolved[target] = tuple(samples)
+    return resolved
+
+
+def _track_colors(
+    layout: Mapping[str, Any],
+    source_colors: Sequence[str],
+    samples: Sequence[int] | None = None,
+) -> list[str]:
+    """Fill one firmware LED track from one rendered raster frame."""
+
+    colors = ["#000000"] * int(layout["pixels"])
+    if samples is None:
+        for source_index, output_index in enumerate(layout["map"]):
+            if output_index >= 0:
+                colors[output_index] = source_colors[source_index]
+        for output_index, source_index in layout.get("copies", ()):
+            colors[output_index] = colors[source_index]
+        return colors
+    for output_index, source_index in enumerate(samples):
+        colors[output_index] = source_colors[source_index]
+    return colors
+
+
+def _mapped_pixels(
+    layout: Mapping[str, Any],
+    samples: Sequence[int] | None = None,
+) -> int:
+    """Count the output LEDs one raster frame reaches."""
+
+    if samples is None:
+        return len({index for index in layout["map"] if index >= 0})
+    return len(samples)
+
+
 def _map_prepared_media_frame(
     image: Any,
     *,
@@ -866,21 +978,14 @@ def _map_prepared_media_frame(
         layout = layouts[target]
         size = tuple(layout["size"])
         source_colors = raster_colors[size]
-        colors = ["#000000"] * int(layout["pixels"])
-        for source_index, output_index in enumerate(layout["map"]):
-            if output_index >= 0:
-                colors[output_index] = source_colors[source_index]
-        for output_index, source_index in layout.get("copies", ()):
-            colors[output_index] = colors[source_index]
+        colors = _track_colors(layout, source_colors)
         width, height = size
         tracks[target] = {
             "colors": colors,
             "width": width,
             "height": height,
             "pixels": int(layout["pixels"]),
-            "mapped_pixels": len(
-                {index for index in layout["map"] if index >= 0}
-            ),
+            "mapped_pixels": _mapped_pixels(layout),
         }
     return tracks
 
@@ -934,8 +1039,16 @@ def frames_to_led_tracks(
     progress: Callable[[int, int], None] | None = None,
     frame_limit: int = MAX_FRAMES,
     source_frame_limit: int | None = None,
+    placements: Mapping[str, Sequence[Sequence[float]]] | None = None,
 ) -> dict[str, Any]:
-    """Map ordered raster frames onto one or more firmware LED tracks."""
+    """Map ordered raster frames onto one or more firmware LED tracks.
+
+    ``placements`` is an optional per-LED placement table, so a board that
+    publishes real key/LED positions samples the raster where its lights
+    actually sit instead of by grid cell. Its contract is in
+    ``_resolve_placements``; without it every target keeps the byte-exact grid
+    mapping, which is what every Angry Miao family uses.
+    """
 
     if type(frame_limit) is not int or not 1 <= frame_limit <= MAX_FRAMES:
         raise ValueError("The LED frame limit is invalid.")
@@ -951,6 +1064,7 @@ def frames_to_led_tracks(
         if work_check is not None:
             work_check()
         layouts[target] = _LAYOUTS[model][target]
+    samples = _resolve_placements(placements, layouts)
     if resample not in {"nearest", "box", "lanczos"}:
         raise ValueError("GIF resampling must be nearest, box, or lanczos.")
     try:
@@ -1009,13 +1123,9 @@ def frames_to_led_tracks(
             if work_check is not None:
                 work_check()
             source_colors = raster_colors[layout["size"]]
-            colors = ["#000000"] * int(layout["pixels"])
-            for source_index, output_index in enumerate(layout["map"]):
-                if output_index >= 0:
-                    colors[output_index] = source_colors[source_index]
-            for output_index, source_index in layout.get("copies", ()):
-                colors[output_index] = colors[source_index]
-            track_frames[target].append(colors)
+            track_frames[target].append(
+                _track_colors(layout, source_colors, samples.get(target))
+            )
         if progress is not None:
             progress(index + 1, len(frames))
 
@@ -1037,9 +1147,7 @@ def frames_to_led_tracks(
             "width": width,
             "height": height,
             "pixels": int(layout["pixels"]),
-            "mapped_pixels": len(
-                {index for index in layout["map"] if index >= 0}
-            ),
+            "mapped_pixels": _mapped_pixels(layout, samples.get(target)),
         }
     return {
         "tracks": tracks,
@@ -1135,9 +1243,7 @@ def compose_media_frames_to_led_tracks(
             "width": width,
             "height": height,
             "pixels": int(layout["pixels"]),
-            "mapped_pixels": len(
-                {index for index in layout["map"] if index >= 0}
-            ),
+            "mapped_pixels": _mapped_pixels(layout),
         }
     return {
         "tracks": tracks,
@@ -1226,9 +1332,7 @@ def compose_media_transform_sequence_to_led_tracks(
             "width": width,
             "height": height,
             "pixels": int(layout["pixels"]),
-            "mapped_pixels": len(
-                {index for index in layout["map"] if index >= 0}
-            ),
+            "mapped_pixels": _mapped_pixels(layout),
         }
     return {
         "tracks": tracks,

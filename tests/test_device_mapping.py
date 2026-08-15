@@ -447,6 +447,224 @@ class TransformAwareMappingTests(unittest.TestCase):
         )
 
 
+class PlacementTableSeamTests(unittest.TestCase):
+    """The optional per-LED placement table, and the grid default it leaves alone.
+
+    The Angry Miao families have no authored physical geometry, so every one of
+    them maps by grid cell and no caller passes a table. The seam exists for
+    board definitions that do publish real key/LED positions (QMK, VIA, Vial),
+    which the multi-firmware lanes supply later.
+    """
+
+    DESTINATIONS = (
+        ("CB04", "keyframes"),
+        ("CB04", "frames"),
+        ("ALICE", "keyframes"),
+        ("AM21", "keyframes"),
+        ("AM21", "spotlight_frames"),
+        ("NEON80", "axial"),
+        ("NEON80", "head"),
+    )
+
+    @staticmethod
+    def _distinct_frame(width: int, height: int):
+        """One frame whose every raster cell carries a different colour."""
+
+        from PIL import Image
+
+        frame = Image.new("RGB", (width, height), (0, 0, 0))
+        for y in range(height):
+            for x in range(width):
+                index = y * width + x
+                frame.putpixel(
+                    (x, y),
+                    (
+                        (index * 3) % 256,
+                        (index * 7 + 40) % 256,
+                        (index * 11 + 90) % 256,
+                    ),
+                )
+        return frame
+
+    @staticmethod
+    def _source_colors(frame) -> list[str]:
+        pixels = (
+            frame.get_flattened_data()
+            if hasattr(frame, "get_flattened_data")
+            else frame.getdata()
+        )
+        return [
+            f"#{red:02X}{green:02X}{blue:02X}" for red, green, blue in pixels
+        ]
+
+    @classmethod
+    def _cell_centres(cls, cells, width: int, height: int):
+        return [
+            ((cell % width + 0.5) / width, (cell // width + 0.5) / height)
+            for cell in cells
+        ]
+
+    def test_without_a_placement_table_the_mapper_is_the_unchanged_grid_path(
+        self,
+    ) -> None:
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        for product_id, target in self.DESTINATIONS:
+            with self.subTest(product_id=product_id, target=target):
+                layout = mapping._LAYOUTS[mapping.led_model(product_id)][target]
+                # No table resolves to no sample map at all, so the target
+                # cannot leave the grid branch.
+                self.assertEqual(
+                    {}, mapping._resolve_placements(None, {target: layout})
+                )
+
+                width, height = layout["size"]
+                frame = self._distinct_frame(width, height)
+                source_colors = self._source_colors(frame)
+                # The mapping this slice must not change, written out here
+                # rather than borrowed from the module under test.
+                expected = ["#000000"] * int(layout["pixels"])
+                for source_index, output_index in enumerate(layout["map"]):
+                    if output_index >= 0:
+                        expected[output_index] = source_colors[source_index]
+                for output_index, source_index in layout.get("copies", ()):
+                    expected[output_index] = expected[source_index]
+
+                mapped = mapping.frames_to_led_tracks(
+                    [frame], [90], [target], "nearest", product_id
+                )
+                track = mapped["tracks"][target]
+                self.assertEqual(expected, track["frames"][0])
+                self.assertEqual(
+                    len({index for index in layout["map"] if index >= 0}),
+                    track["mapped_pixels"],
+                )
+                self.assertEqual(
+                    mapped,
+                    mapping.frames_to_led_tracks(
+                        [frame],
+                        [90],
+                        [target],
+                        "nearest",
+                        product_id,
+                        placements=None,
+                    ),
+                )
+
+    def test_a_placement_table_samples_the_physical_positions(self) -> None:
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        # The CyberBoard display is one LED per raster cell, so a table of cell
+        # centres describes exactly the placement the grid already assumes.
+        layout = mapping._LAYOUTS["CB"]["frames"]
+        width, height = layout["size"]
+        pixels = int(layout["pixels"])
+        frame = self._distinct_frame(width, height)
+        source_colors = self._source_colors(frame)
+        centres = self._cell_centres(range(pixels), width, height)
+
+        grid = mapping.frames_to_led_tracks(
+            [frame], [90], ["frames"], "nearest", "CB04"
+        )
+        self.assertEqual(
+            grid,
+            mapping.frames_to_led_tracks(
+                [frame],
+                [90],
+                ["frames"],
+                "nearest",
+                "CB04",
+                placements={"frames": centres},
+            ),
+        )
+
+        # Two LEDs that swap physical positions swap the pixels they sample.
+        swapped = list(centres)
+        swapped[3], swapped[7] = swapped[7], swapped[3]
+        moved = mapping.frames_to_led_tracks(
+            [frame],
+            [90],
+            ["frames"],
+            "nearest",
+            "CB04",
+            placements={"frames": swapped},
+        )["tracks"]["frames"]["frames"][0]
+        expected = list(grid["tracks"]["frames"]["frames"][0])
+        expected[3], expected[7] = expected[7], expected[3]
+        self.assertEqual(expected, moved)
+        self.assertEqual(source_colors[7], moved[3])
+        self.assertEqual(source_colors[3], moved[7])
+        self.assertNotEqual(moved[3], moved[7])
+
+    def test_a_placement_table_places_every_led_and_supersedes_copies(self) -> None:
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        # ALICE carries 90 LED colours over an 80-cell raster and fills the
+        # last two from other LEDs, so it is the family where "the table places
+        # every LED" says something the grid cannot.
+        layout = mapping._LAYOUTS["ALICE"]["keyframes"]
+        width, height = layout["size"]
+        pixels = int(layout["pixels"])
+        frame = self._distinct_frame(width, height)
+        source_colors = self._source_colors(frame)
+        cells = [index % (width * height) for index in range(pixels)]
+
+        def track(**changes):
+            return mapping.frames_to_led_tracks(
+                [frame], [90], ["keyframes"], "nearest", "ALICE", **changes
+            )["tracks"]["keyframes"]
+
+        grid = track()
+        placed = track(
+            placements={"keyframes": self._cell_centres(cells, width, height)}
+        )
+
+        self.assertEqual([source_colors[cell] for cell in cells], placed["frames"][0])
+        self.assertEqual(pixels, placed["mapped_pixels"])
+        self.assertLess(grid["mapped_pixels"], pixels)
+        # Derived copies are how the grid fills an LED the raster never
+        # reaches; the table has already given that LED a position.
+        self.assertEqual(grid["frames"][0][7], grid["frames"][0][71])
+        self.assertNotEqual(placed["frames"][0][7], placed["frames"][0][71])
+
+    def test_a_placement_table_is_checked_before_it_is_used(self) -> None:
+        mapping = importlib.import_module("am_configurator.device_mapping")
+
+        layout = mapping._LAYOUTS["CB"]["frames"]
+        width, height = layout["size"]
+        frame = self._distinct_frame(width, height)
+        centres = self._cell_centres(range(int(layout["pixels"])), width, height)
+
+        def mapped(placements) -> None:
+            mapping.frames_to_led_tracks(
+                [frame],
+                [90],
+                ["frames"],
+                "nearest",
+                "CB04",
+                placements=placements,
+            )
+
+        with self.assertRaisesRegex(ValueError, "mapping of LED targets"):
+            mapped([(0.5, 0.5)])
+        with self.assertRaisesRegex(ValueError, "does not use: keyframes"):
+            mapped({"keyframes": centres})
+        with self.assertRaisesRegex(ValueError, "one position for each of its 200"):
+            mapped({"frames": centres[:-1]})
+        with self.assertRaisesRegex(ValueError, "an x and y position"):
+            mapped({"frames": centres[:-1] + [(0.5, 0.5, 0.5)]})
+        for outside in (
+            (1.5, 0.5),
+            (0.5, -0.01),
+            ("0.5", 0.5),
+            (True, 0.5),
+            (float("nan"), 0.5),
+        ):
+            with self.subTest(position=outside):
+                with self.assertRaisesRegex(ValueError, "normalized to 0.0-1.0"):
+                    mapped({"frames": centres[:-1] + [outside]})
+
+
 class BrowserSpecMirrorsPythonTests(unittest.TestCase):
     """The browser carries its own copy of the family spec; it must not drift.
 

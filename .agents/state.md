@@ -134,7 +134,16 @@
   effect"), enumerated the picker's finite reachable recipe space (6,585
   recipes; zero quality-gate failures across all six board rasters), and
   passed the plan's once-per-plan native build + `--smoke-test` (Darwin).
-  Remaining: slice 4, the geometry seam. No hardware writes anywhere.
+  Slice 4 (geometry seam) landed 2026-08-15, closing the plan: an optional
+  per-key/per-LED placement table on `device_mapping.frames_to_led_tracks`
+  (`placements=`, output→cell sampling, strict validation, positions
+  normalized to the lit extent); absent table is proven byte-identical to
+  the pre-slice mapping by a new default-path test covering all seven
+  family/target pairs — a gap the existing byte-exact tests could not see
+  (their only routed target has an identity map). No consumer yet by
+  design: the v2 multi-firmware lanes thread board-definition geometry
+  through it. All four slices landed; plan closed. No hardware writes
+  anywhere.
 
 - **Procedural effect expansion plan drafted; all rulings closed 2026-08-15:**
   assessment of <https://am-led.nanakumi.net> (community AM LED JSON builder;
