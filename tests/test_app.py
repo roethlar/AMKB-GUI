@@ -2035,6 +2035,94 @@ class LedGenerateEndpointTests(unittest.TestCase):
                 status, data = self._request(method, path, body)
                 self.assertEqual(404, status)
 
+    def test_migration_discard_route_requires_confirmation_and_scrubs_plaintext(
+        self,
+    ) -> None:
+        """`/api/settings/migration/discard-credential` is a confirmed, manual
+        retry of a stuck legacy-schema migration. No AI/credential vault
+        exists any more, so "no vault modification" is exercised here as:
+        the settings directory gains no file besides settings.json and its
+        advisory lock, and no plaintext secret from the legacy 'llm' block
+        survives the repair."""
+
+        secret = "sk-only-legacy-route-copy"
+        library_root = Path(self._tmp) / "legacy-library"
+        legacy = {
+            "schema_version": 2,
+            "llm": {
+                "models": {
+                    "interpreter": "grok-4.3",
+                    "concept": "grok-imagine-image-quality",
+                    "video": "grok-imagine-video",
+                },
+                "keys": {"xai": secret},
+            },
+            "library": {"current_root": str(library_root), "roots": []},
+            "generation": {
+                "candidate_count": 4,
+                "loop_mode": "ping_pong",
+                "privacy_ack_version": "2026-07-20-xai-v1",
+                "privacy_ack_at": "2026-07-20T12:00:00+00:00",
+            },
+        }
+        path = store.settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        original = (json.dumps(legacy, indent=2) + "\n").encode("utf-8")
+        path.write_bytes(original)
+
+        # Make the automatic migrate-on-read write fail exactly once, so the
+        # GET leaves the file stuck at schema v2 with a retryable reason
+        # instead of silently upgrading it in place.
+        real_write = store._write_settings_file
+        calls = {"n": 0}
+
+        def flaky_write(target_path, settings):
+            if calls["n"] == 0:
+                calls["n"] += 1
+                raise OSError(errno.EACCES, "simulated migration write failure")
+            return real_write(target_path, settings)
+
+        with patch.object(store, "_write_settings_file", flaky_write):
+            status, settings = self._request("GET", "/api/settings")
+        self.assertEqual(200, status)
+        self.assertEqual(
+            {"required": True, "reason": "settings_migration_write_failed"},
+            settings["migration"],
+        )
+        self.assertNotIn(secret, json.dumps(settings))
+        self.assertEqual(original, path.read_bytes())
+
+        # Confirmation gate: missing/false confirm, and unknown fields, are
+        # both refused without touching the file.
+        for body in ({"confirm": False}, {"confirm": True, "extra": True}):
+            with self.subTest(body=body):
+                status, _response = self._request(
+                    "POST", "/api/settings/migration/discard-credential", body
+                )
+                self.assertEqual(400, status)
+                self.assertEqual(original, path.read_bytes())
+
+        status, repaired = self._request(
+            "POST",
+            "/api/settings/migration/discard-credential",
+            {"confirm": True},
+        )
+
+        self.assertEqual(200, status)
+        self.assertEqual({"required": False, "reason": None}, repaired["migration"])
+        self.assertEqual("ping_pong", repaired["generation"]["loop_mode"])
+        self.assertEqual(
+            str(library_root.resolve()), repaired["library"]["current_root"]
+        )
+        self.assertNotIn(secret, path.read_text("utf-8"))
+        self.assertNotIn(secret, json.dumps(repaired))
+        # No vault/credential file exists any more; confirm nothing besides
+        # settings.json and its advisory lock was created alongside it.
+        self.assertEqual(
+            {"settings.json", ".settings.lock"},
+            {p.name for p in path.parent.iterdir() if p.is_file()},
+        )
+
 
 class MediaRendererLifecycleTests(unittest.TestCase):
     def test_library_root_change_and_state_close_invalidate_renderer_sessions(

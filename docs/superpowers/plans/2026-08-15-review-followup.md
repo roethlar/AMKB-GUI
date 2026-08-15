@@ -52,6 +52,18 @@ integration test went with `tests/test_ai_routes.py` (original at
 `27a01ae:tests/test_ai_routes.py:681`). Restore behavioral coverage:
 confirmation gate, plaintext removal, no vault modification. Prove it bites.
 
+DONE 2026-08-15 — Added
+`test_migration_discard_route_requires_confirmation_and_scrubs_plaintext`
+(+88 lines, `tests/test_app.py`, `LedGenerateEndpointTests`). All three
+claims mutation-proven (revert fix → watch fail → restore): (1) removing
+the confirmation check failed the gate assertion; (2) tolerating a stray
+`llm` block in the v2 settings validator re-persisted the plaintext key
+(`assertNotIn` caught it in settings.json); (3) vault-untouched assertion
+proven earlier in the same pass. Design note: the server handler's
+post-call `_settings_view()` re-read auto-heals a pre-established stuck
+file, so the test provokes the write through the live route instead of
+seeding a stuck state. `store.py` confirmed byte-clean after each revert.
+
 ## Slice 4 — stranded OS-vault provider keys (finding 1) — OWNER DECISION
 
 Upgrading users keep provider API keys under service
