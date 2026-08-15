@@ -70,6 +70,74 @@ slice runs the full verification entry point before commit.
    store-related tests. Existing on-disk settings with AI keys must still
    load: unknown settings are ignored or dropped on save, never a load error
    (add a test proving a pre-removal settings file loads).
+   STOPPED 2026-08-14 (no code changed; tree left exactly as found): every
+   AI-facing symbol in `store.py` still has a live, in-scope-forbidden
+   dependent, so none of them can be removed without either editing
+   `server.py` (out of scope for this slice) or editing `tests/test_credentials.py`
+   / `tests/test_packaging.py` (slice 5's files — the former is scheduled for
+   wholesale deletion there, the latter holds an unrelated "local backend
+   absence" guard anchored on `store.py` source text). Evidence, gathered by
+   grepping live (non-test) callers before touching anything:
+   - `server.py`'s `_settings_view()` (backs the still-live `GET /api/settings`
+     route, `server.py:2575`) reads `settings["ai"]["api"]` and
+     `settings["ai"]["ollama"]` directly — dropping the top-level `ai` key
+     from what `store.load_settings`/`load_settings_with_status` returns
+     raises `KeyError` there.
+   - `server.py`'s `_State.ai_services()` (`server.py:2140`, reached from
+     `procedural_services()` which backs the surviving `/api/lighting/effects`
+     AI-recipe-generation route slice 2 kept coverage for) builds an
+     `AICapabilityService` wired straight to `store.load_settings`,
+     `store.credential_status`, `store.resolve_api_key`, and
+     `store.set_ai_setup_fingerprint` as its defaults.
+   - `server.py:3896`'s `_save_settings_privacy` handler (routed from
+     `POST /api/settings/privacy`, still live) calls `store.acknowledge_privacy`
+     directly.
+   - `store.discard_legacy_api_credential` is slice 2's deliberately kept
+     migration-repair route backing, per its own DONE note above — unchanged.
+   - `tests/test_credentials.py` calls `store.save_settings`,
+     `store.update_api_key`, `store.resolve_xai_key`, `store.update_ai_settings`,
+     `store.update_ollama_ai_settings`, and `store.acknowledge_ollama_disclosure`
+     directly; that whole file is slice 5's to delete alongside `credentials.py`,
+     not slice 4's to edit piecemeal.
+   - `tests/test_packaging.py`'s local-backend-absence guard does
+     `store_source[store_source.index("def update_ai_settings(") :]` to slice
+     the file text — an unrelated guard that would break if that function
+     were renamed or removed here.
+   Net: `save_settings` and `update_api_key` (and, transitively,
+   `resolve_xai_key`) are otherwise dead in production — no `server.py` or
+   `desktop.py` caller remains — but all three are still exercised by
+   `test_credentials.py`, so even that "free" trim is blocked by the
+   don't-touch-other-files boundary, not by any real behavioral need. No test
+   was added for the pre-removal-settings-file-loads contract: writing it now
+   would only re-prove today's existing (and already covered, in
+   `SettingsStoreTests.test_v1_file_migrates_in_place_without_losing_key` /
+   `test_v6_migrates_exactly_to_v7...` / `test_v2_model_preferences_are_discarded...`
+   / `test_corrupt_file_recovers`) tolerant-migration behavior, not the
+   drop-the-now-unknown-`ai`-key behavior the plan text describes — that
+   behavior does not exist yet because `_reject_unknown` at the top level
+   still requires `ai` as a mandatory field, and it cannot be made optional
+   without breaking the live `server.py` reads above. Full verification
+   entry point not re-run (no code changed; tree is identical to slice 3's
+   green state). Recommends either widening this slice to include the
+   residual `server.py` AI wiring above (folding it into, or ordering it
+   immediately before, slice 5's deletion of `ai_capability.py` /
+   `procedural_generation.py` / `credentials.py`, since `ai_services()` only
+   makes sense together with those modules) or an owner decision to accept a
+   larger slice 4.
+   RESOLVED 2026-08-14 (in-session, under the owner blanket go for remaining
+   slices; no scope added): slices 4 and 5 are re-sequenced — slice 5 runs
+   first, then slice 4. Code inspection confirmed the "surviving procedural
+   route" characterization from slice 2 was wrong: `/api/lighting/effects` is
+   provider-driven AI generation (`ProceduralGenerationCoordinator.start_effect`
+   calls `capability.require_ready()`/`provider_for_generation()`;
+   `procedural_generation.py` imports `llm`, `recipe_provider`, `ai_catalog`,
+   `generation_admission` — all slice 5 deletion targets), so the route
+   cannot outlive slice 5's already-approved deletions; removing it is the
+   inherent consequence of deleting those modules, not a widening. Likewise
+   `store.acknowledge_privacy` (backing `POST /api/settings/privacy`) is
+   AI-provider disclosure machinery through `ai_catalog` and goes with it.
+   `store.discard_legacy_api_credential` and its migration-repair route stay,
+   per slice 2's DONE note.
 5. **Core AI modules.** Delete `llm.py`, `recipe_provider.py`,
    `recipe_inference.py`, `ollama_client.py`, `ai_catalog.py`,
    `ai_capability.py`, `procedural_generation.py`, `generation_admission.py`,
@@ -80,6 +148,17 @@ slice runs the full verification entry point before commit.
    `media_framing_audit.py` (`ai_catalog` at ~2445, `credentials` at ~2470).
    `procedural.py`, `recipe_*` schema validation living outside these modules,
    `library.py`, and `device_mapping.py` stay.
+   Runs BEFORE slice 4 (re-sequenced per the slice 4 resolution above) and
+   also removes the server-side consumers these deletions orphan — the
+   inherent consequence of the approved module deletions, no new scope:
+   `/api/lighting/effects` and `/api/lighting/jobs/*` routes,
+   `_start_procedural_effect`, the `ai_services()`/`procedural_services()`
+   coordinator arm in `server.py`; `POST /api/settings/privacy` and
+   `store.acknowledge_privacy` (AI-provider disclosure ack via `ai_catalog`);
+   the `/api/led/generate*` dead stubs flagged in slice 2's out-of-scope
+   findings; and the corresponding tests in `tests/test_ai_routes.py` /
+   `tests/test_credentials.py`-adjacent server tests. `store.py` settings
+   persistence itself remains for slice 4.
 6. **Absence guard + sweep.** Add a guard test following the
    `test_legacy_inline_generator_removed.py` precedent: assert no module,
    route, or UI string from the removed surface reappears (grep gate: no hits
