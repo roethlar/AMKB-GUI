@@ -159,6 +159,70 @@ slice runs the full verification entry point before commit.
    findings; and the corresponding tests in `tests/test_ai_routes.py` /
    `tests/test_credentials.py`-adjacent server tests. `store.py` settings
    persistence itself remains for slice 4.
+   STOPPED 2026-08-14 (no code changed; tree left exactly as found): the
+   re-sequencing rationale above audited `server.py`'s use of these modules
+   but not `store.py`'s own imports, which are load-bearing and unconditional,
+   not the lazy/optional kind. `store.py:45` has a **module-level**
+   `from . import ai_catalog`, consumed immediately at import time by
+   `store.py:411`'s `_KNOWN_KEY_PROVIDERS = ai_catalog.API_PROVIDER_IDS`.
+   Deleting `ai_catalog.py` as instructed, with `store.py` touched only at
+   `store.acknowledge_privacy` (the sole store.py symbol this slice's brief
+   named), makes `import am_configurator.store` fail unconditionally — and
+   `store` is imported by `server.py`, `desktop.py`, and nearly every test
+   module, so the whole application and test suite go down, not just AI
+   surface. This is not a narrow, self-contained fix: `store.py`'s
+   `_validate_settings` (`store.py:1206`) still treats the top-level `ai` key
+   as mandatory and calls `ai_catalog.validate_api_provider`/
+   `validate_provider_model` (`store.py:1278`, `1303`) plus a lazy
+   `from .ollama_client import ...` (`store.py:1230`) to validate it — the
+   exact schema-mandatory-`ai`-key surgery slice 4's own STOPPED note already
+   identified as its scoped, non-trivial work ("`_reject_unknown` at the top
+   level still requires `ai` as a mandatory field, and it cannot be made
+   optional without breaking the live `server.py` reads"). Worse, that
+   validation path is reachable from the slice-2-kept, in-scope-forbidden-to-
+   widen `discard_legacy_api_credential` (`store.py:1697`, backs the kept
+   `POST /api/settings/migration/discard-credential` route) and from the
+   still-live `GET /api/settings` route via `_settings_view` →
+   `store.load_settings_with_status` (`store.py:1608`). A second, smaller
+   importer conflict compounds this: `desktop.py:635-637`'s `run_smoke_test()`
+   does `from . import llm; tls_context = llm.default_tls_context()` for the
+   packaged-CA-trust check that gates `--smoke-test` (the 0.1.68 TLS fix,
+   `.agents/state.md`); `default_tls_context()` (`llm.py:263-270`) is an
+   8-line, stdlib-`ssl`-plus-`certifi`-only helper with no AI coupling, but
+   `llm.py` is a full-deletion target and `desktop.py` is out of this slice's
+   named scope. Out-of-scope finding, not fixed: `build_tools/qualify_recipe_model.py`
+   imports `am_configurator.llm.ProviderError`, `am_configurator.ollama_client`,
+   and `am_configurator.recipe_provider` (lines 20-38) — an Ollama
+   recipe-model qualification CLI that becomes import-broken once this slice's
+   modules are deleted; `compileall` won't catch it (syntax-only, no import
+   resolution) but running the script would fail. It sits outside
+   `am_configurator/`/`tests/` and this slice's named file list, so flagged
+   rather than touched. Recommends an owner decision: either widen this
+   slice's named scope to include the specific `store.py` schema surgery
+   (drop the mandatory top-level `ai` key / its `ai_catalog`/`ollama_client`
+   validation) so it lands together with the module deletions, or fold that
+   surgery forward from slice 4 to run first after all, undoing the
+   re-sequencing. Either way `desktop.py`'s `default_tls_context()` dependency
+   and the `build_tools/qualify_recipe_model.py` breakage need their own
+   explicit go before a full slice-5 deletion pass can turn green.
+   RESOLVED 2026-08-14 (in-session, under the owner blanket go; sequencing
+   change only, no scope added): slices 4 and 5 are now verified mutually
+   interlocked from both directions — slice 4 stopped because slice 5's
+   `tests/test_credentials.py` exercises store.py's AI-settings functions,
+   and slice 5 stopped because `store.py:45`'s module-level
+   `from . import ai_catalog` (used at import time, `store.py:411`) breaks
+   the whole app if the modules go first. No valid ordering of the two
+   slices exists; the split itself was wrong. They are MERGED into one
+   combined slice 4+5, executed and committed as a single unit. Both slices'
+   contents are individually approved by this plan, so the merge redraws no
+   scope boundary. Two consequential repairs land with it as inherent
+   consequences of the approved deletions: (a) `desktop.py`'s
+   `run_smoke_test()` keeps its packaged-CA-trust check by inlining the
+   8-line stdlib-`ssl`+`certifi` `default_tls_context()` body (no AI
+   coupling) instead of importing the deleted `llm.py`; (b)
+   `build_tools/qualify_recipe_model.py` is deleted — it is an Ollama
+   recipe-model qualification CLI, unambiguously AI surface, and an
+   orphaned importer of three deleted modules.
 6. **Absence guard + sweep.** Add a guard test following the
    `test_legacy_inline_generator_removed.py` precedent: assert no module,
    route, or UI string from the removed surface reappears (grep gate: no hits
