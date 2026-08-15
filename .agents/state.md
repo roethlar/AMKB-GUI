@@ -121,8 +121,9 @@
   needs its own approved plan. An owner-supplied Cyberboard export from the
   community builder was verified to contain finished per-frame `frame_RGB`
   data, not a recipe; that fact grounded the boundary. The AI-removal plan is
-  drafted (see Now) and lands on `v2/openkeeb`; the picker plan is still to be
-  drafted.
+  drafted (see Now) and lands on `v2/openkeeb`. The picker/engine plan is
+  drafted (`docs/superpowers/plans/2026-08-15-effect-picker-and-engine.md`,
+  2026-08-15) and awaits owner approval; no implementation authorized.
 
 - **Procedural effect expansion plan drafted; all rulings closed 2026-08-15:**
   assessment of <https://am-led.nanakumi.net> (community AM LED JSON builder;
@@ -172,9 +173,12 @@
   (QMK/VIA/Vial) support lands the engine uses per-key/per-LED positions
   wherever the board definition supplies them (QMK `info.json`, VIA/Vial
   definitions), grid placement as fallback. See `.agents/decisions.md`
-  "2026-08-15 — Effect-plan rejections ruled". Next planning item for this
-  lane: the user-facing effect picker / effect-engine plan (open question 1
-  above). Scope of the verification pass:
+  "2026-08-15 — Effect-plan rejections ruled". The picker/engine plan for
+  this lane is drafted
+  (`docs/superpowers/plans/2026-08-15-effect-picker-and-engine.md`,
+  2026-08-15, awaiting owner approval); it also supersedes this plan's
+  stale AI-era verification items with a dated correction. Scope of the
+  verification pass:
   the effect-techniques plan claim by claim, plus a spot-check of the OpenKeeb
   v2 architecture section. Other docs were not audited.
 - **OpenKeeb v2 planning:** capability-based support, firmware-resident lighting,

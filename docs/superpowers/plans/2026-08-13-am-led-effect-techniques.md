@@ -267,3 +267,10 @@ That pass-through is the baseline the future plan starts from.
    `.agents/repo-guidance.md`.
 5. Manual local model qualification run as above. No hardware writes
    anywhere in this plan.
+
+Correction 2026-08-15: items 2, 3, and 5 predate the AI removal and name
+deleted AI-era surfaces (`test_procedural_generation.py`, the recipe
+corpus, model qualification runs). The deterministic picker/engine plan
+(`2026-08-15-effect-picker-and-engine.md`) carries the corrected
+verification for the adopted kinds; item 2's byte-exact assertions apply
+only if the reactive derivation is ever scoped.
