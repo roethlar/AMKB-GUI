@@ -96,6 +96,11 @@ re-derive at edit time. If a slice turns out to entangle non-AI behavior
 
 ## Verification
 
+Per-slice external codereview (codex) declined 2026-08-14 (owner delegated
+the call via session goal): slices are mechanical deletions, each gated by
+the full verification entry point, and slice 6 adds a bite-proven absence
+guard — no residual material risk per Review Economy.
+
 Every slice: full entry point from `.agents/repo-guidance.md` (Verification).
 Slice 6 additionally proves the guard test bites (revert one deletion, watch
 it fail, restore). Native build + `--smoke-test` once after slice 6, since
