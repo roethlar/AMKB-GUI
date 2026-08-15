@@ -1985,14 +1985,6 @@ class LedGenerateEndpointTests(unittest.TestCase):
             raw = exc.read()
             return exc.code, (json.loads(raw) if raw else None)
 
-    def _save_key(self, value: str) -> None:
-        status, _ = self._request(
-            "POST",
-            "/api/settings/credential",
-            {"provider": "xai", "key": value},
-        )
-        self.assertEqual(status, 200)
-
     def test_key_assignments_use_the_target_familys_wire_vocabulary(self) -> None:
         for code in ("#00000000", "#00070004", "#0095150F", "#00FF5101"):
             with self.subTest(code=code):
@@ -2571,56 +2563,8 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(True, response["retryable"])
         self.assertNotIn(private_detail, json.dumps(response))
 
-    def test_current_credential_route_masks_key(self) -> None:
-        key = "sk-secret-9WXYZ7788"
-        status, saved = self._request(
-            "POST",
-            "/api/settings/credential",
-            {"provider": "xai", "key": key},
-        )
-        self.assertEqual(status, 200)
-        # Even the POST response must never echo the raw key back to the browser.
-        self.assertNotIn(key, json.dumps(saved))
-        self.assertNotIn("llm", saved)
-        self.assertEqual(store.resolve_xai_key(), key)
-
-        status, data = self._request("GET", "/api/settings")
-        self.assertEqual(status, 200)
-        self.assertEqual(data["schema_version"], 7)
-        self.assertNotIn("llm", data)
-        self.assertNotIn("candidate_count", data["generation"])
-        # The raw key never returns to the browser, anywhere in the payload.
-        self.assertNotIn(key, json.dumps(data))
-
-        # Posting the display mask sentinel can never round-trip into storage.
-        status, _ = self._request(
-            "POST",
-            "/api/settings/credential",
-            {"provider": "xai", "key": store.KEY_MASK},
-        )
-        self.assertEqual(status, 400)
-
-    def test_settings_masks_even_a_short_key_in_full(self) -> None:
-        key = "tiny"
-        status, saved = self._request(
-            "POST", "/api/settings/credential", {"provider": "xai", "key": key}
-        )
-        self.assertEqual(status, 200)
-        self.assertNotIn(key, json.dumps(saved))
-        self.assertNotIn("llm", saved)
-        self.assertEqual(store.resolve_xai_key(), key)
-
     def test_split_settings_routes_update_sections_independently(self) -> None:
         from am_configurator import ai_catalog
-
-        key = "sk-split-route-12345678"
-        status, data = self._request(
-            "POST", "/api/settings/credential", {"provider": "xai", "key": key}
-        )
-        self.assertEqual(status, 200)
-        self.assertNotIn(key, json.dumps(data))
-        self.assertNotIn("llm", data)
-        self.assertEqual(store.resolve_xai_key(), key)
 
         status, data = self._request(
             "POST", "/api/settings/preferences", {"loop_mode": "ping_pong"}
@@ -2628,7 +2572,6 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertNotIn("candidate_count", data["generation"])
         self.assertEqual(data["generation"]["loop_mode"], "ping_pong")
-        self.assertEqual(store.resolve_xai_key(), key)
 
         library = Path(self._tmp) / "generated-library"
         status, data = self._request(
@@ -2636,7 +2579,6 @@ class LedGenerateEndpointTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(data["library"]["current_root"], str(library.resolve()))
-        self.assertEqual(store.resolve_xai_key(), key)
 
         status, data = self._request("POST", "/api/settings/privacy", {
             "provider": "xai",
@@ -2648,13 +2590,7 @@ class LedGenerateEndpointTests(unittest.TestCase):
             ai_catalog.PRIVACY_DISCLOSURE_VERSION,
         )
         self.assertTrue(data["generation"]["privacy_ack_at"])
-        self.assertEqual(store.resolve_xai_key(), key)
 
-        status, data = self._request(
-            "POST", "/api/settings/credential", {"provider": "xai", "key": ""}
-        )
-        self.assertEqual(status, 200)
-        self.assertIsNone(store.resolve_xai_key())
         status, data = self._request("GET", "/api/settings")
         self.assertEqual(status, 200)
         self.assertEqual(data["library"]["current_root"], str(library.resolve()))
@@ -2664,8 +2600,6 @@ class LedGenerateEndpointTests(unittest.TestCase):
 
         secret = "sk-must-not-appear-anywhere"
         invalid_cases = (
-            ("/api/settings/credential", {"provider": "xai", "key": [secret]}),
-            ("/api/settings/credential", {"provider": "xai", "key": "x", "extra": 1}),
             ("/api/settings/preferences", {"models": {"interpreter": "future"}}),
             ("/api/settings/preferences", {"candidate_count": 9}),
             ("/api/settings/preferences", {"loop_mode": "crossfade"}),

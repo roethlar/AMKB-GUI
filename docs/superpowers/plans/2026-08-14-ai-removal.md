@@ -31,6 +31,18 @@ slice runs the full verification entry point before commit.
 2. **Server routes.** Remove `/api/ai/*` routes and AI imports from
    `am_configurator/server.py` (imports at ~1960–2823). Delete
    `tests/test_ai_routes.py`; trim AI-route cases from `tests/test_app.py`.
+   DONE 2026-08-14: removed the `/api/ai/*` routes, the AI-only
+   `/api/settings/{ai,ollama,ollama/disclosure,credential}` routes, and their
+   nine handler methods plus `_is_ai_path` from `server.py`; trimmed (not
+   deleted) `tests/test_ai_routes.py` since it is the only coverage for the
+   surviving `/api/lighting/effects` procedural route, and trimmed
+   `tests/test_app.py`. Kept `/api/settings/migration/discard-credential` and
+   its handler `_discard_legacy_ai_credential`: `tests/web/lighting_shell.test.js`
+   proves this legacy-credential-migration-repair route is still a live,
+   tested UI feature independent of the AI generation surface slices 1/1b
+   removed, so removing it here would have widened this slice into web UI
+   territory. Full verification entry point green (756 Python tests, 171 JS
+   tests).
 3. **Desktop wiring.** Remove `AICapabilityService` and provider wiring from
    `am_configurator/desktop.py` (~608–856). Trim `tests/test_desktop.py`.
 4. **Store/settings.** Remove Ollama/provider/credential settings persistence
