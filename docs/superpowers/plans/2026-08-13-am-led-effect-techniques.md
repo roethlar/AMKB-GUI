@@ -14,7 +14,11 @@ corrections are marked inline and dated.
 - The open scoping question this plan does not answer: **effect kinds are
   reachable only by an LLM.** There is no user-facing effect picker, so
   adopting kinds does not give users the reference builder's options.
-- Ruling (3), confirmation of the rejections below, is still outstanding.
+- Ruling (3) landed 2026-08-15: rejections 2 and 3 (LCM frame counts, hash
+  noise) confirmed as written; rejection 1 (geometry sampling) confirmed for
+  the current AM boards but amended for multi-firmware expansion — see the
+  Rejected section and `.agents/decisions.md` "2026-08-15 — Effect-plan
+  rejections ruled".
 
 No implementation is authorized.
 
@@ -228,6 +232,14 @@ That pass-through is the baseline the future plan starts from.
   byte-exact tests lock down; fixed families have no authored physical
   geometry; the gain is sub-column precision on staggered rows only.
   Revisit only if adopted effects visibly misalign on hardware.
+  **Amended 2026-08-15 (owner ruling):** this rejection holds only for the
+  current AM boards, where no authored physical geometry exists. It is not
+  "never." QMK-family board definitions do carry per-key physical positions
+  and per-LED positions (QMK `info.json` layout and `led_config`; VIA
+  keyboard definitions; Vial embeds the definition in the firmware itself),
+  so when multi-firmware support lands, the effect engine must accept
+  optional real key/LED geometry and use it wherever the board's definition
+  provides it, with grid placement as the fallback for boards without data.
 - **Minimal LCM frame counts.** Loops here are already seamless by
   integer-speed construction, and firmware plays at fixed speed, so
   shrinking frame counts would shorten loop duration, not improve quality.

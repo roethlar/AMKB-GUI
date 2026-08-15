@@ -1,5 +1,37 @@
 # Repository Decisions
 
+## 2026-08-15 — Effect-plan rejections ruled: two confirmed, geometry amended
+
+Status: approved by the owner on 2026-08-15. The owner's push-back ("is the
+data required to accurately layout the keymap and led map present in every
+firmware? if not, how are we going to do it right?") produced the amendment;
+"go" recorded it. Closes Ruling (3) of
+`docs/superpowers/plans/2026-08-13-am-led-effect-techniques.md` — the plan's
+last outstanding ruling.
+
+- Confirmed as written: **minimal LCM frame counts** (loops are already
+  seamless by integer-speed construction and firmware plays at fixed speed;
+  shrinking counts would shorten loop duration, not improve quality) and
+  **deterministic hash noise as a standalone change** (seeded rendering is
+  already reproducible). Reproducibility itself is load-bearing, not
+  aesthetic: nothing is random live on the device — effects are baked to a
+  fixed frame list at export — so determinism is what makes output
+  byte-testable and re-exports of the same profile stable; visible
+  randomness is unaffected and the seed is the knob for a different pattern.
+- Amended, not confirmed as written: **per-key geometry sampling** is
+  rejected only for the current AM boards, which have no authored physical
+  geometry. The QMK/VIA/Vial ecosystem's board definitions carry per-key
+  physical positions and per-LED positions (QMK `info.json`; VIA keyboard
+  definitions; Vial embeds the definition in the firmware), so when
+  multi-firmware support lands, the effect engine uses real geometry
+  wherever a board definition supplies it; grid placement stays as the
+  fallback. The plan's Rejected section carries the same amendment inline.
+- Owner process preference, recorded from the same exchange: do not bring
+  the owner questions whose answer is obvious; close them and surface only
+  real forks (this ruling's item 1 was a real fork; item 2 was not).
+- Ruling and record only; no implementation slice is authorized by this
+  entry.
+
 ## 2026-08-14 — AMKB-GUI v1 is done and locked; all new work is OpenKeeb v2
 
 Status: approved by the owner on 2026-08-14. Owner's words: "AMKB-GUI is done

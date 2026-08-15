@@ -124,7 +124,7 @@
   drafted (see Now) and lands on `v2/openkeeb`; the picker plan is still to be
   drafted.
 
-- **Procedural effect expansion plan drafted, rulings pending (2026-08-13):**
+- **Procedural effect expansion plan drafted; all rulings closed 2026-08-15:**
   assessment of <https://am-led.nanakumi.net> (community AM LED JSON builder;
   unlicensed, no public source — clean-room only) produced
   `docs/superpowers/plans/2026-08-13-am-led-effect-techniques.md`. It adopts
@@ -132,9 +132,7 @@
   derivation for CB/NEON) and rejects per-key geometry sampling, LCM frame
   counts, hash-noise-as-change, and word_page text authoring. Ruling 1
   landed 2026-08-13: seven kinds (breathe, chase, ripple, matrix_rain,
-  heartbeat, fire, twinkle), strobe excluded. Rulings outstanding, in
-  order: reactive mode + switch location, remaining rejection confirmations. No
-  implementation authorized.
+  heartbeat, fire, twinkle), strobe excluded. No implementation authorized.
   Ruling 2 landed 2026-08-14: **text banner authoring is in v2 scope**,
   reversing the plan's `word_page` rejection. NEON and Cyberboard only — the
   billboard panel is the reason the feature exists — and panel display becomes a
@@ -167,7 +165,16 @@
      feature work.
   3. `FamilySpec` does not hold lighting geometry (`_LAYOUTS` does); the
      OpenKeeb v2 architecture note was corrected to match.
-  Ruling 3 (rejection confirmations) remains outstanding. Scope of the pass:
+  Ruling 3 landed 2026-08-15, closing the plan's last ruling: rejections 2
+  and 3 (LCM frame counts, hash noise) confirmed as written; rejection 1
+  (per-key geometry sampling) amended — it holds only for the current AM
+  boards, which have no authored geometry, and when multi-firmware
+  (QMK/VIA/Vial) support lands the engine uses per-key/per-LED positions
+  wherever the board definition supplies them (QMK `info.json`, VIA/Vial
+  definitions), grid placement as fallback. See `.agents/decisions.md`
+  "2026-08-15 — Effect-plan rejections ruled". Next planning item for this
+  lane: the user-facing effect picker / effect-engine plan (open question 1
+  above). Scope of the verification pass:
   the effect-techniques plan claim by claim, plus a spot-check of the OpenKeeb
   v2 architecture section. Other docs were not audited.
 - **OpenKeeb v2 planning:** capability-based support, firmware-resident lighting,
