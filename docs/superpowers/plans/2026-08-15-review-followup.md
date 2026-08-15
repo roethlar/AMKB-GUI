@@ -80,6 +80,17 @@ dependency is gone). Options:
 Recommendation: (b). Re-adding `keyring` contradicts the removal's intent
 for one shrinking cohort; documented manual removal is honest and zero-dep.
 
+RESOLVED 2026-08-15 — owner chose (b). DONE 2026-08-15: README gained
+"Upgrading from a release with AI features" with exact per-OS removal steps
+(service `dev.amconfigurator.ai`; accounts `xai`, `anthropic`, `openai`,
+`gemini`, `moonshot`, `deepseek` — names verified against
+`am_configurator/credentials.py` at v0.1.68). Release-notes half is deferred
+by necessity: the next release does not exist yet (`_version.py` is still
+0.1.68, the last published release). Whoever cuts the next release must
+carry the same removal steps (or a pointer to the README section) into that
+release's notes — recorded as a pending release-cut obligation in
+`.agents/state.md`.
+
 ## Verification
 
 Every slice: full entry point from `.agents/repo-guidance.md`

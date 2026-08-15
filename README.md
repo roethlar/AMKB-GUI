@@ -167,6 +167,26 @@ through the SHA-256 digest, the signature, and opening the app on each operating
 system. Signed release files carry no GitHub build attestation, so
 `gh attestation verify` reports none for them.
 
+## Upgrading from a release with AI features
+
+Releases up to 0.1.68 offered optional AI providers. If you ever saved a
+provider API key in one of those releases, the key sits in your operating
+system's credential store under the service name `dev.amconfigurator.ai`
+(one entry per provider: `xai`, `anthropic`, `openai`, `gemini`, `moonshot`,
+`deepseek`). This release no longer reads or deletes those entries, so remove
+any you saved yourself:
+
+- **macOS** — open Keychain Access, search for `dev.amconfigurator.ai`, and
+  delete each item; or run
+  `security delete-generic-password -s dev.amconfigurator.ai` in Terminal,
+  repeating until it reports no matching item.
+- **Windows** — open Credential Manager → Windows Credentials and remove every
+  entry whose name contains `dev.amconfigurator.ai`.
+- **Linux** — run `secret-tool clear service dev.amconfigurator.ai`, or delete
+  the entries with your keyring app (for example GNOME Passwords and Keys).
+
+If you never saved an API key, there is nothing to remove.
+
 ## For developers
 
 <details>
