@@ -13,11 +13,13 @@ import re
 import secrets
 import threading
 import time
+import uuid
 import webbrowser
 import zlib
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -72,6 +74,39 @@ _LIGHTING_ASSET_MIMES = frozenset(
         "application/json",
     }
 )
+
+# One effect render is bounded by a shared monotonic deadline, the same
+# mechanism the removed generation pipeline used. That pipeline gave a whole
+# operation 180 seconds, but its budget also covered a network call to a model
+# provider; this route runs only the local half. Measured worst case on the
+# largest supported raster (NEON head, 46x5, 256 frames) is 13.2 seconds
+# end to end, so 60 seconds leaves roughly four times that headroom on slower
+# machines without letting a single synchronous request hang for minutes.
+_EFFECT_RENDER_DEADLINE_SECONDS = 60.0
+# Effects render at the device's own raster and its fastest firmware step, so
+# the mapper never resamples an exact timeline.
+_EFFECT_FRAME_DURATION_MS = min(device_mapping.LED_SPEEDS_MS)
+
+
+def _timestamp() -> str:
+    """Return the UTC ISO form Library manifests already record."""
+
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _effect_work_budget() -> Any:
+    """Return the shared deadline that bounds one synchronous effect render.
+
+    Built behind this seam so a test can expire the budget at an exact stage,
+    the way the removed coordinator's injected monotonic clock allowed.
+    """
+
+    from .procedural import WorkBudget
+
+    return WorkBudget(
+        deadline=time.monotonic() + _EFFECT_RENDER_DEADLINE_SECONDS,
+        cancelled=lambda: False,
+    )
 
 
 class AcceptedWriteError(RuntimeError):
@@ -2235,9 +2270,36 @@ class _Handler(BaseHTTPRequestHandler):
             ManifestError,
         )
         from .media_composition import MediaRenderSuperseded
+        from .procedural import WorkCancelled, WorkDeadlineExceeded
 
         if isinstance(exc, MediaRenderSuperseded):
             self._json({"error": str(exc)}, HTTPStatus.CONFLICT)
+            return True
+        if isinstance(exc, WorkDeadlineExceeded):
+            # Bounded local work that ran out of time is the same kind of
+            # transient, retryable conflict as a superseded render: the request
+            # stopped before anything was saved.
+            self._json(
+                {
+                    "error": (
+                        "This effect took too long to render on this computer. "
+                        "Nothing was saved. Try it again, or choose a simpler "
+                        "effect."
+                    )
+                },
+                HTTPStatus.CONFLICT,
+            )
+            return True
+        if isinstance(exc, WorkCancelled):
+            self._json(
+                {
+                    "error": (
+                        "The effect stopped before it finished rendering. "
+                        "Nothing was saved."
+                    )
+                },
+                HTTPStatus.CONFLICT,
+            )
             return True
         if isinstance(exc, AssetNotFoundError):
             self._json({"error": "Asset not found."}, HTTPStatus.NOT_FOUND)
@@ -2441,6 +2503,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._library_save_profile(body)
             elif path.startswith("/api/library/items/"):
                 self._library_post(path, body)
+            elif path == "/api/lighting/render":
+                self._render_lighting_effect(body)
             elif path == "/api/device/read":
                 self._read_device(body)
             elif path == "/api/device/preflight":
@@ -2965,6 +3029,176 @@ class _Handler(BaseHTTPRequestHandler):
         )
         detail = catalog.get(f"item:{item['item_id']}")
         self._json(detail, HTTPStatus.CREATED)
+
+    @staticmethod
+    def _effect_target(
+        product_id: object,
+        targets: object,
+    ) -> tuple[Any, dict[str, Any]]:
+        """Resolve one request's keyboard and LED areas through device_mapping."""
+
+        if not isinstance(product_id, str) or not product_id.strip():
+            raise ValueError("Rendering an effect requires one keyboard.")
+        if (
+            not isinstance(targets, list)
+            or not 1 <= len(targets) <= 16
+            or any(
+                not isinstance(target, str) or not target.strip()
+                for target in targets
+            )
+        ):
+            raise ValueError("Rendering an effect requires at least one LED area.")
+        # device_mapping owns the family, raster, and track vocabulary; the
+        # request never names a family and never chooses a raster.
+        spec, resolved = device_mapping.generation_spec(product_id, targets, None)
+        descriptor = device_mapping.device_descriptor(product_id)
+        return spec, {
+            "family": spec.model,
+            "product_id": descriptor["product_id"],
+            "product_label": descriptor["product_label"],
+            "raster": {"width": spec.width, "height": spec.height},
+            "targets": resolved,
+            "frame_cap": spec.max_frames,
+        }
+
+    def _render_lighting_effect(self, body: dict[str, Any]) -> None:
+        """Render one recipe locally and bank the exact result in Library.
+
+        Everything is synchronous and local: no background worker, no provider,
+        and no device write. The Library entry is created only after every byte
+        exists in memory, so a budget that expires mid-render leaves nothing
+        behind.
+        """
+
+        from . import procedural
+
+        if urlparse(self.path).query:
+            raise ValueError("Rendering an effect does not accept query fields.")
+        if set(body) != {"recipe", "product_id", "targets"}:
+            raise ValueError(
+                "Rendering an effect requires one recipe, one keyboard, and its "
+                "LED areas."
+            )
+        recipe = procedural.validate_recipe(body["recipe"])
+        spec, target = self._effect_target(body["product_id"], body["targets"])
+
+        work = _effect_work_budget()
+        frames = procedural.render_recipe(
+            recipe,
+            width=spec.width,
+            height=spec.height,
+            frame_count=spec.max_frames,
+            work=work,
+        )
+        try:
+            quality = procedural.validate_quality(
+                recipe,
+                frames,
+                width=spec.width,
+                height=spec.height,
+                frame_count=spec.max_frames,
+                work=work,
+            )
+        except procedural.QualityError as exc:
+            rejected = ValueError(
+                "This effect did not pass the lighting checks: "
+                f"{', '.join(exc.failures)}. Nothing was saved. Change the "
+                "effect settings and try again."
+            )
+            rejected.code = "quality_failed"
+            raise rejected from None
+
+        durations = procedural.gif_durations(
+            spec.max_frames,
+            _EFFECT_FRAME_DURATION_MS,
+        )
+        raster_output = io.BytesIO()
+        procedural.write_gif(frames, raster_output, durations, work=work)
+        preview_output = io.BytesIO()
+        procedural.write_preview_gif(frames, preview_output, durations, work=work)
+        mapped = device_mapping.validate_mapped_result(
+            procedural.map_frames_to_led_tracks(
+                frames,
+                duration_ms=_EFFECT_FRAME_DURATION_MS,
+                product_id=target["product_id"],
+                targets=target["targets"],
+                work=work,
+            ),
+            frame_count=spec.max_frames,
+            duration_ms=_EFFECT_FRAME_DURATION_MS,
+            targets=target["targets"],
+        )
+        recipe_bytes = json.dumps(recipe, indent=2).encode("utf-8")
+        mapped_bytes = json.dumps(
+            mapped,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        # Last point at which nothing has been written. Everything below only
+        # commits bytes that already exist, so the budget is deliberately not
+        # rechecked once the Library entry starts being built.
+        work.check()
+
+        catalog = self.state.library_catalog()
+        started_at = _timestamp()
+        manifest = catalog.jobs.create_job(prompt=recipe["name"], target=target)
+        job_id = manifest["job_id"]
+        attempt_id = str(uuid.uuid4())
+        banked = {
+            name: catalog.jobs.bank_asset(
+                job_id,
+                kind=kind,
+                data=data,
+                mime_type=mime_type,
+                origin=f"procedural:{attempt_id}:{name}",
+            )["asset_id"]
+            for name, kind, data, mime_type in (
+                ("recipe", "recipe", recipe_bytes, "application/json"),
+                (
+                    "raster",
+                    "raster_animation",
+                    raster_output.getvalue(),
+                    "image/gif",
+                ),
+                (
+                    "preview",
+                    "preview_animation",
+                    preview_output.getvalue(),
+                    "image/gif",
+                ),
+                ("mapped", "mapped_result", mapped_bytes, "application/json"),
+            )
+        }
+
+        def finish(current: dict[str, Any]) -> None:
+            current["procedural_attempts"].append(
+                {
+                    "attempt_id": attempt_id,
+                    "index": 0,
+                    "status": "complete",
+                    "phase": "ready_for_review",
+                    "started_at": started_at,
+                    "completed_at": _timestamp(),
+                    "recipe_asset_id": banked["recipe"],
+                    "raster_asset_id": banked["raster"],
+                    "preview_asset_id": banked["preview"],
+                    "mapped_result_asset_id": banked["mapped"],
+                    "quality": quality.to_dict(),
+                    "usage": None,
+                    "error_code": None,
+                }
+            )
+            current["status"] = "ready"
+            current["phase"] = "ready_for_review"
+            current["progress"] = {
+                "completed": spec.max_frames,
+                "total": spec.max_frames,
+            }
+
+        catalog.jobs.update_manifest(job_id, finish)
+        self._json(catalog.get(f"job:{job_id}"), HTTPStatus.CREATED)
 
     @staticmethod
     def _catalog_profile_config(

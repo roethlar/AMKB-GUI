@@ -177,6 +177,126 @@ deleting or reviving anything.
    `tests/test_dependencies.py` in this slice — the module regains a
    production importer. Route tests including validation-rejection and
    WorkBudget-cancellation paths.
+
+   DONE 2026-08-15: `POST /api/lighting/render` (+231 lines in
+   `am_configurator/server.py`). The name follows the two conventions already
+   in the file: `/api/lighting/` is the jobs namespace (`_lighting_get` serves
+   `/api/lighting/library` and `/api/lighting/assets/…` from
+   `GeneratedAssetLibrary`), and POST routes end in a verb
+   (`/api/config/validate`, `/api/document/sync`, `/api/device/write`).
+
+   Request: `{"recipe": <schema v1>, "product_id": "CB04", "targets":
+   ["keyframes"]}` — an exact key set, rejected otherwise, matching
+   `_library_save_lighting`'s strict-body style. The body never names a family
+   or a raster: `device_mapping.generation_spec()` resolves both, exactly as
+   `/api/led/gif` addresses a destination by `product_id` plus `targets`.
+   Frame count is the family cap and frame duration is
+   `min(device_mapping.LED_SPEEDS_MS)` (34 ms), so the mapper never resamples
+   — the same two choices the deleted pipeline made
+   (`FASTEST_FRAME_DURATION_MS`, `snapshot["frame_cap"]`). Response: `201` with
+   `catalog.get("job:<id>")`, the same detail shape
+   `/api/library/save/lighting` returns for `item:<id>`.
+
+   Banking. The result is one `generation_job` manifest with
+   `pipeline: "procedural"`, four assets (`recipe`, `raster_animation`,
+   `preview_animation`, `mapped_result`), and one completed entry in
+   `procedural_attempts` carrying the quality metrics — the containers
+   `library.py` already defines for exactly this and the shapes `app.js`
+   already reads (`libraryCoverAsset` prefers `preview_animation`;
+   `latestLibraryGeneratedAttempt` plus the generated-preview path need
+   `mapped_result_asset_id` and `job.target.targets[0]`; `applyLibraryPreview`
+   then applies it under the client-side provenance token
+   `procedural_result`). Nothing deleted by the AI removal was revived:
+   `create_job`/`bank_asset`/`update_manifest` are live, tested
+   `GeneratedAssetLibrary` methods; the coordinator, gate, threads, and
+   provider are not reintroduced, and no Library schema changed. The saved-item
+   namespace was considered and rejected: `_validate_saved_manifest`
+   (`am_configurator/library.py:2409`) allows a `lighting_composition` exactly
+   two assets — its rendered result and one preview — so the recipe and the
+   raster GIF could not be banked without widening
+   `_SAVED_COMPOSITION_FIELDS`, i.e. a manifest schema change.
+
+   Budget: `_EFFECT_RENDER_DEADLINE_SECONDS = 60.0`. The deleted coordinator
+   gave a whole operation 180 s (`DEFAULT_OPERATION_TIMEOUT_SECONDS` in
+   `27a01ae:am_configurator/procedural_generation.py`), but that budget also
+   covered a network call to a model provider; this route runs only the local
+   half. Measured worst case end to end on the largest supported raster (NEON
+   head, 46x5, 256 frames) is 13.2 s — 60 s leaves roughly four times that
+   headroom on slower machines without letting one synchronous request hang for
+   minutes. The budget is built behind `_effect_work_budget()` so a test can
+   expire it at an exact stage, the way the coordinator's injected `monotonic`
+   allowed. Every rendering stage is budget-checked; one final `work.check()`
+   sits immediately before `create_job`, the last moment at which nothing has
+   been written. Banking itself is deliberately unbounded: it only commits
+   bytes that already exist.
+
+   Errors. `RecipeError` is a `ValueError`, so an unusable recipe or target
+   already lands on `do_POST`'s `400` branch with the engine's own message.
+   `QualityError` is re-raised as a `ValueError` carrying
+   `code: "quality_failed"` and the failure names ("This effect did not pass
+   the lighting checks: density. Nothing was saved. …") — `code` uses the same
+   optional-attribute channel `DocumentRevisionError` uses. `WorkCancelled` and
+   `WorkDeadlineExceeded` are `RuntimeError`s, so they were added to
+   `_lighting_error` and map to `409`, the status this route family already
+   uses for `MediaRenderSuperseded` — transient, retryable, nothing saved. The
+   server has no 5xx vocabulary other than the generic 500.
+
+   Files changed: `am_configurator/server.py` (+231), `tests/test_app.py`
+   (+202/-2: five new tests, one new row in
+   `test_routes_require_authentication`, and a `timeout` argument on the shared
+   `_request` helper), `tests/test_dependencies.py` (+4/-8 — the `procedural`
+   dormancy entry removed; the set is now empty and the guard passes on its own
+   because `server.py` imports the module in three production places).
+
+   Verification: 595 Python tests OK (up from 590), `compileall` clean, 166
+   node tests OK, all seven `node --check` targets clean, `uv build` OK
+   (0.1.68 sdist + wheel), `git diff --check` clean.
+
+   Bite proof — each mutation applied to `am_configurator/server.py`, the named
+   test run, then the file restored and confirmed byte-identical (15
+   mutations; `restored: True` after every pass):
+
+   | # | Mutation | Test | Result |
+   | --- | --- | --- | --- |
+   | M1 | Bank the preview as `preview_poster`/`image/png` | banks_one_openable_procedural_result | fails |
+   | M2 | Never append the `procedural_attempts` entry | banks | fails |
+   | M3 | Transpose the raster in the banked target | banks | fails |
+   | M4 | Drop `product_label` from the banked target | banks | fails |
+   | M5 | Bank the caller's recipe instead of the validated one | banks | fails |
+   | M6 | Accept extra request fields | rejects_unusable_requests | fails |
+   | M7 | Accept an empty LED-area list | rejects_unusable_requests | fails |
+   | M8 | `assess_quality` instead of `validate_quality` | rejects_failed_quality | fails |
+   | M9 | Give every render an hour instead of the chosen deadline | deadline_leaves_no_partial_entry | fails |
+   | M10 | Move the pre-banking `work.check()` after `create_job` | checks_the_budget_before_it_writes | fails |
+   | M10b | Delete the pre-banking `work.check()` | checks_the_budget_before_it_writes | fails |
+   | M11 | Unwire the route from the POST dispatch | banks | fails |
+   | M12 | Map an expired budget to the generic internal error | deadline_leaves_no_partial_entry | fails |
+   | M13 | Remove every production import of `procedural` | dependencies: every_top_level_module_is_imported | fails |
+   | M14 | Make `_authorized()` return True | routes_require_authentication | fails |
+
+   One honest negative worth recording: M5 does **not** bite the
+   validation-rejection test, because `procedural.render_recipe` re-validates
+   its recipe internally, so bad input is still rejected without the route's
+   own `validate_recipe` call. That call is load-bearing for *normalization*
+   instead — the banked recipe asset must be the normalized one — so the
+   happy-path recipe now arrives untidy (padded name, lowercase hex) and the
+   test asserts the banked palette comes back uppercased. M5 fails there. Two
+   other first-draft mutations also failed to bite and forced real fixes:
+   removing `work=work` from `render_recipe` alone left the later stages
+   budgeted, so the deadline mutation became "extend the deadline to an hour";
+   and with a zero deadline the render always raises before banking, so the
+   pre-banking boundary needed its own test that expires the clock the instant
+   `map_frames_to_led_tracks` returns.
+
+   Not done, deliberately: no UI (slice 3), no cancel channel (the budget's
+   `cancelled` predicate is a constant `False`; the `WorkCancelled` mapping is
+   there for when one lands), no hardware write, and
+   `LibraryCatalog._job_summary` (`am_configurator/library.py:3114`) still
+   hardcodes `"origin": "ai_generation"` for every job, so a procedurally
+   rendered entry would label itself "Ai generation" on the Library card.
+   Correcting that is a Library projection change with user-visible copy
+   consequences, so it belongs with slice 3's plain-language sweep; nothing
+   calls this route until then.
 3. **Picker UI.** The Effects tool panel (app.js + workspace wiring):
    kind list, bounded controls, seed shuffle, live raster preview,
    save-to-Library. Composer vocabulary and job scaffolding untouched.

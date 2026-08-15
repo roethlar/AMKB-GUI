@@ -2232,7 +2232,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
                 os.environ[key] = value
         shutil.rmtree(self._tmp, ignore_errors=True)
 
-    def _request(self, method, path, body=None, token=_DEFAULT):
+    def _request(self, method, path, body=None, token=_DEFAULT, timeout=5):
         headers = {}
         selected = self._token if token is self._DEFAULT else token
         if selected is not None:
@@ -2243,7 +2243,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
             headers["Content-Type"] = "application/json"
         request = Request(self._base + path, data=data, method=method, headers=headers)
         try:
-            with urlopen(request, timeout=5) as response:
+            with urlopen(request, timeout=timeout) as response:
                 raw = response.read()
                 return response.status, (json.loads(raw) if raw else None)
         except urllib.error.HTTPError as exc:
@@ -2356,6 +2356,7 @@ class LightingStudioEndpointTests(unittest.TestCase):
                 None,
             ),
             ("GET", "/api/lighting/assets/00000000-0000-4000-8000-000000000000/00000000-0000-4000-8000-000000000000", None),
+            ("POST", "/api/lighting/render", {}),
         )
         for method, path, body in paths:
             with self.subTest(path=path):
@@ -3765,6 +3766,203 @@ class LightingStudioEndpointTests(unittest.TestCase):
             f"/api/lighting/assets/{job['job_id']}/{image['asset_id']}"
         )
         self.assertEqual(404, status)
+
+    _EFFECT_LAYER = {
+        "kind": "comet",
+        "color_index": 0,
+        "secondary_color_index": 1,
+        "speed": 1,
+        "phase": 0.12,
+        "direction_degrees": 25.0,
+        "center_x": 0.1,
+        "center_y": 0.32,
+        "scale": 0.55,
+        "width": 0.8,
+        "trail": 0.48,
+        "count": 3,
+        "intensity": 1.0,
+        "seed": 17,
+    }
+
+    def _effect_recipe(self, density: str = "sparse", **changes) -> dict:
+        layer = dict(self._EFFECT_LAYER)
+        layer.update(changes)
+        # Untidy on purpose: the route must bank the validator's normalized
+        # recipe, not whatever the caller sent.
+        return {
+            "schema_version": 1,
+            "name": "  Endpoint ember  ",
+            "density": density,
+            "background": "#000000",
+            "palette": ["#ffffff", "#3a8dff"],
+            "layers": [layer],
+        }
+
+    def _render_effect(self, recipe=None, *, product_id="CB04", targets=("keyframes",)):
+        return self._request(
+            "POST",
+            "/api/lighting/render",
+            {
+                "recipe": self._effect_recipe() if recipe is None else recipe,
+                "product_id": product_id,
+                "targets": list(targets),
+            },
+            timeout=60,
+        )
+
+    def _banked_asset(self, catalog_id: str, asset_id: str) -> bytes:
+        status, _headers, payload = self._raw_request(
+            f"/api/library/assets/{catalog_id}/{asset_id}"
+        )
+        self.assertEqual(200, status)
+        return payload
+
+    def test_effect_render_banks_one_openable_procedural_result(self) -> None:
+        status, detail = self._render_effect()
+        self.assertEqual(201, status)
+        self.assertEqual("job", detail["namespace"])
+        self.assertEqual("generation_job", detail["kind"])
+        self.assertEqual("Endpoint ember", detail["name"])
+        self.assertEqual("ready", detail["status"])
+
+        job = detail["job"]
+        # app.js opens a Library entry on the board through
+        # applyLibraryPreview -> acceptedBoardFrameSetForApply({provenance:
+        # "procedural_result"}), which needs exactly this shape: a procedural
+        # pipeline, a completed attempt owning a mapped result, and a target
+        # whose family and first track match the open keyboard.
+        self.assertEqual("procedural", job["pipeline"])
+        self.assertEqual(
+            {
+                "family": "CB",
+                "product_id": device_descriptor("CB04")["product_id"],
+                "product_label": device_descriptor("CB04")["product_label"],
+                "raster": {"width": 15, "height": 6},
+                "targets": ["keyframes"],
+                "frame_cap": 80,
+            },
+            job["target"],
+        )
+        self.assertEqual(1, len(job["procedural_attempts"]))
+        attempt = job["procedural_attempts"][0]
+        self.assertEqual("complete", attempt["status"])
+        self.assertEqual("ready_for_review", attempt["phase"])
+        self.assertIsNone(attempt["error_code"])
+        self.assertEqual(
+            {"width": 15, "height": 6, "frame_count": 80, "density": "sparse"},
+            {key: attempt["quality"][key] for key in ("width", "height", "frame_count", "density")},
+        )
+        self.assertEqual(
+            {"recipe", "raster_animation", "preview_animation", "mapped_result"},
+            {asset["kind"] for asset in job["assets"]},
+        )
+        assets = {asset["kind"]: asset for asset in job["assets"]}
+        self.assertEqual(
+            attempt["mapped_result_asset_id"],
+            assets["mapped_result"]["asset_id"],
+        )
+        self.assertEqual("image/gif", assets["preview_animation"]["mime_type"])
+        self.assertEqual("image/gif", assets["raster_animation"]["mime_type"])
+
+        catalog_id = detail["catalog_id"]
+        mapped = json.loads(
+            self._banked_asset(catalog_id, attempt["mapped_result_asset_id"])
+        )
+        self.assertEqual(["keyframes"], list(mapped["tracks"]))
+        self.assertEqual(80, mapped["tracks"]["keyframes"]["frame_count"])
+        self.assertEqual(80, mapped["source_frames"])
+        self.assertEqual(34, mapped["duration_ms"])
+        self.assertFalse(mapped["timing_resampled"])
+        banked_recipe = json.loads(
+            self._banked_asset(catalog_id, attempt["recipe_asset_id"])
+        )
+        self.assertEqual("Endpoint ember", banked_recipe["name"])
+        self.assertEqual(["#FFFFFF", "#3A8DFF"], banked_recipe["palette"])
+        self.assertEqual(
+            b"GIF8",
+            self._banked_asset(catalog_id, attempt["preview_asset_id"])[:4],
+        )
+        self.assertNotIn(str(self.root), json.dumps(detail))
+
+    def test_effect_render_rejects_unusable_requests_without_banking(self) -> None:
+        rejections = (
+            ("unsupported primitive", {"recipe": self._effect_recipe(kind="spiral")}),
+            ("palette", {"recipe": self._effect_recipe(color_index=4)}),
+            ("LED target", {"targets": ["frames", "keyframes"]}),
+            ("LED map", {"product_id": "NOT_A_KEYBOARD"}),
+            ("LED area", {"targets": []}),
+        )
+        for expected, changes in rejections:
+            with self.subTest(expected=expected):
+                status, payload = self._render_effect(
+                    recipe=changes.get("recipe"),
+                    product_id=changes.get("product_id", "CB04"),
+                    targets=changes.get("targets", ("keyframes",)),
+                )
+                self.assertEqual(400, status)
+                self.assertIn(expected, payload["error"])
+        status, payload = self._request(
+            "POST",
+            "/api/lighting/render",
+            {
+                "recipe": self._effect_recipe(),
+                "product_id": "CB04",
+                "targets": ["keyframes"],
+                "duration_ms": 34,
+            },
+            timeout=60,
+        )
+        self.assertEqual(400, status)
+        self.assertIn("one recipe, one keyboard", payload["error"])
+        self.assertEqual([], self.library.scan()["jobs"])
+
+    def test_effect_render_rejects_failed_quality_without_banking(self) -> None:
+        # The layer lights a fifth of the raster, so the dense floor rejects it
+        # only after a complete render — the gate itself stays untouched.
+        status, payload = self._render_effect(recipe=self._effect_recipe("dense"))
+        self.assertEqual(400, status)
+        self.assertEqual("quality_failed", payload["code"])
+        self.assertIn("density", payload["error"])
+        self.assertIn("Nothing was saved", payload["error"])
+        self.assertEqual([], self.library.scan()["jobs"])
+
+    def test_effect_render_deadline_leaves_no_partial_library_entry(self) -> None:
+        with patch.object(server, "_EFFECT_RENDER_DEADLINE_SECONDS", 0.0):
+            status, payload = self._render_effect()
+        self.assertEqual(409, status)
+        self.assertIn("took too long", payload["error"])
+        self.assertIn("Nothing was saved", payload["error"])
+        self.assertEqual([], self.library.scan()["jobs"])
+        self.assertFalse(list((self.root / "jobs").glob("*")))
+
+    def test_effect_render_checks_the_budget_before_it_writes_anything(self) -> None:
+        # Expire the shared deadline at the exact moment the last rendering
+        # stage finishes: every byte exists, nothing has been written yet.
+        from am_configurator import procedural
+
+        clock = {"now": 0.0}
+        real_mapper = procedural.map_frames_to_led_tracks
+
+        def expire_once_mapped(*args, **kwargs):
+            mapped = real_mapper(*args, **kwargs)
+            clock["now"] = 10.0
+            return mapped
+
+        def budget():
+            return procedural.WorkBudget(
+                deadline=1.0,
+                cancelled=lambda: False,
+                monotonic=lambda: clock["now"],
+            )
+
+        with patch.object(server, "_effect_work_budget", budget), patch.object(
+            procedural, "map_frames_to_led_tracks", expire_once_mapped
+        ):
+            status, payload = self._render_effect()
+        self.assertEqual(409, status)
+        self.assertIn("took too long", payload["error"])
+        self.assertEqual([], self.library.scan()["jobs"])
+        self.assertFalse(list((self.root / "jobs").glob("*")))
 
     def test_retired_creation_has_no_injectable_legacy_stack(self) -> None:
         for name in ("lighting_coordinator", "lighting_dependencies"):
