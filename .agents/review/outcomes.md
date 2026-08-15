@@ -547,3 +547,11 @@
   `07EC13783A74D1982A07F4F85DC9A8D63B99EFE2E2290CAAC92BD4AB7E724194`.
   Dispositions: all four findings pending owner decision; no code changed in
   response to the review.
+  - 2026-08-15 disposition update (plan
+    `docs/superpowers/plans/2026-08-15-review-followup.md`): finding 2 fixed
+    in its actionable half — `recipe_system_prompt()` deleted from
+    `am_configurator/procedural.py` (slice 1); the `lighting_review.js` empty
+    stub is retained by recorded design (load-bearing file/script tag/static
+    route), which the plan documents as the finding's other half's
+    resolution. Findings 3 and 4 in progress (slices 2–3); finding 1 awaits
+    an owner a/b/c decision (slice 4).

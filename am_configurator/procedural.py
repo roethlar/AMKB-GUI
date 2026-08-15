@@ -202,26 +202,6 @@ def recipe_schema() -> dict[str, Any]:
     }
 
 
-def recipe_system_prompt(
-    width: int,
-    height: int,
-    frame_count: int,
-    *,
-    density_default: str = "balanced",
-) -> str:
-    """Return common provider guidance for the strict procedural contract."""
-
-    _validate_render_dimensions(width, height, frame_count)
-    if density_default not in DENSITIES:
-        raise RecipeError("Density default must be sparse, balanced, or dense.")
-    return f"""You design abstract keyboard LED loops for an exact {width}x{height} raster and {frame_count} frames.
-Return only the required structured recipe with schema_version {SCHEMA_VERSION}. The renderer guarantees looping; choose clear high-contrast parameters that survive very low resolution.
-Classify output density as sparse, balanced, or dense. Default to {density_default}. Use sparse only when the prompt explicitly asks for isolated points or darkness. Use dense for whole-board fields, washes, aurora, fire, ocean, or similarly continuous effects.
-Use comet for meteors, shooting stars, rain, or chases; wave for aurora and flowing bands; pulse for rings and breathing; sparkle for twinkling points; orbit for rotating dots; sweep for scanning bands; noise for fire or organic shimmer.
-Prefer black or very dark backgrounds, 1-3 layers, saturated colors, and counts that remain readable. Avoid cameras, scenery, text, realistic objects, and fine detail. Speed is a nonzero integer cycle count. Every color index must exist in the palette.
-Exact numeric bounds for every layer: color indexes 0-4 and inside the chosen palette; speed -3,-2,-1,1,2,3; phase 0-1; direction_degrees 0-360; center_x and center_y 0-1; scale 0.05-1.5; width 0.02-1; trail 0-1; count 1-12; intensity 0.05-1; seed 0-9999. Include every field for every layer."""
-
-
 def _exact_keys(value: dict[str, Any], expected: set[str], label: str) -> None:
     actual = set(value)
     if actual != expected:

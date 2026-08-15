@@ -14,6 +14,11 @@ re-run the dependency/absence guards. The `lighting_review.js` empty stub is
 NOT touched: keeping it was a deliberate, recorded slice-1b decision (file,
 script tag, and static route are load-bearing outside that slice).
 
+DONE 2026-08-15 — `recipe_system_prompt()` deleted (19 lines, no orphaned
+helpers: `_validate_render_dimensions`, `DENSITIES`, `SCHEMA_VERSION` all
+have surviving callers; no test referenced the function). Verification:
+582 Python tests OK, compileall clean, zero code references remain.
+
 ## Slice 2 — restore settings-safety coverage (finding 3)
 
 `tests/test_credentials.py` deletion also removed the only tests for two
