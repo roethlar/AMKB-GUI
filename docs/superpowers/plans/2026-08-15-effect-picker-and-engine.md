@@ -1,7 +1,7 @@
 # Deterministic Effect Picker and Engine
 
-**Status:** Draft, awaiting owner approval. No implementation is authorized
-by this document. Premises below were verified against the working tree at
+**Status:** APPROVED by owner 2026-08-15 ("go"); slices land as work
+proceeds, each behind the full verification entry point. Premises below were verified against the working tree at
 `13d1c4b` (v2/openkeeb) on 2026-08-15; line references are locators, not
 boundaries — re-derive at edit time.
 
@@ -79,6 +79,96 @@ deleting or reviving anything.
    continuity, quality acceptance of a committed reference recipe; every
    new test bite-proven (revert implementation, watch fail, restore).
    `procedural.py` stays dormant in this slice.
+
+   DONE 2026-08-15: all seven kinds landed in `am_configurator/procedural.py`
+   (+146 lines) — `breathe` and `heartbeat` as global envelopes before the
+   directional block, `ripple`, `chase`, `matrix_rain`, `fire`, `twinkle`
+   after `sweep`, plus two helpers: `_hash_unit()` (32-bit xorshift over
+   small integers) and `_cell()` (sub-pixel sample to raster cell). No
+   `_LAYER_KEYS` additions; `recipe_schema()` and `validate_recipe()` both
+   read `_KINDS`, so the enum and semantic validator widened without an edit.
+   Every kind is periodic with period 1 in `local_phase`, and integer speeds
+   plus integer per-cell rates (`matrix_rain` 1-2, `twinkle` 1-3) and integer
+   bucket counts (`fire`, `16 * abs(speed)`) keep whole cycles per loop, so
+   frame N is byte-identical to frame 0 by construction. Randomness is
+   `_hash_unit(cell_or_lane, sub_stream, seed)` only; global `random` is
+   never touched. No importer added — the module stays dormant and
+   `tests/test_dependencies.py` was not edited.
+
+   Reference recipes (committed in `tests/test_procedural.py`, rendered
+   18x7 x 80 frames, `validate_quality` thresholds untouched): breathe
+   dense lit[1.000,1.000] peak 255 seam 0.000/10.427; chase sparse
+   lit[0.238,0.254] peak 255 seam 12.974/16.227; ripple balanced
+   lit[0.476,0.667] peak 238 seam 5.762/8.072; matrix_rain sparse
+   lit[0.294,0.349] peak 255 seam 19.881/36.379; heartbeat dense
+   lit[1.000,1.000] peak 255 seam 4.000/25.843; fire balanced
+   lit[0.659,0.706] peak 234 seam 1.915/9.210; twinkle balanced
+   lit[0.516,0.651] peak 255 seam 12.180/17.937.
+
+   Parameter bounding, and why. `breathe` and `heartbeat` have no spatial
+   term, so they light every cell at the peak and none at the trough: no
+   density band accepts them over a black background (`sparse` fails the
+   0.60 ceiling at the peak, `balanced`/`dense` fail their floors at the
+   trough). Both reference recipes therefore use `dense` over a dim
+   always-lit background (`#141428`, max channel 40, above the 32 lit
+   threshold) — the "background layer" escape this plan anticipated,
+   spelled as a background colour rather than an extra layer.
+   `heartbeat`'s adjacent-difference spike never threatened the gate: the
+   only adjacent-difference check requires motion greater than zero, and the
+   seam is one step of an exactly periodic sequence, so it can never exceed
+   the maximum interior step. Its lobe width is still bounded at 0.6 because
+   narrower lobes buy nothing visible at 80 frames. `chase` bounds count and
+   trail together (2 runners, 0.3) for the sparse ceiling; `matrix_rain`
+   bounds trail to 0.1 because a seven-cell lane only fits a head plus a
+   short tail before crossing the same ceiling; `fire` bounds flame height
+   to 0.9 because above 1.0 the whole raster lights. No kind was dropped and
+   no threshold was weakened.
+
+   Two reference recipes were retuned after bite-proofing showed the loop
+   test had no power at the first choice — a finding worth recording. With
+   `count` evenly spaced runners, `chase` repeats every `1/count` of the
+   cycle, so at three runners a broken loop lands within a third of a cycle
+   and the seam metric cannot see it; the reference uses two runners, where
+   it can. `fire` at speed 2 resamples noise faster than one frame, so its
+   adjacent-frame difference saturates and a broken seam is indistinguishable
+   from an ordinary step; the reference uses speed 1 (16 buckets per cycle).
+
+   Tests: `AdoptedEffectKindTests` in `tests/test_procedural.py` (+299
+   lines, 5 test methods over 7 subtested kinds) — schema/validator
+   registration, sampler distinctness, determinism, loop-boundary
+   continuity, and quality-gate acceptance. Verification: 590 Python tests
+   OK (up from 585), `compileall` clean, 166 node tests OK, all seven
+   `node --check` targets clean, `uv build` OK (0.1.68 sdist + wheel),
+   `git diff --check` clean.
+
+   Bite proof — each mutation applied to `am_configurator/procedural.py`,
+   the five tests run, then the file restored and confirmed byte-identical
+   (26 mutations, matrix captured; `restored: True` after every pass):
+   - Remove one kind from `_KINDS` — the registration test fails for that
+     kind (and the other four with it, since `validate_recipe` rejects the
+     recipe). Proven for all seven.
+   - Delete a kind's `_sample_layer` branch so it falls through to `noise` —
+     the sampler-distinctness test fails for that kind (its render becomes
+     byte-identical to `noise`). Proven for all seven; it also failed the
+     quality test for `chase` and `matrix_rain`.
+   - Scale a kind's `local_phase` by 1.37 (aperiodic) — the loop test fails
+     for that kind. Proven for all seven, and it failed the quality test for
+     all seven as well.
+   - Replace a kind's branch body with `return 1.0, 0.0` — the quality test
+     fails for that kind on the motion gate. Proven for all seven.
+   - Multiply a kind's amount by `0.5 + random.random()` — the determinism
+     test fails for that kind. Proven for `breathe`, `heartbeat`, `ripple`,
+     `chase` (the four kinds that use no noise). For `matrix_rain`, `fire`,
+     and `twinkle` the equivalent revert is replacing `_hash_unit()`'s
+     xorshift body with `return random.random()`, which failed the
+     determinism test for exactly those three.
+
+   The bite-proof pass also caught a real defect in the first draft of the
+   determinism test: it reseeded the global RNG to one fixed value *between*
+   the two renders, which restored the exact state the first render had
+   started from and made the test blind to global-RNG use for every kind
+   after the first. It now seeds two different known values, one before each
+   render.
 2. **Render-and-bank endpoint.** One synchronous POST under
    `/api/lighting/` (exact name at implementation) taking a recipe plus
    target family/targets, rendering via `write_animation_artifacts`-style

@@ -59,7 +59,22 @@ _LAYER_KEYS = {
     "intensity",
     "seed",
 }
-_KINDS = {"comet", "wave", "pulse", "sparkle", "orbit", "sweep", "noise"}
+_KINDS = {
+    "comet",
+    "wave",
+    "pulse",
+    "sparkle",
+    "orbit",
+    "sweep",
+    "noise",
+    "breathe",
+    "chase",
+    "ripple",
+    "matrix_rain",
+    "heartbeat",
+    "fire",
+    "twinkle",
+}
 
 
 class RecipeError(ValueError):
@@ -348,6 +363,37 @@ def _gaussian(distance: float, sigma: float) -> float:
     return math.exp(-(distance * distance) / (2 * sigma * sigma))
 
 
+_HASH_SEED = 0x9E3779B1
+_HASH_MIX = 0x85EBCA77
+_HASH_MASK = 0xFFFFFFFF
+
+
+def _hash_unit(*values: int) -> float:
+    """Return a deterministic [0, 1) value from small non-negative integers.
+
+    Per-cell and per-bucket noise uses this standard 32-bit xorshift
+    construction instead of the global random module, so every re-render of
+    the same layer is byte-identical.
+    """
+
+    state = _HASH_SEED
+    for value in values:
+        state = (state + ((int(value) & _HASH_MASK) + 1) * _HASH_MIX) & _HASH_MASK
+        state ^= (state << 13) & _HASH_MASK
+        state ^= state >> 17
+        state ^= (state << 5) & _HASH_MASK
+        state &= _HASH_MASK
+    return state / 4294967296.0
+
+
+def _cell(x: float, y: float, width: int, height: int) -> tuple[int, int]:
+    """Return the integer raster cell that contains a sub-pixel sample."""
+
+    cell_x = min(width - 1, max(0, int(x * width)))
+    cell_y = min(height - 1, max(0, int(y * height)))
+    return cell_x, cell_y
+
+
 def _direction_winding(degrees: float) -> tuple[int, int]:
     directions = (
         (1, 0),
@@ -397,6 +443,22 @@ def _sample_layer(
                     best_amount = amount
                     best_mix = math.exp(-7.0 * fraction)
         return min(1.0, best_amount * 1.15), best_mix
+
+    if kind == "breathe":
+        # Whole-raster envelope with no spatial term: every cell rises and
+        # falls together, unlike pulse's expanding radial ring.
+        oscillation = 0.5 - 0.5 * math.cos(2 * math.pi * local_phase)
+        amount = oscillation ** (1.0 + 5.0 * (1.0 - layer["width"]))
+        return amount, oscillation
+
+    if kind == "heartbeat":
+        # Two gaussian lobes per cycle: the systolic beat at phase 0.0 and a
+        # softer diastolic echo shortly after.
+        lobe_sigma = 0.018 + 0.052 * layer["width"]
+        first = _gaussian(_torus_delta(local_phase, 0.0), lobe_sigma)
+        second = _gaussian(_torus_delta(local_phase, 0.18), lobe_sigma * 0.8)
+        envelope = min(1.0, first + 0.72 * second)
+        return envelope, envelope
 
     radians = math.radians(layer["direction_degrees"])
     direction_x, direction_y = math.cos(radians), math.sin(radians)
@@ -456,6 +518,89 @@ def _sample_layer(
         wave = 0.5 + 0.5 * math.cos(2 * math.pi * (spatial - local_phase))
         amount = wave ** (1.0 + 10.0 * (1.0 - layer["width"]))
         return amount, 1.0 - wave
+
+    if kind == "ripple":
+        # A continuous wave train radiating from the center, unlike pulse's
+        # single travelling ring and wave's planar front.
+        dx = (x - layer["center_x"]) * width
+        dy = (y - layer["center_y"]) * height
+        wavelength = max(0.5, layer["scale"] * min_dimension)
+        train = 0.5 + 0.5 * math.sin(
+            2 * math.pi * (math.hypot(dx, dy) / wavelength - local_phase)
+        )
+        amount = train ** (1.0 + 5.0 * (1.0 - layer["width"]))
+        return amount, 1.0 - train
+
+    if kind == "chase":
+        # Runners travelling the lit raster in serpentine row-major order, so
+        # the light walks the board cell by cell instead of sweeping a plane.
+        cell_x, cell_y = _cell(x, y, width, height)
+        cell_count = width * height
+        forward_x = cell_x if cell_y % 2 == 0 else width - 1 - cell_x
+        ordinal = cell_y * width + forward_x
+        tail_cells = max(0.35, layer["trail"] * cell_count * 0.22)
+        amount = 0.0
+        mix = 0.0
+        for runner in range(layer["count"]):
+            head = ((local_phase + runner / layer["count"]) % 1.0) * cell_count
+            gap = (head - ordinal) if speed > 0 else (ordinal - head)
+            gap %= cell_count
+            candidate = math.exp(-gap / tail_cells)
+            if candidate > amount:
+                amount = candidate
+                mix = candidate * candidate
+        return amount, mix
+
+    if kind == "matrix_rain":
+        # One falling drop per lane along the direction axis; each lane starts
+        # at its own hashed offset and falls at its own whole-cycle rate.
+        cell_x, cell_y = _cell(x, y, width, height)
+        winding_x, winding_y = _direction_winding(layer["direction_degrees"])
+        if abs(winding_y) >= abs(winding_x):
+            lane, position, lane_length = cell_x, cell_y, height
+            descending = winding_y > 0
+        else:
+            lane, position, lane_length = cell_y, cell_x, width
+            descending = winding_x > 0
+        travel = position if descending else lane_length - 1 - position
+        offset = _hash_unit(lane, 0, layer["seed"])
+        rate = 1 + int(_hash_unit(lane, 1, layer["seed"]) * 2)
+        head = ((local_phase * rate + offset) % 1.0) * lane_length
+        gap = (head - travel) % lane_length
+        tail_cells = max(0.35, layer["trail"] * lane_length * 0.9)
+        if gap < 1.0:
+            return 1.0, 1.0
+        trailing = math.exp(-(gap - 1.0) / tail_cells)
+        return trailing, trailing * trailing
+
+    if kind == "fire":
+        # A bottom-hottest intensity ramp modulated by per-cell noise that is
+        # resampled on whole bucket cycles derived from the layer speed.
+        cell_x, cell_y = _cell(x, y, width, height)
+        buckets = 16 * abs(speed)
+        scaled = local_phase * buckets
+        bucket = math.floor(scaled)
+        blend = scaled - bucket
+        blend = blend * blend * (3.0 - 2.0 * blend)
+        cell_index = cell_y * width + cell_x
+        first = _hash_unit(cell_index, bucket % buckets, layer["seed"])
+        second = _hash_unit(cell_index, (bucket + 1) % buckets, layer["seed"])
+        flicker = first + (second - first) * blend
+        elevation = 1.0 - (cell_y + 0.5) / height
+        heat = max(0.0, 1.0 - elevation / max(0.05, layer["scale"]))
+        amount = heat * (0.45 + 0.55 * flicker) ** (1.0 + 2.0 * (1.0 - layer["width"]))
+        return min(1.0, amount), heat
+
+    if kind == "twinkle":
+        # Every raster cell fades on its own hashed offset and whole-cycle
+        # rate, unlike sparkle's fixed count of seeded discrete points.
+        cell_x, cell_y = _cell(x, y, width, height)
+        cell_index = cell_y * width + cell_x
+        offset = _hash_unit(cell_index, 0, layer["seed"])
+        rate = 1 + int(_hash_unit(cell_index, 1, layer["seed"]) * 3)
+        value = 0.5 - 0.5 * math.cos(2 * math.pi * (local_phase * rate + offset))
+        amount = value ** (1.0 + 5.0 * (1.0 - layer["width"]))
+        return amount, value
 
     generator = random.Random(layer["seed"])
     value = 0.0

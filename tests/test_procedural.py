@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import io
+import random
 import tempfile
 import unittest
 from pathlib import Path
@@ -97,6 +98,304 @@ def _worst_case_recipe() -> dict:
             for index in range(6)
         ],
     )
+
+
+# The seven kinds ruled in on 2026-08-13 each carry one committed reference
+# recipe.  These dicts are the acceptance evidence for the effect engine: they
+# are rendered at the raster below and must pass `validate_quality` with its
+# thresholds untouched.  Parameters that had to be bounded to clear a gate are
+# noted on the recipe that needed the bound.
+_ADOPTED_RASTER = (18, 7, 80)
+
+_ADOPTED_REFERENCE_RECIPES: dict[str, dict] = {
+    "breathe": {
+        "schema_version": 1,
+        "name": "Breathe reference",
+        # Breathe has no spatial term, so the whole raster darkens together at
+        # the trough.  A dim always-lit background keeps the density floor
+        # satisfied; sparse is impossible because the peak lights every cell.
+        "density": "dense",
+        "background": "#141428",
+        "palette": ["#FFFFFF", "#5B8CFF"],
+        "layers": [
+            {
+                "kind": "breathe",
+                "color_index": 0,
+                "secondary_color_index": 1,
+                "speed": 1,
+                "phase": 0.0,
+                "direction_degrees": 0.0,
+                "center_x": 0.5,
+                "center_y": 0.5,
+                "scale": 0.55,
+                "width": 0.6,
+                "trail": 0.3,
+                "count": 3,
+                "intensity": 1.0,
+                "seed": 17,
+            }
+        ],
+    },
+    "chase": {
+        "schema_version": 1,
+        "name": "Chase reference",
+        "density": "sparse",
+        "background": "#000000",
+        "palette": ["#1E4FD8", "#3A8DFF"],
+        "layers": [
+            {
+                "kind": "chase",
+                "color_index": 0,
+                "secondary_color_index": 1,
+                "speed": 2,
+                "phase": 0.0,
+                "direction_degrees": 0.0,
+                "center_x": 0.5,
+                "center_y": 0.5,
+                "scale": 0.55,
+                # Runner count and trail are bounded together to hold the lit
+                # ratio inside the sparse ceiling on a 126-cell raster.  Two
+                # runners rather than three: evenly spaced runners make the
+                # pattern repeat every 1/count of the cycle, and at three the
+                # symmetry hides a broken loop from the seam metric.
+                "width": 0.8,
+                "trail": 0.3,
+                "count": 2,
+                "intensity": 1.0,
+                "seed": 17,
+            }
+        ],
+    },
+    "ripple": {
+        "schema_version": 1,
+        "name": "Ripple reference",
+        "density": "balanced",
+        "background": "#000000",
+        "palette": ["#FFFFFF", "#00E5C9"],
+        "layers": [
+            {
+                "kind": "ripple",
+                "color_index": 0,
+                "secondary_color_index": 1,
+                "speed": 1,
+                "phase": 0.0,
+                "direction_degrees": 0.0,
+                "center_x": 0.5,
+                "center_y": 0.5,
+                "scale": 0.6,
+                "width": 0.7,
+                "trail": 0.3,
+                "count": 3,
+                "intensity": 1.0,
+                "seed": 17,
+            }
+        ],
+    },
+    "matrix_rain": {
+        "schema_version": 1,
+        "name": "Matrix rain reference",
+        "density": "sparse",
+        "background": "#000000",
+        "palette": ["#12E06A", "#E8FFF0"],
+        "layers": [
+            {
+                "kind": "matrix_rain",
+                "color_index": 0,
+                "secondary_color_index": 1,
+                "speed": 2,
+                "phase": 0.0,
+                # 90 degrees selects the vertical axis, so lanes are columns.
+                "direction_degrees": 90.0,
+                "center_x": 0.5,
+                "center_y": 0.5,
+                "scale": 0.55,
+                "width": 0.8,
+                # Bounded: a seven-cell lane only has room for a head plus a
+                # short tail before the sparse ceiling is crossed.
+                "trail": 0.1,
+                "count": 3,
+                "intensity": 1.0,
+                "seed": 17,
+            }
+        ],
+    },
+    "heartbeat": {
+        "schema_version": 1,
+        "name": "Heartbeat reference",
+        # Same density interaction as breathe: the troughs between beats are
+        # dark everywhere, so the resting glow lives in the background.
+        "density": "dense",
+        "background": "#141428",
+        "palette": ["#FFFFFF", "#FF3B5C"],
+        "layers": [
+            {
+                "kind": "heartbeat",
+                "color_index": 0,
+                "secondary_color_index": 1,
+                "speed": 1,
+                "phase": 0.0,
+                "direction_degrees": 0.0,
+                "center_x": 0.5,
+                "center_y": 0.5,
+                "scale": 0.55,
+                # Bounded: narrower lobes than this spike the adjacent-frame
+                # difference without adding anything a viewer can see at 80
+                # frames.
+                "width": 0.6,
+                "trail": 0.3,
+                "count": 3,
+                "intensity": 1.0,
+                "seed": 17,
+            }
+        ],
+    },
+    "fire": {
+        "schema_version": 1,
+        "name": "Fire reference",
+        "density": "balanced",
+        "background": "#000000",
+        "palette": ["#FF7A18", "#FFF3B0"],
+        "layers": [
+            {
+                "kind": "fire",
+                "color_index": 0,
+                "secondary_color_index": 1,
+                # Speed 1 gives 16 noise buckets per cycle.  Faster flicker
+                # still passes every gate, but its adjacent-frame difference
+                # saturates, which would leave the seam metric unable to see a
+                # broken loop.
+                "speed": 1,
+                "phase": 0.0,
+                "direction_degrees": 0.0,
+                "center_x": 0.5,
+                "center_y": 0.5,
+                # Bounded: flame height above 1.0 lights the whole raster and
+                # pushes the balanced ceiling.
+                "scale": 0.9,
+                "width": 0.8,
+                "trail": 0.3,
+                "count": 3,
+                "intensity": 1.0,
+                "seed": 17,
+            }
+        ],
+    },
+    "twinkle": {
+        "schema_version": 1,
+        "name": "Twinkle reference",
+        "density": "balanced",
+        "background": "#000000",
+        "palette": ["#8AB4FF", "#FFFFFF"],
+        "layers": [
+            {
+                "kind": "twinkle",
+                "color_index": 0,
+                "secondary_color_index": 1,
+                "speed": 1,
+                "phase": 0.0,
+                "direction_degrees": 0.0,
+                "center_x": 0.5,
+                "center_y": 0.5,
+                "scale": 0.55,
+                "width": 0.8,
+                "trail": 0.3,
+                "count": 3,
+                "intensity": 1.0,
+                "seed": 17,
+            }
+        ],
+    },
+}
+
+
+def _render_adopted(recipe: dict) -> list:
+    width, height, frame_count = _ADOPTED_RASTER
+    return render_recipe(recipe, width=width, height=height, frame_count=frame_count)
+
+
+class AdoptedEffectKindTests(unittest.TestCase):
+    """The seven kinds adopted by the 2026-08-13 ruling.
+
+    Each kind is periodic in its local phase, draws any randomness from the
+    layer seed alone, and ships a reference recipe that clears the quality
+    gate with its thresholds unchanged.
+    """
+
+    def test_every_adopted_kind_is_offered_by_the_schema_and_validator(self) -> None:
+        offered = recipe_schema()["properties"]["layers"]["items"]["properties"]["kind"]
+        for kind, recipe in _ADOPTED_REFERENCE_RECIPES.items():
+            with self.subTest(kind=kind):
+                self.assertIn(kind, offered["enum"])
+                self.assertEqual(kind, validate_recipe(recipe)["layers"][0]["kind"])
+
+    def test_every_adopted_kind_is_its_own_sampler(self) -> None:
+        shared = _layer(
+            speed=2,
+            phase=0.0,
+            direction_degrees=90.0,
+            center_x=0.5,
+            center_y=0.5,
+            scale=0.7,
+            width=0.6,
+            trail=0.35,
+            count=3,
+            seed=17,
+        )
+        rendered: dict[str, tuple[bytes, ...]] = {}
+        for kind in (*_ADOPTED_REFERENCE_RECIPES, "noise"):
+            frames = render_recipe(
+                _recipe("sparse", layers=[{**shared, "kind": kind}]),
+                width=18,
+                height=7,
+                frame_count=12,
+            )
+            rendered[kind] = tuple(frame.tobytes() for frame in frames)
+        for kind, frames in rendered.items():
+            for other, other_frames in rendered.items():
+                if other <= kind:
+                    continue
+                with self.subTest(kind=kind, other=other):
+                    self.assertNotEqual(frames, other_frames)
+
+    def test_every_adopted_kind_renders_deterministically(self) -> None:
+        for kind, recipe in _ADOPTED_REFERENCE_RECIPES.items():
+            with self.subTest(kind=kind):
+                # Two known, different global random states: an adopted kind
+                # may only draw noise from its own layer seed, so the global
+                # module state must not reach the rendered bytes.
+                random.seed(20260815)
+                first = _render_adopted(recipe)
+                random.seed(19700101)
+                second = _render_adopted(recipe)
+                self.assertEqual(
+                    [frame.tobytes() for frame in first],
+                    [frame.tobytes() for frame in second],
+                )
+
+    def test_every_adopted_kind_closes_its_loop_at_the_frame_boundary(self) -> None:
+        for kind, recipe in _ADOPTED_REFERENCE_RECIPES.items():
+            with self.subTest(kind=kind):
+                metrics = assess_quality(recipe, _render_adopted(recipe))
+                self.assertGreater(metrics.maximum_adjacent_difference, 0)
+                self.assertLessEqual(
+                    metrics.seam_difference,
+                    metrics.maximum_adjacent_difference * 1.25 + 0.01,
+                )
+
+    def test_reference_recipes_pass_the_unmodified_quality_gate(self) -> None:
+        width, height, frame_count = _ADOPTED_RASTER
+        for kind, recipe in _ADOPTED_REFERENCE_RECIPES.items():
+            with self.subTest(kind=kind):
+                metrics = validate_quality(
+                    recipe,
+                    _render_adopted(recipe),
+                    width=width,
+                    height=height,
+                    frame_count=frame_count,
+                )
+                self.assertEqual(recipe["density"], metrics.density)
+                self.assertEqual(frame_count, metrics.frame_count)
+                self.assertGreater(metrics.peak_brightness, 180)
 
 
 class RecipeContractTests(unittest.TestCase):
