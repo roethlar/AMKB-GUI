@@ -28,6 +28,23 @@ overwriting. Port equivalents against the live `store.py` surface
 (originals at `27a01ae:tests/test_credentials.py:450`, `:561`). Prove each
 new test bites (revert-behavior/fail/restore or targeted mutation).
 
+DONE 2026-08-15 — Ported `test_transient_read_errors_preserve_exact_settings_bytes`
+and `test_future_schema_is_reported_without_rename_or_overwrite` from
+`27a01ae:tests/test_credentials.py` (lines ~450, ~561) into the existing
+`SettingsStoreTests` class in `tests/test_app.py` (the live home of
+`store.py` settings coverage), dropping the removed `credential_store=`
+kwarg to match the current `load_settings_with_status()` /
+`update_generation_settings()` signatures. Verification: 584 Python tests
+OK (up from 582), compileall clean, 166 node tests OK, all `node --check`
+targets clean, `uv build` OK. Bite proof: (1) temporarily made the
+transient-`OSError` branch in `load_settings_with_status()` also call
+`_quarantine_settings(path)` — the new read-error test failed (original
+bytes gone, `.bad` file created); reverted, test passed again. (2)
+temporarily disabled the `version > SETTINGS_SCHEMA_VERSION` guard in
+`_decode_settings()` — the new future-schema test failed
+(`'settings_schema_unsupported' != None`); reverted, test passed again.
+`git diff` on `store.py` confirmed clean after each revert.
+
 ## Slice 3 — restore discard-credential behavioral test (finding 4)
 
 `/api/settings/migration/discard-credential` remains live but its

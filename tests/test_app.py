@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import errno
 import inspect
 import io
 import json
@@ -255,6 +256,54 @@ class SettingsStoreTests(unittest.TestCase):
             self.skipTest("POSIX file permissions are not enforced on Windows")
         mode = stat.S_IMODE(os.stat(store.settings_path()).st_mode)
         self.assertEqual(mode, 0o600)
+
+    def test_transient_read_errors_preserve_exact_settings_bytes(self) -> None:
+        path = store.settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        original = (json.dumps(_DEFAULT_SETTINGS, indent=2) + "\n").encode("utf-8")
+        path.write_bytes(original)
+        real_read_text = Path.read_text
+
+        for error_number in (errno.EMFILE, errno.EACCES, errno.EIO):
+            with self.subTest(errno=error_number):
+
+                def fail_settings_read(candidate, *args, **kwargs):
+                    if candidate == path:
+                        raise OSError(error_number, "transient settings read failure")
+                    return real_read_text(candidate, *args, **kwargs)
+
+                with patch.object(Path, "read_text", fail_settings_read):
+                    settings, reason = store.load_settings_with_status()
+
+                self.assertEqual(_DEFAULT_SETTINGS, settings)
+                self.assertEqual("settings_unavailable", reason)
+                self.assertEqual(original, path.read_bytes())
+                self.assertFalse(path.with_name(path.name + ".bad").exists())
+
+    def test_future_schema_is_reported_without_rename_or_overwrite(self) -> None:
+        path = store.settings_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        original = (
+            json.dumps(
+                {
+                    "schema_version": store.SETTINGS_SCHEMA_VERSION + 1,
+                    "future": {"kept": True},
+                },
+                indent=2,
+            )
+            + "\n"
+        ).encode("utf-8")
+        path.write_bytes(original)
+
+        settings, reason = store.load_settings_with_status()
+
+        self.assertEqual(_DEFAULT_SETTINGS, settings)
+        self.assertEqual("settings_schema_unsupported", reason)
+        self.assertEqual(original, path.read_bytes())
+        self.assertFalse(path.with_name(path.name + ".bad").exists())
+        with self.assertRaises(store.SettingsSchemaUnsupportedError):
+            store.update_generation_settings({"loop_mode": "ping_pong"})
+        self.assertEqual(original, path.read_bytes())
 
 
 def _layer(fill: str = "#00000000") -> dict:
