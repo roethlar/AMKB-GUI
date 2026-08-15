@@ -31,19 +31,20 @@
   firmware-defined lighting effects, and custom animation upload are advertised
   and qualified independently. A board can have RGB support without animation
   upload. OpenKeeb is a firmware/configuration manager, not a resident lighting
-  host; OpenRGB is finite-session last resort only, never a required background
-  service. Initial v2 includes both direct integrations with firmware already
-  installed on target boards and a companion-firmware lane needed for broad
-  ecosystem coverage. The companion's source/binary/protocol delivery boundary
-  remains undecided, and automated firmware flashing is not authorized. Public
-  claims remain capability- and hardware-qualified until broader evidence exists.
-  The planning record is current as of `ec152c1` (2026-08-09), which corrects
-  and supersedes the inverted companion-firmware ruling in `79a3d5e` without
-  rewriting history.
+  host. **Re-founded 2026-08-15 (owner ruling, `.agents/decisions.md`):** the
+  companion-firmware lane is dead entirely and OpenRGB is struck from the
+  ecosystem list — v2 supports only what a board's stock firmware already
+  speaks (AM, Vial, VIA/QMK), as a full keyboard configurator (keymaps,
+  layers, macros, lighting) built around one hub profile format with per-
+  ecosystem reader/writer spokes and honest carried/dropped transfer reports.
+  Automated firmware flashing remains unauthorized. Public claims remain
+  capability- and hardware-qualified until broader evidence exists.
   Existing 0.x releases remain unchanged. Development branch `v2/openkeeb`
   was created at planning commit `59f0bb1`; no source rename, identifier
   migration, implementation, or release has been authorized or performed.
-  Plan: `docs/superpowers/plans/2026-08-08-openkeeb-v2.md`.
+  Plans: `docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`
+  (current, DRAFT awaiting owner approval) over
+  `docs/superpowers/plans/2026-08-08-openkeeb-v2.md` (superseded in part).
 
 - **0.1.68 is published** (2026-08-08): tag `v0.1.68` at `cdcf841`, signed
   release run 31240024617 fully green (Release identity, signed Windows
@@ -201,12 +202,13 @@
   verification pass:
   the effect-techniques plan claim by claim, plus a spot-check of the OpenKeeb
   v2 architecture section. Other docs were not audited.
-- **OpenKeeb v2 planning:** capability-based support, firmware-resident lighting,
-  and the companion-firmware lane in initial v2 are settled. Next decide whether
-  OpenKeeb maintains companion source integrations, complete firmware binaries,
-  or only a public protocol; then choose exact pilot boards and public technical
-  identifiers one owner decision at a time. No implementation until the durable
-  plan is approved.
+- **OpenKeeb v2 planning:** the 2026-08-15 ruling re-founded v2 as a full
+  keyboard configurator (hub format + AM/Vial/VIA spokes; companion lane and
+  OpenRGB dead). The durable plan is drafted
+  (`docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`) and
+  awaits owner approval — that approval is the next owner decision, then pilot
+  Vial/VIA hardware, then public identifiers, one at a time. No implementation
+  until the plan is approved; each slice then needs its own go.
 - **Package-manager distribution paused before publication:** AUR remains
   parked by the Arch lock; Flatpak prepare/build tooling exists but must not be
   published under `io.github.roethlar.AMConfigurator`. Retarget both only after

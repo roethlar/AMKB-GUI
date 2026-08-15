@@ -1,5 +1,54 @@
 # Repository Decisions
 
+## 2026-08-15 — OpenKeeb v2 is a full keyboard configurator; the companion lane is dead; portability flows through one hub format
+
+Status: approved by the owner on 2026-08-15 across a single exchange; the
+closing "yes, the hard part is what we need to focus on" authorized recording
+this ruling and drafting the durable plan — nothing more.
+
+- **The companion lane is dead entirely.** Owner's words: "oh, no. none of
+  that. if this won't work out of the box with a keyboard, no one is going to
+  'write a companion' to make it work." OpenKeeb supports what a board's stock
+  firmware already speaks, and nothing more. No companion source integrations,
+  no shipped firmware binaries, no published companion protocol. This closes
+  the v2 plan's Required Owner Decision 1 (companion delivery boundary) as
+  "none of the above" and supersedes the "companion-firmware lane in initial
+  v2" ruling (planning record `ec152c1`) — that lane no longer exists. The
+  follow-on source/binaries/protocol decisions are erased, not deferred.
+- **v2 is a full keyboard configuration utility, not a lighting studio.**
+  Owner's correction, verbatim in part: "a major component of the keyboard is
+  what the … KEYS DO. so YES, WE 'COMPETE' with the others on that aspect.
+  Lighting is only a part of what this is." Scope is the whole keyboard:
+  keymaps, layers, macros, lighting. Keymaps are "an absolute necessity."
+  The lighting/macro system remains the friendliest-in-market differentiator,
+  not the boundary of the product.
+- **Target ecosystems: AM, Vial, VIA/QMK.** OpenRGB is struck from the
+  ecosystem list — owner: "openrgb isn't a keyboard configuration utility."
+  It is lighting-only (no keymaps, macros, or layers) and its QMK path needs
+  custom firmware, which the out-of-the-box ruling forbids. The v2 plan's
+  OpenRGB protocol lane is dead with it.
+- **Hub-and-spoke portability.** Owner: "what I essentially want is the
+  ability to take the config from one keyboard and upload a compatible,
+  equivalent version to a different keyboard." One OpenKeeb profile format
+  (the hub) captures everything a keyboard can be told; each ecosystem is a
+  spoke with a reader and a writer. Cross-board transfer always passes through
+  the hub, so a new ecosystem is one spoke, not N translations. Transfers
+  cannot always be perfect across differing boards; they must be *equivalent
+  where possible*, with the app stating plainly what carried and what did not.
+- **First-pass overlay contract.** Importing a large map onto a small board
+  (owner's example: 108-key onto a 40%) must produce an obvious first pass
+  where the alphanumeric layer-1 keys all land on the correct keys; the user
+  then adjusts through first-class UX.
+- **UI is the selling point.** "more powerful if the user wants it, and simple
+  if not" — progressive disclosure, explicitly against the branding-heavy,
+  oversimplified high-end manufacturer tools.
+- **Cost accepted.** Owner: "this is not a quick pivot. this is a complex
+  task." Months of slices, the largest feature this repository will have
+  taken on, accepted with eyes open.
+- Ruling, record, and plan-drafting only; no implementation slice is
+  authorized by this entry. Durable plan:
+  `docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`.
+
 ## 2026-08-15 — Effect-plan rejections ruled: two confirmed, geometry amended
 
 Status: approved by the owner on 2026-08-15. The owner's push-back ("is the
