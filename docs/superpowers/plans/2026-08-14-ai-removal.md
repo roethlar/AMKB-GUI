@@ -223,6 +223,23 @@ slice runs the full verification entry point before commit.
    `build_tools/qualify_recipe_model.py` is deleted — it is an Ollama
    recipe-model qualification CLI, unambiguously AI surface, and an
    orphaned importer of three deleted modules.
+   ADDENDUM 2026-08-14 (third resolution, in-session under the blanket go):
+   the combined-slice agent surfaced one further entanglement before
+   editing — `_State.reconcile_lighting()` (`server.py:2296`) reaches the
+   kept `library.py` reconciliation only by routing through
+   `procedural_services()`' AI coordinator, and it runs on every
+   `create_server()` (`server.py:4317`) and on library-root changes
+   (`server.py:3890`), so deleting the coordinator as named would break
+   non-AI server startup. Authorized fix, as the inherent consequence of
+   the approved deletions rather than a widening: rewire
+   `reconcile_lighting()` (and its call sites, including
+   `_defer_lighting_reconciliation()`) to call the kept
+   `library.reconcile()` directly, and drop the `pipeline == "procedural"`
+   AI-job-repair walk (`procedural_generation.py:902`) — no future job can
+   carry that pipeline once generation is removed; pre-existing on-disk
+   procedural jobs keep their assets but stop being repaired, which matches
+   the removal's intent. Kept library reconciliation must still run at
+   every point it runs today.
 6. **Absence guard + sweep.** Add a guard test following the
    `test_legacy_inline_generator_removed.py` precedent: assert no module,
    route, or UI string from the removed surface reappears (grep gate: no hits
