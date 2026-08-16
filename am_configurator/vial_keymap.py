@@ -125,7 +125,7 @@ def macro_keycode_base(vial_protocol: int) -> int:
         raise UnsupportedVialProtocol(
             f"Vial protocol {vial_protocol!r} is not a supported keycode map."
         )
-    if 1 <= vial_protocol <= 5:
+    if 0 <= vial_protocol <= 5:
         return QK_MACRO_BASE_V5
     if vial_protocol == 6:
         return QK_MACRO_BASE_V6

@@ -21,12 +21,18 @@
 ## Next
 
 - **OpenKeeb v2 implementation is active under the approved hub-configurator
-  plan:** H0 and H1 are complete; H2 (the Vial spoke) is next. H7 is the queued
-  branding overhaul, which the owner ruled is a repositioning rather than a
-  rename. The canonical scope and sequence live in
+  plan:** H0 and H1 are complete; H2 (the Vial spoke) is in progress. Its first
+  fixture-backed landing validates read-only discovery snapshots and embedded
+  definitions, projects KLE key geometry, round-trips keymaps and normalized
+  Vial macro buffers (including protocol-version encodings), and produces pure
+  write plans with transfer reports. It owns no HID session and cannot write a
+  keyboard. Next within H2 is generic Vial transport wiring behind the existing
+  typed-confirmation and unlock gates; live proof still awaits pilot hardware.
+  H7 is the queued branding overhaul, which the owner ruled is a repositioning
+  rather than a rename. The canonical scope and sequence live in
   `docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`. Codec
-  work can proceed on fixtures, but live proof awaits a pilot-hardware choice.
-  Public identifiers, releases, money, and hardware writes remain owner-gated.
+  work is proven on fixtures. Public identifiers, releases, money, and hardware
+  writes remain owner-gated.
 
 - **Text banner authoring remains in v2 scope for NEON and Cyberboard.** The
   durable boundary, including its text effects, lives in `.agents/decisions.md`

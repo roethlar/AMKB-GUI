@@ -1,0 +1,25 @@
+{
+  "definition": {
+    "name": "Fixture Pad",
+    "matrix": {
+      "rows": 2,
+      "cols": 3
+    },
+    "layouts": {
+      "keymap": [
+        ["0,0", "0,1", {"w": 1.5}, "0,2"],
+        ["1,0", "1,1", "1,2"]
+      ]
+    }
+  },
+  "via_protocol": 9,
+  "vial_protocol": 6,
+  "firmware_uid": "0123456789abcdef",
+  "usb_vendor_id": 51966,
+  "usb_product_id": 48879,
+  "layer_count": 2,
+  "keymap_hex": "00290004520377005101000000050006000700080009000a",
+  "macro_count": 3,
+  "macro_buffer_bytes": 20,
+  "macro_hex": "0101040104fb010106035201070352006f6b0000"
+}

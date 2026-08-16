@@ -10,6 +10,15 @@ the companion-firmware lane and the OpenRGB lane are dead (owner ruling
 identity, migration, naming, licensing, and device safety still stands and is
 not restated here.
 
+H2 first landing, 2026-08-16: the fixture-backed Vial spoke foundation is
+complete. `am_configurator/hub_vial.py` validates a read-only discovery
+snapshot and embedded definition, projects its KLE layout, translates keymap
+and macro buffers into the hub, and produces complete byte buffers plus an
+honest transfer report for the inverse direction. The seam owns no HID session
+and cannot write hardware; transport wiring remains the next H2 slice. The H0
+survey established that a Vial definition does not carry LED positions, so LED
+geometry remains H6 work rather than being invented in H2.
+
 ## Vision (owner, 2026-08-15)
 
 One app that does all the config: take the configuration from one keyboard and

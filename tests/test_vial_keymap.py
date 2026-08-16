@@ -338,6 +338,21 @@ class UiEmittableCodeTests(unittest.TestCase):
             ),
         )
 
+    def test_vial_protocol_zero_uses_the_legacy_macro_keycode_range(self) -> None:
+        layer = ["#00951500", "#00951501"]
+        encoded = vk.encode_layers([layer], vial_protocol=0)
+
+        self.assertEqual(bytes.fromhex("5F125F13"), encoded)
+        self.assertEqual(
+            [layer],
+            vk.decode_layers(
+                encoded,
+                layers=1,
+                keys_per_layer=len(layer),
+                vial_protocol=0,
+            ),
+        )
+
     def test_a_macro_slot_the_device_lacks_is_refused(self) -> None:
         with self.assertRaises(vk.UnsupportedKeycode) as raised:
             vk.to_qmk("#00951510")
