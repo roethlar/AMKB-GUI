@@ -82,8 +82,9 @@ front of us.
 - [x] Capability surface comparison: lighting, macros, layers per family
       (see "Capability surface comparison" below) — the raw material for
       the hub's capability descriptor.
-- [ ] Hub schema draft written against the surveyed tables (separate doc,
-      second half of H0).
+- [x] Hub schema draft written against the surveyed tables:
+      `docs/design/2026-08-15-hub-schema-draft.md` (DRAFT, owner review
+      closes H0).
 
 Tables below are extracted from pinned sources; each cites its commit/URL.
 
