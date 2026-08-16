@@ -1079,6 +1079,115 @@ def open_via_read(info: ViaEndpointInfo) -> _ReadOnlyRawSession:
     return session
 
 
+_VIA_APPROVAL_TOKEN = object()
+_VIA_APPROVED_COMMANDS = _VIA_READ_ONLY_COMMANDS | frozenset({0x05, 0x0F, 0x13})
+
+
+class _ViaApprovedSession(_RawSession):
+    """Endpoint-approved VIA session with a closed command allowlist."""
+
+    def send(self, payload: bytes) -> None:
+        if not payload:
+            raise HidError("An empty raw-HID request is not valid.")
+        if payload[0] not in _VIA_APPROVED_COMMANDS:
+            raise HidError(
+                f"Refusing raw-HID command 0x{payload[0]:02X}: "
+                "not approved for a VIA keymap/macro write."
+            )
+        super().send(payload)
+
+
+@dataclass(frozen=True)
+class ViaWriteApproval:
+    """Exact typed phrase bound to one connection-scoped VIA endpoint."""
+
+    address: str
+    path: bytes
+    definition_name: str
+    definition_hash: str
+    confirmation: str
+    expected_confirmation: str
+    usb_vendor_id: int
+    usb_product_id: int
+    serial_number: str
+    product_string: str
+    manufacturer_string: str
+    interface_number: int
+    token: object = None
+
+
+def via_write_confirmation(info: ViaEndpointInfo, definition_name: str) -> str:
+    """Human gate acknowledging imported definition and enumerated USB IDs."""
+
+    return (
+        f"VIA {definition_name} "
+        f"{info.usb_vendor_id:04X}:{info.usb_product_id:04X}"
+    )
+
+
+def approve_via_write(
+    info: ViaEndpointInfo,
+    *,
+    definition_name: str,
+    definition_hash: str,
+    confirmation: str,
+) -> ViaWriteApproval:
+    """Mint a VIA approval only for the canonical endpoint confirmation."""
+
+    expected = via_write_confirmation(info, definition_name)
+    if confirmation != expected:
+        raise HidIdentityError(
+            f"Type {expected} exactly to confirm writing this keyboard."
+        )
+    return ViaWriteApproval(
+        address=info.address,
+        path=info.path,
+        definition_name=definition_name,
+        definition_hash=definition_hash,
+        confirmation=confirmation,
+        expected_confirmation=expected,
+        usb_vendor_id=info.usb_vendor_id,
+        usb_product_id=info.usb_product_id,
+        serial_number=info.serial_number,
+        product_string=info.product_string,
+        manufacturer_string=info.manufacturer_string,
+        interface_number=info.interface_number,
+        token=_VIA_APPROVAL_TOKEN,
+    )
+
+
+def open_via_approved(approval: ViaWriteApproval) -> _ViaApprovedSession:
+    """Open the exact approved endpoint and keep its handle for reproof/write."""
+
+    if approval.token is not _VIA_APPROVAL_TOKEN:
+        raise HidIdentityError("This VIA write approval was not issued here.")
+    expected_confirmation = (
+        f"VIA {approval.definition_name} "
+        f"{approval.usb_vendor_id:04X}:{approval.usb_product_id:04X}"
+    )
+    if (
+        approval.expected_confirmation != expected_confirmation
+        or approval.confirmation != expected_confirmation
+        or not approval.definition_hash.startswith("sha256-")
+    ):
+        raise HidIdentityError("The typed confirmation no longer matches approval.")
+    expected = ViaEndpointInfo(
+        address=approval.address,
+        path=approval.path,
+        usb_vendor_id=approval.usb_vendor_id,
+        usb_product_id=approval.usb_product_id,
+        serial_number=approval.serial_number,
+        product_string=approval.product_string,
+        manufacturer_string=approval.manufacturer_string,
+        interface_number=approval.interface_number,
+    )
+    if not any(_same_via_endpoint(entry, expected) for entry in via_endpoints()):
+        raise HidIdentityError("The approved VIA endpoint no longer matches.")
+    session = _ViaApprovedSession(approval.path, endpoint_source=via_endpoints)
+    session.__enter__()
+    return session
+
+
 def open_approved(approval: WriteApproval) -> _RawSession:
     """Open the approved device and re-prove its identity on that same handle.
 

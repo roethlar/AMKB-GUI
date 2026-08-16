@@ -64,6 +64,14 @@ class MacroEncodingError(ValueError):
     """A macro event cannot be expressed in the VIA macro encoding."""
 
 
+class MacroAcceptedWriteError(RuntimeError):
+    """The keyboard accepted macro bytes before a later transport failure."""
+
+    def __init__(self, message: str, *, macro_bytes: int) -> None:
+        super().__init__(message)
+        self.macro_bytes = macro_bytes
+
+
 @dataclass(frozen=True)
 class MacroCapacity:
     """What one device actually reports. Never guessed, never defaulted."""
@@ -392,12 +400,24 @@ def write_macro_buffer(
     written = 0
     while written < len(payload):
         chunk = payload[written : written + BUFFER_CHUNK]
-        session.send(
-            bytes(
-                [VIA_MACRO_SET_BUFFER, (written >> 8) & 0xFF, written & 0xFF, len(chunk)]
+        try:
+            session.send(
+                bytes(
+                    [
+                        VIA_MACRO_SET_BUFFER,
+                        (written >> 8) & 0xFF,
+                        written & 0xFF,
+                        len(chunk),
+                    ]
+                )
+                + chunk
             )
-            + chunk
-        )
-        session.receive()
+            session.receive()
+        except Exception as error:
+            raise MacroAcceptedWriteError(
+                "The keyboard may have accepted part of the macro buffer "
+                "before the write failed.",
+                macro_bytes=written + len(chunk),
+            ) from error
         written += len(chunk)
     return written

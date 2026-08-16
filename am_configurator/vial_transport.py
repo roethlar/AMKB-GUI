@@ -293,6 +293,12 @@ def execute_write(
                         keymap_bytes=keymap_written,
                         macro_bytes=macros_written,
                     )
+        except vial_macros.MacroAcceptedWriteError as error:
+            raise VialAcceptedWriteError(
+                str(error),
+                keymap_bytes=keymap_written,
+                macro_bytes=error.macro_bytes,
+            ) from error
         except VialAcceptedWriteError:
             raise
         except Exception as error:

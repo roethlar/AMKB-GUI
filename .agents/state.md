@@ -33,9 +33,13 @@
   performed. H3a pure buffer/transfer-report planning is complete: it preserves
   omitted target sections, reports unsupported mappings, gates keycode-spec
   mismatch, and encodes both VIA macro dialects within device budgets without
-  opening HID. H3b fake-HID endpoint-bound typed write gate with same-handle
-  identity reproof, narrow setters, and exact read-back is next; H3c live proof
-  remains separately owner-gated. H2's generic Vial
+  opening HID. H3b fake-HID write transport is complete: exact
+  `VIA <definition> <VID>:<PID>` confirmation, endpoint/USB/definition/protocol/
+  layout/capacity binding, same-handle reproof, three-command setter allowlist,
+  protocol-correct writes, accepted-byte accounting, exact read-back, and
+  authenticated preflight/write API. No real HID backend was opened. H3c live
+  M80H byte-identical write/replug proof remains separately owner-gated. H2's
+  generic Vial
   transport and local API are wired to the hub codec with read-only command
   enforcement, endpoint/firmware/definition reproof, exact typed confirmation,
   physical unlock, and exact read-back. The owner's Neon 80 qualified the full

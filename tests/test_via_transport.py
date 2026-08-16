@@ -1,8 +1,9 @@
-"""Definition-backed read-only VIA hub spoke through fake raw HID."""
+"""Definition-backed VIA hub spoke through fake raw HID."""
 
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -24,10 +25,18 @@ class FakeViaState:
         self.layout_options = layout_options
         self.layer_count = 4
         values = range(self.layer_count * 2 * 3)
-        self.keymap = b"".join(value.to_bytes(2, "big") for value in values)
+        self.keymap = bytearray(
+            b"".join(value.to_bytes(2, "big") for value in values)
+        )
         self.macro_count = 2
-        self.macro_buffer = bytes([1, 4, 0, 0]).ljust(12, b"\x00")
+        self.macro_buffer = bytearray(
+            bytes([1, 4, 0, 0]).ljust(12, b"\x00")
+        )
         self.keycodes_version = bytes.fromhex("00000008")
+        self.keymap_bytes_written = 0
+        self.macro_bytes_written = 0
+        self.corrupt_keymap_readback = False
+        self.fail_after_keymap_bytes: int | None = None
 
     def answer(self, packet: bytes) -> bytes:
         command = packet[0]
@@ -43,13 +52,41 @@ class FakeViaState:
         if command == vial_keymap.VIA_GET_KEYCODE:
             layer, row, col = packet[1:4]
             offset = ((layer * 2 * 3) + (row * 3) + col) * 2
-            return packet[:4] + self.keymap[offset : offset + 2]
+            value = bytes(self.keymap[offset : offset + 2])
+            if self.corrupt_keymap_readback and self.keymap_bytes_written:
+                value = bytes([value[0] ^ 0xFF, value[1]])
+            return packet[:4] + value
+        if command == 0x05:
+            layer, row, col = packet[1:4]
+            offset = ((layer * 2 * 3) + (row * 3) + col) * 2
+            self.keymap[offset : offset + 2] = packet[4:6]
+            self.keymap_bytes_written += 2
+            if (
+                self.fail_after_keymap_bytes is not None
+                and self.keymap_bytes_written >= self.fail_after_keymap_bytes
+            ):
+                raise OSError("fake lost keymap setter reply")
+            return packet[:4]
         if command == vial_keymap.VIA_GET_LAYER_COUNT:
             return bytes([command, self.layer_count])
         if command == vial_keymap.VIA_GET_BUFFER:
             offset = int.from_bytes(packet[1:3], "big")
             size = packet[3]
-            return packet[:4] + self.keymap[offset : offset + size]
+            value = bytes(self.keymap[offset : offset + size])
+            if self.corrupt_keymap_readback and self.keymap_bytes_written and value:
+                value = bytes([value[0] ^ 0xFF]) + value[1:]
+            return packet[:4] + value
+        if command == vial_keymap.VIA_SET_BUFFER:
+            offset = int.from_bytes(packet[1:3], "big")
+            size = packet[3]
+            self.keymap[offset : offset + size] = packet[4 : 4 + size]
+            self.keymap_bytes_written += size
+            if (
+                self.fail_after_keymap_bytes is not None
+                and self.keymap_bytes_written >= self.fail_after_keymap_bytes
+            ):
+                raise OSError("fake lost keymap setter reply")
+            return packet[:4]
         if command == 0x0C:
             return bytes([command, self.macro_count])
         if command == 0x0D:
@@ -57,7 +94,13 @@ class FakeViaState:
         if command == 0x0E:
             offset = int.from_bytes(packet[1:3], "big")
             size = packet[3]
-            return packet[:4] + self.macro_buffer[offset : offset + size]
+            return packet[:4] + bytes(self.macro_buffer[offset : offset + size])
+        if command == 0x0F:
+            offset = int.from_bytes(packet[1:3], "big")
+            size = packet[3]
+            self.macro_buffer[offset : offset + size] = packet[4 : 4 + size]
+            self.macro_bytes_written += size
+            return packet[:4]
         raise AssertionError(f"unexpected VIA command 0x{command:02X}")
 
 
@@ -400,6 +443,18 @@ class GenericViaTransportTests(unittest.TestCase):
         self.addCleanup(self.hid_patch.stop)
         self.address = hid_transport.endpoint_address(self.path)
 
+    @staticmethod
+    def _setters(commands: list[tuple[bytes, bytes]]) -> set[int]:
+        return {packet[0] for _path, packet in commands} & {0x05, 0x0F, 0x13}
+
+    def _prepared(self):
+        snapshot = via_transport.read_snapshot(self.address, self.definition)
+        profile = hub_via.build_hub_profile(snapshot)
+        profile["keymap"]["layers"][0]["keys"][0]["code"] = 0x0005
+        return via_transport.prepare_write(
+            self.address, self.definition, profile
+        )
+
     def test_discovery_is_shallow_and_keeps_same_model_endpoints_distinct(self) -> None:
         devices = via_transport.list_devices()
         self.assertEqual(2, len(devices))
@@ -436,6 +491,231 @@ class GenericViaTransportTests(unittest.TestCase):
         finally:
             session.close()
         self.assertEqual([], self.backend.commands)
+
+    def test_preflight_plans_without_sending_a_setter(self) -> None:
+        prepared = self._prepared()
+
+        self.assertEqual("VIA Fixture VIA Pad CAFE:BEEF", prepared.confirmation)
+        self.assertEqual(
+            prepared.definition.definition_hash, prepared.target.definition_hash
+        )
+        self.assertEqual(set(), self._setters(self.backend.commands))
+
+    def test_forged_via_write_approval_is_refused_without_opening(self) -> None:
+        forged = hid_transport.ViaWriteApproval(
+            address=self.address,
+            path=self.path,
+            definition_name="Fixture VIA Pad",
+            definition_hash="sha256-forged",
+            confirmation="VIA Fixture VIA Pad CAFE:BEEF",
+            expected_confirmation="VIA Fixture VIA Pad CAFE:BEEF",
+            usb_vendor_id=0xCAFE,
+            usb_product_id=0xBEEF,
+            serial_number="fixture-via",
+            product_string="Fixture VIA USB",
+            manufacturer_string="Fixture Works",
+            interface_number=1,
+        )
+        self.backend.commands.clear()
+
+        with self.assertRaises(hid_transport.HidIdentityError):
+            hid_transport.open_via_approved(forged)
+
+        self.assertEqual([], self.backend.commands)
+
+    def test_wrong_confirmation_stops_before_reopening_endpoint(self) -> None:
+        prepared = self._prepared()
+        self.backend.commands.clear()
+
+        with self.assertRaisesRegex(hid_transport.HidIdentityError, "Type VIA"):
+            via_transport.execute_write(
+                prepared, confirmation="Fixture VIA Pad"
+            )
+
+        self.assertEqual([], self.backend.commands)
+
+    def test_changed_usb_metadata_stops_before_opening_endpoint(self) -> None:
+        prepared = self._prepared()
+        self.backend.entries[0]["product_string"] = "Impostor VIA USB"
+        self.backend.commands.clear()
+
+        with self.assertRaises(hid_transport.HidIdentityError):
+            via_transport.execute_write(
+                prepared, confirmation=prepared.confirmation
+            )
+
+        self.assertEqual([], self.backend.commands)
+
+    def test_changed_imported_definition_hash_stops_before_opening(self) -> None:
+        prepared = self._prepared()
+        changed = copy.deepcopy(self.definition)
+        changed["customKeycodes"] = []
+        forged = replace(
+            prepared, definition=hub_via.load_definition(changed)
+        )
+        self.backend.commands.clear()
+
+        with self.assertRaises(hid_transport.HidIdentityError):
+            via_transport.execute_write(
+                forged, confirmation=forged.confirmation
+            )
+
+        self.assertEqual([], self.backend.commands)
+
+    def test_replug_invalidates_prepared_endpoint_before_opening(self) -> None:
+        prepared = self._prepared()
+        replacement = b"via-device-replugged"
+        self.backend.entries[0] = _entry(replacement)
+        self.backend.states[replacement] = self.state
+        del self.backend.states[self.path]
+        self.backend.commands.clear()
+
+        with self.assertRaises(hid_transport.HidDeviceAbsent):
+            via_transport.execute_write(
+                prepared, confirmation=prepared.confirmation
+            )
+
+        self.assertEqual([], self.backend.commands)
+
+    def test_changed_protocol_shape_or_capacity_stops_before_setter(self) -> None:
+        cases = (
+            ("protocol", lambda state: setattr(state, "protocol", 10)),
+            ("layout", lambda state: setattr(state, "layout_options", 0)),
+            ("layers", lambda state: setattr(state, "layer_count", 3)),
+            ("macros", lambda state: setattr(state, "macro_count", 3)),
+        )
+        for label, mutate in cases:
+            with self.subTest(label=label):
+                self.state = FakeViaState()
+                self.backend.states[self.path] = self.state
+                prepared = self._prepared()
+                mutate(self.state)
+                self.backend.commands.clear()
+
+                with self.assertRaises(hid_transport.HidIdentityError):
+                    via_transport.execute_write(
+                        prepared, confirmation=prepared.confirmation
+                    )
+
+                self.assertEqual(set(), self._setters(self.backend.commands))
+
+    def test_changed_protocol_13_keycode_spec_stops_before_setter(self) -> None:
+        self.state = FakeViaState(protocol=13)
+        self.state.macro_buffer = bytearray(
+            bytes([1, 1, 4, 0, 0]).ljust(12, b"\x00")
+        )
+        self.backend.states[self.path] = self.state
+        prepared = self._prepared()
+        self.state.keycodes_version = bytes.fromhex("00000007")
+        self.backend.commands.clear()
+
+        with self.assertRaises(hid_transport.HidIdentityError):
+            via_transport.execute_write(
+                prepared, confirmation=prepared.confirmation
+            )
+
+        self.assertEqual(set(), self._setters(self.backend.commands))
+
+    def test_approved_session_refuses_every_unplanned_mutation(self) -> None:
+        prepared = self._prepared()
+        endpoint = hid_transport.find_via_endpoint(self.address)
+        approval = hid_transport.approve_via_write(
+            endpoint,
+            definition_name=prepared.definition.name,
+            definition_hash=prepared.definition.definition_hash,
+            confirmation=prepared.confirmation,
+        )
+        session = hid_transport.open_via_approved(approval)
+        self.backend.commands.clear()
+        try:
+            for command in (0x03, 0x0A, 0x0B, 0x10, 0x15, 0x99):
+                with self.subTest(command=command):
+                    with self.assertRaises(hid_transport.HidError):
+                        session.send(bytes([command]))
+        finally:
+            session.close()
+        self.assertEqual([], self.backend.commands)
+
+    def test_protocol_9_write_uses_exact_plan_and_readback(self) -> None:
+        prepared = self._prepared()
+        self.backend.commands.clear()
+
+        receipt = via_transport.execute_write(
+            prepared, confirmation=prepared.confirmation
+        )
+
+        self.assertEqual(prepared.plan.keymap_buffer, bytes(self.state.keymap))
+        self.assertEqual(
+            prepared.plan.macro_buffer, bytes(self.state.macro_buffer)
+        )
+        self.assertEqual(len(prepared.plan.keymap_buffer or b""), receipt.keymap_bytes)
+        self.assertEqual(len(prepared.plan.macro_buffer or b""), receipt.macro_bytes)
+        self.assertEqual(prepared.plan.report, receipt.report)
+        commands = {packet[0] for _path, packet in self.backend.commands}
+        self.assertTrue({0x0F, 0x13} <= commands)
+        self.assertNotIn(0x05, commands)
+
+    def test_omitted_keymap_never_sends_a_keymap_setter(self) -> None:
+        snapshot = via_transport.read_snapshot(self.address, self.definition)
+        profile = hub_via.build_hub_profile(snapshot)
+        profile.pop("keymap")
+        profile["provenance"].pop("/keymap")
+        profile["macros"][0]["events"] = [{"tap": 5}]
+        prepared = via_transport.prepare_write(
+            self.address, self.definition, profile
+        )
+        self.backend.commands.clear()
+
+        receipt = via_transport.execute_write(
+            prepared, confirmation=prepared.confirmation
+        )
+
+        self.assertEqual(0, receipt.keymap_bytes)
+        self.assertEqual(12, receipt.macro_bytes)
+        commands = {packet[0] for _path, packet in self.backend.commands}
+        self.assertIn(0x0F, commands)
+        self.assertFalse(commands & {0x05, 0x13})
+
+    def test_protocol_7_write_uses_per_key_setters_only(self) -> None:
+        self.state.protocol = 7
+        prepared = self._prepared()
+        self.backend.commands.clear()
+
+        receipt = via_transport.execute_write(
+            prepared, confirmation=prepared.confirmation
+        )
+
+        self.assertEqual(prepared.plan.keymap_buffer, bytes(self.state.keymap))
+        self.assertEqual(len(prepared.plan.keymap_buffer or b""), receipt.keymap_bytes)
+        commands = {packet[0] for _path, packet in self.backend.commands}
+        self.assertIn(0x05, commands)
+        self.assertFalse(commands & {0x0F, 0x13})
+
+    def test_readback_mismatch_reports_accepted_write(self) -> None:
+        prepared = self._prepared()
+        self.state.corrupt_keymap_readback = True
+        self.backend.commands.clear()
+
+        with self.assertRaises(via_transport.ViaAcceptedWriteError) as caught:
+            via_transport.execute_write(
+                prepared, confirmation=prepared.confirmation
+            )
+
+        self.assertGreater(caught.exception.keymap_bytes, 0)
+        self.assertTrue(self._setters(self.backend.commands))
+
+    def test_lost_first_setter_reply_reports_possible_accepted_bytes(self) -> None:
+        prepared = self._prepared()
+        self.state.fail_after_keymap_bytes = 28
+        self.backend.commands.clear()
+
+        with self.assertRaises(via_transport.ViaAcceptedWriteError) as caught:
+            via_transport.execute_write(
+                prepared, confirmation=prepared.confirmation
+            )
+
+        self.assertEqual(28, caught.exception.keymap_bytes)
+        self.assertEqual(0, caught.exception.macro_bytes)
 
     def test_protocol_seven_uses_per_key_reads_without_macro_probes(self) -> None:
         self.state.protocol = 7
@@ -489,6 +769,54 @@ class GenericViaTransportTests(unittest.TestCase):
                 )
                 self.assertEqual(200, status)
                 self.assertEqual("Fixture VIA Pad", read["profile"]["identity"]["family"])
+
+                status, preflight = request(
+                    "POST",
+                    "/api/hub/via/preflight",
+                    {
+                        "address": self.address,
+                        "definition": self.definition,
+                        "profile": read["profile"],
+                    },
+                )
+                self.assertEqual(200, status)
+                self.assertEqual(
+                    "VIA Fixture VIA Pad CAFE:BEEF",
+                    preflight["confirmation"],
+                )
+                self.assertEqual(48, preflight["keymap_bytes"])
+
+                self.backend.commands.clear()
+                status, refused = request(
+                    "POST",
+                    "/api/hub/via/write",
+                    {
+                        "address": self.address,
+                        "definition": self.definition,
+                        "profile": read["profile"],
+                        "confirmation": "Fixture VIA Pad",
+                    },
+                )
+                self.assertEqual(400, status)
+                self.assertIn("Type VIA Fixture VIA Pad", refused["error"])
+                self.assertEqual(set(), self._setters(self.backend.commands))
+
+                self.state.corrupt_keymap_readback = True
+                self.backend.commands.clear()
+                status, accepted_error = request(
+                    "POST",
+                    "/api/hub/via/write",
+                    {
+                        "address": self.address,
+                        "definition": self.definition,
+                        "profile": read["profile"],
+                        "confirmation": preflight["confirmation"],
+                    },
+                )
+                self.assertEqual(409, status)
+                self.assertTrue(accepted_error["accepted"])
+                self.assertEqual(48, accepted_error["keymap_bytes"])
+                self.assertEqual(12, accepted_error["macro_bytes"])
             finally:
                 server.shutdown()
                 server.server_close()

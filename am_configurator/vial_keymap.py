@@ -377,6 +377,7 @@ def decode_layers(
 VIA_GET_PROTOCOL_VERSION = 0x01
 VIA_GET_KEYBOARD_VALUE = 0x02
 VIA_GET_KEYCODE = 0x04
+VIA_SET_KEYCODE = 0x05
 VIA_GET_LAYER_COUNT = 0x11
 VIA_GET_BUFFER = 0x12
 VIA_SET_BUFFER = 0x13
@@ -410,6 +411,14 @@ class KeyboardLocked(RuntimeError):
     user has to hold specific keys on the keyboard itself, which no amount of
     retrying from software will accomplish.
     """
+
+
+class ViaKeymapAcceptedWriteError(RuntimeError):
+    """A VIA keymap accepted bytes before a later transport failure."""
+
+    def __init__(self, message: str, *, keymap_bytes: int) -> None:
+        super().__init__(message)
+        self.keymap_bytes = keymap_bytes
 
 
 @dataclass(frozen=True)
@@ -495,6 +504,73 @@ def read_via_keymap_buffer(
                 )
                 buffer += reply[4:6]
     return bytes(buffer)
+
+
+def write_via_keymap_buffer(
+    session,
+    payload: bytes,
+    *,
+    via_protocol: int,
+    layers: int,
+    rows: int,
+    cols: int,
+) -> int:
+    """Write one complete VIA keymap through its protocol-correct command."""
+
+    expected = layers * rows * cols * 2
+    if len(payload) != expected:
+        raise ValueError(
+            f"The VIA keymap buffer has {len(payload)} bytes; {expected} expected."
+        )
+    if via_protocol >= 8:
+        written = 0
+        while written < len(payload):
+            chunk = payload[written : written + BUFFER_CHUNK]
+            try:
+                _via_request(
+                    session,
+                    VIA_SET_BUFFER,
+                    (written >> 8) & 0xFF,
+                    written & 0xFF,
+                    len(chunk),
+                    *chunk,
+                )
+            except Exception as error:
+                raise ViaKeymapAcceptedWriteError(
+                    "The VIA keyboard may have accepted part of the keymap "
+                    "before the write failed.",
+                    keymap_bytes=written + len(chunk),
+                ) from error
+            written += len(chunk)
+        return written
+    if via_protocol != 7:
+        raise UnsupportedVialProtocol(
+            f"VIA protocol {via_protocol} does not expose supported keymap write."
+        )
+
+    written = 0
+    for layer in range(layers):
+        for row in range(rows):
+            for col in range(cols):
+                code = payload[written : written + 2]
+                try:
+                    _via_request(
+                        session,
+                        VIA_SET_KEYCODE,
+                        layer,
+                        row,
+                        col,
+                        code[0],
+                        code[1],
+                    )
+                except Exception as error:
+                    raise ViaKeymapAcceptedWriteError(
+                        "The VIA keyboard may have accepted part of the keymap "
+                        "before the write failed.",
+                        keymap_bytes=written + 2,
+                    ) from error
+                written += 2
+    return written
 
 
 def read_keymap_buffer(session, *, size: int) -> bytes:

@@ -1,9 +1,10 @@
-"""Generic read-only VIA raw-HID transport for the OpenKeeb hub.
+"""Definition-bound VIA raw-HID transport for the OpenKeeb hub.
 
 Unlike Vial, VIA firmware does not embed its definition.  A shallow raw-HID
 candidate becomes a resolved VIA device only after a bounded user-imported
-definition matches USB VID/PID and a mutation-refusing session proves the
-protocol and active physical-layout options on that exact endpoint.
+definition matches USB VID/PID. Reads use a mutation-refusing session. Writes
+require a pure plan, exact typed phrase, connection-scoped endpoint reproof,
+same-handle protocol/capacity checks, a narrow command allowlist, and read-back.
 """
 
 from __future__ import annotations
@@ -15,7 +16,18 @@ from . import hid_transport, hub_via, vial_keymap, vial_macros
 
 
 class ViaTransportError(ValueError):
-    """Live VIA data cannot be represented or read safely."""
+    """Live VIA data cannot be represented, read, or written safely."""
+
+
+class ViaAcceptedWriteError(RuntimeError):
+    """A VIA keyboard accepted bytes before later write/read-back failure."""
+
+    def __init__(
+        self, message: str, *, keymap_bytes: int, macro_bytes: int
+    ) -> None:
+        super().__init__(message)
+        self.keymap_bytes = keymap_bytes
+        self.macro_bytes = macro_bytes
 
 
 @dataclass(frozen=True)
@@ -27,6 +39,31 @@ class ResolvedViaDevice:
     via_protocol: int
     layout_options: int
     keycode_spec: str | None
+
+
+@dataclass(frozen=True)
+class PreparedViaWrite:
+    """Read-only target snapshot and pure plan pinned to one VIA endpoint."""
+
+    endpoint: hid_transport.ViaEndpointInfo
+    definition: hub_via.ViaDefinition
+    target: hub_via.ViaSnapshot
+    plan: hub_via.ViaWritePlan
+
+    @property
+    def confirmation(self) -> str:
+        return hid_transport.via_write_confirmation(
+            self.endpoint, self.definition.name
+        )
+
+
+@dataclass(frozen=True)
+class ViaWriteReceipt:
+    """Exact accepted byte counts and planner transfer report."""
+
+    keymap_bytes: int
+    macro_bytes: int
+    report: dict[str, Any]
 
 
 _MAX_LAYERS = 32
@@ -180,4 +217,178 @@ def read_hub_profile(
 
     return hub_via.build_hub_profile(
         read_snapshot(address, definition), origin=origin
+    )
+
+
+def prepare_write(
+    address: str, definition: object, profile: object
+) -> PreparedViaWrite:
+    """Read the exact target and build a pure plan without sending a setter."""
+
+    resolved = resolve_device(address, definition)
+    target = _read_snapshot(resolved)
+    plan = hub_via.plan_via_write(profile, target=target)
+    if plan.keymap_buffer is None and plan.macro_buffer is None:
+        raise ViaTransportError(
+            "The hub profile has no VIA keymap or macro data to write."
+        )
+    return PreparedViaWrite(
+        endpoint=resolved.endpoint,
+        definition=resolved.definition,
+        target=target,
+        plan=plan,
+    )
+
+
+def _matches_endpoint(
+    info: hid_transport.ViaEndpointInfo, prepared: PreparedViaWrite
+) -> bool:
+    return (
+        info == prepared.endpoint
+        and info.usb_vendor_id == prepared.target.usb_vendor_id
+        and info.usb_product_id == prepared.target.usb_product_id
+        and prepared.definition.definition_hash == prepared.target.definition_hash
+        and prepared.definition.name == prepared.target.name
+        and prepared.definition.matrix_rows == prepared.target.matrix_rows
+        and prepared.definition.matrix_cols == prepared.target.matrix_cols
+    )
+
+
+def _revalidate_write(
+    session, prepared: PreparedViaWrite
+) -> vial_macros.MacroCapacity:
+    target = prepared.target
+    protocol, layout_options, keycode_spec = _probe(
+        session, prepared.definition
+    )
+    layer_count = vial_keymap.read_layer_count(session) if protocol >= 8 else 4
+    capacity = _capacity(session, protocol)
+    if (
+        protocol != target.via_protocol
+        or layout_options != target.layout_options
+        or keycode_spec != target.keycode_spec
+        or layer_count != target.layer_count
+        or capacity.count != target.macro_count
+        or capacity.buffer_bytes != target.macro_buffer_bytes
+    ):
+        raise hid_transport.HidIdentityError(
+            "The VIA endpoint protocol, layout, or buffer limits changed "
+            "after preflight."
+        )
+    keymap = prepared.plan.keymap_buffer
+    if keymap is not None and len(keymap) != len(target.keymap_buffer):
+        raise ViaTransportError("The planned VIA keymap no longer fits target.")
+    macros = prepared.plan.macro_buffer
+    if macros is not None and len(macros) != capacity.buffer_bytes:
+        raise ViaTransportError("The planned VIA macro buffer no longer fits target.")
+    return capacity
+
+
+def execute_write(
+    prepared: PreparedViaWrite, *, confirmation: str
+) -> ViaWriteReceipt:
+    """Execute one endpoint-bound plan and require exact complete read-back."""
+
+    if confirmation != prepared.confirmation:
+        raise hid_transport.HidIdentityError(
+            f"Type {prepared.confirmation} exactly to confirm writing this keyboard."
+        )
+    current = hid_transport.find_via_endpoint(prepared.endpoint.address)
+    if not _matches_endpoint(current, prepared):
+        raise hid_transport.HidIdentityError(
+            "The connected VIA endpoint no longer matches the preflight snapshot."
+        )
+    approval = hid_transport.approve_via_write(
+        current,
+        definition_name=prepared.definition.name,
+        definition_hash=prepared.definition.definition_hash,
+        confirmation=confirmation,
+    )
+    session = hid_transport.open_via_approved(approval)
+    keymap_written = 0
+    macros_written = 0
+    try:
+        capacity = _revalidate_write(session, prepared)
+        try:
+            if prepared.plan.keymap_buffer is not None:
+                keymap_written = vial_keymap.write_via_keymap_buffer(
+                    session,
+                    prepared.plan.keymap_buffer,
+                    via_protocol=prepared.target.via_protocol,
+                    layers=prepared.target.layer_count,
+                    rows=prepared.target.matrix_rows,
+                    cols=prepared.target.matrix_cols,
+                )
+            if prepared.plan.macro_buffer is not None:
+                macros_written = vial_macros.write_macro_buffer(
+                    session,
+                    prepared.plan.macro_buffer,
+                    capacity=capacity,
+                )
+        except vial_keymap.ViaKeymapAcceptedWriteError as error:
+            raise ViaAcceptedWriteError(
+                str(error),
+                keymap_bytes=error.keymap_bytes,
+                macro_bytes=macros_written,
+            ) from error
+        except vial_macros.MacroAcceptedWriteError as error:
+            raise ViaAcceptedWriteError(
+                str(error),
+                keymap_bytes=keymap_written,
+                macro_bytes=error.macro_bytes,
+            ) from error
+
+        if prepared.plan.keymap_buffer is not None:
+            readback = vial_keymap.read_via_keymap_buffer(
+                session,
+                via_protocol=prepared.target.via_protocol,
+                layers=prepared.target.layer_count,
+                rows=prepared.target.matrix_rows,
+                cols=prepared.target.matrix_cols,
+            )
+            if readback != prepared.plan.keymap_buffer:
+                raise ViaAcceptedWriteError(
+                    "The VIA keyboard accepted keymap bytes but read-back differed.",
+                    keymap_bytes=keymap_written,
+                    macro_bytes=macros_written,
+                )
+        if prepared.plan.macro_buffer is not None:
+            readback = vial_macros.read_macro_buffer(session, capacity=capacity)
+            if readback != prepared.plan.macro_buffer:
+                raise ViaAcceptedWriteError(
+                    "The VIA keyboard accepted macro bytes but read-back differed.",
+                    keymap_bytes=keymap_written,
+                    macro_bytes=macros_written,
+                )
+    except ViaAcceptedWriteError:
+        raise
+    except Exception as error:
+        if keymap_written or macros_written:
+            raise ViaAcceptedWriteError(
+                "The VIA keyboard accepted part of the write before it failed.",
+                keymap_bytes=keymap_written,
+                macro_bytes=macros_written,
+            ) from error
+        raise
+    finally:
+        session.close()
+    return ViaWriteReceipt(
+        keymap_bytes=keymap_written,
+        macro_bytes=macros_written,
+        report=prepared.plan.report,
+    )
+
+
+def write_hub_profile(
+    address: str,
+    definition: object,
+    profile: object,
+    *,
+    confirmation: str,
+) -> ViaWriteReceipt:
+    """Prepare again inside this request, then execute the endpoint-bound plan."""
+
+    return execute_write(
+        prepare_write(address, definition, profile),
+        confirmation=confirmation,
     )

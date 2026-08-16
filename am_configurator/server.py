@@ -110,7 +110,18 @@ def _effect_work_budget() -> Any:
 
 
 class AcceptedWriteError(RuntimeError):
-    """The device ACKed the full write, but a later verification step failed."""
+    """The device may have accepted bytes before verification failed."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        keymap_bytes: int | None = None,
+        macro_bytes: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.keymap_bytes = keymap_bytes
+        self.macro_bytes = macro_bytes
 
 
 class LayoutEvidenceError(ValueError):
@@ -2345,6 +2356,16 @@ class _Handler(BaseHTTPRequestHandler):
                 ),
                 "accepted": True,
                 "retryable": True,
+                **(
+                    {"keymap_bytes": exc.keymap_bytes}
+                    if exc.keymap_bytes is not None
+                    else {}
+                ),
+                **(
+                    {"macro_bytes": exc.macro_bytes}
+                    if exc.macro_bytes is not None
+                    else {}
+                ),
             },
             HTTPStatus.CONFLICT,
         )
@@ -2484,6 +2505,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._vial_hub_read(body)
             elif path == "/api/hub/via/read":
                 self._via_hub_read(body)
+            elif path == "/api/hub/via/preflight":
+                self._via_hub_preflight(body)
+            elif path == "/api/hub/via/write":
+                self._via_hub_write(body)
             elif path == "/api/hub/vial/preflight":
                 self._vial_hub_preflight(body)
             elif path == "/api/hub/vial/write":
@@ -2754,6 +2779,75 @@ class _Handler(BaseHTTPRequestHandler):
             raise ValueError(str(error)) from error
         self._json({"profile": profile})
 
+    def _via_hub_preflight(self, body: dict[str, Any]) -> None:
+        from . import hid_transport, via_transport
+
+        self._strict_body(
+            body,
+            allowed={"address", "definition", "profile"},
+            required={"address", "definition", "profile"},
+        )
+        address = body["address"]
+        if not isinstance(address, str) or not address:
+            raise ValueError("A VIA endpoint address is required.")
+        try:
+            prepared = self.state.device_io(
+                lambda: via_transport.prepare_write(
+                    address, body["definition"], body["profile"]
+                )
+            )
+        except hid_transport.HidError as error:
+            raise ValueError(str(error)) from error
+        self._json(
+            {
+                "device": via_transport.device_json(prepared.endpoint),
+                "confirmation": prepared.confirmation,
+                "keymap_bytes": len(prepared.plan.keymap_buffer or b""),
+                "macro_bytes": len(prepared.plan.macro_buffer or b""),
+                "report": prepared.plan.report,
+            }
+        )
+
+    def _via_hub_write(self, body: dict[str, Any]) -> None:
+        from . import hid_transport, via_transport
+
+        self._strict_body(
+            body,
+            allowed={"address", "definition", "profile", "confirmation"},
+            required={"address", "definition", "profile", "confirmation"},
+        )
+        address = body["address"]
+        confirmation = body["confirmation"]
+        if not isinstance(address, str) or not address:
+            raise ValueError("A VIA endpoint address is required.")
+        if not isinstance(confirmation, str):
+            raise ValueError("The VIA write confirmation must be text.")
+        try:
+            receipt = self.state.device_io(
+                lambda: via_transport.write_hub_profile(
+                    address,
+                    body["definition"],
+                    body["profile"],
+                    confirmation=confirmation,
+                )
+            )
+        except via_transport.ViaAcceptedWriteError as error:
+            raise AcceptedWriteError(
+                str(error),
+                keymap_bytes=error.keymap_bytes,
+                macro_bytes=error.macro_bytes,
+            ) from error
+        except hid_transport.HidError as error:
+            raise ValueError(str(error)) from error
+        self._json(
+            {
+                "accepted": True,
+                "keymap_bytes": receipt.keymap_bytes,
+                "macro_bytes": receipt.macro_bytes,
+                "report": receipt.report,
+            }
+        )
+
     def _vial_hub_preflight(self, body: dict[str, Any]) -> None:
         from . import hid_transport, vial_keymap, vial_transport
 
@@ -2804,7 +2898,11 @@ class _Handler(BaseHTTPRequestHandler):
                 )
             )
         except vial_transport.VialAcceptedWriteError as error:
-            raise AcceptedWriteError(str(error)) from error
+            raise AcceptedWriteError(
+                str(error),
+                keymap_bytes=error.keymap_bytes,
+                macro_bytes=error.macro_bytes,
+            ) from error
         except (hid_transport.HidError, vial_keymap.KeyboardLocked) as error:
             raise self._vial_api_error(error) from error
         self._json(

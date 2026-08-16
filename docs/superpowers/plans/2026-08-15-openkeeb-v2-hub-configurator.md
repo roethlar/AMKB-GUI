@@ -79,9 +79,29 @@ prefixed actions/decimal delays, rejects reserved text, unsupported delays or
 keycodes, duplicate/out-of-range slots, and whole-buffer overflow before any
 transport exists. Red proof failed on the missing planner API; focused VIA
 tests then passed 17/17. Full verification passed 694 Python tests, 185 web
-tests, compile and JavaScript syntax gates, and sdist/wheel build. H3b
-endpoint-bound fake-HID transport is next. No setter, hardware access, or live
-write was added or performed.
+tests, compile and JavaScript syntax gates, and sdist/wheel build. H3b's landed
+status follows. No setter, hardware access, or live write was added or
+performed in H3a.
+
+H3b fake-HID write-transport landing, 2026-08-16: VIA preflight now binds the
+canonical imported-definition hash, complete connection-scoped endpoint/USB
+metadata, target protocol, layout options, keycode spec, layer count, and
+macro capacity to the pure plan. Exact confirmation is
+`VIA <definition name> <VID>:<PID>`. The approved session re-enumerates the
+endpoint, keeps one handle through reproof/write/read-back, and allows only the
+landed reads plus `0x05` per-key, `0x13` keymap-buffer, and `0x0F` macro-buffer
+setters; reset, bootloader, keyboard-value, encoder, firmware, and unknown
+commands are refused before transmission. Protocol 7 and 8+ writers use their
+correct paths, omitted components send nothing, complete read-back is exact,
+and lost replies or mismatches retain possible accepted-byte counts through
+the authenticated local API. Fake HID proves confirmation, forged approval,
+definition hash, metadata, replug, protocol/layout/keycode-spec/layer/capacity,
+same-model endpoint, command allowlist, partial acceptance, and read-back
+boundaries. Red proof failed on the missing H3b APIs; focused VIA tests then
+passed 31/31. Full verification passed 708 Python tests, 185 web tests, compile
+and JavaScript syntax gates, and sdist/wheel build. No real HID backend was
+opened and no live hardware write was performed. H3c remains separately
+owner-gated.
 
 ### H3 write slice: pure plan, endpoint-bound execution, exact read-back
 
