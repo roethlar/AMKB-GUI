@@ -19,6 +19,22 @@ and cannot write hardware; transport wiring remains the next H2 slice. The H0
 survey established that a Vial definition does not carry LED positions, so LED
 geometry remains H6 work rather than being invented in H2.
 
+H2 transport landing, 2026-08-16: `am_configurator/vial_transport.py` wires
+all-Vial raw-HID discovery and complete keymap/macro snapshot reads to the hub
+codec, with authenticated local read, preflight, and write routes. Read
+sessions carry a command allowlist that refuses unlock and setter commands.
+The write path pins the connection-scoped endpoint, USB identity, firmware
+UID, and canonical embedded-definition hash; requires an exact typed embedded
+board name; re-proves identity on the transmitting handle; validates the
+device-reported matrix/layer/macro limits before unlocking; uses Vial's
+physical unlock; and verifies exact keymap and macro read-back. Fake-HID tests
+prove wrong confirmation, forged approval, endpoint replug, changed identity,
+and a still-locked board send no setters. The owner's Neon 80 was selected as
+the H2 pilot and passed a live read-only generic snapshot/hub build (VIA 9,
+Vial 5, 6x15 matrix with 87 physical keys, four layers, 16 macros, 6,677-byte
+macro buffer). No live hardware write was authorized or performed; that exact
+write/replug qualification remains the final H2 evidence boundary.
+
 ## Vision (owner, 2026-08-15)
 
 One app that does all the config: take the configuration from one keyboard and

@@ -374,6 +374,7 @@ def decode_layers(
 # and its read-only allowlist; the write commands here are genuinely mutating
 # and are gated on an unlocked device instead.
 
+VIA_GET_PROTOCOL_VERSION = 0x01
 VIA_GET_LAYER_COUNT = 0x11
 VIA_GET_BUFFER = 0x12
 VIA_SET_BUFFER = 0x13
@@ -424,6 +425,11 @@ class UnlockStatus:
 def _via_request(session, command: int, *args: int) -> bytes:
     session.send(bytes([command, *args]))
     return session.receive()
+
+
+def read_via_protocol(session) -> int:
+    """Read VIA's two-byte big-endian protocol version."""
+    return int.from_bytes(_via_request(session, VIA_GET_PROTOCOL_VERSION)[1:3], "big")
 
 
 def read_layer_count(session) -> int:
@@ -569,7 +575,15 @@ def write_keymap(
     """
 
     payload = encode_layers(layers, vial_protocol=vial_protocol)
+    return write_keymap_buffer(
+        session, payload, require_unlocked=require_unlocked
+    )
 
+
+def write_keymap_buffer(
+    session, payload: bytes, *, require_unlocked: bool = True
+) -> int:
+    """Write one already-validated complete keymap replacement buffer."""
     if require_unlocked:
         status = unlock_status(session)
         if not status.unlocked:

@@ -29,11 +29,7 @@ _PLATFORM_IMPORT_OWNERS = {
 # accident, so a future reader can tell "intentionally parked" from "dead code
 # nobody noticed." The set is empty today; `procedural` left it when
 # `/api/lighting/render` became its production importer.
-_INTENTIONALLY_DORMANT_MODULES: set[str] = {
-    # H2 fixture-backed Vial hub spoke. A later H2 transport slice wires its
-    # pure write plan behind device/model confirmation and Vial unlock.
-    "hub_vial",
-}
+_INTENTIONALLY_DORMANT_MODULES: set[str] = set()
 _JAVASCRIPT_PACKAGE_FILES = {
     "package.json",
     "package-lock.json",

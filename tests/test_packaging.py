@@ -1113,6 +1113,7 @@ class ReleaseInfoTests(unittest.TestCase):
             ".gitignore",
             "AGENTS.md",
             "CLAUDE.md",
+            "available_keyboards.csv",
             "docs",
         }
 

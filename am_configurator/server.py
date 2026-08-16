@@ -2399,6 +2399,16 @@ class _Handler(BaseHTTPRequestHandler):
                         for handle, info in found
                     ]
                     self._json(device_report.build_support_report(devices))
+                elif path == "/api/hub/vial/devices":
+                    from . import vial_transport
+
+                    found = self.state.device_io(vial_transport.list_devices)
+                    self.state.last_device_scan = time.monotonic()
+                    devices = [
+                        vial_transport.device_json(info)
+                        for info in found
+                    ]
+                    self._json({"devices": devices})
                 elif path == "/api/settings":
                     self._json(_settings_view())
                 elif path == "/api/led/capabilities":
@@ -2460,6 +2470,12 @@ class _Handler(BaseHTTPRequestHandler):
                 self._hub_export(body)
             elif path == "/api/hub/apply":
                 self._hub_apply(body)
+            elif path == "/api/hub/vial/read":
+                self._vial_hub_read(body)
+            elif path == "/api/hub/vial/preflight":
+                self._vial_hub_preflight(body)
+            elif path == "/api/hub/vial/write":
+                self._vial_hub_write(body)
             elif path == "/api/keymap/assignment":
                 if set(body) != {"product_id", "code"}:
                     raise ValueError(
@@ -2683,6 +2699,87 @@ class _Handler(BaseHTTPRequestHandler):
                 "config": result["config"],
                 "report": result["report"],
                 "validation": validate_config(result["config"]),
+            }
+        )
+
+    @staticmethod
+    def _vial_api_error(error: Exception) -> ValueError:
+        return ValueError(str(error))
+
+    def _vial_hub_read(self, body: dict[str, Any]) -> None:
+        from . import hid_transport, vial_keymap, vial_transport
+
+        self._strict_body(body, allowed={"address"}, required={"address"})
+        address = body["address"]
+        if not isinstance(address, str) or not address:
+            raise ValueError("A Vial endpoint address is required.")
+        try:
+            profile = self.state.device_io(
+                lambda: vial_transport.read_hub_profile(address)
+            )
+        except (hid_transport.HidError, vial_keymap.KeyboardLocked) as error:
+            raise self._vial_api_error(error) from error
+        self._json({"profile": profile})
+
+    def _vial_hub_preflight(self, body: dict[str, Any]) -> None:
+        from . import hid_transport, vial_keymap, vial_transport
+
+        self._strict_body(
+            body,
+            allowed={"address", "profile"},
+            required={"address", "profile"},
+        )
+        address = body["address"]
+        if not isinstance(address, str) or not address:
+            raise ValueError("A Vial endpoint address is required.")
+        try:
+            prepared = self.state.device_io(
+                lambda: vial_transport.prepare_write(address, body["profile"])
+            )
+        except (hid_transport.HidError, vial_keymap.KeyboardLocked) as error:
+            raise self._vial_api_error(error) from error
+        self._json(
+            {
+                "device": vial_transport.device_json(prepared.endpoint),
+                "confirmation": prepared.confirmation,
+                "keymap_bytes": len(prepared.plan.keymap_buffer or b""),
+                "macro_bytes": len(prepared.plan.macro_buffer or b""),
+                "report": prepared.plan.report,
+            }
+        )
+
+    def _vial_hub_write(self, body: dict[str, Any]) -> None:
+        from . import hid_transport, vial_keymap, vial_transport
+
+        self._strict_body(
+            body,
+            allowed={"address", "profile", "confirmation"},
+            required={"address", "profile", "confirmation"},
+        )
+        address = body["address"]
+        confirmation = body["confirmation"]
+        if not isinstance(address, str) or not address:
+            raise ValueError("A Vial endpoint address is required.")
+        if not isinstance(confirmation, str):
+            raise ValueError("The Vial write confirmation must be text.")
+        try:
+            receipt = self.state.device_io(
+                lambda: vial_transport.write_hub_profile(
+                    address,
+                    body["profile"],
+                    confirmation=confirmation,
+                )
+            )
+        except vial_transport.VialAcceptedWriteError as error:
+            raise AcceptedWriteError(str(error)) from error
+        except (hid_transport.HidError, vial_keymap.KeyboardLocked) as error:
+            raise self._vial_api_error(error) from error
+        self._json(
+            {
+                "accepted": True,
+                "keymap_bytes": receipt.keymap_bytes,
+                "macro_bytes": receipt.macro_bytes,
+                "report": receipt.report,
             }
         )
 

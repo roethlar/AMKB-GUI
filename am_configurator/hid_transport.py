@@ -30,6 +30,7 @@ trusting call sites to pass the right constant.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import lzma
 import math
@@ -225,6 +226,50 @@ class HidDeviceInfo:
         return self.model is not None and self.identity_error is None
 
 
+@dataclass(frozen=True)
+class VialDeviceInfo:
+    """One generic Vial endpoint, kept separate from Neon's model gate.
+
+    ``firmware_uid`` and ``definition_hash`` identify a firmware/model build,
+    not one physical unit.  ``address`` remains the connection-scoped instance
+    identity and is deliberately invalidated by unplug/replug.
+    """
+
+    address: str
+    path: bytes
+    usb_vendor_id: int
+    usb_product_id: int
+    serial_number: str
+    product_string: str
+    manufacturer_string: str
+    name: str | None
+    definition: dict[str, Any] | None
+    definition_hash: str
+    firmware_uid: str
+    protocol_version: int
+    identity_error: str | None
+    key_layout: tuple[dict[str, int | float], ...] = ()
+
+    @property
+    def is_vial(self) -> bool:
+        return True
+
+    @property
+    def is_keyboard(self) -> bool:
+        return True
+
+    @property
+    def writable(self) -> bool:
+        return (
+            bool(self.name)
+            and self.definition is not None
+            and bool(self.definition_hash)
+            and bool(self.firmware_uid)
+            and self.protocol_version > 0
+            and self.identity_error is None
+        )
+
+
 def endpoint_address(path: bytes) -> str:
     """An opaque, connection-scoped token for one physical raw-HID endpoint.
 
@@ -257,7 +302,19 @@ def raw_endpoints(vendor_id: int = NEON_VENDOR_ID, product_id: int = NEON_PRODUC
     ]
 
 
-def _classify_open_failure(path: bytes) -> HidError:
+def vial_endpoints() -> list[dict[str, Any]]:
+    """Every raw-HID endpoint whose USB serial marks Vial firmware."""
+
+    return [
+        entry
+        for entry in _hid().enumerate(0, 0)
+        if entry.get("usage_page") == RAW_USAGE_PAGE
+        and entry.get("usage") == RAW_USAGE
+        and str(entry.get("serial_number") or "").startswith(VIAL_SERIAL_PREFIX)
+    ]
+
+
+def _classify_open_failure(path: bytes, *, endpoint_source=None) -> HidError:
     """Work out *why* an open failed, since hidapi will not say.
 
     The locked hidapi binding raises `OSError('open failed')` for every failure
@@ -299,7 +356,10 @@ def _classify_open_failure(path: bytes) -> HidError:
     # touches the USB stack and can fail on its own, so it cannot be trusted to
     # stay quiet.
     try:
-        still_present = any(entry.get("path") == path for entry in raw_endpoints())
+        enumerate_endpoints = endpoint_source or raw_endpoints
+        still_present = any(
+            entry.get("path") == path for entry in enumerate_endpoints()
+        )
     except Exception:
         still_present = True
     if not still_present:
@@ -311,13 +371,13 @@ def _classify_open_failure(path: bytes) -> HidError:
     )
 
 
-def _open(path: bytes):
+def _open(path: bytes, *, endpoint_source=None):
     hid = _hid()
     handle = hid.device()
     try:
         handle.open_path(path)
     except OSError:
-        raise _classify_open_failure(path) from None
+        raise _classify_open_failure(path, endpoint_source=endpoint_source) from None
     return handle
 
 
@@ -408,6 +468,23 @@ def fetch_definition(handle) -> dict[str, Any]:
     if not isinstance(definition, dict):
         raise HidIdentityError("The keyboard's definition is not an object.")
     return definition
+
+
+def definition_fingerprint(definition: dict[str, Any]) -> str:
+    """Canonical fingerprint used to pin a device-supplied Vial definition."""
+
+    try:
+        encoded = json.dumps(
+            definition,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as error:
+        raise HidIdentityError(
+            "The keyboard's definition is not canonical JSON."
+        ) from error
+    return "sha256-" + hashlib.sha256(encoded).hexdigest()
 
 
 def project_key_layout(
@@ -630,6 +707,96 @@ def list_devices(*, deep: bool = False) -> list[HidDeviceInfo]:
     return [identify(entry, deep=deep) for entry in raw_endpoints()]
 
 
+def identify_vial(entry: dict[str, Any], *, deep: bool = True) -> VialDeviceInfo:
+    """Identify any Vial raw-HID endpoint without applying a model allowlist."""
+    common = {
+        "address": endpoint_address(entry.get("path") or b""),
+        "path": entry.get("path") or b"",
+        "usb_vendor_id": int(entry.get("vendor_id") or 0),
+        "usb_product_id": int(entry.get("product_id") or 0),
+        "serial_number": str(entry.get("serial_number") or ""),
+        "product_string": str(entry.get("product_string") or ""),
+        "manufacturer_string": str(entry.get("manufacturer_string") or ""),
+    }
+    if not common["serial_number"].startswith(VIAL_SERIAL_PREFIX):
+        return VialDeviceInfo(
+            **common,
+            name=None,
+            definition=None,
+            definition_hash="",
+            firmware_uid="",
+            protocol_version=0,
+            identity_error="This device does not report Vial firmware.",
+        )
+    if not deep:
+        return VialDeviceInfo(
+            **common,
+            name=None,
+            definition=None,
+            definition_hash="",
+            firmware_uid="",
+            protocol_version=0,
+            identity_error=None,
+        )
+    try:
+        handle = _open(common["path"], endpoint_source=vial_endpoints)
+    except HidError as error:
+        return VialDeviceInfo(
+            **common,
+            name=None,
+            definition=None,
+            definition_hash="",
+            firmware_uid="",
+            protocol_version=0,
+            identity_error=str(error),
+        )
+    try:
+        protocol, uid = fetch_keyboard_uid(handle)
+        definition = fetch_definition(handle)
+        name = str(definition.get("name") or "").strip()
+        fingerprint = definition_fingerprint(definition)
+    except HidError as error:
+        return VialDeviceInfo(
+            **common,
+            name=None,
+            definition=None,
+            definition_hash="",
+            firmware_uid="",
+            protocol_version=0,
+            identity_error=str(error),
+        )
+    finally:
+        handle.close()
+    identity_error = None
+    if protocol <= 0 or uid == "0" * 16:
+        identity_error = "This keyboard did not report coherent Vial identity."
+    elif not name:
+        identity_error = "This Vial keyboard's embedded definition has no name."
+    return VialDeviceInfo(
+        **common,
+        name=name or None,
+        definition=definition,
+        definition_hash=fingerprint,
+        firmware_uid=uid,
+        protocol_version=protocol,
+        identity_error=identity_error,
+        key_layout=project_key_layout(definition),
+    )
+
+
+def list_vial_devices(*, deep: bool = False) -> list[VialDeviceInfo]:
+    """Enumerate generic Vial endpoints; shallow discovery opens nothing."""
+    return [identify_vial(entry, deep=deep) for entry in vial_endpoints()]
+
+
+def find_vial(address: str) -> VialDeviceInfo:
+    """Resolve and fully identify one currently attached generic Vial endpoint."""
+    for entry in vial_endpoints():
+        if endpoint_address(entry.get("path") or b"") == address:
+            return identify_vial(entry, deep=True)
+    raise HidDeviceAbsent("That Vial keyboard is no longer attached.")
+
+
 def find(address: str) -> HidDeviceInfo:
     """Resolve an address to a currently attached, fully identified device.
 
@@ -711,8 +878,9 @@ class _RawSession:
     used to do.
     """
 
-    def __init__(self, path: bytes) -> None:
+    def __init__(self, path: bytes, *, endpoint_source=None) -> None:
         self._path = path
+        self._endpoint_source = endpoint_source
         self._handle = None
 
     def __enter__(self) -> _RawSession:
@@ -722,7 +890,12 @@ class _RawSession:
         # handle that nothing validated, and silently replace the validated one
         # — defeating the entire re-check.
         if self._handle is None:
-            self._handle = _open(self._path)
+            if self._endpoint_source is None:
+                self._handle = _open(self._path)
+            else:
+                self._handle = _open(
+                    self._path, endpoint_source=self._endpoint_source
+                )
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -754,6 +927,54 @@ class _RawSession:
         if not reply:
             raise HidError("The keyboard did not answer within the timeout.")
         return reply
+
+
+_VIA_READ_ONLY_COMMANDS = frozenset({0x01, 0x0C, 0x0D, 0x0E, 0x11, 0x12})
+
+
+class _ReadOnlyRawSession(_RawSession):
+    """Raw session that rejects every mutating VIA/Vial command."""
+
+    def send(self, payload: bytes) -> None:
+        if not payload:
+            raise HidError("An empty raw-HID request is not valid.")
+        if payload[0] == _VIAL_PREFIX:
+            allowed = len(payload) >= 2 and payload[1] in _VIAL_READ_ONLY
+        else:
+            allowed = payload[0] in _VIA_READ_ONLY_COMMANDS
+        if not allowed:
+            raise HidError(
+                f"Refusing raw-HID command 0x{payload[0]:02X}: "
+                "not a read-only Vial request."
+            )
+        super().send(payload)
+
+
+def _assert_vial_identity(handle, expected: VialDeviceInfo) -> None:
+    protocol, uid = fetch_keyboard_uid(handle)
+    definition = fetch_definition(handle)
+    if (
+        protocol != expected.protocol_version
+        or uid != expected.firmware_uid
+        or str(definition.get("name") or "").strip() != expected.name
+        or definition_fingerprint(definition) != expected.definition_hash
+        or endpoint_address(expected.path) != expected.address
+    ):
+        raise HidIdentityError("This is not the Vial keyboard that was selected.")
+
+
+def open_vial_read(info: VialDeviceInfo) -> _ReadOnlyRawSession:
+    """Open a read-only session and re-prove the selected Vial identity."""
+    if not info.writable:
+        raise HidIdentityError(info.identity_error or "Vial identity is incomplete.")
+    session = _ReadOnlyRawSession(info.path, endpoint_source=vial_endpoints)
+    session.__enter__()
+    try:
+        _assert_vial_identity(session._require(), info)
+    except BaseException:
+        session.close()
+        raise
+    return session
 
 
 def open_approved(approval: WriteApproval) -> _RawSession:
@@ -794,6 +1015,72 @@ def open_approved(approval: WriteApproval) -> _RawSession:
             )
         if endpoint_address(approval.path) != approval.address:
             raise HidIdentityError("The approved device address no longer matches.")
+    except BaseException:
+        session.close()
+        raise
+    return session
+
+
+_VIAL_APPROVAL_TOKEN = object()
+
+
+@dataclass(frozen=True)
+class VialWriteApproval:
+    """Typed confirmation bound to one generic Vial endpoint and definition."""
+
+    address: str
+    path: bytes
+    name: str
+    confirmation: str
+    firmware_uid: str
+    protocol_version: int
+    definition_hash: str
+    token: object = None
+
+
+def approve_vial_write(
+    info: VialDeviceInfo, confirmation: str
+) -> VialWriteApproval:
+    """Mint a generic Vial approval only for the exact embedded board name."""
+    if not info.writable or info.name is None:
+        raise HidIdentityError(info.identity_error or "Vial identity is incomplete.")
+    if confirmation != info.name:
+        raise HidIdentityError(
+            f"Type {info.name} exactly to confirm writing this keyboard."
+        )
+    return VialWriteApproval(
+        address=info.address,
+        path=info.path,
+        name=info.name,
+        confirmation=confirmation,
+        firmware_uid=info.firmware_uid,
+        protocol_version=info.protocol_version,
+        definition_hash=info.definition_hash,
+        token=_VIAL_APPROVAL_TOKEN,
+    )
+
+
+def open_vial_approved(approval: VialWriteApproval) -> _RawSession:
+    """Open an approved generic Vial endpoint and re-prove it on that handle."""
+    if approval.token is not _VIAL_APPROVAL_TOKEN:
+        raise HidIdentityError("This Vial write approval was not issued here.")
+    if approval.confirmation != approval.name:
+        raise HidIdentityError("The typed confirmation does not match the board name.")
+    session = _RawSession(approval.path, endpoint_source=vial_endpoints)
+    session.__enter__()
+    try:
+        protocol, uid = fetch_keyboard_uid(session._require())
+        definition = fetch_definition(session._require())
+        if (
+            protocol != approval.protocol_version
+            or uid != approval.firmware_uid
+            or str(definition.get("name") or "").strip() != approval.name
+            or definition_fingerprint(definition) != approval.definition_hash
+            or endpoint_address(approval.path) != approval.address
+        ):
+            raise HidIdentityError(
+                "This is not the Vial keyboard that was approved for writing."
+            )
     except BaseException:
         session.close()
         raise

@@ -1,5 +1,23 @@
 # Repository Decisions
 
+## 2026-08-16 — Neon 80 is the H2 live Vial pilot
+
+Status: owner-approved in-session on 2026-08-16. After the available-keyboard
+inventory identified the Neon 80 as the strongest H2 candidate, the owner said
+"go", connected it by USB, and approved continuing the generic transport slice.
+
+- The owner's Angry Miao Neon 80 is the physical H2 Vial pilot. This settles
+  the plan's pilot-hardware fork for H2 only; H3 still needs a VIA pilot.
+- The first qualification is read-only: the generic path proved the embedded
+  `AM Neon 80` definition, VIA protocol 9, Vial protocol 5, 6x15 matrix with 87
+  physical keys, four layers, and a 16-slot/6,677-byte macro buffer, then built
+  a complete hub profile.
+- The keyboard remained locked and no setter, unlock, or hardware-write command
+  was sent during live qualification.
+- This decision does not authorize a live write. Exact write/read-back and
+  unplug/replug qualification remains a separate hardware-write gate, with the
+  model-matched typed confirmation and physical unlock rules unchanged.
+
 ## 2026-08-16 — This repo builds OpenKeeb; the rebrand is a branding overhaul, deferred to a later phase
 
 Status: owner ruling, 2026-08-16. Owner's words: "this repo builds OpenKeeb."

@@ -21,18 +21,20 @@
 ## Next
 
 - **OpenKeeb v2 implementation is active under the approved hub-configurator
-  plan:** H0 and H1 are complete; H2 (the Vial spoke) is in progress. Its first
-  fixture-backed landing validates read-only discovery snapshots and embedded
-  definitions, projects KLE key geometry, round-trips keymaps and normalized
-  Vial macro buffers (including protocol-version encodings), and produces pure
-  write plans with transfer reports. It owns no HID session and cannot write a
-  keyboard. Next within H2 is generic Vial transport wiring behind the existing
-  typed-confirmation and unlock gates; live proof still awaits pilot hardware.
-  H7 is the queued branding overhaul, which the owner ruled is a repositioning
-  rather than a rename. The canonical scope and sequence live in
-  `docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`. Codec
-  work is proven on fixtures. Public identifiers, releases, money, and hardware
-  writes remain owner-gated.
+  plan:** H0 and H1 are complete; H2 (the Vial spoke) now has its generic HID
+  transport and local API wired to the fixture-proven hub codec. Discovery is
+  all-Vial rather than Neon-only; read sessions reject setters; writes re-prove
+  the connection-scoped endpoint, firmware UID, and definition hash after an
+  exact typed-name confirmation, then require Vial's physical unlock and exact
+  read-back. The owner's connected Neon 80 is the H2 pilot: a live read-only
+  pass proved VIA 9, Vial 5, its 6x15 matrix/87-key layout, four layers, and
+  16-slot/6,677-byte macro buffer through the generic hub path. No hardware
+  write was authorized or performed. H2 remains open only for a separately
+  owner-gated live write/replug qualification; H3 remains the next protocol
+  spoke. H7 is the queued branding overhaul, which the owner ruled is a
+  repositioning rather than a rename. The canonical scope and sequence live in
+  `docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`. Public
+  identifiers, releases, money, and hardware writes remain owner-gated.
 
 - **Text banner authoring remains in v2 scope for NEON and Cyberboard.** The
   durable boundary, including its text effects, lives in `.agents/decisions.md`

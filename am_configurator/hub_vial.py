@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-import hashlib
 import json
 import re
 from typing import Any
@@ -113,7 +112,7 @@ def _hex_bytes(value: object, label: str) -> bytes:
         _fail(f"{label} must be a hexadecimal string.")
 
 
-def _canonical_definition(value: object) -> tuple[dict[str, Any], bytes]:
+def _canonical_definition(value: object) -> dict[str, Any]:
     definition = _object(value, "Vial definition")
     try:
         encoded = json.dumps(
@@ -125,7 +124,7 @@ def _canonical_definition(value: object) -> tuple[dict[str, Any], bytes]:
         canonical = json.loads(encoded)
     except (TypeError, ValueError, UnicodeError) as error:
         raise VialSpokeError("The Vial definition is not canonical JSON.") from error
-    return canonical, encoded
+    return canonical
 
 
 def load_snapshot(value: object) -> VialSnapshot:
@@ -139,7 +138,7 @@ def load_snapshot(value: object) -> VialSnapshot:
     if missing:
         _fail(f"Vial snapshot is missing fields: {', '.join(missing)}.")
 
-    definition, definition_bytes = _canonical_definition(record["definition"])
+    definition = _canonical_definition(record["definition"])
     try:
         name = definition["name"]
         matrix = definition["matrix"]
@@ -200,7 +199,7 @@ def load_snapshot(value: object) -> VialSnapshot:
 
     return VialSnapshot(
         definition=definition,
-        definition_hash="sha256-" + hashlib.sha256(definition_bytes).hexdigest(),
+        definition_hash=hid_transport.definition_fingerprint(definition),
         name=name.strip(),
         matrix_rows=rows,
         matrix_cols=cols,

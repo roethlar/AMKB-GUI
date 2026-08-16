@@ -344,7 +344,15 @@ def read_capacity(session) -> MacroCapacity:
 def read_macros(session, *, capacity: MacroCapacity | None = None) -> list[dict[str, Any]]:
     if capacity is None:
         capacity = read_capacity(session)
+    return decode_macros(read_macro_buffer(session, capacity=capacity), count=capacity.count)
 
+
+def read_macro_buffer(
+    session, *, capacity: MacroCapacity | None = None
+) -> bytes:
+    """Read the device's complete raw macro replacement buffer."""
+    if capacity is None:
+        capacity = read_capacity(session)
     buffer = bytearray()
     while len(buffer) < capacity.buffer_bytes:
         offset = len(buffer)
@@ -353,7 +361,7 @@ def read_macros(session, *, capacity: MacroCapacity | None = None) -> list[dict[
             session, VIA_MACRO_GET_BUFFER, (offset >> 8) & 0xFF, offset & 0xFF, chunk
         )
         buffer += reply[4 : 4 + chunk]
-    return decode_macros(bytes(buffer), count=capacity.count)
+    return bytes(buffer)
 
 
 def write_macros(
@@ -369,7 +377,18 @@ def write_macros(
         capacity = read_capacity(session)
 
     payload = encode_macros(macros, capacity=capacity)
+    return write_macro_buffer(session, payload, capacity=capacity)
 
+
+def write_macro_buffer(
+    session, payload: bytes, *, capacity: MacroCapacity
+) -> int:
+    """Write one already-validated complete macro replacement buffer."""
+    if len(payload) > capacity.buffer_bytes:
+        raise MacroCapacityError(
+            f"The macro buffer is {len(payload)} bytes; "
+            f"the keyboard stores at most {capacity.buffer_bytes}. Nothing was written."
+        )
     written = 0
     while written < len(payload):
         chunk = payload[written : written + BUFFER_CHUNK]
