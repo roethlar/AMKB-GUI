@@ -1,5 +1,21 @@
 # Repository Decisions
 
+## 2026-08-16 — H3 VIA write planning approved; live write remains gated
+
+Status: owner-approved in-session on 2026-08-16. After H3's generic read-only
+transport landed, the proposed next action was to plan H3's pure write and
+typed-endpoint gate; the owner said "go".
+
+- The durable cold-implementation contract is the H3 write section of
+  `docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`.
+- VIA's lack of a firmware UID and Vial unlock handshake is handled by an
+  imported-definition hash, connection-scoped endpoint and full USB metadata,
+  same-handle protocol/layout/capacity reproof, exact typed confirmation,
+  narrow setter allowlist, and complete read-back.
+- This approval covers planning only. The standing technical delegation still
+  governs fixture-backed implementation; a physical M80H or other VIA write,
+  push, release, and public identifiers remain separately owner-gated.
+
 ## 2026-08-16 — Mode Eighty M80H V2 is the H3 live VIA pilot
 
 Status: owner-approved in-session on 2026-08-16. The available-keyboard

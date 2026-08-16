@@ -10,6 +10,11 @@ the companion-firmware lane and the OpenRGB lane are dead (owner ruling
 identity, migration, naming, licensing, and device safety still stands and is
 not restated here.
 
+H3 write planning was approved by the owner on 2026-08-16 ("go"). The
+fixture-backed implementation may proceed under the standing technical
+delegation above. No physical VIA write, push, release, or public identifier
+is authorized by that approval.
+
 H2 first landing, 2026-08-16: the fixture-backed Vial spoke foundation is
 complete. `am_configurator/hub_vial.py` validates a read-only discovery
 snapshot and embedded definition, projects its KLE layout, translates keymap
@@ -61,8 +66,120 @@ setters never transmit, protocol gates select the right reads, and snapshots
 become complete hub profiles. The live M80H V2 production path matched public
 `m80v2h.json`, selected option 0/87 physical keys, read four layers/816 keymap
 bytes and 16 macro slots/169 bytes, decoded three populated macros, and built a
-complete hub profile. No write path exists in this slice; H3 write planning and
-typed endpoint gating remain next, with live writes separately owner-gated.
+complete hub profile. No write path exists in that landed slice. The H3 write
+plan below is now durable; live writes remain separately owner-gated.
+
+### H3 write slice: pure plan, endpoint-bound execution, exact read-back
+
+This section is the cold-implementation contract for completing H3. VIA does
+not expose Vial's firmware UID or physical-unlock handshake, so a VIA write
+must never inherit Vial's identity assumptions. The replacement safety chain
+is: canonical imported-definition hash, exact connection-scoped raw-HID
+endpoint, complete enumerated USB metadata, protocol/layout/capacity reproof
+on the transmitting handle, exact typed confirmation, narrowly allowlisted
+set commands, and complete read-back.
+
+#### H3a — pure planner and codecs
+
+1. Extend `am_configurator/hub_via.py` with an immutable `ViaWritePlan`
+   containing optional complete keymap and macro replacement buffers plus a
+   validated hub transfer report. `plan_via_write(profile, target=snapshot)`
+   must validate the hub profile, open no device, and mutate no input.
+2. Begin from the target snapshot's existing complete buffers. Apply only
+   profile fields that are present, so omitted keymap or macro sections are
+   not erased. Address keys only by canonical `K_R<row>_C<col>` identity.
+   Layers, positions, macro slots, and keycodes that the target cannot express
+   are reported as dropped or adapted; they are never silently truncated.
+3. Keep keymap planning as a complete big-endian 16-bit matrix buffer for all
+   VIA versions. The transport decides whether to send it through protocol
+   7's per-key command or protocol 8+'s buffer command. Hub keycodes are the
+   schema's canonical QMK 16-bit values and normally carry byte-identically.
+   If both source and target state a `keycode_spec` and those versions differ,
+   use a repository-backed conversion table or report the entry dropped;
+   never invent a version conversion. H4 remains responsible for semantic
+   cross-layout overlay.
+4. Add a VIA-owned macro encoder inverse to the landed decoder. Protocols
+   8–10 use prefixless tap/down/up actions and reject delays; protocol 11+
+   uses the `0x01` action prefix and decimal ASCII delay terminated by `|`.
+   Text and reserved-byte constraints, one-byte keycode limits,
+   duplicate/out-of-range slots, delay bounds, and the device-reported byte
+   budget are proven before any transport is opened. Reject NUL or action-byte
+   text that the target dialect cannot represent; do not invent an escape.
+   The result is a complete, capacity-sized replacement buffer. Protocol 7
+   exposes no macros and produces no macro write plan.
+5. Unit tests must cover preservation of omitted fields, layer/matrix/slot
+   reporting, protocol-9 and protocol-11 macro round trips, delay rejection on
+   old protocol, capacity overflow, unsupported keycodes, and deterministic
+   transfer reports. Prove the first new test fails without the planner, then
+   restore the implementation.
+
+#### H3b — typed endpoint gate and fake-HID write transport
+
+1. Add `PreparedViaWrite` and `ViaWriteReceipt` in
+   `am_configurator/via_transport.py`. Preflight accepts address, imported
+   definition, and hub profile; resolves and reads the target through the
+   mutation-refusing path; creates the pure plan; and returns without sending
+   a setter. The exact confirmation phrase is
+   `VIA <definition name> <VID>:<PID>` with four uppercase hexadecimal digits
+   per USB ID. It deliberately makes the user acknowledge both the imported
+   definition and the enumerated hardware identity.
+2. Bind the prepared write to every fact available at preflight: endpoint
+   address and raw path, VID/PID, manufacturer, USB product, serial,
+   interface, canonical definition hash and name, VIA protocol, active layout
+   options, protocol-13 keycode spec when present, matrix/layer shape, macro
+   count, and macro buffer size. A changed or replugged endpoint invalidates
+   the preparation even when another same-model board appears.
+3. Add an unforgeable VIA approval type and an approved writable session in
+   `am_configurator/hid_transport.py`. It must reject a wrong confirmation
+   before opening, re-enumerate the exact endpoint, open it once, and keep that
+   same handle through protocol identity reproof and transmission. The session
+   command surface allowlists only the reads needed for reproof/read-back and
+   VIA keymap/macro setters: per-key `0x05`, keymap buffer `0x13`, and macro
+   buffer `0x0F`. It must refuse keyboard-value setters, macro reset, EEPROM
+   reset, bootloader jump, encoder writes, firmware operations, and unknown
+   commands before transmission.
+4. On the transmitting handle, re-read and exactly compare VIA protocol,
+   layout options, keycode spec, layer count, and macro capacity before the
+   first setter. Revalidate the imported definition and its canonical hash
+   from the request. VIA firmware cannot attest that definition, so the API
+   must continue to label it `user_import`; USB matching alone never upgrades
+   it to device-proven identity.
+5. Protocol 7 writes the planned keymap with per-key `0x05`; protocol 8+
+   writes it in bounded `0x13` chunks. Protocol 8+ writes the planned macro
+   buffer in bounded `0x0F` chunks. Send nothing for an absent plan component.
+   Track accepted keymap and macro byte counts; if failure occurs after any
+   setter, raise a distinct accepted-write error with those counts and do not
+   claim rollback.
+6. Before returning success, read every written component back through the
+   protocol-correct path and require byte equality with the pure plan. Return
+   exact accepted byte counts and the planner's validated transfer report.
+   Close the session on every exit.
+7. Add authenticated strict-body routes parallel to Vial:
+   `POST /api/hub/via/preflight` accepts `address`, `definition`, `profile` and
+   returns endpoint metadata, the exact confirmation phrase, planned byte
+   counts, and report; `POST /api/hub/via/write` additionally requires
+   `confirmation`, redoes read-only preparation in the request, then executes
+   the endpoint-bound plan. No server-side approval survives a request or
+   replug. H5 owns end-user editing UX; H3 only exposes the typed local API.
+8. Fake-HID tests must prove: preflight sends no setter; wrong confirmation,
+   wrong definition/hash, changed USB metadata, replug, changed protocol,
+   layout option, keycode spec, layer count, or macro capacity all stop before
+   a setter; same-model endpoints stay distinct; protocol 7 sends only
+   per-key setters; protocol 8+ uses buffer setters; dangerous commands are
+   refused locally; exact read-back succeeds; mismatched read-back reports a
+   partial accepted write; and unauthenticated or malformed API requests fail.
+
+#### H3c — separately gated live evidence and closure
+
+Run the repository verification entry point after H3a and H3b and keep all
+automated tests mutation-free outside fake HID. A live M80H V2 proof requires
+a new, explicit owner authorization at the moment of the write. If approved,
+first save a complete read-only snapshot, preflight the byte-identical current
+profile against the same imported `m80v2h.json`, show the exact confirmation
+phrase, send only the approved keymap/macro setters, require exact read-back,
+then unplug/replug and prove persistence through a fresh endpoint. Record the
+command classes and byte hashes/counts. Without that separate authorization,
+close H3a/H3b as fixture-backed only and leave H3c open.
 
 ## Vision (owner, 2026-08-15)
 
