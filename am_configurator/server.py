@@ -2456,6 +2456,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._import_json(body)
             elif path == "/api/config/export":
                 self._export_profile(body)
+            elif path == "/api/hub/export":
+                self._hub_export(body)
             elif path == "/api/keymap/assignment":
                 if set(body) != {"product_id", "code"}:
                     raise ValueError(
@@ -2634,6 +2636,25 @@ class _Handler(BaseHTTPRequestHandler):
             response["layout_evidence"] = layout["evidence"]
             response["layout_warning"] = layout["warning"]
         self._json(response)
+
+    def _hub_export(self, body: dict[str, Any]) -> None:
+        """Express one AM configuration as a hub profile (the AM spoke).
+
+        The hub profile is the portable format every ecosystem reads and
+        writes; this route is the AM writer direction (H1 of the
+        hub-configurator plan).
+        """
+
+        from . import hub_am
+
+        self._strict_body(body, allowed={"config", "origin"}, required={"config"})
+        config = _validated_profile_config(body["config"])
+        origin = body.get("origin", "user")
+        try:
+            profile = hub_am.build_hub_profile(config, origin=origin)
+        except hub_am.AmSpokeError as exc:
+            raise ValueError(str(exc)) from exc
+        self._json({"profile": profile})
 
     def _export_profile(self, body: dict[str, Any]) -> None:
         self._strict_body(

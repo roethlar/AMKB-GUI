@@ -212,11 +212,17 @@
   (`docs/design/2026-08-15-h0-keycode-capability-survey.md`) plus hub schema
   draft (`docs/design/2026-08-15-hub-schema-draft.md`), approved by the
   2026-08-16 delegation ruling ("make it work" — `.agents/decisions.md`).
-  Per-slice gates inside this plan are lifted; H1 onward (hub format,
-  serialization, round-trip tests, AM spoke port, then Vial/VIA spokes,
-  overlay engine, editor UX) proceeds continuously. Still stops for the
-  owner: pilot hardware choice, money, public identifiers/release, hardware
-  writes (manual, typed-confirmation, unchanged).
+  Per-slice gates inside this plan are lifted; H1 onward proceeds
+  continuously. H1 first landing (2026-08-16): `am_configurator/hub_profile.py`
+  (schema v1 validation, canonical JSON round-trip, pointer-map provenance
+  with `uncovered_leaves`, three-verdict transfer report; 29 tests) and
+  `am_configurator/hub_am.py` (AM spoke: config → hub profile; positional
+  `K_I` identities, `native` fallback for non-QMK codes, macro down/up/delay
+  decode, lighting tracks as animations; 14 tests incl. the new
+  `POST /api/hub/export` route). H1 remainder: hub → AM direction and store
+  integration; then H2 Vial spoke. Still stops for the owner: pilot hardware
+  choice, money, public identifiers/release, hardware writes (manual,
+  typed-confirmation, unchanged).
 - **Package-manager distribution paused before publication:** AUR remains
   parked by the Arch lock; Flatpak prepare/build tooling exists but must not be
   published under `io.github.roethlar.AMConfigurator`. Retarget both only after

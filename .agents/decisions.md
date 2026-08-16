@@ -22,6 +22,18 @@ review the hub schema draft's technical choices.
 - Standing memory rule applied: reserve owner questions for real forks;
   when one option is clearly better, take it.
 
+Delegated choices made under this ruling (recorded as they land):
+
+- 2026-08-16, H1: on-disk hub encoding is JSON (matches every existing
+  store file and the atomic writer); provenance is a pointer map (one
+  pointer may cover a subtree); `spoke_addressing` is never stored — the
+  validator rejects it. Closes the schema draft's three open questions.
+- 2026-08-16, H1 AM spoke: AM key identities are positional (`K_I000`…)
+  because AM boards ship no authored key naming; semantic naming is the
+  overlay engine's job (H4). A code QMK cannot express keeps its native
+  spelling (`native` field, only with `carried: false`, added to the
+  schema) so AM round-trips lose nothing.
+
 ## 2026-08-15 — Hub-configurator plan approved; QMK boundary set
 
 Status: approved by the owner on 2026-08-15 ("go"). This authorizes the plan
