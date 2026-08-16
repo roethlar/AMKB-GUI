@@ -2499,6 +2499,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._export_profile(body)
             elif path == "/api/hub/export":
                 self._hub_export(body)
+            elif path == "/api/hub/overlay":
+                self._hub_overlay(body)
             elif path == "/api/hub/apply":
                 self._hub_apply(body)
             elif path == "/api/hub/vial/read":
@@ -2710,6 +2712,25 @@ class _Handler(BaseHTTPRequestHandler):
         except hub_am.AmSpokeError as exc:
             raise ValueError(str(exc)) from exc
         self._json({"profile": profile})
+
+    def _hub_overlay(self, body: dict[str, Any]) -> None:
+        """Build H4's target-shaped first pass without opening a device."""
+
+        from . import hub_overlay
+
+        self._strict_body(
+            body,
+            allowed={"source", "target"},
+            required={"source", "target"},
+        )
+        result = hub_overlay.overlay_profile(body["source"], body["target"])
+        self._json(
+            {
+                "profile": result.profile,
+                "report": result.report,
+                "worklist": list(result.worklist),
+            }
+        )
 
     def _hub_apply(self, body: dict[str, Any]) -> None:
         """Express a hub profile as an AM configuration plus transfer report.

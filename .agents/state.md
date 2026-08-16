@@ -21,7 +21,7 @@
 ## Next
 
 - **OpenKeeb v2 implementation is active under the approved hub-configurator
-  plan:** H0 through H3 are complete. H3 (the VIA spoke) has bounded
+  plan:** H0 through H4 are complete. H3 (the VIA spoke) has bounded
   user-imported definition resolution and generic read-only raw-HID transport.
   It handles active layout options without guessing, VIA 7's per-key fallback,
   VIA 8+ keymap/macro buffers, VIA 11's macro-delay dialect, and VIA 13's stated
@@ -50,7 +50,15 @@
   path on hardware: its live profile was planned back byte-identically, 720
   keymap and 6,677 macro bytes were written and read back exactly, unplug/replug
   invalidated the old endpoint, both buffers persisted, and the board returned
-  locked. H7 is the queued branding overhaul, which the owner ruled is a
+  locked. H4's pure keymap-first overlay engine now returns a validated
+  target-shaped profile, carried/adapted/dropped report, and structured
+  worklist through the authenticated local API without opening transport. Its
+  108-key-to-40% fixture carries 40 keys, adapts 10 digits to the target's
+  established layer, and surfaces 58 homeless keys with deterministic
+  suggestions where target conventions exist; matrix coordinates, ambiguous
+  homes, collisions, and per-board custom codes are never guessed. H5 keymap
+  editor and overlay-worklist UX is next. H7 is the queued branding overhaul,
+  which the owner ruled is a
   repositioning rather than a rename. The canonical scope and sequence live in
   `docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`. Public
   identifiers, releases, money, and future hardware writes remain owner-gated.

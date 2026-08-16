@@ -121,6 +121,25 @@ and hashes, including all 16 macro slots and three populated macros. This
 closes H3's live evidence boundary; future hardware writes remain separately
 owner-gated.
 
+H4 overlay-engine landing, 2026-08-16: `am_configurator/hub_overlay.py`
+implements a pure, target-preserving first pass and opens no transport.
+Authored semantic key identities match directly; current AM/Vial/VIA
+positional identities use unique base-key functions as device-proven semantic
+anchors, and matrix coordinates never match across boards. The recorded
+108-key-to-40% fixture maps every alphanumeric: 40 source keys carry directly,
+10 digits adapt to the target's established non-base layer, and the remaining
+58 keys become explicit worklist items. Existing target-layer positions provide
+structured suggestions for F-row, navigation, and numpad keys without silently
+placing them. Ambiguous homes, assignment collisions, spoke-native entries, and
+QMK keyboard/user custom ranges are never guessed; macros, encoders, and
+lighting remain explicitly deferred by this keymap-first slice. The validated
+target-shaped profile, transfer report, and structured worklist are available
+through authenticated `POST /api/hub/overlay`. Red proof failed on the missing
+overlay module; focused tests passed 12/12. Full verification passed 720 Python
+tests, 185 web tests, compile and JavaScript syntax gates, and sdist/wheel build.
+This closes H4's fixture-backed acceptance boundary; H5 owns its editing and
+worklist UX.
+
 ### H3 write slice: pure plan, endpoint-bound execution, exact read-back
 
 This section is the cold-implementation contract for completing H3. VIA does
