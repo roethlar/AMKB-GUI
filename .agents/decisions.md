@@ -33,6 +33,14 @@ Delegated choices made under this ruling (recorded as they land):
   overlay engine's job (H4). A code QMK cannot express keeps its native
   spelling (`native` field, only with `carried: false`, added to the
   schema) so AM round-trips lose nothing.
+- 2026-08-16, H1 apply direction: hub animations gained optional
+  `frame_ms` and `brightness` — AM pages carry playback speed and
+  brightness, and without those fields a transfer silently lost timing.
+  Applying onto a serial family emits the canonical AM page scaffold
+  (valid/lightness/speed_ms/color/word_page/track stubs) because the
+  serial wire encoder requires it; proven against `writer.plan`. The
+  profile store keeps AM-native `current.json` — the hub is the
+  interchange format, not a second store.
 
 ## 2026-08-15 — Hub-configurator plan approved; QMK boundary set
 

@@ -218,11 +218,22 @@
   with `uncovered_leaves`, three-verdict transfer report; 29 tests) and
   `am_configurator/hub_am.py` (AM spoke: config → hub profile; positional
   `K_I` identities, `native` fallback for non-QMK codes, macro down/up/delay
-  decode, lighting tracks as animations; 14 tests incl. the new
-  `POST /api/hub/export` route). H1 remainder: hub → AM direction and store
-  integration; then H2 Vial spoke. Still stops for the owner: pilot hardware
-  choice, money, public identifiers/release, hardware writes (manual,
-  typed-confirmation, unchanged).
+  decode, lighting tracks as animations; incl. the new
+  `POST /api/hub/export` route). H1 completed 2026-08-16 with the apply
+  direction (`apply_hub_profile`: hub → AM config + validated transfer
+  report; canonical serial page scaffold; `frame_ms`/`brightness` carry
+  playback speed; `POST /api/hub/apply` takes base64 bytes so parsing stays
+  server-side) and the demo UI: a Hub toolbar button with export/import
+  dialog and a carried/adapted/dropped transfer report
+  (`tests/web/hub_shell.test.js` guards the wiring). Demo flow proven live:
+  Cyberboard 200-key profile → NEON 90-key apply (honest homeless-key
+  drops, macro byte-exact, speed/brightness restored) and loss-free CB
+  round trip; native build + `--smoke-test` passed on macOS. No store
+  migration: the hub is the interchange format, `current.json` stays
+  AM-native. Next: H2 Vial spoke (needs pilot hardware decision for live
+  proof; codecs testable on fixtures). Still stops for the owner: pilot
+  hardware choice, money, public identifiers/release, hardware writes
+  (manual, typed-confirmation, unchanged).
 - **Package-manager distribution paused before publication:** AUR remains
   parked by the Arch lock; Flatpak prepare/build tooling exists but must not be
   published under `io.github.roethlar.AMConfigurator`. Retarget both only after

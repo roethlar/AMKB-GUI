@@ -690,6 +690,97 @@ async function saveConfig() {
   }
 }
 
+function hubCandidateConfig() {
+  const candidate = clone(state.config);
+  candidate.macro_key = (candidate.macro_key || []).map(macro => ({
+    ...macro,
+    original_key: String(macro.original_key).toUpperCase(),
+    layer_key: (macro.layer_key || []).map(code => String(code).toUpperCase()),
+    intvel_ms: Array.from({length:(macro.layer_key || []).length},(_,index)=>Number(macro.intvel_ms?.[index]??0)),
+  }));
+  candidate.page_num = (candidate.page_data || []).length;
+  return candidate;
+}
+
+async function exportHubProfile() {
+  if (!state.config) { toast("Nothing to export", "Open a configuration first.", "error"); return; }
+  try {
+    const response = await api("/api/hub/export", {
+      method: "POST",
+      body: JSON.stringify({config: hubCandidateConfig(), origin: "user"}),
+    });
+    const blob = new Blob([JSON.stringify(response.profile, null, 2) + "\n"], {type: "application/json"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = cleanFileName(state.fileName).replace(/\.json$/i, "") + ".hub.json";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast("Hub profile exported", link.download, "success");
+  } catch (error) {
+    toast("Could not export hub profile", error.message || String(error), "error");
+  }
+}
+
+function showHubReport(report) {
+  const items = Array.isArray(report?.items) ? report.items : [];
+  const carried = items.filter(item => item.verdict === "carried").length;
+  const adapted = items.filter(item => item.verdict === "adapted");
+  const dropped = items.filter(item => item.verdict === "dropped");
+  $("#hub-report-summary").textContent =
+    `${carried} carried over exactly · ${adapted.length} adapted · ${dropped.length} could not fit`;
+  const list = $("#hub-report-items");
+  list.textContent = "";
+  for (const item of [...adapted, ...dropped]) {
+    const entry = document.createElement("li");
+    entry.className = item.verdict;
+    const path = document.createElement("strong");
+    path.textContent = item.path;
+    const reason = document.createElement("span");
+    reason.textContent = ` — ${item.verdict === "adapted" ? "adapted" : "dropped"}: ${item.reason || ""}`;
+    entry.append(path, reason);
+    list.append(entry);
+  }
+  if (!adapted.length && !dropped.length) {
+    const entry = document.createElement("li");
+    entry.textContent = "Everything fit this keyboard exactly.";
+    list.append(entry);
+  }
+  $("#hub-report").hidden = false;
+  const dialog = $("#hub-dialog");
+  if (!dialog.open) dialog.showModal();
+}
+
+async function importHubFile(file) {
+  try {
+    const data = arrayBufferToBase64(await file.arrayBuffer());
+    const activeDevice = state.devices.find(device => deviceKey(device) === state.loadedDevice) || selectedDevice();
+    const target = state.config ? productId() : activeDevice?.product_id;
+    if (!target) throw new Error("Open a configuration or choose a keyboard first, so the import has a target.");
+    const response = await api("/api/hub/apply", {
+      method: "POST",
+      body: JSON.stringify({data, product_id: target}),
+    });
+    if (!response?.config?.key_layer) throw new Error("This hub profile carries no keymap this keyboard can hold.");
+    closeImportedLightingReview({render: false});
+    stashDeviceDocument();
+    state.loadedDevice = null;
+    state.config = response.config;
+    state.documentRevision = null;
+    state.fileName = cleanFileName(file.name.replace(/\.hub\.json$/i, ".json"));
+    resetDocumentView();
+    state.undo = [];
+    state.redo = [];
+    if (!await synchronizeOpenDocument()) throw new Error(state.documentSyncError || "The imported document could not be synchronized.");
+    markDirty(true);
+    updateMeta();
+    render();
+    showHubReport(response.report);
+  } catch (error) {
+    toast("Could not import hub profile", error.message || String(error), "error");
+  }
+}
+
 function freezeImportedValue(value) {
   if(!value||typeof value!=="object"||Object.isFrozen(value))return value;
   for(const child of Object.values(value))freezeImportedValue(child);
@@ -6149,6 +6240,14 @@ $("#merge-input").addEventListener("change",event=>readFiles(event.currentTarget
 $("#macro-import-input").addEventListener("change",event=>importMacros(event.currentTarget));
 $("#save-button").addEventListener("click",saveConfig);
 $("#backup-before-write").addEventListener("click",saveConfig);
+$("#hub-button").addEventListener("click",()=>{$("#hub-report").hidden=true;$("#hub-dialog").showModal();});
+$("#hub-export").addEventListener("click",exportHubProfile);
+$("#hub-import").addEventListener("click",()=>$("#hub-import-input").click());
+$("#hub-import-input").addEventListener("change",async event=>{
+  const file=event.currentTarget.files[0];
+  event.currentTarget.value="";
+  if(file)await importHubFile(file);
+});
 $("#write-button").addEventListener("click",writeDevice);
 $("#device-button").addEventListener("click",showDeviceDialog);
 $("#read-device").addEventListener("click",readDevice);

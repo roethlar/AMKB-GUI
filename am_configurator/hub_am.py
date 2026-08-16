@@ -30,10 +30,17 @@ from typing import Any
 
 from . import device_mapping
 from .hub_profile import HUB_SCHEMA_VERSION, validate_hub_profile
-from .vial_keymap import UnsupportedKeycode, to_qmk
+from .vial_keymap import UnsupportedKeycode, from_qmk, parse_code, to_qmk
 
 _EVENT_DOWN = 0x11
 _EVENT_UP = 0x10
+
+_CODE_NO = "#00000000"
+
+# HID modifier bits (low nibble = left hand) and the keyboard-page usage of
+# the modifier *key* itself: LCtrl 0xE0, LShift 0xE1, LAlt 0xE2, LGui 0xE3,
+# right-hand variants +4.
+_MODIFIER_USAGES = ((0x01, 0xE0), (0x02, 0xE1), (0x04, 0xE2), (0x08, 0xE3))
 
 
 class AmSpokeError(ValueError):
@@ -140,18 +147,23 @@ def _animations(config: dict[str, Any]) -> list[dict[str, Any]]:
             frames = track.get("frame_data") or []
             if not frames:
                 continue
-            animations.append(
-                {
-                    "name": f"page{page_index}.{field}",
-                    "frames": [
-                        [str(color).upper() for color in frame.get("frame_RGB") or []]
-                        if isinstance(frame, dict)
-                        else _fail(f"page {page_index} {field} frame is not an object")
-                        for frame in frames
-                    ],
-                    "placement": "geometry_seam",
-                }
-            )
+            animation: dict[str, Any] = {
+                "name": f"page{page_index}.{field}",
+                "frames": [
+                    [str(color).upper() for color in frame.get("frame_RGB") or []]
+                    if isinstance(frame, dict)
+                    else _fail(f"page {page_index} {field} frame is not an object")
+                    for frame in frames
+                ],
+                "placement": "geometry_seam",
+            }
+            speed = page.get("speed_ms")
+            if isinstance(speed, int) and not isinstance(speed, bool) and 1 <= speed <= 65535:
+                animation["frame_ms"] = speed
+            lightness = page.get("lightness")
+            if isinstance(lightness, int) and not isinstance(lightness, bool) and 0 <= lightness <= 100:
+                animation["brightness"] = lightness
+            animations.append(animation)
     return animations
 
 
@@ -235,3 +247,321 @@ def build_hub_profile(config: dict[str, Any], *, origin: str = "user") -> dict[s
         return validate_hub_profile(profile)
     except ValueError as exc:
         raise AmSpokeError(f"The AM configuration does not fit the hub format: {exc}") from exc
+
+
+# --- hub -> AM (the apply direction) ---------------------------------------
+
+
+class _Report:
+    """Collects carried/adapted/dropped items while a profile is applied."""
+
+    def __init__(self) -> None:
+        self.items: list[dict[str, str]] = []
+
+    def carried(self, path: str) -> None:
+        self.items.append({"path": path, "verdict": "carried"})
+
+    def adapted(self, path: str, reason: str) -> None:
+        self.items.append({"path": path, "verdict": "adapted", "reason": reason})
+
+    def dropped(self, path: str, reason: str) -> None:
+        self.items.append({"path": path, "verdict": "dropped", "reason": reason})
+
+
+def _positional_index(identity: str) -> int | None:
+    if identity.startswith("K_I") and identity[3:].isdigit():
+        return int(identity[3:])
+    return None
+
+
+def _apply_keymap(
+    profile: dict[str, Any],
+    spec: device_mapping.FamilySpec,
+    source_is_am: bool,
+    report: _Report,
+) -> dict[str, Any] | None:
+    keymap = profile.get("keymap")
+    if keymap is None:
+        return None
+    width = spec.keys_per_layer
+    layer_data = []
+    for layer in sorted(keymap["layers"], key=lambda entry: entry["index"]):
+        codes = [_CODE_NO] * width
+        for entry in layer["keys"]:
+            path = f"keymap.layers[{layer['index']}].keys[{entry['key']}]"
+            index = _positional_index(entry["key"])
+            if index is None:
+                report.dropped(
+                    path,
+                    "AM boards address keys by position; a named key has no "
+                    "position here until the overlay engine assigns one.",
+                )
+                continue
+            if index >= width:
+                report.dropped(
+                    path,
+                    f"this keyboard has {width} keys; source key {index + 1} "
+                    "has no home.",
+                )
+                continue
+            if entry.get("carried") is False and "native" in entry:
+                if source_is_am:
+                    codes[index] = entry["native"]
+                    report.carried(path)
+                else:
+                    report.dropped(
+                        path,
+                        "this key uses a code native to another ecosystem and "
+                        "has no QMK meaning to translate.",
+                    )
+                continue
+            codes[index] = from_qmk(entry["code"])
+            report.carried(path)
+        layer_data.append({"layer": codes})
+    if not layer_data:
+        return None
+    return {"layer_num": len(layer_data), "layer_data": layer_data}
+
+
+def _macro_wire_events(
+    events: list[dict[str, Any]], path: str, report: _Report
+) -> tuple[list[str], list[int]] | None:
+    codes: list[str] = []
+    delays: list[int] = []
+    adapted = False
+
+    def emit(marker: int, page: int, usage: int) -> None:
+        codes.append(f"#{marker:02X}{page:02X}{usage:04X}")
+        delays.append(0)
+
+    def emit_value(value: int, markers: tuple[int, ...], event_path: str) -> bool:
+        nonlocal adapted
+        spelling = parse_code(from_qmk(value))
+        if spelling.modifier:
+            modifier_usages = [
+                usage + (4 if spelling.modifier & 0xF0 else 0)
+                for bit, usage in _MODIFIER_USAGES
+                if spelling.modifier & (bit | (bit << 4))
+            ]
+            for usage in modifier_usages:
+                emit(_EVENT_DOWN, 0x07, usage)
+            for marker in markers:
+                emit(marker, spelling.page, spelling.usage)
+            for usage in reversed(modifier_usages):
+                emit(_EVENT_UP, 0x07, usage)
+            report.adapted(
+                event_path,
+                "AM macros hold one key per event; the modifier became its own "
+                "press and release around the key.",
+            )
+            adapted = True
+            return True
+        for marker in markers:
+            emit(marker, spelling.page, spelling.usage)
+        return True
+
+    for index, event in enumerate(events):
+        event_path = f"{path}.events[{index}]"
+        kind = next(iter(event))
+        value = event[kind]
+        if kind == "delay_ms":
+            if delays:
+                delays[-1] = min(0xFFFF, delays[-1] + value)
+            elif value:
+                report.adapted(
+                    event_path,
+                    "AM macros pause after a key, not before the first one; the "
+                    "leading pause was dropped.",
+                )
+                adapted = True
+            continue
+        if kind == "text":
+            report.dropped(
+                event_path,
+                "typed text needs a keyboard layout to become key events; type "
+                "it in the macro editor instead.",
+            )
+            return None
+        markers = {
+            "down": (_EVENT_DOWN,),
+            "up": (_EVENT_UP,),
+            "tap": (_EVENT_DOWN, _EVENT_UP),
+        }[kind]
+        emit_value(value, markers, event_path)
+    if not codes:
+        report.dropped(path, "this macro has no key events after translation.")
+        return None
+    if not adapted:
+        report.carried(path)
+    return codes, delays
+
+
+def _apply_macros(
+    profile: dict[str, Any],
+    spec: device_mapping.FamilySpec,
+    report: _Report,
+) -> list[dict[str, Any]] | None:
+    macros = profile.get("macros")
+    if not macros:
+        return None
+    result = []
+    for macro in sorted(macros, key=lambda entry: entry["slot"]):
+        slot = macro["slot"]
+        path = f"macros[{slot}]"
+        if slot >= spec.macro_tracks:
+            report.dropped(
+                path, f"this keyboard stores {spec.macro_tracks} macros; slot "
+                f"{slot + 1} has no home."
+            )
+            continue
+        wire = _macro_wire_events(macro["events"], path, report)
+        if wire is None:
+            continue
+        codes, delays = wire
+        if len(codes) > spec.macro_events:
+            report.dropped(
+                path,
+                f"this macro needs {len(codes)} events; the keyboard stores at "
+                f"most {spec.macro_events}.",
+            )
+            continue
+        result.append(
+            {
+                "original_key": f"#009201{slot:02X}",
+                "layer_key": codes,
+                "intvel_ms": delays,
+            }
+        )
+    return result or None
+
+
+def _blank_page(page_index: int) -> dict[str, Any]:
+    """The canonical AM page scaffold the serial wire encoder expects."""
+
+    return {
+        "valid": 1,
+        "page_index": page_index,
+        "lightness": 100,
+        "speed_ms": 90,
+        "color": {"default": False, "back_rgb": "#000000", "rgb": "#000000"},
+        "word_page": {"valid": 0, "word_len": 0, "unicode": []},
+        "frames": {"valid": 0, "frame_num": 0, "frame_data": []},
+        "keyframes": {"valid": 0, "frame_num": 0, "frame_data": []},
+    }
+
+
+def _apply_lighting(
+    profile: dict[str, Any],
+    spec: device_mapping.FamilySpec,
+    report: _Report,
+) -> list[dict[str, Any]] | None:
+    lighting = profile.get("lighting") or {}
+    animations = lighting.get("animations") or []
+    pages: dict[int, dict[str, Any]] = {}
+    for position, animation in enumerate(animations):
+        path = f"lighting.animations[{position}]"
+        name = animation["name"]
+        prefix, _, field = name.partition(".")
+        if not (
+            prefix.startswith("page")
+            and prefix[4:].isdigit()
+            and field in ("frames", "keyframes", "spotlight_frames")
+        ):
+            report.dropped(
+                path,
+                f"animation {name!r} does not target an AM lighting page; the "
+                "editor can place it manually.",
+            )
+            continue
+        page_index = int(prefix[4:])
+        if field == "spotlight_frames" and page_index not in (5, 6, 7):
+            report.dropped(
+                path,
+                f"{name} targets the spotlight, which only exists on custom "
+                "pages 5, 6, and 7.",
+            )
+            continue
+        expected = spec.track_colors(field)
+        frames = animation["frames"]
+        if len(frames[0]) != expected:
+            report.dropped(
+                path,
+                f"{name} paints {len(frames[0])} lights; this keyboard's "
+                f"{field} track has {expected}.",
+            )
+            continue
+        if len(frames) > spec.frame_cap:
+            report.dropped(
+                path,
+                f"{name} has {len(frames)} frames; this keyboard plays at most "
+                f"{spec.frame_cap}.",
+            )
+            continue
+        page = pages.setdefault(page_index, _blank_page(page_index))
+        page[field] = {
+            "valid": 1,
+            "frame_num": len(frames),
+            "frame_data": [
+                {"frame_index": index, "frame_RGB": list(frame)}
+                for index, frame in enumerate(frames)
+            ],
+        }
+        if "frame_ms" in animation:
+            page["speed_ms"] = animation["frame_ms"]
+        if "brightness" in animation:
+            page["lightness"] = animation["brightness"]
+        report.carried(path)
+    if not pages:
+        return None
+    return [pages[index] for index in sorted(pages)]
+
+
+def apply_hub_profile(profile: dict[str, Any], *, product_id: str) -> dict[str, Any]:
+    """Express one hub profile as an AM configuration for ``product_id``.
+
+    Returns ``{"config": ..., "report": ...}`` where the report is a validated
+    transfer report: every source item is carried, adapted (with the reason),
+    or dropped (with the reason). Nothing is written to any device here; the
+    result goes through the normal preflight and typed-confirmation write flow.
+    """
+
+    validated = validate_hub_profile(profile)
+    if not isinstance(product_id, str) or not product_id:
+        raise AmSpokeError("The target product_id is missing.")
+    try:
+        family = device_mapping.led_model(product_id)
+    except ValueError as exc:
+        raise AmSpokeError(str(exc)) from exc
+    spec = device_mapping.spec_for_product(product_id)
+    source_is_am = validated["identity"]["ecosystem"] == "am"
+
+    report = _Report()
+    key_layer = _apply_keymap(validated, spec, source_is_am, report)
+    macros = _apply_macros(validated, spec, report)
+    pages = _apply_lighting(validated, spec, report)
+
+    config: dict[str, Any] = {
+        "product_info": {"product_id": device_mapping.config_product_id(product_id)},
+    }
+    if key_layer is not None:
+        config["key_layer"] = key_layer
+    if macros is not None:
+        config["macro_key"] = macros
+    if pages is not None:
+        config["page_data"] = pages
+
+    from .hub_profile import validate_transfer_report
+
+    transfer_report = validate_transfer_report(
+        {
+            "source": validated["identity"],
+            "target": {
+                "ecosystem": "am",
+                "family": family,
+                "wire_identity": device_mapping.config_product_id(product_id),
+                "endpoint": {"transport": spec.transport},
+            },
+            "items": report.items,
+        }
+    )
+    return {"config": config, "report": transfer_report}

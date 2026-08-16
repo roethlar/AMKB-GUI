@@ -19,6 +19,7 @@
         <button id="open-button" class="button ghost">Open</button>
         <button id="merge-button" class="button ghost" hidden title="Merge another JSON">Merge</button>
         <button id="save-button" class="button ghost">Save JSON</button>
+        <button id="hub-button" class="button ghost">Hub</button>
         <button id="settings-button" class="button ghost">Settings</button>
         <button id="write-button" class="button danger" disabled>Write to keyboard</button>
         <button id="device-button" class="button primary"><span class="status-light"></span>Devices</button>
@@ -26,6 +27,7 @@
       <input id="open-input" type="file" accept="application/json,.json" multiple hidden>
       <input id="merge-input" type="file" accept="application/json,.json" multiple hidden>
       <input id="macro-import-input" type="file" accept="application/json,.json" hidden>
+      <input id="hub-import-input" type="file" accept="application/json,.json" hidden>
     </header>
 
     <section id="compatibility-banner" class="compatibility-banner" role="status" aria-live="polite" hidden>
@@ -219,6 +221,25 @@
         <button id="read-device" type="button" class="button ghost">Read keymap &amp; macros</button>
       </div>
       <p class="dialog-note">Choose a keyboard here, then use the always-visible Write button in the main toolbar. LED frames cannot be read back. The app can preserve an open document or restore this machine’s last verified write, but another machine still needs the full portable JSON.</p>
+    </form>
+  </dialog>
+
+  <dialog id="hub-dialog" class="dialog hub-dialog">
+    <form method="dialog" class="dialog-card">
+      <div class="dialog-header">
+        <div><p class="eyebrow">Portable profile</p><h2>Hub profile</h2></div>
+        <button class="dialog-close" value="cancel" aria-label="Close hub profile dialog">×</button>
+      </div>
+      <p class="dialog-note">A hub profile is the portable format: export this document to a file, or import one saved from any keyboard. Importing shows exactly what carried over, what was adapted, and what could not fit. Nothing touches a keyboard until you Write.</p>
+      <div class="device-actions">
+        <button id="hub-export" type="button" class="button ghost">Export this document</button>
+        <button id="hub-import" type="button" class="button primary">Import onto this keyboard…</button>
+      </div>
+      <div id="hub-report" class="hub-report" hidden>
+        <h3>Transfer report</h3>
+        <p id="hub-report-summary" class="hub-report-summary"></p>
+        <ul id="hub-report-items" class="hub-report-items"></ul>
+      </div>
     </form>
   </dialog>
 

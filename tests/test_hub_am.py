@@ -13,9 +13,9 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 from am_configurator import hub_am
-from am_configurator.hub_am import AmSpokeError, build_hub_profile
+from am_configurator.hub_am import AmSpokeError, apply_hub_profile, build_hub_profile
 from am_configurator.hub_profile import uncovered_leaves, validate_hub_profile
-from am_configurator.server import create_server
+from am_configurator.server import create_server, validate_config
 
 
 def _neon_layer(fill: str = "#00070004") -> list[str]:
@@ -41,6 +41,8 @@ def _neon_config() -> dict:
         "page_data": [
             {
                 "page_index": 1,
+                "lightness": 70,
+                "speed_ms": 110,
                 "keyframes": {
                     "frame_num": 2,
                     "frame_data": [
@@ -95,6 +97,8 @@ class AmSpokeTests(unittest.TestCase):
         self.assertEqual(animations[0]["placement"], "geometry_seam")
         self.assertEqual(animations[0]["frames"][0][0], "#FF0000")
         self.assertEqual(len(animations[0]["frames"][0]), 90)
+        self.assertEqual(animations[0]["frame_ms"], 110)
+        self.assertEqual(animations[0]["brightness"], 70)
 
     def test_neon_budget_is_bytes_serial_budget_is_events(self) -> None:
         neon = build_hub_profile(_neon_config())
@@ -142,6 +146,110 @@ class AmSpokeTests(unittest.TestCase):
     def test_bad_origin_is_rejected(self) -> None:
         with self.assertRaises(AmSpokeError):
             build_hub_profile(_neon_config(), origin="guessed")
+
+
+class ApplyHubProfileTests(unittest.TestCase):
+    def test_same_board_round_trip_is_lossless(self) -> None:
+        source = _neon_config()
+        profile = build_hub_profile(source)
+        result = apply_hub_profile(profile, product_id="NEON80")
+        config = result["config"]
+        self.assertEqual(
+            [code.upper() for code in source["key_layer"]["layer_data"][0]["layer"]],
+            config["key_layer"]["layer_data"][0]["layer"],
+        )
+        self.assertEqual(
+            source["macro_key"][0]["layer_key"], config["macro_key"][0]["layer_key"]
+        )
+        self.assertEqual(source["macro_key"][0]["intvel_ms"], config["macro_key"][0]["intvel_ms"])
+        self.assertEqual(
+            [c.upper() for c in source["page_data"][0]["keyframes"]["frame_data"][0]["frame_RGB"]],
+            config["page_data"][0]["keyframes"]["frame_data"][0]["frame_RGB"],
+        )
+        self.assertEqual(config["page_data"][0]["speed_ms"], 110)
+        self.assertEqual(config["page_data"][0]["lightness"], 70)
+        self.assertEqual(config["page_data"][0]["word_page"], {"valid": 0, "word_len": 0, "unicode": []})
+        verdicts = {item["verdict"] for item in result["report"]["items"]}
+        self.assertEqual(verdicts, {"carried"})
+        self.assertTrue(validate_config(config)["ok"])
+
+    def test_cross_family_transfer_reports_homeless_keys(self) -> None:
+        big = {
+            "product_info": {"product_id": "CB04"},
+            "key_layer": {
+                "layer_num": 1,
+                "layer_data": [{"layer": ["#00070004"] * 200}],
+            },
+        }
+        profile = build_hub_profile(big)
+        result = apply_hub_profile(profile, product_id="NEON80")
+        layer = result["config"]["key_layer"]["layer_data"][0]["layer"]
+        self.assertEqual(len(layer), 90)
+        self.assertEqual(layer[0], "#00070004")
+        dropped = [i for i in result["report"]["items"] if i["verdict"] == "dropped"]
+        self.assertEqual(len(dropped), 110)
+        self.assertIn("no home", dropped[0]["reason"])
+        self.assertTrue(validate_config(result["config"])["ok"])
+
+    def test_native_code_from_another_ecosystem_is_dropped_with_reason(self) -> None:
+        profile = build_hub_profile(_neon_config())
+        profile["identity"]["ecosystem"] = "vial"
+        result = apply_hub_profile(profile, product_id="NEON80")
+        items = {item["path"]: item for item in result["report"]["items"]}
+        entry = items["keymap.layers[0].keys[K_I003]"]
+        self.assertEqual(entry["verdict"], "dropped")
+        self.assertIn("native to another ecosystem", entry["reason"])
+        self.assertEqual(
+            result["config"]["key_layer"]["layer_data"][0]["layer"][3], "#00000000"
+        )
+
+    def test_modifier_keycode_in_macro_is_adapted_not_lost(self) -> None:
+        profile = {
+            "schema_version": 1,
+            "identity": {"ecosystem": "via", "family": "x", "wire_identity": "x"},
+            "macros": [
+                {"slot": 0, "events": [{"tap": 0x0204}]},  # Shift+A
+            ],
+            "provenance": {"/macros": "user"},
+        }
+        result = apply_hub_profile(profile, product_id="NEON80")
+        macro = result["config"]["macro_key"][0]
+        self.assertEqual(
+            macro["layer_key"],
+            ["#110700E1", "#11070004", "#10070004", "#100700E1"],
+        )
+        adapted = [i for i in result["report"]["items"] if i["verdict"] == "adapted"]
+        self.assertEqual(len(adapted), 1)
+        self.assertIn("press and release", adapted[0]["reason"])
+
+    def test_text_macro_is_dropped_with_a_plain_reason(self) -> None:
+        profile = {
+            "schema_version": 1,
+            "identity": {"ecosystem": "via", "family": "x", "wire_identity": "x"},
+            "macros": [{"slot": 0, "events": [{"text": "hi"}]}],
+            "provenance": {"/macros": "user"},
+        }
+        result = apply_hub_profile(profile, product_id="NEON80")
+        self.assertNotIn("macro_key", result["config"])
+        dropped = [i for i in result["report"]["items"] if i["verdict"] == "dropped"]
+        self.assertTrue(any("keyboard layout" in i["reason"] for i in dropped))
+
+    def test_wrong_track_width_animation_is_dropped(self) -> None:
+        profile = build_hub_profile(_neon_config())
+        result = apply_hub_profile(profile, product_id="CB04")
+        # CB keyframes are 90 wide too, so this carries; frames track is 200.
+        items = {item["path"]: item for item in result["report"]["items"]}
+        self.assertEqual(items["lighting.animations[0]"]["verdict"], "carried")
+        # Shrink the frames to a width no CB track accepts.
+        profile2 = build_hub_profile(_neon_config())
+        profile2["lighting"]["animations"][0]["frames"] = [["#FF0000"] * 24]
+        result2 = apply_hub_profile(profile2, product_id="NEON80")
+        dropped = [i for i in result2["report"]["items"] if i["verdict"] == "dropped"]
+        self.assertTrue(any("track has 90" in i["reason"] for i in dropped))
+
+    def test_unknown_target_fails_plainly(self) -> None:
+        with self.assertRaises(AmSpokeError):
+            apply_hub_profile(build_hub_profile(_neon_config()), product_id="MYSTERY")
 
 
 class HubExportRouteTests(unittest.TestCase):
@@ -216,6 +324,40 @@ class HubExportRouteTests(unittest.TestCase):
             {"config": _neon_config(), "surprise": 1},
         )
         self.assertEqual(400, status)
+
+    @staticmethod
+    def _file_data(profile: dict) -> str:
+        import base64
+
+        return base64.b64encode(json.dumps(profile).encode("utf-8")).decode("ascii")
+
+    def test_apply_round_trips_over_the_route(self) -> None:
+        status, exported = self._request(
+            "POST", "/api/hub/export", {"config": _neon_config()}
+        )
+        self.assertEqual(200, status)
+        status, applied = self._request(
+            "POST",
+            "/api/hub/apply",
+            {"data": self._file_data(exported["profile"]), "product_id": "NEON80"},
+        )
+        self.assertEqual(200, status)
+        self.assertTrue(applied["validation"]["ok"])
+        self.assertEqual(
+            {item["verdict"] for item in applied["report"]["items"]}, {"carried"}
+        )
+        self.assertEqual(
+            applied["config"]["key_layer"]["layer_data"][0]["layer"][0], "#00070029"
+        )
+
+    def test_apply_rejects_a_bad_profile_plainly(self) -> None:
+        status, response = self._request(
+            "POST",
+            "/api/hub/apply",
+            {"data": self._file_data({"nope": 1}), "product_id": "NEON80"},
+        )
+        self.assertEqual(400, status)
+        self.assertIn("error", response)
 
 
 if __name__ == "__main__":

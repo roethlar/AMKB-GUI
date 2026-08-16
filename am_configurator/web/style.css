@@ -565,6 +565,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .device-card small { color: var(--muted); display: block; margin-top: 4px; }
 .device-actions { margin-top: 14px; display: flex; justify-content: flex-end; gap: 8px; }
 .dialog-note { color: var(--muted); line-height: 1.5; font-size: 13px; margin: 18px 0 0; }
+.hub-report { margin-top: 16px; border-top: 1px solid var(--border, rgba(128,128,128,.35)); padding-top: 12px; }
+.hub-report h3 { margin: 0 0 6px; font-size: 14px; }
+.hub-report-summary { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
+.hub-report-items { margin: 0; padding: 0 0 0 18px; max-height: 220px; overflow-y: auto; font-size: 13px; line-height: 1.5; }
+.hub-report-items li.adapted strong { color: var(--warning, #b58900); }
+.hub-report-items li.dropped strong { color: var(--danger, #dc322f); }
 .incompatible-dialog { width: min(650px, calc(100vw - 40px)); }
 .profile-route { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 14px; margin-bottom: 16px; }
 .profile-route > span { min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel-2); }

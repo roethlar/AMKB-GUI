@@ -2458,6 +2458,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._export_profile(body)
             elif path == "/api/hub/export":
                 self._hub_export(body)
+            elif path == "/api/hub/apply":
+                self._hub_apply(body)
             elif path == "/api/keymap/assignment":
                 if set(body) != {"product_id", "code"}:
                     raise ValueError(
@@ -2655,6 +2657,34 @@ class _Handler(BaseHTTPRequestHandler):
         except hub_am.AmSpokeError as exc:
             raise ValueError(str(exc)) from exc
         self._json({"profile": profile})
+
+    def _hub_apply(self, body: dict[str, Any]) -> None:
+        """Express a hub profile as an AM configuration plus transfer report.
+
+        Nothing is written to any device: the result feeds the normal
+        preflight and typed-confirmation write flow, so device safety is
+        exactly the existing rule.
+        """
+
+        from . import hub_am, hub_profile
+
+        self._strict_body(body, allowed={"data", "product_id"}, required={"data", "product_id"})
+        product_id = body["product_id"]
+        if not isinstance(product_id, str) or not product_id:
+            raise ValueError("Applying a hub profile requires a product_id.")
+        payload = _decode_import_data(body["data"])
+        try:
+            profile = hub_profile.loads_hub_profile(payload)
+            result = hub_am.apply_hub_profile(profile, product_id=product_id)
+        except (hub_profile.HubProfileError, hub_am.AmSpokeError) as exc:
+            raise ValueError(str(exc)) from exc
+        self._json(
+            {
+                "config": result["config"],
+                "report": result["report"],
+                "validation": validate_config(result["config"]),
+            }
+        )
 
     def _export_profile(self, body: dict[str, Any]) -> None:
         self._strict_body(

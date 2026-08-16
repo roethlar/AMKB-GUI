@@ -497,7 +497,11 @@ def _validate_lighting(value: object) -> dict:
         for index, entry in enumerate(animations):
             label = f"lighting.animations[{index}]"
             animation = _object(entry, label)
-            _reject_unknown(animation, {"name", "frames", "placement"}, label)
+            _reject_unknown(
+                animation,
+                {"name", "frames", "placement", "frame_ms", "brightness"},
+                label,
+            )
             _require(animation, {"name", "frames", "placement"}, label)
             frames = animation["frames"]
             if not isinstance(frames, list) or not frames or len(frames) > MAX_FRAMES:
@@ -513,13 +517,16 @@ def _validate_lighting(value: object) -> dict:
                 elif len(frame) != pixels:
                     _fail(f"{label} frames must all contain the same number of colors.")
                 validated_frames.append([_rgb(color, f"{frame_label} color") for color in frame])
-            validated.append(
-                {
-                    "name": _str(animation["name"], f"{label}.name", max_len=128),
-                    "frames": validated_frames,
-                    "placement": _choice(animation["placement"], ("geometry_seam",), f"{label}.placement"),
-                }
-            )
+            out = {
+                "name": _str(animation["name"], f"{label}.name", max_len=128),
+                "frames": validated_frames,
+                "placement": _choice(animation["placement"], ("geometry_seam",), f"{label}.placement"),
+            }
+            if "frame_ms" in animation:
+                out["frame_ms"] = _int(animation["frame_ms"], f"{label}.frame_ms", low=1, high=65535)
+            if "brightness" in animation:
+                out["brightness"] = _int(animation["brightness"], f"{label}.brightness", low=0, high=100)
+            validated.append(out)
         result["animations"] = validated
     return result
 
