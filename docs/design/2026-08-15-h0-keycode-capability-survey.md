@@ -73,8 +73,9 @@ front of us.
       LED map, features, menus), bounds to enforce on untrusted input.
 - [ ] VIA dynamic-keymap command set: keymap/macro read-write commands and
       per-protocol-version differences.
-- [ ] AM spoke inventory: what `FamilySpec` + `_LAYOUTS` + existing codecs
-      already express, in the same vocabulary as the above.
+- [x] AM spoke inventory: what `FamilySpec` + `_LAYOUTS` + existing codecs
+      already express, in the same vocabulary as the above (see "AM spoke"
+      below).
 - [ ] Capability surface comparison: lighting (static/effects/per-key/
       streaming), macros (event kinds, budgets), layers (counts, switching),
       per family — the raw material for the hub's capability descriptor.
@@ -239,3 +240,70 @@ no code reuse without a license decision). Files cited below are under
 - vial-gui pins VIA protocol 9 — our VIA spoke must confirm which
   protocol versions the VIA app itself accepts (older boards speak
   pre-9 protocols with different keycode tables; see QMK section note).
+
+## AM spoke (extracted 2026-08-15)
+
+Source: this repository, `am_configurator/` — `device_mapping.py`
+(`FamilySpec`, `_LAYOUTS`), `vial_keymap.py`, `vial_macros.py`,
+`macros.py`, `macro_text.py`. Line references are current as of this
+survey's commit.
+
+### Families and limits (`FamilySpec`, one row per family)
+
+| Family | Transport | Frame cap | Macro model | Keys/layer |
+|---|---|---|---|---|
+| CB (Cyberboard) | serial | 80 | 32 tracks, 200 events total | 200 |
+| ALICE | serial | 186 | 32 tracks, 200 events total | 200 |
+| 80 (Relic; probes as `AM21`) | serial | 200 | 32 tracks, 200 events total | 200 |
+| NEON | HID (Vial) | 256 | 16 slots, 6677-**byte** buffer | 90 (6×15) |
+
+- The two macro capacity models are *incommensurable* and `FamilySpec`
+  already records both (`macro_events` vs `macro_buffer_bytes`, 0 = "not
+  expressed that way") — the module comment states there is no correct
+  events↔bytes conversion. The hub's macro budget metadata must carry
+  both vocabularies, exactly as the plan's "per-ecosystem byte-budget
+  metadata" line says.
+- NEON numbers are measured on the owner's board (read-only VIA reads,
+  2026-07-25), not vendor claims.
+
+### LED geometry (`_LAYOUTS` — separate from `FamilySpec`, as the plan
+notes)
+
+Per-family authored tracks, each `{size (w,h), placement map, pixels}`:
+CB `keyframes` 15×6/90 + `frames` 40×5/200; ALICE `keyframes` 16×5/90
+(with copied pixels); NEON `axial` 19×6/89 + `head` 46×5/230 (row-major,
+no map needed); 80 `keyframes` 18×7/90 + `spotlight_frames` 18×7/24.
+Shared fallback colour counts for unauthored tracks: frames 200,
+keyframes 90, spotlight_frames 24. Identity quirks the hub must keep:
+`AM21`→family `80` (wire format stores `80`), `CB*`→`CB`,
+`NEON`/`NEON80`/`AM NEON 80`→`NEON`.
+
+### Keycode representation (`vial_keymap.py`)
+
+- The app's own key identity is `#` + 8 hex digits = HID **page +
+  usage** (page `0x07` basic keyboard usages; `#00000000` = no key =
+  QMK `KC_NO`).
+- Translation to/from QMK is explicitly **not symmetric**; the proven
+  fix is a passthrough page `0xFF` carrying an untranslatable 16-bit QMK
+  keycode verbatim (owner's board ships `0x5101`). One representation
+  per keycode, read-back stable. This is a working in-repo prototype of
+  the hub's "carried vs adapted" contract at single-key granularity.
+- `to_qmk`/`from_qmk` already take a `vial_protocol` parameter (macro
+  keycode base shifts by protocol version) — confirming the QMK-section
+  finding that spec-version mapping is load-bearing.
+- Keymap I/O implemented: layer count read, buffer read/write,
+  encode/decode layers, and the Vial unlock flow
+  (`unlock_status`/`ensure_unlocked`, typed-confirmation gated upstream).
+
+### Macro codecs (two, matching the two capacity models)
+
+- `vial_macros.py`: Vial v2 event-stream codec — same wire format the
+  Vial section documents (SS_QMK_PREFIX events, offset-by-one delay
+  encoding, NUL separation), plus slot tables and byte-capacity
+  enforcement (`MacroCapacity`, `MacroCapacityError`).
+- `macros.py` + `macro_text.py`: AM serial frame codec — event-count
+  model, text compiled to US-layout key events with natural delays.
+- Consequence: the hub's normalized macro event vocabulary already has
+  two independent in-repo consumers/producers; their shared event kinds
+  (tap/down/up/text/delay) are the intersection to normalize, budgets
+  stay per-spoke.
