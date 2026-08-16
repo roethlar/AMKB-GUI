@@ -231,9 +231,15 @@
   round trip; native build + `--smoke-test` passed on macOS. No store
   migration: the hub is the interchange format, `current.json` stays
   AM-native. Next: H2 Vial spoke (needs pilot hardware decision for live
-  proof; codecs testable on fixtures). Still stops for the owner: pilot
-  hardware choice, money, public identifiers/release, hardware writes
-  (manual, typed-confirmation, unchanged).
+  proof; codecs testable on fixtures). H7 queued: the OpenKeeb branding
+  overhaul — owner ruled 2026-08-16 this repo builds OpenKeeb and the
+  rebrand is a repositioning, not a rename; deferred to its own phase, a
+  partial sweep was reverted uncommitted (ruling in `.agents/decisions.md`).
+  Owner note 2026-08-16: no keyboards on hand, so the H1 demo is untested
+  by the owner — first session with hardware should run the Hub
+  export/import demo. Still stops for the owner: pilot hardware choice,
+  money, public identifiers/release, hardware writes (manual,
+  typed-confirmation, unchanged).
 - **Package-manager distribution paused before publication:** AUR remains
   parked by the Arch lock; Flatpak prepare/build tooling exists but must not be
   published under `io.github.roethlar.AMConfigurator`. Retarget both only after

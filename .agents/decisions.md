@@ -1,5 +1,26 @@
 # Repository Decisions
 
+## 2026-08-16 — This repo builds OpenKeeb; the rebrand is a branding overhaul, deferred to a later phase
+
+Status: owner ruling, 2026-08-16. Owner's words: "this repo builds OpenKeeb."
+then, on seeing a name sweep begin: "this is not just a naming change. it's a
+branding overhaul. am conf. is angry miao focused. OpenKeeb is broader." and
+"no. just note it for later phases."
+
+- The product this repository builds is OpenKeeb — a broad, open keyboard
+  configurator. AM Configurator's Angry-Miao-focused identity, copy, and
+  positioning are superseded, not merely renamed.
+- The overhaul is **deferred as its own later phase**, not started: product
+  name everywhere it is user-facing, all AM-centric copy rewritten for the
+  broader product (capability-honest: AM fully supported today, Vial/VIA in
+  development), visual identity/icon, window/app/bundle naming, README
+  repositioning, workflow display names, and the tests asserting each. A
+  partial sweep begun 2026-08-16 was reverted uncommitted on this ruling.
+- Still reserved to the owner regardless of phase: bundle identifier,
+  Windows AppId, settings/data directory, PyPI distribution name, AUR and
+  Flatpak ids, repository display/URL, the `2.0.0` version cut, and any
+  release or publication.
+
 ## 2026-08-16 — Owner delegates technical details; H0 closed; build until it works
 
 Status: owner ruling, 2026-08-16. Owner's words, verbatim: "no. I don't care

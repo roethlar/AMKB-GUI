@@ -114,6 +114,14 @@ canonical key identity (position-independent), not by matrix coordinates.
 - **H6 — Lighting through the hub:** effect/color/speed on VIA/Vial boards,
   VialRGB per-LED streaming for animations, per-key geometry from board
   definitions per the 2026-08-15 geometry amendment.
+- **H7 — OpenKeeb branding overhaul (noted 2026-08-16, deferred by owner):**
+  not a rename — a repositioning. Product name everywhere user-facing;
+  every AM-centric line of copy rewritten for the broader product,
+  capability-honest (AM fully supported today, Vial/VIA in development);
+  visual identity/icon; window/app/bundle naming; README; workflow display
+  names; and the tests asserting each. Deep identifiers (bundle id, AppId,
+  data dir, PyPI/AUR/Flatpak, repo URL, the 2.0.0 cut) stay owner-reserved.
+  Ruling: `.agents/decisions.md` (2026-08-16).
 
 H2 onward requires the pilot-hardware decision (below). H4/H5 can proceed on
 fixtures alone.
