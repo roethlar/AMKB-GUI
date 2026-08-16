@@ -1,5 +1,27 @@
 # Repository Decisions
 
+## 2026-08-16 — Owner delegates technical details; H0 closed; build until it works
+
+Status: owner ruling, 2026-08-16. Owner's words, verbatim: "no. I don't care
+about the details. make it work. you know the goal." — given when asked to
+review the hub schema draft's technical choices.
+
+- **H0 is closed.** The schema draft
+  (`docs/design/2026-08-15-hub-schema-draft.md`) and its three open questions
+  are approved by delegation; the working agent decides them and records the
+  choices here as they are made, without stopping for review.
+- **Per-slice owner gates inside the approved hub-configurator plan are
+  lifted.** Slices H1 onward proceed without individual "go"s. This
+  supersedes "every later slice still needs its own go" (below) for this plan
+  only.
+- **What still stops for the owner (real forks, unchanged):** pilot hardware
+  choice (his physical boards), anything costing money, public identifiers /
+  publication / release, history rewrites, and hardware writes (which remain
+  manual, device-matched, typed-confirmation-gated — device-safety rule is
+  untouched).
+- Standing memory rule applied: reserve owner questions for real forks;
+  when one option is clearly better, take it.
+
 ## 2026-08-15 — Hub-configurator plan approved; QMK boundary set
 
 Status: approved by the owner on 2026-08-15 ("go"). This authorizes the plan

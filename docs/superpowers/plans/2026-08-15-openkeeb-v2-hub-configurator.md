@@ -1,7 +1,10 @@
 # OpenKeeb v2 — full configurator through one hub format
 
-Status: approved by the owner on 2026-08-15 ("go"). Each slice needs its own
-go; the approval explicitly started H0, so H0 is authorized and underway. Supersedes `docs/superpowers/plans/2026-08-08-openkeeb-v2.md` in part:
+Status: approved by the owner on 2026-08-15 ("go"). H0 complete and closed
+2026-08-16. Per-slice gates lifted by the 2026-08-16 delegation ruling ("make
+it work", `.agents/decisions.md`): H1 onward proceeds continuously; the owner
+is stopped only for real forks (pilot hardware, money, public
+identifiers/release, hardware writes). Supersedes `docs/superpowers/plans/2026-08-08-openkeeb-v2.md` in part:
 the companion-firmware lane and the OpenRGB lane are dead (owner ruling
 2026-08-15, `.agents/decisions.md`); everything that plan settled about
 identity, migration, naming, licensing, and device safety still stands and is

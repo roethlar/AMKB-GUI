@@ -208,14 +208,15 @@
   (`docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`) was
   approved by the owner 2026-08-15 ("go"), with the QMK boundary folded in
   (VIA-enabled QMK in, bare QMK out, XAP watched — Drop as the first real XAP
-  fleet). H0 — the keycode/capability survey (no product code) — is complete:
-  survey doc (`docs/design/2026-08-15-h0-keycode-capability-survey.md`, all
-  checklist rows ticked; QMK/Vial/VIA/AM spokes extracted from pinned sources,
-  capability comparison assembled) plus hub schema draft
-  (`docs/design/2026-08-15-hub-schema-draft.md`, DRAFT). Owner review of those
-  two docs closes H0; H1 (hub format lands) then needs its own go. Remaining
-  owner decisions, one at a time: schema-draft approval, pilot Vial/VIA
-  hardware, then public identifiers.
+  fleet). H0 is complete and closed: survey doc
+  (`docs/design/2026-08-15-h0-keycode-capability-survey.md`) plus hub schema
+  draft (`docs/design/2026-08-15-hub-schema-draft.md`), approved by the
+  2026-08-16 delegation ruling ("make it work" — `.agents/decisions.md`).
+  Per-slice gates inside this plan are lifted; H1 onward (hub format,
+  serialization, round-trip tests, AM spoke port, then Vial/VIA spokes,
+  overlay engine, editor UX) proceeds continuously. Still stops for the
+  owner: pilot hardware choice, money, public identifiers/release, hardware
+  writes (manual, typed-confirmation, unchanged).
 - **Package-manager distribution paused before publication:** AUR remains
   parked by the Arch lock; Flatpak prepare/build tooling exists but must not be
   published under `io.github.roethlar.AMConfigurator`. Retarget both only after
