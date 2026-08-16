@@ -1,5 +1,21 @@
 # Repository Decisions
 
+## 2026-08-16 — Mode Eighty M80H V2 is the H3 live VIA pilot
+
+Status: owner-approved in-session on 2026-08-16. The available-keyboard
+inventory ranked the Mode Eighty above the Keychron HE, Drop/XAP-dependent,
+and definition-unresolved candidates; the owner said "go", connected it, and
+identified the hot-swap M80H PCB.
+
+- The connected board enumerates as `M80H V2`, VID `00DE`, PID `0083`, on the
+  standard VIA raw-HID usage. Those fields exactly match the public VIA
+  `m80v2h.json` definition (`M80V2 H`, 6x17 matrix).
+- A mutation-refusing session proved VIA protocol 9, four layers, an 816-byte
+  keymap buffer, and 16 macro slots in a 169-byte buffer.
+- This settles the pilot-hardware and exact-definition fork for H3. It is
+  read-only evidence only: no setter, firmware, unlock, or configuration write
+  was sent, and no future hardware write is authorized by this decision.
+
 ## 2026-08-16 — Neon 80 is the H2 live Vial pilot
 
 Status: owner-approved in-session on 2026-08-16. After the available-keyboard

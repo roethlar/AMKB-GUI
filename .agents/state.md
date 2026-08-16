@@ -21,8 +21,13 @@
 ## Next
 
 - **OpenKeeb v2 implementation is active under the approved hub-configurator
-  plan:** H0, H1, and H2 are complete; H3 (the VIA spoke) is next and still
-  needs its pilot selected from `available_keyboards.csv`. H2's generic Vial
+  plan:** H0, H1, and H2 are complete; H3 (the VIA spoke) is next with the
+  owner's Mode Eighty M80H V2 selected and read-only-qualified as its pilot.
+  The live board exactly matched public `m80v2h.json` identity and geometry and
+  proved VIA protocol 9, four layers, an 816-byte keymap buffer, and 16 macros
+  in 169 bytes through a mutation-refusing session. No Mode write was
+  authorized or performed; generic VIA definition resolution and transport
+  wiring are the next H3 implementation slice. H2's generic Vial
   transport and local API are wired to the hub codec with read-only command
   enforcement, endpoint/firmware/definition reproof, exact typed confirmation,
   physical unlock, and exact read-back. The owner's Neon 80 qualified the full

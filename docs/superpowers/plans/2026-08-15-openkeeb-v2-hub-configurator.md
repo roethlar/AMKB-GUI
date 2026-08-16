@@ -40,6 +40,15 @@ exactly, and the keyboard returned locked with no unlock in progress. This
 closes H2's live evidence boundary; future hardware writes remain separately
 owner-gated.
 
+H3 pilot qualification, 2026-08-16: the owner's Mode Eighty hot-swap board
+enumerated as `M80H V2`, VID `00DE`, PID `0083`, exactly matching the public
+VIA `m80v2h.json` definition (`M80V2 H`, 6x17 matrix). A mutation-refusing
+read-only session proved VIA protocol 9, four layers, an 816-byte keymap buffer,
+and 16 macro slots in a 169-byte buffer. This settles H3's pilot and exact
+definition fork. No setter, firmware, unlock, or configuration write was sent;
+generic VIA definition resolution and transport wiring remain the next H3
+slice, and live writes remain separately owner-gated.
+
 ## Vision (owner, 2026-08-15)
 
 One app that does all the config: take the configuration from one keyboard and
