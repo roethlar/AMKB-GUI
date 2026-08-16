@@ -270,6 +270,33 @@ class VialDeviceInfo:
         )
 
 
+@dataclass(frozen=True)
+class ViaEndpointInfo:
+    """One raw-HID candidate for a user-imported VIA definition.
+
+    VIA does not embed a model definition or firmware UID.  This shallow USB
+    record is therefore only a candidate until ``via_transport`` matches an
+    imported definition and proves the protocol on the opened endpoint.
+    """
+
+    address: str
+    path: bytes
+    usb_vendor_id: int
+    usb_product_id: int
+    serial_number: str
+    product_string: str
+    manufacturer_string: str
+    interface_number: int
+
+    @property
+    def is_keyboard(self) -> bool:
+        return True
+
+    @property
+    def writable(self) -> bool:
+        return False
+
+
 def endpoint_address(path: bytes) -> str:
     """An opaque, connection-scoped token for one physical raw-HID endpoint.
 
@@ -311,6 +338,20 @@ def vial_endpoints() -> list[dict[str, Any]]:
         if entry.get("usage_page") == RAW_USAGE_PAGE
         and entry.get("usage") == RAW_USAGE
         and str(entry.get("serial_number") or "").startswith(VIAL_SERIAL_PREFIX)
+    ]
+
+
+def via_endpoints() -> list[dict[str, Any]]:
+    """Raw-HID candidates not already owned by the self-describing Vial spoke."""
+
+    return [
+        entry
+        for entry in _hid().enumerate(0, 0)
+        if entry.get("usage_page") == RAW_USAGE_PAGE
+        and entry.get("usage") == RAW_USAGE
+        and not str(entry.get("serial_number") or "").startswith(
+            VIAL_SERIAL_PREFIX
+        )
     ]
 
 
@@ -797,6 +838,39 @@ def find_vial(address: str) -> VialDeviceInfo:
     raise HidDeviceAbsent("That Vial keyboard is no longer attached.")
 
 
+def identify_via_endpoint(entry: dict[str, Any]) -> ViaEndpointInfo:
+    """Project one enumerated raw-HID candidate without opening it."""
+
+    interface = entry.get("interface_number")
+    return ViaEndpointInfo(
+        address=endpoint_address(entry.get("path") or b""),
+        path=entry.get("path") or b"",
+        usb_vendor_id=int(entry.get("vendor_id") or 0),
+        usb_product_id=int(entry.get("product_id") or 0),
+        serial_number=str(entry.get("serial_number") or ""),
+        product_string=str(entry.get("product_string") or ""),
+        manufacturer_string=str(entry.get("manufacturer_string") or ""),
+        interface_number=(
+            int(interface) if isinstance(interface, int) else -1
+        ),
+    )
+
+
+def list_via_endpoints() -> list[ViaEndpointInfo]:
+    """List VIA candidates shallowly; enumeration never transmits a command."""
+
+    return [identify_via_endpoint(entry) for entry in via_endpoints()]
+
+
+def find_via_endpoint(address: str) -> ViaEndpointInfo:
+    """Resolve one connection-scoped VIA candidate without opening it."""
+
+    for entry in via_endpoints():
+        if endpoint_address(entry.get("path") or b"") == address:
+            return identify_via_endpoint(entry)
+    raise HidDeviceAbsent("That VIA keyboard is no longer attached.")
+
+
 def find(address: str) -> HidDeviceInfo:
     """Resolve an address to a currently attached, fully identified device.
 
@@ -929,7 +1003,9 @@ class _RawSession:
         return reply
 
 
-_VIA_READ_ONLY_COMMANDS = frozenset({0x01, 0x0C, 0x0D, 0x0E, 0x11, 0x12})
+_VIA_READ_ONLY_COMMANDS = frozenset(
+    {0x01, 0x02, 0x04, 0x0C, 0x0D, 0x0E, 0x11, 0x12}
+)
 
 
 class _ReadOnlyRawSession(_RawSession):
@@ -974,6 +1050,32 @@ def open_vial_read(info: VialDeviceInfo) -> _ReadOnlyRawSession:
     except BaseException:
         session.close()
         raise
+    return session
+
+
+def _same_via_endpoint(entry: dict[str, Any], expected: ViaEndpointInfo) -> bool:
+    interface = entry.get("interface_number")
+    return (
+        entry.get("path") == expected.path
+        and endpoint_address(entry.get("path") or b"") == expected.address
+        and int(entry.get("vendor_id") or 0) == expected.usb_vendor_id
+        and int(entry.get("product_id") or 0) == expected.usb_product_id
+        and str(entry.get("serial_number") or "") == expected.serial_number
+        and str(entry.get("product_string") or "") == expected.product_string
+        and str(entry.get("manufacturer_string") or "")
+        == expected.manufacturer_string
+        and (int(interface) if isinstance(interface, int) else -1)
+        == expected.interface_number
+    )
+
+
+def open_via_read(info: ViaEndpointInfo) -> _ReadOnlyRawSession:
+    """Open a VIA candidate through the mutation-refusing command surface."""
+
+    if not any(_same_via_endpoint(entry, info) for entry in via_endpoints()):
+        raise HidIdentityError("This is not the VIA endpoint that was selected.")
+    session = _ReadOnlyRawSession(info.path, endpoint_source=via_endpoints)
+    session.__enter__()
     return session
 
 

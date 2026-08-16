@@ -2409,6 +2409,16 @@ class _Handler(BaseHTTPRequestHandler):
                         for info in found
                     ]
                     self._json({"devices": devices})
+                elif path == "/api/hub/via/devices":
+                    from . import via_transport
+
+                    found = self.state.device_io(via_transport.list_devices)
+                    self.state.last_device_scan = time.monotonic()
+                    devices = [
+                        via_transport.device_json(info)
+                        for info in found
+                    ]
+                    self._json({"devices": devices})
                 elif path == "/api/settings":
                     self._json(_settings_view())
                 elif path == "/api/led/capabilities":
@@ -2472,6 +2482,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._hub_apply(body)
             elif path == "/api/hub/vial/read":
                 self._vial_hub_read(body)
+            elif path == "/api/hub/via/read":
+                self._via_hub_read(body)
             elif path == "/api/hub/vial/preflight":
                 self._vial_hub_preflight(body)
             elif path == "/api/hub/vial/write":
@@ -2719,6 +2731,27 @@ class _Handler(BaseHTTPRequestHandler):
             )
         except (hid_transport.HidError, vial_keymap.KeyboardLocked) as error:
             raise self._vial_api_error(error) from error
+        self._json({"profile": profile})
+
+    def _via_hub_read(self, body: dict[str, Any]) -> None:
+        from . import hid_transport, via_transport
+
+        self._strict_body(
+            body,
+            allowed={"address", "definition"},
+            required={"address", "definition"},
+        )
+        address = body["address"]
+        if not isinstance(address, str) or not address:
+            raise ValueError("A VIA endpoint address is required.")
+        try:
+            profile = self.state.device_io(
+                lambda: via_transport.read_hub_profile(
+                    address, body["definition"]
+                )
+            )
+        except hid_transport.HidError as error:
+            raise ValueError(str(error)) from error
         self._json({"profile": profile})
 
     def _vial_hub_preflight(self, body: dict[str, Any]) -> None:

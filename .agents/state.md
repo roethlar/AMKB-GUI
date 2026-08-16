@@ -21,13 +21,17 @@
 ## Next
 
 - **OpenKeeb v2 implementation is active under the approved hub-configurator
-  plan:** H0, H1, and H2 are complete; H3 (the VIA spoke) is next with the
-  owner's Mode Eighty M80H V2 selected and read-only-qualified as its pilot.
-  The live board exactly matched public `m80v2h.json` identity and geometry and
-  proved VIA protocol 9, four layers, an 816-byte keymap buffer, and 16 macros
-  in 169 bytes through a mutation-refusing session. No Mode write was
-  authorized or performed; generic VIA definition resolution and transport
-  wiring are the next H3 implementation slice. H2's generic Vial
+  plan:** H0, H1, and H2 are complete; H3 (the VIA spoke) now has bounded
+  user-imported definition resolution and generic read-only raw-HID transport.
+  It handles active layout options without guessing, VIA 7's per-key fallback,
+  VIA 8+ keymap/macro buffers, VIA 11's macro-delay dialect, and VIA 13's stated
+  keycode spec behind a mutation-refusing command surface and authenticated
+  local API. The owner's Mode Eighty M80H V2 passed that production path live:
+  exact public `m80v2h.json` identity, active option 0/87 physical keys, four
+  layers/816 keymap bytes, and 16 macro slots/169 bytes with three populated
+  macros decoded into a complete hub profile. No Mode write was authorized or
+  performed. H3's pure write planning and typed endpoint gate are next; live
+  hardware write/replug proof remains separately owner-gated. H2's generic Vial
   transport and local API are wired to the hub codec with read-only command
   enforcement, endpoint/firmware/definition reproof, exact typed confirmation,
   physical unlock, and exact read-back. The owner's Neon 80 qualified the full

@@ -375,9 +375,13 @@ def decode_layers(
 # and are gated on an unlocked device instead.
 
 VIA_GET_PROTOCOL_VERSION = 0x01
+VIA_GET_KEYBOARD_VALUE = 0x02
+VIA_GET_KEYCODE = 0x04
 VIA_GET_LAYER_COUNT = 0x11
 VIA_GET_BUFFER = 0x12
 VIA_SET_BUFFER = 0x13
+VIA_LAYOUT_OPTIONS = 0x02
+VIA_KEYCODES_VERSION = 0x06
 
 # Standard Vial security commands. Unlike keymap/macro/lighting SETs, start and
 # poll only run the volatile physical-unlock handshake. The user still has to
@@ -432,6 +436,30 @@ def read_via_protocol(session) -> int:
     return int.from_bytes(_via_request(session, VIA_GET_PROTOCOL_VERSION)[1:3], "big")
 
 
+def read_layout_options(session) -> int:
+    """Read VIA's packed 32-bit physical-layout selection."""
+
+    reply = _via_request(session, VIA_GET_KEYBOARD_VALUE, VIA_LAYOUT_OPTIONS)
+    return int.from_bytes(reply[2:6], "big")
+
+
+def read_keycode_spec(session) -> str:
+    """Read and format protocol-13's four-byte BCD QMK keycode version."""
+
+    reply = _via_request(session, VIA_GET_KEYBOARD_VALUE, VIA_KEYCODES_VERSION)
+    raw = reply[2:6]
+    if len(raw) != 4 or not any(raw):
+        raise UnsupportedVialProtocol(
+            "The VIA keyboard did not report a QMK keycode specification."
+        )
+    if any((byte >> 4) > 9 or (byte & 0x0F) > 9 for byte in raw):
+        raise UnsupportedVialProtocol(
+            "The VIA keyboard's QMK keycode specification is not valid BCD."
+        )
+    digits = "".join(f"{byte:02X}" for byte in raw)
+    return f"{int(digits[:4])}.{int(digits[4:6])}.{int(digits[6:])}"
+
+
 def read_layer_count(session) -> int:
     """How many layers this keyboard actually has.
 
@@ -440,6 +468,33 @@ def read_layer_count(session) -> int:
     """
 
     return _via_request(session, VIA_GET_LAYER_COUNT)[1]
+
+
+def read_via_keymap_buffer(
+    session,
+    *,
+    via_protocol: int,
+    layers: int,
+    rows: int,
+    cols: int,
+) -> bytes:
+    """Read a complete VIA keymap using the protocol's supported path."""
+
+    if via_protocol >= 8:
+        return read_keymap_buffer(session, size=layers * rows * cols * 2)
+    if via_protocol != 7:
+        raise UnsupportedVialProtocol(
+            f"VIA protocol {via_protocol} does not expose a supported keymap read."
+        )
+    buffer = bytearray()
+    for layer in range(layers):
+        for row in range(rows):
+            for col in range(cols):
+                reply = _via_request(
+                    session, VIA_GET_KEYCODE, layer, row, col
+                )
+                buffer += reply[4:6]
+    return bytes(buffer)
 
 
 def read_keymap_buffer(session, *, size: int) -> bytes:

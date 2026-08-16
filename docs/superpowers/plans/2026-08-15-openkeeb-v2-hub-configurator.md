@@ -46,8 +46,23 @@ VIA `m80v2h.json` definition (`M80V2 H`, 6x17 matrix). A mutation-refusing
 read-only session proved VIA protocol 9, four layers, an 816-byte keymap buffer,
 and 16 macro slots in a 169-byte buffer. This settles H3's pilot and exact
 definition fork. No setter, firmware, unlock, or configuration write was sent;
-generic VIA definition resolution and transport wiring remain the next H3
-slice, and live writes remain separately owner-gated.
+generic VIA definition resolution and transport wiring were the next H3 slice,
+and live writes remained separately owner-gated.
+
+H3 read-transport landing, 2026-08-16: `am_configurator/hub_via.py` and
+`am_configurator/via_transport.py` accept a bounded user-imported definition,
+match exact VID/PID, read the active layout-option bitfield, and project one
+physical layout rather than flattening alternatives. The mutation-refusing
+transport covers VIA 7's per-key keymap fallback, VIA 8+ keymap/macro buffers,
+VIA 11's prefixed action/decimal-delay macro dialect, and VIA 13's stated QMK
+keycode spec, with authenticated local discovery/read routes. Fake HID proves
+two same-model endpoints remain distinct, wrong definitions stop before open,
+setters never transmit, protocol gates select the right reads, and snapshots
+become complete hub profiles. The live M80H V2 production path matched public
+`m80v2h.json`, selected option 0/87 physical keys, read four layers/816 keymap
+bytes and 16 macro slots/169 bytes, decoded three populated macros, and built a
+complete hub profile. No write path exists in this slice; H3 write planning and
+typed endpoint gating remain next, with live writes separately owner-gated.
 
 ## Vision (owner, 2026-08-15)
 

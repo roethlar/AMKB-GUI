@@ -360,6 +360,10 @@ Constants: `PROTOCOL_ALPHA = 7`, `PROTOCOL_BETA = 8`,
 
 ### Macro codec (v11, `src/utils/macro-api/`)
 
+- Protocols 8–10 use prefixless action bytes (`Tap=1 / Down=2 / Up=3`)
+  followed directly by the one-byte keycode. The live VIA-9 M80H buffer proved
+  this distinction; treating its leading `0x01` as the v11 prefix misread the
+  following keycode as an action.
 - Byte format is the same SS_ family as QMK/Vial: prefix `0x01`, then
   `Tap=1 / Down=2 / Up=3 / Delay=4`; macro terminator `0x00`.
 - Delay wire encoding differs from Vial: ASCII decimal digits

@@ -12,6 +12,9 @@ identified the hot-swap M80H PCB.
   `m80v2h.json` definition (`M80V2 H`, 6x17 matrix).
 - A mutation-refusing session proved VIA protocol 9, four layers, an 816-byte
   keymap buffer, and 16 macro slots in a 169-byte buffer.
+- The landed H3 read path additionally resolved the board's active layout
+  option 0 to 87 physical keys, decoded its three populated protocol-9 macros,
+  and built a complete hub profile through the authenticated local API seam.
 - This settles the pilot-hardware and exact-definition fork for H3. It is
   read-only evidence only: no setter, firmware, unlock, or configuration write
   was sent, and no future hardware write is authorized by this decision.
