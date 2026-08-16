@@ -1,8 +1,7 @@
 # OpenKeeb v2 — full configurator through one hub format
 
-Status: DRAFT, awaiting owner approval (2026-08-15). No slice in this plan is
-authorized until the owner approves the plan, and each slice then needs its
-own go. Supersedes `docs/superpowers/plans/2026-08-08-openkeeb-v2.md` in part:
+Status: approved by the owner on 2026-08-15 ("go"). Each slice needs its own
+go; the approval explicitly started H0, so H0 is authorized and underway. Supersedes `docs/superpowers/plans/2026-08-08-openkeeb-v2.md` in part:
 the companion-firmware lane and the OpenRGB lane are dead (owner ruling
 2026-08-15, `.agents/decisions.md`); everything that plan settled about
 identity, migration, naming, licensing, and device safety still stands and is
@@ -32,6 +31,25 @@ nobody writes anything to make their keyboard work with us.
 - **Capability honesty:** a transfer between differing boards is *equivalent
   where possible*, never silently lossy. The app reports what carried and what
   could not, per the existing capability-qualification principle.
+
+## QMK boundary (recorded 2026-08-15)
+
+- **QMK with VIA enabled — in.** That is what the VIA spoke is: VIA is QMK
+  compiled with the dynamic-keymap protocol switched on, the largest share of
+  runtime-configurable boards shipping today.
+- **Bare QMK (no VIA/raw-HID) — out, honestly stated.** Not runtime-
+  configurable by anyone: the keymap is compiled in, and QMK's own tooling
+  "configures" by generating new firmware to flash. Both the out-of-the-box
+  rule and the no-automated-flashing rule forbid that lane.
+- **A board the user has flashed to VIA firmware with the vendor's own
+  official tool counts as a VIA board.** Example: Drop CTRL/ALT/SHIFT V2 —
+  stock is QMK+XAP; Drop's Configurator applies the official VIA firmware in
+  one user-performed step, after which it is an ordinary VIA spoke device.
+- **XAP — watched, not built on.** Drop ships XAP on stock V2 firmware (V1
+  reaches it via Drop's official updater), making Drop the first real XAP
+  fleet and the natural first pilot if a XAP spoke is ever opened (the
+  surviving V2-5 research spike in the 08-08 plan). No XAP work is authorized
+  by this plan.
 
 ## The hub format (first thing to settle — everything depends on it)
 

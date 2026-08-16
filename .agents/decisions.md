@@ -1,5 +1,26 @@
 # Repository Decisions
 
+## 2026-08-15 — Hub-configurator plan approved; QMK boundary set
+
+Status: approved by the owner on 2026-08-15 ("go"). This authorizes the plan
+`docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md` — hub-first
+ordering and slice shape — and starts H0 (keycode/capability survey, no
+product code). Every later slice still needs its own go.
+
+- **QMK boundary (folded into the plan before approval):** a VIA-enabled QMK
+  board is in (that is the VIA spoke — VIA is QMK compiled with the
+  dynamic-keymap protocol on); bare QMK (no VIA/raw-HID) is out, honestly
+  stated, because its keymap is compiled into flashed firmware and both the
+  out-of-the-box rule and the no-automated-flashing rule forbid that lane.
+  A board the user has flashed to VIA with the vendor's own official tool
+  counts as a VIA board (example: Drop CTRL/ALT/SHIFT V2 — stock QMK+XAP;
+  Drop's Configurator applies official VIA firmware in one user step, after
+  which it is an ordinary VIA spoke device).
+- **XAP stays watched, not built on.** Drop ships XAP on stock V2 firmware,
+  making Drop the first real XAP fleet and the natural first pilot if a XAP
+  spoke is ever opened (the surviving V2-5 research spike in the 08-08 plan).
+  No XAP work is authorized by this plan.
+
 ## 2026-08-15 — OpenKeeb v2 is a full keyboard configurator; the companion lane is dead; portability flows through one hub format
 
 Status: approved by the owner on 2026-08-15 across a single exchange; the

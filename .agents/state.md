@@ -204,11 +204,13 @@
   v2 architecture section. Other docs were not audited.
 - **OpenKeeb v2 planning:** the 2026-08-15 ruling re-founded v2 as a full
   keyboard configurator (hub format + AM/Vial/VIA spokes; companion lane and
-  OpenRGB dead). The durable plan is drafted
-  (`docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`) and
-  awaits owner approval — that approval is the next owner decision, then pilot
-  Vial/VIA hardware, then public identifiers, one at a time. No implementation
-  until the plan is approved; each slice then needs its own go.
+  OpenRGB dead). The durable plan
+  (`docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`) was
+  approved by the owner 2026-08-15 ("go"), with the QMK boundary folded in
+  (VIA-enabled QMK in, bare QMK out, XAP watched — Drop as the first real XAP
+  fleet). H0 — the keycode/capability survey (no product code) — is authorized
+  and underway. Remaining owner decisions, one at a time: pilot Vial/VIA
+  hardware, then public identifiers. Each slice after H0 needs its own go.
 - **Package-manager distribution paused before publication:** AUR remains
   parked by the Arch lock; Flatpak prepare/build tooling exists but must not be
   published under `io.github.roethlar.AMConfigurator`. Retarget both only after
