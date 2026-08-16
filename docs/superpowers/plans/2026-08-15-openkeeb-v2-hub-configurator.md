@@ -30,10 +30,15 @@ device-reported matrix/layer/macro limits before unlocking; uses Vial's
 physical unlock; and verifies exact keymap and macro read-back. Fake-HID tests
 prove wrong confirmation, forged approval, endpoint replug, changed identity,
 and a still-locked board send no setters. The owner's Neon 80 was selected as
-the H2 pilot and passed a live read-only generic snapshot/hub build (VIA 9,
-Vial 5, 6x15 matrix with 87 physical keys, four layers, 16 macros, 6,677-byte
-macro buffer). No live hardware write was authorized or performed; that exact
-write/replug qualification remains the final H2 evidence boundary.
+the H2 pilot and passed a live generic snapshot/hub build (VIA 9, Vial 5, 6x15
+matrix with 87 physical keys, four layers, 16 macros, 6,677-byte macro buffer).
+After a separate hardware-write authorization, exact `AM Neon 80` typed
+confirmation, and physical Esc + F2 unlock, the live profile was planned back
+byte-identically; 720 keymap bytes and 6,677 macro bytes were written and read
+back exactly. Unplug/replug invalidated the old endpoint, both buffers persisted
+exactly, and the keyboard returned locked with no unlock in progress. This
+closes H2's live evidence boundary; future hardware writes remain separately
+owner-gated.
 
 ## Vision (owner, 2026-08-15)
 

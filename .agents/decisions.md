@@ -12,11 +12,16 @@ inventory identified the Neon 80 as the strongest H2 candidate, the owner said
   `AM Neon 80` definition, VIA protocol 9, Vial protocol 5, 6x15 matrix with 87
   physical keys, four layers, and a 16-slot/6,677-byte macro buffer, then built
   a complete hub profile.
-- The keyboard remained locked and no setter, unlock, or hardware-write command
-  was sent during live qualification.
-- This decision does not authorize a live write. Exact write/read-back and
-  unplug/replug qualification remains a separate hardware-write gate, with the
-  model-matched typed confirmation and physical unlock rules unchanged.
+- The first qualification remained read-only: the keyboard stayed locked and
+  no setter, unlock, or hardware-write command was sent.
+- The owner then separately authorized the H2 live write, typed the exact
+  embedded name `AM Neon 80`, and physically held the firmware-reported Esc +
+  F2 unlock keys. The hub wrote a byte-identical round trip of 720 keymap bytes
+  and 6,677 macro bytes and verified both exact read-backs.
+- Unplug/replug invalidated the prior connection-scoped endpoint. A fresh
+  read-only snapshot proved both buffers persisted exactly and the board had
+  returned locked with no unlock in progress. This closes H2's live hardware
+  evidence boundary; it does not authorize any future hardware write.
 
 ## 2026-08-16 — This repo builds OpenKeeb; the rebrand is a branding overhaul, deferred to a later phase
 
