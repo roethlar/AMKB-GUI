@@ -69,10 +69,13 @@ front of us.
       handshake, protocol/version constants — extracted (see "Vial spoke"
       below); tap-dance/combo/key-override/QMK-settings and VialRGB
       surfaces recorded as command IDs, per-field detail deferred to H2.
-- [ ] VIA v3 definition schema: fields OpenKeeb consumes (layout, matrix,
-      LED map, features, menus), bounds to enforce on untrusted input.
-- [ ] VIA dynamic-keymap command set: keymap/macro read-write commands and
-      per-protocol-version differences.
+- [x] VIA v3 definition schema: schema authority identified and the field
+      set via-app actually consumes extracted (see "VIA spoke" below);
+      full per-field bounds live in `@the-via/reader` and are deferred to
+      the H3 importer slice, per the untrusted-input ruling.
+- [x] VIA dynamic-keymap command set: keymap/macro read-write commands,
+      per-protocol-version gates, and the protocol-to-keycode-spec
+      mapping extracted (see "VIA spoke" below).
 - [x] AM spoke inventory: what `FamilySpec` + `_LAYOUTS` + existing codecs
       already express, in the same vocabulary as the above (see "AM spoke"
       below).
@@ -307,3 +310,72 @@ keyframes 90, spotlight_frames 24. Identity quirks the hub must keep:
   two independent in-repo consumers/producers; their shared event kinds
   (tap/down/up/text/delay) are the intersection to normalize, budgets
   stay per-spoke.
+
+## VIA spoke (extracted 2026-08-15)
+
+Source: `the-via/app` commit `e21976de7348dad918e85d1a7903457d91c9ec0b`
+(2026-08-15), shallow clone at `~/Dev/reference/via-app/` (reference
+material, outside this repo; ~16M). Protocol facts only, no code reuse.
+
+### Transport and command set (`src/utils/keyboard-api.ts`)
+
+- Raw HID, 32-byte reports; `COMMAND_START = 0x00` is the HID report ID.
+- `enum APICommand` `0x01`-`0x16`: `GET_PROTOCOL_VERSION 0x01`,
+  `GET/SET_KEYBOARD_VALUE 0x02/0x03`,
+  `DYNAMIC_KEYMAP_GET/SET_KEYCODE 0x04/0x05`,
+  custom-menu channel `0x06`-`0x09` (which re-carve the deprecated
+  `BACKLIGHT_CONFIG_*` command IDs `0x07`-`0x09` from the v2 lighting
+  era), `EEPROM_RESET 0x0a`, `BOOTLOADER_JUMP 0x0b`,
+  `DYNAMIC_KEYMAP_MACRO_*` `0x0c`-`0x10` (count, buffer size, get/set
+  buffer, reset), `GET_LAYER_COUNT 0x11`, keymap
+  `GET/SET_BUFFER 0x12/0x13`, encoders `0x14/0x15`,
+  `UI_SYNC_REQUEST 0x16`.
+- Keymap/macro buffers move in max-28-byte chunks
+  (`DYNAMIC_KEYMAP_GET_BUFFER` caps data length at 28) — the same
+  28-byte ceiling as Vial's `BUFFER_FETCH_CHUNK`.
+
+### Protocol-version gates (load-bearing for the hub)
+
+Constants: `PROTOCOL_ALPHA = 7`, `PROTOCOL_BETA = 8`,
+`PROTOCOL_GAMMA = 9`; live gates in the app go higher:
+
+- `protocol < 8`: no macros at all (`macrosSlice` returns early).
+- `>= 8`: fast raw-matrix read via keymap buffer commands (alpha-7
+  boards fall back to per-key `getKey` reads).
+- `< 11`: v2 definition required, legacy lighting path
+  (`updateLightingData`, deprecated `BACKLIGHT_CONFIG_*` values).
+- `>= 11`: v3 definition required (`requiredDefinitionVersion` flips at
+  exactly 11), custom-menu/`UI_SYNC` data path, macro delays supported
+  (`isDelaySupported = protocol >= 11`), v11 macro codec.
+- `>= 13`: board reports its keycode spec version
+  (`GET_KEYBOARD_VALUE` sub-command `KEYCODES_VERSION = 0x06`,
+  4-byte BCD; app pins `SUPPORTED_KEYCODES_VERSION = 0x00000008`).
+  This closes the QMK-section open item "VIA-protocol-version to
+  keycode-spec-version mapping": pre-13 boards imply the spec by
+  protocol version, 13+ boards state it, and 0.0.8 is exactly the
+  latest delta table already extracted above. Keycode lookup is
+  `getBasicKeyDict(protocol, keycodesVersion)` — two-axis, confirming
+  the hub must carry both numbers per VIA endpoint.
+
+### Macro codec (v11, `src/utils/macro-api/`)
+
+- Byte format is the same SS_ family as QMK/Vial: prefix `0x01`, then
+  `Tap=1 / Down=2 / Up=3 / Delay=4`; macro terminator `0x00`.
+- Delay wire encoding differs from Vial: ASCII decimal digits
+  terminated by `'|'` (`DelayTerminator = 124`), not Vial's
+  offset-by-one two-byte pair. Same event vocabulary, third distinct
+  wire dialect — reinforces the plan's "hub stores clean events,
+  spokes own the escaping" rule.
+
+### Definition schema (v2/v3)
+
+- Schema authority is the `@the-via/reader` package (`^1.14.4`), not
+  vendored here; the definitions database is the `the-via/keyboards`
+  repo behind usevia.app (settled: user-imported definitions first,
+  catalog download deferred).
+- Fields via-app actually consumes from a definition (usage-derived):
+  `vendorProductId`, `name`, `matrix.rows/cols`, `layouts.labels` +
+  KLE `keymap`, `menus`, `keycodes`, `customKeycodes`. These are the
+  fields the hub's VIA reader must validate as untrusted input;
+  per-field bounds come from `@the-via/reader` at the H3 importer
+  slice, not invented here.
