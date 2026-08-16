@@ -63,10 +63,12 @@ front of us.
       recorded; per-version table extracted from pinned commit (see "QMK
       keycode space" below; raw tables consumed from the pinned checkout,
       not duplicated here).
-- [ ] Vial macro encoding: byte format, event kinds, delays, limits — from
-      vial-gui/vial-qmk source, cited.
-- [ ] Vial self-description payloads: layout JSON shape, matrix, encoder,
-      tap-dance/combo/QMK-settings surfaces, VialRGB capability report.
+- [x] Vial macro encoding: byte format, event kinds, delays, limits —
+      extracted from vial-gui source (see "Vial spoke" below).
+- [x] Vial self-description payloads: layout JSON shape, matrix, encoder,
+      handshake, protocol/version constants — extracted (see "Vial spoke"
+      below); tap-dance/combo/key-override/QMK-settings and VialRGB
+      surfaces recorded as command IDs, per-field detail deferred to H2.
 - [ ] VIA v3 definition schema: fields OpenKeeb consumes (layout, matrix,
       LED map, features, menus), bounds to enforce on untrusted input.
 - [ ] VIA dynamic-keymap command set: keymap/macro read-write commands and
@@ -161,3 +163,79 @@ this is exactly what the hub's normalized keycode space must round-trip:
   conflate them.
 - `QK_KB`/`QK_USER` ranges are per-board custom keycodes with no portable
   meaning — exactly the "carried / adapted / dropped" transfer-report case.
+
+## Vial spoke (extracted 2026-08-15)
+
+Source: `vial-kb/vial-gui` commit `aef8222a2d0429a183b2ed692d5f9efcfd383f08`
+(2026-05-25), shallow clone at `~/Dev/reference/vial-gui/` (reference
+material, outside this repo; GPL-2.0-or-later — read for protocol facts,
+no code reuse without a license decision). Files cited below are under
+`src/main/python/`.
+
+### Handshake and self-description (`protocol/keyboard_comm.py`,
+`protocol/constants.py`)
+
+- Transport: raw HID, 32-byte messages (`MSG_LEN = 32`, `util.py`).
+- VIA protocol version: cmd `0x01` → big-endian u16. vial-gui supports VIA
+  protocol **9** only (`SUPPORTED_VIA_PROTOCOL = [-1, 9]`).
+- Vial commands ride VIA cmd `0xFE` (`CMD_VIA_VIAL_PREFIX`) + subcommand:
+  - `0x00 GET_KEYBOARD_ID` → little-endian `<IQ`: u32 vial protocol
+    version + u64 keyboard uid. Supported vial protocols **0–6**.
+  - `0x01 GET_SIZE` → u32 LE payload size; `0x02 GET_DEFINITION` per
+    32-byte block → concatenated payload is **XZ/LZMA-compressed JSON**.
+  - Other subcommands (recorded, detail deferred): encoders `0x03/0x04`,
+    unlock/lock `0x05–0x08`, QMK settings `0x09–0x0C`, dynamic entries
+    `0x0D` (tap dance, combo, key override, alt-repeat-key get/set).
+- Definition JSON fields vial-gui consumes: `matrix.rows/cols`,
+  `layouts.keymap` (KLE-serialized layout), `layouts.labels`,
+  `customKeycodes`, `vial.vibl`, `vial.midi`. Encoders are encoded inside
+  the KLE keymap: a key whose `labels[4] == "e"` is an encoder,
+  `labels[0] == "idx,direction"`. Layout options select alternate key
+  geometry per the labels. This is the shape our Vial reader must parse —
+  and validate as untrusted input per the settled ruling.
+- Sideload path exists (user-supplied JSON instead of device fetch) —
+  matches our planned definition-import lane.
+- Version gates (protocol/constants.py): advanced macros ≥2, matrix
+  tester ≥3, dynamic entries + QMK settings ≥4, 2-byte-keycode macros +
+  key override ≥5.
+
+### Macro encoding (`protocol/macro.py`, `macro/macro_action.py`)
+
+- Buffer model (VIA cmds): `0x0C` macro count, `0x0D` buffer size,
+  `0x0E/0x0F` read/write buffer in **28-byte chunks**
+  (`BUFFER_FETCH_CHUNK`). One flat buffer holds all macros,
+  **NUL-separated** (`b"\x00".join(macros) + b"\x00"`), so `0x00` can
+  never appear inside an encoded macro.
+- Macro body is a byte stream: plain bytes are UTF-8 text to type;
+  escape sequences encode key events.
+- v1 encoding (vial protocol < 2): `[code, keycode]` pairs with code
+  tap=1 / down=2 / up=3; single-byte keycodes only; no delays.
+- v2 encoding (vial protocol ≥ 2): every event starts with
+  `SS_QMK_PREFIX = 0x01`, then:
+  - `0x01/0x02/0x03` + u8 keycode — tap/down/up, basic keycodes.
+  - `0x04` + 2 bytes — delay in ms, encoded `(b1 - 1) + (b2 - 1) * 255`
+    (offset-by-one so neither byte is NUL; max ≈ 65 s).
+  - `0x05/0x06/0x07` + u16 LE keycode (vial protocol ≥ 5) — tap/down/up
+    for full 16-bit keycodes, with a NUL-avoidance quirk: a keycode
+    `kc % 256 == 0` is stored as `0xFF00 | (kc >> 8)` and reversed on
+    decode (`decode_keycode()` in qmk).
+- Limits: total buffer size is device-reported; macro count is
+  device-reported; a macro slot is `QK_MACRO` range (128 max in keycode
+  space).
+
+### Consequences for the hub (recorded, not yet designed)
+
+- Vial macros are an *event stream* (text runs, key events, millisecond
+  delays) — this matches the plan's "macros: normalized event streams"
+  choice and gives the exact event vocabulary and byte budgets the hub's
+  macro schema must round-trip for this spoke.
+- The NUL-separator constraint and the `0xFF00` keycode quirk are
+  wire-level details that belong in the Vial codec, not in the hub
+  format; the hub stores clean events, the spoke owns the escaping.
+- Self-description gives layout + matrix + encoders but **not** an LED
+  position map; per-LED geometry for VialRGB comes from the lighting
+  protocol surface (H6 territory), consistent with the plan's geometry
+  seam.
+- vial-gui pins VIA protocol 9 — our VIA spoke must confirm which
+  protocol versions the VIA app itself accepts (older boards speak
+  pre-9 protocols with different keycode tables; see QMK section note).
