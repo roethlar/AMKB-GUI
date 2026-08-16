@@ -202,6 +202,177 @@ class ViaDefinitionTests(unittest.TestCase):
         self.assertEqual([{"tap": 4}], profile["macros"][0]["events"])
         self.assertFalse(profile["capabilities"]["macros"]["delays"])
 
+    def test_write_plan_updates_addressed_key_and_preserves_omitted_macros(
+        self,
+    ) -> None:
+        snapshot = hub_via.load_snapshot(self._snapshot_value())
+        profile = hub_via.build_hub_profile(snapshot)
+        profile["keymap"]["layers"] = [
+            {
+                "index": 0,
+                "keys": [
+                    {"key": "K_R0_C0", "code": 0x1234},
+                    {"key": "K_R9_C9", "code": 0x0004},
+                ],
+            },
+            {
+                "index": 4,
+                "keys": [{"key": "K_R0_C0", "code": 0x0005}],
+            },
+        ]
+        profile.pop("macros")
+        profile["provenance"].pop("/macros")
+        unchanged = copy.deepcopy(profile)
+
+        plan = hub_via.plan_via_write(profile, target=snapshot)
+
+        self.assertEqual(unchanged, profile)
+        expected = bytearray(snapshot.keymap_buffer)
+        expected[:2] = (0x1234).to_bytes(2, "big")
+        self.assertEqual(bytes(expected), plan.keymap_buffer)
+        self.assertIsNone(plan.macro_buffer)
+        self.assertEqual(
+            [
+                {
+                    "path": "keymap.layers[0].keys[K_R0_C0]",
+                    "verdict": "carried",
+                },
+                {
+                    "path": "keymap.layers[0].keys[K_R9_C9]",
+                    "verdict": "dropped",
+                    "reason": (
+                        "this VIA keyboard has no matrix address for that key; "
+                        "H4 overlay must assign one."
+                    ),
+                },
+                {
+                    "path": "keymap.layers[4].keys[K_R0_C0]",
+                    "verdict": "dropped",
+                    "reason": "this VIA keyboard only stores 4 layers.",
+                },
+            ],
+            plan.report["items"],
+        )
+        self.assertEqual(plan, hub_via.plan_via_write(profile, target=snapshot))
+
+    def test_via_macro_encoder_round_trips_protocol_9_and_11(self) -> None:
+        protocol_9 = [{"tap": 4}, {"text": "250|"}]
+        encoded_9 = hub_via.encode_macro_buffer(
+            [{"slot": 0, "events": protocol_9}],
+            count=1,
+            buffer_bytes=12,
+            via_protocol=9,
+        )
+        self.assertEqual(
+            [{"slot": 0, "events": protocol_9}],
+            hub_via.decode_macro_buffer(encoded_9, count=1, via_protocol=9),
+        )
+
+        protocol_11 = [
+            {"tap": 4},
+            {"delay_ms": 250},
+            {"text": "ok"},
+        ]
+        encoded_11 = hub_via.encode_macro_buffer(
+            [{"slot": 0, "events": protocol_11}],
+            count=1,
+            buffer_bytes=16,
+            via_protocol=11,
+        )
+        self.assertEqual(
+            [{"slot": 0, "events": protocol_11}],
+            hub_via.decode_macro_buffer(encoded_11, count=1, via_protocol=11),
+        )
+        with self.assertRaisesRegex(hub_via.ViaSpokeError, "reserved"):
+            hub_via.encode_macro_events([{"text": "\x01"}], via_protocol=9)
+        with self.assertRaisesRegex(hub_via.ViaSpokeError, "valid UTF-8"):
+            hub_via.encode_macro_events([{"text": "\ud800"}], via_protocol=11)
+
+    def test_snapshot_profile_plans_back_byte_identically(self) -> None:
+        snapshot = hub_via.load_snapshot(self._snapshot_value())
+
+        plan = hub_via.plan_via_write(
+            hub_via.build_hub_profile(snapshot), target=snapshot
+        )
+
+        self.assertEqual(snapshot.keymap_buffer, plan.keymap_buffer)
+        self.assertEqual(snapshot.macro_buffer, plan.macro_buffer)
+        self.assertTrue(plan.report["items"])
+        self.assertEqual(
+            {"carried"}, {item["verdict"] for item in plan.report["items"]}
+        )
+
+    def test_macro_plan_reports_unrepresentable_events_before_compiling(self) -> None:
+        snapshot = hub_via.load_snapshot(self._snapshot_value())
+        profile = hub_via.build_hub_profile(snapshot)
+        profile.pop("keymap")
+        profile["provenance"].pop("/keymap")
+        profile["macros"] = [
+            {"slot": 0, "events": [{"delay_ms": 10}]},
+            {"slot": 1, "events": [{"tap": 0x1234}]},
+            {"slot": 2, "events": [{"tap": 4}]},
+        ]
+
+        plan = hub_via.plan_via_write(profile, target=snapshot)
+
+        self.assertIsNone(plan.keymap_buffer)
+        self.assertEqual(bytes(12), plan.macro_buffer)
+        self.assertEqual(
+            ["dropped", "dropped", "dropped"],
+            [item["verdict"] for item in plan.report["items"]],
+        )
+        with self.assertRaisesRegex(hub_via.ViaSpokeError, "compile"):
+            hub_via.encode_macro_buffer(
+                [{"slot": 0, "events": [{"text": "hello"}]}],
+                count=1,
+                buffer_bytes=4,
+                via_protocol=11,
+            )
+
+    def test_keycode_spec_mismatch_preserves_target_and_reports_drop(self) -> None:
+        macro = bytes([1, 1, 4, 0, 0]).ljust(12, b"\x00")
+        snapshot = hub_via.load_snapshot(
+            self._snapshot_value(
+                via_protocol=13,
+                keycode_spec="0.0.8",
+                macro_hex=macro.hex(),
+            )
+        )
+        profile = hub_via.build_hub_profile(snapshot)
+        profile["identity"]["protocol"]["keycode_spec"] = "0.0.7"
+        profile["keymap"]["layers"] = [
+            {"index": 0, "keys": [{"key": "K_R0_C0", "code": 0x1234}]}
+        ]
+        profile.pop("macros")
+        profile["provenance"].pop("/macros")
+
+        plan = hub_via.plan_via_write(profile, target=snapshot)
+
+        self.assertEqual(snapshot.keymap_buffer, plan.keymap_buffer)
+        self.assertEqual("dropped", plan.report["items"][0]["verdict"])
+        self.assertIn("keycode spec", plan.report["items"][0]["reason"])
+
+    def test_protocol_7_has_no_macro_write_plan(self) -> None:
+        target = hub_via.load_snapshot(
+            self._snapshot_value(
+                via_protocol=7,
+                macro_count=0,
+                macro_buffer_bytes=0,
+                macro_hex="",
+            )
+        )
+        source = hub_via.build_hub_profile(
+            hub_via.load_snapshot(self._snapshot_value())
+        )
+        source.pop("keymap")
+        source["provenance"].pop("/keymap")
+
+        plan = hub_via.plan_via_write(source, target=target)
+
+        self.assertIsNone(plan.keymap_buffer)
+        self.assertIsNone(plan.macro_buffer)
+        self.assertEqual("dropped", plan.report["items"][0]["verdict"])
+
 
 class GenericViaTransportTests(unittest.TestCase):
     def setUp(self) -> None:

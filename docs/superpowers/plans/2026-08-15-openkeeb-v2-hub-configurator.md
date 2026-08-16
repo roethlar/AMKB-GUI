@@ -69,6 +69,20 @@ bytes and 16 macro slots/169 bytes, decoded three populated macros, and built a
 complete hub profile. No write path exists in that landed slice. The H3 write
 plan below is now durable; live writes remain separately owner-gated.
 
+H3a pure-planner landing, 2026-08-16: `am_configurator/hub_via.py` now plans
+complete VIA keymap and macro replacement buffers without opening HID. It
+starts from the target snapshot, preserves omitted sections, addresses only
+canonical matrix identities, gates stated keycode-spec mismatches rather than
+guessing, and emits a validated carried/dropped transfer report. The VIA-owned
+macro encoder round-trips protocol 8–10's prefixless actions and protocol 11+
+prefixed actions/decimal delays, rejects reserved text, unsupported delays or
+keycodes, duplicate/out-of-range slots, and whole-buffer overflow before any
+transport exists. Red proof failed on the missing planner API; focused VIA
+tests then passed 17/17. Full verification passed 694 Python tests, 185 web
+tests, compile and JavaScript syntax gates, and sdist/wheel build. H3b
+endpoint-bound fake-HID transport is next. No setter, hardware access, or live
+write was added or performed.
+
 ### H3 write slice: pure plan, endpoint-bound execution, exact read-back
 
 This section is the cold-implementation contract for completing H3. VIA does

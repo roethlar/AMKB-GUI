@@ -3,7 +3,8 @@
 VIA firmware does not embed its physical definition.  H3 therefore accepts a
 user-imported definition, validates and fingerprints it, reads the active
 layout-option bitfield from the keyboard, and only then projects one physical
-layout.  The snapshot seam owns no HID session and exposes no write function.
+layout.  The snapshot and pure write-plan seams own no HID session and cannot
+write hardware.
 """
 
 from __future__ import annotations
@@ -16,7 +17,11 @@ import re
 from typing import Any
 
 from . import hid_transport, vial_macros
-from .hub_profile import HUB_SCHEMA_VERSION, validate_hub_profile
+from .hub_profile import (
+    HUB_SCHEMA_VERSION,
+    validate_hub_profile,
+    validate_transfer_report,
+)
 
 
 class ViaSpokeError(ValueError):
@@ -83,6 +88,15 @@ class ViaSnapshot:
         return self.matrix_rows * self.matrix_cols
 
 
+@dataclass(frozen=True)
+class ViaWritePlan:
+    """Complete replacement buffers and report; never writes hardware."""
+
+    keymap_buffer: bytes | None
+    macro_buffer: bytes | None
+    report: dict[str, Any]
+
+
 _MAX_DEFINITION_BYTES = 1_048_576
 _MAX_MATRIX_AXIS = 32
 _MAX_KEYS_PER_LAYER = 512
@@ -93,6 +107,7 @@ _MAX_LAYERS = 32
 _MAX_MACROS = 128
 _MAX_MACRO_BUFFER = 65_535
 _PAIR_RE = re.compile(r"^([0-9]+)[,，]([0-9]+)$")
+_MATRIX_KEY_RE = re.compile(r"^K_R([0-9]+)_C([0-9]+)$")
 
 # KLE's raw newline labels move when the alignment property changes.  Matrix
 # row/column lives in normalized legend 0 and VIA's layout group/option lives
@@ -785,3 +800,263 @@ def build_hub_profile(
         },
     }
     return validate_hub_profile(profile)
+
+
+class _Report:
+    def __init__(self) -> None:
+        self.items: list[dict[str, str]] = []
+
+    def carried(self, path: str) -> None:
+        self.items.append({"path": path, "verdict": "carried"})
+
+    def dropped(self, path: str, reason: str) -> None:
+        self.items.append(
+            {"path": path, "verdict": "dropped", "reason": reason}
+        )
+
+
+def _matrix_position(identity: str, target: ViaSnapshot) -> tuple[int, int] | None:
+    matched = _MATRIX_KEY_RE.fullmatch(identity)
+    if matched is None:
+        return None
+    row, col = (int(value) for value in matched.groups())
+    if row >= target.matrix_rows or col >= target.matrix_cols:
+        return None
+    return row, col
+
+
+def _plan_keymap(
+    profile: dict[str, Any], target: ViaSnapshot, report: _Report
+) -> bytes | None:
+    keymap = profile.get("keymap")
+    if keymap is None:
+        return None
+
+    target_layers = _decode_keymap(target)
+    source_spec = (profile["identity"].get("protocol") or {}).get(
+        "keycode_spec"
+    )
+    target_spec = target.keycode_spec
+    for layer in keymap["layers"]:
+        layer_index = layer["index"]
+        for entry in layer["keys"]:
+            identity = entry["key"]
+            path = f"keymap.layers[{layer_index}].keys[{identity}]"
+            if layer_index >= target.layer_count:
+                report.dropped(
+                    path,
+                    f"this VIA keyboard only stores {target.layer_count} layers.",
+                )
+                continue
+            matrix = _matrix_position(identity, target)
+            if matrix is None:
+                report.dropped(
+                    path,
+                    "this VIA keyboard has no matrix address for that key; "
+                    "H4 overlay must assign one.",
+                )
+                continue
+            if (
+                source_spec is not None
+                and target_spec is not None
+                and source_spec != target_spec
+            ):
+                report.dropped(
+                    path,
+                    f"source keycode spec {source_spec} differs from target "
+                    f"{target_spec}; no conversion table is available.",
+                )
+                continue
+            row, col = matrix
+            target_layers[layer_index][row * target.matrix_cols + col] = entry[
+                "code"
+            ]
+            report.carried(path)
+
+    return b"".join(
+        code.to_bytes(2, "big") for layer in target_layers for code in layer
+    )
+
+
+def encode_macro_events(
+    events: list[dict[str, Any]], *, via_protocol: int
+) -> bytes:
+    """Encode normalized hub events into one unterminated VIA macro slot."""
+
+    _integer(via_protocol, "VIA protocol", low=8, high=255)
+    if not isinstance(events, list):
+        _fail("VIA macro events must be a list.")
+    payload = bytearray()
+    actions = {"tap": 1, "down": 2, "up": 3}
+    for index, event in enumerate(events):
+        if not isinstance(event, dict) or len(event) != 1:
+            _fail(f"VIA macro event {index} must contain exactly one action.")
+        kind, value = next(iter(event.items()))
+        if kind in actions:
+            code = _integer(
+                value,
+                f"VIA macro event {index} {kind} keycode",
+                low=1,
+                high=0xFF,
+            )
+            if via_protocol < 11:
+                payload += bytes([actions[kind], code])
+            else:
+                payload += bytes([vial_macros.SS_PREFIX, actions[kind], code])
+            continue
+        if kind == "delay_ms":
+            if via_protocol < 11:
+                _fail(
+                    f"VIA protocol {via_protocol} cannot store macro delays; "
+                    "protocol 11 or newer is required."
+                )
+            delay = _integer(
+                value,
+                f"VIA macro event {index} delay",
+                low=0,
+                high=65_535,
+            )
+            payload += bytes([vial_macros.SS_PREFIX, vial_macros.SS_DELAY])
+            payload += str(delay).encode("ascii") + b"|"
+            continue
+        if kind == "text":
+            if not isinstance(value, str) or not value:
+                _fail(f"VIA macro event {index} text must be non-empty text.")
+            try:
+                encoded = value.encode("utf-8")
+            except UnicodeEncodeError as error:
+                raise ViaSpokeError(
+                    f"VIA macro event {index} text must be valid UTF-8."
+                ) from error
+            reserved = {0, 1} if via_protocol >= 11 else {0, 1, 2, 3}
+            if any(byte in reserved for byte in encoded):
+                _fail(
+                    f"VIA macro event {index} text contains a byte reserved "
+                    f"by protocol {via_protocol}."
+                )
+            payload += encoded
+            continue
+        _fail(f"VIA macro event {index} has unsupported action {kind!r}.")
+    return bytes(payload)
+
+
+def encode_macro_buffer(
+    macros: list[dict[str, Any]],
+    *,
+    count: int,
+    buffer_bytes: int,
+    via_protocol: int,
+) -> bytes:
+    """Compile and size-check a complete VIA macro replacement buffer."""
+
+    _integer(via_protocol, "VIA protocol", low=7, high=255)
+    count = _integer(count, "VIA macro count", low=0, high=_MAX_MACROS)
+    buffer_bytes = _integer(
+        buffer_bytes,
+        "VIA macro buffer size",
+        low=0,
+        high=_MAX_MACRO_BUFFER,
+    )
+    if not isinstance(macros, list):
+        _fail("VIA macros must be a list.")
+    if via_protocol < 8:
+        if macros or count or buffer_bytes:
+            _fail("VIA protocol 7 does not expose dynamic macros.")
+        return b""
+    if count > buffer_bytes:
+        _fail("The VIA macro buffer cannot hold one terminator per macro slot.")
+    if count == 0 and macros:
+        _fail("This VIA keyboard stores no macros.")
+
+    table: list[list[dict[str, Any]] | None] = [None] * count
+    for position, macro in enumerate(macros):
+        if not isinstance(macro, dict):
+            _fail(f"Hub macro {position} must be an object.")
+        slot = _integer(
+            macro.get("slot"),
+            f"Hub macro {position} slot",
+            low=0,
+            high=count - 1,
+        )
+        if table[slot] is not None:
+            _fail(f"Hub macros assign VIA slot {slot} more than once.")
+        events = macro.get("events")
+        if not isinstance(events, list):
+            _fail(f"Hub macro slot {slot} events must be a list.")
+        table[slot] = events
+
+    payload = bytearray()
+    for events in table:
+        if events is not None:
+            payload += encode_macro_events(events, via_protocol=via_protocol)
+        payload.append(vial_macros.MACRO_TERMINATOR)
+    if len(payload) > buffer_bytes:
+        _fail(
+            f"These VIA macros compile to {len(payload)} bytes but the keyboard "
+            f"stores {buffer_bytes}. Nothing was written."
+        )
+    return bytes(payload).ljust(buffer_bytes, b"\x00")
+
+
+def _plan_macros(
+    profile: dict[str, Any], target: ViaSnapshot, report: _Report
+) -> bytes | None:
+    macros = profile.get("macros")
+    if macros is None:
+        return None
+    if target.via_protocol < 8 or target.macro_count == 0:
+        for macro in macros:
+            report.dropped(
+                f"macros[{macro['slot']}]",
+                f"VIA protocol {target.via_protocol} exposes no dynamic macros.",
+            )
+        return None
+
+    carried: list[dict[str, Any]] = []
+    for macro in macros:
+        slot = macro["slot"]
+        path = f"macros[{slot}]"
+        if slot >= target.macro_count:
+            report.dropped(
+                path,
+                f"this VIA keyboard stores {target.macro_count} macro slots.",
+            )
+            continue
+        try:
+            encode_macro_events(
+                macro["events"], via_protocol=target.via_protocol
+            )
+        except ViaSpokeError as error:
+            report.dropped(path, str(error))
+            continue
+        carried.append(macro)
+        report.carried(path)
+    return encode_macro_buffer(
+        carried,
+        count=target.macro_count,
+        buffer_bytes=target.macro_buffer_bytes,
+        via_protocol=target.via_protocol,
+    )
+
+
+def plan_via_write(
+    profile: dict[str, Any], *, target: ViaSnapshot
+) -> ViaWritePlan:
+    """Build complete VIA replacement buffers without opening a device."""
+
+    validated = validate_hub_profile(profile)
+    report = _Report()
+    keymap_buffer = _plan_keymap(validated, target, report)
+    macro_buffer = _plan_macros(validated, target, report)
+    transfer_report = validate_transfer_report(
+        {
+            "source": validated["identity"],
+            "target": _identity(target),
+            "items": report.items,
+        }
+    )
+    return ViaWritePlan(
+        keymap_buffer=keymap_buffer,
+        macro_buffer=macro_buffer,
+        report=transfer_report,
+    )

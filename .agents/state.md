@@ -30,11 +30,12 @@
   exact public `m80v2h.json` identity, active option 0/87 physical keys, four
   layers/816 keymap bytes, and 16 macro slots/169 bytes with three populated
   macros decoded into a complete hub profile. No Mode write was authorized or
-  performed. H3's pure write and typed-endpoint plan is now durable: H3a is a
-  pure buffer/transfer-report planner; H3b is a fake-HID endpoint-bound typed
-  write gate with same-handle identity reproof, narrow setters, and exact
-  read-back; H3c is separately owner-gated live proof. H3a implementation is
-  next. H2's generic Vial
+  performed. H3a pure buffer/transfer-report planning is complete: it preserves
+  omitted target sections, reports unsupported mappings, gates keycode-spec
+  mismatch, and encodes both VIA macro dialects within device budgets without
+  opening HID. H3b fake-HID endpoint-bound typed write gate with same-handle
+  identity reproof, narrow setters, and exact read-back is next; H3c live proof
+  remains separately owner-gated. H2's generic Vial
   transport and local API are wired to the hub codec with read-only command
   enforcement, endpoint/firmware/definition reproof, exact typed confirmation,
   physical unlock, and exact read-back. The owner's Neon 80 qualified the full
