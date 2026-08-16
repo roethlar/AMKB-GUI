@@ -21,7 +21,7 @@
 ## Next
 
 - **OpenKeeb v2 implementation is active under the approved hub-configurator
-  plan:** H0, H1, and H2 are complete; H3 (the VIA spoke) now has bounded
+  plan:** H0 through H3 are complete. H3 (the VIA spoke) has bounded
   user-imported definition resolution and generic read-only raw-HID transport.
   It handles active layout options without guessing, VIA 7's per-key fallback,
   VIA 8+ keymap/macro buffers, VIA 11's macro-delay dialect, and VIA 13's stated
@@ -29,16 +29,20 @@
   local API. The owner's Mode Eighty M80H V2 passed that production path live:
   exact public `m80v2h.json` identity, active option 0/87 physical keys, four
   layers/816 keymap bytes, and 16 macro slots/169 bytes with three populated
-  macros decoded into a complete hub profile. No Mode write was authorized or
-  performed. H3a pure buffer/transfer-report planning is complete: it preserves
+  macros decoded into a complete hub profile. H3a pure buffer/transfer-report
+  planning is complete: it preserves
   omitted target sections, reports unsupported mappings, gates keycode-spec
   mismatch, and encodes both VIA macro dialects within device budgets without
   opening HID. H3b fake-HID write transport is complete: exact
   `VIA <definition> <VID>:<PID>` confirmation, endpoint/USB/definition/protocol/
   layout/capacity binding, same-handle reproof, three-command setter allowlist,
   protocol-correct writes, accepted-byte accounting, exact read-back, and
-  authenticated preflight/write API. No real HID backend was opened. H3c live
-  M80H byte-identical write/replug proof remains separately owner-gated. H2's
+  authenticated preflight/write API. H3c then passed the separately authorized
+  live M80H proof: exact `VIA M80V2 H 00DE:0083` confirmation; only protocol-9
+  `0x13` keymap-buffer and `0x0F` macro-buffer setters; 816 keymap and 169 macro
+  bytes accepted with exact immediate read-back; both buffers persisted with
+  exact SHA-256 hashes after unplug/replug through a fresh read-only endpoint.
+  Future hardware writes remain separately owner-gated. H2's
   generic Vial
   transport and local API are wired to the hub codec with read-only command
   enforcement, endpoint/firmware/definition reproof, exact typed confirmation,

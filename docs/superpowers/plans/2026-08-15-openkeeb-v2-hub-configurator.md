@@ -13,7 +13,9 @@ not restated here.
 H3 write planning was approved by the owner on 2026-08-16 ("go"). The
 fixture-backed implementation may proceed under the standing technical
 delegation above. No physical VIA write, push, release, or public identifier
-is authorized by that approval.
+is authorized by that approval. H3c's one live VIA write was separately
+approved and is recorded below; future hardware writes remain separately
+owner-gated.
 
 H2 first landing, 2026-08-16: the fixture-backed Vial spoke foundation is
 complete. `am_configurator/hub_vial.py` validates a read-only discovery
@@ -101,6 +103,22 @@ boundaries. Red proof failed on the missing H3b APIs; focused VIA tests then
 passed 31/31. Full verification passed 708 Python tests, 185 web tests, compile
 and JavaScript syntax gates, and sdist/wheel build. No real HID backend was
 opened and no live hardware write was performed. H3c remains separately
+owner-gated.
+
+H3c live qualification, 2026-08-16: the owner authorized the exact confirmation
+`VIA M80V2 H 00DE:0083`. Production preflight against the public
+`m80v2h.json` definition carried all 411 transfer-report items and planned the
+live profile byte-identically. The canonical definition hash was
+`sha256-018417e38d10619673b482e205122853ffa9fa010741ea855941b61b7d8afdfa`.
+On VIA protocol 9, the endpoint-bound approved session sent only the `0x13`
+keymap-buffer and `0x0F` macro-buffer setters: 816 keymap bytes with SHA-256
+`e8b4e5d6ec159956733126f6655cd342178fe41f15ac3b2de079bb168e8e0cab` and
+169 macro bytes with SHA-256
+`1c999937ccb5f76c7b6ac1227545bf28c0df3da161e3738337e8ae5b84a14ad7`.
+Immediate complete read-back matched exactly. After physical unplug/replug, a
+fresh mutation-refusing enumeration and snapshot reproduced both byte counts
+and hashes, including all 16 macro slots and three populated macros. This
+closes H3's live evidence boundary; future hardware writes remain separately
 owner-gated.
 
 ### H3 write slice: pure plan, endpoint-bound execution, exact read-back
