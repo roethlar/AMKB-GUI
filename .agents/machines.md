@@ -23,9 +23,6 @@ last verified 2026-07-29._
 - Windows verification must build the environment the way CI does,
   `uv sync --locked -p 3.12` with no extras. Adding `--extra desktop` hides the
   optional-dependency failures this host is used to catch.
-- A fresh Python 3.12 base environment passed 639 tests (5 skipped) in 97.061
-  seconds on 2026-07-30. A separate fresh desktop/build environment resolved all
-  locked Windows packages and passed the canonical installer build.
 - Winget-installed Inno Setup 6.7.3 is at
   `C:\Users\michael\AppData\Local\Programs\Inno Setup 6\ISCC.exe`; its
   Authenticode signature is valid. The Windows packager accepts both official
@@ -37,9 +34,6 @@ last verified 2026-07-29._
   product-experience plan.
 - The supported Windows build does not require a compiler or Visual Studio
   Build Tools.
-- GitHub and local Gitea push authentication work on this host. On 2026-07-30,
-  Gitea Git authentication was repaired by registering `tea login helper` for
-  `http://q:3000`; pushing `main` and tags then succeeded.
 - SmartScreen is disabled: the machine-level `SmartScreenEnabled` value is
   `Off`, and the current-user `EnableWebContentEvaluation` value is `0`. This
   host cannot supply SmartScreen release evidence.
@@ -59,12 +53,6 @@ rule, fixed by the owner). Earlier full verification: 2026-07-31._
   Setup 6.7.3, Visual Studio Build Tools 2022 17.14 with the ARM64 C++ tools,
   and Windows 11 SDK 10.0.26100.0. The C++ workload is required because
   `hidapi` 0.15.0 has no Windows ARM64 wheel and must build locally.
-- A clean canonical checkout at `C:\Users\michael\dev\AMKB-GUI` matched
-  `9f482b3ce949ea013d2f3167bf6072c02f1c8cba` during preflight. An explicitly
-  selected native ARM64 CPython 3.14.6 environment produced an ARM64 app,
-  Python runtime, HID extension, and Pillow extension. The installer completed
-  silent install, frozen smoke, uninstall, and direct frozen smoke with no
-  leftover smoke directory.
 - The first default `uv` environment selected x64 CPython under emulation.
   Because artifact naming reads the host architecture, that x64 bundle was
   misleadingly named `arm64`. A Windows ARM build must explicitly select the
@@ -82,28 +70,28 @@ rule, fixed by the owner). Earlier full verification: 2026-07-31._
 
 ## nagatha (macOS arm64)
 
-_Last verified locally on the host: 2026-08-02. SSH reachability and the owner's
+_Last verified locally on the host: 2026-08-16. SSH reachability and the owner's
 console/RDP session were last verified 2026-08-01._
 
 - This is the owner's Mac, formerly recorded here as `michael-mac`; older
   records and plans that name `michael-mac` mean this host (owner confirmed
   2026-08-02). The former `/Users/michael/Dev/am` checkout and its Python 3.13
   venv no longer exist.
-- Reachable as `michael@10.1.10.247`; hostname `nagatha.local`, macOS 26.6,
+- Reachable as `michael@10.1.10.247`; hostname `nagatha.local`, macOS 26.6.1,
   Darwin 25.6.0, arm64. Its Ed25519 host key matches the trusted former
   `10.1.10.41` entry; `HostKeyAlias=10.1.10.41` verifies that identity without
   accepting a different key. Gatekeeper assessments are enabled.
 - Exact-artifact qualification tools are available: `hdiutil`, `codesign`,
   `spctl`, `xattr`, `shasum`, `curl`, `file`, `open`, and `ditto`. The temporary
-  directory is writable and the data volume had about 204 GB free on 2026-08-02.
+  directory is writable and the data volume had about 91 GiB free on 2026-08-16.
 - Homebrew supplies GitHub CLI, `uv`, and Node on `PATH`, so attestation and
   Node checks no longer have to be delegated to `netwatch-01` and rebound by
   SHA-256. Exact versions drift and are not recorded; all three were present
-  and current on 2026-08-14.
+  and current on 2026-08-16.
 - This host now carries the active working checkout at
   `/Users/michael/Dev/AMKB-GUI` (case-insensitive, same directory as the
   lowercase `dev` path recorded earlier). It has both the canonical `origin`
-  and the `gitea` remote and a project venv on Python 3.14.6. Confirm its head
+  and the `gitea` remote and a project venv on Python 3.13.15. Confirm its head
   against the canonical remote before treating it as current-source evidence.
   Exact downloaded-artifact checks do not depend on that checkout.
 - The owner may either operate the GUI directly or permit SSH-driven command
@@ -112,20 +100,12 @@ console/RDP session were last verified 2026-08-01._
 - A local macOS arm64 PyInstaller bundle built here and its frozen
   `--smoke-test` passed (last verified 2026-07-21, on the former checkout and
   venv; recheck on the current checkout before relying on it).
-- Ollama is installed at `/usr/local/bin/ollama` (binary re-verified
-  2026-08-02). On 2026-07-21, `ornith:latest` produced a strict
-  procedural-animation recipe while `gemma4:12b-mlx` ignored the requested JSON
-  schema. Current production generation makes one request without automatic
-  correction retries, so model availability and conformance must be rechecked
-  rather than inferred from that historical run.
 
 ## gabrielle (Linux x86-64)
 
 _Last verified over SSH: 2026-08-01._
 
 - Reachable as `michael@gabrielle`; Arch Linux, kernel 7.1.5-arch1-1, x86-64.
-  The home filesystem had about 1.7 TB free and the temporary directory is
-  writable.
 - Available qualification tools include Git 2.55.0, Python 3.14.6, Node
   26.5.0, GitHub CLI 2.96.0, `curl`, `file`, `sha256sum`, FUSE, and
   `fusermount3` 3.18.2. `uv` is not installed and is not needed for the planned
