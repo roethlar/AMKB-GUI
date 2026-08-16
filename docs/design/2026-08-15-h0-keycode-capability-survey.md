@@ -79,9 +79,9 @@ front of us.
 - [x] AM spoke inventory: what `FamilySpec` + `_LAYOUTS` + existing codecs
       already express, in the same vocabulary as the above (see "AM spoke"
       below).
-- [ ] Capability surface comparison: lighting (static/effects/per-key/
-      streaming), macros (event kinds, budgets), layers (counts, switching),
-      per family — the raw material for the hub's capability descriptor.
+- [x] Capability surface comparison: lighting, macros, layers per family
+      (see "Capability surface comparison" below) — the raw material for
+      the hub's capability descriptor.
 - [ ] Hub schema draft written against the surveyed tables (separate doc,
       second half of H0).
 
@@ -379,3 +379,50 @@ Constants: `PROTOCOL_ALPHA = 7`, `PROTOCOL_BETA = 8`,
   fields the hub's VIA reader must validate as untrusted input;
   per-field bounds come from `@the-via/reader` at the H3 importer
   slice, not invented here.
+
+## Capability surface comparison (assembled 2026-08-15)
+
+The raw material for the hub's capability descriptor. Every cell is
+sourced from a section above; nothing here is aspirational.
+
+### Keymap
+
+| Family | Keymap surface | Layer model |
+|---|---|---|
+| AM (CB/80/ALICE/NEON) | Vial keymap I/O already in-repo (`vial_keymap.py`: layer-count read, buffer read/write, unlock flow) | device-reported layer count; keys/layer 200 (serial), 90 (NEON) |
+| Vial | full dynamic keymap, VIA cmds + `0xFE` Vial subcommands | device-reported; QMK ≤32-layer keycode space |
+| VIA | full dynamic keymap (`0x04/0x05`, buffers `0x12/0x13`), encoders `0x14/0x15` | `GET_LAYER_COUNT 0x11`; QMK ≤32-layer keycode space |
+| QMK bare (no VIA) | none at runtime — keymap compiled into firmware; out per the no-flash rule | n/a |
+
+Keycode space is QMK's versioned 16-bit composed space for Vial, VIA,
+and (via the in-repo `0xFF` passthrough page) AM. The hub must carry
+the spec version per endpoint: Vial implies it via protocol; VIA ≥13
+states it, pre-13 implies it; AM uses the passthrough identity.
+
+### Macros
+
+| Family | Budget model | Wire dialect | Event kinds |
+|---|---|---|---|
+| AM serial | event counts (32 tracks / 200 events) | AM serial frames | tap/down/up/text/delay (text → US-layout events) |
+| AM NEON | byte buffer (16 slots / 6677 B) | Vial v2 | same |
+| Vial | byte buffer, device-reported; NUL-separated, 28 B chunks | v1 (no delays) / v2 (offset-by-one delay bytes) | tap/down/up/text/delay |
+| VIA | byte buffer via `DYNAMIC_KEYMAP_MACRO_*`, 28 B chunks; macros ≥8, delays ≥11 | SS_ prefix + ASCII delay terminated `'\|'` | tap/down/up/text/delay |
+
+One shared event vocabulary, three wire dialects, two incommensurable
+budget models (events vs bytes) — the hub stores clean events and
+carries both budget vocabularies per endpoint, as already recorded.
+
+### Lighting
+
+| Family | Static/effects | Per-key | Streaming/animation |
+|---|---|---|---|
+| AM | app-driven | full pixel art | full custom animation, frame caps 80/200/186/256 |
+| Vial + VialRGB | effect/color/speed | per-key direct | VialRGB raw-HID per-LED streaming (host script model) |
+| VIA <11 | legacy `BACKLIGHT_CONFIG_*` values (brightness/effect/speed/color) | no | no |
+| VIA ≥11 | whatever the definition's `menus` declare (custom-value channels) | menu-dependent | no |
+| QMK bare | keycode-level toggles only (three lighting keycode generations); no host protocol | no | no |
+
+Lighting capability is therefore *not* a family constant for VIA — it
+is definition-derived, which the capability-honesty rule already
+anticipates: the descriptor is filled per endpoint at read time, never
+assumed per family.
