@@ -252,6 +252,154 @@ then unplug/replug and prove persistence through a fresh endpoint. Record the
 command classes and byte hashes/counts. Without that separate authorization,
 close H3a/H3b as fixture-backed only and leave H3c open.
 
+### H5 implementation contract — one editor, honest overlay worklist
+
+Status: bounded planning was authorized by the owner on 2026-08-16 ("go" to
+the proposed planning action). This section is the cold implementation
+contract; that go did not authorize H5 code. H5a begins only on a subsequent
+explicit go.
+
+H5 extends the existing Keymap workspace rather than introducing a second
+configurator. The board stays the primary surface, the assignment palette stays
+immediate, and technical matrix/raw values stay behind disclosure. A generic
+Vial/VIA document uses the hub profile in memory; the established AM workspace
+continues to keep AM-native `state.config` and `current.json` as settled in H1.
+Both feed one editor view model, so H5 does not migrate the AM store or create a
+second persistent profile database.
+
+#### H5 invariants and non-goals
+
+1. Loading, editing, overlaying, saving, and preflighting are mutation-free for
+   hardware. Only the existing typed Vial/VIA write endpoints may open an
+   approved writable session, after their exact confirmation phrase is typed.
+2. Geometry is ephemeral endpoint/definition evidence, not hub content.
+   Render only the active KLE projection returned from the same snapshot as the
+   profile. Never infer physical positions from matrix coordinates and never
+   store raw-HID endpoint paths or VIA definitions in a hub file.
+3. H5 is keymap-first. It preserves target macros and lighting byte-for-byte,
+   exposes macro-slot assignments already present in the target profile, and
+   leaves generic macro authoring to a later bounded slice. H6 owns lighting.
+4. Existing AM read/edit/write, macro, lighting, Library, undo, and portable
+   JSON behavior must remain unchanged. H7 owns visual rebranding; H5 may add
+   the controls needed for this workflow but does not redesign the application.
+5. VIA remains bounded user-imported definition resolution. H5 adds a definition
+   file chooser; it does not fetch definitions, flash firmware, or claim bare
+   QMK/XAP support.
+
+#### H5a — editor document, geometry, and read-only connection seam
+
+1. Add a pure browser module `am_configurator/web/hub_keymap_state.js`. Its
+   immutable reducer owns a generic document's validated profile, target binding
+   (ecosystem/address plus in-memory VIA definition when applicable), active
+   layer/key, dirty flag, undo/redo, transfer report, and worklist. No DOM,
+   transport, or global application state belongs in the module.
+2. Add one adapter in `app.js` that projects either AM `state.config` or the
+   generic hub document into the existing Keymap screen contract: layers,
+   physical keys, current codes, capabilities, selection, mutation, and save/
+   write actions. Do not convert the AM working document into hub form merely
+   to edit it.
+3. Extend the existing authenticated Vial/VIA read responses, without adding a
+   second hardware read, to return `{device, profile, layout}`. `layout` is the
+   active projected key list from that exact snapshot; every item carries
+   canonical hub key identity plus `x`, `y`, `width`, `height`, and rotation
+   fields. Vial uses its embedded definition. VIA validates the user-imported
+   definition and retains it only in the browser document target binding.
+4. The Devices dialog discovers AM, Vial, and VIA candidates with explicit
+   ecosystem/capability labels. It may prefer a proved AM-native endpoint, but
+   must not deduplicate interfaces that cannot be proven to be the same physical
+   device. Reading a Vial board is direct. Reading VIA first requires choosing
+   a JSON definition and stops before open if VID/PID does not match.
+5. Add authenticated canonical document boundaries backed by
+   `loads_hub_profile`/`dumps_hub_profile`: open an untrusted `.hub.json` into a
+   validated profile and save the current generic document as canonical UTF-8.
+   Browser `JSON.parse`/`JSON.stringify` is not the on-disk source of truth.
+6. Tests cover immutable reducer operations, AM adapter parity, active-layout
+   geometry, wrong VIA definition before open, read-only command allowlists,
+   canonical open/save, endpoint/definition data staying out of saved profiles,
+   and no hardware setter during every H5a route.
+
+#### H5b — board, layers, and keycode palette
+
+1. Reuse the current board-first Keymap layout. Generic keys render from the
+   H5a geometry by canonical identity rather than AM flat index. Layer tabs,
+   key selection, immediate palette assignment, focus restoration, technical
+   labels, and raw-code disclosure retain the existing interaction contract.
+2. Add a separately tested portable QMK palette module. It owns labels and
+   categories for core basic/HID keys, modifiers, function/navigation/keypad,
+   layer controls, and macro slots the target capability exposes. Filter by the
+   target's reported keycode spec where present. Build it from in-repo surveyed
+   facts; do not copy the GPL VIA/Vial GUI catalogs. Unknown existing 16-bit
+   codes remain visible and round-trip through Advanced; the normal palette
+   never invents per-board `QK_KB`/`QK_USER` values.
+3. One palette click changes the open document immediately through one undo
+   checkpoint; it never writes the keyboard. Preserve complete target layers,
+   omitted sections, unknown keycodes, profile identity/capabilities, and
+   provenance. Generic undo/redo snapshots the hub profile; AM keeps its current
+   history implementation.
+4. Saving a generic document produces `.hub.json`; Save to Library remains AM
+   only until Library gains a hub-profile artifact contract. Say that plainly
+   rather than converting or silently omitting generic data.
+5. Browser tests cover keyboard navigation, selected-key focus after rerender,
+   every palette category, raw 16-bit preservation, per-board warning labels,
+   layer bounds, undo/redo, narrow-window stacking, reduced motion, and the
+   existing contrast/type/focus floors.
+
+#### H5c — overlay review and worklist resolution
+
+1. Route hub import through H4 whenever a target document is open. For AM,
+   export the current target to hub, run `/api/hub/overlay`, then translate the
+   accepted target-shaped result back through `/api/hub/apply`. For Vial/VIA,
+   apply the returned target-shaped profile directly. The operation creates one
+   document undo checkpoint and never writes hardware.
+2. Enrich H4's internal worklist view (not the transfer-report schema) so each
+   key item carries structured source `{layer, key, code}` plus target
+   suggestions. Do not make the browser parse display paths to recover data.
+3. Make the report and worklist first-class on Keymap: counts first; adapted and
+   unresolved items next to the board; plain reasons; no raw JSON log. A
+   worklist item offers `Use suggestion`, `Choose a key`, and `Leave out`.
+   Applying a choice edits the target profile and changes that report item to
+   `adapted` with a reason; leaving it out remains `dropped`. Every resolution
+   is independently undoable.
+4. Default arrangement uses the existing editor grid: board/palette primary and
+   worklist in the inspector rail, stacking between board and palette at the
+   current narrow breakpoint. No Basic/Advanced mode split. Technical source
+   path, matrix identity, and raw keycode stay in a disclosure.
+5. Acceptance fixture is the landed 108→40% record: all 36 alphanumerics appear
+   on the correct target layer/key with zero user effort; counts remain 40
+   carried, 10 adapted, 58 unresolved; F-row/navigation/numpad suggestions are
+   actionable; coordinates, ambiguous homes, collisions, and custom keycodes
+   are never auto-placed.
+
+#### H5d — typed generic write UX and closure
+
+1. A generic file is not writable until it is overlaid onto or freshly read
+   from a connected target. Keep the connection-scoped address and VIA
+   definition only in the live document binding. A rescan/replug invalidates UI
+   readiness; backend endpoint reproof remains authoritative.
+2. Preflight through the existing Vial/VIA endpoint every time the user chooses
+   Write. Show exact planned keymap/macro byte counts, transfer verdict counts,
+   endpoint/model, and the backend-supplied confirmation phrase. Confirmation
+   comparison is exact and case-sensitive; do not reuse AM's product-ID
+   uppercasing rule.
+3. Extend Vial preflight's read-only result with physical unlock matrix keys and
+   resolve them through the same layout, so the dialog can name/mark the keys
+   before execution. Preflight must not start unlock. After confirmation, the
+   write request redoes preparation, then starts the volatile unlock handshake.
+   VIA shows no unlock instruction.
+4. Disable cancel only after an accepted-write-capable request begins. Success
+   reports accepted byte counts and exact read-back. If the backend reports
+   possible accepted bytes, never offer blind retry; offer a fresh read/verify
+   action and explain that the keyboard may already contain the change.
+5. Keep canonical backup available in the dialog. Applying an overlay or
+   editing a document always says the keyboard is unchanged until Write.
+6. Fake-HID and browser tests prove: no setter on discovery/read/edit/import/
+   overlay/preflight/wrong confirmation; exact phrases and target bindings;
+   Vial unlock guidance before request; replug and definition change stop before
+   setter; accepted-byte failure does not retry; exact success read-back; AM
+   write behavior unchanged. Run the repository verification entry point.
+   Automated H5 tests never write a physical keyboard; any later live proof is
+   a new explicit owner gate.
+
 ## Vision (owner, 2026-08-15)
 
 One app that does all the config: take the configuration from one keyboard and

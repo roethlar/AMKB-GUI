@@ -56,8 +56,14 @@
   108-key-to-40% fixture carries 40 keys, adapts 10 digits to the target's
   established layer, and surfaces 58 homeless keys with deterministic
   suggestions where target conventions exist; matrix coordinates, ambiguous
-  homes, collisions, and per-board custom codes are never guessed. H5 keymap
-  editor and overlay-worklist UX is next. H7 is the queued branding overhaul,
+  homes, collisions, and per-board custom codes are never guessed. H5 now has
+  a bounded keymap-editor/worklist contract: preserve the AM-native workspace,
+  add an in-memory generic hub document with same-snapshot geometry, extend the
+  existing board/layer/palette UI, make H4 review and resolution first-class,
+  then wire the already-landed exact Vial/VIA write gates. Generic macro
+  authoring, lighting, definition fetching, and visual rebranding stay out.
+  The 2026-08-16 planning go authorized this contract only; H5a code awaits an
+  explicit go. H7 is the queued branding overhaul,
   which the owner ruled is a
   repositioning rather than a rename. The canonical scope and sequence live in
   `docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`. Public
