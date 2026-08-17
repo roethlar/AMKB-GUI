@@ -1,4 +1,4 @@
-# AM Configurator — non-root access to QMK/Vial raw HID keyboards on Linux.
+# OpenKeeb — non-root access to QMK/Vial raw HID keyboards on Linux.
 #
 # Without this, opening the AM Neon 80's raw HID interface fails with a
 # permission error for a normal desktop user, because hidraw nodes are

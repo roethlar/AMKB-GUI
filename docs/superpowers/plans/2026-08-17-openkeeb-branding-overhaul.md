@@ -252,6 +252,8 @@ exposed no browser instance.
 
 Native acceptance isolation repair landed during closure: startup already injected empty AM discovery, but automatic Vial/VIA scans bypassed that seam and reached hidapi. `create_server` now has explicit injected discovery seams for all three ecosystems, and the native policy smoke supplies empty discovery to each. A focused regression test was proven red with the Vial injection removed and green after restoration; the desktop test module, source policy smoke, rebuilt frozen smoke, and rebuilt frozen WKWebView policy smoke pass.
 
+Closure evidence, 2026-08-17: the exact repository entry point passes with 733 Python tests and 222 web tests, compileall, every required `node --check`, and `uv build`. The supported macOS build path and rebuilt frozen smoke/policy-smoke pass. The repository-wide old-name audit leaves only intentional historical-release, legacy-profile, third-party-notice, and compatibility-identifier references; current inventory/rule text is OpenKeeb. The required Browser retry completed setup and prescribed troubleshooting but `agent.browsers.list()` returned `[]`. Under the Browser skill no Playwright, Computer Use, or alternate browser surface may substitute. Therefore the rendered route matrix and fresh actual-app screenshots remain unexecuted, `docs/images` remains stale, and H7 is not closed.
+
 1. Run the full repository verification entry point.
 2. Because native packaging changes, build on macOS with
    `python build.py --skip-sync` in the prepared environment and run the frozen
