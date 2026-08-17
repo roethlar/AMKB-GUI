@@ -4,8 +4,8 @@ set -euo pipefail
 project_root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$project_root"
 
-bundle_path="${1:-dist/AM Configurator}"
-executable="$bundle_path/AM Configurator"
+bundle_path="${1:-dist/OpenKeeb}"
+executable="$bundle_path/OpenKeeb"
 if [[ ! -x "$executable" ]]; then
   echo "Linux application bundle not found: $executable" >&2
   exit 1
@@ -35,7 +35,7 @@ fi
 printf '%s  %s\n' "$checksum" "$tool_path" | sha256sum --check --status
 chmod +x "$tool_path"
 
-app_dir="$project_root/build/AM Configurator.AppDir"
+app_dir="$project_root/build/OpenKeeb.AppDir"
 rm -rf "$app_dir"
 mkdir -p \
   "$app_dir/usr/lib/am-configurator" \
@@ -45,9 +45,9 @@ cp -a "$bundle_path/." "$app_dir/usr/lib/am-configurator/"
 install -m 0755 packaging/linux/AppRun "$app_dir/AppRun"
 install -m 0644 packaging/linux/am-configurator.desktop "$app_dir/am-configurator.desktop"
 install -m 0644 packaging/linux/am-configurator.desktop "$app_dir/usr/share/applications/am-configurator.desktop"
-install -m 0644 assets/am-configurator-512.png "$app_dir/am-configurator.png"
-install -m 0644 assets/am-configurator-512.png "$app_dir/usr/share/icons/hicolor/512x512/apps/am-configurator.png"
-ln -s am-configurator.png "$app_dir/.DirIcon"
+install -m 0644 assets/openkeeb-512.png "$app_dir/openkeeb.png"
+install -m 0644 assets/openkeeb-512.png "$app_dir/usr/share/icons/hicolor/512x512/apps/openkeeb.png"
+ln -s openkeeb.png "$app_dir/.DirIcon"
 
 artifact_name="$(uv run --frozen python build_tools/release_info.py artifact linux)"
 output_path="$project_root/dist/$artifact_name"

@@ -13,13 +13,13 @@
 
 [Setup]
 AppId={{CA237A4C-E91A-4D31-9225-0438A8102ED6}
-AppName=AM Configurator
+AppName=OpenKeeb
 AppVersion={#MyAppVersion}
 AppPublisher=AMKB-GUI contributors
 AppPublisherURL=https://github.com/roethlar/AMKB-GUI
 AppSupportURL=https://github.com/roethlar/AMKB-GUI/issues
-DefaultDirName={localappdata}\Programs\AM Configurator
-DefaultGroupName=AM Configurator
+DefaultDirName={localappdata}\Programs\OpenKeeb
+DefaultGroupName=OpenKeeb
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 UsedUserAreasWarning=no
@@ -30,8 +30,8 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-UninstallDisplayIcon={app}\AM Configurator.exe
-SetupIconFile=..\..\assets\am-configurator.ico
+UninstallDisplayIcon={app}\OpenKeeb.exe
+SetupIconFile=..\..\assets\openkeeb.ico
 LicenseFile=..\..\LICENSE
 CloseApplications=yes
 
@@ -39,11 +39,11 @@ CloseApplications=yes
 Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\AM Configurator"; Filename: "{app}\AM Configurator.exe"
-Name: "{autodesktop}\AM Configurator"; Filename: "{app}\AM Configurator.exe"; Tasks: desktopicon
+Name: "{autoprograms}\OpenKeeb"; Filename: "{app}\OpenKeeb.exe"
+Name: "{autodesktop}\OpenKeeb"; Filename: "{app}\OpenKeeb.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Run]
-Filename: "{app}\AM Configurator.exe"; Description: "Launch AM Configurator"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\OpenKeeb.exe"; Description: "Launch OpenKeeb"; Flags: nowait postinstall skipifsilent

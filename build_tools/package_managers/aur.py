@@ -25,7 +25,7 @@ PKGREL = 1
 LICENSE_ID = "MIT"
 
 _DESKTOP_RELATIVE = Path("packaging/linux/am-configurator.desktop")
-_ICON_RELATIVE = Path("assets/am-configurator-512.png")
+_ICON_RELATIVE = Path("assets/openkeeb-512.png")
 _UDEV_RELATIVE = Path("am_configurator/data/60-am-neon-80.rules")
 
 _LOCAL_DESKTOP = "am-configurator.desktop"

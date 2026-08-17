@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=AM Configurator
+Name=OpenKeeb
 Comment=Configure Angry Miao keyboards locally
 Exec=am-configurator
 Icon=am-configurator

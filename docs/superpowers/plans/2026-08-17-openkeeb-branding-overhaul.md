@@ -210,7 +210,7 @@ Configurator releases until the owner authorizes an OpenKeeb release/version.
 Each slice gets its own local commit with records closed in the same commit.
 None is an owner gate.
 
-### H7a — identity contract and deterministic assets
+### H7a — identity contract and deterministic assets — complete 2026-08-17
 
 1. Add failing branding-contract tests covering the visible product name,
    reserved-identifier allowlist, icon consumers, and historical exclusions.

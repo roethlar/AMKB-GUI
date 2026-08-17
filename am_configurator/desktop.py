@@ -1,4 +1,4 @@
-"""Native cross-platform window for the AM Configurator web interface."""
+"""Native cross-platform window for the OpenKeeb web interface."""
 from __future__ import annotations
 
 import argparse
@@ -337,7 +337,7 @@ def _native_policy_probe_script(phase: str) -> str:
       csp.includes("script-src 'self'") && inlineBlocked,
     loopback_loaded: location.protocol === "http:" &&
       location.hostname === "127.0.0.1" &&
-      document.title.includes("AM Configurator") && Boolean(settings),
+      document.title.includes("OpenKeeb") && Boolean(settings),
     csp
   }});
 }})()
@@ -435,7 +435,7 @@ def _run_native_policy_probe(phase: str, raw_root: str | Path) -> int:
 
     webview.settings["ALLOW_DOWNLOADS"] = True
     window = webview.create_window(
-        "AM Configurator native policy probe",
+        "OpenKeeb native policy probe",
         url,
         width=1000,
         height=680,
@@ -672,7 +672,7 @@ def run_smoke_test() -> int:
             if response.status != 200 or any(
                 marker not in page
                 for marker in (
-                    b"AM Configurator",
+                    b"OpenKeeb",
                     b'data-library-filter="sources"',
                     b'data-library-filter="removed"',
                 )
@@ -724,7 +724,7 @@ def run_desktop(config_paths: list[str] | None = None, *, debug: bool = False) -
     except ModuleNotFoundError as exc:
         if exc.name == "webview":
             raise SystemExit(
-                "AM Configurator desktop needs pywebview. Install with: "
+                "OpenKeeb desktop needs pywebview. Install with: "
                 "pip install 'am-configurator[desktop]'"
             ) from None
         raise
@@ -754,7 +754,7 @@ def run_desktop(config_paths: list[str] | None = None, *, debug: bool = False) -
 
     webview.settings["ALLOW_DOWNLOADS"] = True
     window = webview.create_window(
-        "AM Configurator",
+        "OpenKeeb",
         url,
         width=1440,
         height=920,
@@ -804,7 +804,7 @@ def _print_udev_rule() -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="am-configurator",
-        description="Open AM Configurator as a native desktop application.",
+        description="Open OpenKeeb as a native desktop application.",
     )
     parser.add_argument(
         "config",

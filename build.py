@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and smoke-test an AM Configurator installer for the current OS."""
+"""Build and smoke-test an OpenKeeb installer for the current OS."""
 from __future__ import annotations
 
 import argparse
@@ -45,7 +45,7 @@ def _packager_command(target: str, root: Path) -> list[str]:
 
 
 def _native_tree_path(target: str, root: Path) -> Path:
-    bundle_name = "AM Configurator.app" if target == "macos" else "AM Configurator"
+    bundle_name = "OpenKeeb.app" if target == "macos" else "OpenKeeb"
     return root / "dist" / bundle_name
 
 
@@ -70,7 +70,7 @@ def build_installer(
     runner = run_command or _run
     version = project_version(root)
     artifact = root / "dist" / artifact_filename(target, root=root)
-    print(f"Building AM Configurator {version} for {target}...", flush=True)
+    print(f"Building OpenKeeb {version} for {target}...", flush=True)
     if sync:
         runner(
             ["uv", "sync", "--locked", "--extra", "desktop", "--extra", "build"],

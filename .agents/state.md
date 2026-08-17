@@ -21,6 +21,11 @@
   `docs/superpowers/plans/2026-08-17-openkeeb-branding-overhaul.md`. Public/deep
   identifiers, spending, release/publication, destructive history changes, and
   physical keyboard writes remain separately owner-gated.
+  H7a is complete: OpenKeeb now owns current visible/native product names and
+  deterministic generated SVG/PNG/ICO/ICNS assets while bundle/AppId, command,
+  data paths, package IDs, and repository URL remain unchanged. Current source
+  artifact names are OpenKeeb; README still identifies already-published 0.1.68
+  installers as AM Configurator. Focused branding and packaging tests passed.
 
 ## Next
 

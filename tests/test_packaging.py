@@ -53,9 +53,9 @@ class ReleaseManifestTests(unittest.TestCase):
     COMMIT = "0123456789abcdef0123456789abcdef01234567"
     REPOSITORY = "roethlar/AMKB-GUI"
     FILENAMES = (
-        "AM-Configurator-0.1.68-macOS-arm64.dmg",
-        "AM-Configurator-0.1.68-Windows-x64-Setup.exe",
-        "AM-Configurator-0.1.68-Linux-x86_64.AppImage",
+        "OpenKeeb-0.1.68-macOS-arm64.dmg",
+        "OpenKeeb-0.1.68-Windows-x64-Setup.exe",
+        "OpenKeeb-0.1.68-Linux-x86_64.AppImage",
     )
 
     def _write_candidates(self, root: Path) -> dict[str, bytes]:
@@ -340,7 +340,7 @@ class ReleaseInfoTests(unittest.TestCase):
             self.assertIn("sync", commands[0])
             self.assertIn("pyinstaller", commands[1])
             self.assertTrue(commands[2][1].endswith("native_tree_audit.py"))
-            self.assertTrue(commands[2][2].endswith("AM Configurator.app"))
+            self.assertTrue(commands[2][2].endswith("OpenKeeb.app"))
             self.assertTrue(commands[3][-1].endswith("build_dmg.sh"))
 
     def test_failed_build_does_not_mutate_canonical_version(self) -> None:
@@ -388,15 +388,15 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertEqual("x86_64", normalize_arch("AMD64"))
         self.assertEqual("aarch64", normalize_arch("arm64"))
         self.assertEqual(
-            "AM-Configurator-0.1.68-macOS-arm64.dmg",
+            "OpenKeeb-0.1.68-macOS-arm64.dmg",
             artifact_filename("macos", "arm64", root=ROOT),
         )
         self.assertEqual(
-            "AM-Configurator-0.1.68-Windows-x64-Setup.exe",
+            "OpenKeeb-0.1.68-Windows-x64-Setup.exe",
             artifact_filename("windows", "AMD64", root=ROOT),
         )
         self.assertEqual(
-            "AM-Configurator-0.1.68-Linux-x86_64.AppImage",
+            "OpenKeeb-0.1.68-Linux-x86_64.AppImage",
             artifact_filename("linux", "x86_64", root=ROOT),
         )
 
@@ -479,7 +479,7 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertNotIn(".tar.gz", upload)
 
         for path in (
-            "assets/am-configurator.png",
+            "assets/openkeeb.png",
             "packaging/macos/build_dmg.sh",
             "packaging/linux/build_appimage.sh",
             "packaging/windows/AMConfigurator.iss",
@@ -952,8 +952,8 @@ class ReleaseInfoTests(unittest.TestCase):
 
     def test_brand_icon_is_wired_into_every_distribution(self) -> None:
         icon_paths = {
-            "assets/am-configurator.png": (1024, 1024),
-            "assets/am-configurator-512.png": (512, 512),
+            "assets/openkeeb.png": (1024, 1024),
+            "assets/openkeeb-512.png": (512, 512),
             "am_configurator/web/icon.png": (128, 128),
         }
         for relative_path, expected_size in icon_paths.items():
@@ -961,8 +961,8 @@ class ReleaseInfoTests(unittest.TestCase):
                 with Image.open(ROOT / relative_path) as icon:
                     self.assertEqual(expected_size, icon.size)
 
-        self.assertTrue((ROOT / "assets" / "am-configurator.icns").is_file())
-        self.assertTrue((ROOT / "assets" / "am-configurator.ico").is_file())
+        self.assertTrue((ROOT / "assets" / "openkeeb.icns").is_file())
+        self.assertTrue((ROOT / "assets" / "openkeeb.ico").is_file())
 
         spec = (ROOT / "packaging" / "am_configurator.spec").read_text(encoding="utf-8")
         windows = (ROOT / "packaging" / "windows" / "AMConfigurator.iss").read_text(
@@ -976,10 +976,10 @@ class ReleaseInfoTests(unittest.TestCase):
             encoding="utf-8"
         )
 
-        self.assertIn("am-configurator.icns", spec)
-        self.assertIn("am-configurator.ico", spec)
-        self.assertIn("SetupIconFile=..\\..\\assets\\am-configurator.ico", windows)
-        self.assertIn("assets/am-configurator-512.png", linux)
+        self.assertIn("openkeeb.icns", spec)
+        self.assertIn("openkeeb.ico", spec)
+        self.assertIn("SetupIconFile=..\\..\\assets\\openkeeb.ico", windows)
+        self.assertIn("assets/openkeeb-512.png", linux)
         self.assertIn('"/icon.png": "icon.png"', server)
         self.assertIn('<link rel="icon" href="/icon.png"', html)
         self.assertIn('<img src="/icon.png" alt="">', html)

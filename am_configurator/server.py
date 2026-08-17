@@ -266,7 +266,7 @@ def gif_to_led_tracks(
         from PIL import Image, UnidentifiedImageError
     except ModuleNotFoundError as exc:
         raise ValueError(
-            "GIF import needs Pillow. Reinstall AM Configurator."
+            "GIF import needs Pillow. Reinstall OpenKeeb."
         ) from exc
 
     try:
@@ -971,7 +971,7 @@ def _lighting_composition_preview(mapped_result: Mapping[str, Any]) -> bytes:
         from PIL import Image, ImageDraw
     except ModuleNotFoundError as exc:
         raise ValueError(
-            "Saving a lighting preview needs Pillow. Reinstall AM Configurator."
+            "Saving a lighting preview needs Pillow. Reinstall OpenKeeb."
         ) from exc
 
     tracks = mapped_result.get("tracks")
@@ -4537,7 +4537,7 @@ def run(
     open_browser: bool = True,
 ) -> int:
     server, url = create_server(config_paths, port=port)
-    print("AM Configurator is running locally.")
+    print("OpenKeeb is running locally.")
     print(url)
     print("Press Ctrl-C to stop.")
     if open_browser:
@@ -4545,7 +4545,7 @@ def run(
     try:
         server.serve_forever(poll_interval=0.25)
     except KeyboardInterrupt:
-        print("\nStopping AM Configurator.")
+        print("\nStopping OpenKeeb.")
     finally:
         server.server_close()
     return 0

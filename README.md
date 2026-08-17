@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="assets/am-configurator.png" width="132" alt="AM Configurator icon">
+  <img src="assets/openkeeb.png" width="132" alt="OpenKeeb icon">
 </p>
 
-<h1 align="center">AM Configurator</h1>
+<h1 align="center">OpenKeeb</h1>
 
 <p align="center">
-  Set up your Angry Miao keyboard — keymaps, macros, and lighting — from one app on your own computer.
+  A local, open workbench for Angry Miao, Vial, and VIA keyboards.
 </p>
 
 <p align="center">
@@ -14,7 +14,12 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8358ff" alt="MIT license"></a>
 </p>
 
-## Download the latest release
+> [!IMPORTANT]
+> OpenKeeb is the next major version and is currently in development on the
+> `v2/openkeeb` branch. The latest published installers are still branded
+> **AM Configurator 0.1.68**; no OpenKeeb release has been published yet.
+
+## Download the latest published release
 
 Get the installer for your computer from the
 [latest release](https://github.com/roethlar/AMKB-GUI/releases/latest):
@@ -34,7 +39,8 @@ notarized by Apple, and the Windows executable and installer are signed through
 Azure Trusted Signing. Windows SmartScreen weighs how widely a signing
 certificate has been seen as well as whether it is valid, so it may still show a
 caution prompt while this certificate is new. The Linux AppImage is unsigned.
-[Installing AM Configurator](docs/installing.md) has the per-system steps; never
+[Installing AM Configurator](docs/installing.md) has the per-system steps for
+the currently published release; never
 turn off an operating system's security checks globally.
 
 Release notes are published with each GitHub Release.
@@ -71,7 +77,7 @@ or a firmware version you have not used before.
 
 ## Five-minute quick start
 
-1. **Install** the file for your computer and open **AM Configurator**.
+1. **Install** the file for your computer and open **OpenKeeb**.
 2. **Plug in one keyboard** over USB. Close AM Master, Vial, VIA, QMK Toolbox,
    and anything else that might be holding the board.
 3. Choose **Connect a keyboard**, pick your board under **Devices**, then choose
@@ -250,7 +256,7 @@ without `--extra desktop`.
 
 ## Project status
 
-AM Configurator is independent community software and is not affiliated with or
+OpenKeeb is independent community software and is not affiliated with or
 endorsed by Angry Miao. Its CyberBoard keymap and LED frame protocol handling was
 derived from the MIT-licensed
 [`GeneralD/cyberboard-cli`](https://github.com/GeneralD/cyberboard-cli) project;
@@ -259,6 +265,6 @@ GeneralD's copyright and license are preserved in
 all bundled third-party notices are listed in
 [`THIRD_PARTY_NOTICES`](THIRD_PARTY_NOTICES).
 
-If AM Configurator is useful to you, you can support it on
+If OpenKeeb is useful to you, you can support it on
 [GitHub Sponsors](https://github.com/sponsors/roethlar) or
 [Ko-fi](https://ko-fi.com/michaelcoelho).

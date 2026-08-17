@@ -30,7 +30,7 @@ RUNTIME = "org.freedesktop.Platform"
 RUNTIME_VERSION = "24.08"
 SDK = "org.freedesktop.Sdk"
 
-_ICON_RELATIVE = Path("assets/am-configurator-512.png")
+_ICON_RELATIVE = Path("assets/openkeeb-512.png")
 _UDEV_RELATIVE = Path("am_configurator/data/60-am-neon-80.rules")
 
 _MANIFEST_NAME = f"{FLATPAK_APP_ID}.yml"

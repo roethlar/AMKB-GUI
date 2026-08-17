@@ -4,7 +4,7 @@ set -euo pipefail
 project_root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$project_root"
 
-app_path="${1:-dist/AM Configurator.app}"
+app_path="${1:-dist/OpenKeeb.app}"
 if [[ ! -d "$app_path" ]]; then
   echo "macOS app bundle not found: $app_path" >&2
   exit 1
@@ -66,11 +66,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-ditto "$app_path" "$staging_dir/AM Configurator.app"
+ditto "$app_path" "$staging_dir/OpenKeeb.app"
 ln -s /Applications "$staging_dir/Applications"
 rm -f "$output_path"
 hdiutil create \
-  -volname "AM Configurator" \
+  -volname "OpenKeeb" \
   -srcfolder "$staging_dir" \
   -format UDZO \
   -ov \
@@ -78,7 +78,7 @@ hdiutil create \
 hdiutil verify "$output_path"
 hdiutil attach "$output_path" -readonly -nobrowse -mountpoint "$mount_dir" -quiet
 mounted=1
-"$mount_dir/AM Configurator.app/Contents/MacOS/AM Configurator" --smoke-test
+"$mount_dir/OpenKeeb.app/Contents/MacOS/OpenKeeb" --smoke-test
 detach_mount || echo "warning: could not detach $mount_dir" >&2
 
 echo "$output_path"

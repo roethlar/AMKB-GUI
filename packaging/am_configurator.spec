@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Cross-platform PyInstaller recipe for the native AM Configurator app."""
+"""Cross-platform PyInstaller recipe for the native OpenKeeb app."""
 from pathlib import Path
 import sys
 
@@ -90,7 +90,7 @@ elif sys.platform.startswith("linux"):
 else:
     raise SystemExit(f"Unsupported native build platform: {sys.platform}")
 executable_icon = (
-    str(project / "assets" / "am-configurator.ico")
+    str(project / "assets" / "openkeeb.ico")
     if sys.platform == "win32"
     else None
 )
@@ -114,7 +114,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="AM Configurator",
+    name="OpenKeeb",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -134,18 +134,18 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="AM Configurator",
+    name="OpenKeeb",
 )
 
 if sys.platform == "darwin":
     app = BUNDLE(
         coll,
-        name="AM Configurator.app",
+        name="OpenKeeb.app",
         bundle_identifier="dev.amconfigurator.desktop",
         version=app_version,
-        icon=str(project / "assets" / "am-configurator.icns"),
+        icon=str(project / "assets" / "openkeeb.icns"),
         info_plist={
-            "CFBundleDisplayName": "AM Configurator",
+            "CFBundleDisplayName": "OpenKeeb",
             "NSHighResolutionCapable": True,
             "NSHumanReadableCopyright": "MIT License",
         },

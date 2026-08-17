@@ -58,14 +58,14 @@ def artifact_filename(
         label = {"x86_64": "x64", "aarch64": "arm64"}.get(arch)
         if label is None:
             raise ValueError(f"Unsupported macOS release architecture: {arch}")
-        return f"AM-Configurator-{version}-macOS-{label}.dmg"
+        return f"OpenKeeb-{version}-macOS-{label}.dmg"
     if target == "windows":
         label = {"x86_64": "x64", "aarch64": "arm64"}.get(arch)
         if label is None:
             raise ValueError(f"Unsupported Windows release architecture: {arch}")
-        return f"AM-Configurator-{version}-Windows-{label}-Setup.exe"
+        return f"OpenKeeb-{version}-Windows-{label}-Setup.exe"
     if target == "linux":
-        return f"AM-Configurator-{version}-Linux-{arch}.AppImage"
+        return f"OpenKeeb-{version}-Linux-{arch}.AppImage"
     raise ValueError(f"Unsupported release target: {target}")
 
 

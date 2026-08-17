@@ -43,17 +43,17 @@ def expected_artifacts(version: str) -> tuple[ArtifactSpec, ...]:
         ArtifactSpec(
             platform="macos",
             architecture="arm64",
-            filename=f"AM-Configurator-{version}-macOS-arm64.dmg",
+            filename=f"OpenKeeb-{version}-macOS-arm64.dmg",
         ),
         ArtifactSpec(
             platform="windows",
             architecture="x64",
-            filename=f"AM-Configurator-{version}-Windows-x64-Setup.exe",
+            filename=f"OpenKeeb-{version}-Windows-x64-Setup.exe",
         ),
         ArtifactSpec(
             platform="linux",
             architecture="x86_64",
-            filename=f"AM-Configurator-{version}-Linux-x86_64.AppImage",
+            filename=f"OpenKeeb-{version}-Linux-x86_64.AppImage",
         ),
     )
 

@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Push-Location $projectRoot
 try {
-    $sourceDir = (Resolve-Path "dist\AM Configurator").Path
+    $sourceDir = (Resolve-Path "dist\OpenKeeb").Path
     $outputDir = (Resolve-Path "dist").Path
     $version = (& uv run --frozen python build_tools/release_info.py version).Trim()
     $artifactName = (& uv run --frozen python build_tools/release_info.py artifact windows).Trim()
@@ -37,7 +37,7 @@ try {
             throw "Silent installer failed with exit code $($installerProcess.ExitCode)"
         }
 
-        $installedApp = Join-Path $smokeDir "AM Configurator.exe"
+        $installedApp = Join-Path $smokeDir "OpenKeeb.exe"
         if (-not (Test-Path $installedApp)) {
             throw "Silent installer did not create the application: $installedApp"
         }
