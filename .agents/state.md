@@ -43,9 +43,11 @@
   passed 108 tests. Fresh screenshots remain with the H7d rendered matrix
   because no in-app browser instance was available.
 
-H7d non-rendered closure verification is green. The exact repository gate passes on the final code tree: 733 Python tests, 222 web tests, compileall, every listed JavaScript syntax check, and `uv build`. The supported macOS `python build.py --skip-sync` path passes; rebuilt frozen `--smoke-test` and WKWebView `--native-policy-smoke` pass. Closure also exposed and fixed native-acceptance isolation: automatic Vial/VIA scans had bypassed the existing offline AM discovery seam and reached hidapi; all three ecosystems now receive injected empty discovery, with a demonstrated red/green regression test. The old-name audit leaves only intentional published-release, legacy-profile, third-party-notice, and reserved-identifier references; the current keyboard inventory and printed Linux rule say OpenKeeb. H7 remains open only because the required in-app Browser retry again exposed zero browser instances after prescribed troubleshooting, so the rendered route matrix and replacement of stale `docs/images` screenshots could not run. The Browser skill forbids substituting standalone Playwright, Computer Use, or another browser surface.
+As `7f0e3ea`, H7d non-rendered closure verification is green. The exact repository gate passes on the final code tree: 733 Python tests, 222 web tests, compileall, every listed JavaScript syntax check, and `uv build`. The supported macOS `python build.py --skip-sync` path passes; rebuilt frozen `--smoke-test` and WKWebView `--native-policy-smoke` pass. Closure also exposed and fixed native-acceptance isolation: automatic Vial/VIA scans had bypassed the existing offline AM discovery seam and reached hidapi; all three ecosystems now receive injected empty discovery, with a demonstrated red/green regression test. The old-name audit leaves only intentional published-release, legacy-profile, third-party-notice, and reserved-identifier references; the current keyboard inventory and printed Linux rule say OpenKeeb. H7 remains open only because the required in-app Browser retry again exposed zero browser instances after prescribed troubleshooting, so the rendered route matrix and replacement of stale `docs/images` screenshots could not run. The Browser skill forbids substituting standalone Playwright, Computer Use, or another browser surface.
 
 ## Next
+
+- **Resume H7 only in a session with the in-app Browser available:** run the approved rendered route matrix at 1000×680, 1280×800, and 1600×1000 against an injected no-hardware server; confirm zero console errors and no write requests; replace the stale `docs/images` screenshots with actual-app captures; update the H7 plan/state closure evidence and commit. Do not ask the owner which page or phase to start with.
 
 - **OpenKeeb v2 implementation is active under the approved hub-configurator
   plan:** H0 through H4 are complete. H3 (the VIA spoke) has bounded
@@ -155,6 +157,8 @@ H7d non-rendered closure verification is green. The exact repository gate passes
   `docs/superpowers/plans/2026-08-08-package-manager-distribution.md`.
 
 ## Blockers
+
+- H7 cannot close in the current runtime because prescribed Browser troubleshooting returns zero browser instances. The required route matrix and screenshots must wait for a session where the in-app Browser is actually available; do not substitute standalone Playwright, Computer Use, or another browser surface.
 
 - Whether the published 0.1.67 listing should carry a known-issue note about
   its unreachable AI providers, now that 0.1.68 supersedes it, is the owner's
