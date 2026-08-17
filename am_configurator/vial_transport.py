@@ -42,6 +42,7 @@ class PreparedVialWrite:
     endpoint: hid_transport.VialDeviceInfo
     target: hub_vial.VialSnapshot
     plan: hub_vial.VialWritePlan
+    unlock_status: vial_keymap.UnlockStatus
 
     @property
     def confirmation(self) -> str:
@@ -186,6 +187,18 @@ def read_snapshot(address: str) -> hub_vial.VialSnapshot:
     return _read_snapshot(hid_transport.find_vial(address))
 
 
+def _read_unlock_status(
+    info: hid_transport.VialDeviceInfo,
+) -> vial_keymap.UnlockStatus:
+    """Read Vial's volatile lock hint without starting its handshake."""
+
+    session = hid_transport.open_vial_read(info)
+    try:
+        return vial_keymap.unlock_status(session)
+    finally:
+        session.close()
+
+
 def _editor_layout(
     snapshot: hub_vial.VialSnapshot,
 ) -> tuple[dict[str, int | float | str], ...]:
@@ -219,8 +232,48 @@ def prepare_write(address: str, profile: object) -> PreparedVialWrite:
     """Read the target and produce a pure write plan; never unlock or mutate."""
     endpoint = hid_transport.find_vial(address)
     target = _read_snapshot(endpoint)
+    unlock_status = _read_unlock_status(endpoint)
     plan = hub_vial.plan_vial_write(profile, target=target)
-    return PreparedVialWrite(endpoint=endpoint, target=target, plan=plan)
+    return PreparedVialWrite(
+        endpoint=endpoint,
+        target=target,
+        plan=plan,
+        unlock_status=unlock_status,
+    )
+
+
+def write_matches_target(prepared: PreparedVialWrite) -> bool:
+    """Whether a fresh read already equals every planned writable buffer."""
+
+    keymap = prepared.plan.keymap_buffer
+    macros = prepared.plan.macro_buffer
+    return (
+        (keymap is None or keymap == prepared.target.keymap_buffer)
+        and (macros is None or macros == prepared.target.macro_buffer)
+    )
+
+
+def unlock_key_layout(prepared: PreparedVialWrite) -> tuple[dict[str, Any], ...]:
+    """Resolve reported unlock matrix positions through the active layout."""
+
+    layout = {
+        (item["matrix_row"], item["matrix_col"]): item
+        for item in _editor_layout(prepared.target)
+    }
+    resolved: list[dict[str, Any]] = []
+    for row, column in prepared.unlock_status.keys:
+        if (row, column) not in layout:
+            raise VialTransportError(
+                "A Vial unlock key is absent from the active physical layout."
+            )
+        resolved.append(
+            {
+                "key": layout[(row, column)]["key"],
+                "matrix_row": row,
+                "matrix_col": column,
+            }
+        )
+    return tuple(resolved)
 
 
 def _matches_target(

@@ -87,8 +87,17 @@
   technical data; no H5c hardware route or setter exists. Verification passed
   727 Python and 212 web tests, compile/JavaScript checks, and package build.
   The rendered smoke was unavailable because the in-app browser runtime exposed
-  no browser instance. H5d (typed generic write UX and closure) awaits its own
-  explicit go.
+  no browser instance. H5d is complete: generic Write requires an exact freshly
+  read live binding and every rescan invalidates it; Vial/VIA preflight shows
+  endpoint/USB identity, byte and transfer counts, fresh target-match proof,
+  exact case-sensitive confirmation, and canonical backup. Vial adds read-only
+  unlock state with named/marked layout keys without starting its handshake.
+  Possible accepted-byte failures can only run a fresh read-only verification
+  and never resend; AM behavior is unchanged. Verification passed 727 Python
+  and 216 web tests, compile/JavaScript checks, and package build. Rendered
+  fake-Vial smoke covered edit/preflight/unlock marking, confirmation casing,
+  dialog fit, rescan invalidation, and zero console errors; it never submitted a
+  write request or touched a physical keyboard.
  H7 is the queued branding overhaul,
   which the owner ruled is a
   repositioning rather than a rename. The canonical scope and sequence live in

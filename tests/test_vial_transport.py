@@ -374,6 +374,34 @@ class GenericVialTransportTests(unittest.TestCase):
                 )
                 self.assertEqual(200, status)
                 self.assertEqual("Fixture Pad", preflight["confirmation"])
+                self.assertTrue(preflight["matches_target"])
+                self.assertEqual(
+                    {
+                        "unlocked": False,
+                        "in_progress": False,
+                        "keys": [
+                            {
+                                "key": "K_R0_C0",
+                                "matrix_row": 0,
+                                "matrix_col": 0,
+                            },
+                            {
+                                "key": "K_R0_C2",
+                                "matrix_row": 0,
+                                "matrix_col": 2,
+                            },
+                        ],
+                    },
+                    preflight["unlock"],
+                )
+                preflight_operations = {
+                    self._operation(packet) for _path, packet in self.backend.commands
+                }
+                self.assertIn((0xFE, 0x05), preflight_operations)
+                self.assertFalse(
+                    preflight_operations
+                    & {(0xFE, 0x06), (0xFE, 0x07), (0x13, None), (0x0F, None)}
+                )
 
                 self.backend.commands.clear()
                 status, refused = request(

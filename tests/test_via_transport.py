@@ -809,6 +809,7 @@ class GenericViaTransportTests(unittest.TestCase):
                     preflight["confirmation"],
                 )
                 self.assertEqual(48, preflight["keymap_bytes"])
+                self.assertTrue(preflight["matches_target"])
 
                 self.backend.commands.clear()
                 status, refused = request(
@@ -841,6 +842,20 @@ class GenericViaTransportTests(unittest.TestCase):
                 self.assertTrue(accepted_error["accepted"])
                 self.assertEqual(48, accepted_error["keymap_bytes"])
                 self.assertEqual(12, accepted_error["macro_bytes"])
+
+                self.backend.commands.clear()
+                status, verification = request(
+                    "POST",
+                    "/api/hub/via/preflight",
+                    {
+                        "address": self.address,
+                        "definition": self.definition,
+                        "profile": read["profile"],
+                    },
+                )
+                self.assertEqual(200, status)
+                self.assertFalse(verification["matches_target"])
+                self.assertEqual(set(), self._setters(self.backend.commands))
             finally:
                 server.shutdown()
                 server.server_close()

@@ -414,6 +414,22 @@ H5c hardware route, preflight, setter, or write was added or exercised.
 
 #### H5d — typed generic write UX and closure
 
+Landing evidence (2026-08-16): complete. Generic Write is enabled only for an
+exact freshly read live binding; every rescan invalidates that binding. Existing
+Vial/VIA preflight routes now return fresh target-match proof, and Vial also
+returns read-only unlock state plus layout-resolved matrix keys without starting
+the handshake. The shared dialog shows the exact endpoint, USB identity, byte
+and transfer-verdict counts, canonical backup, case-sensitive backend phrase,
+and named/marked Vial unlock keys. Confirmed writes retain backend endpoint
+reproof and exact read-back; possible accepted-byte failures can only transition
+to fresh read-only verification and never resend. AM behavior remains on its
+existing branch. New tests first failed on missing `matches_target` and all four
+browser contracts. Full verification passed 727 Python tests, 216 web tests,
+compile/JavaScript checks, and `uv build`. A rendered fake-Vial smoke covered
+read, document-only edit, preflight, unlock marking, exact-case confirmation,
+dialog fit, and rescan invalidation with zero console errors; it never submitted
+the write request or touched a physical keyboard.
+
 1. A generic file is not writable until it is overlaid onto or freshly read
    from a connected target. Keep the connection-scoped address and VIA
    definition only in the live document binding. A rescan/replug invalidates UI

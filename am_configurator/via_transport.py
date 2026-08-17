@@ -273,6 +273,17 @@ def prepare_write(
     )
 
 
+def write_matches_target(prepared: PreparedViaWrite) -> bool:
+    """Whether a fresh read already equals every planned writable buffer."""
+
+    keymap = prepared.plan.keymap_buffer
+    macros = prepared.plan.macro_buffer
+    return (
+        (keymap is None or keymap == prepared.target.keymap_buffer)
+        and (macros is None or macros == prepared.target.macro_buffer)
+    )
+
+
 def _matches_endpoint(
     info: hid_transport.ViaEndpointInfo, prepared: PreparedViaWrite
 ) -> bool:

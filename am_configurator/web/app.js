@@ -130,6 +130,7 @@ const state = {
   undo: [],
   redo: [],
   devices: [],
+  deviceScanEpoch: 0,
   selectedDevice: null,
   loadedDevice: null,
   pendingViaDevice: null,
@@ -883,7 +884,7 @@ async function importHubFile(file) {
       navigateTo(ROUTES.KEYMAP,{replace:true});
       updateMeta();
       render();
-      toast("Hub profile overlaid",`${overlay.worklist.length} items need review`,"success");
+      toast("Hub profile overlaid",`${overlay.worklist.length} items need review. Keyboard unchanged until Write.`,"success");
       return;
     }
     if (state.config) {
@@ -916,7 +917,7 @@ async function importHubFile(file) {
       navigateTo(ROUTES.KEYMAP,{replace:true});
       updateMeta();
       render();
-      toast("Hub profile overlaid",`${overlay.worklist.length} items need review`,"success");
+      toast("Hub profile overlaid",`${overlay.worklist.length} items need review. Keyboard unchanged until Write.`,"success");
       return;
     }
     const activeDevice = state.devices.find(device => deviceKey(device) === state.loadedDevice) || selectedDevice();
@@ -2719,7 +2720,7 @@ function renderHubKeyInspector(editor,layer,palette){
   return `<div class="card-header"><strong>Selected key</strong><small>Layer ${editor.layer+1}${technical?` · ${esc(item.key)}`:""}</small></div><div class="card-body">
     <div class="selected-code"><div><small class="control-caption">Currently sends</small><br><strong>${esc(description.label)}</strong>${technical?`<br><code>${esc(technicalLabel)}</code>`:""}</div><span class="pill">${esc(editor.ecosystem.toUpperCase())}</span></div>
     ${description.warning?`<p class="inspector-help hub-keycode-warning">${esc(description.warning)}</p>`:""}
-    <p class="inspector-help">Palette choices update this open hub document immediately. Undo restores the previous document snapshot.</p>
+    <p class="inspector-help">Palette choices update this open hub document immediately. Undo restores the previous document snapshot. The keyboard stays unchanged until Write.</p>
     <details id="hub-advanced-keycode" class="advanced-disclosure" ${state.advancedKeycodeOpen?"open":""}>
       <summary>Advanced keycode</summary>
       <p class="inspector-help">Unknown QMK keycodes and source-firmware custom codes remain editable as exact unsigned 16-bit values.</p>
@@ -2808,7 +2809,7 @@ function renderHubKeymap(editor){
   $("#screen").innerHTML=`
     <div class="screen-shell">
       <header class="screen-header">
-        <div><p class="eyebrow">${esc(editor.name)} · ${esc(editor.ecosystem.toUpperCase())}</p><h1>Keymap</h1><p class="description">Edit the portable hub document. Changes stay local until you save it.</p></div>
+        <div><p class="eyebrow">${esc(editor.name)} · ${esc(editor.ecosystem.toUpperCase())}</p><h1>Keymap</h1><p class="description">Edit the portable hub document. The keyboard stays unchanged until Write.</p></div>
         <div class="keymap-header-actions"><button id="toggle-technical-labels" type="button" class="button ghost" aria-pressed="${technical}">${technical?'Hide technical labels':'Show technical labels'}</button><div class="segmented layer-tabs">${editor.layers.map(candidate=>`<button class="${candidate.index===editor.layer?'active':''}" data-layer="${candidate.index}" aria-label="Layer ${candidate.index+1}">${candidate.index+1}</button>`).join("")}</div></div>
       </header>
       <div class="editor-grid">
@@ -6399,6 +6400,21 @@ function resetDocumentView() {
   });
 }
 
+function genericWriteTarget() {
+  const documentState=state.hubEditor;
+  const target=documentState?.target;
+  if(!documentState||!target?.address||!state.loadedDevice)return null;
+  if(target.scanEpoch!==state.deviceScanEpoch)return null;
+  const device=selectedDevice();
+  if(!device||deviceKey(device)!==state.loadedDevice)return null;
+  if(device.ecosystem!==target.ecosystem||device.address!==target.address)return null;
+  if(target.ecosystem==="via"&&!target.definition)return null;
+  const endpoint=documentState.profile.identity.endpoint||{};
+  if(Number.isSafeInteger(endpoint.vid)&&device.vid!==endpoint.vid)return null;
+  if(Number.isSafeInteger(endpoint.pid)&&device.pid!==endpoint.pid)return null;
+  return device;
+}
+
 function updateDeviceActions() {
   const read=$("#read-device"),write=$("#write-button");
   if(!read||!write)return;
@@ -6413,11 +6429,14 @@ function updateDeviceActions() {
   }
   if((device.ecosystem||"am")!=="am"){
     const via=device.ecosystem==="via";
+    const genericTarget=genericWriteTarget();
     read.disabled=false;
     read.textContent=via?"Choose VIA definition & read":"Read Vial keymap & macros";
-    write.textContent="Write to keyboard";
-    write.disabled=true;
-    write.title="Generic hardware writing is outside the read-only H5a slice.";
+    write.textContent=state.hubEditor?`Write to ${state.hubEditor.profile.identity.family}`:"Write to keyboard";
+    write.disabled=!genericTarget;
+    write.title=genericTarget
+      ?"Preflight this exact connected target before writing."
+      :"Read this exact keyboard before editing or overlaying a profile to write.";
     return;
   }
   read.disabled=false;
@@ -6429,6 +6448,7 @@ function updateDeviceActions() {
 }
 
 async function scanDevices() {
+  state.deviceScanEpoch++;
   const priorDisplayGeometry=projectVialKeyLayout(displayGeometryDevice());
   const refreshDisplayGeometry=()=>{
     const nextDisplayGeometry=projectVialKeyLayout(displayGeometryDevice());
@@ -6484,6 +6504,7 @@ async function scanDevices() {
 
 async function readHubDevice(target,definition=null) {
   const button=$("#read-device");
+  const scanEpoch=state.deviceScanEpoch;
   button.disabled=true;
   button.textContent="Reading…";
   try{
@@ -6491,17 +6512,18 @@ async function readHubDevice(target,definition=null) {
     const path=via?"/api/hub/via/read":"/api/hub/vial/read";
     const body={address:target.address,...(via?{definition}:{})};
     const result=await api(path,{method:"POST",body:JSON.stringify(body)});
+    if(scanEpoch!==state.deviceScanEpoch)throw new Error("Devices were rescanned while this keyboard was being read. Read it again.");
     const loaded=deviceKey(target);
     state.devices=state.devices.map(device=>deviceKey(device)===loaded?{...device,...result.device,ecosystem:target.ecosystem,transport:"hid"}:device);
     adoptHubDocument({
       profile:result.profile,
       layout:result.layout,
-      target:{ecosystem:target.ecosystem,address:target.address,...(via?{definition}:{})},
+      target:{ecosystem:target.ecosystem,address:target.address,scanEpoch,...(via?{definition}:{})},
       fileName:`${result.profile.identity.family}.hub.json`,
       loadedDevice:loaded,
     });
     $("#device-dialog").close();
-    toast("Keyboard read",`${result.profile.identity.family} · ${result.profile.keymap.layers.length} layers · read-only`,"success");
+    toast("Keyboard read",`${result.profile.identity.family} · ${result.profile.keymap.layers.length} layers · ready to edit; keyboard unchanged`,"success");
   }catch(error){toast("Could not read keyboard",error.message||String(error),"error");}
   finally{button.disabled=false;updateDeviceActions();}
 }
@@ -6570,7 +6592,135 @@ async function readDevice() {
   finally{button.disabled=false;updateDeviceActions();}
 }
 
+function hubWriteReportCounts(report) {
+  const counts={carried:0,adapted:0,dropped:0};
+  for(const item of Array.isArray(report?.items)?report.items:[]){
+    if(item.verdict in counts)counts[item.verdict]++;
+  }
+  return counts;
+}
+
+function clearGenericUnlockMarks() {
+  $$(".keycap.unlock-required").forEach(key=>key.classList.remove("unlock-required"));
+}
+
+function markGenericUnlockKeys(keys) {
+  clearGenericUnlockMarks();
+  const identities=new Set((keys||[]).map(item=>item.key));
+  $$(".keycap").forEach(key=>key.classList.toggle("unlock-required",identities.has(key.dataset.index)));
+}
+
+function hubUnlockKeyLabel(item,documentState) {
+  const base=documentState.profile.keymap.layers.find(layer=>layer.index===0);
+  const assignment=base?.keys.find(key=>key.key===item.key);
+  if(!assignment)return item.key;
+  const description=describeQmkKeycode(assignment.code,{
+    keycodeSpec:documentState.profile.identity.protocol?.keycode_spec||null,
+  });
+  return `${description.label} (${item.key})`;
+}
+
+function hubUsbLabel(device) {
+  const hex=value=>Number(value).toString(16).toUpperCase().padStart(4,"0");
+  return Number.isSafeInteger(device?.vid)&&Number.isSafeInteger(device?.pid)
+    ?`${hex(device.vid)}:${hex(device.pid)}`
+    :"USB identity unavailable";
+}
+
+function pendingWriteConfirmationMatches(value,pending=state.pendingWrite) {
+  if(!pending||pending.alreadyMatches)return false;
+  if(pending.kind==="hub")return value===pending.confirmation;
+  return value.trim().toUpperCase()===pending.device.product_id.toUpperCase();
+}
+
+async function writeHubDevice() {
+  const device=genericWriteTarget();
+  if(!device){
+    toast("Write unavailable","Read this exact connected keyboard before writing its hub document.","error");
+    showDeviceDialog();
+    return;
+  }
+  const documentState=state.hubEditor;
+  const ecosystem=documentState.target.ecosystem;
+  const definition=documentState.target.definition;
+  let preflight;
+  try{
+    preflight=await api(`/api/hub/${ecosystem}/preflight`,{
+      method:"POST",
+      body:JSON.stringify({
+        address:documentState.target.address,
+        profile:documentState.profile,
+        ...(definition?{definition}:{}),
+      }),
+    });
+  }catch(error){
+    toast("Write blocked",error.message||"The connected keyboard could not be verified.","error");
+    return;
+  }
+  if(state.hubEditor!==documentState||genericWriteTarget()!==device){
+    toast("Write blocked","The open document or connected target changed during preflight.","error");
+    return;
+  }
+  const verifiedDevice={...device,...(preflight.device||{})};
+  const counts=hubWriteReportCounts(preflight.report);
+  const unlock=preflight.unlock||{};
+  const unlockKeys=preflight.unlock?.keys||[];
+  state.pendingWrite={
+    kind:"hub",
+    ecosystem,
+    device:verifiedDevice,
+    definition,
+    documentState,
+    profile:documentState.profile,
+    confirmation:preflight.confirmation,
+    preflight,
+    alreadyMatches:Boolean(preflight.matches_target),
+    busy:false,
+  };
+  $("#write-eyebrow").textContent=`${ecosystem.toUpperCase()} keymap write`;
+  $("#write-title").textContent=`Write to ${documentState.profile.identity.family}`;
+  $("#write-warning-title").textContent="This replaces the keyboard's keymap and macro buffers.";
+  $("#write-warning-copy").textContent="Lighting and firmware are not modified. Keep the USB cable connected until exact read-back finishes.";
+  const targetNote=$("#write-target-note");
+  targetNote.hidden=false;
+  targetNote.textContent=`Verified target: ${verifiedDevice.name||verifiedDevice.usb_product||documentState.profile.identity.family} · ${hubUsbLabel(verifiedDevice)} · ${verifiedDevice.address}`;
+  const unlockNote=$("#write-unlock-note");
+  unlockNote.hidden=ecosystem!=="vial"||Boolean(preflight.matches_target);
+  unlockNote.textContent=ecosystem==="vial"
+    ?unlock.unlocked
+      ?"The keyboard currently reports unlocked. Its lock state is checked again after confirmation."
+      :unlock.in_progress
+        ?`Physical unlock is already in progress. Keep holding ${unlockKeys.length?unlockKeys.map(item=>hubUnlockKeyLabel(item,documentState)).join(" + "):"the keyboard's designated unlock keys"}; the write request checks it again after confirmation.`
+        :`Physical unlock begins only after confirmation. Hold ${unlockKeys.length?unlockKeys.map(item=>hubUnlockKeyLabel(item,documentState)).join(" + "):"the keyboard's designated unlock keys"} when prompted.`
+    :"";
+  markGenericUnlockKeys(preflight.matches_target?[]:unlockKeys);
+  $("#write-summary").innerHTML=`<span><strong>${preflight.keymap_bytes}</strong><small>keymap bytes</small></span><span><strong>${preflight.macro_bytes}</strong><small>macro bytes</small></span><span><strong>${counts.carried}</strong><small>carried</small></span><span><strong>${counts.adapted}</strong><small>adapted</small></span><span><strong>${counts.dropped}</strong><small>dropped</small></span>`;
+  $("#write-confirm-label").textContent="Type this exact case-sensitive phrase to confirm";
+  $("#write-token").textContent=preflight.confirmation;
+  const status=$("#write-status");
+  status.className="write-status";
+  status.textContent=preflight.matches_target
+    ?"A fresh read already matches every planned keymap and macro byte. Nothing needs to be written."
+    :"Keyboard unchanged. Nothing is sent until the exact phrase is entered and Write is pressed.";
+  const input=$("#write-confirmation");
+  input.value="";
+  input.placeholder="Exact confirmation phrase";
+  input.setAttribute("autocapitalize","off");
+  input.disabled=Boolean(preflight.matches_target);
+  const confirm=$("#confirm-write");
+  confirm.textContent=preflight.matches_target?"Already matches keyboard":"Write keymap & macros";
+  confirm.disabled=true;
+  $("#backup-before-write").textContent="Save hub backup";
+  $("#cancel-write").disabled=false;
+  $("#cancel-write-x").disabled=false;
+  $("#device-dialog").close();
+  $("#write-dialog").returnValue="";
+  $("#write-dialog").showModal();
+  setTimeout(()=>input.focus(),50);
+}
+
 async function writeDevice() {
+  if(state.hubEditor)return writeHubDevice();
   if(!state.config)return;
   if(!state.selectedDevice){toast('Choose a write target','Select the keyboard you intend to write.','error');showDeviceDialog();return;}
   const device=state.devices.find(item=>deviceKey(item)===state.selectedDevice);
@@ -6593,8 +6743,14 @@ async function writeDevice() {
   }
   const verifiedDevice={...device,...(preflight.device||{})};
   if(preflight.layout_evidence&&!state.layoutEvidence)state.layoutEvidence=preflight.layout_evidence;
-  state.pendingWrite={device:verifiedDevice,validation};
+  state.pendingWrite={kind:"am",device:verifiedDevice,validation,busy:false};
+  clearGenericUnlockMarks();
+  $("#write-eyebrow").textContent="Full device write";
   $("#write-title").textContent=`Write to ${verifiedDevice.product_id}`;
+  $("#write-warning-title").textContent="This replaces LEDs, keymaps, and macros.";
+  $("#write-warning-copy").textContent="Keep the USB cable connected until verification finishes. Firmware is not modified.";
+  $("#write-target-note").hidden=true;
+  $("#write-confirm-label").textContent="Type the device ID shown below to confirm";
   $("#write-token").textContent=verifiedDevice.product_id;
   const neonWrite=productFamily(verifiedDevice.product_id)==="NEON";
   const unlockNote=$("#write-unlock-note");
@@ -6607,16 +6763,111 @@ async function writeDevice() {
   const status=$("#write-status");
   status.className='write-status';
   status.textContent=validation.warnings.length?validation.warnings.join(' '):'Nothing is sent until the button below is enabled and pressed.';
-  const input=$("#write-confirmation");input.value='';
+  const input=$("#write-confirmation");input.value='';input.placeholder="Device ID";input.setAttribute("autocapitalize","characters");input.disabled=false;
+  $("#confirm-write").textContent="Write full configuration";
   $("#confirm-write").disabled=true;
+  $("#backup-before-write").textContent="Save portable JSON";
+  $("#cancel-write").disabled=false;
+  $("#cancel-write-x").disabled=false;
   $("#device-dialog").close();
   $("#write-dialog").returnValue='';
   $("#write-dialog").showModal();
   setTimeout(()=>input.focus(),50);
 }
 
+async function confirmHubWrite() {
+  const pending=state.pendingWrite;
+  if(!pending||pending.kind!=="hub")return;
+  const typedConfirmation=$("#write-confirmation").value;
+  if(!pending.verifyOnly&&typedConfirmation!==pending.confirmation)return;
+  if(state.hubEditor!==pending.documentState||!genericWriteTarget()){
+    $("#write-status").className="write-status error";
+    $("#write-status").textContent="The open document or connected target changed. Close this dialog and preflight again.";
+    return;
+  }
+  const verifying=Boolean(pending.verifyOnly);
+  const button=$("#confirm-write"),cancel=$("#cancel-write"),close=$("#cancel-write-x"),input=$("#write-confirmation"),status=$("#write-status");
+  button.disabled=true;
+  if(!verifying){
+    pending.busy=true;
+    cancel.disabled=true;
+    close.disabled=true;
+    input.disabled=true;
+  }
+  button.textContent=verifying?"Reading / verifying…":"Writing keymap & macros…";
+  status.className="write-status working";
+  status.textContent=verifying
+    ?"Freshly reading the target and comparing every planned writable byte. Nothing will be resent."
+    :pending.ecosystem==="vial"
+      ?"Complete the physical unlock when prompted. Exact read-back follows the accepted write."
+      :"Writing the planned buffers. Exact read-back follows before success.";
+  try{
+    const endpoint=verifying
+      ?`/api/hub/${pending.ecosystem}/preflight`
+      :`/api/hub/${pending.ecosystem}/write`;
+    const result=await api(endpoint,{
+      method:"POST",
+      body:JSON.stringify({
+        address:pending.device.address,
+        profile:pending.profile,
+        ...(pending.definition?{definition:pending.definition}:{}),
+        ...(!verifying?{confirmation:pending.confirmation}:{}),
+      }),
+    });
+    if(verifying){
+      if(result.matches_target){
+        state.pendingWrite=null;
+        clearGenericUnlockMarks();
+        $("#write-dialog").close();
+        toast("Fresh read verified","The keyboard now matches every planned keymap and macro byte. Nothing was resent.","success");
+        return;
+      }
+      status.className="write-status error";
+      status.textContent="Fresh read does not match the intended keymap and macro buffers. The keyboard may contain a partial change; save the hub backup and inspect a fresh device read. Do not retry the write blindly.";
+      return;
+    }
+    state.pendingWrite=null;
+    clearGenericUnlockMarks();
+    $("#write-dialog").close();
+    toast("Write verified",`${result.keymap_bytes} keymap bytes and ${result.macro_bytes} macro bytes were accepted and read back exactly.`,"success");
+  }catch(error){
+    if(verifying){
+      status.className="write-status error";
+      status.textContent=`Fresh read / verify failed: ${error.message}. Nothing was resent.`;
+      toast("Read / verify failed",error.message,"error");
+    }else if(error.accepted){
+      pending.verifyOnly=true;
+      const keymapBytes=error.keymap_bytes??"unknown";
+      const macroBytes=error.macro_bytes??"unknown";
+      status.className="write-status error";
+      status.textContent=`The keyboard may have accepted ${keymapBytes} keymap bytes and ${macroBytes} macro bytes before verification stopped. Read / verify performs a fresh read without resending anything.`;
+      toast("Write may be partly accepted","Use Read / verify. Never retry this write blindly.","error");
+    }else{
+      status.className="write-status error";
+      status.textContent=`Write failed before any accepted bytes were reported: ${error.message}`;
+      toast("Write failed",error.message,"error");
+    }
+  }finally{
+    if(state.pendingWrite===pending){
+      pending.busy=false;
+      cancel.disabled=false;
+      close.disabled=false;
+      if(pending.verifyOnly){
+        input.disabled=true;
+        button.textContent="Read / verify";
+        button.disabled=false;
+      }else{
+        input.disabled=false;
+        button.textContent="Write keymap & macros";
+        button.disabled=!pendingWriteConfirmationMatches(input.value,pending);
+      }
+    }
+  }
+}
+
 async function confirmDeviceWrite() {
   const pending=state.pendingWrite;if(!pending)return;
+  if(pending.kind==="hub")return confirmHubWrite();
   const verifyOnly=Boolean(pending.verifyOnly);
   const typedConfirmation=$("#write-confirmation").value.trim();
   if(typedConfirmation.toUpperCase()!==pending.device.product_id.toUpperCase())return;
@@ -6785,10 +7036,10 @@ $("#incompatible-dialog").addEventListener("close",()=>{if(incompatibleResolver)
 $("#import-banner-macros").addEventListener("click",importDetachedMacros);
 $("#return-connected-workspace").addEventListener("click",returnToConnectedWorkspace);
 $("#confirm-write").addEventListener("click",confirmDeviceWrite);
-$("#write-confirmation").addEventListener("input",event=>{$("#confirm-write").disabled=!state.pendingWrite||event.target.value.trim().toUpperCase()!==state.pendingWrite.device.product_id.toUpperCase();});
+$("#write-confirmation").addEventListener("input",event=>{$("#confirm-write").disabled=!pendingWriteConfirmationMatches(event.target.value);});
 $("#write-confirmation").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();if(!$("#confirm-write").disabled)confirmDeviceWrite();}});
-$("#write-dialog").addEventListener("cancel",event=>{if(state.pendingWrite&&productFamily(state.pendingWrite.device.product_id)==="NEON")event.preventDefault();});
-$("#write-dialog").addEventListener("close",()=>{if($("#write-dialog").returnValue==='cancel')state.pendingWrite=null;});
+$("#write-dialog").addEventListener("cancel",event=>{if(state.pendingWrite?.busy||(state.pendingWrite?.kind!=="hub"&&state.pendingWrite&&productFamily(state.pendingWrite.device.product_id)==="NEON"))event.preventDefault();});
+$("#write-dialog").addEventListener("close",()=>{if($("#write-dialog").returnValue==='cancel'){clearGenericUnlockMarks();state.pendingWrite=null;}});
 $("#undo-button").addEventListener("click",undo);
 $("#redo-button").addEventListener("click",redo);
 $("#validate-button").addEventListener("click",()=>validateCurrent());

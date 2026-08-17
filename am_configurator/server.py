@@ -2879,6 +2879,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "keymap_bytes": len(prepared.plan.keymap_buffer or b""),
                 "macro_bytes": len(prepared.plan.macro_buffer or b""),
                 "report": prepared.plan.report,
+                "matches_target": via_transport.write_matches_target(prepared),
             }
         )
 
@@ -2946,6 +2947,12 @@ class _Handler(BaseHTTPRequestHandler):
                 "keymap_bytes": len(prepared.plan.keymap_buffer or b""),
                 "macro_bytes": len(prepared.plan.macro_buffer or b""),
                 "report": prepared.plan.report,
+                "matches_target": vial_transport.write_matches_target(prepared),
+                "unlock": {
+                    "unlocked": prepared.unlock_status.unlocked,
+                    "in_progress": prepared.unlock_status.in_progress,
+                    "keys": list(vial_transport.unlock_key_layout(prepared)),
+                },
             }
         )
 

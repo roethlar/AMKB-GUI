@@ -299,6 +299,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .keycap { position: absolute; width: 4.8%; height: 12.2%; min-width: 30px; min-height: 29px; padding: 2px; border: 1px solid #414149; border-bottom-color: #29292f; border-radius: 7px; background: linear-gradient(#303037, #28282e); color: #efeff2; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: clamp(8px, .72vw, 11px); line-height: 1; overflow: hidden; box-shadow: 0 3px 0 #19191c, 0 6px 8px rgba(0,0,0,.22); transform-origin: center; }
 .keycap:hover { border-color: var(--violet-2); z-index: 4; }
 .keycap.selected { background: linear-gradient(#8e69ff, #7044ef); border-color: #b8a2ff; box-shadow: 0 3px 0 #42249c, 0 0 18px rgba(131,88,255,.4); z-index: 5; }
+.keycap.unlock-required { border-color: var(--amber); box-shadow: 0 3px 0 #5f481c, 0 0 0 3px rgba(255,189,89,.38); z-index: 6; }
 .keycap.macro { color: var(--cyan); }
 .keycap.vendor { color: var(--violet-2); }
 .keycap span { opacity: .75; font-size: 10px; margin-top: 3px; }

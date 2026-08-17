@@ -288,16 +288,17 @@
   <dialog id="write-dialog" class="dialog write-dialog">
     <form method="dialog" class="dialog-card" id="write-form">
       <div class="dialog-header">
-        <div><p class="eyebrow">Full device write</p><h2 id="write-title">Confirm write</h2></div>
+        <div><p id="write-eyebrow" class="eyebrow">Full device write</p><h2 id="write-title">Confirm write</h2></div>
         <button id="cancel-write-x" class="dialog-close" value="cancel" aria-label="Cancel write">×</button>
       </div>
       <div class="write-warning">
-        <strong>This replaces LEDs, keymaps, and macros.</strong>
-        <p>Keep the USB cable connected until verification finishes. Firmware is not modified.</p>
+        <strong id="write-warning-title">This replaces LEDs, keymaps, and macros.</strong>
+        <p id="write-warning-copy">Keep the USB cable connected until verification finishes. Firmware is not modified.</p>
       </div>
+      <p id="write-target-note" class="dialog-note" hidden></p>
       <p id="write-unlock-note" class="dialog-note" hidden></p>
       <div id="write-summary" class="write-summary"></div>
-      <label class="confirm-label" for="write-confirmation">Type the device ID shown below to confirm</label>
+      <label id="write-confirm-label" class="confirm-label" for="write-confirmation">Type the device ID shown below to confirm</label>
       <div id="write-token" class="confirm-token">—</div>
       <input id="write-confirmation" class="text-field confirm-input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Device ID">
       <p id="write-status" class="write-status" aria-live="polite"></p>
