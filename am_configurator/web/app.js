@@ -26,6 +26,7 @@ const {
   reduceMediaDraft,
 } = LibraryState;
 const {createHubKeymapState,reduceHubKeymapState}=HubKeymapState;
+const {buildQmkPalette,describeQmkKeycode,filterQmkPalette,parseRawQmkCode}=HubKeycodePalette;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
 let activeSourceTransformController = null;
@@ -2529,6 +2530,7 @@ function keymapEditorAdapter() {
       kind:"hub",
       name:profile.identity.family,
       ecosystem:profile.identity.ecosystem,
+      keycodeSpec:profile.identity.protocol?.keycode_spec||null,
       capabilities:profile.capabilities||{},
       layers:profile.keymap.layers,
       layer:documentState.layer,
@@ -2536,12 +2538,18 @@ function keymapEditorAdapter() {
       layout:documentState.layout,
       report:documentState.report,
       worklist:documentState.worklist,
-      readOnly:true,
+      readOnly:false,
       save:saveHubDocument,
       write:null,
       mutate(action){
         state.hubEditor=reduceHubKeymapState(state.hubEditor,action);
         state.dirty=state.hubEditor.dirty;
+        updateMeta();
+      },
+      assignCode(code){
+        state.hubEditor=reduceHubKeymapState(state.hubEditor,{type:"SET_KEY_CODE",code});
+        state.dirty=state.hubEditor.dirty;
+        updateMeta();
       },
       selectLayer(layer){
         state.hubEditor=reduceHubKeymapState(state.hubEditor,{type:"SELECT_LAYER",layer});
@@ -2574,46 +2582,95 @@ function hubCodeLabel(code) {
   return `0x${Number(code).toString(16).toUpperCase().padStart(4,"0")}`;
 }
 
-function renderHubKeyInspector(editor, layer) {
-  if(editor.selected===null)return `<div class="inspector-empty"><div><p class="eyebrow">Nothing selected</p><p>Click a key to inspect its current assignment.</p></div></div>`;
+function hubPaletteOptionMarkup(option,current,disabled){
+  const active=option.code===current;
+  return `<button type="button" class="palette-key assignment-key ${active?'active':''}" data-code="${option.code}" data-search="${esc(`${option.label} ${option.key} ${option.technical}`.toLowerCase())}" title="${esc(`${option.key} · ${option.technical}`)}" ${disabled?'disabled':''}>${esc(option.label)}</button>`;
+}
+
+function renderHubKeyInspector(editor,layer,palette){
+  if(editor.selected===null)return `<div class="inspector-empty"><div><p class="eyebrow">Nothing selected</p><p>Click a key to inspect or change its assignment.</p></div></div>`;
   const item=layer.keys.find(key=>key.key===editor.selected);
   if(!item)return `<div class="inspector-empty"><div><p>The selected key is absent from this layer.</p></div></div>`;
+  const description=describeQmkKeycode(item.code,{palette,keycodeSpec:editor.keycodeSpec});
   const technical=state.showTechnicalLabels;
+  const technicalLabel=description.technical===hubCodeLabel(item.code)
+    ?description.technical
+    :`${description.technical} · ${hubCodeLabel(item.code)}`;
   return `<div class="card-header"><strong>Selected key</strong><small>Layer ${editor.layer+1}${technical?` · ${esc(item.key)}`:""}</small></div><div class="card-body">
-    <div class="selected-code"><div><small class="control-caption">Currently sends</small><br><strong>${hubCodeLabel(item.code)}</strong>${technical?`<br><code>${hubCodeLabel(item.code)}</code>`:""}</div><span class="pill">${esc(editor.ecosystem.toUpperCase())}</span></div>
-    <p class="inspector-help">This live H5a view is read-only. Save the complete hub document now; key assignment editing arrives in the next bounded slice.</p>
+    <div class="selected-code"><div><small class="control-caption">Currently sends</small><br><strong>${esc(description.label)}</strong>${technical?`<br><code>${esc(technicalLabel)}</code>`:""}</div><span class="pill">${esc(editor.ecosystem.toUpperCase())}</span></div>
+    ${description.warning?`<p class="inspector-help hub-keycode-warning">${esc(description.warning)}</p>`:""}
+    <p class="inspector-help">Palette choices update this open hub document immediately. Undo restores the previous document snapshot.</p>
+    <details id="hub-advanced-keycode" class="advanced-disclosure" ${state.advancedKeycodeOpen?"open":""}>
+      <summary>Advanced keycode</summary>
+      <p class="inspector-help">Unknown QMK keycodes and source-firmware custom codes remain editable as exact unsigned 16-bit values.</p>
+      <div class="raw-row"><input id="hub-raw-code" class="text-field" value="${hubCodeLabel(item.code)}" maxlength="6" aria-label="Raw 16-bit QMK keycode"><button id="hub-apply-raw" type="button" class="button ghost">Apply</button></div>
+    </details>
   </div>`;
 }
 
-function renderHubKeymap(editor) {
+function renderHubKeymap(editor){
   const layer=editor.layers.find(candidate=>candidate.index===editor.layer);
   const codes=new Map((layer?.keys||[]).map(key=>[key.key,key.code]));
   const technical=state.showTechnicalLabels;
   const unavailable=!editor.layout.length;
+  const macroBudget=editor.capabilities.macros?.budget||{};
+  const macroSlots=Number.isSafeInteger(macroBudget.slots)
+    ?macroBudget.slots
+    :Number.isSafeInteger(macroBudget.tracks)?macroBudget.tracks:0;
+  const palette=buildQmkPalette({
+    layerIndexes:editor.layers.map(candidate=>candidate.index),
+    macroSlots,
+    keycodeSpec:editor.keycodeSpec,
+  });
+  const current=editor.selected===null?null:codes.get(editor.selected);
+  const categories=palette.filter(category=>category.options.length);
   $("#screen").innerHTML=`
     <div class="screen-shell">
       <header class="screen-header">
-        <div><p class="eyebrow">${esc(editor.name)} · ${esc(editor.ecosystem.toUpperCase())}</p><h1>Keymap</h1><p class="description">Read-only hub document. Geometry comes only from the active keyboard snapshot.</p></div>
+        <div><p class="eyebrow">${esc(editor.name)} · ${esc(editor.ecosystem.toUpperCase())}</p><h1>Keymap</h1><p class="description">Edit the portable hub document. Changes stay local until you save it.</p></div>
         <div class="keymap-header-actions"><button id="toggle-technical-labels" type="button" class="button ghost" aria-pressed="${technical}">${technical?'Hide technical labels':'Show technical labels'}</button><div class="segmented layer-tabs">${editor.layers.map(candidate=>`<button class="${candidate.index===editor.layer?'active':''}" data-layer="${candidate.index}" aria-label="Layer ${candidate.index+1}">${candidate.index+1}</button>`).join("")}</div></div>
       </header>
       <div class="editor-grid">
         <section class="card"><div class="card-header"><strong>Layer ${editor.layer+1}</strong><small>${editor.layout.length} physical keys</small></div><div class="card-body">
           <div class="keyboard-stage generic">
-            ${unavailable?`<div class="inspector-empty"><div><strong>Physical layout unavailable</strong><p>Connect and read the target keyboard to obtain its active layout. Geometry is never stored in a hub file.</p></div></div>`:editor.layout.map(key=>{
+            ${unavailable?`<div class="inspector-empty"><div><strong>Physical layout unavailable</strong><p>Connect and read the target keyboard to obtain its active layout. Geometry is never stored in the hub file.</p></div></div>`:editor.layout.map(key=>{
               const index=key.key;
               const code=codes.get(index)??0;
+              const description=describeQmkKeycode(code,{palette,keycodeSpec:editor.keycodeSpec});
               const originX=key.rotation_x??key.x;
               const originY=key.rotation_y??key.y;
-              return `<button class="keycap ${editor.selected===index?'selected':''}" data-index="${esc(index)}" style="left:${key.x}%;top:${key.y}%;width:${key.width}%;height:${key.height}%;transform:rotate(${key.rotation||0}deg);transform-origin:${originX}% ${originY}%" title="${technical?`${esc(index)} · ${hubCodeLabel(code)}`:hubCodeLabel(code)}">${hubCodeLabel(code)}${technical?`<span>${index}</span>`:''}</button>`;
+              const title=technical?`${index} · ${description.technical} · ${hubCodeLabel(code)}`:description.label;
+              return `<button class="keycap ${editor.selected===index?'selected':''}" data-index="${esc(index)}" style="left:${key.x}%;top:${key.y}%;width:${key.width}%;height:${key.height}%;transform:rotate(${key.rotation||0}deg);transform-origin:${originX}% ${originY}%" title="${esc(title)}">${esc(description.label)}${technical?`<span>${esc(description.technical)}</span>`:''}</button>`;
             }).join("")}
           </div>
-          <div class="assignment-palette"><p class="inspector-help">Generic key assignment controls are intentionally held for H5b. Reading and saving this document never writes the keyboard.</p></div>
+          <section class="assignment-panel" aria-label="Available QMK assignments">
+            <div class="assignment-heading"><div><strong>Available assignments</strong><small>${editor.selected===null?'Select a key first.':`Assigning ${esc(editor.selected)}`}</small></div><input id="hub-key-search" class="search-field" type="search" placeholder="Filter keys" aria-label="Filter available QMK assignments"></div>
+            <div class="assignment-groups hub-assignment-groups">
+              ${categories.map(category=>`<div class="assignment-section" data-hub-palette-category="${category.id}"><p class="control-label">${esc(category.label)}</p><div class="assignment-grid">${category.options.map(option=>hubPaletteOptionMarkup(option,current,editor.selected===null)).join("")}</div></div>`).join("")}
+            </div>
+          </section>
         </div></section>
-        <aside class="card inspector">${renderHubKeyInspector(editor,layer||{keys:[]})}</aside>
+        <aside class="card inspector">${renderHubKeyInspector(editor,layer||{keys:[]},palette)}</aside>
       </div>
     </div>`;
   $$('[data-layer]').forEach(button=>button.addEventListener('click',()=>{editor.selectLayer(Number(button.dataset.layer));renderKeymap();restoreFocus(`[data-layer="${button.dataset.layer}"]`);}));
   $$('.keycap').forEach(button=>button.addEventListener('click',()=>{editor.selectKey(button.dataset.index);renderKeymap();restoreFocus(`.keycap[data-index="${button.dataset.index}"]`);}));
+  $$('.palette-key').forEach(button=>button.addEventListener('click',()=>{editor.assignCode(Number(button.dataset.code));renderKeymap();restoreFocus(`.palette-key[data-code="${button.dataset.code}"]`);}));
+  $("#hub-key-search")?.addEventListener("input",event=>{
+    const visibleCodes=new Set(filterQmkPalette(palette,event.currentTarget.value).flatMap(category=>category.options.map(option=>String(option.code))));
+    $$(".palette-key").forEach(button=>{button.hidden=!visibleCodes.has(button.dataset.code);});
+    $$('[data-hub-palette-category]').forEach(section=>{section.hidden=!section.querySelector('.palette-key:not([hidden])');});
+  });
+  $("#hub-advanced-keycode")?.addEventListener("toggle",event=>{state.advancedKeycodeOpen=event.currentTarget.open;});
+  const assignRawCode=()=>{
+    try{
+      editor.assignCode(parseRawQmkCode($("#hub-raw-code").value));
+      renderKeymap();
+      restoreFocus("#hub-raw-code");
+    }catch(error){toast("Invalid QMK keycode",error.message||String(error),"error");}
+  };
+  $("#hub-apply-raw")?.addEventListener("click",assignRawCode);
+  $("#hub-raw-code")?.addEventListener("keydown",event=>{if(event.key==="Enter")assignRawCode();});
   $("#toggle-technical-labels").addEventListener("click",()=>{state.showTechnicalLabels=!state.showTechnicalLabels;renderKeymap();restoreFocus("#toggle-technical-labels");});
 }
 

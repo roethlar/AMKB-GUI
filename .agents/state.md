@@ -68,11 +68,18 @@
   The Devices dialog lists AM, Vial, and VIA interfaces without cross-ecosystem
   deduplication, requires a user-imported definition before VIA read, and adopts
   same-snapshot geometry. Canonical authenticated hub open/save uses the Python
-  loader/dumper; every new hardware route is read-only. Full landing verification
-  passed 725 Python and 195 web tests, compile/JavaScript checks, and package build.
-  No browser runtime was available for an additional interactive smoke pass. H5b
-  (portable generic keycode palette and document-only assignment editing) awaits
-  its own explicit go. H7 is the queued branding overhaul,
+ loader/dumper; every new H5a hardware route is read-only. H5b is also complete:
+ its separately tested portable QMK palette is curated from the pinned H0 survey,
+ filters by reported keycode spec and exact target layer/macro capabilities, and
+ applies generic palette/raw assignments through one document undo checkpoint.
+ Unknown and per-board 16-bit codes remain exact through Advanced; generic save
+ stays canonical `.hub.json`; AM assignment/history behavior is unchanged. H5b
+ adds no hardware route, preflight, or setter. Full landing verification passed
+ 725 Python and 204 web tests, compile/JavaScript checks, and package build. A live
+ in-app browser smoke covered palette/raw assignment, filtering, focus restoration,
+ custom-code warning/undo, layer selection bounds, and the disabled Write action.
+ H5c (overlay resolution and first-class worklist UI) awaits its own explicit go.
+ H7 is the queued branding overhaul,
   which the owner ruled is a
   repositioning rather than a rename. The canonical scope and sequence live in
   `docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`. Public

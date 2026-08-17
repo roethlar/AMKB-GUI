@@ -255,8 +255,8 @@ close H3a/H3b as fixture-backed only and leave H3c open.
 ### H5 implementation contract — one editor, honest overlay worklist
 
 Status: bounded planning was authorized by the owner on 2026-08-16. The owner
-subsequently authorized H5a implementation, which landed in this commit. H5b
-and every later H5 slice still require their own explicit go.
+subsequently authorized H5a and H5b implementation; both are complete. H5c and
+every later H5 slice still require their own explicit go.
 
 H5 extends the existing Keymap workspace rather than introducing a second
 configurator. The board stays the primary surface, the assignment palette stays
@@ -331,6 +331,20 @@ interactive smoke pass was recorded.
    and no hardware setter during every H5a route.
 
 #### H5b — board, layers, and keycode palette
+
+Landing evidence (2026-08-16): complete. `hub_keycode_palette.js` provides a
+separately tested portable QMK vocabulary curated from the pinned H0 survey,
+including target-indexed layer controls and target macro slots, with reported
+keycode-spec filtering and no invented `QK_KB`/`QK_USER` values. The shared
+Keymap adapter applies palette and Advanced/raw 16-bit assignments through the
+immutable hub reducer, one checkpoint per change; generic undo/redo and
+canonical `.hub.json` save remain document-only while AM assignment and history
+stay unchanged. Unknown and per-board codes remain exact and visibly warned.
+Verification passed 725 Python tests, 204 web tests, compile/JavaScript checks,
+and `uv build`; the new tests first failed before the palette/editor wiring. A
+live in-app browser smoke covered palette/raw assignment, filtering, focus,
+custom-code warning/undo, layer bounds, and the disabled Write action. No H5b
+hardware route, preflight, or setter was added.
 
 1. Reuse the current board-first Keymap layout. Generic keys render from the
    H5a geometry by canonical identity rather than AM flat index. Layer tabs,

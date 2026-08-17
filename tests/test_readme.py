@@ -129,6 +129,8 @@ def interface_copy() -> str:
         "lighting_targets.js",
         "lighting_composer.js",
         "library_state.js",
+        "hub_keycode_palette.js",
+        "hub_keymap_state.js",
     ):
         text = (WEB / name).read_text(encoding="utf-8")
         if name.endswith(".html"):

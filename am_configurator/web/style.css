@@ -341,6 +341,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .assignment-section .control-label { margin-bottom: 7px; }
 .assignment-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 5px; }
 .palette-empty { display: block; padding: 10px 0; }
+.hub-keycode-warning { color: var(--amber); }
 
 .macro-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 18px; }
 .macro-list { overflow: hidden; }

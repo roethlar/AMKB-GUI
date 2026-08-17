@@ -171,3 +171,19 @@ test("replacing a profile is one undoable document checkpoint", () => {
   assert.equal(changed.dirty, true);
   assert.equal(reduceHubKeymapState(changed, {type: "UNDO"}).profile.keymap.layers[0].keys[0].code, 0x0004);
 });
+
+test("unknown 16-bit codes survive selection, save, assignment, and undo", () => {
+  const source = profile();
+  source.keymap.layers[0].keys[0].code = 0xffff;
+  const initial = createHubKeymapState({profile: source, layout: layout(), target: target()});
+  const selected = reduceHubKeymapState(initial, {type: "SELECT_KEY", key: "K_R0_C0"});
+  const saved = reduceHubKeymapState(selected, {type: "MARK_SAVED"});
+  const changed = reduceHubKeymapState(saved, {type: "SET_KEY_CODE", code: 0x7f34});
+  const restored = reduceHubKeymapState(changed, {type: "UNDO"});
+
+  assert.equal(saved.profile.keymap.layers[0].keys[0].code, 0xffff);
+  assert.equal(changed.profile.keymap.layers[0].keys[0].code, 0x7f34);
+  assert.equal(changed.undo.length, 1);
+  assert.equal(restored.profile.keymap.layers[0].keys[0].code, 0xffff);
+  assert.equal(restored.dirty, false);
+});

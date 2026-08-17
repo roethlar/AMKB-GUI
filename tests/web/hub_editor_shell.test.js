@@ -10,11 +10,16 @@ const html = fs.readFileSync(path.join(root, "am_configurator/web/index.html"), 
 const js = fs.readFileSync(path.join(root, "am_configurator/web/app.js"), "utf8");
 const server = fs.readFileSync(path.join(root, "am_configurator/server.py"), "utf8");
 
-test("the pure hub reducer loads before the application adapter", () => {
+test("the pure hub modules load before the application adapter", () => {
+  const palette = html.indexOf('<script src="/hub_keycode_palette.js"></script>');
   const reducer = html.indexOf('<script src="/hub_keymap_state.js"></script>');
   const app = html.indexOf('<script src="/app.js"></script>');
+  assert.ok(palette > 0);
+  assert.ok(palette < app);
   assert.ok(reducer > 0);
   assert.ok(reducer < app);
+  assert.match(server, /"\/hub_keycode_palette\.js": "hub_keycode_palette\.js"/);
+  assert.match(js, /const \{buildQmkPalette,describeQmkKeycode,filterQmkPalette,parseRawQmkCode\}=HubKeycodePalette/);
   assert.match(js, /const \{createHubKeymapState,reduceHubKeymapState\}=HubKeymapState/);
 });
 
@@ -27,7 +32,38 @@ test("one keymap adapter projects AM and generic hub documents", () => {
   assert.match(adapter, /activeLayout\(\)/);
   assert.match(adapter, /layers\(\)/);
   assert.match(adapter, /reduceHubKeymapState/);
+  assert.match(adapter, /type:"SET_KEY_CODE",code/);
   assert.match(js, /const editor=keymapEditorAdapter\(\)/);
+});
+
+test("generic key assignment is immediate, focus-safe, and document-only", () => {
+  const generic = js.slice(
+    js.indexOf("function renderHubKeyInspector"),
+    js.indexOf("function renderKeymap"),
+  );
+
+  assert.match(generic, /buildQmkPalette/);
+  assert.match(generic, /filterQmkPalette/);
+  assert.match(generic, /editor\.assignCode\(Number\(button\.dataset\.code\)\)/);
+  assert.match(generic, /restoreFocus\(`\.palette-key\[data-code="\$\{button\.dataset\.code\}"\]`\)/);
+  assert.match(generic, /<details id="hub-advanced-keycode"/);
+  assert.match(generic, /parseRawQmkCode/);
+  assert.match(generic, /Unknown QMK keycode/);
+  assert.doesNotMatch(generic, /\/api\/hub\/(?:vial|via)\/(?:preflight|write)|editor\.write\(/i);
+});
+
+test("generic save and history stay separate from AM assignment validation", () => {
+  assert.match(js, /\/api\/hub\/save/);
+  assert.match(js, /type:"MARK_SAVED"/);
+  assert.match(js, /state\.hubEditor=reduceHubKeymapState\(state\.hubEditor,\{type:"UNDO"\}\)/);
+  assert.match(js, /state\.hubEditor=reduceHubKeymapState\(state\.hubEditor,\{type:"REDO"\}\)/);
+
+  const amAssignment = js.slice(
+    js.indexOf("async function assignSelected"),
+    js.indexOf("function macroCapacity"),
+  );
+  assert.match(amAssignment, /\/api\/keymap\/assignment/);
+  assert.match(amAssignment, /mutate\(\(\)\s*=>\s*\{\s*layers\(\)\[layerIndex\]\.layer\[selected\]\s*=\s*normalized;\s*\}\)/);
 });
 
 test("device discovery keeps AM, Vial, and VIA candidates explicit", () => {
