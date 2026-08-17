@@ -1281,14 +1281,15 @@ body {
 
   .command-groups {
     justify-content: flex-start;
-    overflow-x: auto;
+    flex-wrap: wrap;
+    overflow-x: visible;
     padding-bottom: 2px;
-    scrollbar-width: thin;
   }
 
   .document-actions,
   .hardware-actions {
     flex: 0 0 auto;
+    width: auto;
   }
 
   .workspace {

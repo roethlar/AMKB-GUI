@@ -42,6 +42,20 @@ test("OpenKeeb workbench tokens are structural and responsive", () => {
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
+test("the minimum supported viewport keeps keyboard actions visible", () => {
+  const responsiveStart = css.lastIndexOf("@media (max-width: 1000px)");
+  const minimumViewport = css.slice(
+    responsiveStart,
+    css.indexOf("@media (max-width: 720px)", responsiveStart),
+  );
+
+  assert.match(minimumViewport, /\.command-groups \{[^}]*flex-wrap:\s*wrap;/);
+  assert.match(
+    minimumViewport,
+    /\.document-actions,\s*\.hardware-actions \{[^}]*width:\s*auto;/,
+  );
+});
+
 test("every work surface uses the ecosystem-aware workbench hierarchy", () => {
   assert.ok((js.match(/class="screen-header workbench-header"/g) || []).length >= 3);
   assert.match(js, /class="ecosystem-badge"/);
