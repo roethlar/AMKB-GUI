@@ -1114,19 +1114,52 @@ def open_via_read(
 
 
 _VIA_APPROVAL_TOKEN = object()
-_VIA_APPROVED_COMMANDS = _VIA_READ_ONLY_COMMANDS | frozenset({0x05, 0x0F, 0x13})
-
-
 class _ViaApprovedSession(_RawSession):
     """Endpoint-approved VIA session with a closed command allowlist."""
+
+    def __init__(
+        self,
+        path: bytes,
+        *,
+        endpoint_source=None,
+        allow_keymap: bool = False,
+        allow_macros: bool = False,
+        lighting_gets: Iterable[tuple[int, ...]] = (),
+        lighting_sets: Iterable[tuple[int, ...]] = (),
+        lighting_saves: Iterable[tuple[int, ...]] = (),
+    ) -> None:
+        super().__init__(path, endpoint_source=endpoint_source)
+        approved_commands = set(_VIA_READ_ONLY_COMMANDS)
+        if allow_keymap:
+            approved_commands.update({0x05, 0x13})
+        if allow_macros:
+            approved_commands.add(0x0F)
+        self._approved_commands = frozenset(approved_commands)
+        self._lighting_gets = tuple(bytes(prefix) for prefix in lighting_gets)
+        self._lighting_sets = tuple(bytes(prefix) for prefix in lighting_sets)
+        self._lighting_saves = tuple(bytes(suffix) for suffix in lighting_saves)
 
     def send(self, payload: bytes) -> None:
         if not payload:
             raise HidError("An empty raw-HID request is not valid.")
-        if payload[0] not in _VIA_APPROVED_COMMANDS:
+        command = payload[0]
+        allowed = command in self._approved_commands
+        if command == 0x08:
+            allowed = any(
+                payload[1 : 1 + len(prefix)] == prefix
+                for prefix in self._lighting_gets
+            )
+        elif command == 0x07:
+            allowed = any(
+                payload[1 : 1 + len(prefix)] == prefix
+                for prefix in self._lighting_sets
+            )
+        elif command == 0x09:
+            allowed = any(payload[1:] == suffix for suffix in self._lighting_saves)
+        if not allowed:
             raise HidError(
-                f"Refusing raw-HID command 0x{payload[0]:02X}: "
-                "not approved for a VIA keymap/macro write."
+                f"Refusing raw-HID command 0x{command:02X}: "
+                "not approved for this VIA write."
             )
         super().send(payload)
 
@@ -1190,7 +1223,15 @@ def approve_via_write(
     )
 
 
-def open_via_approved(approval: ViaWriteApproval) -> _ViaApprovedSession:
+def open_via_approved(
+    approval: ViaWriteApproval,
+    *,
+    allow_keymap: bool = False,
+    allow_macros: bool = False,
+    lighting_gets: Iterable[tuple[int, ...]] = (),
+    lighting_sets: Iterable[tuple[int, ...]] = (),
+    lighting_saves: Iterable[tuple[int, ...]] = (),
+) -> _ViaApprovedSession:
     """Open the exact approved endpoint and keep its handle for reproof/write."""
 
     if approval.token is not _VIA_APPROVAL_TOKEN:
@@ -1217,7 +1258,15 @@ def open_via_approved(approval: ViaWriteApproval) -> _ViaApprovedSession:
     )
     if not any(_same_via_endpoint(entry, expected) for entry in via_endpoints()):
         raise HidIdentityError("The approved VIA endpoint no longer matches.")
-    session = _ViaApprovedSession(approval.path, endpoint_source=via_endpoints)
+    session = _ViaApprovedSession(
+        approval.path,
+        endpoint_source=via_endpoints,
+        allow_keymap=allow_keymap,
+        allow_macros=allow_macros,
+        lighting_gets=lighting_gets,
+        lighting_sets=lighting_sets,
+        lighting_saves=lighting_saves,
+    )
     session.__enter__()
     return session
 
@@ -1267,6 +1316,61 @@ def open_approved(approval: WriteApproval) -> _RawSession:
 
 
 _VIAL_APPROVAL_TOKEN = object()
+class _VialApprovedSession(_RawSession):
+    """Approved generic Vial session with exact lighting command prefixes."""
+
+    def __init__(
+        self,
+        path: bytes,
+        *,
+        endpoint_source=None,
+        allow_keymap: bool = False,
+        allow_macros: bool = False,
+        lighting_gets: Iterable[tuple[int, ...]] = (),
+        lighting_sets: Iterable[tuple[int, ...]] = (),
+        lighting_saves: Iterable[tuple[int, ...]] = (),
+    ) -> None:
+        super().__init__(path, endpoint_source=endpoint_source)
+        approved_commands = set(_VIA_READ_ONLY_COMMANDS)
+        approved_subcommands = set(_VIAL_READ_ONLY)
+        if allow_keymap:
+            approved_commands.add(0x13)
+        if allow_macros:
+            approved_commands.add(0x0F)
+        if allow_keymap or allow_macros:
+            approved_subcommands.update({0x06, 0x07})
+        self._approved_commands = frozenset(approved_commands)
+        self._approved_subcommands = frozenset(approved_subcommands)
+        self._lighting_gets = tuple(bytes(prefix) for prefix in lighting_gets)
+        self._lighting_sets = tuple(bytes(prefix) for prefix in lighting_sets)
+        self._lighting_saves = tuple(bytes(suffix) for suffix in lighting_saves)
+
+    def send(self, payload: bytes) -> None:
+        if not payload:
+            raise HidError("An empty raw-HID request is not valid.")
+        command = payload[0]
+        if command == _VIAL_PREFIX:
+            allowed = len(payload) >= 2 and payload[1] in self._approved_subcommands
+        else:
+            allowed = command in self._approved_commands
+        if command == 0x08:
+            allowed = any(
+                payload[1 : 1 + len(prefix)] == prefix
+                for prefix in self._lighting_gets
+            )
+        elif command == 0x07:
+            allowed = any(
+                payload[1 : 1 + len(prefix)] == prefix
+                for prefix in self._lighting_sets
+            )
+        elif command == 0x09:
+            allowed = any(payload[1:] == suffix for suffix in self._lighting_saves)
+        if not allowed:
+            raise HidError(
+                f"Refusing raw-HID command 0x{command:02X}: "
+                "not approved for this Vial write."
+            )
+        super().send(payload)
 
 
 @dataclass(frozen=True)
@@ -1281,6 +1385,7 @@ class VialWriteApproval:
     protocol_version: int
     definition_hash: str
     token: object = None
+    feature_flags: int = 0
 
 
 def approve_vial_write(
@@ -1302,23 +1407,41 @@ def approve_vial_write(
         protocol_version=info.protocol_version,
         definition_hash=info.definition_hash,
         token=_VIAL_APPROVAL_TOKEN,
+        feature_flags=info.feature_flags,
     )
 
 
-def open_vial_approved(approval: VialWriteApproval) -> _RawSession:
+def open_vial_approved(
+    approval: VialWriteApproval,
+    *,
+    allow_keymap: bool = False,
+    allow_macros: bool = False,
+    lighting_gets: Iterable[tuple[int, ...]] = (),
+    lighting_sets: Iterable[tuple[int, ...]] = (),
+    lighting_saves: Iterable[tuple[int, ...]] = (),
+) -> _VialApprovedSession:
     """Open an approved generic Vial endpoint and re-prove it on that handle."""
     if approval.token is not _VIAL_APPROVAL_TOKEN:
         raise HidIdentityError("This Vial write approval was not issued here.")
     if approval.confirmation != approval.name:
         raise HidIdentityError("The typed confirmation does not match the board name.")
-    session = _RawSession(approval.path, endpoint_source=vial_endpoints)
+    session = _VialApprovedSession(
+        approval.path,
+        endpoint_source=vial_endpoints,
+        allow_keymap=allow_keymap,
+        allow_macros=allow_macros,
+        lighting_gets=lighting_gets,
+        lighting_sets=lighting_sets,
+        lighting_saves=lighting_saves,
+    )
     session.__enter__()
     try:
-        protocol, uid, _feature_flags = fetch_keyboard_uid(session._require())
+        protocol, uid, feature_flags = fetch_keyboard_uid(session._require())
         definition = fetch_definition(session._require())
         if (
             protocol != approval.protocol_version
             or uid != approval.firmware_uid
+            or feature_flags != approval.feature_flags
             or str(definition.get("name") or "").strip() != approval.name
             or definition_fingerprint(definition) != approval.definition_hash
             or endpoint_address(approval.path) != approval.address

@@ -58,6 +58,12 @@ class FakeViaState:
             via_lighting.QMK_RGBLIGHT_COLOR: (33, 44),
         }
         self.per_key_lighting = {2: (12, 22), 4: (14, 24)}
+        self.lighting_sets = 0
+        self.lighting_saves = 0
+        self.fail_lighting_set_number: int | None = None
+        self.fail_lighting_save = False
+        self.fail_lighting_read_after_set = False
+        self.ignore_lighting_sets = False
 
     def answer(self, packet: bytes) -> bytes:
         command = packet[0]
@@ -123,6 +129,8 @@ class FakeViaState:
             self.macro_bytes_written += size
             return packet[:4]
         if command == via_lighting.CMD_LIGHTING_GET_VALUE:
+            if self.fail_lighting_read_after_set and self.lighting_sets:
+                raise OSError("fake lost lighting read-back reply")
             if packet[1] in self.legacy_lighting_values:
                 return packet[:2] + bytes(self.legacy_lighting_values[packet[1]])
             channel, lighting_command = packet[1:3]
@@ -133,6 +141,40 @@ class FakeViaState:
                 return packet[:5] + bytes(self.per_key_lighting[led_index])
             value = self.lighting_values[(channel, lighting_command)]
             return packet[:3] + bytes(value)
+        if command == via_lighting.CMD_LIGHTING_SET_VALUE:
+            if not self.ignore_lighting_sets:
+                if packet[1] in self.legacy_lighting_values:
+                    size = (
+                        2
+                        if packet[1] == via_lighting.QMK_RGBLIGHT_COLOR
+                        else 1
+                    )
+                    self.legacy_lighting_values[packet[1]] = tuple(
+                        packet[2 : 2 + size]
+                    )
+                else:
+                    channel, lighting_command = packet[1:3]
+                    if (channel, lighting_command) == (0, 1):
+                        led_index, count = packet[3:5]
+                        if count != 1:
+                            raise AssertionError(
+                                "unexpected VIA per-key setter count"
+                            )
+                        self.per_key_lighting[led_index] = tuple(packet[5:7])
+                    else:
+                        size = 2 if lighting_command == 4 else 1
+                        self.lighting_values[(channel, lighting_command)] = tuple(
+                            packet[3 : 3 + size]
+                        )
+            self.lighting_sets += 1
+            if self.fail_lighting_set_number == self.lighting_sets:
+                raise OSError("fake lost lighting setter reply")
+            return packet[:3]
+        if command == via_lighting.CMD_LIGHTING_SAVE:
+            self.lighting_saves += 1
+            if self.fail_lighting_save:
+                raise OSError("fake lost lighting save reply")
+            return packet[:2]
         raise AssertionError(f"unexpected VIA command 0x{command:02X}")
 
 
@@ -487,6 +529,34 @@ class GenericViaTransportTests(unittest.TestCase):
             self.address, self.definition, profile
         )
 
+    def _rgb_matrix_definition(self) -> dict:
+        definition = copy.deepcopy(self.definition)
+        definition["menus"] = ["qmk_rgb_matrix"]
+        for row in definition["layouts"]["keymap"]:
+            for index, entry in enumerate(row):
+                if not isinstance(entry, str) or entry.split("\n")[0] != "0,0":
+                    continue
+                labels = entry.split("\n")
+                while len(labels) < 2:
+                    labels.append("")
+                labels[1] = "l4"
+                row[index] = "\n".join(labels)
+                return definition
+        raise AssertionError("fixture has no K_R0_C0 key")
+
+    def _prepared_channel_lighting(self, **changes: int):
+        definition = self._rgb_matrix_definition()
+        self.state.protocol = 11
+        self.state.macro_count = 0
+        self.state.macro_buffer = bytearray()
+        profile = via_transport.read_hub_profile(self.address, definition)
+        profile.pop("keymap")
+        profile.pop("macros")
+        profile["provenance"].pop("/keymap")
+        profile["provenance"].pop("/macros")
+        profile["lighting"]["surfaces"][0].update(changes)
+        return via_transport.prepare_write(self.address, definition, profile)
+
     def test_discovery_is_shallow_and_keeps_same_model_endpoints_distinct(self) -> None:
         devices = via_transport.list_devices()
         self.assertEqual(2, len(devices))
@@ -583,6 +653,159 @@ class GenericViaTransportTests(unittest.TestCase):
         self.assertFalse(
             {via_lighting.CMD_LIGHTING_SET_VALUE, via_lighting.CMD_LIGHTING_SAVE}
             & {packet[0] for _path, packet in self.backend.commands}
+        )
+
+    def test_confirmed_channel_lighting_write_reads_back_then_saves_once(self) -> None:
+        prepared = self._prepared_channel_lighting(brightness=201)
+
+        self.assertEqual(1, len(prepared.lighting_plan.commands))
+        self.assertEqual((3,), prepared.lighting_plan.save_channels)
+        self.assertIsNone(prepared.plan.keymap_buffer)
+        self.assertIsNone(prepared.plan.macro_buffer)
+        self.assertRegex(prepared.target_fingerprint, r"^sha256-[0-9a-f]{64}$")
+        self.backend.commands.clear()
+
+        receipt = via_transport.execute_write(
+            prepared,
+            confirmation=prepared.confirmation,
+        )
+
+        self.assertEqual(1, receipt.lighting_changes)
+        self.assertEqual(1, receipt.lighting_saves)
+        self.assertEqual(1, self.state.lighting_sets)
+        self.assertEqual(1, self.state.lighting_saves)
+        lighting_packets = [
+            packet
+            for _path, packet in self.backend.commands
+            if packet[0]
+            in {
+                via_lighting.CMD_LIGHTING_SET_VALUE,
+                via_lighting.CMD_LIGHTING_GET_VALUE,
+                via_lighting.CMD_LIGHTING_SAVE,
+            }
+        ]
+        setter = next(
+            index
+            for index, packet in enumerate(lighting_packets)
+            if packet[0] == via_lighting.CMD_LIGHTING_SET_VALUE
+        )
+        save = next(
+            index
+            for index, packet in enumerate(lighting_packets)
+            if packet[0] == via_lighting.CMD_LIGHTING_SAVE
+        )
+        self.assertTrue(
+            any(
+                packet[0] == via_lighting.CMD_LIGHTING_GET_VALUE
+                for packet in lighting_packets[setter + 1 : save]
+            )
+        )
+
+    def test_lighting_failures_keep_possible_setter_and_save_counts(self) -> None:
+        cases = (
+            ("mismatch", {"brightness": 201}, "ignore_lighting_sets", True, 1, 0),
+            (
+                "readback",
+                {"brightness": 201},
+                "fail_lighting_read_after_set",
+                True,
+                1,
+                0,
+            ),
+            (
+                "partial",
+                {"brightness": 201, "speed": 78},
+                "fail_lighting_set_number",
+                2,
+                2,
+                0,
+            ),
+            ("save", {"brightness": 201}, "fail_lighting_save", True, 1, 1),
+        )
+        for name, changes, flag, value, expected_changes, expected_saves in cases:
+            with self.subTest(name=name):
+                prepared = self._prepared_channel_lighting(**changes)
+                setattr(self.state, flag, value)
+                self.backend.commands.clear()
+
+                with self.assertRaises(via_transport.ViaAcceptedWriteError) as caught:
+                    via_transport.execute_write(
+                        prepared,
+                        confirmation=prepared.confirmation,
+                    )
+
+                self.assertEqual(expected_changes, caught.exception.lighting_changes)
+                self.assertEqual(expected_saves, caught.exception.lighting_saves)
+                self.state.lighting_values[(3, 1)] = (200,)
+                self.state.lighting_values[(3, 3)] = (77,)
+                self.state.ignore_lighting_sets = False
+                self.state.fail_lighting_read_after_set = False
+                self.state.fail_lighting_set_number = None
+                self.state.fail_lighting_save = False
+                self.state.lighting_sets = 0
+                self.state.lighting_saves = 0
+
+    def test_per_key_write_uses_only_declared_led_index_and_channel_zero(self) -> None:
+        definition = self._rgb_matrix_definition()
+        self.state.protocol = 11
+        self.state.macro_count = 0
+        self.state.macro_buffer = bytearray()
+        profile = via_transport.read_hub_profile(self.address, definition)
+        profile["lighting"]["surfaces"][0]["per_key"]["K_R0_C0"] = [99, 88]
+        prepared = via_transport.prepare_write(self.address, definition, profile)
+
+        command = prepared.lighting_plan.commands[0]
+        self.assertEqual(
+            (0, 1, bytes([4, 1, 99, 88])),
+            (command.channel, command.command, command.payload),
+        )
+        self.assertEqual((0,), prepared.lighting_plan.save_channels)
+        self.backend.commands.clear()
+
+        receipt = via_transport.execute_write(
+            prepared,
+            confirmation=prepared.confirmation,
+        )
+
+        self.assertEqual((99, 88), self.state.per_key_lighting[4])
+        self.assertEqual(1, receipt.lighting_changes)
+        self.assertEqual(1, receipt.lighting_saves)
+        setters = [
+            packet
+            for _path, packet in self.backend.commands
+            if packet[0] == via_lighting.CMD_LIGHTING_SET_VALUE
+        ]
+        self.assertEqual(bytes([0x07, 0, 1, 4, 1, 99, 88]), setters[0][:7])
+
+    def test_per_key_readback_mismatch_stops_before_save(self) -> None:
+        definition = self._rgb_matrix_definition()
+        self.state.protocol = 11
+        self.state.macro_count = 0
+        self.state.macro_buffer = bytearray()
+        profile = via_transport.read_hub_profile(self.address, definition)
+        profile.pop("keymap")
+        profile.pop("macros")
+        profile["provenance"].pop("/keymap")
+        profile["provenance"].pop("/macros")
+        profile["lighting"]["surfaces"][0]["per_key"]["K_R0_C0"] = [99, 88]
+        prepared = via_transport.prepare_write(self.address, definition, profile)
+        self.state.ignore_lighting_sets = True
+        self.backend.commands.clear()
+
+        with self.assertRaises(via_transport.ViaAcceptedWriteError) as caught:
+            via_transport.execute_write(
+                prepared,
+                confirmation=prepared.confirmation,
+            )
+
+        self.assertEqual(1, caught.exception.lighting_changes)
+        self.assertEqual(0, caught.exception.lighting_saves)
+        self.assertEqual(0, self.state.lighting_saves)
+        self.assertFalse(
+            any(
+                packet[0] == via_lighting.CMD_LIGHTING_SAVE
+                for _path, packet in self.backend.commands
+            )
         )
 
     def test_hostile_via_led_indexes_stop_before_any_lighting_get(self) -> None:
@@ -849,7 +1072,20 @@ class GenericViaTransportTests(unittest.TestCase):
         session = hid_transport.open_via_approved(approval)
         self.backend.commands.clear()
         try:
-            for command in (0x03, 0x0A, 0x0B, 0x10, 0x15, 0x99):
+            for command in (
+                0x03,
+                0x05,
+                0x07,
+                0x08,
+                0x09,
+                0x0A,
+                0x0B,
+                0x0F,
+                0x10,
+                0x13,
+                0x15,
+                0x99,
+            ):
                 with self.subTest(command=command):
                     with self.assertRaises(hid_transport.HidError):
                         session.send(bytes([command]))
@@ -1020,6 +1256,13 @@ class GenericViaTransportTests(unittest.TestCase):
                     preflight["confirmation"],
                 )
                 self.assertEqual(48, preflight["keymap_bytes"])
+                self.assertEqual(0, preflight["lighting_changes"])
+                self.assertEqual(0, preflight["lighting_saves"])
+                self.assertIsNone(preflight["lighting_backup"])
+                self.assertRegex(
+                    preflight["target_fingerprint"],
+                    r"^sha256-[0-9a-f]{64}$",
+                )
                 self.assertTrue(preflight["matches_target"])
 
                 self.backend.commands.clear()
@@ -1053,6 +1296,8 @@ class GenericViaTransportTests(unittest.TestCase):
                 self.assertTrue(accepted_error["accepted"])
                 self.assertEqual(48, accepted_error["keymap_bytes"])
                 self.assertEqual(12, accepted_error["macro_bytes"])
+                self.assertEqual(0, accepted_error["lighting_changes"])
+                self.assertEqual(0, accepted_error["lighting_saves"])
 
                 self.backend.commands.clear()
                 status, verification = request(

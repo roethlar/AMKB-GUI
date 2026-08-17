@@ -9,12 +9,15 @@ buffer limits, complete Vial's physical unlock, then transmit and read back.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, replace
+import hashlib
 from typing import Any
 
 from . import (
     hid_transport,
     hub_lighting,
+    hub_profile,
     hub_vial,
     vial_keymap,
     vial_lighting,
@@ -36,10 +39,20 @@ class VialTransportError(ValueError):
 class VialAcceptedWriteError(RuntimeError):
     """A device accepted bytes before a later write/read-back failure."""
 
-    def __init__(self, message: str, *, keymap_bytes: int, macro_bytes: int) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        keymap_bytes: int,
+        macro_bytes: int,
+        lighting_changes: int = 0,
+        lighting_saves: int = 0,
+    ) -> None:
         super().__init__(message)
         self.keymap_bytes = keymap_bytes
         self.macro_bytes = macro_bytes
+        self.lighting_changes = lighting_changes
+        self.lighting_saves = lighting_saves
 
 
 @dataclass(frozen=True)
@@ -49,6 +62,10 @@ class PreparedVialWrite:
     endpoint: hid_transport.VialDeviceInfo
     target: hub_vial.VialSnapshot
     plan: hub_vial.VialWritePlan
+    lighting_plan: vial_lighting.VialLightingWritePlan
+    lighting_backup: dict[str, Any] | None
+    target_fingerprint: str
+    report: dict[str, Any]
     unlock_status: vial_keymap.UnlockStatus
 
     @property
@@ -72,6 +89,8 @@ class VialWriteReceipt:
 
     keymap_bytes: int
     macro_bytes: int
+    lighting_changes: int
+    lighting_saves: int
     report: dict[str, Any]
 
 
@@ -469,11 +488,23 @@ def prepare_write(address: str, profile: object) -> PreparedVialWrite:
     endpoint = hid_transport.find_vial(address)
     target = _read_snapshot(endpoint)
     unlock_status = _read_unlock_status(endpoint)
-    plan = hub_vial.plan_vial_write(profile, target=target)
+    validated = hub_profile.validate_hub_profile(profile)
+    target_profile = hub_vial.build_hub_profile(target)
+    plan = hub_vial.plan_vial_write(validated, target=target)
+    lighting_plan = vial_lighting.plan_write(validated, target_profile)
+    fingerprint = "sha256-" + hashlib.sha256(
+        hub_profile.dumps_hub_profile(target_profile).encode("utf-8")
+    ).hexdigest()
+    report = copy.deepcopy(plan.report)
+    report["items"].extend(copy.deepcopy(lighting_plan.items))
     return PreparedVialWrite(
         endpoint=endpoint,
         target=target,
         plan=plan,
+        lighting_plan=lighting_plan,
+        lighting_backup=copy.deepcopy(target_profile.get("lighting")),
+        target_fingerprint=fingerprint,
+        report=report,
         unlock_status=unlock_status,
     )
 
@@ -486,6 +517,7 @@ def write_matches_target(prepared: PreparedVialWrite) -> bool:
     return (
         (keymap is None or keymap == prepared.target.keymap_buffer)
         and (macros is None or macros == prepared.target.macro_buffer)
+        and not prepared.lighting_plan.commands
     )
 
 
@@ -526,6 +558,7 @@ def _matches_target(
         and info.name == target.name
         and info.firmware_uid == target.firmware_uid
         and info.protocol_version == target.vial_protocol
+        and info.feature_flags == target.feature_flags
         and info.definition_hash == target.definition_hash
     )
 
@@ -559,8 +592,8 @@ def _revalidate_limits(
     macros = prepared.plan.macro_buffer
     if macros is not None and len(macros) != capacity.buffer_bytes:
         raise VialTransportError("The planned macro buffer no longer fits the target.")
-    if keymap is None and macros is None:
-        raise VialTransportError("The hub profile has no Vial keymap or macro data to write.")
+    if keymap is None and macros is None and not prepared.lighting_plan.commands:
+        raise VialTransportError("The hub profile has no Vial data to write.")
     return capacity
 
 
@@ -578,12 +611,42 @@ def execute_write(
             "The connected Vial endpoint no longer matches the preflight snapshot."
         )
     approval = hid_transport.approve_vial_write(current, confirmation)
-    session = hid_transport.open_vial_approved(approval)
+    lighting_sets = tuple(
+        (command.value_id,) for command in prepared.lighting_plan.commands
+    )
+    session = hid_transport.open_vial_approved(
+        approval,
+        allow_keymap=prepared.plan.keymap_buffer is not None,
+        allow_macros=prepared.plan.macro_buffer is not None,
+        lighting_gets=_lighting_gets(current),
+        lighting_sets=lighting_sets,
+        lighting_saves=((),) if prepared.lighting_plan.save else (),
+    )
     keymap_written = 0
     macros_written = 0
+    lighting_changes = 0
+    lighting_saves = 0
     try:
         capacity = _revalidate_limits(session, prepared)
-        vial_keymap.ensure_unlocked(session)
+        capabilities, state, geometry = _read_lighting(
+            session,
+            current,
+            rows=prepared.target.matrix_rows,
+            cols=prepared.target.matrix_cols,
+        )
+        if (
+            capabilities != prepared.target.lighting_capabilities
+            or state != prepared.target.lighting_state
+            or geometry != prepared.target.lighting_geometry
+        ):
+            raise hid_transport.HidIdentityError(
+                "The Vial lighting target changed after preflight."
+            )
+        if (
+            prepared.plan.keymap_buffer is not None
+            or prepared.plan.macro_buffer is not None
+        ):
+            vial_keymap.ensure_unlocked(session)
         try:
             if prepared.plan.keymap_buffer is not None:
                 keymap_written = vial_keymap.write_keymap_buffer(
@@ -615,6 +678,49 @@ def execute_write(
                         keymap_bytes=keymap_written,
                         macro_bytes=macros_written,
                     )
+            for command in prepared.lighting_plan.commands:
+                try:
+                    vial_keymap.set_lighting_value(
+                        session,
+                        command.value_id,
+                        *command.payload,
+                    )
+                except Exception as error:
+                    raise VialAcceptedWriteError(
+                        "The keyboard may have accepted a lighting change before failure.",
+                        keymap_bytes=keymap_written,
+                        macro_bytes=macros_written,
+                        lighting_changes=lighting_changes + 1,
+                        lighting_saves=lighting_saves,
+                    ) from error
+                lighting_changes += 1
+            if prepared.lighting_plan.commands:
+                _caps, lighting_readback, _geometry = _read_lighting(
+                    session,
+                    current,
+                    rows=prepared.target.matrix_rows,
+                    cols=prepared.target.matrix_cols,
+                )
+                if lighting_readback != prepared.lighting_plan.lighting:
+                    raise VialAcceptedWriteError(
+                        "The keyboard accepted lighting changes but read-back differed.",
+                        keymap_bytes=keymap_written,
+                        macro_bytes=macros_written,
+                        lighting_changes=lighting_changes,
+                        lighting_saves=lighting_saves,
+                    )
+            if prepared.lighting_plan.save:
+                try:
+                    vial_keymap.save_lighting(session)
+                except Exception as error:
+                    raise VialAcceptedWriteError(
+                        "The keyboard may have accepted the lighting save before failure.",
+                        keymap_bytes=keymap_written,
+                        macro_bytes=macros_written,
+                        lighting_changes=lighting_changes,
+                        lighting_saves=lighting_saves + 1,
+                    ) from error
+                lighting_saves += 1
         except vial_macros.MacroAcceptedWriteError as error:
             raise VialAcceptedWriteError(
                 str(error),
@@ -624,11 +730,13 @@ def execute_write(
         except VialAcceptedWriteError:
             raise
         except Exception as error:
-            if keymap_written or macros_written:
+            if keymap_written or macros_written or lighting_changes or lighting_saves:
                 raise VialAcceptedWriteError(
                     "The keyboard accepted part of the Vial write before it failed.",
                     keymap_bytes=keymap_written,
                     macro_bytes=macros_written,
+                    lighting_changes=lighting_changes,
+                    lighting_saves=lighting_saves,
                 ) from error
             raise
     finally:
@@ -636,7 +744,9 @@ def execute_write(
     return VialWriteReceipt(
         keymap_bytes=keymap_written,
         macro_bytes=macros_written,
-        report=prepared.plan.report,
+        lighting_changes=lighting_changes,
+        lighting_saves=lighting_saves,
+        report=prepared.report,
     )
 
 

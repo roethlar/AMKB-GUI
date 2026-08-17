@@ -41,6 +41,25 @@ every JavaScript syntax gate, package build, and `git diff --check`. No hardware
 was opened outside injected fake HID and no mutation occurred. H6c persistent
 fake-HID writes are next.
 
+H6c fixture-backed landing, 2026-08-17: endpoint-approved Vial/VIA sessions now
+admit only the exact planned lighting GET/SET/SAVE prefixes while refusing raw
+`0x07`, `0x08`, and `0x09` calls without an explicit prefix. Prepared writes
+carry the pure lighting plan, current-lighting backup, canonical target
+fingerprint, combined transfer report, and setter/save counts. Execution
+re-proves feature flags, definition/protocol/layout/capability/state/geometry on
+the transmitting handle, sends only planned global or declared-index per-key
+changes, reads back exactly before SAVE, and reports possibly accepted lighting
+changes/saves across setter timeout, partial write, read-back mismatch/error,
+and SAVE failure. Server preflight, success, and HTTP 409 responses expose the
+same evidence. Fake HID proves lighting-only VIA writes do not depend on a
+keymap write, per-key writes use only channel 0 and the declared LED index, and
+wrong confirmation/stale evidence/unplanned commands transmit no setter. The
+lighting-only regression test failed when the old keymap dependency was
+temporarily restored, then passed with the fix. Full verification passed 768
+Python tests, 223 web tests, Python compilation, every JavaScript syntax gate,
+package build, and `git diff --check`. No physical keyboard was opened and no
+hardware mutation occurred. H6d generic hub Lighting Studio UX is next.
+
 ## Objective
 
 Make Vial and VIA lighting first-class OpenKeeb hub data without weakening the

@@ -381,7 +381,9 @@ VIA_SET_KEYCODE = 0x05
 VIA_GET_LAYER_COUNT = 0x11
 VIA_GET_BUFFER = 0x12
 VIA_SET_BUFFER = 0x13
+VIA_LIGHTING_SET_VALUE = 0x07
 VIA_LIGHTING_GET_VALUE = 0x08
+VIA_LIGHTING_SAVE = 0x09
 VIA_LAYOUT_OPTIONS = 0x02
 VIA_KEYCODES_VERSION = 0x06
 
@@ -467,6 +469,18 @@ def read_lighting_channel(
     if reply[:3] != expected:
         raise UnsupportedVialProtocol("The keyboard returned a mismatched lighting channel.")
     return reply[3:]
+
+
+def set_lighting_value(session, *payload: int) -> bytes:
+    """Send one already-planned persistent lighting setter."""
+
+    return _via_request(session, VIA_LIGHTING_SET_VALUE, *payload)
+
+
+def save_lighting(session, *payload: int) -> bytes:
+    """Save one already-verified persistent lighting channel/value set."""
+
+    return _via_request(session, VIA_LIGHTING_SAVE, *payload)
 
 
 def read_via_protocol(session) -> int:

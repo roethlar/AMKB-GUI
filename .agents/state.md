@@ -16,14 +16,17 @@
 ## Next
 
 - **H6 lighting through the hub is approved and in progress (2026-08-17):** H6a
-  and H6b are fixture-backed complete. Schema v2, pure capability/transfer
-  codecs, and the pinned survey are followed by mutation-refusing Vial/VIA
-  read-only snapshots with preserved Vial feature flags, exact current lighting
-  state, capability-honest empty results, and ephemeral VialRGB/VIA LED geometry.
-  Fake HID proves only definition/protocol-allowlisted GETs occur; no setter,
-  save, unlock-start/poll, or hardware mutation was sent. Full verification is
-  green at 760 Python and 223 web tests plus compile/syntax/build/diff checks.
-  H6c persistent fake-HID writes are next under the continuous H6a–H6e grant in
+  through H6c are fixture-backed complete. Schema v2 and pure
+  capability/transfer codecs feed capability-honest Vial/VIA snapshots and
+  endpoint-bound persistent writes. Approved sessions expose only planned
+  lighting prefixes; execution re-proves target lighting evidence, writes
+  changed global/per-key values, requires exact read-back before SAVE, and
+  reports possibly accepted setter/save counts. Fake HID covers lighting-only
+  and declared-index per-key writes, refusal of unplanned raw lighting commands,
+  stale capability/protocol evidence, partial setters, read-back mismatch/error,
+  and SAVE failure. Full verification is green at 768 Python and 223 web tests
+  plus compile/syntax/build/diff checks. H6d generic hub Lighting Studio UX is
+  next under the continuous H6a–H6e grant in
   `docs/superpowers/plans/2026-08-17-openkeeb-v2-h6-lighting.md`. H6f physical
   keyboard activity, push, release, public identifiers, and spending remain
   separately owner-gated.
@@ -32,8 +35,8 @@
   Its canonical scope, sequence, completed-slice evidence, and write-safety
   boundaries live in
   `docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`. H6
-  lighting is next. Public identifiers, releases, money, and future hardware
-  writes remain owner-gated.
+  lighting remains in progress. Public identifiers, releases, money, and future
+  hardware writes remain owner-gated.
 
 - **Text banner authoring remains in v2 scope for NEON and Cyberboard.** The
   durable boundary, including its text effects, lives in `.agents/decisions.md`

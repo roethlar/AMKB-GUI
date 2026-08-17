@@ -120,10 +120,14 @@ class AcceptedWriteError(RuntimeError):
         *,
         keymap_bytes: int | None = None,
         macro_bytes: int | None = None,
+        lighting_changes: int | None = None,
+        lighting_saves: int | None = None,
     ) -> None:
         super().__init__(message)
         self.keymap_bytes = keymap_bytes
         self.macro_bytes = macro_bytes
+        self.lighting_changes = lighting_changes
+        self.lighting_saves = lighting_saves
 
 
 class LayoutEvidenceError(ValueError):
@@ -2367,11 +2371,21 @@ class _Handler(BaseHTTPRequestHandler):
                     if exc.keymap_bytes is not None
                     else {}
                 ),
-                **(
-                    {"macro_bytes": exc.macro_bytes}
-                    if exc.macro_bytes is not None
-                    else {}
-                ),
+                    **(
+                        {"macro_bytes": exc.macro_bytes}
+                        if exc.macro_bytes is not None
+                        else {}
+                    ),
+                    **(
+                        {"lighting_changes": exc.lighting_changes}
+                        if exc.lighting_changes is not None
+                        else {}
+                    ),
+                    **(
+                        {"lighting_saves": exc.lighting_saves}
+                        if exc.lighting_saves is not None
+                        else {}
+                    ),
             },
             HTTPStatus.CONFLICT,
         )
@@ -2892,7 +2906,11 @@ class _Handler(BaseHTTPRequestHandler):
                 "confirmation": prepared.confirmation,
                 "keymap_bytes": len(prepared.plan.keymap_buffer or b""),
                 "macro_bytes": len(prepared.plan.macro_buffer or b""),
-                "report": prepared.plan.report,
+                "lighting_changes": len(prepared.lighting_plan.commands),
+                "lighting_saves": len(prepared.lighting_plan.save_channels),
+                "lighting_backup": prepared.lighting_backup,
+                "target_fingerprint": prepared.target_fingerprint,
+                "report": prepared.report,
                 "matches_target": via_transport.write_matches_target(prepared),
             }
         )
@@ -2925,6 +2943,8 @@ class _Handler(BaseHTTPRequestHandler):
                 str(error),
                 keymap_bytes=error.keymap_bytes,
                 macro_bytes=error.macro_bytes,
+                lighting_changes=error.lighting_changes,
+                lighting_saves=error.lighting_saves,
             ) from error
         except hid_transport.HidError as error:
             raise ValueError(str(error)) from error
@@ -2933,6 +2953,8 @@ class _Handler(BaseHTTPRequestHandler):
                 "accepted": True,
                 "keymap_bytes": receipt.keymap_bytes,
                 "macro_bytes": receipt.macro_bytes,
+                "lighting_changes": receipt.lighting_changes,
+                "lighting_saves": receipt.lighting_saves,
                 "report": receipt.report,
             }
         )
@@ -2960,7 +2982,11 @@ class _Handler(BaseHTTPRequestHandler):
                 "confirmation": prepared.confirmation,
                 "keymap_bytes": len(prepared.plan.keymap_buffer or b""),
                 "macro_bytes": len(prepared.plan.macro_buffer or b""),
-                "report": prepared.plan.report,
+                "lighting_changes": len(prepared.lighting_plan.commands),
+                "lighting_saves": int(prepared.lighting_plan.save),
+                "lighting_backup": prepared.lighting_backup,
+                "target_fingerprint": prepared.target_fingerprint,
+                "report": prepared.report,
                 "matches_target": vial_transport.write_matches_target(prepared),
                 "unlock": {
                     "unlocked": prepared.unlock_status.unlocked,
@@ -2997,6 +3023,8 @@ class _Handler(BaseHTTPRequestHandler):
                 str(error),
                 keymap_bytes=error.keymap_bytes,
                 macro_bytes=error.macro_bytes,
+                lighting_changes=error.lighting_changes,
+                lighting_saves=error.lighting_saves,
             ) from error
         except (hid_transport.HidError, vial_keymap.KeyboardLocked) as error:
             raise self._vial_api_error(error) from error
@@ -3005,6 +3033,8 @@ class _Handler(BaseHTTPRequestHandler):
                 "accepted": True,
                 "keymap_bytes": receipt.keymap_bytes,
                 "macro_bytes": receipt.macro_bytes,
+                "lighting_changes": receipt.lighting_changes,
+                "lighting_saves": receipt.lighting_saves,
                 "report": receipt.report,
             }
         )

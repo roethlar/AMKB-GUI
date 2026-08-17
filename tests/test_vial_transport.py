@@ -52,6 +52,19 @@ class FakeVialState:
             (10, 20, 4, 0, 1),
             (30, 40, 2, 0xFF, 0xFF),
         )
+        self.legacy_lighting_values = {
+            vial_lighting.QMK_BACKLIGHT_BRIGHTNESS: bytes([101]),
+            vial_lighting.QMK_BACKLIGHT_EFFECT: bytes([7]),
+            vial_lighting.QMK_RGBLIGHT_BRIGHTNESS: bytes([200]),
+            vial_lighting.QMK_RGBLIGHT_EFFECT: bytes([9]),
+            vial_lighting.QMK_RGBLIGHT_EFFECT_SPEED: bytes([55]),
+            vial_lighting.QMK_RGBLIGHT_COLOR: bytes([33, 44]),
+        }
+        self.lighting_sets = 0
+        self.lighting_saves = 0
+        self.fail_lighting_set_number: int | None = None
+        self.fail_lighting_save = False
+        self.ignore_lighting_sets = False
 
     @property
     def definition_blob(self) -> bytes:
@@ -90,16 +103,8 @@ class FakeVialState:
 
         if command == vial_lighting.CMD_LIGHTING_GET_VALUE:
             value_id = packet[1]
-            legacy = {
-                vial_lighting.QMK_BACKLIGHT_BRIGHTNESS: bytes([101]),
-                vial_lighting.QMK_BACKLIGHT_EFFECT: bytes([7]),
-                vial_lighting.QMK_RGBLIGHT_BRIGHTNESS: bytes([200]),
-                vial_lighting.QMK_RGBLIGHT_EFFECT: bytes([9]),
-                vial_lighting.QMK_RGBLIGHT_EFFECT_SPEED: bytes([55]),
-                vial_lighting.QMK_RGBLIGHT_COLOR: bytes([33, 44]),
-            }
-            if value_id in legacy:
-                return packet[:2] + legacy[value_id]
+            if value_id in self.legacy_lighting_values:
+                return packet[:2] + self.legacy_lighting_values[value_id]
             if value_id == vial_lighting.VIALRGB_GET_INFO:
                 return (
                     packet[:2]
@@ -124,6 +129,27 @@ class FakeVialState:
                 index = int.from_bytes(packet[2:4], "little")
                 return packet[:2] + bytes(self.vialrgb_leds[index])
             raise AssertionError(f"unexpected lighting GET 0x{value_id:02X}")
+        if command == vial_lighting.CMD_LIGHTING_SET_VALUE:
+            value_id = packet[1]
+            if not self.ignore_lighting_sets:
+                if value_id == vial_lighting.VIALRGB_SET_MODE:
+                    effect = int.from_bytes(packet[2:4], "little")
+                    self.vialrgb_mode = (effect, *packet[4:8])
+                elif value_id == vial_lighting.QMK_RGBLIGHT_COLOR:
+                    self.legacy_lighting_values[value_id] = packet[2:4]
+                elif value_id in self.legacy_lighting_values:
+                    self.legacy_lighting_values[value_id] = packet[2:3]
+                else:
+                    raise AssertionError(f"unexpected lighting SET 0x{value_id:02X}")
+            self.lighting_sets += 1
+            if self.fail_lighting_set_number == self.lighting_sets:
+                raise OSError("fake lost lighting setter reply")
+            return packet[:2]
+        if command == vial_lighting.CMD_LIGHTING_SAVE:
+            self.lighting_saves += 1
+            if self.fail_lighting_save:
+                raise OSError("fake lost lighting save reply")
+            return packet[:1]
 
         if command == 0x01:
             return bytes([command]) + self.via_protocol.to_bytes(2, "big")
@@ -247,6 +273,13 @@ class GenericVialTransportTests(unittest.TestCase):
         snapshot = vial_transport.read_snapshot(self.address)
         profile = hub_vial.build_hub_profile(snapshot)
         profile["keymap"]["layers"][0]["keys"][0]["code"] = 0x0005
+        return vial_transport.prepare_write(self.address, profile)
+
+    def _prepared_legacy_lighting(self, **changes: int):
+        self.state.definition["lighting"] = "qmk_rgblight"
+        self.state.unlocked = True
+        profile = vial_transport.read_hub_profile(self.address)
+        profile["lighting"]["surfaces"][0].update(changes)
         return vial_transport.prepare_write(self.address, profile)
 
     def test_discovery_filters_non_vial_interfaces_and_keeps_two_endpoints(self) -> None:
@@ -452,6 +485,139 @@ class GenericVialTransportTests(unittest.TestCase):
             & {packet[0] for _path, packet in self.backend.commands}
         )
 
+    def test_confirmed_legacy_lighting_write_reads_back_then_saves_once(self) -> None:
+        self.state.definition["lighting"] = "qmk_rgblight"
+        profile = vial_transport.read_hub_profile(self.address)
+        profile.pop("keymap")
+        profile.pop("macros")
+        profile["provenance"].pop("/keymap")
+        profile["provenance"].pop("/macros")
+        profile["lighting"]["surfaces"][0]["brightness"] = 201
+
+        prepared = vial_transport.prepare_write(self.address, profile)
+
+        self.assertEqual(1, len(prepared.lighting_plan.commands))
+        self.assertIsNone(prepared.plan.keymap_buffer)
+        self.assertIsNone(prepared.plan.macro_buffer)
+        self.assertEqual(
+            {
+                "surfaces": [
+                    {
+                        "id": "underglow",
+                        "brightness": 200,
+                        "effect_id": 9,
+                        "speed": 55,
+                        "color": [33, 44],
+                    }
+                ]
+            },
+            prepared.lighting_backup,
+        )
+        self.assertRegex(prepared.target_fingerprint, r"^sha256-[0-9a-f]{64}$")
+        self.backend.commands.clear()
+
+        receipt = vial_transport.execute_write(
+            prepared,
+            confirmation=prepared.confirmation,
+        )
+
+        self.assertEqual(1, receipt.lighting_changes)
+        self.assertEqual(1, receipt.lighting_saves)
+        self.assertEqual(1, self.state.lighting_sets)
+        self.assertEqual(1, self.state.lighting_saves)
+        operations = {
+            self._operation(packet) for _path, packet in self.backend.commands
+        }
+        self.assertFalse(
+            operations
+            & {(0xFE, 0x06), (0xFE, 0x07), (0x0F, None), (0x13, None)}
+        )
+        lighting_commands = [
+            packet[0]
+            for _path, packet in self.backend.commands
+            if packet[0]
+            in {
+                vial_lighting.CMD_LIGHTING_SET_VALUE,
+                vial_lighting.CMD_LIGHTING_GET_VALUE,
+                vial_lighting.CMD_LIGHTING_SAVE,
+            }
+        ]
+        setter = lighting_commands.index(vial_lighting.CMD_LIGHTING_SET_VALUE)
+        save = lighting_commands.index(vial_lighting.CMD_LIGHTING_SAVE)
+        self.assertIn(
+            vial_lighting.CMD_LIGHTING_GET_VALUE,
+            lighting_commands[setter + 1 : save],
+        )
+
+    def test_lighting_failures_keep_possible_setter_and_save_counts(self) -> None:
+        cases = (
+            ("readback", {"brightness": 201}, "ignore_lighting_sets", True, 1, 0),
+            (
+                "partial",
+                {"brightness": 201, "speed": 56},
+                "fail_lighting_set_number",
+                2,
+                2,
+                0,
+            ),
+            ("save", {"brightness": 201}, "fail_lighting_save", True, 1, 1),
+        )
+        for name, changes, flag, value, expected_changes, expected_saves in cases:
+            with self.subTest(name=name):
+                prepared = self._prepared_legacy_lighting(**changes)
+                setattr(self.state, flag, value)
+                self.backend.commands.clear()
+
+                with self.assertRaises(vial_transport.VialAcceptedWriteError) as caught:
+                    vial_transport.execute_write(
+                        prepared,
+                        confirmation=prepared.confirmation,
+                    )
+
+                self.assertEqual(expected_changes, caught.exception.lighting_changes)
+                self.assertEqual(expected_saves, caught.exception.lighting_saves)
+                self.state.legacy_lighting_values.update(
+                    {
+                        vial_lighting.QMK_RGBLIGHT_BRIGHTNESS: bytes([200]),
+                        vial_lighting.QMK_RGBLIGHT_EFFECT_SPEED: bytes([55]),
+                    }
+                )
+                self.state.ignore_lighting_sets = False
+                self.state.fail_lighting_set_number = None
+                self.state.fail_lighting_save = False
+                self.state.lighting_sets = 0
+                self.state.lighting_saves = 0
+
+    def test_vialrgb_capability_or_feature_change_stops_before_setter(self) -> None:
+        for change in ("feature", "effects"):
+            with self.subTest(change=change):
+                self.state.definition["lighting"] = "vialrgb"
+                self.state.feature_flags = vial_lighting.VIALRGB_FEATURE_FLAG
+                self.state.unlocked = True
+                profile = vial_transport.read_hub_profile(self.address)
+                profile["lighting"]["surfaces"][0]["brightness"] = 100
+                prepared = vial_transport.prepare_write(self.address, profile)
+                if change == "feature":
+                    self.state.feature_flags = 0
+                else:
+                    self.state.vialrgb_effects = (0, 1)
+                self.backend.commands.clear()
+
+                with self.assertRaises((hid_transport.HidError, ValueError)):
+                    vial_transport.execute_write(
+                        prepared,
+                        confirmation=prepared.confirmation,
+                    )
+
+                self.assertFalse(
+                    any(
+                        packet[0] == vial_lighting.CMD_LIGHTING_SET_VALUE
+                        for _path, packet in self.backend.commands
+                    )
+                )
+                self.state.feature_flags = vial_lighting.VIALRGB_FEATURE_FLAG
+                self.state.vialrgb_effects = (0, 1, 7)
+
     def test_read_session_refuses_a_set_command_before_transmission(self) -> None:
         info = hid_transport.find_vial(self.address)
         session = hid_transport.open_vial_read(info)
@@ -468,6 +634,31 @@ class GenericVialTransportTests(unittest.TestCase):
                         ]
                     )
                 )
+        finally:
+            session.close()
+        self.assertEqual([], self.backend.commands)
+
+    def test_approved_session_refuses_unplanned_lighting_commands(self) -> None:
+        prepared = self._prepared()
+        approval = hid_transport.approve_vial_write(
+            prepared.endpoint,
+            prepared.confirmation,
+        )
+        session = hid_transport.open_vial_approved(approval)
+        self.backend.commands.clear()
+        try:
+            for payload in (
+                bytes([0x07]),
+                bytes([0x08]),
+                bytes([0x09]),
+                bytes([0x0F]),
+                bytes([0x13]),
+                bytes([0xFE, 0x06]),
+                bytes([0xFE, 0x07]),
+            ):
+                with self.subTest(payload=payload):
+                    with self.assertRaises(hid_transport.HidError):
+                        session.send(payload)
         finally:
             session.close()
         self.assertEqual([], self.backend.commands)
@@ -600,6 +791,13 @@ class GenericVialTransportTests(unittest.TestCase):
                 )
                 self.assertEqual(200, status)
                 self.assertEqual("Fixture Pad", preflight["confirmation"])
+                self.assertEqual(0, preflight["lighting_changes"])
+                self.assertEqual(0, preflight["lighting_saves"])
+                self.assertIsNone(preflight["lighting_backup"])
+                self.assertRegex(
+                    preflight["target_fingerprint"],
+                    r"^sha256-[0-9a-f]{64}$",
+                )
                 self.assertTrue(preflight["matches_target"])
                 self.assertEqual(
                     {

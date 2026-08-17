@@ -9,10 +9,19 @@ same-handle protocol/capacity checks, a narrow command allowlist, and read-back.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, replace
+import hashlib
 from typing import Any
 
-from . import hid_transport, hub_via, via_lighting, vial_keymap, vial_macros
+from . import (
+    hid_transport,
+    hub_profile,
+    hub_via,
+    via_lighting,
+    vial_keymap,
+    vial_macros,
+)
 
 
 class ViaTransportError(ValueError):
@@ -23,11 +32,19 @@ class ViaAcceptedWriteError(RuntimeError):
     """A VIA keyboard accepted bytes before later write/read-back failure."""
 
     def __init__(
-        self, message: str, *, keymap_bytes: int, macro_bytes: int
+        self,
+        message: str,
+        *,
+        keymap_bytes: int,
+        macro_bytes: int,
+        lighting_changes: int = 0,
+        lighting_saves: int = 0,
     ) -> None:
         super().__init__(message)
         self.keymap_bytes = keymap_bytes
         self.macro_bytes = macro_bytes
+        self.lighting_changes = lighting_changes
+        self.lighting_saves = lighting_saves
 
 
 @dataclass(frozen=True)
@@ -49,6 +66,10 @@ class PreparedViaWrite:
     definition: hub_via.ViaDefinition
     target: hub_via.ViaSnapshot
     plan: hub_via.ViaWritePlan
+    lighting_plan: via_lighting.ViaLightingWritePlan
+    lighting_backup: dict[str, Any] | None
+    target_fingerprint: str
+    report: dict[str, Any]
 
     @property
     def confirmation(self) -> str:
@@ -73,6 +94,8 @@ class ViaWriteReceipt:
 
     keymap_bytes: int
     macro_bytes: int
+    lighting_changes: int
+    lighting_saves: int
     report: dict[str, Any]
 
 
@@ -437,16 +460,42 @@ def prepare_write(
 
     resolved = resolve_device(address, definition)
     target = _read_snapshot(resolved)
-    plan = hub_via.plan_via_write(profile, target=target)
-    if plan.keymap_buffer is None and plan.macro_buffer is None:
+    validated = hub_profile.validate_hub_profile(profile)
+    target_profile = hub_via.build_hub_profile(target)
+    led_mapping = {
+        f"K_R{item['matrix_row']}_C{item['matrix_col']}": int(item["led_index"])
+        for item in target.key_layout
+        if "led_index" in item
+    }
+    plan = hub_via.plan_via_write(validated, target=target)
+    lighting_plan = via_lighting.plan_write(
+        validated,
+        target_profile,
+        via_protocol=target.via_protocol,
+        led_mapping=led_mapping or None,
+    )
+    if (
+        plan.keymap_buffer is None
+        and plan.macro_buffer is None
+        and not lighting_plan.commands
+    ):
         raise ViaTransportError(
-            "The hub profile has no VIA keymap or macro data to write."
+            "The hub profile has no VIA data to write."
         )
+    fingerprint = "sha256-" + hashlib.sha256(
+        hub_profile.dumps_hub_profile(target_profile).encode("utf-8")
+    ).hexdigest()
+    report = copy.deepcopy(plan.report)
+    report["items"].extend(copy.deepcopy(lighting_plan.items))
     return PreparedViaWrite(
         endpoint=resolved.endpoint,
         definition=resolved.definition,
         target=target,
         plan=plan,
+        lighting_plan=lighting_plan,
+        lighting_backup=copy.deepcopy(target_profile.get("lighting")),
+        target_fingerprint=fingerprint,
+        report=report,
     )
 
 
@@ -458,6 +507,7 @@ def write_matches_target(prepared: PreparedViaWrite) -> bool:
     return (
         (keymap is None or keymap == prepared.target.keymap_buffer)
         and (macros is None or macros == prepared.target.macro_buffer)
+        and not prepared.lighting_plan.commands
     )
 
 
@@ -525,11 +575,55 @@ def execute_write(
         definition_hash=prepared.definition.definition_hash,
         confirmation=confirmation,
     )
-    session = hid_transport.open_via_approved(approval)
+    resolved = ResolvedViaDevice(
+        endpoint=current,
+        definition=prepared.definition,
+        via_protocol=prepared.target.via_protocol,
+        layout_options=prepared.target.layout_options,
+        keycode_spec=prepared.target.keycode_spec,
+    )
+    capabilities, layout, led_mapping, lighting_gets = _lighting_context(resolved)
+    lighting_sets = tuple(
+        (
+            (command.command,)
+            if command.channel is None
+            else (command.channel, command.command)
+        )
+        for command in prepared.lighting_plan.commands
+    )
+    lighting_saves_allowed = tuple(
+        () if channel is None else (channel,)
+        for channel in prepared.lighting_plan.save_channels
+    )
+    session = hid_transport.open_via_approved(
+        approval,
+        allow_keymap=prepared.plan.keymap_buffer is not None,
+        allow_macros=prepared.plan.macro_buffer is not None,
+        lighting_gets=lighting_gets,
+        lighting_sets=lighting_sets,
+        lighting_saves=lighting_saves_allowed,
+    )
     keymap_written = 0
     macros_written = 0
+    lighting_changes = 0
+    lighting_saves = 0
     try:
         capacity = _revalidate_write(session, prepared)
+        current_caps, current_state, current_geometry = _read_lighting(
+            session,
+            resolved,
+            capabilities,
+            layout,
+            led_mapping,
+        )
+        if (
+            current_caps != prepared.target.lighting_capabilities
+            or current_state != prepared.target.lighting_state
+            or current_geometry != prepared.target.lighting_geometry
+        ):
+            raise hid_transport.HidIdentityError(
+                "The VIA lighting target changed after preflight."
+            )
         try:
             if prepared.plan.keymap_buffer is not None:
                 keymap_written = vial_keymap.write_via_keymap_buffer(
@@ -573,6 +667,7 @@ def execute_write(
                     keymap_bytes=keymap_written,
                     macro_bytes=macros_written,
                 )
+
         if prepared.plan.macro_buffer is not None:
             readback = vial_macros.read_macro_buffer(session, capacity=capacity)
             if readback != prepared.plan.macro_buffer:
@@ -581,14 +676,69 @@ def execute_write(
                     keymap_bytes=keymap_written,
                     macro_bytes=macros_written,
                 )
+
+        for command in prepared.lighting_plan.commands:
+            prefix = (
+                [command.command]
+                if command.channel is None
+                else [command.channel, command.command]
+            )
+            try:
+                vial_keymap.set_lighting_value(
+                    session,
+                    *prefix,
+                    *command.payload,
+                )
+            except Exception as error:
+                raise ViaAcceptedWriteError(
+                    "The VIA keyboard may have accepted a lighting change before failure.",
+                    keymap_bytes=keymap_written,
+                    macro_bytes=macros_written,
+                    lighting_changes=lighting_changes + 1,
+                    lighting_saves=lighting_saves,
+                ) from error
+            lighting_changes += 1
+        if prepared.lighting_plan.commands:
+            _caps, lighting_readback, _geometry = _read_lighting(
+                session,
+                resolved,
+                capabilities,
+                layout,
+                led_mapping,
+            )
+            if lighting_readback != prepared.lighting_plan.lighting:
+                raise ViaAcceptedWriteError(
+                    "The VIA keyboard accepted lighting changes but read-back differed.",
+                    keymap_bytes=keymap_written,
+                    macro_bytes=macros_written,
+                    lighting_changes=lighting_changes,
+                    lighting_saves=lighting_saves,
+                )
+        for channel in prepared.lighting_plan.save_channels:
+            try:
+                if channel is None:
+                    vial_keymap.save_lighting(session)
+                else:
+                    vial_keymap.save_lighting(session, channel)
+            except Exception as error:
+                raise ViaAcceptedWriteError(
+                    "The VIA keyboard may have accepted a lighting save before failure.",
+                    keymap_bytes=keymap_written,
+                    macro_bytes=macros_written,
+                    lighting_changes=lighting_changes,
+                    lighting_saves=lighting_saves + 1,
+                ) from error
+            lighting_saves += 1
     except ViaAcceptedWriteError:
         raise
     except Exception as error:
-        if keymap_written or macros_written:
+        if keymap_written or macros_written or lighting_changes or lighting_saves:
             raise ViaAcceptedWriteError(
                 "The VIA keyboard accepted part of the write before it failed.",
                 keymap_bytes=keymap_written,
                 macro_bytes=macros_written,
+                lighting_changes=lighting_changes,
+                lighting_saves=lighting_saves,
             ) from error
         raise
     finally:
@@ -596,7 +746,9 @@ def execute_write(
     return ViaWriteReceipt(
         keymap_bytes=keymap_written,
         macro_bytes=macros_written,
-        report=prepared.plan.report,
+        lighting_changes=lighting_changes,
+        lighting_saves=lighting_saves,
+        report=prepared.report,
     )
 
 
