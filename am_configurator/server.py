@@ -2005,6 +2005,11 @@ class _State:
             max_workers=1,
             thread_name_prefix="am-device-io",
         )
+        from . import vial_rgb_stream
+
+        self.vial_streams = vial_rgb_stream.StreamManager(
+            runner=self._run_vial_stream,
+        )
         self.last_device_scan = 0.0
         # Native desktop builds attach a narrow Library chooser/reveal bridge after
         # creating the loopback server. Browser-only launches leave it unset.
@@ -2141,12 +2146,28 @@ class _State:
 
     def close(self) -> None:
         try:
-            renderer = self._media_renderer
-            close_renderer = getattr(renderer, "close", None)
-            if callable(close_renderer):
-                close_renderer()
+            self.vial_streams.close()
         finally:
-            self._device_executor.shutdown(wait=True)
+            try:
+                renderer = self._media_renderer
+                close_renderer = getattr(renderer, "close", None)
+                if callable(close_renderer):
+                    close_renderer()
+            finally:
+                self._device_executor.shutdown(wait=True)
+
+    def _run_vial_stream(self, prepared, stop_event, progress):
+        """Give one preview worker exclusive HID ownership until restoration."""
+
+        from . import vial_transport
+
+        with self.device_lock:
+            return vial_transport.execute_stream(
+                prepared,
+                confirmation=prepared.confirmation,
+                stop_event=stop_event,
+                progress=progress,
+            )
 
     def device_io(self, operation):
         """Run one complete device operation on the stable HID worker thread."""
@@ -2548,6 +2569,14 @@ class _Handler(BaseHTTPRequestHandler):
                 self._vial_hub_preflight(body)
             elif path == "/api/hub/vial/write":
                 self._vial_hub_write(body)
+            elif path == "/api/hub/vial/stream/preflight":
+                self._vial_stream_preflight(body)
+            elif path == "/api/hub/vial/stream/start":
+                self._vial_stream_start(body)
+            elif path == "/api/hub/vial/stream/status":
+                self._vial_stream_status(body)
+            elif path == "/api/hub/vial/stream/stop":
+                self._vial_stream_stop(body)
             elif path == "/api/keymap/assignment":
                 if set(body) != {"product_id", "code"}:
                     raise ValueError(
@@ -2960,8 +2989,98 @@ class _Handler(BaseHTTPRequestHandler):
             }
         )
 
+    def _vial_stream_preflight(self, body: dict[str, Any]) -> None:
+        from . import hid_transport, vial_rgb_stream, vial_transport
+
+        self._strict_body(
+            body,
+            allowed={"address", "profile", "animation_index"},
+            required={"address", "profile", "animation_index"},
+        )
+        address = body["address"]
+        animation_index = body["animation_index"]
+        if not isinstance(address, str) or not address:
+            raise ValueError("A Vial endpoint address is required.")
+        if (
+            isinstance(animation_index, bool)
+            or not isinstance(animation_index, int)
+            or animation_index < 0
+        ):
+            raise ValueError("A VialRGB animation index is required.")
+        if self.state.vial_streams.active:
+            raise ValueError("Stop the active volatile preview before preflighting another.")
+        try:
+            prepared = self.state.device_io(
+                lambda: vial_transport.prepare_stream(
+                    address,
+                    body["profile"],
+                    animation_index=animation_index,
+                )
+            )
+            token = self.state.vial_streams.preflight(prepared)
+            status = self.state.vial_streams.status(token)
+        except (hid_transport.HidError, vial_rgb_stream.StreamError) as error:
+            raise self._vial_api_error(error) from error
+        self._json(
+            {
+                "token": token,
+                "confirmation": prepared.confirmation,
+                "device": vial_transport.device_json(prepared.endpoint),
+                "animation": {
+                    "index": prepared.animation_index,
+                    "name": prepared.animation_name,
+                    "frame_count": len(prepared.plan.frames),
+                    "frame_ms": prepared.plan.frame_ms,
+                    "pixel_count": prepared.plan.pixel_count,
+                },
+                "maximum_duration_ms": prepared.plan.maximum_duration_ms,
+                "target_fingerprint": prepared.target_fingerprint,
+                "volatile": True,
+                "status": status,
+            }
+        )
+
+    def _vial_stream_start(self, body: dict[str, Any]) -> None:
+        from . import vial_rgb_stream
+
+        self._strict_body(
+            body,
+            allowed={"token", "confirmation"},
+            required={"token", "confirmation"},
+        )
+        try:
+            status = self.state.vial_streams.start(
+                body["token"], body["confirmation"]
+            )
+        except vial_rgb_stream.StreamError as error:
+            raise self._vial_api_error(error) from error
+        self._json(status)
+
+    def _vial_stream_status(self, body: dict[str, Any]) -> None:
+        from . import vial_rgb_stream
+
+        self._strict_body(body, allowed={"token"}, required={"token"})
+        try:
+            status = self.state.vial_streams.status(body["token"])
+        except vial_rgb_stream.StreamError as error:
+            raise self._vial_api_error(error) from error
+        self._json(status)
+
+    def _vial_stream_stop(self, body: dict[str, Any]) -> None:
+        from . import vial_rgb_stream
+
+        self._strict_body(body, allowed={"token"}, required={"token"})
+        try:
+            status = self.state.vial_streams.stop(body["token"], wait=True)
+        except vial_rgb_stream.StreamError as error:
+            raise self._vial_api_error(error) from error
+        self._json(status)
+
     def _vial_hub_preflight(self, body: dict[str, Any]) -> None:
         from . import hid_transport, vial_keymap, vial_transport
+
+        if self.state.vial_streams.active:
+            raise ValueError("Stop the volatile preview before persistent Write preflight.")
 
         self._strict_body(
             body,
@@ -2999,6 +3118,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _vial_hub_write(self, body: dict[str, Any]) -> None:
         from . import hid_transport, vial_keymap, vial_transport
+
+        if self.state.vial_streams.active:
+            raise ValueError("Stop the volatile preview before persistent Write.")
 
         self._strict_body(
             body,

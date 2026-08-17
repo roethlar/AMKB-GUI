@@ -1453,3 +1453,86 @@ def open_vial_approved(
         session.close()
         raise
     return session
+
+
+_VIAL_STREAM_APPROVAL_TOKEN = object()
+
+
+@dataclass(frozen=True)
+class VialStreamApproval:
+    """Exact volatile-preview phrase bound to one generic Vial endpoint."""
+
+    address: str
+    path: bytes
+    name: str
+    confirmation: str
+    firmware_uid: str
+    protocol_version: int
+    definition_hash: str
+    token: object = None
+    feature_flags: int = 0
+
+
+def approve_vial_stream(
+    info: VialDeviceInfo, confirmation: str
+) -> VialStreamApproval:
+    """Mint a preview-only approval; persistent board-name approval is separate."""
+
+    if not info.writable or info.name is None:
+        raise HidIdentityError(info.identity_error or "Vial identity is incomplete.")
+    expected = f"PREVIEW {info.name}"
+    if confirmation != expected:
+        raise HidIdentityError(
+            f"Type {expected} exactly to start volatile keyboard preview."
+        )
+    return VialStreamApproval(
+        address=info.address,
+        path=info.path,
+        name=info.name,
+        confirmation=confirmation,
+        firmware_uid=info.firmware_uid,
+        protocol_version=info.protocol_version,
+        definition_hash=info.definition_hash,
+        token=_VIAL_STREAM_APPROVAL_TOKEN,
+        feature_flags=info.feature_flags,
+    )
+
+
+def open_vial_stream_approved(
+    approval: VialStreamApproval,
+    *,
+    lighting_gets: Iterable[tuple[int, ...]] = (),
+    lighting_sets: Iterable[tuple[int, ...]] = (),
+) -> _VialApprovedSession:
+    """Open one re-proved preview session that can never send SAVE or buffers."""
+
+    if approval.token is not _VIAL_STREAM_APPROVAL_TOKEN:
+        raise HidIdentityError("This Vial preview approval was not issued here.")
+    expected = f"PREVIEW {approval.name}"
+    if approval.confirmation != expected:
+        raise HidIdentityError("The volatile-preview confirmation is invalid.")
+    session = _VialApprovedSession(
+        approval.path,
+        endpoint_source=vial_endpoints,
+        lighting_gets=lighting_gets,
+        lighting_sets=lighting_sets,
+    )
+    session.__enter__()
+    try:
+        protocol, uid, feature_flags = fetch_keyboard_uid(session._require())
+        definition = fetch_definition(session._require())
+        if (
+            protocol != approval.protocol_version
+            or uid != approval.firmware_uid
+            or feature_flags != approval.feature_flags
+            or str(definition.get("name") or "").strip() != approval.name
+            or definition_fingerprint(definition) != approval.definition_hash
+            or endpoint_address(approval.path) != approval.address
+        ):
+            raise HidIdentityError(
+                "This is not the Vial keyboard approved for volatile preview."
+            )
+    except BaseException:
+        session.close()
+        raise
+    return session

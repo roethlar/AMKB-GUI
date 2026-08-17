@@ -23,7 +23,7 @@ test("the pure hub modules load before the application adapter", () => {
   assert.ok(reducer < app);
   assert.match(server, /"\/hub_lighting_state\.js": "hub_lighting_state\.js"/);
   assert.match(server, /"\/hub_keycode_palette\.js": "hub_keycode_palette\.js"/);
-  assert.match(js, /const \{createHubLightingState,reduceHubLightingProfile\}=HubLightingState/);
+  assert.match(js, /const \{createHubLightingState,createHubStreamState,reduceHubLightingProfile,reduceHubStreamState\}=HubLightingState/);
   assert.match(js, /const \{buildQmkPalette,describeQmkKeycode,filterQmkPalette,parseRawQmkCode\}=HubKeycodePalette/);
   assert.match(js, /const \{createHubKeymapState,reduceHubKeymapState\}=HubKeymapState/);
 });

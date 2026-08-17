@@ -6,7 +6,9 @@ const test = require("node:test");
 
 const {
   createHubLightingState,
+  createHubStreamState,
   reduceHubLightingProfile,
+  reduceHubStreamState,
 } = require(path.join(
   __dirname,
   "../../am_configurator/web/hub_lighting_state.js",
@@ -331,4 +333,54 @@ test("lighting mutations share the generic document undo history", () => {
   const restored = reduceHubKeymapState(changed, {type: "UNDO"});
   assert.equal(restored.profile.lighting.surfaces[0].brightness, 200);
   assert.equal(restored.dirty, false);
+});
+
+test("volatile preview state is token-bound and separate from document history", () => {
+  const idle = createHubStreamState();
+  assert.deepEqual(idle, {
+    phase: "idle",
+    token: null,
+    confirmation: null,
+    animationIndex: null,
+    status: null,
+    error: null,
+  });
+
+  const ready = reduceHubStreamState(idle, {
+    type: "PREFLIGHT_SUCCEEDED",
+    token: "opaque-a",
+    confirmation: "PREVIEW Fixture Pad",
+    animationIndex: 2,
+    status: {state: "ready"},
+  });
+  assert.equal(ready.phase, "ready");
+  assert.equal(ready.token, "opaque-a");
+  assert.equal(Object.isFrozen(ready), true);
+
+  const starting = reduceHubStreamState(ready, {type: "START_REQUESTED"});
+  assert.equal(starting.phase, "starting");
+  const running = reduceHubStreamState(starting, {
+    type: "STATUS_RECEIVED",
+    token: "opaque-a",
+    status: {state: "running", frames_presented: 3},
+  });
+  assert.equal(running.phase, "running");
+  assert.equal(running.status.frames_presented, 3);
+
+  const unchanged = reduceHubStreamState(running, {
+    type: "STATUS_RECEIVED",
+    token: "stale-token",
+    status: {state: "error"},
+  });
+  assert.strictEqual(unchanged, running);
+  const stopping = reduceHubStreamState(running, {type: "STOP_REQUESTED"});
+  assert.equal(stopping.phase, "stopping");
+  const stopped = reduceHubStreamState(stopping, {
+    type: "STATUS_RECEIVED",
+    token: "opaque-a",
+    status: {state: "stopped", restoration: "restored"},
+  });
+  assert.equal(stopped.phase, "stopped");
+  assert.equal(stopped.status.restoration, "restored");
+  assert.deepEqual(reduceHubStreamState(stopped, {type: "RESET"}), idle);
 });

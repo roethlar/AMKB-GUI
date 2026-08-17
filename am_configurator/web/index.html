@@ -303,7 +303,7 @@
     </form>
   </dialog>
 
-  <dialog id="write-dialog" class="dialog write-dialog">
+    <dialog id="write-dialog" class="dialog write-dialog">
     <form method="dialog" class="dialog-card" id="write-form">
       <div class="dialog-header">
         <div><p id="write-eyebrow" class="eyebrow">Full device write</p><h2 id="write-title">Confirm write</h2></div>
@@ -325,10 +325,34 @@
         <button id="cancel-write" value="cancel" class="button ghost">Cancel</button>
         <button id="confirm-write" type="button" class="button danger" disabled>Write full configuration</button>
       </div>
-    </form>
-  </dialog>
+      </form>
+    </dialog>
 
-  <div id="toast-region" class="toast-region" aria-live="polite"></div>
+    <dialog id="stream-dialog" class="dialog stream-dialog">
+      <form method="dialog" class="dialog-card" id="stream-form">
+        <div class="dialog-header">
+          <div><p class="eyebrow">Volatile keyboard preview</p><h2 id="stream-title">Preview VialRGB animation</h2></div>
+          <button id="stream-close" class="dialog-close" value="cancel" aria-label="Close volatile preview">×</button>
+        </div>
+        <div class="stream-warning">
+          <strong>Temporary direct-mode stream only.</strong>
+          <p>Animation frames are sent to the connected keyboard, never saved to keyboard storage. OpenKeeb stops after the time limit and attempts to restore the captured hardware effect exactly once.</p>
+        </div>
+        <p id="stream-target-note" class="dialog-note"></p>
+        <div id="stream-summary" class="write-summary"></div>
+        <label class="confirm-label" for="stream-confirmation">Type the exact case-sensitive PREVIEW phrase</label>
+        <div id="stream-token" class="confirm-token">—</div>
+        <input id="stream-confirmation" class="text-field confirm-input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Exact PREVIEW phrase">
+        <p id="stream-status" class="stream-status" aria-live="polite"></p>
+        <div class="device-actions">
+          <button id="stream-cancel" type="button" class="button ghost">Cancel</button>
+          <button id="stream-start" type="button" class="button primary" disabled>Preview on keyboard</button>
+          <button id="stream-stop" type="button" class="button danger" hidden>Stop preview</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast-region" class="toast-region" aria-live="polite"></div>
   <script src="/lighting_state.js"></script>
   <script src="/lighting_workspace.js"></script>
   <script src="/lighting_review.js"></script>

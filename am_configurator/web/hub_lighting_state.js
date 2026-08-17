@@ -398,8 +398,76 @@
     return freeze(profile);
   }
 
+  function createHubStreamState() {
+    return freeze({
+      phase: "idle",
+      token: null,
+      confirmation: null,
+      animationIndex: null,
+      status: null,
+      error: null,
+    });
+  }
+
+  function reduceHubStreamState(source, event) {
+    if (!plainObject(source) || !plainObject(event) || typeof event.type !== "string") {
+      throw new TypeError("The volatile preview transition is invalid.");
+    }
+    if (event.type === "RESET") return createHubStreamState();
+    if (event.type === "PREFLIGHT_SUCCEEDED") {
+      if (
+        typeof event.token !== "string"
+        || !event.token
+        || typeof event.confirmation !== "string"
+        || !event.confirmation
+        || !Number.isSafeInteger(event.animationIndex)
+      ) {
+        throw new TypeError("The volatile preview preflight is invalid.");
+      }
+      return freeze({
+        phase: "ready",
+        token: event.token,
+        confirmation: event.confirmation,
+        animationIndex: event.animationIndex,
+        status: clone(event.status || {state: "ready"}),
+        error: null,
+      });
+    }
+    if (event.type === "START_REQUESTED") {
+      if (source.phase !== "ready") throw new RangeError("Preview is not ready to start.");
+      return freeze({...clone(source), phase: "starting", error: null});
+    }
+    if (event.type === "STOP_REQUESTED") {
+      if (!["starting", "running"].includes(source.phase)) {
+        throw new RangeError("Preview is not running.");
+      }
+      return freeze({...clone(source), phase: "stopping"});
+    }
+    if (event.type === "STATUS_RECEIVED") {
+      if (event.token !== source.token) return source;
+      if (!plainObject(event.status) || typeof event.status.state !== "string") {
+        throw new TypeError("The volatile preview status is invalid.");
+      }
+      const phase = ["ready", "starting", "running", "stopping", "completed", "stopped", "cancelled", "error"].includes(event.status.state)
+        ? event.status.state
+        : "error";
+      return freeze({
+        ...clone(source),
+        phase,
+        status: clone(event.status),
+        error: phase === "error" ? String(event.status.error || "Preview failed.") : null,
+      });
+    }
+    if (event.type === "FAILED") {
+      return freeze({...clone(source), phase: "error", error: String(event.error || "Preview failed.")});
+    }
+    throw new RangeError(`Unknown volatile preview transition ${event.type}.`);
+  }
+
   return Object.freeze({
     createHubLightingState,
+    createHubStreamState,
     reduceHubLightingProfile,
+    reduceHubStreamState,
   });
 });

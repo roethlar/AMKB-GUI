@@ -26,7 +26,7 @@ const {
   reduceMediaDraft,
 } = LibraryState;
 const {createHubKeymapState,reduceHubKeymapState}=HubKeymapState;
-const {createHubLightingState,reduceHubLightingProfile}=HubLightingState;
+const {createHubLightingState,createHubStreamState,reduceHubLightingProfile,reduceHubStreamState}=HubLightingState;
 const {buildQmkPalette,describeQmkKeycode,filterQmkPalette,parseRawQmkCode}=HubKeycodePalette;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
@@ -80,6 +80,10 @@ const state = {
   hubEditor: null,
   hubLightingSurface: null,
   hubLightingPaintColor: [0, 255],
+  hubStream: createHubStreamState(),
+  hubStreamPreflight: null,
+  hubStreamPoll: null,
+  hubStreamNotifiedToken: null,
   amHubReview: null,
   amHubReviewUndo: [],
   amHubReviewRedo: [],
@@ -5914,6 +5918,198 @@ async function saveImportedLightingToLibrary() {
   }
 }
 
+function hubStreamActive() {
+  return ["starting","running","stopping"].includes(state.hubStream.phase);
+}
+
+function hubStreamTerminal() {
+  return ["completed","stopped","cancelled","error"].includes(state.hubStream.phase);
+}
+
+function hubStreamStatusCopy() {
+  const status=state.hubStream.status||{};
+  if(state.hubStream.phase==="ready")return "Keyboard unchanged. Type the exact PREVIEW phrase to start this bounded volatile stream.";
+  if(state.hubStream.phase==="starting")return "Opening and re-proving the exact VialRGB target. No frames sent yet.";
+  if(state.hubStream.phase==="running")return `Streaming ${status.frames_presented||0} frame${status.frames_presented===1?"":"s"} · ${status.reports_sent||0} HID report${status.reports_sent===1?"":"s"}. No SAVE command is available.`;
+  if(state.hubStream.phase==="stopping")return "Stopping after the current HID report and restoring the captured hardware effect once…";
+  if(state.hubStream.phase==="completed")return status.restoration==="restored"
+    ?"Preview reached its time limit. The captured hardware effect was restored."
+    :"Preview reached its time limit, but restoration could not be confirmed.";
+  if(state.hubStream.phase==="stopped")return status.restoration==="restored"
+    ?"Preview stopped. The captured hardware effect was restored."
+    :"Preview stopped, but restoration could not be confirmed.";
+  if(state.hubStream.phase==="cancelled")return "Preview cancelled before any frame was sent.";
+  if(state.hubStream.phase==="error")return status.restoration==="failed"
+    ?`Preview failed and restoration also failed: ${status.restoration_error||state.hubStream.error}`
+    :`Preview stopped after an error: ${state.hubStream.error||status.error||"Unknown preview error."}${status.restoration==="restored"?" The captured hardware effect was restored.":""}`;
+  return "Prepare a VialRGB animation preview from the Lighting Studio.";
+}
+
+function renderHubStreamDialog() {
+  const preflight=state.hubStreamPreflight;
+  if(!preflight)return;
+  const status=state.hubStream.status||preflight.status||{};
+  $("#stream-title").textContent=`Preview ${preflight.animation.name}`;
+  $("#stream-target-note").textContent=`Verified target: ${preflight.device.product_label||preflight.device.name} · ${preflight.device.vid.toString(16).toUpperCase().padStart(4,"0")}:${preflight.device.pid.toString(16).toUpperCase().padStart(4,"0")} · ${preflight.target_fingerprint}`;
+  $("#stream-token").textContent=preflight.confirmation;
+  $("#stream-summary").innerHTML=`<span><strong>${preflight.animation.frame_count}</strong><small>animation frames</small></span><span><strong>${preflight.animation.pixel_count}</strong><small>proved pixels</small></span><span><strong>${preflight.animation.frame_ms} ms</strong><small>frame interval</small></span><span><strong>${Math.ceil(preflight.maximum_duration_ms/1000)} s</strong><small>maximum duration</small></span>`;
+  const message=$("#stream-status");
+  message.className=`stream-status ${state.hubStream.phase}`;
+  message.textContent=hubStreamStatusCopy();
+  const input=$("#stream-confirmation");
+  const ready=state.hubStream.phase==="ready";
+  input.disabled=!ready;
+  $("#stream-start").hidden=!ready;
+  $("#stream-start").disabled=!ready||input.value!==preflight.confirmation;
+  $("#stream-stop").hidden=!hubStreamActive();
+  $("#stream-stop").disabled=state.hubStream.phase==="stopping";
+  $("#stream-cancel").disabled=hubStreamActive();
+  $("#stream-close").disabled=hubStreamActive();
+  const dialog=$("#stream-dialog");
+  if(!dialog.open)dialog.showModal();
+  $$('[data-hub-stream-animation]').forEach(button=>{
+    const selected=Number(button.dataset.hubStreamAnimation)===state.hubStream.animationIndex;
+    button.textContent=hubStreamActive()&&selected?"Stop preview":"Preview on keyboard…";
+    button.disabled=hubStreamActive()&&!selected;
+  });
+  updateDeviceActions();
+}
+
+function clearHubStreamPoll() {
+  if(state.hubStreamPoll!==null)clearTimeout(state.hubStreamPoll);
+  state.hubStreamPoll=null;
+}
+
+function notifyHubStreamTerminal() {
+  if(!hubStreamTerminal()||state.hubStreamNotifiedToken===state.hubStream.token)return;
+  state.hubStreamNotifiedToken=state.hubStream.token;
+  const status=state.hubStream.status||{};
+  if(state.hubStream.phase==="error"){
+    toast(
+      status.restoration==="failed"?"Preview and restoration failed":"Preview stopped after an error",
+      hubStreamStatusCopy(),
+      "error",
+    );
+  }else if(state.hubStream.phase!=="cancelled"){
+    toast("Volatile preview finished",hubStreamStatusCopy(),"success");
+  }
+}
+
+function acceptHubStreamStatus(token,status) {
+  state.hubStream=reduceHubStreamState(state.hubStream,{type:"STATUS_RECEIVED",token,status});
+  renderHubStreamDialog();
+  if(hubStreamTerminal()){
+    clearHubStreamPoll();
+    notifyHubStreamTerminal();
+  }
+}
+
+async function pollHubStream() {
+  state.hubStreamPoll=null;
+  const token=state.hubStream.token;
+  if(!token||!hubStreamActive())return;
+  try{
+    const status=await api("/api/hub/vial/stream/status",{
+      method:"POST",
+      body:JSON.stringify({token}),
+    });
+    if(token!==state.hubStream.token)return;
+    acceptHubStreamStatus(token,status);
+    if(hubStreamActive())state.hubStreamPoll=setTimeout(pollHubStream,250);
+  }catch(error){
+    if(token!==state.hubStream.token)return;
+    state.hubStream=reduceHubStreamState(state.hubStream,{type:"FAILED",error:error.message||String(error)});
+    renderHubStreamDialog();
+    clearHubStreamPoll();
+    notifyHubStreamTerminal();
+  }
+}
+
+async function preflightHubStream(animationIndex) {
+  if(hubStreamActive()){
+    renderHubStreamDialog();
+    return;
+  }
+  const target=genericWriteTarget();
+  if(!target||target.ecosystem!=="vial"||!state.hubEditor){
+    return toast("Read the exact VialRGB target","Preview needs the current connected Vial keyboard and its proved geometry.","error");
+  }
+  try{
+    const response=await api("/api/hub/vial/stream/preflight",{
+      method:"POST",
+      body:JSON.stringify({
+        address:target.address,
+        profile:state.hubEditor.profile,
+        animation_index:animationIndex,
+      }),
+    });
+    clearHubStreamPoll();
+    state.hubStreamPreflight=response;
+    state.hubStreamNotifiedToken=null;
+    state.hubStream=reduceHubStreamState(createHubStreamState(),{
+      type:"PREFLIGHT_SUCCEEDED",
+      token:response.token,
+      confirmation:response.confirmation,
+      animationIndex,
+      status:response.status,
+    });
+    $("#stream-confirmation").value="";
+    renderHubStreamDialog();
+    $("#stream-confirmation").focus();
+  }catch(error){toast("Could not prepare preview",error.message||String(error),"error");}
+}
+
+async function startHubStream() {
+  const current=state.hubStream;
+  if(current.phase!=="ready"||!current.token)return;
+  try{
+    state.hubStream=reduceHubStreamState(current,{type:"START_REQUESTED"});
+    renderHubStreamDialog();
+    const status=await api("/api/hub/vial/stream/start",{
+      method:"POST",
+      body:JSON.stringify({
+        token:current.token,
+        confirmation:$("#stream-confirmation").value,
+      }),
+    });
+    acceptHubStreamStatus(current.token,status);
+    if(hubStreamActive())state.hubStreamPoll=setTimeout(pollHubStream,250);
+  }catch(error){
+    state.hubStream=reduceHubStreamState(state.hubStream,{type:"FAILED",error:error.message||String(error)});
+    renderHubStreamDialog();
+    notifyHubStreamTerminal();
+  }
+}
+
+async function stopHubStream({close=false}={}) {
+  const token=state.hubStream.token;
+  if(!token)return;
+  try{
+    if(hubStreamActive()&&state.hubStream.phase!=="stopping"){
+      state.hubStream=reduceHubStreamState(state.hubStream,{type:"STOP_REQUESTED"});
+      renderHubStreamDialog();
+    }
+    const status=await api("/api/hub/vial/stream/stop",{
+      method:"POST",
+      body:JSON.stringify({token}),
+    });
+    acceptHubStreamStatus(token,status);
+    if(close&&!hubStreamActive())$("#stream-dialog").close();
+  }catch(error){
+    state.hubStream=reduceHubStreamState(state.hubStream,{type:"FAILED",error:error.message||String(error)});
+    renderHubStreamDialog();
+    notifyHubStreamTerminal();
+  }
+}
+
+function resetHubStream() {
+  if(hubStreamActive())return;
+  clearHubStreamPoll();
+  state.hubStream=createHubStreamState();
+  state.hubStreamPreflight=null;
+  updateDeviceActions();
+}
+
 function renderHubLightingEdit() {
   activeSourceTransformController?.teardown();
   activeSourceTransformController=null;
@@ -5941,9 +6137,15 @@ function renderHubLightingEdit() {
       :lighting.targetCurrent
         ?"Pixel positions were proved by the current target."
         :"Read this exact target again before per-key painting; portable profiles do not store geometry.";
-  const animations=(state.hubEditor.profile.lighting?.animations||[]).filter(
-    animation=>animation.surface_id===surface.id,
-  );
+  const animationEntries=(state.hubEditor.profile.lighting?.animations||[])
+    .map((animation,index)=>({animation,index}))
+    .filter(entry=>entry.animation.surface_id===surface.id);
+  const animations=animationEntries.map(entry=>entry.animation);
+  const previewList=animationEntries.map(({animation,index})=>{
+    const streamingThis=hubStreamActive()&&state.hubStream.animationIndex===index;
+    const disabled=hubStreamActive()&&!streamingThis||!lighting.targetCurrent;
+    return `<div class="hub-animation-preview-item"><span><strong>${esc(animation.name)}</strong><small>${animation.frames.length} frame${animation.frames.length===1?"":"s"} · ${animation.frame_ms||90} ms · volatile</small></span><button type="button" class="button ${streamingThis?"danger":"ghost"}" data-hub-stream-animation="${index}" ${disabled?"disabled":""}>${streamingThis?"Stop preview":"Preview on keyboard…"}</button></div>`;
+  }).join("");
   const pixels=surface.controls.perKey||surface.controls.animation
     ?surface.pixels.map(pixel=>{
       const native=current.per_key?.[pixel.pixel_id]||paintValues;
@@ -5966,7 +6168,7 @@ function renderHubLightingEdit() {
           <p class="control-help">${esc(evidence)}</p>
           ${pixelDescriptor&&surface.pixels.length?`<div class="hub-paint-controls">${pixelDescriptor.channels.map((channel,index)=>`<label><span>Paint ${index+1}</span><input type="range" data-hub-paint-channel="${index}" min="${channel.min}" max="${channel.max}" value="${paintValues[index]}"></label>`).join("")}</div>`:""}
           ${pixels?`<div class="hub-lighting-pixel-stage" aria-label="Per-key lighting pixels">${pixels}</div>`:`<div class="route-requirement compact"><div><strong>Per-key painter unavailable.</strong><p>${esc(evidence)}</p></div></div>`}
-          ${surface.controls.animation?`<div class="hub-animation-actions"><button id="hub-lighting-pulse" type="button" class="button ghost">Add pulse animation</button><label class="button ghost">Import image<input id="hub-lighting-media" type="file" accept="image/*" hidden></label><small>${animations.length} document animation${animations.length===1?"":"s"}. Preview on keyboard remains a separate volatile action.</small></div>`:""}
+          ${surface.controls.animation?`<div class="hub-animation-actions"><button id="hub-lighting-pulse" type="button" class="button ghost">Add pulse animation</button><label class="button ghost">Import image<input id="hub-lighting-media" type="file" accept="image/*" hidden></label><small>${animations.length} document animation${animations.length===1?"":"s"}. Keyboard preview is explicit, volatile, and never saved.</small>${previewList?`<div class="hub-animation-preview-list">${previewList}</div>`:""}</div>`:""}
         </div></section>
       </div>
     </div>`;
@@ -6011,6 +6213,14 @@ function renderHubLightingEdit() {
     event.currentTarget.value="";
     if(file)void importHubLightingImage(file,surface);
   });
+  $$('[data-hub-stream-animation]').forEach(button=>button.addEventListener("click",()=>{
+    if(hubStreamActive()){
+      renderHubStreamDialog();
+      void stopHubStream();
+    }else{
+      void preflightHubStream(Number(button.dataset.hubStreamAnimation));
+    }
+  }));
 }
 
 function mutateHubLighting(action) {
@@ -6788,6 +6998,10 @@ function genericWriteTarget() {
 function updateDeviceActions() {
   const read=$("#read-device"),write=$("#write-button");
   if(!read||!write)return;
+  const previewActive=hubStreamActive();
+  $("#device-button").disabled=previewActive;
+  $("#open-button").disabled=previewActive;
+  $("#hub-button").disabled=previewActive;
   updateCompatibilityBanner();
   const device=selectedDevice();
   if(!device){
@@ -6800,11 +7014,13 @@ function updateDeviceActions() {
   if((device.ecosystem||"am")!=="am"){
     const via=device.ecosystem==="via";
     const genericTarget=genericWriteTarget();
-    read.disabled=false;
+    read.disabled=previewActive;
     read.textContent=via?"Choose VIA definition & read":"Read Vial profile";
     write.textContent=state.hubEditor?`Write to ${state.hubEditor.profile.identity.family}`:"Write to keyboard";
-    write.disabled=!genericTarget;
-    write.title=genericTarget
+    write.disabled=!genericTarget||previewActive;
+    write.title=previewActive
+      ?"Stop the volatile preview before persistent Write."
+      :genericTarget
       ?"Preflight this exact connected target before writing."
       :"Read this exact keyboard before editing or overlaying a profile to write.";
     return;
@@ -7452,6 +7668,14 @@ $("#write-confirmation").addEventListener("input",event=>{$("#confirm-write").di
 $("#write-confirmation").addEventListener("keydown",event=>{if(event.key==='Enter'){event.preventDefault();if(!$("#confirm-write").disabled)confirmDeviceWrite();}});
 $("#write-dialog").addEventListener("cancel",event=>{if(state.pendingWrite?.busy||(state.pendingWrite?.kind!=="hub"&&state.pendingWrite&&productFamily(state.pendingWrite.device.product_id)==="NEON"))event.preventDefault();});
 $("#write-dialog").addEventListener("close",()=>{if($("#write-dialog").returnValue==='cancel'){clearGenericUnlockMarks();state.pendingWrite=null;}});
+$("#stream-confirmation").addEventListener("input",()=>renderHubStreamDialog());
+$("#stream-confirmation").addEventListener("keydown",event=>{if(event.key==="Enter"){event.preventDefault();if(!$("#stream-start").disabled)void startHubStream();}});
+$("#stream-start").addEventListener("click",()=>void startHubStream());
+$("#stream-stop").addEventListener("click",()=>void stopHubStream());
+$("#stream-cancel").addEventListener("click",()=>void stopHubStream({close:true}));
+$("#stream-close").addEventListener("click",event=>{event.preventDefault();void stopHubStream({close:true});});
+$("#stream-dialog").addEventListener("cancel",event=>{event.preventDefault();if(!hubStreamActive())void stopHubStream({close:true});});
+$("#stream-dialog").addEventListener("close",()=>{if(!hubStreamActive())resetHubStream();});
 $("#undo-button").addEventListener("click",undo);
 $("#redo-button").addEventListener("click",redo);
 $("#validate-button").addEventListener("click",()=>validateCurrent());

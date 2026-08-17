@@ -15,20 +15,23 @@
 
 ## Next
 
-- **H6 lighting through the hub is approved and in progress (2026-08-17):** H6a
-  through H6d are fixture-backed complete. H6d adds capability-gated Vial/VIA
-  Lighting Studio controls, current-target per-key geometry, exact-identity
-  animation authoring, shared document undo/redo, lighting-only schema-v2
-  documents, and persistent-write evidence/counts without adding a hardware
-  mutation route. Its bite proof fails when the old keymap requirement is
-  restored and passes with the fix. Chrome rendered the supported editor,
-  persistent preflight, possibly-accepted write/read-verify recovery, and
-  unsupported-capability state at 1000×680, 1280×800, and 1600×1000 with no
-  page-level horizontal overflow or console warnings/errors; the isolated fake
-  server recorded 6 reads, 4 preflights, and 2 confirmed write attempts. Final
-  verification is green at 768 Python and 234 web tests plus
-  compile/syntax/build/diff checks. Next action: implement H6e's separately
-  started volatile VialRGB stream and rendered start/stop UX. H6f physical
+- **H6 lighting through the hub is fixture-backed complete through H6e
+  (2026-08-17):** H6e adds a bounded, separately confirmed, volatile VialRGB
+  preview worker with endpoint/capability reproof, nine-pixel/rate-limited
+  scheduling, no backlog or setter retry, persistent-Write exclusion, and one
+  restoration attempt on stop, error, shutdown, or 30-second expiry. Fake-HID
+  transport/API tests prove no SAVE and restoration accounting. Chrome rendered
+  10-pixel preflight, running, explicit-stop, and automatic-expiry/restored
+  states at 1000×680, 1280×800, and 1600×1000 with no page overflow, viewport
+  escape, or console warnings/errors; persistent Write/Open/Transfer/Keyboards
+  actions stayed disabled while running. The unchanged-chunk bite proof failed
+  with six reports instead of three when suppression was removed, then passed
+  restored. Final verification is green at 778 Python and 238 web tests,
+  compilation, every JavaScript syntax check, package build, `git diff --check`,
+  macOS frozen build/native tree audit, `--smoke-test`, and
+  `--native-policy-smoke`. No physical keyboard was accessed. Canonical slice
+  evidence is in
+  `docs/superpowers/plans/2026-08-17-openkeeb-v2-h6-lighting.md`; H6f physical
   keyboard activity, push, release, public identifiers, and spending remain
   separately owner-gated.
 

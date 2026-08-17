@@ -1388,6 +1388,20 @@ body {
   color: var(--muted);
   line-height: 1.45;
 }
+.hub-animation-preview-list { display: grid; gap: 8px; flex: 1 0 100%; }
+.hub-animation-preview-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.025); }
+.hub-animation-preview-item span { min-width: 0; }
+.hub-animation-preview-item strong, .hub-animation-preview-item small { display: block; }
+.hub-animation-preview-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-animation-preview-item small { margin-top: 3px; }
+.stream-dialog { width: min(600px, calc(100vw - 40px)); }
+.stream-dialog .dialog-card { border-top-color: var(--cyan); }
+.stream-warning { border: 1px solid rgba(113,220,229,.36); background: rgba(113,220,229,.07); border-radius: 11px; padding: 14px; }
+.stream-warning strong { color: var(--cyan); }
+.stream-warning p { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 5px 0 0; }
+.stream-status { min-height: 42px; color: var(--muted); font-size: 13px; line-height: 1.5; margin: 12px 0 0; }
+.stream-status.running, .stream-status.starting, .stream-status.stopping { color: var(--cyan); }
+.stream-status.error { color: var(--red); }
 
 .route-requirement.compact {
   min-height: 0;

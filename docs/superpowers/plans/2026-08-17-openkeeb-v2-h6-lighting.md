@@ -78,7 +78,31 @@ attempts. The H6d bite proof fails under the old required-keymap assumption and
 passes with the fix. Full verification passes 768 Python tests, 234 web tests,
 Python compilation, every JavaScript syntax gate, package build, and
 `git diff --check`. No physical keyboard was opened and no hardware mutation
-occurred. H6e volatile VialRGB streaming is next.
+occurred.
+
+H6e fixture-backed landing, 2026-08-17: a bounded server-owned manager now
+separates authenticated VialRGB preview preflight/start/status/stop from
+persistent Write, holds one approved same-handle session, re-proves endpoint,
+feature, definition, protocol, geometry, state, and stream capability, and
+never exposes SAVE. The scheduler converts RGB to deterministic HSV8, sends a
+complete first frame in at-most-nine-pixel chunks, skips unchanged chunks and
+late frames without backlog, caps reports at 30/second, never retries a setter,
+and attempts restoration exactly once on stop, error, shutdown, or the
+30-second limit. Direct-mode preflight and changed/replugged targets are
+refused before a setter. The UI requires a separate exact volatile-preview
+confirmation, reports progress and restoration, exposes Stop, and disables
+persistent Write/Open/Transfer/Keyboards actions while active. Fake-HID tests
+prove zero SAVE and exact restoration accounting. Chrome rendered a 10-pixel
+preflight, running, explicit-stop/restored, and automatic-expiry/restored flow
+at 1000×680, 1280×800, and 1600×1000 with no page-level horizontal overflow,
+viewport escape, or console warnings/errors. The regression proof failed with
+six reports instead of the expected three when unchanged-chunk suppression was
+removed, then passed after restoration. Final verification passed 778 Python
+tests, 238 web tests, Python compilation, every JavaScript syntax gate, package
+build, `git diff --check`, the macOS frozen build/native tree audit,
+`--smoke-test`, and `--native-policy-smoke`. No physical keyboard was accessed
+and no physical hardware mutation occurred. H6f live evidence remains
+separately owner-gated.
 
 ## Objective
 

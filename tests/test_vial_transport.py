@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 import urllib.error
@@ -20,6 +21,7 @@ from am_configurator import (
     hub_vial,
     vial_keymap,
     vial_lighting,
+    vial_rgb_stream,
     vial_transport,
 )
 from am_configurator.server import create_server
@@ -65,6 +67,9 @@ class FakeVialState:
         self.fail_lighting_set_number: int | None = None
         self.fail_lighting_save = False
         self.ignore_lighting_sets = False
+        self.direct_fastsets: list[
+            tuple[int, tuple[tuple[int, int, int], ...]]
+        ] = []
 
     @property
     def definition_blob(self) -> bytes:
@@ -132,7 +137,18 @@ class FakeVialState:
         if command == vial_lighting.CMD_LIGHTING_SET_VALUE:
             value_id = packet[1]
             if not self.ignore_lighting_sets:
-                if value_id == vial_lighting.VIALRGB_SET_MODE:
+                if value_id == vial_lighting.VIALRGB_DIRECT_FASTSET:
+                    offset = int.from_bytes(packet[2:4], "little")
+                    count = min(
+                        vial_lighting.VIALRGB_MAX_CHUNK_PIXELS,
+                        len(self.vialrgb_leds) - offset,
+                    )
+                    pixels = tuple(
+                        tuple(packet[4 + index * 3 : 7 + index * 3])
+                        for index in range(count)
+                    )
+                    self.direct_fastsets.append((offset, pixels))
+                elif value_id == vial_lighting.VIALRGB_SET_MODE:
                     effect = int.from_bytes(packet[2:4], "little")
                     self.vialrgb_mode = (effect, *packet[4:8])
                 elif value_id == vial_lighting.QMK_RGBLIGHT_COLOR:
@@ -282,6 +298,33 @@ class GenericVialTransportTests(unittest.TestCase):
         profile["lighting"]["surfaces"][0].update(changes)
         return vial_transport.prepare_write(self.address, profile)
 
+    def _stream_profile(self):
+        self.state.definition["lighting"] = "vialrgb"
+        self.state.feature_flags = vial_lighting.VIALRGB_FEATURE_FLAG
+        profile = vial_transport.read_hub_profile(self.address)
+        profile["lighting"]["animations"] = [
+            {
+                "name": "Fixture pulse",
+                "surface_id": "vialrgb",
+                "pixel_ids": ["K_R0_C1", "LED_I1"],
+                "frames": [
+                    ["#FF0000", "#00FF00"],
+                    ["#0000FF", "#FFFFFF"],
+                ],
+                "placement": "geometry_seam",
+                "frame_ms": 60,
+            }
+        ]
+        return profile
+
+    def _prepared_stream(self):
+        return vial_transport.prepare_stream(
+            self.address,
+            self._stream_profile(),
+            animation_index=0,
+            maximum_duration_ms=180,
+        )
+
     def test_discovery_filters_non_vial_interfaces_and_keeps_two_endpoints(self) -> None:
         devices = vial_transport.list_devices()
 
@@ -395,6 +438,87 @@ class GenericVialTransportTests(unittest.TestCase):
                 (0x0F, None),
             }
             & operations
+        )
+
+    def test_volatile_stream_sends_first_frame_without_save_and_restores_once(self) -> None:
+        prepared = self._prepared_stream()
+        original_mode = self.state.vialrgb_mode
+        self.backend.commands.clear()
+
+        outcome = vial_transport.execute_stream(
+            prepared,
+            confirmation=prepared.confirmation,
+            stop_event=threading.Event(),
+            clock=vial_rgb_stream.SystemClock(),
+        )
+
+        self.assertEqual("completed", outcome.state)
+        self.assertEqual("restored", outcome.restoration)
+        self.assertEqual(original_mode, self.state.vialrgb_mode)
+        self.assertGreaterEqual(len(self.state.direct_fastsets), 1)
+        self.assertEqual(0, self.state.direct_fastsets[0][0])
+        self.assertEqual(
+            ((0, 255, 255), (85, 255, 255)),
+            self.state.direct_fastsets[0][1],
+        )
+        self.assertEqual(0, self.state.lighting_saves)
+        self.assertFalse(
+            any(
+                packet[0] == vial_lighting.CMD_LIGHTING_SAVE
+                for _path, packet in self.backend.commands
+            )
+        )
+
+    def test_stream_preflight_refuses_already_direct_mode_without_setter(self) -> None:
+        self.state.definition["lighting"] = "vialrgb"
+        self.state.feature_flags = vial_lighting.VIALRGB_FEATURE_FLAG
+        self.state.vialrgb_mode = (vial_lighting.VIALRGB_DIRECT_EFFECT, 1, 2, 3, 4)
+        profile = vial_transport.read_hub_profile(self.address)
+        profile["lighting"]["animations"] = [
+            {
+                "name": "Direct refused",
+                "surface_id": "vialrgb",
+                "pixel_ids": ["K_R0_C1", "LED_I1"],
+                "frames": [["#FF0000", "#00FF00"]],
+                "placement": "geometry_seam",
+                "frame_ms": 90,
+            }
+        ]
+        self.backend.commands.clear()
+
+        with self.assertRaisesRegex(vial_transport.VialTransportError, "direct mode"):
+            vial_transport.prepare_stream(self.address, profile, animation_index=0)
+
+        self.assertFalse(
+            any(
+                packet[0] in {
+                    vial_lighting.CMD_LIGHTING_SET_VALUE,
+                    vial_lighting.CMD_LIGHTING_SAVE,
+                }
+                for _path, packet in self.backend.commands
+            )
+        )
+
+    def test_stream_token_target_reproof_stops_replug_before_setter(self) -> None:
+        prepared = self._prepared_stream()
+        replacement = b"vial-stream-replugged"
+        self.backend.entries[0] = _entry(replacement)
+        self.backend.states[replacement] = self.state
+        del self.backend.states[self.path]
+        self.backend.commands.clear()
+
+        with self.assertRaises(hid_transport.HidDeviceAbsent):
+            vial_transport.execute_stream(
+                prepared,
+                confirmation=prepared.confirmation,
+                stop_event=threading.Event(),
+            )
+
+        self.assertFalse(
+            any(
+                packet[0] == vial_lighting.CMD_LIGHTING_SET_VALUE
+                for _path, packet in self.backend.commands
+            )
         )
 
     def test_unknown_vial_lighting_definition_stays_explicitly_empty(self) -> None:
@@ -850,6 +974,135 @@ class GenericVialTransportTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=2)
+
+    def test_local_api_owns_one_volatile_stream_and_shutdown_restores(self) -> None:
+        profile = self._stream_profile()
+        original_mode = self.state.vialrgb_mode
+        self.backend.commands.clear()
+        with tempfile.TemporaryDirectory(prefix="openkeeb_vial_stream_api_") as data:
+            with mock.patch.dict(
+                os.environ,
+                {"AM_CONFIGURATOR_DATA_DIR": data},
+                clear=False,
+            ):
+                server, url = create_server()
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            parsed = urlparse(url)
+            token = parse_qs(parsed.query)["token"][0]
+            base = f"http://127.0.0.1:{server.server_port}"
+
+            def request(path: str, body: dict) -> tuple[int, dict]:
+                payload = json.dumps(body).encode("utf-8")
+                call = Request(
+                    base + path,
+                    data=payload,
+                    method="POST",
+                    headers={
+                        "X-AM-Token": token,
+                        "Content-Type": "application/json",
+                    },
+                )
+                try:
+                    with urlopen(call, timeout=5) as response:
+                        return response.status, json.loads(response.read())
+                except urllib.error.HTTPError as error:
+                    return error.code, json.loads(error.read())
+
+            try:
+                status, preflight = request(
+                    "/api/hub/vial/stream/preflight",
+                    {
+                        "address": self.address,
+                        "profile": profile,
+                        "animation_index": 0,
+                    },
+                )
+                self.assertEqual(200, status)
+                self.assertRegex(preflight["token"], r"^[A-Za-z0-9_-]{32,}$")
+                self.assertEqual("PREVIEW Fixture Pad", preflight["confirmation"])
+                self.assertEqual("Fixture pulse", preflight["animation"]["name"])
+                self.assertEqual(2, preflight["animation"]["pixel_count"])
+                self.assertEqual(0, self.state.lighting_sets)
+                self.assertEqual(0, self.state.lighting_saves)
+
+                status, refused = request(
+                    "/api/hub/vial/stream/start",
+                    {"token": preflight["token"], "confirmation": "Fixture Pad"},
+                )
+                self.assertEqual(400, status)
+                self.assertIn("PREVIEW Fixture Pad", refused["error"])
+                self.assertEqual(0, self.state.lighting_sets)
+
+                status, started = request(
+                    "/api/hub/vial/stream/start",
+                    {
+                        "token": preflight["token"],
+                        "confirmation": preflight["confirmation"],
+                    },
+                )
+                self.assertEqual(200, status)
+                self.assertIn(started["state"], {"starting", "running"})
+                for _attempt in range(100):
+                    status, running = request(
+                        "/api/hub/vial/stream/status",
+                        {"token": preflight["token"]},
+                    )
+                    self.assertEqual(200, status)
+                    if running.get("reports_sent", 0) > 0:
+                        break
+                    time.sleep(0.01)
+                else:
+                    self.fail("volatile preview sent no first-frame report")
+
+                status, blocked = request(
+                    "/api/hub/vial/preflight",
+                    {"address": self.address, "profile": profile},
+                )
+                self.assertEqual(400, status)
+                self.assertIn("Stop the volatile preview", blocked["error"])
+
+                status, stopped = request(
+                    "/api/hub/vial/stream/stop",
+                    {"token": preflight["token"]},
+                )
+                self.assertEqual(200, status)
+                self.assertEqual("stopped", stopped["state"])
+                self.assertEqual("restored", stopped["restoration"])
+                self.assertEqual(original_mode, self.state.vialrgb_mode)
+                self.assertEqual(0, self.state.lighting_saves)
+
+                self.state.direct_fastsets.clear()
+                status, shutdown_preflight = request(
+                    "/api/hub/vial/stream/preflight",
+                    {
+                        "address": self.address,
+                        "profile": profile,
+                        "animation_index": 0,
+                    },
+                )
+                self.assertEqual(200, status)
+                status, _started = request(
+                    "/api/hub/vial/stream/start",
+                    {
+                        "token": shutdown_preflight["token"],
+                        "confirmation": shutdown_preflight["confirmation"],
+                    },
+                )
+                self.assertEqual(200, status)
+                for _attempt in range(100):
+                    if self.state.direct_fastsets:
+                        break
+                    time.sleep(0.01)
+                else:
+                    self.fail("shutdown preview never entered direct mode")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
+        self.assertEqual(original_mode, self.state.vialrgb_mode)
+        self.assertEqual(0, self.state.lighting_saves)
 
 
 if __name__ == "__main__":

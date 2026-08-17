@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, replace
 import hashlib
+import threading
 from typing import Any
 
 from . import (
@@ -22,6 +23,7 @@ from . import (
     vial_keymap,
     vial_lighting,
     vial_macros,
+    vial_rgb_stream,
 )
 
 
@@ -71,6 +73,29 @@ class PreparedVialWrite:
     @property
     def confirmation(self) -> str:
         return self.target.name
+
+
+@dataclass(frozen=True)
+class PreparedVialRGBStream:
+    """One animation bound to a read target and its captured volatile mode."""
+
+    endpoint: hid_transport.VialDeviceInfo
+    target: hub_vial.VialSnapshot
+    animation_index: int
+    animation_name: str
+    surface_id: str
+    pixel_ids: tuple[str, ...]
+    original_state: dict[str, Any]
+    plan: vial_rgb_stream.StreamPlan
+    target_fingerprint: str
+
+    @property
+    def confirmation(self) -> str:
+        return f"PREVIEW {self.target.name}"
+
+    @property
+    def subject(self) -> str:
+        return self.animation_name
 
 
 @dataclass(frozen=True)
@@ -481,6 +506,205 @@ def read_hub_document(address: str, *, origin: str = "device") -> HubDocument:
 def read_hub_profile(address: str, *, origin: str = "device") -> dict[str, Any]:
     """Read one Vial keyboard directly into the common hub profile."""
     return read_hub_document(address, origin=origin).profile
+
+
+def prepare_stream(
+    address: str,
+    profile: object,
+    *,
+    animation_index: int,
+    maximum_duration_ms: int = vial_rgb_stream.MAX_DURATION_MS,
+) -> PreparedVialRGBStream:
+    """Bind one validated VialRGB animation to a fresh read-only target."""
+
+    if (
+        isinstance(animation_index, bool)
+        or not isinstance(animation_index, int)
+        or animation_index < 0
+    ):
+        raise VialTransportError("The VialRGB animation index is invalid.")
+    endpoint = hid_transport.find_vial(address)
+    target = _read_snapshot(endpoint)
+    validated = hub_profile.validate_hub_profile(profile)
+    animations = validated.get("lighting", {}).get("animations", [])
+    if animation_index >= len(animations):
+        raise VialTransportError("The selected VialRGB animation is unavailable.")
+    animation = animations[animation_index]
+    capabilities = (target.lighting_capabilities or {}).get("surfaces", [])
+    capability = next(
+        (
+            surface
+            for surface in capabilities
+            if surface.get("id") == animation.get("surface_id")
+        ),
+        None,
+    )
+    if (
+        capability is None
+        or capability.get("generation") != "vialrgb"
+        or not isinstance(capability.get("stream"), dict)
+        or capability["stream"].get("volatile") is not True
+    ):
+        raise VialTransportError(
+            "The selected target does not prove volatile VialRGB streaming."
+        )
+    geometry = tuple(
+        item
+        for item in target.lighting_geometry
+        if item.get("surface_id") == capability["id"]
+    )
+    pixel_ids = tuple(str(item.get("pixel_id") or "") for item in geometry)
+    if (
+        len(pixel_ids) != capability["stream"]["pixel_count"]
+        or tuple(animation.get("pixel_ids", ())) != pixel_ids
+    ):
+        raise VialTransportError(
+            "The animation pixel identities do not match the current target geometry."
+        )
+    original = next(
+        (
+            surface
+            for surface in (target.lighting_state or {}).get("surfaces", [])
+            if surface.get("id") == capability["id"]
+        ),
+        None,
+    )
+    if original is None:
+        raise VialTransportError("The current VialRGB mode was not read.")
+    if original.get("effect_id") == vial_lighting.VIALRGB_DIRECT_EFFECT:
+        raise VialTransportError(
+            "The keyboard is already in VialRGB direct mode; choose a hardware effect first."
+        )
+    plan = vial_rgb_stream.build_plan(
+        animation["frames"],
+        frame_ms=animation.get("frame_ms", 90),
+        brightness=animation.get("brightness", 100),
+        maximum_duration_ms=maximum_duration_ms,
+        max_chunk_pixels=capability["stream"]["max_chunk_pixels"],
+        reports_per_second=vial_lighting.VIALRGB_REPORTS_PER_SECOND,
+    )
+    target_profile = hub_vial.build_hub_profile(target)
+    target_fingerprint = "sha256-" + hashlib.sha256(
+        hub_profile.dumps_hub_profile(target_profile).encode("utf-8")
+    ).hexdigest()
+    return PreparedVialRGBStream(
+        endpoint=endpoint,
+        target=target,
+        animation_index=animation_index,
+        animation_name=animation["name"],
+        surface_id=capability["id"],
+        pixel_ids=pixel_ids,
+        original_state=copy.deepcopy(original),
+        plan=plan,
+        target_fingerprint=target_fingerprint,
+    )
+
+
+def _vialrgb_mode_payload(state: dict[str, Any]) -> tuple[int, ...]:
+    color = state.get("color")
+    if not isinstance(color, list) or len(color) != 2:
+        raise VialTransportError("The captured VialRGB HSV mode is invalid.")
+    return (
+        *int(state["effect_id"]).to_bytes(2, "little"),
+        int(state["speed"]),
+        int(color[0]),
+        int(color[1]),
+        int(state["brightness"]),
+    )
+
+
+def execute_stream(
+    prepared: PreparedVialRGBStream,
+    *,
+    confirmation: str,
+    stop_event: threading.Event,
+    progress=None,
+    clock: vial_rgb_stream.Clock | None = None,
+) -> vial_rgb_stream.StreamOutcome:
+    """Run one no-SAVE preview on a single re-proved endpoint-bound handle."""
+
+    if confirmation != prepared.confirmation:
+        raise hid_transport.HidIdentityError(
+            f"Type {prepared.confirmation} exactly to start volatile preview."
+        )
+    current = hid_transport.find_vial(prepared.endpoint.address)
+    if not _matches_target(current, prepared):
+        raise hid_transport.HidIdentityError(
+            "The connected Vial endpoint no longer matches preview preflight."
+        )
+    approval = hid_transport.approve_vial_stream(current, confirmation)
+    stream_surface = next(
+        surface
+        for surface in prepared.target.lighting_capabilities["surfaces"]
+        if surface["id"] == prepared.surface_id
+    )
+    stream = stream_surface["stream"]
+    offsets = range(0, prepared.plan.pixel_count, stream["max_chunk_pixels"])
+    lighting_sets = (
+        (vial_lighting.VIALRGB_SET_MODE,),
+        *(
+            (
+                vial_lighting.VIALRGB_DIRECT_FASTSET,
+                offset & 0xFF,
+                (offset >> 8) & 0xFF,
+            )
+            for offset in offsets
+        ),
+    )
+    session = hid_transport.open_vial_stream_approved(
+        approval,
+        lighting_gets=_lighting_gets(current),
+        lighting_sets=lighting_sets,
+    )
+    try:
+        capabilities, lighting_state, geometry = _read_lighting(
+            session,
+            current,
+            rows=prepared.target.matrix_rows,
+            cols=prepared.target.matrix_cols,
+        )
+        if (
+            capabilities != prepared.target.lighting_capabilities
+            or lighting_state != prepared.target.lighting_state
+            or geometry != prepared.target.lighting_geometry
+        ):
+            raise hid_transport.HidIdentityError(
+                "VialRGB capability, mode, or geometry changed after preview preflight."
+            )
+        direct_state = {
+            **prepared.original_state,
+            "effect_id": vial_lighting.VIALRGB_DIRECT_EFFECT,
+        }
+
+        def set_mode(state: dict[str, Any]) -> None:
+            vial_keymap.set_lighting_value(
+                session,
+                vial_lighting.VIALRGB_SET_MODE,
+                *_vialrgb_mode_payload(state),
+            )
+
+        def send_chunk(
+            offset: int, pixels: tuple[tuple[int, int, int], ...]
+        ) -> None:
+            payload = [offset & 0xFF, (offset >> 8) & 0xFF]
+            payload.extend(channel for pixel in pixels for channel in pixel)
+            vial_keymap.set_lighting_value(
+                session,
+                vial_lighting.VIALRGB_DIRECT_FASTSET,
+                *payload,
+            )
+
+        return vial_rgb_stream.run_stream(
+            prepared.plan,
+            stop_event=stop_event,
+            enter_direct=lambda: set_mode(direct_state),
+            send_chunk=send_chunk,
+            restore=lambda: set_mode(prepared.original_state),
+            clock=clock,
+            progress=progress,
+        )
+    finally:
+        session.close()
 
 
 def prepare_write(address: str, profile: object) -> PreparedVialWrite:
