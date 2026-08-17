@@ -58,7 +58,27 @@ lighting-only regression test failed when the old keymap dependency was
 temporarily restored, then passed with the fix. Full verification passed 768
 Python tests, 223 web tests, Python compilation, every JavaScript syntax gate,
 package build, and `git diff --check`. No physical keyboard was opened and no
-hardware mutation occurred. H6d generic hub Lighting Studio UX is next.
+hardware mutation occurred.
+
+H6d fixture-backed landing, 2026-08-17: the generic Lighting Studio projects
+only proved surface controls and current-target geometry, preserves exact pixel
+identities through the existing composer, keeps edits in shared document
+undo/redo, supports lighting-only schema-v2 documents, and extends persistent
+write review with lighting change/save counts, target-lighting backup, target
+fingerprint, unlock suppression for lighting-only writes, and possible-acceptance
+copy. Rendered testing additionally made read-success counts optional, replaced
+AM-only and shallow-discovery capability copy, made read/verify mismatch copy
+profile-wide, and cleared stale identity/target controls for unsupported
+lighting. Chrome rendered the supported editor, persistent preflight,
+possibly-accepted write/read-verify recovery, and unsupported-capability state
+at 1000×680, 1280×800, and 1600×1000. All states had exact target/confirmation
+copy, no page-level horizontal overflow, and no console warnings/errors; the
+isolated fake server recorded 6 reads, 4 preflights, and 2 confirmed write
+attempts. The H6d bite proof fails under the old required-keymap assumption and
+passes with the fix. Full verification passes 768 Python tests, 234 web tests,
+Python compilation, every JavaScript syntax gate, package build, and
+`git diff --check`. No physical keyboard was opened and no hardware mutation
+occurred. H6e volatile VialRGB streaming is next.
 
 ## Objective
 

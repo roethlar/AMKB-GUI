@@ -14,7 +14,7 @@ const {
 
 function profile() {
   return {
-    schema_version: 1,
+    schema_version: 2,
     identity: {
       ecosystem: "via",
       family: "Fixture Pad",
@@ -124,6 +124,46 @@ test("a generic hub editor document validates and owns immutable input", () => {
   assert.equal(Object.isFrozen(state.worklist[0].source), true);
   assert.equal("target" in state.profile, false);
   assert.equal("layout" in state.profile, false);
+});
+
+test("a schema-v2 lighting-only profile opens and edits without inventing a keymap", () => {
+  const source = profile();
+  delete source.keymap;
+  delete source.macros;
+  delete source.provenance["/keymap"];
+  delete source.provenance["/macros"];
+  source.capabilities = {
+    lighting: {
+      surfaces: [{
+        id: "backlight",
+        role: "backlight",
+        generation: "qmk_backlight",
+        brightness: {min: 0, max: 255},
+      }],
+    },
+  };
+  source.lighting = {surfaces: [{id: "backlight", brightness: 100}]};
+
+  const initial = createHubKeymapState({profile: source, target: target()});
+  const changed = reduceHubKeymapState(initial, {
+    type: "SET_LIGHTING",
+    action: {
+      type: "SET_SURFACE_FIELD",
+      surfaceId: "backlight",
+      field: "brightness",
+      value: 101,
+    },
+    targetCurrent: false,
+  });
+
+  assert.equal(initial.layer, null);
+  assert.equal(changed.profile.lighting.surfaces[0].brightness, 101);
+  assert.equal(changed.dirty, true);
+  assert.equal("keymap" in changed.profile, false);
+  assert.throws(
+    () => reduceHubKeymapState(initial, {type: "SELECT_LAYER", layer: 0}),
+    /layer/i,
+  );
 });
 
 test("selection, key assignment, undo, redo, and save stay immutable", () => {

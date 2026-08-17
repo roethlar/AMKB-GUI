@@ -32,6 +32,7 @@
     "diagonal",
   ]);
   const RGB = /^#[0-9A-Fa-f]{6}$/;
+  const TARGET_NAME = /^[a-z][a-z0-9_]*$/;
   const MIN_SCALE = 0.01;
   const MAX_SCALE = 32;
   const MAX_OFFSET = 8;
@@ -995,15 +996,76 @@
     return result;
   }
 
+  function hubTargetDescriptor(surface) {
+    if (
+      !surface
+      || typeof surface !== "object"
+      || typeof surface.id !== "string"
+      || !TARGET_NAME.test(surface.id)
+      || !Array.isArray(surface.pixels)
+      || !surface.pixels.length
+    ) {
+      throw new TypeError("A current hub lighting surface is required.");
+    }
+    const pixelIds = [];
+    const coordinates = [];
+    const seen = new Set();
+    for (const pixel of surface.pixels) {
+      if (
+        !pixel
+        || typeof pixel.pixel_id !== "string"
+        || !pixel.pixel_id
+        || seen.has(pixel.pixel_id)
+        || typeof pixel.x !== "number"
+        || !Number.isFinite(pixel.x)
+        || typeof pixel.y !== "number"
+        || !Number.isFinite(pixel.y)
+      ) {
+        throw new TypeError("Hub lighting geometry is invalid.");
+      }
+      seen.add(pixel.pixel_id);
+      pixelIds.push(pixel.pixel_id);
+      coordinates.push(Object.freeze({
+        x: clamp(pixel.x / 100, 0, 1),
+        y: clamp(pixel.y / 100, 0, 1),
+      }));
+    }
+    return Object.freeze({
+      target: surface.id,
+      targetLengths: Object.freeze({[surface.id]: pixelIds.length}),
+      pixel_ids: Object.freeze(pixelIds),
+      coordinates: Object.freeze(coordinates),
+    });
+  }
+
+  function renderHubColorEffect(sourceFrames, effect, descriptor) {
+    if (
+      !descriptor
+      || !Array.isArray(descriptor.pixel_ids)
+      || !Array.isArray(descriptor.coordinates)
+      || descriptor.pixel_ids.length !== descriptor.coordinates.length
+    ) {
+      throw new TypeError("The hub lighting target descriptor is invalid.");
+    }
+    const frames = renderColorEffect(sourceFrames, effect, descriptor.coordinates);
+    return Object.freeze({
+      target: descriptor.target,
+      pixel_ids: descriptor.pixel_ids,
+      frames: Object.freeze(frames.map(frame => Object.freeze([...frame]))),
+    });
+  }
+
   return Object.freeze({
     canonicalizeSourceTransform,
     createLatestTaskScheduler,
     defaultSourceTransform,
+    hubTargetDescriptor,
     interpolateMoveZoom,
     normalizedPointer,
     panSourceTransform,
     presetSourceTransform,
     renderColorEffect,
+    renderHubColorEffect,
     resolveSourceGeometry,
     scaleSourceTransform,
     selectDemonstrativeEffectFrame,

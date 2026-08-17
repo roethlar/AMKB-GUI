@@ -10,6 +10,7 @@ const {
   UNKNOWN_FAMILY_SPEC,
   familySpec,
   filterAssignmentOptions,
+  hubLightingTargets,
   macroCapacityStatus,
   mergeScannedDeviceDetails,
   neonPaletteAssignment,
@@ -24,6 +25,21 @@ const {
   vialMacroBufferUsage,
   withDeviceMacroLimits,
 } = require("../../am_configurator/web/lighting_targets.js");
+
+test("hub lighting surfaces become dynamic targets without invented geometry", () => {
+  const targets = hubLightingTargets({
+    surfaces: [
+      {id: "rgb_matrix", role: "keys", generation: "qmk_rgb_matrix", pixels: [{}, {}]},
+      {id: "underglow", role: "underglow", generation: "qmk_rgblight", pixels: []},
+    ],
+  });
+
+  assert.deepEqual(targets, [
+    {key: "rgb_matrix", label: "Per-key", generation: "qmk_rgb_matrix", pixelCount: 2},
+    {key: "underglow", label: "Underglow", generation: "qmk_rgblight", pixelCount: 0},
+  ]);
+  assert.deepEqual(hubLightingTargets(null), []);
+});
 
 test("shallow device rescans keep dynamic layout and descriptor paired", () => {
   const layout = [{index: 0, matrix_row: 0, matrix_col: 0}];

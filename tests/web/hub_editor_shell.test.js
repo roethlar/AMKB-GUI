@@ -12,15 +12,56 @@ const server = fs.readFileSync(path.join(root, "am_configurator/server.py"), "ut
 
 test("the pure hub modules load before the application adapter", () => {
   const palette = html.indexOf('<script src="/hub_keycode_palette.js"></script>');
+  const lighting = html.indexOf('<script src="/hub_lighting_state.js"></script>');
   const reducer = html.indexOf('<script src="/hub_keymap_state.js"></script>');
   const app = html.indexOf('<script src="/app.js"></script>');
   assert.ok(palette > 0);
   assert.ok(palette < app);
+  assert.ok(lighting > 0);
+  assert.ok(lighting < reducer);
   assert.ok(reducer > 0);
   assert.ok(reducer < app);
+  assert.match(server, /"\/hub_lighting_state\.js": "hub_lighting_state\.js"/);
   assert.match(server, /"\/hub_keycode_palette\.js": "hub_keycode_palette\.js"/);
+  assert.match(js, /const \{createHubLightingState,reduceHubLightingProfile\}=HubLightingState/);
   assert.match(js, /const \{buildQmkPalette,describeQmkKeycode,filterQmkPalette,parseRawQmkCode\}=HubKeycodePalette/);
   assert.match(js, /const \{createHubKeymapState,reduceHubKeymapState\}=HubKeymapState/);
+});
+
+test("generic lighting uses proved controls and ephemeral current geometry", () => {
+  const adoption = js.slice(
+    js.indexOf("function adoptHubDocument"),
+    js.indexOf("async function openHubFile"),
+  );
+  const read = js.slice(
+    js.indexOf("async function readHubDevice"),
+    js.indexOf("async function readDevice"),
+  );
+  const lighting = js.slice(
+    js.indexOf("function currentHubLightingState"),
+    js.indexOf("function renderLightingEdit"),
+  );
+  const meta = js.slice(js.indexOf("function updateMeta"), js.indexOf("function mergeConfigs"));
+
+  assert.match(adoption, /lightingGeometry/);
+  assert.match(adoption, /createHubKeymapState\(\{profile,layout,lightingGeometry,target\}\)/);
+  assert.match(read, /lightingGeometry:result\.lighting_geometry/);
+  assert.match(read, /profile\.keymap\?\.layers\?\.length/);
+  assert.match(read, /profile\.lighting\?\.surfaces\?\.length/);
+  assert.doesNotMatch(read, /profile\.keymap\.layers\.length/);
+  assert.match(lighting, /createHubLightingState/);
+  assert.match(lighting, /target\.scanEpoch===state\.deviceScanEpoch/);
+  assert.match(lighting, /data-hub-lighting-field="effect_id"/);
+  assert.match(lighting, /data-hub-lighting-field="brightness"/);
+  assert.match(lighting, /data-hub-lighting-field="speed"/);
+  assert.match(lighting, /data-hub-lighting-color-channel/);
+  assert.match(lighting, /data-hub-lighting-pixel/);
+  assert.match(lighting, /SET_LIGHTING/);
+  assert.match(lighting, /Keyboard unchanged until Write/);
+  assert.match(meta, /profile\.capabilities\?\.lighting\?\.surfaces/);
+  assert.match(meta, /profile\.keymap\?\.layers/);
+  assert.match(adoption, /profile\.keymap\?ROUTES\.KEYMAP:ROUTES\.EDIT/);
+  assert.doesNotMatch(lighting, /\/api\/hub\/(?:vial|via)\/write/);
 });
 
 test("one keymap adapter projects AM and generic hub documents", () => {
@@ -76,7 +117,25 @@ test("device discovery keeps AM, Vial, and VIA candidates explicit", () => {
   assert.match(scan, /\/api\/hub\/via\/devices/);
   assert.match(js, /device\.ecosystem\|\|"am"/);
   assert.match(scan, /Keymap \+ macros \+ lighting/);
+  assert.match(scan, /Vial keyboard/);
+  assert.match(scan, /VIA keyboard · Definition required/);
   assert.match(scan, /Definition required/);
+  assert.doesNotMatch(scan, /Keymap \+ macros · Definition required/);
+});
+
+test("generic lighting replaces AM-only shell copy", () => {
+  const lighting = js.slice(
+    js.indexOf("function renderHubLightingShell"),
+    js.indexOf("function renderLightingShell"),
+  );
+  assert.match(html, /id="lighting-eyebrow"/);
+  assert.match(lighting, /OpenKeeb · \$\{ecosystem\} workspace/);
+  assert.doesNotMatch(lighting, /Angry Miao workspace/);
+  assert.ok(lighting.indexOf("lighting-destination-product") < lighting.indexOf("if(!lighting?.available)"));
+  assert.match(lighting, /lighting-target-controls"\)\.replaceChildren\(\)/);
+  assert.match(lighting, /targetContext\.hidden=!lighting\?\.available/);
+  assert.match(lighting, /No proved lighting controls/);
+  assert.match(js, /read\.textContent=via\?"Choose VIA definition & read":"Read Vial profile"/);
 });
 
 test("VIA read waits for a user-imported definition", () => {

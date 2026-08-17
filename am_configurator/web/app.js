@@ -9,9 +9,9 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const clone = value => JSON.parse(JSON.stringify(value));
 const {PATTERN_COLORS, PATTERN_KINDS, PATTERN_SPEEDS, ROUTES, buildPatternRecipe, clampPatternSettings, classifyImportedJsonSelection, createEpochLoadRegistry, createLaunchState, createPaintStrokeController, defaultPatternSettings, escapeMarkup:esc, formatLightingHash, importedLightingApplyAvailability, nextGridIndex, nextPatternSeed, parseLightingHash, patternControlValues, patternKindById, reduceLightingState, routeAvailability, safeRgbColor} = LightingState;
-const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, macroCapacityStatus, mergeScannedDeviceDetails, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
-const {canonicalizeSourceTransform, createLatestTaskScheduler, defaultSourceTransform, interpolateMoveZoom, presetSourceTransform, renderColorEffect, resolveSourceGeometry, selectDemonstrativeEffectFrame, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
-const {boardFrameSetFromDocument, boardFrameSetFromLocalEffect, boardFrameSetFromMappedFrame, boardFrameSetFromMappedResult, captureWorkspaceAsyncContext, createLightingPlaybackRuntime, createLightingWorkspace, friendlyWorkspaceError, mappedResultFromBoardFrameSet, paintBoardProjection, reduceLightingWorkspace, selectBoardProjection, selectSourceProjection, workspaceAsyncContextMatches, workspaceContextKey, workspaceDestinationKey} = LightingWorkspace;
+const {DEVICE_TARGETS, NEON_LIGHTING_CONTROLS, filterAssignmentOptions, hubLightingTargets, macroCapacityStatus, mergeScannedDeviceDetails, productFamily, projectVialKeyLayout, projectVialLedLayout, renderTargetControls, selectVialLayoutDevice, specForProduct, supportedFamily, trackColorCount, withDeviceMacroLimits} = LightingTargets;
+const {canonicalizeSourceTransform, createLatestTaskScheduler, defaultSourceTransform, hubTargetDescriptor, interpolateMoveZoom, presetSourceTransform, renderColorEffect, renderHubColorEffect, resolveSourceGeometry, selectDemonstrativeEffectFrame, validateEffectSpec, validateSourceTransform, wireSourceTransformStage} = LightingComposer;
+const {boardFrameSetFromDocument, boardFrameSetFromLocalEffect, boardFrameSetFromMappedFrame, boardFrameSetFromMappedResult, captureWorkspaceAsyncContext, createLightingPlaybackRuntime, createLightingWorkspace, friendlyWorkspaceError, hubAnimationFromBoardFrameSet, mappedResultFromBoardFrameSet, paintBoardProjection, reduceLightingWorkspace, selectBoardProjection, selectSourceProjection, workspaceAsyncContextMatches, workspaceContextKey, workspaceDestinationKey} = LightingWorkspace;
 const {
   compatibleProfileSections,
   createLibraryRequestEpochs,
@@ -26,6 +26,7 @@ const {
   reduceMediaDraft,
 } = LibraryState;
 const {createHubKeymapState,reduceHubKeymapState}=HubKeymapState;
+const {createHubLightingState,reduceHubLightingProfile}=HubLightingState;
 const {buildQmkPalette,describeQmkKeycode,filterQmkPalette,parseRawQmkCode}=HubKeycodePalette;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
@@ -77,6 +78,8 @@ let lightingWorkspace = createLightingWorkspace({
 const state = {
   config: null,
   hubEditor: null,
+  hubLightingSurface: null,
+  hubLightingPaintColor: [0, 255],
   amHubReview: null,
   amHubReviewUndo: [],
   amHubReviewRedo: [],
@@ -538,6 +541,7 @@ function updateHistoryButtons() {
 
 function updateMeta() {
   const hub=state.hubEditor;
+  const hubLightingSurfaces=hub?.profile.capabilities?.lighting?.surfaces||[];
   const hasDocument=Boolean(state.config||hub);
   $("#file-name").textContent = hasDocument ? state.fileName : "No profile open";
   $("#context-label").textContent = hub ? "OpenKeeb profile" : state.config ? "Keyboard snapshot" : "Open document";
@@ -551,9 +555,9 @@ function updateMeta() {
     ["#nav-leds", state.config && pageData().length ? 3 : null, "lighting slot", "lighting slots"],
   ];
   if(hub){
-    navCounts[0][1]=hub.profile.keymap.layers.length;
+    navCounts[0][1]=hub.profile.keymap?.layers?.length||null;
     navCounts[1][1]=(hub.profile.macros||[]).length;
-    navCounts[2][1]=null;
+    navCounts[2][1]=hubLightingSurfaces.length||null;
   }
   for (const [selector, count, singular, plural] of navCounts) {
     const node = $(selector);
@@ -569,9 +573,17 @@ function updateMeta() {
   $("#merge-button").hidden = !state.config;
   $("#validate-button").disabled = !state.config||Boolean(hub);
   $$('.nav-item').forEach(item=>{
-    item.disabled=Boolean(hub)&&item.dataset.route!==ROUTES.KEYMAP;
+    if(hub){
+      item.disabled=(
+        (item.dataset.route===ROUTES.KEYMAP&&!hub.profile.keymap?.layers?.length)
+        ||item.dataset.route===ROUTES.MACROS
+        ||(item.dataset.route===ROUTES.EDIT&&!hubLightingSurfaces.length)
+      );
+    }else item.disabled=false;
     if(hub&&item.dataset.route===ROUTES.MACROS)item.title="Generic macro authoring is not enabled yet; existing macro data stays preserved.";
-    if(hub&&item.dataset.route===ROUTES.EDIT)item.title="Generic Vial and VIA lighting is not enabled yet.";
+    if(hub&&item.dataset.route===ROUTES.EDIT)item.title=hubLightingSurfaces.length
+      ?"Edit only lighting controls proved by this profile."
+      :"This OpenKeeb profile carries no proved lighting surfaces.";
   });
   updateHistoryButtons();
   updateDeviceActions();
@@ -771,9 +783,45 @@ async function saveHubDocument() {
   }catch(error){toast("Could not save OpenKeeb profile",error.message||String(error),"error");}
 }
 
-function adoptHubDocument({profile,layout=[],target,fileName,loadedDevice=null}) {
+async function saveHubLightingBackup() {
+  const pending=state.pendingWrite;
+  const lightingBackup=pending?.kind==="hub"?pending.preflight?.lighting_backup:null;
+  if(!pending||lightingBackup===null||lightingBackup===undefined)return saveHubDocument();
+  try{
+    const profile=clone(pending.profile);
+    profile.lighting=clone(lightingBackup);
+    const response=await api("/api/hub/save",{
+      method:"POST",
+      body:JSON.stringify({profile}),
+    });
+    if(typeof response.data!=="string")throw new Error("The canonical target lighting backup was not returned.");
+    const blob=new Blob([response.data],{type:"application/json;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement("a");
+    link.href=url;
+    link.download=hubFileName(`${pending.profile.identity.family}-prewrite-lighting.hub.json`);
+    link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    toast("Target lighting backup saved",`${link.download} · ${pending.preflight.target_fingerprint}`,"success");
+  }catch(error){toast("Could not save target lighting backup",error.message||String(error),"error");}
+}
+
+function saveWriteBackup() {
+  if(state.pendingWrite?.kind==="hub")return saveHubLightingBackup();
+  return saveConfig();
+}
+
+function adoptHubDocument({
+  profile,
+  layout=[],
+  lightingGeometry=[],
+  target,
+  fileName,
+  loadedDevice=null,
+}) {
   if(state.config&&state.loadedDevice)stashDeviceDocument();
-  state.hubEditor=createHubKeymapState({profile,layout,target});
+  state.hubEditor=createHubKeymapState({profile,layout,lightingGeometry,target});
+  state.hubLightingSurface=profile.capabilities?.lighting?.surfaces?.[0]?.id||null;
   state.amHubReview=null;
   state.amHubReviewUndo=[];
   state.amHubReviewRedo=[];
@@ -787,7 +835,7 @@ function adoptHubDocument({profile,layout=[],target,fileName,loadedDevice=null})
   state.redo=[];
   state.dirty=false;
   closeImportedLightingReview({render:false});
-  navigateTo(ROUTES.KEYMAP,{replace:true});
+  navigateTo(profile.keymap?ROUTES.KEYMAP:ROUTES.EDIT,{replace:true});
 }
 
 async function openHubFile(file) {
@@ -1402,6 +1450,24 @@ function navigateTo(route, {replace = false, focusHeading = false} = {}) {
 }
 
 function documentDescriptor() {
+  if(state.hubEditor){
+    const target=state.hubEditor.target;
+    const targetCurrent=Boolean(
+      target?.address&&target.scanEpoch===state.deviceScanEpoch,
+    );
+    const lighting=createHubLightingState({
+      profile:state.hubEditor.profile,
+      geometry:state.hubEditor.lightingGeometry,
+      targetCurrent,
+    });
+    if(!lighting.available)return null;
+    return {
+      family:"hub",
+      productId:state.hubEditor.profile.identity.family,
+      slots:[0],
+      supportedTargets:hubLightingTargets(lighting).map(target=>target.key),
+    };
+  }
   if (!state.config) return null;
   const model = activeLedModel();
   if (!model) return null;
@@ -2532,8 +2598,71 @@ function documentRequirementMarkup(message) {
   return `<div class="route-requirement"><span class="route-requirement-icon" aria-hidden="true">⌨</span><div><strong>Open a keyboard profile first.</strong><p>${esc(message)} Use Open or Keyboards in the command bar above.</p></div></div>`;
 }
 
+function currentHubLightingState() {
+  const documentState=state.hubEditor;
+  if(!documentState)return null;
+  const target=documentState.target;
+  const targetCurrent=Boolean(
+    target?.address&&target.scanEpoch===state.deviceScanEpoch,
+  );
+  return createHubLightingState({
+    profile:documentState.profile,
+    geometry:documentState.lightingGeometry,
+    targetCurrent,
+  });
+}
+
+function renderHubLightingShell() {
+  const lighting=currentHubLightingState();
+  const ecosystem=state.hubEditor.profile.identity.ecosystem.toUpperCase();
+  $("#lighting-eyebrow").textContent=`OpenKeeb · ${ecosystem} workspace`;
+  $("#lighting-title").textContent="Lighting Studio";
+  $(".lighting-capability-note").textContent="Only controls proved by this Vial or VIA profile are shown.";
+  $("#lighting-destination-product").textContent=`${state.hubEditor.profile.identity.family} · ${ecosystem}`;
+  $("#lighting-edit-tab").setAttribute("aria-selected","true");
+  $("#lighting-edit-tab").tabIndex=0;
+  $("#lighting-library-tab").setAttribute("aria-selected","false");
+  $("#lighting-library-tab").tabIndex=-1;
+  $("#lighting-edit-panel").hidden=false;
+  $("#lighting-library-panel").hidden=true;
+  const slotContext=$('[data-lighting-slot]')?.closest(".lighting-context-group");
+  if(slotContext)slotContext.hidden=true;
+  const targetContext=$("#lighting-target-controls")?.closest(".target-context");
+  if(targetContext)targetContext.hidden=!lighting?.available;
+  if(!lighting?.available){
+    $("#lighting-target-controls").replaceChildren();
+    showLightingEditMessage(`<div class="route-requirement"><span class="route-requirement-icon" aria-hidden="true">✦</span><div><strong>No proved lighting controls.</strong><p>This profile exposes no supported lighting surfaces. Read the exact target again or open a profile with proved Vial or VIA lighting capabilities.</p></div></div>`);
+    return;
+  }
+  const targets=hubLightingTargets(lighting);
+  if(!targets.some(target=>target.key===state.hubLightingSurface)){
+    state.hubLightingSurface=targets[0].key;
+  }
+  renderTargetControls(
+    $("#lighting-target-controls"),
+    targets,
+    state.hubLightingSurface,
+    false,
+    target=>{
+      state.hubLightingSurface=target;
+      renderHubLightingShell();
+      focusSelectedTarget(target);
+    },
+  );
+  renderHubLightingEdit();
+}
+
 function renderLightingShell() {
   const route = state.lighting.route;
+  if(state.hubEditor&&route===ROUTES.EDIT){
+    renderHubLightingShell();
+    return;
+  }
+  const slotContext=$('[data-lighting-slot]')?.closest(".lighting-context-group");
+  if(slotContext)slotContext.hidden=false;
+  const targetContext=$("#lighting-target-controls")?.closest(".target-context");
+  if(targetContext)targetContext.hidden=false;
+  $("#lighting-eyebrow").textContent=route===ROUTES.LIBRARY?"OpenKeeb workspace":"Angry Miao workspace";
   $("#lighting-title").textContent=route===ROUTES.LIBRARY?"OpenKeeb Library":"Lighting Studio";
   $(".lighting-capability-note").textContent=route===ROUTES.LIBRARY
     ?"Profiles, media, keymaps, and lighting saved locally on this computer."
@@ -5785,7 +5914,239 @@ async function saveImportedLightingToLibrary() {
   }
 }
 
+function renderHubLightingEdit() {
+  activeSourceTransformController?.teardown();
+  activeSourceTransformController=null;
+  const lighting=currentHubLightingState();
+  const surface=lighting?.surfaces.find(item=>item.id===state.hubLightingSurface)
+    ||lighting?.surfaces[0];
+  if(!surface){
+    showLightingEditMessage(documentRequirementMarkup("This profile exposes no proved lighting surfaces."));
+    return;
+  }
+  const capability=surface.capability;
+  const current=surface.state;
+  const effects=(capability.effects||[]).filter(effect=>(
+    capability.generation!=="vialrgb"||effect.id!==1
+  ));
+  const colorValues=Array.isArray(current.color)
+    ?current.color
+    :(capability.color?.channels||[]).map(channel=>channel.min);
+  const pixelDescriptor=capability.per_key?.color||capability.color;
+  const paintValues=hubPaintValues(pixelDescriptor);
+  const evidence=surface.evidence==="device_proven_vialrgb"
+    ?"Pixel positions and identities were read from this VialRGB keyboard."
+    :surface.evidence==="user_imported_definition"
+      ?"Pixel positions and LED indexes come from the active user-imported VIA definition."
+      :lighting.targetCurrent
+        ?"Pixel positions were proved by the current target."
+        :"Read this exact target again before per-key painting; portable profiles do not store geometry.";
+  const animations=(state.hubEditor.profile.lighting?.animations||[]).filter(
+    animation=>animation.surface_id===surface.id,
+  );
+  const pixels=surface.controls.perKey||surface.controls.animation
+    ?surface.pixels.map(pixel=>{
+      const native=current.per_key?.[pixel.pixel_id]||paintValues;
+      const color=hubNativeColorHex(native,pixelDescriptor,current.brightness);
+      return `<button type="button" class="hub-lighting-pixel" data-hub-lighting-pixel="${esc(pixel.pixel_id)}" style="left:${pixel.x}%;top:${pixel.y}%;background:${color}" title="${esc(pixel.pixel_id)}"></button>`;
+    }).join("")
+    :"";
+  $("#lighting-edit-message").innerHTML=`
+    <div class="hub-lighting-editor">
+      <header class="hub-lighting-header"><div><p class="eyebrow">${esc(surface.role||surface.id)}</p><h2>${esc(state.hubEditor.profile.identity.family)} lighting</h2><p>Every change stays in this OpenKeeb document and shares Undo / Redo. <strong>Keyboard unchanged until Write.</strong></p></div><span class="pill">${esc(surface.generation)}</span></header>
+      <div class="hub-lighting-grid">
+        <section class="card hub-lighting-controls"><div class="card-header"><strong>Firmware controls</strong><small>Capability-gated</small></div><div class="card-body">
+          ${surface.controls.effect?`<label class="field"><span>Effect</span><select class="text-field" data-hub-lighting-field="effect_id">${effects.map(effect=>`<option value="${effect.id}" ${effect.id===current.effect_id?"selected":""}>${esc(effect.semantic||`Effect ${effect.id}`)}</option>`).join("")}</select></label>`:""}
+          ${surface.controls.brightness?`<label class="field"><span>Brightness <output>${current.brightness??capability.brightness.min}</output></span><input type="range" data-hub-lighting-field="brightness" min="${capability.brightness.min}" max="${capability.brightness.max}" value="${current.brightness??capability.brightness.min}"></label>`:""}
+          ${surface.controls.speed?`<label class="field"><span>Speed <output>${current.speed??capability.speed.min}</output></span><input type="range" data-hub-lighting-field="speed" min="${capability.speed.min}" max="${capability.speed.max}" value="${current.speed??capability.speed.min}"></label>`:""}
+          ${surface.controls.color?`<fieldset class="hub-channel-controls"><legend>Color (${esc(capability.color.space.toUpperCase())})</legend>${capability.color.channels.map((channel,index)=>`<label class="field"><span>Channel ${index+1} <output>${colorValues[index]}</output></span><input type="range" data-hub-lighting-color-channel="${index}" min="${channel.min}" max="${channel.max}" value="${colorValues[index]}"></label>`).join("")}</fieldset>`:""}
+          ${!surface.controls.effect&&!surface.controls.brightness&&!surface.controls.speed&&!surface.controls.color?`<p class="control-help">This surface exposes no persistent global controls.</p>`:""}
+        </div></section>
+        <section class="card hub-lighting-painter"><div class="card-header"><strong>Per-key paint</strong><small>${surface.pixels.length} proved pixels</small></div><div class="card-body">
+          <p class="control-help">${esc(evidence)}</p>
+          ${pixelDescriptor&&surface.pixels.length?`<div class="hub-paint-controls">${pixelDescriptor.channels.map((channel,index)=>`<label><span>Paint ${index+1}</span><input type="range" data-hub-paint-channel="${index}" min="${channel.min}" max="${channel.max}" value="${paintValues[index]}"></label>`).join("")}</div>`:""}
+          ${pixels?`<div class="hub-lighting-pixel-stage" aria-label="Per-key lighting pixels">${pixels}</div>`:`<div class="route-requirement compact"><div><strong>Per-key painter unavailable.</strong><p>${esc(evidence)}</p></div></div>`}
+          ${surface.controls.animation?`<div class="hub-animation-actions"><button id="hub-lighting-pulse" type="button" class="button ghost">Add pulse animation</button><label class="button ghost">Import image<input id="hub-lighting-media" type="file" accept="image/*" hidden></label><small>${animations.length} document animation${animations.length===1?"":"s"}. Preview on keyboard remains a separate volatile action.</small></div>`:""}
+        </div></section>
+      </div>
+    </div>`;
+  $("#lighting-workspace-shell").hidden=true;
+  $$('[data-hub-lighting-field]').forEach(control=>control.addEventListener("change",()=>{
+    mutateHubLighting({
+      type:"SET_SURFACE_FIELD",
+      surfaceId:surface.id,
+      field:control.dataset.hubLightingField,
+      value:Number(control.value),
+    });
+  }));
+  $$('[data-hub-lighting-color-channel]').forEach(control=>control.addEventListener("input",()=>{
+    const value=[...colorValues];
+    value[Number(control.dataset.hubLightingColorChannel)]=Number(control.value);
+    mutateHubLighting({
+      type:"SET_SURFACE_FIELD",
+      surfaceId:surface.id,
+      field:"color",
+      value,
+    });
+  }));
+  $$('[data-hub-paint-channel]').forEach(control=>control.addEventListener("input",()=>{
+    state.hubLightingPaintColor=hubPaintValues(pixelDescriptor);
+    state.hubLightingPaintColor[Number(control.dataset.hubPaintChannel)]=Number(control.value);
+  }));
+  $$('[data-hub-lighting-pixel]').forEach(pixel=>pixel.addEventListener("click",()=>{
+    if(capability.generation==="vialrgb"&&capability.stream){
+      paintHubAnimationPixel(surface,pixel.dataset.hubLightingPixel);
+    }else{
+      mutateHubLighting({
+        type:"SET_PIXEL_COLOR",
+        surfaceId:surface.id,
+        pixelId:pixel.dataset.hubLightingPixel,
+        value:hubPaintValues(pixelDescriptor),
+      });
+    }
+  }));
+  $("#hub-lighting-pulse")?.addEventListener("click",()=>createHubPulseAnimation(surface));
+  $("#hub-lighting-media")?.addEventListener("change",event=>{
+    const file=event.currentTarget.files?.[0];
+    event.currentTarget.value="";
+    if(file)void importHubLightingImage(file,surface);
+  });
+}
+
+function mutateHubLighting(action) {
+  const documentState=state.hubEditor;
+  if(!documentState)return;
+  const target=documentState.target;
+  const targetCurrent=Boolean(target?.address&&target.scanEpoch===state.deviceScanEpoch);
+  try{
+    state.hubEditor=reduceHubKeymapState(documentState,{
+      type:"SET_LIGHTING",
+      action,
+      targetCurrent,
+    });
+    state.dirty=state.hubEditor.dirty;
+    updateMeta();
+    renderHubLightingShell();
+  }catch(error){toast("Could not edit lighting",error.message||String(error),"error");}
+}
+
+function hubPaintValues(descriptor) {
+  if(!descriptor?.channels?.length)return [];
+  return descriptor.channels.map((channel,index)=>{
+    const value=Number(state.hubLightingPaintColor[index]);
+    return Number.isSafeInteger(value)&&value>=channel.min&&value<=channel.max
+      ?value
+      :channel.max;
+  });
+}
+
+function hubNativeColorHex(value,descriptor,brightness=255) {
+  if(!descriptor?.channels?.length||!Array.isArray(value))return "#000000";
+  const normalized=descriptor.channels.map((channel,index)=>{
+    const span=Math.max(1,channel.max-channel.min);
+    return Math.max(0,Math.min(1,(Number(value[index]??channel.min)-channel.min)/span));
+  });
+  let red=normalized[0]||0,green=normalized[1]||0,blue=normalized[2]||0;
+  if(descriptor.space==="hsv"){
+    const hue=(normalized[0]||0)*6;
+    const saturation=normalized[1]??1;
+    const surfaceValue=normalized.length>2
+      ?normalized[2]
+      :Math.max(0,Math.min(1,Number(brightness)/255));
+    const chroma=surfaceValue*saturation;
+    const x=chroma*(1-Math.abs((hue%2)-1));
+    const match=surfaceValue-chroma;
+    [red,green,blue]=hue<1?[chroma,x,0]:hue<2?[x,chroma,0]:hue<3?[0,chroma,x]:hue<4?[0,x,chroma]:hue<5?[x,0,chroma]:[chroma,0,x];
+    red+=match;green+=match;blue+=match;
+  }
+  return `#${[red,green,blue].map(channel=>Math.round(channel*255).toString(16).toUpperCase().padStart(2,"0")).join("")}`;
+}
+
+function paintHubAnimationPixel(surface,pixelId) {
+  const descriptor=hubTargetDescriptor(surface);
+  const existing=(state.hubEditor.profile.lighting?.animations||[]).find(
+    animation=>animation.surface_id===surface.id&&animation.name==="OpenKeeb paint",
+  );
+  const colors=existing?.frames?.[0]
+    ?[...existing.frames[0]]
+    :surface.pixels.map(pixel=>hubNativeColorHex(
+      surface.state.per_key?.[pixel.pixel_id]||hubPaintValues(surface.capability.per_key?.color),
+      surface.capability.per_key?.color||surface.capability.color,
+      surface.state.brightness,
+    ));
+  const index=descriptor.pixel_ids.indexOf(pixelId);
+  if(index<0)return;
+  colors[index]=hubNativeColorHex(
+    hubPaintValues(surface.capability.per_key?.color||surface.capability.color),
+    surface.capability.per_key?.color||surface.capability.color,
+    surface.state.brightness,
+  );
+  mutateHubLighting({
+    type:"SET_ANIMATION",
+    surfaceId:surface.id,
+    name:"OpenKeeb paint",
+    pixelIds:[...descriptor.pixel_ids],
+    frames:[colors],
+    frameMs:90,
+  });
+}
+
+function createHubPulseAnimation(surface) {
+  try{
+    const descriptor=hubTargetDescriptor(surface);
+    const pixelDescriptor=surface.capability.per_key?.color||surface.capability.color;
+    const source=[surface.pixels.map(pixel=>hubNativeColorHex(
+      surface.state.per_key?.[pixel.pixel_id]||hubPaintValues(pixelDescriptor),
+      pixelDescriptor,
+      surface.state.brightness,
+    ))];
+    const rendered=renderHubColorEffect(source,{
+      version:1,
+      type:"pulse",
+      frame_count:8,
+      duration_ms:90,
+      parameters:{minimum_brightness:0.2},
+    },descriptor);
+    mutateHubLighting({
+      type:"SET_ANIMATION",
+      surfaceId:surface.id,
+      name:"Pulse",
+      pixelIds:[...rendered.pixel_ids],
+      frames:rendered.frames.map(frame=>[...frame]),
+      frameMs:90,
+    });
+  }catch(error){toast("Could not create animation",error.message||String(error),"error");}
+}
+
+async function importHubLightingImage(file,surface) {
+  try{
+    const descriptor=hubTargetDescriptor(surface);
+    const bitmap=await createImageBitmap(file);
+    const canvas=document.createElement("canvas");
+    canvas.width=Math.max(1,bitmap.width);
+    canvas.height=Math.max(1,bitmap.height);
+    const context=canvas.getContext("2d",{willReadFrequently:true});
+    context.drawImage(bitmap,0,0,canvas.width,canvas.height);
+    const colors=descriptor.coordinates.map(coordinate=>{
+      const x=Math.min(canvas.width-1,Math.round(coordinate.x*(canvas.width-1)));
+      const y=Math.min(canvas.height-1,Math.round(coordinate.y*(canvas.height-1)));
+      const [red,green,blue]=context.getImageData(x,y,1,1).data;
+      return `#${[red,green,blue].map(channel=>channel.toString(16).toUpperCase().padStart(2,"0")).join("")}`;
+    });
+    bitmap.close?.();
+    mutateHubLighting({
+      type:"SET_ANIMATION",
+      surfaceId:surface.id,
+      name:file.name.slice(0,128)||"Imported image",
+      pixelIds:[...descriptor.pixel_ids],
+      frames:[colors],
+      frameMs:90,
+    });
+  }catch(error){toast("Could not import image",error.message||String(error),"error");}
+}
+
 function renderLightingEdit() {
+  if(state.hubEditor)return renderHubLightingEdit();
   if(importedLightingReport()){
     renderImportedLightingReview();
     return;
@@ -6440,7 +6801,7 @@ function updateDeviceActions() {
     const via=device.ecosystem==="via";
     const genericTarget=genericWriteTarget();
     read.disabled=false;
-    read.textContent=via?"Choose VIA definition & read":"Read Vial keymap & macros";
+    read.textContent=via?"Choose VIA definition & read":"Read Vial profile";
     write.textContent=state.hubEditor?`Write to ${state.hubEditor.profile.identity.family}`:"Write to keyboard";
     write.disabled=!genericTarget;
     write.title=genericTarget
@@ -6479,16 +6840,16 @@ async function scanDevices() {
     const vialDevices=(vialResult.devices||[]).map(device=>({
       ...device,ecosystem:"vial",transport:"hid",is_keyboard:true,
       product_id:device.name||device.usb_product||`${device.vid}:${device.pid}`,
-      version:device.identity_error?`Keymap + macros · ${device.identity_error}`:"Keymap + macros",
+      version:device.identity_error?`Vial keyboard · ${device.identity_error}`:"Vial keyboard",
       pages:"—",
-      capabilityLabel:device.identity_error?`Keymap + macros · ${device.identity_error}`:"Keymap + macros",
+      capabilityLabel:device.identity_error?`Vial keyboard · ${device.identity_error}`:"Vial keyboard",
     }));
     const viaDevices=(viaResult.devices||[]).map(device=>({
       ...device,ecosystem:"via",transport:"hid",is_keyboard:true,
       product_id:device.usb_product||`${device.vid}:${device.pid}`,
-      version:"Keymap + macros · Definition required",
+      version:"VIA keyboard · Definition required",
       pages:"—",
-      capabilityLabel:"Keymap + macros · Definition required",
+      capabilityLabel:"VIA keyboard · Definition required",
     }));
     state.devices=[...amDevices,...vialDevices,...viaDevices];
     const keyboards=state.devices;
@@ -6527,12 +6888,19 @@ async function readHubDevice(target,definition=null) {
     adoptHubDocument({
       profile:result.profile,
       layout:result.layout,
+      lightingGeometry:result.lighting_geometry,
       target:{ecosystem:target.ecosystem,address:target.address,scanEpoch,...(via?{definition}:{})},
       fileName:`${result.profile.identity.family}.hub.json`,
       loadedDevice:loaded,
     });
     $("#device-dialog").close();
-    toast("Keyboard read",`${result.profile.identity.family} · ${result.profile.keymap.layers.length} layers · ready to edit; keyboard unchanged`,"success");
+    const layerCount=result.profile.keymap?.layers?.length||0;
+    const lightingCount=result.profile.lighting?.surfaces?.length||0;
+    const sections=[
+      layerCount?`${layerCount} layer${layerCount===1?"":"s"}`:null,
+      lightingCount?`${lightingCount} lighting surface${lightingCount===1?"":"s"}`:null,
+    ].filter(Boolean);
+    toast("Keyboard read",`${result.profile.identity.family}${sections.length?` · ${sections.join(" · ")}`:""} · ready to edit; keyboard unchanged`,"success");
   }catch(error){toast("Could not read keyboard",error.message||String(error),"error");}
   finally{button.disabled=false;updateDeviceActions();}
 }
@@ -6609,6 +6977,37 @@ function hubWriteReportCounts(report) {
   return counts;
 }
 
+function hubWriteCount(value) {
+  return Number.isSafeInteger(value)&&value>=0?value:0;
+}
+
+function hubWritePlan(preflight) {
+  const keymapBytes=hubWriteCount(preflight.keymap_bytes);
+  const macroBytes=hubWriteCount(preflight.macro_bytes);
+  const lightingChanges=hubWriteCount(preflight.lighting_changes);
+  const lightingSaves=hubWriteCount(preflight.lighting_saves);
+  const parts=[];
+  if(keymapBytes)parts.push("keymap");
+  if(macroBytes)parts.push("macros");
+  if(lightingChanges||lightingSaves)parts.push("persistent lighting");
+  const subject=parts.length>1
+    ?`${parts.slice(0,-1).join(", ")} & ${parts.at(-1)}`
+    :parts[0]||"profile state";
+  return Object.freeze({
+    keymapBytes,
+    macroBytes,
+    lightingChanges,
+    lightingSaves,
+    subject,
+    requiresUnlock:Boolean(keymapBytes||macroBytes),
+  });
+}
+
+function hubWriteReceiptText(result,unknown="unknown") {
+  const count=field=>Number.isSafeInteger(result?.[field])?result[field]:unknown;
+  return `${count("keymap_bytes")} keymap bytes · ${count("macro_bytes")} macro bytes · ${count("lighting_changes")} lighting changes · ${count("lighting_saves")} lighting saves`;
+}
+
 function clearGenericUnlockMarks() {
   $$(".keycap.unlock-required").forEach(key=>key.classList.remove("unlock-required"));
 }
@@ -6620,7 +7019,7 @@ function markGenericUnlockKeys(keys) {
 }
 
 function hubUnlockKeyLabel(item,documentState) {
-  const base=documentState.profile.keymap.layers.find(layer=>layer.index===0);
+  const base=documentState.profile.keymap?.layers?.find(layer=>layer.index===0);
   const assignment=base?.keys.find(key=>key.key===item.key);
   if(!assignment)return item.key;
   const description=describeQmkKeycode(assignment.code,{
@@ -6672,6 +7071,7 @@ async function writeHubDevice() {
   }
   const verifiedDevice={...device,...(preflight.device||{})};
   const counts=hubWriteReportCounts(preflight.report);
+  const plan=hubWritePlan(preflight);
   const unlock=preflight.unlock||{};
   const unlockKeys=preflight.unlock?.keys||[];
   state.pendingWrite={
@@ -6683,33 +7083,36 @@ async function writeHubDevice() {
     profile:documentState.profile,
     confirmation:preflight.confirmation,
     preflight,
+    plan,
     alreadyMatches:Boolean(preflight.matches_target),
     busy:false,
   };
-  $("#write-eyebrow").textContent=`${ecosystem.toUpperCase()} keymap write`;
+  $("#write-eyebrow").textContent=`${ecosystem.toUpperCase()} persistent write`;
   $("#write-title").textContent=`Write to ${documentState.profile.identity.family}`;
-  $("#write-warning-title").textContent="This replaces the keyboard's keymap and macro buffers.";
-  $("#write-warning-copy").textContent="Lighting and firmware are not modified. Keep the USB cable connected until exact read-back finishes.";
+  $("#write-warning-title").textContent=`This writes ${plan.subject} to keyboard storage.`;
+  $("#write-warning-copy").textContent="Only the proved, preflighted changes shown below are sent. Exact read-back completes before persistent lighting is saved; firmware is not modified.";
   const targetNote=$("#write-target-note");
   targetNote.hidden=false;
-  targetNote.textContent=`Verified target: ${verifiedDevice.name||verifiedDevice.usb_product||documentState.profile.identity.family} · ${hubUsbLabel(verifiedDevice)} · ${verifiedDevice.address}`;
+  targetNote.textContent=`Verified target: ${verifiedDevice.name||verifiedDevice.usb_product||documentState.profile.identity.family} · ${hubUsbLabel(verifiedDevice)} · ${verifiedDevice.address} · ${preflight.target_fingerprint}`;
   const unlockNote=$("#write-unlock-note");
-  unlockNote.hidden=ecosystem!=="vial"||Boolean(preflight.matches_target);
-  unlockNote.textContent=ecosystem==="vial"
+  const needsVialUnlock=ecosystem==="vial"&&plan.requiresUnlock&&!preflight.matches_target;
+  unlockNote.hidden=!needsVialUnlock;
+  unlockNote.textContent=needsVialUnlock
     ?unlock.unlocked
       ?"The keyboard currently reports unlocked. Its lock state is checked again after confirmation."
       :unlock.in_progress
         ?`Physical unlock is already in progress. Keep holding ${unlockKeys.length?unlockKeys.map(item=>hubUnlockKeyLabel(item,documentState)).join(" + "):"the keyboard's designated unlock keys"}; the write request checks it again after confirmation.`
         :`Physical unlock begins only after confirmation. Hold ${unlockKeys.length?unlockKeys.map(item=>hubUnlockKeyLabel(item,documentState)).join(" + "):"the keyboard's designated unlock keys"} when prompted.`
     :"";
-  markGenericUnlockKeys(preflight.matches_target?[]:unlockKeys);
-  $("#write-summary").innerHTML=`<span><strong>${preflight.keymap_bytes}</strong><small>keymap bytes</small></span><span><strong>${preflight.macro_bytes}</strong><small>macro bytes</small></span><span><strong>${counts.carried}</strong><small>carried</small></span><span><strong>${counts.adapted}</strong><small>adapted</small></span><span><strong>${counts.dropped}</strong><small>dropped</small></span>`;
+  markGenericUnlockKeys(needsVialUnlock?unlockKeys:[]);
+  const lightingBackup=preflight.lighting_backup===null?"none":"captured";
+  $("#write-summary").innerHTML=`<span><strong>${plan.keymapBytes}</strong><small>keymap bytes</small></span><span><strong>${plan.macroBytes}</strong><small>macro bytes</small></span><span><strong>${plan.lightingChanges}</strong><small>lighting changes</small></span><span><strong>${plan.lightingSaves}</strong><small>lighting saves</small></span><span><strong>${lightingBackup}</strong><small>lighting backup</small></span><span><strong>${counts.carried}</strong><small>carried</small></span><span><strong>${counts.adapted}</strong><small>adapted</small></span><span><strong>${counts.dropped}</strong><small>dropped</small></span>`;
   $("#write-confirm-label").textContent="Type this exact case-sensitive phrase to confirm";
   $("#write-token").textContent=preflight.confirmation;
   const status=$("#write-status");
   status.className="write-status";
   status.textContent=preflight.matches_target
-    ?"A fresh read already matches every planned keymap and macro byte. Nothing needs to be written."
+    ?`A fresh read already matches every planned ${plan.subject} value. Nothing needs to be written.`
     :"Keyboard unchanged. Nothing is sent until the exact phrase is entered and Write is pressed.";
   const input=$("#write-confirmation");
   input.value="";
@@ -6717,9 +7120,11 @@ async function writeHubDevice() {
   input.setAttribute("autocapitalize","off");
   input.disabled=Boolean(preflight.matches_target);
   const confirm=$("#confirm-write");
-  confirm.textContent=preflight.matches_target?"Already matches keyboard":"Write keymap & macros";
+  confirm.textContent=preflight.matches_target?"Already matches keyboard":`Write ${plan.subject}`;
   confirm.disabled=true;
-  $("#backup-before-write").textContent="Save profile backup";
+  $("#backup-before-write").textContent=preflight.lighting_backup===null
+    ?"Save current profile"
+    :"Save target lighting backup";
   $("#cancel-write").disabled=false;
   $("#cancel-write-x").disabled=false;
   $("#device-dialog").close();
@@ -6803,11 +7208,11 @@ async function confirmHubWrite() {
     close.disabled=true;
     input.disabled=true;
   }
-  button.textContent=verifying?"Reading / verifying…":"Writing keymap & macros…";
+  button.textContent=verifying?"Reading / verifying…":`Writing ${pending.plan.subject}…`;
   status.className="write-status working";
   status.textContent=verifying
     ?"Freshly reading the target and comparing every planned writable byte. Nothing will be resent."
-    :pending.ecosystem==="vial"
+    :pending.ecosystem==="vial"&&pending.plan.requiresUnlock
       ?"Complete the physical unlock when prompted. Exact read-back follows the accepted write."
       :"Writing the planned buffers. Exact read-back follows before success.";
   try{
@@ -6828,17 +7233,17 @@ async function confirmHubWrite() {
         state.pendingWrite=null;
         clearGenericUnlockMarks();
         $("#write-dialog").close();
-        toast("Fresh read verified","The keyboard now matches every planned keymap and macro byte. Nothing was resent.","success");
+        toast("Fresh read verified",`The keyboard now matches every planned value. ${hubWriteReceiptText(result)}. Nothing was resent.`,"success");
         return;
       }
       status.className="write-status error";
-      status.textContent="Fresh read does not match the intended keymap and macro buffers. The keyboard may contain a partial change; save the profile backup and inspect a fresh device read. Do not retry the write blindly.";
+      status.textContent="Fresh read does not match the intended profile values. The keyboard may contain a partial change; save the profile backup and inspect a fresh device read. Do not retry the write blindly.";
       return;
     }
     state.pendingWrite=null;
     clearGenericUnlockMarks();
     $("#write-dialog").close();
-    toast("Write verified",`${result.keymap_bytes} keymap bytes and ${result.macro_bytes} macro bytes were accepted and read back exactly.`,"success");
+    toast("Write verified",`${hubWriteReceiptText(result)} were accepted and read back exactly.`,"success");
   }catch(error){
     if(verifying){
       status.className="write-status error";
@@ -6846,10 +7251,8 @@ async function confirmHubWrite() {
       toast("Read / verify failed",error.message,"error");
     }else if(error.accepted){
       pending.verifyOnly=true;
-      const keymapBytes=error.keymap_bytes??"unknown";
-      const macroBytes=error.macro_bytes??"unknown";
       status.className="write-status error";
-      status.textContent=`The keyboard may have accepted ${keymapBytes} keymap bytes and ${macroBytes} macro bytes before verification stopped. Read / verify performs a fresh read without resending anything.`;
+      status.textContent=`The keyboard may have accepted ${hubWriteReceiptText(error)} before verification stopped. Read / verify performs a fresh read without resending anything.`;
       toast("Write may be partly accepted","Use Read / verify. Never retry this write blindly.","error");
     }else{
       status.className="write-status error";
@@ -6867,7 +7270,7 @@ async function confirmHubWrite() {
         button.disabled=false;
       }else{
         input.disabled=false;
-        button.textContent="Write keymap & macros";
+        button.textContent=`Write ${pending.plan.subject}`;
         button.disabled=!pendingWriteConfirmationMatches(input.value,pending);
       }
     }
@@ -7007,7 +7410,7 @@ $("#open-input").addEventListener("change",event=>readFiles(event.currentTarget,
 $("#merge-input").addEventListener("change",event=>readFiles(event.currentTarget,true));
 $("#macro-import-input").addEventListener("change",event=>importMacros(event.currentTarget));
 $("#save-button").addEventListener("click",saveConfig);
-$("#backup-before-write").addEventListener("click",saveConfig);
+$("#backup-before-write").addEventListener("click",saveWriteBackup);
 $("#hub-button").addEventListener("click",()=>{$("#hub-report").hidden=true;$("#hub-import").disabled=!state.config;$("#hub-dialog").showModal();});
 $("#hub-open").addEventListener("click",()=>$("#hub-open-input").click());
 $("#hub-export").addEventListener("click",exportHubProfile);

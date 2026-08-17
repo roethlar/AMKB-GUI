@@ -477,6 +477,23 @@
     host.replaceChildren(...buttons);
   }
 
+  function hubLightingTargets(lightingState) {
+    if (!lightingState || !Array.isArray(lightingState.surfaces)) return [];
+    const roleLabels = {
+      keys: "Per-key",
+      underglow: "Underglow",
+      backlight: "Backlight",
+      panel: "Panel",
+      accent: "Accent",
+    };
+    return lightingState.surfaces.map(surface => Object.freeze({
+      key: String(surface.id),
+      label: roleLabels[surface.role] || String(surface.id),
+      generation: String(surface.generation || ""),
+      pixelCount: Array.isArray(surface.pixels) ? surface.pixels.length : 0,
+    }));
+  }
+
   return Object.freeze({
     DEVICE_TARGETS,
     FAMILY_SPECS,
@@ -486,6 +503,7 @@
     UNKNOWN_FAMILY_SPEC,
     familySpec,
     filterAssignmentOptions,
+    hubLightingTargets,
     macroCapacityStatus,
     mergeScannedDeviceDetails,
     neonPaletteAssignment,

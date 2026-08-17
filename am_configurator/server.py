@@ -51,6 +51,7 @@ _STATIC = {
     "/lighting_composer.js": "lighting_composer.js",
     "/library_state.js": "library_state.js",
     "/hub_keycode_palette.js": "hub_keycode_palette.js",
+    "/hub_lighting_state.js": "hub_lighting_state.js",
     "/hub_keymap_state.js": "hub_keymap_state.js",
     "/icon.png": "icon.png",
     "/style.css": "style.css",

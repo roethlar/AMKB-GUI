@@ -11,6 +11,7 @@ const modulePath = path.join(
 );
 const {
   createLatestTaskScheduler,
+  hubTargetDescriptor,
   resolveSourceGeometry,
   defaultSourceTransform,
   interpolateMoveZoom,
@@ -18,12 +19,36 @@ const {
   panSourceTransform,
   presetSourceTransform,
   renderColorEffect,
+  renderHubColorEffect,
   scaleSourceTransform,
   selectDemonstrativeEffectFrame,
   validateEffectSpec,
   validateSourceTransform,
   wireSourceTransformStage,
 } = require(modulePath);
+
+test("hub effects reuse the composer with exact dynamic pixel identities", () => {
+  const descriptor = hubTargetDescriptor({
+    id: "vialrgb",
+    pixels: [
+      {pixel_id: "K_R0_C0", x: 0, y: 20},
+      {pixel_id: "LED_I1", x: 100, y: 80},
+    ],
+  });
+  const rendered = renderHubColorEffect(
+    [["#FF0000", "#0000FF"]],
+    effect("pulse", {minimum_brightness: 0.2}, {frame_count: 5}),
+    descriptor,
+  );
+
+  assert.deepEqual(descriptor.pixel_ids, ["K_R0_C0", "LED_I1"]);
+  assert.deepEqual(descriptor.targetLengths, {vialrgb: 2});
+  assert.deepEqual(descriptor.coordinates, [{x: 0, y: 0.2}, {x: 1, y: 0.8}]);
+  assert.equal(rendered.target, "vialrgb");
+  assert.strictEqual(rendered.pixel_ids, descriptor.pixel_ids);
+  assert.equal(rendered.frames.length, 5);
+  assert.ok(rendered.frames.every(frame => frame.length === 2));
+});
 
 const geometryVectors = JSON.parse(fs.readFileSync(path.join(
   __dirname,

@@ -1,10 +1,16 @@
 (function (root, factory) {
   "use strict";
-  const api = factory();
+  const lighting = typeof module === "object" && module.exports
+    ? require("./hub_lighting_state.js")
+    : root.HubLightingState;
+  const api = factory(lighting);
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.HubKeymapState = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (HubLightingState) {
   "use strict";
+
+  if (!HubLightingState) throw new Error("Hub lighting state is unavailable.");
+  const {createHubLightingState, reduceHubLightingProfile} = HubLightingState;
 
   const ECOSYSTEMS = new Set(["am", "vial", "via"]);
   const HISTORY_LIMIT = 100;
@@ -37,7 +43,7 @@
   }
 
   function validateProfile(value) {
-    if (!plainObject(value) || value.schema_version !== 1 || !plainObject(value.identity)) {
+    if (!plainObject(value) || value.schema_version !== 2 || !plainObject(value.identity)) {
       throw new TypeError("The hub profile is invalid.");
     }
     const ecosystem = value.identity.ecosystem;
@@ -45,26 +51,28 @@
     if (typeof value.identity.family !== "string" || !value.identity.family.trim()) {
       throw new TypeError("The hub profile family is invalid.");
     }
-    if (!plainObject(value.keymap) || !Array.isArray(value.keymap.layers) || !value.keymap.layers.length) {
-      throw new TypeError("The hub profile carries no editable keymap.");
-    }
-    const layerIndexes = new Set();
-    for (const layer of value.keymap.layers) {
-      if (!plainObject(layer) || !Number.isSafeInteger(layer.index) || layer.index < 0) {
-        throw new TypeError("A hub keymap layer is invalid.");
+    if (value.keymap !== undefined) {
+      if (!plainObject(value.keymap) || !Array.isArray(value.keymap.layers) || !value.keymap.layers.length) {
+        throw new TypeError("The hub profile keymap is invalid.");
       }
-      if (layerIndexes.has(layer.index)) throw new TypeError("A hub keymap layer is repeated.");
-      layerIndexes.add(layer.index);
-      if (!Array.isArray(layer.keys)) throw new TypeError("A hub keymap layer has no keys.");
-      const keys = new Set();
-      for (const key of layer.keys) {
-        if (!plainObject(key) || typeof key.key !== "string" || !key.key) {
-          throw new TypeError("A hub key identity is invalid.");
+      const layerIndexes = new Set();
+      for (const layer of value.keymap.layers) {
+        if (!plainObject(layer) || !Number.isSafeInteger(layer.index) || layer.index < 0) {
+          throw new TypeError("A hub keymap layer is invalid.");
         }
-        if (keys.has(key.key)) throw new TypeError("A hub key identity is repeated in one layer.");
-        keys.add(key.key);
-        if (!Number.isSafeInteger(key.code) || key.code < 0 || key.code > 0xffff) {
-          throw new TypeError("A hub keycode is invalid.");
+        if (layerIndexes.has(layer.index)) throw new TypeError("A hub keymap layer is repeated.");
+        layerIndexes.add(layer.index);
+        if (!Array.isArray(layer.keys)) throw new TypeError("A hub keymap layer has no keys.");
+        const keys = new Set();
+        for (const key of layer.keys) {
+          if (!plainObject(key) || typeof key.key !== "string" || !key.key) {
+            throw new TypeError("A hub key identity is invalid.");
+          }
+          if (keys.has(key.key)) throw new TypeError("A hub key identity is repeated in one layer.");
+          keys.add(key.key);
+          if (!Number.isSafeInteger(key.code) || key.code < 0 || key.code > 0xffff) {
+            throw new TypeError("A hub keycode is invalid.");
+          }
         }
       }
     }
@@ -143,6 +151,11 @@
     };
   }
 
+  function validateLightingGeometry(value, profile) {
+    createHubLightingState({profile, geometry: value, targetCurrent: true});
+    return immutableCopy(value);
+  }
+
   function profileText(profile) {
     return JSON.stringify(profile);
   }
@@ -156,24 +169,36 @@
   }
 
   function layerByIndex(profile, index) {
-    return profile.keymap.layers.find((layer) => layer.index === index) || null;
+    return profile.keymap?.layers?.find((layer) => layer.index === index) || null;
   }
 
   function stateValue(value) {
     return freeze(value);
   }
 
-  function createHubKeymapState({profile, layout = [], target, report = null, worklist = []}) {
+  function createHubKeymapState({
+    profile,
+    layout = [],
+    lightingGeometry = [],
+    target,
+    report = null,
+    worklist = [],
+  }) {
     const validatedProfile = validateProfile(profile);
     const validatedTarget = validateTarget(target, validatedProfile.identity.ecosystem);
     const validatedLayout = validateLayout(layout);
+    const validatedLightingGeometry = validateLightingGeometry(
+      lightingGeometry,
+      validatedProfile,
+    );
     const review = validateReview(report, worklist);
-    const layer = validatedProfile.keymap.layers[0].index;
+    const layer = validatedProfile.keymap?.layers?.[0]?.index??null;
     return stateValue({
       profile: validatedProfile,
       savedProfile: validatedProfile,
       target: validatedTarget,
       layout: validatedLayout,
+      lightingGeometry: validatedLightingGeometry,
       report: review.report,
       worklist: review.worklist,
       layer,
@@ -325,6 +350,17 @@
       }
       case "SET_KEY_CODE":
         return setKeyCode(state, action.code);
+      case "SET_LIGHTING": {
+        const profile = reduceHubLightingProfile(
+          state.profile,
+          action.action,
+          {
+            geometry: state.lightingGeometry,
+            targetCurrent: action.targetCurrent === true,
+          },
+        );
+        return checkpoint(state, profile);
+      }
       case "APPLY_OVERLAY":
         return applyOverlay(state, action);
       case "RESOLVE_WORKLIST":

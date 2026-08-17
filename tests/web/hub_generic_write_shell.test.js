@@ -28,7 +28,7 @@ test("generic Write requires the exact live editor binding", () => {
 
 test("generic preflight presents exact backend proof without writing", () => {
   const flow = js.slice(
-    js.indexOf("async function writeHubDevice"),
+    js.indexOf("function hubWritePlan"),
     js.indexOf("async function writeDevice"),
   );
   assert.match(flow, /\/api\/hub\/\$\{ecosystem\}\/preflight/);
@@ -37,6 +37,12 @@ test("generic preflight presents exact backend proof without writing", () => {
   assert.match(flow, /preflight\.confirmation/);
   assert.match(flow, /keymap_bytes/);
   assert.match(flow, /macro_bytes/);
+  assert.match(flow, /lighting_changes/);
+  assert.match(flow, /lighting_saves/);
+  assert.match(flow, /lighting_backup/);
+  assert.match(flow, /target_fingerprint/);
+  assert.match(flow, /needsVialUnlock/);
+  assert.match(flow, /plan\.requiresUnlock/);
   assert.match(flow, /carried/);
   assert.match(flow, /adapted/);
   assert.match(flow, /dropped/);
@@ -51,11 +57,20 @@ test("generic confirmation is exact and accepted failures only re-preflight", ()
     js.indexOf("async function confirmHubWrite"),
     js.indexOf("async function confirmDeviceWrite"),
   );
+  const receipt = js.slice(
+    js.indexOf("function hubWriteReceiptText"),
+    js.indexOf("function clearGenericUnlockMarks"),
+  );
   assert.match(confirm, /typedConfirmation!==pending\.confirmation/);
   assert.match(confirm, /\/api\/hub\/\$\{pending\.ecosystem\}\/write/);
   assert.match(confirm, /pending\.verifyOnly=true/);
   assert.match(confirm, /matches_target/);
+  assert.match(confirm, /hubWriteReceiptText/);
+  assert.match(receipt, /lighting_changes/);
+  assert.match(receipt, /lighting_saves/);
   assert.match(confirm, /Fresh read \/ verify failed/);
+  assert.match(confirm, /Fresh read does not match the intended profile values/);
+  assert.doesNotMatch(confirm, /intended keymap and macro buffers/);
   assert.match(confirm, /Read \/ verify/);
   assert.doesNotMatch(confirm, /toUpperCase\(\)/);
   assert.doesNotMatch(confirm, /Retry/);
@@ -69,4 +84,6 @@ test("write dialog can switch from AM copy to bounded hub copy", () => {
   assert.match(html, /id="write-confirm-label"/);
   assert.match(css, /\.keycap\.unlock-required/);
   assert.match(js, /saveHubDocument/);
+  assert.match(js, /saveHubLightingBackup/);
+  assert.match(js, /saveWriteBackup/);
 });

@@ -1243,6 +1243,165 @@ body {
   letter-spacing: -.03em;
 }
 
+.hub-lighting-editor {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.hub-lighting-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  border: 1px solid #39465a;
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at 90% 0, rgba(82, 214, 232, .08), transparent 35%),
+    rgba(14, 19, 28, .92);
+}
+
+.hub-lighting-header h2,
+.hub-lighting-header p {
+  margin: 0;
+}
+
+.hub-lighting-header h2 {
+  margin-bottom: 6px;
+  letter-spacing: -.03em;
+}
+
+.hub-lighting-header > div > p:last-child {
+  max-width: 780px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.hub-lighting-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, .72fr) minmax(0, 1.28fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.hub-lighting-controls .card-body,
+.hub-lighting-painter .card-body,
+.hub-channel-controls,
+.hub-paint-controls {
+  display: grid;
+  gap: 14px;
+}
+
+.hub-channel-controls {
+  min-width: 0;
+  margin: 0;
+  padding: 14px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+.hub-channel-controls legend {
+  padding: 0 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.hub-lighting-controls .field > span,
+.hub-channel-controls .field > span,
+.hub-paint-controls label > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hub-lighting-controls input[type="range"],
+.hub-channel-controls input[type="range"],
+.hub-paint-controls input[type="range"] {
+  width: 100%;
+  accent-color: var(--live-cyan);
+}
+
+.hub-paint-controls {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(10, 15, 23, .72);
+}
+
+.hub-paint-controls label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.hub-lighting-pixel-stage {
+  position: relative;
+  min-height: 390px;
+  overflow: hidden;
+  border: 1px solid #3a465a;
+  border-radius: 14px;
+  background:
+    linear-gradient(rgba(255, 255, 255, .025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, .025) 1px, transparent 1px),
+    radial-gradient(circle at 50% 45%, rgba(143, 112, 255, .08), transparent 55%),
+    #0c111a;
+  background-size: 24px 24px, 24px 24px, auto, auto;
+}
+
+.hub-lighting-pixel {
+  position: absolute;
+  width: clamp(13px, 2.2vw, 21px);
+  aspect-ratio: 1;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(255, 255, 255, .74);
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px rgba(7, 10, 16, .88), 0 4px 14px rgba(0, 0, 0, .42);
+  cursor: crosshair;
+}
+
+.hub-lighting-pixel:hover,
+.hub-lighting-pixel:focus-visible {
+  z-index: 2;
+  border-color: #fff;
+  outline: 2px solid var(--live-cyan);
+  outline-offset: 3px;
+  transform: translate(-50%, -50%) scale(1.22);
+}
+
+.hub-animation-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.hub-animation-actions small {
+  flex: 1 1 260px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.route-requirement.compact {
+  min-height: 0;
+  padding: 16px;
+}
+
+.write-dialog .write-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+#write-target-note {
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 1180px) {
   .command-bar {
     grid-template-columns: minmax(180px, 1fr) minmax(0, auto);
@@ -1264,6 +1423,10 @@ body {
 }
 
 @media (max-width: 1000px) {
+  .hub-lighting-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   #app {
     min-width: 0;
   }
@@ -1321,6 +1484,20 @@ body {
 
 @media (max-width: 720px) {
   .lighting-workspace-shell { grid-template-columns: minmax(0, 1fr); }
+
+  .hub-lighting-header {
+    display: grid;
+    padding: 15px;
+  }
+
+  .hub-paint-controls,
+  .write-dialog .write-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hub-lighting-pixel-stage {
+    min-height: 310px;
+  }
 
   .command-bar {
     min-height: 0;

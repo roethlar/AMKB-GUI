@@ -16,18 +16,19 @@
 ## Next
 
 - **H6 lighting through the hub is approved and in progress (2026-08-17):** H6a
-  through H6c are fixture-backed complete. Schema v2 and pure
-  capability/transfer codecs feed capability-honest Vial/VIA snapshots and
-  endpoint-bound persistent writes. Approved sessions expose only planned
-  lighting prefixes; execution re-proves target lighting evidence, writes
-  changed global/per-key values, requires exact read-back before SAVE, and
-  reports possibly accepted setter/save counts. Fake HID covers lighting-only
-  and declared-index per-key writes, refusal of unplanned raw lighting commands,
-  stale capability/protocol evidence, partial setters, read-back mismatch/error,
-  and SAVE failure. Full verification is green at 768 Python and 223 web tests
-  plus compile/syntax/build/diff checks. H6d generic hub Lighting Studio UX is
-  next under the continuous H6a–H6e grant in
-  `docs/superpowers/plans/2026-08-17-openkeeb-v2-h6-lighting.md`. H6f physical
+  through H6d are fixture-backed complete. H6d adds capability-gated Vial/VIA
+  Lighting Studio controls, current-target per-key geometry, exact-identity
+  animation authoring, shared document undo/redo, lighting-only schema-v2
+  documents, and persistent-write evidence/counts without adding a hardware
+  mutation route. Its bite proof fails when the old keymap requirement is
+  restored and passes with the fix. Chrome rendered the supported editor,
+  persistent preflight, possibly-accepted write/read-verify recovery, and
+  unsupported-capability state at 1000×680, 1280×800, and 1600×1000 with no
+  page-level horizontal overflow or console warnings/errors; the isolated fake
+  server recorded 6 reads, 4 preflights, and 2 confirmed write attempts. Final
+  verification is green at 768 Python and 234 web tests plus
+  compile/syntax/build/diff checks. Next action: implement H6e's separately
+  started volatile VialRGB stream and rendered start/stop UX. H6f physical
   keyboard activity, push, release, public identifiers, and spending remain
   separately owner-gated.
 

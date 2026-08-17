@@ -250,6 +250,40 @@
     };
   }
 
+  function hubAnimationFromBoardFrameSet(
+    frameSet,
+    {surfaceId, pixelIds, name = "OpenKeeb composition"} = {},
+  ) {
+    if (!validatedFrameSets.has(frameSet)) {
+      fail("invalid_shape", "Only accepted Board lighting can become a hub animation.");
+    }
+    if (
+      typeof surfaceId !== "string"
+      || !TARGET_NAME.test(surfaceId)
+      || !Array.isArray(pixelIds)
+      || !pixelIds.length
+      || new Set(pixelIds).size !== pixelIds.length
+      || pixelIds.some(pixelId => typeof pixelId !== "string" || !pixelId)
+    ) {
+      fail("invalid_target", "Hub animation pixel identities are invalid.");
+    }
+    if (typeof name !== "string" || !name || name.length > 128) {
+      fail("invalid_context", "The hub animation name is invalid.");
+    }
+    const frames = frameSet.frames_by_target[surfaceId];
+    if (!Array.isArray(frames) || frames.some(frame => frame.length !== pixelIds.length)) {
+      fail("invalid_target", "Board lighting does not match the hub animation target.");
+    }
+    return Object.freeze({
+      name,
+      surface_id: surfaceId,
+      pixel_ids: Object.freeze([...pixelIds]),
+      frames: Object.freeze(frames.map(frame => Object.freeze([...frame]))),
+      placement: "geometry_seam",
+      frame_ms: frameSet.duration_ms,
+    });
+  }
+
   function defaultTimeline(frameCount) {
     return Array.from({length: frameCount}, (_, index) => ({index}));
   }
@@ -1570,6 +1604,7 @@
     createLightingPlaybackRuntime,
     createLightingWorkspace,
     friendlyWorkspaceError,
+    hubAnimationFromBoardFrameSet,
     mappedResultFromBoardFrameSet,
     paintBoardProjection,
     projectBoardFrame,

@@ -13,6 +13,7 @@ const {
   createBoardFrameSet,
   createLightingWorkspace,
   friendlyWorkspaceError,
+  hubAnimationFromBoardFrameSet,
   mappedResultFromBoardFrameSet,
   paintBoardProjection,
   projectBoardFrame,
@@ -23,6 +24,49 @@ const {
   workspaceAsyncContextMatches,
   workspaceDestinationKey,
 } = require("../../am_configurator/web/lighting_workspace.js");
+
+test("accepted Board lighting becomes a hub animation without remapping pixels", () => {
+  const accepted = createBoardFrameSet({
+    context: {
+      document_epoch: 2,
+      slot: 0,
+      target: "vialrgb",
+      source_kind: "local_effect",
+      revision: 3,
+    },
+    frames_by_target: {
+      vialrgb: [
+        ["#FF0000", "#00FF00"],
+        ["#0000FF", "#FFFFFF"],
+      ],
+    },
+    frame_count: 2,
+    duration_ms: 90,
+    timeline: [{index: 0}, {index: 1}],
+    provenance: "local_effect",
+  }, {
+    targetLengths: {vialrgb: 2},
+    allowedDurations: [90],
+  });
+
+  const animation = hubAnimationFromBoardFrameSet(accepted, {
+    surfaceId: "vialrgb",
+    pixelIds: ["K_R0_C0", "LED_I1"],
+    name: "Pulse",
+  });
+
+  assert.deepEqual(animation, {
+    name: "Pulse",
+    surface_id: "vialrgb",
+    pixel_ids: ["K_R0_C0", "LED_I1"],
+    frames: [
+      ["#FF0000", "#00FF00"],
+      ["#0000FF", "#FFFFFF"],
+    ],
+    placement: "geometry_seam",
+    frame_ms: 90,
+  });
+});
 
 const FIRMWARE_DURATIONS = [34, 48, 62, 76, 90];
 const TARGET_LENGTHS = Object.freeze({
