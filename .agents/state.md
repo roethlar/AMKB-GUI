@@ -78,7 +78,17 @@
  725 Python and 204 web tests, compile/JavaScript checks, and package build. A live
  in-app browser smoke covered palette/raw assignment, filtering, focus restoration,
  custom-code warning/undo, layer selection bounds, and the disabled Write action.
- H5c (overlay resolution and first-class worklist UI) awaits its own explicit go.
+  H5c is complete: hub import overlays every open target through H4; key
+  worklist items carry structured source data; profile/report/worklist history
+  resolves server suggestions, board choices, and explicit omissions one
+  checkpoint at a time. AM resolutions rebase on the current exported config
+  before `/api/hub/apply`, while generic documents apply the target-shaped
+  profile directly. Keymap owns the counts-first review rail and disclosed
+  technical data; no H5c hardware route or setter exists. Verification passed
+  727 Python and 212 web tests, compile/JavaScript checks, and package build.
+  The rendered smoke was unavailable because the in-app browser runtime exposed
+  no browser instance. H5d (typed generic write UX and closure) awaits its own
+  explicit go.
  H7 is the queued branding overhaul,
   which the owner ruled is a
   repositioning rather than a rename. The canonical scope and sequence live in

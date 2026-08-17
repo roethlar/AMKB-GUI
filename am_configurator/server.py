@@ -2773,13 +2773,23 @@ class _Handler(BaseHTTPRequestHandler):
 
         from . import hub_am, hub_profile
 
-        self._strict_body(body, allowed={"data", "product_id"}, required={"data", "product_id"})
+        self._strict_body(
+            body,
+            allowed={"data", "profile", "product_id"},
+            required={"product_id"},
+        )
         product_id = body["product_id"]
         if not isinstance(product_id, str) or not product_id:
             raise ValueError("Applying a hub profile requires a product_id.")
-        payload = _decode_import_data(body["data"])
+        profile_sources = {"data", "profile"}.intersection(body)
+        if len(profile_sources) != 1:
+            raise ValueError("Applying a hub profile requires exactly one of data or profile.")
         try:
-            profile = hub_profile.loads_hub_profile(payload)
+            if "profile" in body:
+                profile = hub_profile.validate_hub_profile(body["profile"])
+            else:
+                payload = _decode_import_data(body["data"])
+                profile = hub_profile.loads_hub_profile(payload)
             result = hub_am.apply_hub_profile(profile, product_id=product_id)
         except (hub_profile.HubProfileError, hub_am.AmSpokeError) as exc:
             raise ValueError(str(exc)) from exc

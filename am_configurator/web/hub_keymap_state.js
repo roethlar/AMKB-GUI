@@ -119,6 +119,24 @@
     if (!Array.isArray(worklist) || worklist.some((item) => !plainObject(item))) {
       throw new TypeError("The hub overlay worklist is invalid.");
     }
+    for (const item of worklist) {
+      if ("source" in item) {
+        const source = item.source;
+        if (!plainObject(source) || !Number.isSafeInteger(source.layer) || source.layer < 0 ||
+            typeof source.key !== "string" || !source.key ||
+            !Number.isSafeInteger(source.code) || source.code < 0 || source.code > 0xffff) {
+          throw new TypeError("A hub worklist source is invalid.");
+        }
+      }
+      if ("suggestions" in item) {
+        if (!Array.isArray(item.suggestions) || item.suggestions.some((suggestion) =>
+          !plainObject(suggestion) ||
+          !Number.isSafeInteger(suggestion.target_layer) || suggestion.target_layer < 0 ||
+          typeof suggestion.target_key !== "string" || !suggestion.target_key)) {
+          throw new TypeError("A hub worklist suggestion is invalid.");
+        }
+      }
+    }
     return {
       report: report === null ? null : immutableCopy(report),
       worklist: immutableCopy(worklist),
@@ -131,6 +149,10 @@
 
   function sameProfile(left, right) {
     return left === right || profileText(left) === profileText(right);
+  }
+
+  function sameValue(left, right) {
+    return left === right || JSON.stringify(left) === JSON.stringify(right);
   }
 
   function layerByIndex(profile, index) {
@@ -166,15 +188,26 @@
     return stateValue({...state, ...changes});
   }
 
+  function documentSnapshot(state) {
+    return freeze({
+      profile: state.profile,
+      report: state.report,
+      worklist: state.worklist,
+    });
+  }
+
   function dirtyAgainstSaved(profile, state) {
     return !sameProfile(profile, state.savedProfile);
   }
 
-  function checkpoint(state, profile) {
-    if (sameProfile(profile, state.profile)) return state;
-    const undo = freeze([...state.undo, state.profile].slice(-HISTORY_LIMIT));
+  function checkpoint(state, profile, report = state.report, worklist = state.worklist) {
+    if (sameProfile(profile, state.profile) && sameValue(report, state.report) &&
+        sameValue(worklist, state.worklist)) return state;
+    const undo = freeze([...state.undo, documentSnapshot(state)].slice(-HISTORY_LIMIT));
     return replaceState(state, {
       profile,
+      report,
+      worklist,
       dirty: dirtyAgainstSaved(profile, state),
       undo,
       redo: freeze([]),
@@ -197,7 +230,78 @@
     if (!key) throw new TypeError("The selected key is absent from this layer.");
     if (key.code === code) return state;
     key.code = code;
+    if (state.report !== null) profile.transfer_report = state.report;
     return checkpoint(state, freeze(profile));
+  }
+
+  function applyOverlay(state, action) {
+    let profile = validateProfile(action.profile);
+    if (profile.identity.ecosystem !== state.target.ecosystem) {
+      throw new TypeError("The overlay hub profile does not match the target ecosystem.");
+    }
+    const review = validateReview(action.report ?? null, action.worklist ?? []);
+    if (review.report === null) throw new TypeError("The hub overlay has no transfer report.");
+    const reviewedProfile = clone(profile);
+    reviewedProfile.transfer_report = review.report;
+    profile = freeze(reviewedProfile);
+    return checkpoint(state, profile, review.report, review.worklist);
+  }
+
+  function resolutionTarget(action) {
+    if (!plainObject(action.target) || !Number.isSafeInteger(action.target.layer) ||
+        action.target.layer < 0 || typeof action.target.key !== "string" || !action.target.key) {
+      throw new TypeError("The worklist target key is invalid.");
+    }
+    return {layer: action.target.layer, key: action.target.key};
+  }
+
+  function resolveWorklist(state, action) {
+    if (typeof action.path !== "string" || !action.path) {
+      throw new TypeError("The worklist path is invalid.");
+    }
+    const worklistIndex = state.worklist.findIndex((item) => item.path === action.path);
+    if (worklistIndex < 0) throw new RangeError("The worklist item is no longer unresolved.");
+    const item = state.worklist[worklistIndex];
+    if (!plainObject(state.report) || !Array.isArray(state.report.items)) {
+      throw new TypeError("The worklist item has no transfer report.");
+    }
+    const reportIndex = state.report.items.findIndex((entry) => entry.path === action.path);
+    if (reportIndex < 0) throw new RangeError("The worklist item is absent from the transfer report.");
+
+    const report = clone(state.report);
+    const reportItem = report.items[reportIndex];
+    const profile = clone(state.profile);
+    if (action.resolution === "leave_out") {
+      reportItem.verdict = "dropped";
+      reportItem.reason = "Left out by the user during overlay review.";
+    } else if (action.resolution === "suggestion" || action.resolution === "chosen") {
+      const source = item.source;
+      if (!plainObject(source) || !Number.isSafeInteger(source.code) || source.code < 0 ||
+          source.code > 0xffff) {
+        throw new TypeError("The worklist source key is invalid.");
+      }
+      const target = resolutionTarget(action);
+      if (action.resolution === "suggestion") {
+        const offered = Array.isArray(item.suggestions) && item.suggestions.some((suggestion) =>
+          suggestion.target_layer === target.layer && suggestion.target_key === target.key);
+        if (!offered) throw new RangeError("The chosen placement is not an offered suggestion.");
+      }
+      const layer = layerByIndex(profile, target.layer);
+      const key = layer?.keys.find((entry) => entry.key === target.key);
+      if (!key) throw new RangeError("The chosen target key is absent from that layer.");
+      key.code = source.code;
+      reportItem.verdict = "adapted";
+      reportItem.reason = action.resolution === "suggestion"
+        ? "Placed using an overlay suggestion accepted by the user."
+        : "Placed on a target key chosen by the user.";
+    } else {
+      throw new RangeError("The worklist resolution is invalid.");
+    }
+
+    const frozenReport = freeze(report);
+    profile.transfer_report = frozenReport;
+    const worklist = freeze(state.worklist.filter((_entry, index) => index !== worklistIndex));
+    return checkpoint(state, freeze(profile), frozenReport, worklist);
   }
 
   function reduceHubKeymapState(state, action) {
@@ -221,30 +325,43 @@
       }
       case "SET_KEY_CODE":
         return setKeyCode(state, action.code);
+      case "APPLY_OVERLAY":
+        return applyOverlay(state, action);
+      case "RESOLVE_WORKLIST":
+        return resolveWorklist(state, action);
       case "REPLACE_PROFILE": {
-        const profile = validateProfile(action.profile);
+        let profile = validateProfile(action.profile);
         if (profile.identity.ecosystem !== state.target.ecosystem) {
           throw new TypeError("The replacement hub profile does not match the target ecosystem.");
+        }
+        if (state.report !== null) {
+          const reviewedProfile = clone(profile);
+          reviewedProfile.transfer_report = state.report;
+          profile = freeze(reviewedProfile);
         }
         return checkpoint(state, profile);
       }
       case "UNDO": {
         if (!state.undo.length) return state;
-        const profile = state.undo[state.undo.length - 1];
+        const document = state.undo[state.undo.length - 1];
         return replaceState(state, {
-          profile,
-          dirty: dirtyAgainstSaved(profile, state),
+          profile: document.profile,
+          report: document.report,
+          worklist: document.worklist,
+          dirty: dirtyAgainstSaved(document.profile, state),
           undo: freeze(state.undo.slice(0, -1)),
-          redo: freeze([...state.redo, state.profile].slice(-HISTORY_LIMIT)),
+          redo: freeze([...state.redo, documentSnapshot(state)].slice(-HISTORY_LIMIT)),
         });
       }
       case "REDO": {
         if (!state.redo.length) return state;
-        const profile = state.redo[state.redo.length - 1];
+        const document = state.redo[state.redo.length - 1];
         return replaceState(state, {
-          profile,
-          dirty: dirtyAgainstSaved(profile, state),
-          undo: freeze([...state.undo, state.profile].slice(-HISTORY_LIMIT)),
+          profile: document.profile,
+          report: document.report,
+          worklist: document.worklist,
+          dirty: dirtyAgainstSaved(document.profile, state),
+          undo: freeze([...state.undo, documentSnapshot(state)].slice(-HISTORY_LIMIT)),
           redo: freeze(state.redo.slice(0, -1)),
         });
       }

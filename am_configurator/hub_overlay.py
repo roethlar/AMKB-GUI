@@ -228,6 +228,7 @@ def overlay_profile(source_profile: object, target_profile: object) -> OverlayRe
     report_items: list[dict[str, Any]] = []
     worklist: list[dict[str, Any]] = []
     assigned: dict[tuple[int, str], str] = {}
+    active_source: dict[str, Any] | None = None
 
     def drop(
         path: str,
@@ -235,18 +236,20 @@ def overlay_profile(source_profile: object, target_profile: object) -> OverlayRe
         suggestions: tuple[tuple[int, str], ...] = (),
     ) -> None:
         report_items.append({"path": path, "verdict": "dropped", "reason": reason})
-        worklist.append(
-            {
-                "path": path,
-                "reason": reason,
-                "suggestions": _suggestion_dicts(suggestions),
-            }
-        )
+        item = {
+            "path": path,
+            "reason": reason,
+            "suggestions": _suggestion_dicts(suggestions),
+        }
+        if active_source is not None:
+            item["source"] = copy.deepcopy(active_source)
+        worklist.append(item)
 
     for layer_index in sorted(source_entries):
         for identity, source_entry in source_entries[layer_index].items():
             path = _path(layer_index, identity)
             code = source_entry["code"]
+            active_source = {"layer": layer_index, "key": identity, "code": code}
             if source_entry.get("carried") is False:
                 drop(path, "the source marks this spoke-native keycode as not portable")
                 continue

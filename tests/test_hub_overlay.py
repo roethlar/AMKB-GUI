@@ -135,6 +135,10 @@ class FullToFortyFixtureTests(unittest.TestCase):
         worklist = {item["path"]: item for item in result.worklist}
         f1 = worklist["keymap.layers[0].keys[K_I054]"]
         self.assertEqual(
+            f1["source"],
+            {"layer": 0, "key": "K_I054", "code": 0x003A},
+        )
+        self.assertEqual(
             f1["suggestions"],
             [{"target_key": "K_R1_C0", "target_layer": 1}],
         )
@@ -243,6 +247,7 @@ class OverlayIdentityAndSafetyTests(unittest.TestCase):
                 for item in result.worklist[-2:]
             )
         )
+        self.assertTrue(all("source" not in item for item in result.worklist[-2:]))
 
     def test_missing_keymap_is_rejected_in_plain_words(self) -> None:
         source, target, _expected = _fixture_profiles()

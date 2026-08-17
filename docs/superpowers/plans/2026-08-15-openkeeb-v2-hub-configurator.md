@@ -372,6 +372,22 @@ hardware route, preflight, or setter was added.
 
 #### H5c — overlay review and worklist resolution
 
+Landing evidence (2026-08-16): complete. Hub import now opens and validates the
+source profile, overlays every open AM/Vial/VIA target through H4, and creates
+one target-document checkpoint without opening transport. H4 key worklist
+items carry structured source layer/key/code data; deferred non-key sections do
+not pretend to have key sources. The immutable hub reducer checkpoints profile,
+report, and worklist together and resolves only server-offered suggestions or
+explicit board choices. AM resolutions re-export the current config before
+translation through `/api/hub/apply`, preserving unrelated edits while keeping
+AM config and review history aligned. Keymap presents counts, adapted and
+unresolved reasons, the three review actions, and disclosed technical identity
+instead of raw JSON. Verification passed 727 Python tests, 212 web tests,
+compile/JavaScript checks, and `uv build`; the new tests first failed on the
+missing source/apply/reducer/UI contracts. A rendered smoke could not run
+because this session's in-app browser runtime exposed no browser instance. No
+H5c hardware route, preflight, setter, or write was added or exercised.
+
 1. Route hub import through H4 whenever a target document is open. For AM,
    export the current target to hub, run `/api/hub/overlay`, then translate the
    accepted target-shaped result back through `/api/hub/apply`. For Vial/VIA,

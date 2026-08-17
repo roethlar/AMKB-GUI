@@ -77,6 +77,10 @@ let lightingWorkspace = createLightingWorkspace({
 const state = {
   config: null,
   hubEditor: null,
+  amHubReview: null,
+  amHubReviewUndo: [],
+  amHubReviewRedo: [],
+  hubReviewPlacement: null,
   documentRevision: null,
   documentSyncEpoch: 0,
   documentSyncing: false,
@@ -462,8 +466,13 @@ function markDirty(value = true) {
 function pushUndo() {
   if (!state.config) return;
   state.undo.push(JSON.stringify(state.config));
-  if (state.undo.length > 30) state.undo.shift();
+  state.amHubReviewUndo.push(state.amHubReview);
+  if (state.undo.length > 30) {
+    state.undo.shift();
+    state.amHubReviewUndo.shift();
+  }
   state.redo.length = 0;
+  state.amHubReviewRedo.length = 0;
   updateHistoryButtons();
 }
 
@@ -491,7 +500,10 @@ function undo() {
   if(lightingWorkspace.effect_draft)cancelLocalAnimationDraft({render:false});
   state.transientLightingPreview=null;
   state.redo.push(JSON.stringify(state.config));
+  state.amHubReviewRedo.push(state.amHubReview);
   state.config = JSON.parse(state.undo.pop());
+  state.amHubReview=state.amHubReviewUndo.pop() ?? null;
+  state.hubReviewPlacement=null;
   markDirty();
   updateMeta();
   renderScreen();
@@ -509,7 +521,10 @@ function redo() {
   if(lightingWorkspace.effect_draft)cancelLocalAnimationDraft({render:false});
   state.transientLightingPreview=null;
   state.undo.push(JSON.stringify(state.config));
+  state.amHubReviewUndo.push(state.amHubReview);
   state.config = JSON.parse(state.redo.pop());
+  state.amHubReview=state.amHubReviewRedo.pop() ?? null;
+  state.hubReviewPlacement=null;
   markDirty();
   updateMeta();
   renderScreen();
@@ -660,6 +675,10 @@ async function readFiles(input, merge) {
     }
     if (effectiveMerge && state.config) pushUndo();
     state.hubEditor=null;
+    state.amHubReview=null;
+    state.amHubReviewUndo=[];
+    state.amHubReviewRedo=[];
+    state.hubReviewPlacement=null;
     state.config = combined;
     state.documentRevision=null;
     state.fileName = cleanFileName(imported[0].report.name);
@@ -749,6 +768,10 @@ async function saveHubDocument() {
 function adoptHubDocument({profile,layout=[],target,fileName,loadedDevice=null}) {
   if(state.config&&state.loadedDevice)stashDeviceDocument();
   state.hubEditor=createHubKeymapState({profile,layout,target});
+  state.amHubReview=null;
+  state.amHubReviewUndo=[];
+  state.amHubReviewRedo=[];
+  state.hubReviewPlacement=null;
   state.config=null;
   state.documentRevision=null;
   state.fileName=hubFileName(fileName||`${profile.identity.family}.hub.json`);
@@ -844,18 +867,74 @@ function showHubReport(report) {
 async function importHubFile(file) {
   try {
     const data = arrayBufferToBase64(await file.arrayBuffer());
+    const opened = await api("/api/hub/open", {
+      method: "POST",
+      body: JSON.stringify({data}),
+    });
+    if (state.hubEditor) {
+      const overlay = await api("/api/hub/overlay", {
+        method: "POST",
+        body: JSON.stringify({source: opened.profile, target: state.hubEditor.profile}),
+      });
+      state.hubEditor=reduceHubKeymapState(state.hubEditor,{type:"APPLY_OVERLAY",...overlay});
+      state.hubReviewPlacement=null;
+      state.dirty=state.hubEditor.dirty;
+      $("#hub-dialog").close();
+      navigateTo(ROUTES.KEYMAP,{replace:true});
+      updateMeta();
+      render();
+      toast("Hub profile overlaid",`${overlay.worklist.length} items need review`,"success");
+      return;
+    }
+    if (state.config) {
+      const targetProduct = productId();
+      const exported = await api("/api/hub/export", {
+        method: "POST",
+        body: JSON.stringify({config: hubCandidateConfig(), origin: "user"}),
+      });
+      const overlay = await api("/api/hub/overlay", {
+        method: "POST",
+        body: JSON.stringify({source: opened.profile, target: exported.profile}),
+      });
+      const initialReview = createHubKeymapState({
+        profile: exported.profile,
+        target: {ecosystem: "am", address: null},
+      });
+      const nextReview = reduceHubKeymapState(initialReview,{type:"APPLY_OVERLAY",...overlay});
+      const response = await api("/api/hub/apply", {
+        method: "POST",
+        body: JSON.stringify({profile:overlay.profile, product_id:targetProduct}),
+      });
+      if (!response?.config?.key_layer) throw new Error("This hub profile carries no keymap this keyboard can hold.");
+      pushUndo();
+      state.config=response.config;
+      state.amHubReview=nextReview;
+      state.hubReviewPlacement=null;
+      state.documentRevision=null;
+      markDirty(true);
+      $("#hub-dialog").close();
+      navigateTo(ROUTES.KEYMAP,{replace:true});
+      updateMeta();
+      render();
+      toast("Hub profile overlaid",`${overlay.worklist.length} items need review`,"success");
+      return;
+    }
     const activeDevice = state.devices.find(device => deviceKey(device) === state.loadedDevice) || selectedDevice();
-    const target = state.config ? productId() : activeDevice?.product_id;
+    const target = activeDevice?.product_id;
     if (!target) throw new Error("Open a configuration or choose a keyboard first, so the import has a target.");
     const response = await api("/api/hub/apply", {
       method: "POST",
-      body: JSON.stringify({data, product_id: target}),
+      body: JSON.stringify({profile:opened.profile, product_id: target}),
     });
     if (!response?.config?.key_layer) throw new Error("This hub profile carries no keymap this keyboard can hold.");
     closeImportedLightingReview({render: false});
     stashDeviceDocument();
     state.loadedDevice = null;
     state.hubEditor=null;
+    state.amHubReview=null;
+    state.amHubReviewUndo=[];
+    state.amHubReviewRedo=[];
+    state.hubReviewPlacement=null;
     state.config = response.config;
     state.documentRevision = null;
     state.fileName = cleanFileName(file.name.replace(/\.hub\.json$/i, ".json"));
@@ -2522,6 +2601,36 @@ function focusSelectedTarget(target = state.ledTarget) {
   $$('[data-lighting-target]').find(button => button.dataset.lightingTarget === String(target))?.focus();
 }
 
+async function applyAmHubReviewResolution(action) {
+  const current=state.amHubReview;
+  if(!current||!state.config)return false;
+  const exported=await api("/api/hub/export",{
+    method:"POST",
+    body:JSON.stringify({config:hubCandidateConfig(),origin:"user"}),
+  });
+  if(state.amHubReview!==current)return false;
+  const rebased=createHubKeymapState({
+    profile:exported.profile,
+    target:{ecosystem:"am",address:null},
+    report:current.report,
+    worklist:current.worklist,
+  });
+  const next=reduceHubKeymapState(rebased,action);
+  const response=await api("/api/hub/apply",{
+    method:"POST",
+    body:JSON.stringify({profile:next.profile,product_id:productId()}),
+  });
+  if(state.amHubReview!==current)return false;
+  if(!response?.config?.key_layer)throw new Error("The reviewed hub profile carries no usable AM keymap.");
+  pushUndo();
+  state.config=response.config;
+  state.amHubReview=next;
+  state.documentRevision=null;
+  markDirty(true);
+  updateMeta();
+  return true;
+}
+
 function keymapEditorAdapter() {
   if(state.hubEditor){
     const documentState=state.hubEditor;
@@ -2538,6 +2647,13 @@ function keymapEditorAdapter() {
       layout:documentState.layout,
       report:documentState.report,
       worklist:documentState.worklist,
+      reviewTargetKey(key){return key;},
+      async resolveReview(action){
+        state.hubEditor=reduceHubKeymapState(state.hubEditor,action);
+        state.dirty=state.hubEditor.dirty;
+        updateMeta();
+        return true;
+      },
       readOnly:false,
       save:saveHubDocument,
       write:null,
@@ -2569,9 +2685,13 @@ function keymapEditorAdapter() {
     selected:state.selected,
     layout,
     capabilities:activeFamilySpec(),
+    report:state.amHubReview?.report||null,
+    worklist:state.amHubReview?.worklist||[],
     readOnly:false,
     save:saveConfig,
     write:writeDevice,
+    reviewTargetKey(key){return `K_I${String(Number(key)).padStart(3,"0")}`;},
+    resolveReview:applyAmHubReviewResolution,
     mutate,
     selectLayer(layer){state.layer=layer;},
     selectKey(key){state.selected=Number(key);},
@@ -2606,6 +2726,67 @@ function renderHubKeyInspector(editor,layer,palette){
       <div class="raw-row"><input id="hub-raw-code" class="text-field" value="${hubCodeLabel(item.code)}" maxlength="6" aria-label="Raw 16-bit QMK keycode"><button id="hub-apply-raw" type="button" class="button ghost">Apply</button></div>
     </details>
   </div>`;
+}
+
+function renderHubReview(editor){
+  const items=Array.isArray(editor.report?.items)?editor.report.items:[];
+  const worklist=Array.isArray(editor.worklist)?editor.worklist:[];
+  if(!editor.report&&!worklist.length)return "";
+  const carried=items.filter(item=>item.verdict==="carried").length;
+  const adaptedItems=items.filter(item=>item.verdict==="adapted");
+  const adapted=adaptedItems.length;
+  const unresolved=worklist.length;
+  const adaptedMarkup=adaptedItems.length?`<div class="hub-review-adapted"><p class="control-label">Adapted</p><ul>${adaptedItems.map(item=>`<li><span>${esc(item.reason||"Placed on this target.")}</span><details><summary>Technical details</summary><code>${esc(item.path)}</code></details></li>`).join("")}</ul></div>`:"";
+  const worklistMarkup=worklist.length?worklist.map(item=>{
+    const sourceDetails=item.source?`<dl class="hub-review-technical"><div><dt>Source layer</dt><dd>${item.source.layer+1}</dd></div><div><dt>Source key / matrix identity</dt><dd><code>${esc(item.source.key)}</code></dd></div><div><dt>Raw keycode</dt><dd><code>${hubCodeLabel(item.source.code)}</code></dd></div></dl>`:"<p>This source section is not a key assignment.</p>";
+    const suggestions=item.source&&Array.isArray(item.suggestions)?item.suggestions:[];
+    const choosing=state.hubReviewPlacement?.kind===editor.kind&&state.hubReviewPlacement?.path===item.path;
+    return `<li class="hub-review-item"><p>${esc(item.reason||"This item needs a placement decision.")}</p><div class="hub-review-actions">
+      ${suggestions.map(suggestion=>`<button type="button" class="button ghost" data-hub-review-action="suggestion" data-review-path="${esc(item.path)}" data-target-layer="${suggestion.target_layer}" data-target-key="${esc(suggestion.target_key)}">Use suggestion</button>`).join("")}
+      ${item.source?`<button type="button" class="button ghost ${choosing?'active':''}" data-hub-review-action="choose" data-review-path="${esc(item.path)}" aria-pressed="${choosing}">${choosing?'Click a board key':'Choose a key'}</button>`:""}
+      <button type="button" class="button ghost" data-hub-review-action="leave_out" data-review-path="${esc(item.path)}">Leave out</button>
+    </div><details><summary>Technical details</summary><p><code>${esc(item.path)}</code></p>${sourceDetails}</details></li>`;
+  }).join(""):`<li class="hub-review-complete">No unresolved items remain.</li>`;
+  return `<section class="card hub-review" aria-label="Overlay review"><div class="card-header"><strong>Overlay review</strong><small>${unresolved} unresolved</small></div><div class="card-body"><div class="hub-review-counts"><span><strong>${carried}</strong> carried</span><span><strong>${adapted}</strong> adapted</span><span><strong>${unresolved}</strong> unresolved</span></div>${adaptedMarkup}<p class="control-label">Needs review</p><ul class="hub-review-worklist">${worklistMarkup}</ul></div></section>`;
+}
+
+function wireHubReview(editor){
+  $$('[data-hub-review-action]').forEach(button=>button.addEventListener('click',async()=>{
+    const path=button.dataset.reviewPath;
+    if(button.dataset.hubReviewAction==="choose"){
+      state.hubReviewPlacement={kind:editor.kind,path};
+      renderKeymap();
+      restoreFocus('[data-hub-review-action="choose"][aria-pressed="true"]');
+      return;
+    }
+    const action={type:"RESOLVE_WORKLIST",path,resolution:button.dataset.hubReviewAction};
+    if(action.resolution==="suggestion")action.target={layer:Number(button.dataset.targetLayer),key:button.dataset.targetKey};
+    try{
+      if(await editor.resolveReview(action)){
+        state.hubReviewPlacement=null;
+        renderKeymap();
+        restoreFocus(".hub-review-worklist button");
+      }
+    }catch(error){toast("Could not resolve overlay item",error.message||String(error),"error");}
+  }));
+}
+
+async function selectHubReviewTarget(editor,key){
+  const placement=state.hubReviewPlacement;
+  if(!placement||placement.kind!==editor.kind)return false;
+  const action={
+    type:"RESOLVE_WORKLIST",
+    path:placement.path,
+    resolution:"chosen",
+    target:{layer:editor.layer,key:editor.reviewTargetKey(key)},
+  };
+  try{
+    if(!await editor.resolveReview(action))return true;
+    state.hubReviewPlacement=null;
+    renderKeymap();
+    restoreFocus(".hub-review-worklist button");
+  }catch(error){toast("Could not place overlay item",error.message||String(error),"error");}
+  return true;
 }
 
 function renderHubKeymap(editor){
@@ -2650,11 +2831,11 @@ function renderHubKeymap(editor){
             </div>
           </section>
         </div></section>
-        <aside class="card inspector">${renderHubKeyInspector(editor,layer||{keys:[]},palette)}</aside>
+        <aside class="hub-editor-rail">${renderHubReview(editor)}<section class="card inspector">${renderHubKeyInspector(editor,layer||{keys:[]},palette)}</section></aside>
       </div>
     </div>`;
   $$('[data-layer]').forEach(button=>button.addEventListener('click',()=>{editor.selectLayer(Number(button.dataset.layer));renderKeymap();restoreFocus(`[data-layer="${button.dataset.layer}"]`);}));
-  $$('.keycap').forEach(button=>button.addEventListener('click',()=>{editor.selectKey(button.dataset.index);renderKeymap();restoreFocus(`.keycap[data-index="${button.dataset.index}"]`);}));
+  $$('.keycap').forEach(button=>button.addEventListener('click',async()=>{if(await selectHubReviewTarget(editor,button.dataset.index))return;editor.selectKey(button.dataset.index);renderKeymap();restoreFocus(`.keycap[data-index="${button.dataset.index}"]`);}));
   $$('.palette-key').forEach(button=>button.addEventListener('click',()=>{editor.assignCode(Number(button.dataset.code));renderKeymap();restoreFocus(`.palette-key[data-code="${button.dataset.code}"]`);}));
   $("#hub-key-search")?.addEventListener("input",event=>{
     const visibleCodes=new Set(filterQmkPalette(palette,event.currentTarget.value).flatMap(category=>category.options.map(option=>String(option.code))));
@@ -2672,6 +2853,7 @@ function renderHubKeymap(editor){
   $("#hub-apply-raw")?.addEventListener("click",assignRawCode);
   $("#hub-raw-code")?.addEventListener("keydown",event=>{if(event.key==="Enter")assignRawCode();});
   $("#toggle-technical-labels").addEventListener("click",()=>{state.showTechnicalLabels=!state.showTechnicalLabels;renderKeymap();restoreFocus("#toggle-technical-labels");});
+  wireHubReview(editor);
 }
 
 function renderKeymap() {
@@ -2699,13 +2881,14 @@ function renderKeymap() {
           </div>
           ${renderAssignmentPalette(current)}
         </div></section>
-        <aside class="card inspector">${renderKeyInspector(layer)}</aside>
+        <aside class="hub-editor-rail">${renderHubReview(editor)}<section class="card inspector">${renderKeyInspector(layer)}</section></aside>
       </div>
     </div>`;
   $$("[data-layer]").forEach(button => button.addEventListener("click", () => { editor.selectLayer(Number(button.dataset.layer)); renderKeymap(); restoreFocus(`[data-layer="${button.dataset.layer}"]`); }));
-  $$(".keycap").forEach(button => button.addEventListener("click", () => { editor.selectKey(button.dataset.index); renderKeymap(); restoreFocus(`.keycap[data-index="${button.dataset.index}"]`); }));
+  $$(".keycap").forEach(button => button.addEventListener("click", async () => { if(await selectHubReviewTarget(editor,button.dataset.index))return; editor.selectKey(button.dataset.index); renderKeymap(); restoreFocus(`.keycap[data-index="${button.dataset.index}"]`); }));
   $("#toggle-technical-labels").addEventListener("click", () => { state.showTechnicalLabels = !state.showTechnicalLabels; renderKeymap(); restoreFocus("#toggle-technical-labels"); });
   $("#save-mapping-library")?.addEventListener("click",()=>saveMappingToLibrary("save-mapping-library"));
+  wireHubReview(editor);
   wireKeyInspector();
 }
 
@@ -6167,6 +6350,9 @@ function stashDeviceDocument() {
     dirty:state.dirty,
     undo:state.undo,
     redo:state.redo,
+    amHubReview:state.amHubReview,
+    amHubReviewUndo:state.amHubReviewUndo,
+    amHubReviewRedo:state.amHubReviewRedo,
     layoutEvidence:state.layoutEvidence,
     layoutEvidenceWarning:state.layoutEvidenceWarning,
     view:{layer:state.layer,selected:state.selected,macro:state.macro,ledSlot:state.ledSlot,ledTarget:state.ledTarget,ledFrame:state.ledFrame},
@@ -6183,6 +6369,10 @@ function restoreDeviceDocument(port,deviceId) {
   state.dirty=Boolean(saved.dirty);
   state.undo=saved.undo;
   state.redo=saved.redo;
+  state.amHubReview=saved.amHubReview||null;
+  state.amHubReviewUndo=saved.amHubReviewUndo||[];
+  state.amHubReviewRedo=saved.amHubReviewRedo||[];
+  state.hubReviewPlacement=null;
   state.layoutEvidence=saved.layoutEvidence||null;
   state.layoutEvidenceWarning=saved.layoutEvidenceWarning||"";
   if(saved.view){
@@ -6352,6 +6542,10 @@ async function readDevice() {
       keptLocalMacros=preserveCyberboardMacros?localMacros.length:0;
     }else{
       state.hubEditor=null;
+      state.amHubReview=null;
+      state.amHubReviewUndo=[];
+      state.amHubReviewRedo=[];
+      state.hubReviewPlacement=null;
       state.config=clone(result.stored_config||result.blank_config);
       const localMacros=clone(state.config.macro_key||[]);
       state.config.key_layer={valid:1,layer_num:result.layers.length,layer_data:result.layers.map(layer=>({layer}))};

@@ -68,6 +68,27 @@ function target() {
   };
 }
 
+function review() {
+  const path = "keymap.layers[0].keys[K_SOURCE]";
+  const report = {
+    source: {ecosystem: "am", family: "Source Board"},
+    target: {ecosystem: "via", family: "Fixture Pad"},
+    items: [{path, verdict: "dropped", reason: "No unambiguous target home."}],
+  };
+  const reviewedProfile = profile();
+  reviewedProfile.transfer_report = report;
+  return {
+    profile: reviewedProfile,
+    report,
+    worklist: [{
+      path,
+      reason: "No unambiguous target home.",
+      source: {layer: 0, key: "K_SOURCE", code: 0x003a},
+      suggestions: [{target_layer: 1, target_key: "K_R0_C1"}],
+    }],
+  };
+}
+
 test("a generic hub editor document validates and owns immutable input", () => {
   const sourceProfile = profile();
   const sourceLayout = layout();
@@ -186,4 +207,98 @@ test("unknown 16-bit codes survive selection, save, assignment, and undo", () =>
   assert.equal(changed.undo.length, 1);
   assert.equal(restored.profile.keymap.layers[0].keys[0].code, 0xffff);
   assert.equal(restored.dirty, false);
+});
+
+test("an overlay replaces profile and review through one document checkpoint", () => {
+  const initial = createHubKeymapState({profile: profile(), layout: layout(), target: target()});
+  const overlay = review();
+  overlay.profile.keymap.layers[0].keys[0].code = 0x004c;
+
+  const changed = reduceHubKeymapState(initial, {type: "APPLY_OVERLAY", ...overlay});
+
+  assert.equal(changed.profile.keymap.layers[0].keys[0].code, 0x004c);
+  assert.equal(changed.report.items[0].verdict, "dropped");
+  assert.equal(changed.worklist[0].source.code, 0x003a);
+  assert.equal(changed.undo.length, 1);
+  const restored = reduceHubKeymapState(changed, {type: "UNDO"});
+  assert.equal(restored.profile.keymap.layers[0].keys[0].code, 0x0004);
+  assert.equal(restored.report, null);
+  assert.deepEqual(restored.worklist, []);
+});
+
+test("suggested and chosen worklist placements are independently undoable", () => {
+  const overlay = review();
+  const initial = createHubKeymapState({
+    ...overlay,
+    layout: layout(),
+    target: target(),
+  });
+  const path = overlay.worklist[0].path;
+
+  const suggested = reduceHubKeymapState(initial, {
+    type: "RESOLVE_WORKLIST",
+    path,
+    resolution: "suggestion",
+    target: {layer: 1, key: "K_R0_C1"},
+  });
+  assert.equal(suggested.profile.keymap.layers[1].keys[1].code, 0x003a);
+  assert.equal(suggested.report.items[0].verdict, "adapted");
+  assert.match(suggested.report.items[0].reason, /suggestion/i);
+  assert.strictEqual(suggested.profile.transfer_report, suggested.report);
+  assert.deepEqual(suggested.worklist, []);
+  assert.equal(suggested.undo.length, 1);
+
+  const undone = reduceHubKeymapState(suggested, {type: "UNDO"});
+  assert.equal(undone.profile.keymap.layers[1].keys[1].code, 0x0007);
+  assert.equal(undone.report.items[0].verdict, "dropped");
+  assert.equal(undone.worklist.length, 1);
+  const redone = reduceHubKeymapState(undone, {type: "REDO"});
+  assert.equal(redone.profile.keymap.layers[1].keys[1].code, 0x003a);
+  assert.deepEqual(redone.worklist, []);
+
+  const chosen = reduceHubKeymapState(initial, {
+    type: "RESOLVE_WORKLIST",
+    path,
+    resolution: "chosen",
+    target: {layer: 0, key: "K_R0_C0"},
+  });
+  assert.equal(chosen.profile.keymap.layers[0].keys[0].code, 0x003a);
+  assert.match(chosen.report.items[0].reason, /chosen/i);
+});
+
+test("leaving a worklist item out keeps it dropped and is undoable", () => {
+  const overlay = review();
+  const initial = createHubKeymapState({...overlay, layout: layout(), target: target()});
+  const path = overlay.worklist[0].path;
+
+  const omitted = reduceHubKeymapState(initial, {
+    type: "RESOLVE_WORKLIST",
+    path,
+    resolution: "leave_out",
+  });
+
+  assert.equal(omitted.report.items[0].verdict, "dropped");
+  assert.match(omitted.report.items[0].reason, /left out/i);
+  assert.deepEqual(omitted.worklist, []);
+  assert.equal(reduceHubKeymapState(omitted, {type: "UNDO"}).worklist.length, 1);
+});
+
+test("worklist resolution rejects invented suggestions and malformed sources", () => {
+  const overlay = review();
+  const initial = createHubKeymapState({...overlay, layout: layout(), target: target()});
+  assert.throws(
+    () => reduceHubKeymapState(initial, {
+      type: "RESOLVE_WORKLIST",
+      path: overlay.worklist[0].path,
+      resolution: "suggestion",
+      target: {layer: 0, key: "K_R0_C0"},
+    }),
+    /suggestion/i,
+  );
+
+  overlay.worklist[0].source.code = 0x10000;
+  assert.throws(
+    () => createHubKeymapState({...overlay, layout: layout(), target: target()}),
+    /source/i,
+  );
 });

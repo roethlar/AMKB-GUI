@@ -350,6 +350,40 @@ class HubExportRouteTests(unittest.TestCase):
             applied["config"]["key_layer"]["layer_data"][0]["layer"][0], "#00070029"
         )
 
+    def test_apply_accepts_an_already_validated_target_profile(self) -> None:
+        status, exported = self._request(
+            "POST", "/api/hub/export", {"config": _neon_config()}
+        )
+        self.assertEqual(200, status)
+
+        status, applied = self._request(
+            "POST",
+            "/api/hub/apply",
+            {"profile": exported["profile"], "product_id": "NEON80"},
+        )
+
+        self.assertEqual(200, status)
+        self.assertTrue(applied["validation"]["ok"])
+        self.assertEqual(
+            applied["config"]["key_layer"]["layer_data"][0]["layer"][0], "#00070029"
+        )
+
+    def test_apply_requires_exactly_one_profile_source(self) -> None:
+        status, exported = self._request(
+            "POST", "/api/hub/export", {"config": _neon_config()}
+        )
+        self.assertEqual(200, status)
+        data = self._file_data(exported["profile"])
+
+        for body in (
+            {"product_id": "NEON80"},
+            {"data": data, "profile": exported["profile"], "product_id": "NEON80"},
+        ):
+            with self.subTest(body=body):
+                status, response = self._request("POST", "/api/hub/apply", body)
+                self.assertEqual(400, status)
+                self.assertIn("error", response)
+
     def test_apply_rejects_a_bad_profile_plainly(self) -> None:
         status, response = self._request(
             "POST",
