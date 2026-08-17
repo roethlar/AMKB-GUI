@@ -2084,3 +2084,7 @@
   verification pass:
   the effect-techniques plan claim by claim, plus a spot-check of the OpenKeeb
   v2 architecture section. Other docs were not audited.
+
+## Archived 2026-08-17 by drift (as of `c677b01`)
+
+- **H7 OpenKeeb branding/UI overhaul is complete (2026-08-17):** OpenKeeb now owns the shipped workbench identity, application shell, all current user-facing routes/dialogs, native/package display names, active docs, and deterministic brand assets while reserved compatibility/public identifiers remain unchanged. The in-app Browser rendered the complete approved route matrix at 1000×680, 1280×800, and 1600×1000 with injected-empty AM/Vial/VIA discovery: zero console errors or warnings, zero hardware-write requests across 50 observed requests, no physical keyboard access, and no page-level horizontal overflow after `c0a38e2` fixed the 1000 px Keyboards/Write action defect with a regression contract. Seven public screenshots are actual-app 1600×1000 RGB metadata-free PNGs. Final verification passes 733 Python tests, 223 web tests, compileall, all listed JavaScript syntax checks, `uv build`, the supported macOS frozen build, `--smoke-test`, and WKWebView `--native-policy-smoke`; the final run also repaired stale AUR golden digests for the OpenKeeb Linux rule comment. No release, publication, deep-identifier migration, physical write, or other reserved action occurred.
