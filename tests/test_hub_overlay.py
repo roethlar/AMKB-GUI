@@ -249,6 +249,74 @@ class OverlayIdentityAndSafetyTests(unittest.TestCase):
         )
         self.assertTrue(all("source" not in item for item in result.worklist[-2:]))
 
+
+class OverlayLightingTests(unittest.TestCase):
+    @staticmethod
+    def _profiles() -> tuple[dict, dict]:
+        source, target, _expected = _fixture_profiles()
+        source = validate_hub_profile(source)
+        target = validate_hub_profile(target)
+        surface = {
+            "id": "keys",
+            "role": "keys",
+            "generation": "qmk_rgb_matrix",
+            "effects": [
+                {"id": 0, "semantic": "off"},
+                {"id": 1, "semantic": "solid"},
+            ],
+            "brightness": {"min": 0, "max": 255},
+        }
+        source.setdefault("capabilities", {})["lighting"] = {"surfaces": [surface]}
+        target.setdefault("capabilities", {})["lighting"] = {"surfaces": [surface]}
+        target["lighting"] = {
+            "surfaces": [{"id": "keys", "effect_id": 0, "brightness": 12}]
+        }
+        target.setdefault("provenance", {})["/lighting"] = "device"
+        return source, target
+
+    def test_omitted_source_lighting_preserves_target(self) -> None:
+        source, target = self._profiles()
+
+        result = hub_overlay.overlay_profile(source, target)
+
+        self.assertEqual(result.profile["lighting"], target["lighting"])
+        self.assertFalse(
+            any(item["path"].startswith("lighting") for item in result.report["items"])
+        )
+
+    def test_compatible_lighting_transfers_and_incompatible_surface_is_dropped(self) -> None:
+        source, target = self._profiles()
+        source["lighting"] = {
+            "surfaces": [{"id": "keys", "effect_id": 1, "brightness": 200}]
+        }
+
+        result = hub_overlay.overlay_profile(source, target)
+
+        self.assertEqual(
+            result.profile["lighting"]["surfaces"],
+            [{"id": "keys", "effect_id": 1, "brightness": 200}],
+        )
+        self.assertTrue(
+            any(
+                item["path"] == "lighting.surfaces[keys].effect_id"
+                and item["verdict"] == "carried"
+                for item in result.report["items"]
+            )
+        )
+
+        incompatible = copy.deepcopy(source)
+        incompatible["capabilities"]["lighting"]["surfaces"][0].update(
+            {"role": "panel", "generation": "am_frames"}
+        )
+        dropped = hub_overlay.overlay_profile(incompatible, target)
+        finding = next(
+            item
+            for item in dropped.report["items"]
+            if item["path"] == "lighting.surfaces[keys]"
+        )
+        self.assertEqual(finding["verdict"], "dropped")
+        self.assertEqual(dropped.profile["lighting"], target["lighting"])
+
     def test_missing_keymap_is_rejected_in_plain_words(self) -> None:
         source, target, _expected = _fixture_profiles()
         del source["keymap"]

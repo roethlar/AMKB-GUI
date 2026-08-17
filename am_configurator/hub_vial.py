@@ -19,7 +19,7 @@ import json
 import re
 from typing import Any
 
-from . import hid_transport, vial_keymap, vial_macros
+from . import hid_transport, vial_keymap, vial_lighting, vial_macros
 from .hub_profile import (
     HUB_SCHEMA_VERSION,
     validate_hub_profile,
@@ -509,6 +509,10 @@ def build_hub_profile(
     if origin not in ("device", "user"):
         _fail("The Vial profile origin must be 'device' or 'user'.")
     layers = _decode_keymap(snapshot)
+    lighting_capabilities = vial_lighting.capabilities_from_definition(
+        snapshot.definition,
+        vial_protocol=snapshot.vial_protocol,
+    )
     matrix_map = {
         _matrix_key(row, col): [row, col]
         for row in range(snapshot.matrix_rows)
@@ -530,6 +534,7 @@ def build_hub_profile(
                 },
                 "delays": snapshot.vial_protocol >= 2,
             },
+            "lighting": lighting_capabilities,
         },
         "keymap": {
             "layers": [

@@ -28,7 +28,9 @@ import copy
 import json
 from typing import Any, Callable
 
-HUB_SCHEMA_VERSION = 1
+from . import hub_lighting
+
+HUB_SCHEMA_VERSION = 2
 
 ECOSYSTEMS = ("am", "vial", "via")
 TRANSPORTS = ("hid", "serial")
@@ -657,15 +659,15 @@ def validate_transfer_report(value: object) -> dict:
 # --- whole profile ----------------------------------------------------------
 
 
-def validate_hub_profile(value: object) -> dict:
-    """Validate and normalize one hub profile. Returns a deep, independent copy."""
+def _validate_v1_profile(value: object) -> dict:
+    """Validate the exact landed H1-H5 schema before migration."""
 
     profile = _object(value, "The hub profile")
     _reject_unknown(profile, _TOP_FIELDS, "The hub profile")
     _require(profile, {"schema_version", "identity"}, "The hub profile")
-    if profile["schema_version"] != HUB_SCHEMA_VERSION:
+    if profile["schema_version"] != 1:
         _fail(
-            f"This app reads hub profiles with schema_version {HUB_SCHEMA_VERSION}; "
+            "The legacy hub validator reads schema_version 1; "
             f"this file says {profile['schema_version']!r}."
         )
     sections: dict[str, Callable[[object], object]] = {
@@ -676,7 +678,7 @@ def validate_hub_profile(value: object) -> dict:
         "transfer_report": validate_transfer_report,
     }
     result: dict[str, Any] = {
-        "schema_version": HUB_SCHEMA_VERSION,
+        "schema_version": 1,
         "identity": _validate_identity(profile["identity"]),
     }
     for section, validator in sections.items():
@@ -685,6 +687,83 @@ def validate_hub_profile(value: object) -> dict:
     if "provenance" in profile:
         result["provenance"] = _validate_provenance(profile["provenance"], result)
     return copy.deepcopy(result)
+
+
+def _validate_v2_capabilities(value: object) -> dict:
+    capabilities = _object(value, "capabilities")
+    _reject_unknown(capabilities, {"keymap", "macros", "lighting"}, "capabilities")
+    without_lighting = {
+        key: copy.deepcopy(entry)
+        for key, entry in capabilities.items()
+        if key != "lighting"
+    }
+    result = _validate_capabilities(without_lighting)
+    if "lighting" in capabilities:
+        try:
+            result["lighting"] = hub_lighting.validate_capabilities(
+                capabilities["lighting"]
+            )
+        except hub_lighting.LightingModelError as exc:
+            _fail(str(exc))
+    return result
+
+
+def _validate_v2_profile(value: object) -> dict:
+    profile = _object(value, "The hub profile")
+    _reject_unknown(profile, _TOP_FIELDS, "The hub profile")
+    _require(profile, {"schema_version", "identity"}, "The hub profile")
+    if profile["schema_version"] != HUB_SCHEMA_VERSION:
+        _fail(
+            f"This app writes hub profiles with schema_version {HUB_SCHEMA_VERSION}; "
+            f"this file says {profile['schema_version']!r}."
+        )
+    result: dict[str, Any] = {
+        "schema_version": HUB_SCHEMA_VERSION,
+        "identity": _validate_identity(profile["identity"]),
+    }
+    if "capabilities" in profile:
+        result["capabilities"] = _validate_v2_capabilities(profile["capabilities"])
+    for section, validator in (
+        ("keymap", _validate_keymap),
+        ("macros", _validate_macros),
+        ("transfer_report", validate_transfer_report),
+    ):
+        if section in profile:
+            result[section] = validator(profile[section])
+    if "lighting" in profile:
+        capability = result.get("capabilities", {}).get(
+            "lighting", {"surfaces": []}
+        )
+        try:
+            result["lighting"] = hub_lighting.validate_lighting(
+                profile["lighting"], capability
+            )
+        except hub_lighting.LightingModelError as exc:
+            _fail(str(exc))
+    if "provenance" in profile:
+        result["provenance"] = _validate_provenance(profile["provenance"], result)
+    return copy.deepcopy(result)
+
+
+def validate_hub_profile(value: object) -> dict:
+    """Validate one known hub schema and return canonical schema version 2."""
+
+    profile = _object(value, "The hub profile")
+    _require(profile, {"schema_version", "identity"}, "The hub profile")
+    version = profile["schema_version"]
+    if version == 1:
+        legacy = _validate_v1_profile(profile)
+        try:
+            migrated = hub_lighting.migrate_v1_profile(legacy)
+        except hub_lighting.LightingModelError as exc:
+            _fail(str(exc))
+        return _validate_v2_profile(migrated)
+    if version == HUB_SCHEMA_VERSION:
+        return _validate_v2_profile(profile)
+    _fail(
+        "This app reads hub profiles with schema_version 1 or 2; "
+        f"this file says {version!r}."
+    )
 
 
 def dumps_hub_profile(profile: dict) -> str:

@@ -30,6 +30,7 @@ from typing import Any
 
 from . import device_mapping
 from .hub_profile import HUB_SCHEMA_VERSION, validate_hub_profile
+from . import hub_lighting
 from .vial_keymap import UnsupportedKeycode, from_qmk, parse_code, to_qmk
 
 _EVENT_DOWN = 0x11
@@ -157,6 +158,11 @@ def _animations(config: dict[str, Any]) -> list[dict[str, Any]]:
                 ],
                 "placement": "geometry_seam",
             }
+            if animation["frames"] and animation["frames"][0]:
+                animation["surface_id"] = "am_frames"
+                animation["pixel_ids"] = hub_lighting.opaque_pixel_ids(
+                    len(animation["frames"][0])
+                )
             speed = page.get("speed_ms")
             if isinstance(speed, int) and not isinstance(speed, bool) and 1 <= speed <= 65535:
                 animation["frame_ms"] = speed
@@ -187,9 +193,13 @@ def _capabilities(spec: device_mapping.FamilySpec, layer_count: int) -> dict[str
         },
         "macros": {"budget": budget, "delays": True},
         "lighting": {
-            "static_color": "per_key",
-            "per_key_direct": False,
-            "custom_animation": {"frames_max": spec.frame_cap, "streaming": False},
+            "surfaces": [
+                {
+                    "id": "am_frames",
+                    "role": "panel",
+                    "generation": "am_frames",
+                }
+            ],
         },
     }
 

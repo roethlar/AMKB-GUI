@@ -16,7 +16,7 @@ import math
 import re
 from typing import Any
 
-from . import hid_transport, vial_macros
+from . import hid_transport, via_lighting, vial_macros
 from .hub_profile import (
     HUB_SCHEMA_VERSION,
     validate_hub_profile,
@@ -747,6 +747,10 @@ def build_hub_profile(
         for row in range(snapshot.matrix_rows)
         for col in range(snapshot.matrix_cols)
     }
+    lighting_capabilities = via_lighting.capabilities_from_definition(
+        snapshot.definition,
+        via_protocol=snapshot.via_protocol,
+    )
     profile = {
         "schema_version": HUB_SCHEMA_VERSION,
         "identity": _identity(snapshot),
@@ -763,6 +767,7 @@ def build_hub_profile(
                 },
                 "delays": snapshot.via_protocol >= 11,
             },
+            "lighting": lighting_capabilities,
         },
         "keymap": {
             "layers": [

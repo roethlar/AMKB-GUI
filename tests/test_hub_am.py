@@ -243,6 +243,9 @@ class ApplyHubProfileTests(unittest.TestCase):
         # Shrink the frames to a width no CB track accepts.
         profile2 = build_hub_profile(_neon_config())
         profile2["lighting"]["animations"][0]["frames"] = [["#FF0000"] * 24]
+        profile2["lighting"]["animations"][0]["pixel_ids"] = [
+            f"LED_I{index}" for index in range(24)
+        ]
         result2 = apply_hub_profile(profile2, product_id="NEON80")
         dropped = [i for i in result2["report"]["items"] if i["verdict"] == "dropped"]
         self.assertTrue(any("track has 90" in i["reason"] for i in dropped))

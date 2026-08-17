@@ -18,6 +18,7 @@ from dataclasses import dataclass
 import re
 from typing import Any
 
+from . import hub_lighting
 from .hub_profile import validate_hub_profile, validate_transfer_report
 
 
@@ -192,10 +193,6 @@ def _deferred_source_sections(
         path = f"macros[{macro['slot']}]"
         report_items.append({"path": path, "verdict": "dropped", "reason": reason})
         worklist.append({"path": path, "reason": reason, "suggestions": []})
-    if "lighting" in source:
-        path = "lighting"
-        report_items.append({"path": path, "verdict": "dropped", "reason": reason})
-        worklist.append({"path": path, "reason": reason, "suggestions": []})
 
 
 def overlay_profile(source_profile: object, target_profile: object) -> OverlayResult:
@@ -328,6 +325,28 @@ def overlay_profile(source_profile: object, target_profile: object) -> OverlayRe
                 report_items.append({"path": path, "verdict": "carried"})
 
     _deferred_source_sections(source, report_items, worklist)
+    if "lighting" in source:
+        try:
+            lighting_plan = hub_lighting.plan_transfer(source, output)
+        except hub_lighting.LightingModelError as exc:
+            raise OverlayError(str(exc)) from exc
+        if lighting_plan.lighting is not None:
+            output["lighting"] = lighting_plan.lighting
+            provenance = output.setdefault("provenance", {})
+            for pointer in tuple(provenance):
+                if pointer == "/lighting" or pointer.startswith("/lighting/"):
+                    del provenance[pointer]
+            provenance["/lighting"] = "user"
+        report_items.extend(copy.deepcopy(lighting_plan.items))
+        for item in lighting_plan.items:
+            if item["verdict"] == "dropped":
+                worklist.append(
+                    {
+                        "path": item["path"],
+                        "reason": item["reason"],
+                        "suggestions": [],
+                    }
+                )
     report = validate_transfer_report(
         {
             "source": source["identity"],

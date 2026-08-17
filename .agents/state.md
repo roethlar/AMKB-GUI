@@ -15,12 +15,15 @@
 
 ## Next
 
-- **H6 lighting through the hub is approved and in progress (2026-08-17):** the
-  bounded contract at
-  `docs/superpowers/plans/2026-08-17-openkeeb-v2-h6-lighting.md` authorizes
-  continuous fixture-backed H6a–H6e implementation. H6f physical keyboard
-  activity, push, release, public identifiers, and spending remain separately
-  owner-gated.
+- **H6 lighting through the hub is approved and in progress (2026-08-17):** H6a
+  is fixture-backed complete: canonical schema v2, deterministic v1 migration,
+  bounded lighting surfaces/animations/transfer findings, pure Vial/VialRGB and
+  VIA capability/write codecs, and the pinned survey landed with full
+  verification green (751 Python, 223 web, compile/syntax/build/diff checks).
+  H6b read-only fake-HID snapshots are next under the continuous H6a–H6e grant
+  in `docs/superpowers/plans/2026-08-17-openkeeb-v2-h6-lighting.md`. H6f physical
+  keyboard activity, push, release, public identifiers, and spending remain
+  separately owner-gated.
 
 - **OpenKeeb v2 implementation follows the approved hub-configurator plan.**
   Its canonical scope, sequence, completed-slice evidence, and write-safety

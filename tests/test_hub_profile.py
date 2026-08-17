@@ -103,6 +103,28 @@ class HubProfileRoundTripTests(unittest.TestCase):
         self.assertEqual(reloaded, validate_hub_profile(_profile()))
         self.assertEqual(dumps_hub_profile(reloaded), text)
 
+    def test_schema_one_lighting_migrates_to_canonical_schema_two(self) -> None:
+        migrated = loads_hub_profile(dumps_hub_profile(_profile()))
+
+        self.assertEqual(migrated["schema_version"], 2)
+        self.assertEqual(
+            [surface["id"] for surface in migrated["capabilities"]["lighting"]["surfaces"]],
+            ["am_frames", "qmk_rgb_matrix"],
+        )
+        self.assertEqual(
+            migrated["lighting"]["surfaces"][0],
+            {
+                "id": "qmk_rgb_matrix",
+                "effect_id": 5,
+                "speed": 128,
+                "color": [10, 200],
+                "per_key": {"K_ESC": [0, 255, 255]},
+            },
+        )
+        animation = migrated["lighting"]["animations"][0]
+        self.assertEqual(animation["surface_id"], "am_frames")
+        self.assertEqual(animation["pixel_ids"], ["LED_I0", "LED_I1"])
+
     def test_dumps_is_canonical_sorted_json(self) -> None:
         text = dumps_hub_profile(_profile())
         parsed = json.loads(text)
@@ -135,7 +157,7 @@ class HubProfileRejectionTests(unittest.TestCase):
         self.assertIn(message_part, str(caught.exception))
 
     def test_wrong_schema_version(self) -> None:
-        self._rejects(lambda p: p.update(schema_version=2), "schema_version")
+        self._rejects(lambda p: p.update(schema_version=3), "schema_version")
 
     def test_unknown_top_level_field(self) -> None:
         self._rejects(lambda p: p.update(extra=1), "unsupported fields")
@@ -207,7 +229,7 @@ class HubProfileRejectionTests(unittest.TestCase):
 
     def test_duplicate_json_field_rejected_on_load(self) -> None:
         text = dumps_hub_profile(_profile())
-        doubled = text.replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1', 1)
+        doubled = text.replace('"schema_version": 2', '"schema_version": 2, "schema_version": 2', 1)
         with self.assertRaises(HubProfileError) as caught:
             loads_hub_profile(doubled)
         self.assertIn("repeats", str(caught.exception))
@@ -245,7 +267,7 @@ class ProvenanceCoverageTests(unittest.TestCase):
             "provenance": {"/lighting/static": "user"},
         }
         uncovered = uncovered_leaves(profile)
-        self.assertTrue(all(p.startswith("/lighting/hardware_effect") for p in uncovered))
+        self.assertTrue(all(p.startswith("/lighting/surfaces/0/effect_id") for p in uncovered))
         self.assertTrue(uncovered)
 
 

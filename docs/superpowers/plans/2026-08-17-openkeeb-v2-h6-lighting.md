@@ -7,6 +7,21 @@ per-slice approval under the standing technical delegation in
 `.agents/decisions.md`. H6f physical hardware activity, push, release, public
 identifiers, and spending remain separately owner-gated.
 
+H6a fixture-backed landing, 2026-08-17: hub profiles now validate exact
+schema-v1 input, migrate deterministically, and serialize canonical schema v2.
+The pure lighting model owns bounded independent surfaces, native channel
+ranges, stable per-key identities, animations, and explicit
+carried/adapted/dropped transfer findings. Pure Vial/VialRGB and VIA codecs
+extract only definition/device-proved capabilities and produce closed
+persistent command plans without opening HID; target lighting survives omitted
+or incompatible source data, and VialRGB direct effect 1 remains excluded from
+persistent plans. The pinned survey records protocol evidence and a conservative
+30-report/second application ceiling. The schema test first failed while the
+module was absent, then the 128-test focused suite passed; final verification
+passed 751 Python tests, 223 web tests, Python compilation, every JavaScript
+syntax gate, package build, and `git diff --check`. No transport setter or
+hardware access landed. H6b read-only fake-HID snapshots are next.
+
 ## Objective
 
 Make Vial and VIA lighting first-class OpenKeeb hub data without weakening the

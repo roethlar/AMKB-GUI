@@ -8,7 +8,7 @@ from pathlib import Path
 import unittest
 from unittest import mock
 
-from am_configurator import hub_vial
+from am_configurator import hub_vial, vial_lighting
 from am_configurator.hub_profile import uncovered_leaves, validate_hub_profile
 
 
@@ -100,6 +100,7 @@ class VialHubReadTests(unittest.TestCase):
                     "budget": {"model": "bytes", "slots": 3, "buffer_bytes": 20},
                     "delays": True,
                 },
+                "lighting": {"surfaces": []},
             },
         )
 
@@ -207,6 +208,111 @@ class VialHubWritePlanTests(unittest.TestCase):
         )
         self.assertEqual(finding["verdict"], "adapted")
         self.assertIn("protocol 5", finding["reason"])
+
+
+class VialLightingCodecTests(unittest.TestCase):
+    def test_embedded_legacy_definition_exposes_two_independent_surfaces(self) -> None:
+        value = _fixture()
+        value["definition"]["lighting"] = "qmk_backlight_rgblight"
+        profile = hub_vial.build_hub_profile(hub_vial.load_snapshot(value))
+
+        surfaces = profile["capabilities"]["lighting"]["surfaces"]
+        self.assertEqual([surface["id"] for surface in surfaces], ["backlight", "underglow"])
+        self.assertEqual(surfaces[0]["generation"], "qmk_backlight")
+        self.assertEqual(surfaces[1]["generation"], "qmk_rgblight")
+
+    def test_vialrgb_requires_all_four_proofs_and_bounded_pixel_count(self) -> None:
+        definition = {"lighting": "vialrgb"}
+        info = vial_lighting.VialRGBInfo(
+            protocol_version=1,
+            maximum_brightness=128,
+            effect_ids=(0, 1, 7),
+            pixel_count=12,
+        )
+
+        self.assertEqual(
+            vial_lighting.capabilities_from_definition(
+                definition,
+                vial_protocol=3,
+                feature_flags=1,
+                vialrgb_info=info,
+            ),
+            {"surfaces": []},
+        )
+        capabilities = vial_lighting.capabilities_from_definition(
+            definition,
+            vial_protocol=4,
+            feature_flags=1,
+            vialrgb_info=info,
+        )
+        surface = capabilities["surfaces"][0]
+        self.assertEqual(surface["stream"]["pixel_count"], 12)
+        self.assertEqual(surface["stream"]["max_chunk_pixels"], 9)
+        self.assertTrue(surface["stream"]["volatile"])
+
+    def test_pure_legacy_write_plan_contains_only_changed_allowlisted_values(self) -> None:
+        capabilities = vial_lighting.capabilities_from_definition(
+            {"lighting": "qmk_rgblight"},
+            vial_protocol=6,
+        )
+        target = {
+            "capabilities": {"lighting": capabilities},
+            "lighting": {
+                "surfaces": [
+                    {
+                        "id": "underglow",
+                        "effect_id": 0,
+                        "brightness": 10,
+                        "speed": 20,
+                        "color": [30, 40],
+                    }
+                ]
+            },
+        }
+        source = copy.deepcopy(target)
+        source["lighting"]["surfaces"][0].update(
+            {"effect_id": 1, "brightness": 11, "color": [31, 41]}
+        )
+
+        plan = vial_lighting.plan_write(source, target)
+
+        self.assertEqual(
+            [(command.value_id, command.payload) for command in plan.commands],
+            [
+                (vial_lighting.QMK_RGBLIGHT_EFFECT, b"\x01"),
+                (vial_lighting.QMK_RGBLIGHT_BRIGHTNESS, b"\x0b"),
+                (vial_lighting.QMK_RGBLIGHT_COLOR, b"\x1f\x29"),
+            ],
+        )
+        self.assertTrue(plan.save)
+
+    def test_direct_effect_is_never_a_persistent_vialrgb_write(self) -> None:
+        capabilities = vial_lighting.capabilities_from_definition(
+            {"lighting": "vialrgb"},
+            vial_protocol=4,
+            feature_flags=1,
+            vialrgb_info=vial_lighting.VialRGBInfo(1, 128, (0, 1), 2),
+        )
+        target = {
+            "capabilities": {"lighting": capabilities},
+            "lighting": {
+                "surfaces": [
+                    {
+                        "id": "vialrgb",
+                        "effect_id": 0,
+                        "brightness": 64,
+                        "speed": 2,
+                        "color": [3, 4],
+                    }
+                ]
+            },
+        }
+        source = copy.deepcopy(target)
+        source["lighting"]["surfaces"][0]["effect_id"] = 1
+
+        with self.assertRaises(vial_lighting.VialLightingError) as caught:
+            vial_lighting.plan_write(source, target)
+        self.assertIn("volatile", str(caught.exception))
 
 
 class VialNormalizedMacroCodecTests(unittest.TestCase):

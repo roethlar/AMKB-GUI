@@ -75,7 +75,7 @@ class HubEditorApiTests(unittest.TestCase):
         self.assertEqual(hub_profile.loads_hub_profile(canonical), opened["profile"])
 
         duplicate = canonical.replace(
-            '"schema_version": 1', '"schema_version": 1, "schema_version": 1', 1
+            '"schema_version": 2', '"schema_version": 2, "schema_version": 2', 1
         )
         status, rejected = self.request(
             "/api/hub/open",
