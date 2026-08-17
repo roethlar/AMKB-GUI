@@ -37,7 +37,7 @@ import math
 import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 
 NEON_VENDOR_ID = 0x05AC
@@ -249,6 +249,7 @@ class VialDeviceInfo:
     protocol_version: int
     identity_error: str | None
     key_layout: tuple[dict[str, int | float], ...] = ()
+    feature_flags: int = 0
 
     @property
     def is_vial(self) -> bool:
@@ -442,8 +443,8 @@ def _vial_request(handle, subcommand: int, *args: int, timeout_ms: int = DEFAULT
     return reply
 
 
-def fetch_keyboard_uid(handle) -> tuple[int, str]:
-    """Return the Vial protocol version and the board's own 8-byte UID.
+def fetch_keyboard_uid(handle) -> tuple[int, str, int]:
+    """Return the Vial protocol, the board's 8-byte UID, and feature flags.
 
     This UID — not the USB serial — is what distinguishes two Vial boards. The
     serial suffix `f64c2b3c` is a fixed magic string every Vial keyboard
@@ -451,7 +452,7 @@ def fetch_keyboard_uid(handle) -> tuple[int, str]:
     """
 
     reply = _vial_request(handle, _VIAL_GET_KEYBOARD_ID)
-    return struct.unpack("<I", reply[0:4])[0], reply[4:12].hex()
+    return struct.unpack("<I", reply[0:4])[0], reply[4:12].hex(), reply[12]
 
 
 def _decompress_bounded(blob: bytes) -> bytes:
@@ -707,7 +708,7 @@ def identify(entry: dict[str, Any], *, deep: bool = True) -> HidDeviceInfo:
             identity_error=str(error),
         )
     try:
-        protocol, uid = fetch_keyboard_uid(handle)
+        protocol, uid, _feature_flags = fetch_keyboard_uid(handle)
         common["firmware_uid"] = uid
         common["protocol_version"] = protocol
         definition = fetch_definition(handle)
@@ -792,7 +793,7 @@ def identify_vial(entry: dict[str, Any], *, deep: bool = True) -> VialDeviceInfo
             identity_error=str(error),
         )
     try:
-        protocol, uid = fetch_keyboard_uid(handle)
+        protocol, uid, feature_flags = fetch_keyboard_uid(handle)
         definition = fetch_definition(handle)
         name = str(definition.get("name") or "").strip()
         fingerprint = definition_fingerprint(definition)
@@ -822,6 +823,7 @@ def identify_vial(entry: dict[str, Any], *, deep: bool = True) -> VialDeviceInfo
         protocol_version=protocol,
         identity_error=identity_error,
         key_layout=project_key_layout(definition),
+        feature_flags=feature_flags,
     )
 
 
@@ -1011,10 +1013,25 @@ _VIA_READ_ONLY_COMMANDS = frozenset(
 class _ReadOnlyRawSession(_RawSession):
     """Raw session that rejects every mutating VIA/Vial command."""
 
+    def __init__(
+        self,
+        path: bytes,
+        *,
+        endpoint_source=None,
+        lighting_gets: Iterable[tuple[int, ...]] = (),
+    ) -> None:
+        super().__init__(path, endpoint_source=endpoint_source)
+        self._lighting_gets = tuple(bytes(prefix) for prefix in lighting_gets)
+
     def send(self, payload: bytes) -> None:
         if not payload:
             raise HidError("An empty raw-HID request is not valid.")
-        if payload[0] == _VIAL_PREFIX:
+        if payload[0] == 0x08:
+            allowed = any(
+                payload[1 : 1 + len(prefix)] == prefix
+                for prefix in self._lighting_gets
+            )
+        elif payload[0] == _VIAL_PREFIX:
             allowed = len(payload) >= 2 and payload[1] in _VIAL_READ_ONLY
         else:
             allowed = payload[0] in _VIA_READ_ONLY_COMMANDS
@@ -1027,11 +1044,12 @@ class _ReadOnlyRawSession(_RawSession):
 
 
 def _assert_vial_identity(handle, expected: VialDeviceInfo) -> None:
-    protocol, uid = fetch_keyboard_uid(handle)
+    protocol, uid, feature_flags = fetch_keyboard_uid(handle)
     definition = fetch_definition(handle)
     if (
         protocol != expected.protocol_version
         or uid != expected.firmware_uid
+        or feature_flags != expected.feature_flags
         or str(definition.get("name") or "").strip() != expected.name
         or definition_fingerprint(definition) != expected.definition_hash
         or endpoint_address(expected.path) != expected.address
@@ -1039,11 +1057,19 @@ def _assert_vial_identity(handle, expected: VialDeviceInfo) -> None:
         raise HidIdentityError("This is not the Vial keyboard that was selected.")
 
 
-def open_vial_read(info: VialDeviceInfo) -> _ReadOnlyRawSession:
+def open_vial_read(
+    info: VialDeviceInfo,
+    *,
+    lighting_gets: Iterable[tuple[int, ...]] = (),
+) -> _ReadOnlyRawSession:
     """Open a read-only session and re-prove the selected Vial identity."""
     if not info.writable:
         raise HidIdentityError(info.identity_error or "Vial identity is incomplete.")
-    session = _ReadOnlyRawSession(info.path, endpoint_source=vial_endpoints)
+    session = _ReadOnlyRawSession(
+        info.path,
+        endpoint_source=vial_endpoints,
+        lighting_gets=lighting_gets,
+    )
     session.__enter__()
     try:
         _assert_vial_identity(session._require(), info)
@@ -1069,12 +1095,20 @@ def _same_via_endpoint(entry: dict[str, Any], expected: ViaEndpointInfo) -> bool
     )
 
 
-def open_via_read(info: ViaEndpointInfo) -> _ReadOnlyRawSession:
+def open_via_read(
+    info: ViaEndpointInfo,
+    *,
+    lighting_gets: Iterable[tuple[int, ...]] = (),
+) -> _ReadOnlyRawSession:
     """Open a VIA candidate through the mutation-refusing command surface."""
 
     if not any(_same_via_endpoint(entry, info) for entry in via_endpoints()):
         raise HidIdentityError("This is not the VIA endpoint that was selected.")
-    session = _ReadOnlyRawSession(info.path, endpoint_source=via_endpoints)
+    session = _ReadOnlyRawSession(
+        info.path,
+        endpoint_source=via_endpoints,
+        lighting_gets=lighting_gets,
+    )
     session.__enter__()
     return session
 
@@ -1214,7 +1248,7 @@ def open_approved(approval: WriteApproval) -> _RawSession:
     session = _RawSession(approval.path)
     session.__enter__()
     try:
-        protocol, uid = fetch_keyboard_uid(session._require())
+        protocol, uid, _feature_flags = fetch_keyboard_uid(session._require())
         if uid != approval.model_uid or protocol <= 0:
             raise HidIdentityError(
                 "This is not the keyboard the write was confirmed for."
@@ -1280,7 +1314,7 @@ def open_vial_approved(approval: VialWriteApproval) -> _RawSession:
     session = _RawSession(approval.path, endpoint_source=vial_endpoints)
     session.__enter__()
     try:
-        protocol, uid = fetch_keyboard_uid(session._require())
+        protocol, uid, _feature_flags = fetch_keyboard_uid(session._require())
         definition = fetch_definition(session._require())
         if (
             protocol != approval.protocol_version

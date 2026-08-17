@@ -2835,6 +2835,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "device": document.device,
                 "profile": document.profile,
                 "layout": document.layout,
+                "lighting_geometry": document.lighting_geometry,
             }
         )
 
@@ -2862,6 +2863,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "device": document.device,
                 "profile": document.profile,
                 "layout": document.layout,
+                "lighting_geometry": document.lighting_geometry,
             }
         )
 

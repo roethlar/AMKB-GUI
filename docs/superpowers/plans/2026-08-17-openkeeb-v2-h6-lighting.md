@@ -22,6 +22,25 @@ passed 751 Python tests, 223 web tests, Python compilation, every JavaScript
 syntax gate, package build, and `git diff --check`. No transport setter or
 hardware access landed. H6b read-only fake-HID snapshots are next.
 
+H6b fixture-backed landing, 2026-08-17: Vial keyboard-ID feature flags now
+survive discovery and same-handle identity reproof. Mutation-refusing raw-HID
+sessions admit top-level lighting GET only for definition/protocol-proved legacy
+value IDs, VialRGB subcommands, or VIA channel/command pairs; arbitrary GET,
+SET `0x07`, SAVE `0x09`, setters, and unlock-start/poll remain refused. One
+snapshot now carries keymap, macros, current native lighting state, active
+layout, and ephemeral `lighting_geometry`. VialRGB additionally gates on
+protocol, feature flag, embedded definition, and GET_INFO version; effect pages
+and LED counts are bounded before allocation, while GET_LED_INFO supplies
+device-proved pixel identities and geometry. VIA per-key reads use only unique
+active-layout `li` indexes from the imported definition; hostile, duplicate, or
+oversized indexes stop before any lighting GET. Unknown lighting definitions
+return an explicit empty capability and no lighting command. The VialRGB and
+VIA snapshot tests first failed on absent feature/state transport, then focused
+and full verification passed 760 Python tests, 223 web tests, compilation,
+every JavaScript syntax gate, package build, and `git diff --check`. No hardware
+was opened outside injected fake HID and no mutation occurred. H6c persistent
+fake-HID writes are next.
+
 ## Objective
 
 Make Vial and VIA lighting first-class OpenKeeb hub data without weakening the

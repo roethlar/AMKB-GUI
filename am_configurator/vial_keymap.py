@@ -381,6 +381,7 @@ VIA_SET_KEYCODE = 0x05
 VIA_GET_LAYER_COUNT = 0x11
 VIA_GET_BUFFER = 0x12
 VIA_SET_BUFFER = 0x13
+VIA_LIGHTING_GET_VALUE = 0x08
 VIA_LAYOUT_OPTIONS = 0x02
 VIA_KEYCODES_VERSION = 0x06
 
@@ -438,6 +439,34 @@ class UnlockStatus:
 def _via_request(session, command: int, *args: int) -> bytes:
     session.send(bytes([command, *args]))
     return session.receive()
+
+
+def read_lighting_value(session, value_id: int, *args: int) -> bytes:
+    """Read one closed legacy/VialRGB lighting value and return its payload."""
+
+    reply = _via_request(session, VIA_LIGHTING_GET_VALUE, value_id, *args)
+    expected = bytes([VIA_LIGHTING_GET_VALUE, value_id])
+    if reply[:2] != expected:
+        raise UnsupportedVialProtocol("The keyboard returned a mismatched lighting value.")
+    return reply[2:]
+
+
+def read_lighting_channel(
+    session, channel: int, command: int, *args: int
+) -> bytes:
+    """Read one recognized protocol-11 channel/command lighting value."""
+
+    reply = _via_request(
+        session,
+        VIA_LIGHTING_GET_VALUE,
+        channel,
+        command,
+        *args,
+    )
+    expected = bytes([VIA_LIGHTING_GET_VALUE, channel, command])
+    if reply[:3] != expected:
+        raise UnsupportedVialProtocol("The keyboard returned a mismatched lighting channel.")
+    return reply[3:]
 
 
 def read_via_protocol(session) -> int:

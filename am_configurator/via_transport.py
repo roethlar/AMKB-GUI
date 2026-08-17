@@ -9,10 +9,10 @@ same-handle protocol/capacity checks, a narrow command allowlist, and read-back.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
-from . import hid_transport, hub_via, vial_keymap, vial_macros
+from . import hid_transport, hub_via, via_lighting, vial_keymap, vial_macros
 
 
 class ViaTransportError(ValueError):
@@ -64,6 +64,7 @@ class HubDocument:
     device: dict[str, Any]
     profile: dict[str, Any]
     layout: tuple[dict[str, int | float | str], ...]
+    lighting_geometry: tuple[dict[str, Any], ...]
 
 
 @dataclass(frozen=True)
@@ -161,9 +162,171 @@ def _capacity(session, protocol: int) -> vial_macros.MacroCapacity:
     return capacity
 
 
+_CHANNEL_LIGHTING_CONTROLS = {
+    "qmk_backlight": (1, {"brightness": 1, "effect_id": 2}),
+    "qmk_rgblight": (
+        2,
+        {"brightness": 1, "effect_id": 2, "speed": 3, "color": 4},
+    ),
+    "qmk_rgb_matrix": (
+        3,
+        {"brightness": 1, "effect_id": 2, "speed": 3, "color": 4},
+    ),
+}
+_LEGACY_LIGHTING_CONTROLS = {
+    "qmk_backlight": {
+        "brightness": via_lighting.QMK_BACKLIGHT_BRIGHTNESS,
+        "effect_id": via_lighting.QMK_BACKLIGHT_EFFECT,
+    },
+    "qmk_rgblight": {
+        "brightness": via_lighting.QMK_RGBLIGHT_BRIGHTNESS,
+        "effect_id": via_lighting.QMK_RGBLIGHT_EFFECT,
+        "speed": via_lighting.QMK_RGBLIGHT_EFFECT_SPEED,
+        "color": via_lighting.QMK_RGBLIGHT_COLOR,
+    },
+}
+
+
+def _lighting_context(
+    resolved: ResolvedViaDevice,
+) -> tuple[
+    dict[str, Any],
+    tuple[dict[str, int | float], ...],
+    dict[str, int],
+    tuple[tuple[int, ...], ...],
+]:
+    layout = hub_via.project_layout(
+        resolved.definition,
+        resolved.layout_options,
+    )
+    led_mapping = {
+        f"K_R{item['matrix_row']}_C{item['matrix_col']}": int(item["led_index"])
+        for item in layout
+        if "led_index" in item
+    }
+    capabilities = via_lighting.capabilities_from_definition(
+        resolved.definition.definition,
+        via_protocol=resolved.via_protocol,
+        led_mapping=led_mapping or None,
+    )
+    gets: list[tuple[int, ...]] = []
+    for surface in capabilities["surfaces"]:
+        if resolved.via_protocol >= 11:
+            channel, commands = _CHANNEL_LIGHTING_CONTROLS[surface["generation"]]
+            gets.extend(
+                (channel, command)
+                for field, command in commands.items()
+                if ("effects" if field == "effect_id" else field) in surface
+            )
+        else:
+            gets.extend(
+                (value_id,)
+                for field, value_id in _LEGACY_LIGHTING_CONTROLS.get(
+                    surface["generation"], {}
+                ).items()
+                if ("effects" if field == "effect_id" else field) in surface
+            )
+        if "per_key" in surface:
+            gets.append((0, 1))
+    return capabilities, layout, led_mapping, tuple(dict.fromkeys(gets))
+
+
+def _read_lighting(
+    session,
+    resolved: ResolvedViaDevice,
+    capabilities: dict[str, Any],
+    layout: tuple[dict[str, int | float], ...],
+    led_mapping: dict[str, int],
+) -> tuple[dict[str, Any], dict[str, Any] | None, tuple[dict[str, Any], ...]]:
+    if not capabilities["surfaces"]:
+        return capabilities, None, ()
+    values: dict[str, dict[str, Any]] = {}
+    for surface in capabilities["surfaces"]:
+        state: dict[str, Any] = {}
+        if resolved.via_protocol >= 11:
+            channel, commands = _CHANNEL_LIGHTING_CONTROLS[surface["generation"]]
+            for field, command in commands.items():
+                capability_field = "effects" if field == "effect_id" else field
+                if capability_field not in surface:
+                    continue
+                payload = vial_keymap.read_lighting_channel(
+                    session,
+                    channel,
+                    command,
+                )
+                size = 2 if field == "color" else 1
+                if len(payload) < size:
+                    raise ViaTransportError("The VIA keyboard returned short lighting state.")
+                state[field] = list(payload[:2]) if field == "color" else payload[0]
+        else:
+            for field, value_id in _LEGACY_LIGHTING_CONTROLS.get(
+                surface["generation"], {}
+            ).items():
+                capability_field = "effects" if field == "effect_id" else field
+                if capability_field not in surface:
+                    continue
+                payload = vial_keymap.read_lighting_value(session, value_id)
+                size = 2 if field == "color" else 1
+                if len(payload) < size:
+                    raise ViaTransportError("The VIA keyboard returned short lighting state.")
+                state[field] = list(payload[:2]) if field == "color" else payload[0]
+        if "per_key" in surface:
+            colors: dict[str, list[int]] = {}
+            for key, led_index in led_mapping.items():
+                payload = vial_keymap.read_lighting_channel(
+                    session,
+                    0,
+                    1,
+                    led_index,
+                    1,
+                )
+                if len(payload) < 4 or payload[:2] != bytes([led_index, 1]):
+                    raise ViaTransportError(
+                        "The VIA keyboard returned mismatched per-key lighting state."
+                    )
+                colors[key] = list(payload[2:4])
+            state["per_key"] = colors
+        values[surface["id"]] = state
+
+    capabilities = via_lighting.capabilities_from_definition(
+        resolved.definition.definition,
+        via_protocol=resolved.via_protocol,
+        current=values,
+        led_mapping=led_mapping or None,
+    )
+    lighting = via_lighting.state_from_values(capabilities, values)
+    layout_by_key = {
+        f"K_R{item['matrix_row']}_C{item['matrix_col']}": item for item in layout
+    }
+    geometry = tuple(
+        {
+            "surface_id": "rgb_matrix",
+            "pixel_id": key,
+            "led_index": led_index,
+            "x": round(
+                float(layout_by_key[key]["x"])
+                + float(layout_by_key[key]["width"]) / 2,
+                4,
+            ),
+            "y": round(
+                float(layout_by_key[key]["y"])
+                + float(layout_by_key[key]["height"]) / 2,
+                4,
+            ),
+            "key": key,
+        }
+        for key, led_index in led_mapping.items()
+    )
+    return capabilities, lighting, geometry
+
+
 def _read_snapshot(resolved: ResolvedViaDevice) -> hub_via.ViaSnapshot:
     definition = resolved.definition
-    session = hid_transport.open_via_read(resolved.endpoint)
+    capabilities, layout, led_mapping, lighting_gets = _lighting_context(resolved)
+    session = hid_transport.open_via_read(
+        resolved.endpoint,
+        lighting_gets=lighting_gets,
+    )
     try:
         protocol, layout_options, keycode_spec = _probe(session, definition)
         if (
@@ -194,9 +357,16 @@ def _read_snapshot(resolved: ResolvedViaDevice) -> hub_via.ViaSnapshot:
             if protocol >= 8
             else b""
         )
+        lighting_capabilities, lighting_state, lighting_geometry = _read_lighting(
+            session,
+            resolved,
+            capabilities,
+            layout,
+            led_mapping,
+        )
     finally:
         session.close()
-    return hub_via.load_snapshot(
+    snapshot = hub_via.load_snapshot(
         {
             "definition": definition.definition,
             "via_protocol": protocol,
@@ -210,6 +380,12 @@ def _read_snapshot(resolved: ResolvedViaDevice) -> hub_via.ViaSnapshot:
             "macro_buffer_bytes": capacity.buffer_bytes,
             "macro_hex": macros.hex(),
         }
+    )
+    return replace(
+        snapshot,
+        lighting_capabilities=lighting_capabilities,
+        lighting_state=lighting_state,
+        lighting_geometry=lighting_geometry,
     )
 
 
@@ -242,6 +418,7 @@ def read_hub_document(
         device=device_json(resolved.endpoint),
         profile=hub_via.build_hub_profile(snapshot, origin=origin),
         layout=_editor_layout(snapshot),
+        lighting_geometry=snapshot.lighting_geometry,
     )
 
 

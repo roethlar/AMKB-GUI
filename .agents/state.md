@@ -16,12 +16,15 @@
 ## Next
 
 - **H6 lighting through the hub is approved and in progress (2026-08-17):** H6a
-  is fixture-backed complete: canonical schema v2, deterministic v1 migration,
-  bounded lighting surfaces/animations/transfer findings, pure Vial/VialRGB and
-  VIA capability/write codecs, and the pinned survey landed with full
-  verification green (751 Python, 223 web, compile/syntax/build/diff checks).
-  H6b read-only fake-HID snapshots are next under the continuous H6a–H6e grant
-  in `docs/superpowers/plans/2026-08-17-openkeeb-v2-h6-lighting.md`. H6f physical
+  and H6b are fixture-backed complete. Schema v2, pure capability/transfer
+  codecs, and the pinned survey are followed by mutation-refusing Vial/VIA
+  read-only snapshots with preserved Vial feature flags, exact current lighting
+  state, capability-honest empty results, and ephemeral VialRGB/VIA LED geometry.
+  Fake HID proves only definition/protocol-allowlisted GETs occur; no setter,
+  save, unlock-start/poll, or hardware mutation was sent. Full verification is
+  green at 760 Python and 223 web tests plus compile/syntax/build/diff checks.
+  H6c persistent fake-HID writes are next under the continuous H6a–H6e grant in
+  `docs/superpowers/plans/2026-08-17-openkeeb-v2-h6-lighting.md`. H6f physical
   keyboard activity, push, release, public identifiers, and spending remain
   separately owner-gated.
 

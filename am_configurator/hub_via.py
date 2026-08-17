@@ -41,6 +41,7 @@ class _PhysicalKey:
     rotation: float
     rotation_x: float
     rotation_y: float
+    led_index: int | None
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,9 @@ class ViaSnapshot:
     macro_count: int
     macro_buffer_bytes: int
     macro_buffer: bytes
+    lighting_capabilities: dict[str, Any] | None = None
+    lighting_state: dict[str, Any] | None = None
+    lighting_geometry: tuple[dict[str, Any], ...] = ()
 
     @property
     def keys_per_layer(self) -> int:
@@ -106,7 +110,9 @@ _MAX_LAYOUT_CHOICES = 32
 _MAX_LAYERS = 32
 _MAX_MACROS = 128
 _MAX_MACRO_BUFFER = 65_535
+_MAX_LED_INDEX = 255
 _PAIR_RE = re.compile(r"^([0-9]+)[,，]([0-9]+)$")
+_LED_INDEX_RE = re.compile(r"^[lL](0|[1-9][0-9]*)$")
 _MATRIX_KEY_RE = re.compile(r"^K_R([0-9]+)_C([0-9]+)$")
 
 # KLE's raw newline labels move when the alignment property changes.  Matrix
@@ -177,6 +183,20 @@ def _pair(value: str, label: str) -> tuple[int, int]:
     if matched is None:
         _fail(f"{label} must be a row,column pair.")
     return int(matched.group(1)), int(matched.group(2))
+
+
+def _led_index(value: str, label: str) -> int | None:
+    candidate = value.strip()
+    if not re.match(r"^[lL][+-]?[0-9]", candidate):
+        return None
+    if not _LED_INDEX_RE.fullmatch(candidate):
+        _fail(f"{label} must be l0..l{_MAX_LED_INDEX}.")
+    return _integer(
+        int(candidate[1:]),
+        label,
+        low=0,
+        high=_MAX_LED_INDEX,
+    )
 
 
 def _normalized_labels(value: str, alignment: int) -> list[str]:
@@ -311,6 +331,7 @@ def _parse_layout(
                         rotation=rotation,
                         rotation_x=rotation_x,
                         rotation_y=rotation_y,
+                        led_index=_led_index(labels[6], f"{label} LED index"),
                     )
                 )
             cursor_x += width
@@ -451,6 +472,7 @@ def project_layout(
         if key.group < 0 or selected[key.group] == key.option
     ]
     seen: set[tuple[int, int]] = set()
+    seen_leds: set[int] = set()
     for key in keys:
         position = (key.row, key.col)
         if position in seen:
@@ -458,6 +480,12 @@ def project_layout(
                 f"The selected VIA layout maps matrix position {key.row},{key.col} twice."
             )
         seen.add(position)
+        if key.led_index is not None:
+            if key.led_index in seen_leds:
+                _fail(
+                    f"The selected VIA layout maps LED index {key.led_index} twice."
+                )
+            seen_leds.add(key.led_index)
     if not keys or len(keys) > _MAX_KEYS_PER_LAYER:
         _fail("The selected VIA layout has an unsupported physical-key count.")
 
@@ -479,6 +507,11 @@ def project_layout(
             "width": round(key.width / extent_x * 95.0, 4),
             "height": round(key.height / extent_y * 86.0, 4),
             "rotation": round(key.rotation, 4),
+            **(
+                {"led_index": key.led_index}
+                if key.led_index is not None
+                else {}
+            ),
         }
         for key in keys
     )
@@ -747,9 +780,21 @@ def build_hub_profile(
         for row in range(snapshot.matrix_rows)
         for col in range(snapshot.matrix_cols)
     }
-    lighting_capabilities = via_lighting.capabilities_from_definition(
-        snapshot.definition,
-        via_protocol=snapshot.via_protocol,
+    led_mapping = {
+        _matrix_key(int(item["matrix_row"]), int(item["matrix_col"])): int(
+            item["led_index"]
+        )
+        for item in snapshot.key_layout
+        if "led_index" in item
+    }
+    lighting_capabilities = (
+        copy.deepcopy(snapshot.lighting_capabilities)
+        if snapshot.lighting_capabilities is not None
+        else via_lighting.capabilities_from_definition(
+            snapshot.definition,
+            via_protocol=snapshot.via_protocol,
+            led_mapping=led_mapping or None,
+        )
     )
     profile = {
         "schema_version": HUB_SCHEMA_VERSION,
@@ -804,6 +849,9 @@ def build_hub_profile(
             "/macros": origin,
         },
     }
+    if snapshot.lighting_state is not None:
+        profile["lighting"] = copy.deepcopy(snapshot.lighting_state)
+        profile["provenance"]["/lighting"] = origin
     return validate_hub_profile(profile)
 
 

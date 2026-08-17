@@ -72,6 +72,10 @@ class VialSnapshot:
     macro_count: int
     macro_buffer_bytes: int
     macro_buffer: bytes
+    feature_flags: int = 0
+    lighting_capabilities: dict[str, Any] | None = None
+    lighting_state: dict[str, Any] | None = None
+    lighting_geometry: tuple[dict[str, Any], ...] = ()
 
     @property
     def keys_per_layer(self) -> int:
@@ -509,9 +513,14 @@ def build_hub_profile(
     if origin not in ("device", "user"):
         _fail("The Vial profile origin must be 'device' or 'user'.")
     layers = _decode_keymap(snapshot)
-    lighting_capabilities = vial_lighting.capabilities_from_definition(
-        snapshot.definition,
-        vial_protocol=snapshot.vial_protocol,
+    lighting_capabilities = (
+        copy.deepcopy(snapshot.lighting_capabilities)
+        if snapshot.lighting_capabilities is not None
+        else vial_lighting.capabilities_from_definition(
+            snapshot.definition,
+            vial_protocol=snapshot.vial_protocol,
+            feature_flags=snapshot.feature_flags,
+        )
     )
     matrix_map = {
         _matrix_key(row, col): [row, col]
@@ -568,6 +577,9 @@ def build_hub_profile(
             "/macros": origin,
         },
     }
+    if snapshot.lighting_state is not None:
+        profile["lighting"] = copy.deepcopy(snapshot.lighting_state)
+        profile["provenance"]["/lighting"] = origin
     return validate_hub_profile(profile)
 
 

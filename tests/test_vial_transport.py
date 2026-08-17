@@ -15,7 +15,13 @@ import urllib.error
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
-from am_configurator import hid_transport, hub_vial, vial_keymap, vial_transport
+from am_configurator import (
+    hid_transport,
+    hub_vial,
+    vial_keymap,
+    vial_lighting,
+    vial_transport,
+)
 from am_configurator.server import create_server
 
 
@@ -30,6 +36,7 @@ class FakeVialState:
         self.via_protocol = int(record["via_protocol"])
         self.vial_protocol = int(record["vial_protocol"])
         self.firmware_uid = bytes.fromhex(record["firmware_uid"])
+        self.feature_flags = 0
         self.layer_count = int(record["layer_count"])
         self.keymap = bytearray.fromhex(record["keymap_hex"])
         self.macro_count = int(record["macro_count"])
@@ -37,6 +44,14 @@ class FakeVialState:
         self.unlocked = False
         self.unlock_in_progress = False
         self.unlock_after_poll = True
+        self.vialrgb_effects = (0, 1, 7)
+        self.vialrgb_protocol = 1
+        self.vialrgb_maximum_brightness = 128
+        self.vialrgb_mode = (7, 31, 11, 22, 99)
+        self.vialrgb_leds = (
+            (10, 20, 4, 0, 1),
+            (30, 40, 2, 0xFF, 0xFF),
+        )
 
     @property
     def definition_blob(self) -> bytes:
@@ -49,7 +64,11 @@ class FakeVialState:
         if command == 0xFE:
             subcommand = packet[1]
             if subcommand == 0x00:
-                return self.vial_protocol.to_bytes(4, "little") + self.firmware_uid
+                return (
+                    self.vial_protocol.to_bytes(4, "little")
+                    + self.firmware_uid
+                    + bytes([self.feature_flags])
+                )
             if subcommand == 0x01:
                 return len(self.definition_blob).to_bytes(4, "little")
             if subcommand == 0x02:
@@ -68,6 +87,43 @@ class FakeVialState:
                 self.unlock_in_progress = False
                 return bytes([int(self.unlocked), 0])
             raise AssertionError(f"unexpected Vial subcommand 0x{subcommand:02X}")
+
+        if command == vial_lighting.CMD_LIGHTING_GET_VALUE:
+            value_id = packet[1]
+            legacy = {
+                vial_lighting.QMK_BACKLIGHT_BRIGHTNESS: bytes([101]),
+                vial_lighting.QMK_BACKLIGHT_EFFECT: bytes([7]),
+                vial_lighting.QMK_RGBLIGHT_BRIGHTNESS: bytes([200]),
+                vial_lighting.QMK_RGBLIGHT_EFFECT: bytes([9]),
+                vial_lighting.QMK_RGBLIGHT_EFFECT_SPEED: bytes([55]),
+                vial_lighting.QMK_RGBLIGHT_COLOR: bytes([33, 44]),
+            }
+            if value_id in legacy:
+                return packet[:2] + legacy[value_id]
+            if value_id == vial_lighting.VIALRGB_GET_INFO:
+                return (
+                    packet[:2]
+                    + self.vialrgb_protocol.to_bytes(2, "little")
+                    + bytes([self.vialrgb_maximum_brightness])
+                )
+            if value_id == vial_lighting.VIALRGB_GET_SUPPORTED:
+                lower = int.from_bytes(packet[2:4], "little")
+                remaining = [effect for effect in self.vialrgb_effects if effect >= lower]
+                payload = b"".join(effect.to_bytes(2, "little") for effect in remaining)
+                return packet[:2] + payload + b"\xff\xff"
+            if value_id == vial_lighting.VIALRGB_GET_MODE:
+                effect, speed, hue, saturation, value = self.vialrgb_mode
+                return (
+                    packet[:2]
+                    + effect.to_bytes(2, "little")
+                    + bytes([speed, hue, saturation, value])
+                )
+            if value_id == vial_lighting.VIALRGB_GET_NUMBER_LEDS:
+                return packet[:2] + len(self.vialrgb_leds).to_bytes(2, "little")
+            if value_id == vial_lighting.VIALRGB_GET_LED_INFO:
+                index = int.from_bytes(packet[2:4], "little")
+                return packet[:2] + bytes(self.vialrgb_leds[index])
+            raise AssertionError(f"unexpected lighting GET 0x{value_id:02X}")
 
         if command == 0x01:
             return bytes([command]) + self.via_protocol.to_bytes(2, "big")
@@ -229,11 +285,171 @@ class GenericVialTransportTests(unittest.TestCase):
         self.assertEqual("K_R0_C0", document.layout[0]["key"])
         self.assertEqual(0, document.layout[0]["matrix_row"])
         self.assertEqual(0, document.layout[0]["matrix_col"])
+        self.assertEqual((), document.lighting_geometry)
         operations = {
             self._operation(packet) for _path, packet in self.backend.commands
         }
         self.assertFalse(
             operations & {(0xFE, 0x06), (0xFE, 0x07), (0x13, None), (0x0F, None)}
+        )
+
+    def test_vialrgb_snapshot_preserves_flags_state_and_ephemeral_geometry(self) -> None:
+        self.state.definition["lighting"] = "vialrgb"
+        self.state.feature_flags = vial_lighting.VIALRGB_FEATURE_FLAG
+
+        document = vial_transport.read_hub_document(self.address)
+
+        self.assertEqual(
+            vial_lighting.VIALRGB_FEATURE_FLAG,
+            document.device["vial_feature_flags"],
+        )
+        self.assertEqual(
+            {
+                "id": "vialrgb",
+                "effect_id": 7,
+                "brightness": 99,
+                "speed": 31,
+                "color": [11, 22],
+            },
+            document.profile["lighting"]["surfaces"][0],
+        )
+        self.assertEqual(
+            (
+                {
+                    "surface_id": "vialrgb",
+                    "pixel_id": "K_R0_C1",
+                    "led_index": 0,
+                    "x": 3.9216,
+                    "y": 7.8431,
+                    "flags": 4,
+                    "key": "K_R0_C1",
+                },
+                {
+                    "surface_id": "vialrgb",
+                    "pixel_id": "LED_I1",
+                    "led_index": 1,
+                    "x": 11.7647,
+                    "y": 15.6863,
+                    "flags": 2,
+                },
+            ),
+            document.lighting_geometry,
+        )
+        lighting_gets = [
+            packet[1]
+            for _path, packet in self.backend.commands
+            if packet[0] == vial_lighting.CMD_LIGHTING_GET_VALUE
+        ]
+        self.assertEqual(
+            [
+                vial_lighting.VIALRGB_GET_INFO,
+                vial_lighting.VIALRGB_GET_SUPPORTED,
+                vial_lighting.VIALRGB_GET_MODE,
+                vial_lighting.VIALRGB_GET_NUMBER_LEDS,
+                vial_lighting.VIALRGB_GET_LED_INFO,
+                vial_lighting.VIALRGB_GET_LED_INFO,
+            ],
+            lighting_gets,
+        )
+        operations = {self._operation(packet) for _path, packet in self.backend.commands}
+        self.assertFalse(
+            {
+                (vial_lighting.CMD_LIGHTING_SET_VALUE, None),
+                (vial_lighting.CMD_LIGHTING_SAVE, None),
+                (0xFE, vial_keymap.VIAL_UNLOCK_START),
+                (0xFE, vial_keymap.VIAL_UNLOCK_POLL),
+                (vial_keymap.VIA_SET_BUFFER, None),
+                (0x0F, None),
+            }
+            & operations
+        )
+
+    def test_unknown_vial_lighting_definition_stays_explicitly_empty(self) -> None:
+        self.state.definition["lighting"] = "vendor_magic"
+        self.state.feature_flags = vial_lighting.VIALRGB_FEATURE_FLAG
+
+        document = vial_transport.read_hub_document(self.address)
+
+        self.assertEqual([], document.profile["capabilities"]["lighting"]["surfaces"])
+        self.assertNotIn("lighting", document.profile)
+        self.assertEqual((), document.lighting_geometry)
+        self.assertFalse(
+            any(
+                packet[0] == vial_lighting.CMD_LIGHTING_GET_VALUE
+                for _path, packet in self.backend.commands
+            )
+        )
+
+    def test_vialrgb_definition_without_feature_flag_sends_no_lighting_get(self) -> None:
+        self.state.definition["lighting"] = "vialrgb"
+
+        document = vial_transport.read_hub_document(self.address)
+
+        self.assertEqual([], document.profile["capabilities"]["lighting"]["surfaces"])
+        self.assertNotIn("lighting", document.profile)
+        self.assertFalse(
+            any(
+                packet[0] == vial_lighting.CMD_LIGHTING_GET_VALUE
+                for _path, packet in self.backend.commands
+            )
+        )
+
+    def test_vialrgb_led_count_is_bounded_before_led_metadata_reads(self) -> None:
+        self.state.definition["lighting"] = "vialrgb"
+        self.state.feature_flags = vial_lighting.VIALRGB_FEATURE_FLAG
+        self.state.vialrgb_leds = ((0, 0, 0, 0xFF, 0xFF),) * 1025
+
+        with self.assertRaisesRegex(vial_transport.VialTransportError, "1..1024"):
+            vial_transport.read_hub_document(self.address)
+
+        lighting_gets = [
+            packet[1]
+            for _path, packet in self.backend.commands
+            if packet[0] == vial_lighting.CMD_LIGHTING_GET_VALUE
+        ]
+        self.assertNotIn(vial_lighting.VIALRGB_GET_LED_INFO, lighting_gets)
+
+    def test_legacy_vial_lighting_reads_only_definition_proved_values(self) -> None:
+        self.state.definition["lighting"] = "qmk_backlight_rgblight"
+
+        document = vial_transport.read_hub_document(self.address)
+
+        surfaces = {
+            surface["id"]: surface
+            for surface in document.profile["lighting"]["surfaces"]
+        }
+        self.assertEqual(
+            {"id": "backlight", "brightness": 101, "effect_id": 7},
+            surfaces["backlight"],
+        )
+        self.assertEqual(
+            {
+                "id": "underglow",
+                "brightness": 200,
+                "effect_id": 9,
+                "speed": 55,
+                "color": [33, 44],
+            },
+            surfaces["underglow"],
+        )
+        self.assertEqual(
+            [
+                vial_lighting.QMK_BACKLIGHT_BRIGHTNESS,
+                vial_lighting.QMK_BACKLIGHT_EFFECT,
+                vial_lighting.QMK_RGBLIGHT_BRIGHTNESS,
+                vial_lighting.QMK_RGBLIGHT_EFFECT,
+                vial_lighting.QMK_RGBLIGHT_EFFECT_SPEED,
+                vial_lighting.QMK_RGBLIGHT_COLOR,
+            ],
+            [
+                packet[1]
+                for _path, packet in self.backend.commands
+                if packet[0] == vial_lighting.CMD_LIGHTING_GET_VALUE
+            ],
+        )
+        self.assertFalse(
+            {vial_lighting.CMD_LIGHTING_SET_VALUE, vial_lighting.CMD_LIGHTING_SAVE}
+            & {packet[0] for _path, packet in self.backend.commands}
         )
 
     def test_read_session_refuses_a_set_command_before_transmission(self) -> None:
@@ -243,6 +459,15 @@ class GenericVialTransportTests(unittest.TestCase):
         try:
             with self.assertRaises(hid_transport.HidError):
                 session.send(bytes([vial_keymap.VIA_SET_BUFFER, 0, 0, 1, 0]))
+            with self.assertRaises(hid_transport.HidError):
+                session.send(
+                    bytes(
+                        [
+                            vial_lighting.CMD_LIGHTING_GET_VALUE,
+                            vial_lighting.VIALRGB_GET_INFO,
+                        ]
+                    )
+                )
         finally:
             session.close()
         self.assertEqual([], self.backend.commands)
@@ -366,6 +591,7 @@ class GenericVialTransportTests(unittest.TestCase):
                 self.assertEqual("K_R0_C0", read["layout"][0]["key"])
                 self.assertEqual(0, read["layout"][0]["matrix_row"])
                 self.assertEqual(0, read["layout"][0]["matrix_col"])
+                self.assertEqual([], read["lighting_geometry"])
 
                 status, preflight = request(
                     "POST",

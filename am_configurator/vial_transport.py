@@ -9,10 +9,17 @@ buffer limits, complete Vial's physical unlock, then transmit and read back.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
-from . import hid_transport, hub_vial, vial_keymap, vial_macros
+from . import (
+    hid_transport,
+    hub_lighting,
+    hub_vial,
+    vial_keymap,
+    vial_lighting,
+    vial_macros,
+)
 
 
 _MAX_MATRIX_AXIS = 32
@@ -56,6 +63,7 @@ class HubDocument:
     device: dict[str, Any]
     profile: dict[str, Any]
     layout: tuple[dict[str, int | float | str], ...]
+    lighting_geometry: tuple[dict[str, Any], ...]
 
 
 @dataclass(frozen=True)
@@ -82,6 +90,7 @@ def device_json(info: hid_transport.VialDeviceInfo) -> dict[str, Any]:
         "usb_product": info.product_string,
         "name": info.name,
         "vial_protocol": info.protocol_version or None,
+        "vial_feature_flags": info.feature_flags,
         "definition_hash": info.definition_hash or None,
         "identity_error": info.identity_error,
     }
@@ -141,6 +150,219 @@ def _bounded_shape(
     return rows, cols
 
 
+def _lighting_gets(info: hid_transport.VialDeviceInfo) -> tuple[tuple[int, ...], ...]:
+    definition = info.definition or {}
+    lighting = definition.get("lighting")
+    value_ids: tuple[int, ...] = ()
+    if lighting in ("qmk_backlight", "qmk_backlight_rgblight"):
+        value_ids += (
+            vial_lighting.QMK_BACKLIGHT_BRIGHTNESS,
+            vial_lighting.QMK_BACKLIGHT_EFFECT,
+        )
+    if lighting in ("qmk_rgblight", "qmk_backlight_rgblight"):
+        value_ids += (
+            vial_lighting.QMK_RGBLIGHT_BRIGHTNESS,
+            vial_lighting.QMK_RGBLIGHT_EFFECT,
+            vial_lighting.QMK_RGBLIGHT_EFFECT_SPEED,
+            vial_lighting.QMK_RGBLIGHT_COLOR,
+        )
+    if (
+        lighting == "vialrgb"
+        and info.protocol_version >= 4
+        and info.feature_flags & vial_lighting.VIALRGB_FEATURE_FLAG
+    ):
+        value_ids = (
+            vial_lighting.VIALRGB_GET_INFO,
+            vial_lighting.VIALRGB_GET_SUPPORTED,
+            vial_lighting.VIALRGB_GET_MODE,
+            vial_lighting.VIALRGB_GET_NUMBER_LEDS,
+            vial_lighting.VIALRGB_GET_LED_INFO,
+        )
+    return tuple((value_id,) for value_id in value_ids)
+
+
+def _legacy_lighting_values(session, capabilities: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    contracts = {
+        "qmk_backlight": {
+            "brightness": (vial_lighting.QMK_BACKLIGHT_BRIGHTNESS, 1),
+            "effect_id": (vial_lighting.QMK_BACKLIGHT_EFFECT, 1),
+        },
+        "qmk_rgblight": {
+            "brightness": (vial_lighting.QMK_RGBLIGHT_BRIGHTNESS, 1),
+            "effect_id": (vial_lighting.QMK_RGBLIGHT_EFFECT, 1),
+            "speed": (vial_lighting.QMK_RGBLIGHT_EFFECT_SPEED, 1),
+            "color": (vial_lighting.QMK_RGBLIGHT_COLOR, 2),
+        },
+    }
+    values: dict[str, dict[str, Any]] = {}
+    for surface in capabilities["surfaces"]:
+        state: dict[str, Any] = {}
+        for field, (value_id, size) in contracts.get(surface["generation"], {}).items():
+            capability_field = "effects" if field == "effect_id" else field
+            if capability_field not in surface:
+                continue
+            payload = vial_keymap.read_lighting_value(session, value_id)
+            if len(payload) < size:
+                raise VialTransportError("The keyboard returned a short lighting value.")
+            state[field] = list(payload[:size]) if field == "color" else payload[0]
+        values[surface["id"]] = state
+    return values
+
+
+def _vialrgb_effects(session) -> tuple[int, ...]:
+    effects = {0}
+    lower = 0
+    for _page in range((hub_lighting.MAX_EFFECTS + 14) // 15 + 1):
+        payload = vial_keymap.read_lighting_value(
+            session,
+            vial_lighting.VIALRGB_GET_SUPPORTED,
+            lower & 0xFF,
+            (lower >> 8) & 0xFF,
+        )
+        ended = False
+        page: list[int] = []
+        for offset in range(0, len(payload) - 1, 2):
+            effect = int.from_bytes(payload[offset : offset + 2], "little")
+            if effect == 0xFFFF:
+                ended = True
+                break
+            if effect > lower:
+                page.append(effect)
+        effects.update(page)
+        if len(effects) > hub_lighting.MAX_EFFECTS:
+            raise VialTransportError("The VialRGB effect list exceeds the hub bound.")
+        if ended:
+            return tuple(sorted(effects))
+        if not page or max(page) <= lower:
+            raise VialTransportError("The VialRGB effect pages did not advance.")
+        lower = max(page)
+    raise VialTransportError("The VialRGB effect list did not terminate.")
+
+
+def _vialrgb_lighting(
+    session,
+    info: hid_transport.VialDeviceInfo,
+    *,
+    rows: int,
+    cols: int,
+) -> tuple[dict[str, Any], dict[str, Any], tuple[dict[str, Any], ...]]:
+    info_payload = vial_keymap.read_lighting_value(
+        session, vial_lighting.VIALRGB_GET_INFO
+    )
+    if len(info_payload) < 3:
+        raise VialTransportError("The keyboard returned short VialRGB info.")
+    protocol = int.from_bytes(info_payload[:2], "little")
+    maximum_brightness = info_payload[2]
+    effect_ids = _vialrgb_effects(session)
+
+    mode = vial_keymap.read_lighting_value(session, vial_lighting.VIALRGB_GET_MODE)
+    if len(mode) < 6:
+        raise VialTransportError("The keyboard returned short VialRGB mode state.")
+    values = {
+        "vialrgb": {
+            "effect_id": int.from_bytes(mode[:2], "little"),
+            "speed": mode[2],
+            "color": [mode[3], mode[4]],
+            "brightness": mode[5],
+        }
+    }
+
+    pixel_count: int | None = None
+    geometry: list[dict[str, Any]] = []
+    if vial_lighting.VIALRGB_DIRECT_EFFECT in effect_ids:
+        count_payload = vial_keymap.read_lighting_value(
+            session, vial_lighting.VIALRGB_GET_NUMBER_LEDS
+        )
+        if len(count_payload) < 2:
+            raise VialTransportError("The keyboard returned short VialRGB LED count.")
+        pixel_count = int.from_bytes(count_payload[:2], "little")
+        if not 1 <= pixel_count <= hub_lighting.MAX_PIXELS:
+            raise VialTransportError(
+                f"VialRGB LED count must be in 1..{hub_lighting.MAX_PIXELS}."
+            )
+        seen_pixels: set[str] = set()
+        for index in range(pixel_count):
+            payload = vial_keymap.read_lighting_value(
+                session,
+                vial_lighting.VIALRGB_GET_LED_INFO,
+                index & 0xFF,
+                (index >> 8) & 0xFF,
+            )
+            if len(payload) < 5:
+                raise VialTransportError("The keyboard returned short VialRGB LED info.")
+            x, y, flags, row, column = payload[:5]
+            key = None
+            if row < rows and column < cols:
+                key = f"K_R{row}_C{column}"
+            pixel_id = key or f"LED_I{index}"
+            if pixel_id in seen_pixels:
+                raise VialTransportError(
+                    f"VialRGB LED metadata repeats pixel identity {pixel_id}."
+                )
+            seen_pixels.add(pixel_id)
+            item: dict[str, Any] = {
+                "surface_id": "vialrgb",
+                "pixel_id": pixel_id,
+                "led_index": index,
+                "x": round(x / 255 * 100, 4),
+                "y": round(y / 255 * 100, 4),
+                "flags": flags,
+            }
+            if key is not None:
+                item["key"] = key
+            geometry.append(item)
+
+    rgb_info = vial_lighting.VialRGBInfo(
+        protocol_version=protocol,
+        maximum_brightness=maximum_brightness,
+        effect_ids=effect_ids,
+        pixel_count=pixel_count,
+    )
+    capabilities = vial_lighting.capabilities_from_definition(
+        info.definition,
+        vial_protocol=info.protocol_version,
+        feature_flags=info.feature_flags,
+        vialrgb_info=rgb_info,
+        current=values,
+    )
+    return (
+        capabilities,
+        vial_lighting.state_from_values(capabilities, values),
+        tuple(geometry),
+    )
+
+
+def _read_lighting(
+    session,
+    info: hid_transport.VialDeviceInfo,
+    *,
+    rows: int,
+    cols: int,
+) -> tuple[dict[str, Any], dict[str, Any] | None, tuple[dict[str, Any], ...]]:
+    lighting = (info.definition or {}).get("lighting")
+    if (
+        lighting == "vialrgb"
+        and info.protocol_version >= 4
+        and info.feature_flags & vial_lighting.VIALRGB_FEATURE_FLAG
+    ):
+        return _vialrgb_lighting(session, info, rows=rows, cols=cols)
+    capabilities = vial_lighting.capabilities_from_definition(
+        info.definition,
+        vial_protocol=info.protocol_version,
+        feature_flags=info.feature_flags,
+    )
+    if not capabilities["surfaces"]:
+        return capabilities, None, ()
+    values = _legacy_lighting_values(session, capabilities)
+    capabilities = vial_lighting.capabilities_from_definition(
+        info.definition,
+        vial_protocol=info.protocol_version,
+        feature_flags=info.feature_flags,
+        current=values,
+    )
+    return capabilities, vial_lighting.state_from_values(capabilities, values), ()
+
+
 def _read_snapshot(
     info: hid_transport.VialDeviceInfo,
 ) -> hub_vial.VialSnapshot:
@@ -148,7 +370,7 @@ def _read_snapshot(
         raise hid_transport.HidIdentityError(
             info.identity_error or "The Vial keyboard identity is incomplete."
         )
-    session = hid_transport.open_vial_read(info)
+    session = hid_transport.open_vial_read(info, lighting_gets=_lighting_gets(info))
     try:
         via_protocol = vial_keymap.read_via_protocol(session)
         layer_count = vial_keymap.read_layer_count(session)
@@ -163,9 +385,15 @@ def _read_snapshot(
             session, size=layer_count * rows * cols * 2
         )
         macro_buffer = vial_macros.read_macro_buffer(session, capacity=capacity)
+        lighting_capabilities, lighting_state, lighting_geometry = _read_lighting(
+            session,
+            info,
+            rows=rows,
+            cols=cols,
+        )
     finally:
         session.close()
-    return hub_vial.load_snapshot(
+    snapshot = hub_vial.load_snapshot(
         {
             "definition": info.definition,
             "via_protocol": via_protocol,
@@ -179,6 +407,13 @@ def _read_snapshot(
             "macro_buffer_bytes": capacity.buffer_bytes,
             "macro_hex": macro_buffer.hex(),
         }
+    )
+    return replace(
+        snapshot,
+        feature_flags=info.feature_flags,
+        lighting_capabilities=lighting_capabilities,
+        lighting_state=lighting_state,
+        lighting_geometry=lighting_geometry,
     )
 
 
@@ -220,6 +455,7 @@ def read_hub_document(address: str, *, origin: str = "device") -> HubDocument:
         device=device_json(endpoint),
         profile=hub_vial.build_hub_profile(snapshot, origin=origin),
         layout=_editor_layout(snapshot),
+        lighting_geometry=snapshot.lighting_geometry,
     )
 
 

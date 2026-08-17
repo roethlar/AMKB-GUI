@@ -15,7 +15,13 @@ import urllib.error
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
-from am_configurator import hid_transport, hub_via, via_transport, vial_keymap
+from am_configurator import (
+    hid_transport,
+    hub_via,
+    via_lighting,
+    via_transport,
+    vial_keymap,
+)
 from am_configurator.server import create_server
 
 
@@ -37,6 +43,21 @@ class FakeViaState:
         self.macro_bytes_written = 0
         self.corrupt_keymap_readback = False
         self.fail_after_keymap_bytes: int | None = None
+        self.lighting_values = {
+            (3, 1): (200,),
+            (3, 2): (5,),
+            (3, 3): (77,),
+            (3, 4): (11, 22),
+        }
+        self.legacy_lighting_values = {
+            via_lighting.QMK_BACKLIGHT_BRIGHTNESS: (101,),
+            via_lighting.QMK_BACKLIGHT_EFFECT: (7,),
+            via_lighting.QMK_RGBLIGHT_BRIGHTNESS: (200,),
+            via_lighting.QMK_RGBLIGHT_EFFECT: (9,),
+            via_lighting.QMK_RGBLIGHT_EFFECT_SPEED: (55,),
+            via_lighting.QMK_RGBLIGHT_COLOR: (33, 44),
+        }
+        self.per_key_lighting = {2: (12, 22), 4: (14, 24)}
 
     def answer(self, packet: bytes) -> bytes:
         command = packet[0]
@@ -101,6 +122,17 @@ class FakeViaState:
             self.macro_buffer[offset : offset + size] = packet[4 : 4 + size]
             self.macro_bytes_written += size
             return packet[:4]
+        if command == via_lighting.CMD_LIGHTING_GET_VALUE:
+            if packet[1] in self.legacy_lighting_values:
+                return packet[:2] + bytes(self.legacy_lighting_values[packet[1]])
+            channel, lighting_command = packet[1:3]
+            if (channel, lighting_command) == (0, 1):
+                led_index, count = packet[3:5]
+                if count != 1 or led_index not in self.per_key_lighting:
+                    raise AssertionError("unexpected VIA per-key lighting request")
+                return packet[:5] + bytes(self.per_key_lighting[led_index])
+            value = self.lighting_values[(channel, lighting_command)]
+            return packet[:3] + bytes(value)
         raise AssertionError(f"unexpected VIA command 0x{command:02X}")
 
 
@@ -483,7 +515,176 @@ class GenericViaTransportTests(unittest.TestCase):
         self.assertEqual("K_R0_C0", document.layout[0]["key"])
         self.assertEqual(0, document.layout[0]["matrix_row"])
         self.assertEqual(0, document.layout[0]["matrix_col"])
+        self.assertEqual((), document.lighting_geometry)
         self.assertEqual(set(), self._setters(self.backend.commands))
+
+    def test_protocol_eleven_lighting_snapshot_uses_declared_led_indexes_only(self) -> None:
+        definition = copy.deepcopy(self.definition)
+        definition["menus"] = ["qmk_rgb_matrix"]
+        led_indexes = {"0,0": 4, "0,1": 2}
+        for row in definition["layouts"]["keymap"]:
+            for index, entry in enumerate(row):
+                if not isinstance(entry, str):
+                    continue
+                labels = entry.split("\n")
+                if labels[0] not in led_indexes:
+                    continue
+                while len(labels) < 2:
+                    labels.append("")
+                labels[1] = f"l{led_indexes[labels[0]]}"
+                row[index] = "\n".join(labels)
+        self.state.protocol = 11
+        self.state.macro_count = 0
+        self.state.macro_buffer = bytearray()
+
+        document = via_transport.read_hub_document(self.address, definition)
+
+        surface = document.profile["lighting"]["surfaces"][0]
+        self.assertEqual(
+            {
+                "id": "rgb_matrix",
+                "effect_id": 5,
+                "brightness": 200,
+                "speed": 77,
+                "color": [11, 22],
+                "per_key": {
+                    "K_R0_C0": [14, 24],
+                    "K_R0_C1": [12, 22],
+                },
+            },
+            surface,
+        )
+        geometry = {item["key"]: item for item in document.lighting_geometry}
+        layout = {item["key"]: item for item in document.layout}
+        self.assertEqual({"K_R0_C0", "K_R0_C1"}, set(geometry))
+        self.assertEqual(4, geometry["K_R0_C0"]["led_index"])
+        self.assertEqual(2, geometry["K_R0_C1"]["led_index"])
+        for key, item in geometry.items():
+            self.assertEqual("rgb_matrix", item["surface_id"])
+            self.assertEqual(key, item["pixel_id"])
+            self.assertEqual(
+                round(layout[key]["x"] + layout[key]["width"] / 2, 4),
+                item["x"],
+            )
+            self.assertEqual(
+                round(layout[key]["y"] + layout[key]["height"] / 2, 4),
+                item["y"],
+            )
+        lighting_packets = [
+            packet
+            for _path, packet in self.backend.commands
+            if packet[0] == via_lighting.CMD_LIGHTING_GET_VALUE
+        ]
+        self.assertEqual(
+            {(3, 1), (3, 2), (3, 3), (3, 4), (0, 1)},
+            {(packet[1], packet[2]) for packet in lighting_packets},
+        )
+        self.assertEqual([4, 2], [packet[3] for packet in lighting_packets if packet[1:3] == bytes([0, 1])])
+        self.assertFalse(
+            {via_lighting.CMD_LIGHTING_SET_VALUE, via_lighting.CMD_LIGHTING_SAVE}
+            & {packet[0] for _path, packet in self.backend.commands}
+        )
+
+    def test_hostile_via_led_indexes_stop_before_any_lighting_get(self) -> None:
+        for led_label, message in (("l4", "maps LED index 4 twice"), ("l-1", "must be l0"), ("l256", "0..255")):
+            with self.subTest(led_label=led_label):
+                definition = copy.deepcopy(self.definition)
+                definition["menus"] = ["qmk_rgb_matrix"]
+                changed = 0
+                for row in definition["layouts"]["keymap"]:
+                    for index, entry in enumerate(row):
+                        if not isinstance(entry, str) or entry.split("\n")[0] not in {
+                            "0,0",
+                            "0,1",
+                        }:
+                            continue
+                        labels = entry.split("\n")
+                        while len(labels) < 2:
+                            labels.append("")
+                        labels[1] = led_label
+                        row[index] = "\n".join(labels)
+                        changed += 1
+                        if led_label != "l4":
+                            break
+                    if led_label != "l4" and changed:
+                        break
+                self.state.protocol = 11
+                self.state.macro_count = 0
+                self.state.macro_buffer = bytearray()
+                self.backend.commands.clear()
+
+                with self.assertRaisesRegex(hub_via.ViaSpokeError, message):
+                    via_transport.read_hub_document(self.address, definition)
+
+                self.assertFalse(
+                    any(
+                        packet[0] == via_lighting.CMD_LIGHTING_GET_VALUE
+                        for _path, packet in self.backend.commands
+                    )
+                )
+
+    def test_unknown_via_menu_exposes_no_lighting_and_sends_no_get(self) -> None:
+        definition = copy.deepcopy(self.definition)
+        definition["menus"] = ["vendor_magic"]
+        self.state.protocol = 11
+        self.state.macro_count = 0
+        self.state.macro_buffer = bytearray()
+
+        document = via_transport.read_hub_document(self.address, definition)
+
+        self.assertEqual([], document.profile["capabilities"]["lighting"]["surfaces"])
+        self.assertNotIn("lighting", document.profile)
+        self.assertEqual((), document.lighting_geometry)
+        self.assertFalse(
+            any(
+                packet[0] == via_lighting.CMD_LIGHTING_GET_VALUE
+                for _path, packet in self.backend.commands
+            )
+        )
+
+    def test_legacy_via_lighting_reads_only_builtin_value_ids(self) -> None:
+        definition = copy.deepcopy(self.definition)
+        definition["lighting"] = "qmk_backlight_rgblight"
+
+        document = via_transport.read_hub_document(self.address, definition)
+
+        surfaces = {
+            surface["id"]: surface
+            for surface in document.profile["lighting"]["surfaces"]
+        }
+        self.assertEqual(
+            {"id": "backlight", "brightness": 101, "effect_id": 7},
+            surfaces["backlight"],
+        )
+        self.assertEqual(
+            {
+                "id": "underglow",
+                "brightness": 200,
+                "effect_id": 9,
+                "speed": 55,
+                "color": [33, 44],
+            },
+            surfaces["underglow"],
+        )
+        self.assertEqual(
+            [
+                via_lighting.QMK_BACKLIGHT_BRIGHTNESS,
+                via_lighting.QMK_BACKLIGHT_EFFECT,
+                via_lighting.QMK_RGBLIGHT_BRIGHTNESS,
+                via_lighting.QMK_RGBLIGHT_EFFECT,
+                via_lighting.QMK_RGBLIGHT_EFFECT_SPEED,
+                via_lighting.QMK_RGBLIGHT_COLOR,
+            ],
+            [
+                packet[1]
+                for _path, packet in self.backend.commands
+                if packet[0] == via_lighting.CMD_LIGHTING_GET_VALUE
+            ],
+        )
+        self.assertFalse(
+            {via_lighting.CMD_LIGHTING_SET_VALUE, via_lighting.CMD_LIGHTING_SAVE}
+            & {packet[0] for _path, packet in self.backend.commands}
+        )
 
     def test_wrong_definition_is_refused_before_opening(self) -> None:
         wrong = copy.deepcopy(self.definition)
@@ -499,6 +700,15 @@ class GenericViaTransportTests(unittest.TestCase):
         try:
             with self.assertRaises(hid_transport.HidError):
                 session.send(bytes([vial_keymap.VIA_SET_BUFFER, 0, 0, 1, 0]))
+            with self.assertRaises(hid_transport.HidError):
+                session.send(
+                    bytes(
+                        [
+                            via_lighting.CMD_LIGHTING_GET_VALUE,
+                            via_lighting.QMK_RGBLIGHT_BRIGHTNESS,
+                        ]
+                    )
+                )
         finally:
             session.close()
         self.assertEqual([], self.backend.commands)
@@ -785,6 +995,7 @@ class GenericViaTransportTests(unittest.TestCase):
                 self.assertEqual("K_R0_C0", read["layout"][0]["key"])
                 self.assertEqual(0, read["layout"][0]["matrix_row"])
                 self.assertEqual(0, read["layout"][0]["matrix_col"])
+                self.assertEqual([], read["lighting_geometry"])
 
                 self.backend.commands.clear()
                 status, missing_definition = request(
