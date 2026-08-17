@@ -9,20 +9,28 @@
 </head>
 <body>
   <div id="app">
-    <header class="topbar">
-      <div class="document-meta">
-        <span id="dirty-dot" class="dirty-dot"></span>
-        <span id="file-name">No configuration open</span>
-        <span id="product-pill" class="pill muted">—</span>
+    <header class="topbar command-bar">
+      <div class="workspace-context">
+        <span id="context-label" class="context-label">Open document</span>
+        <div class="document-meta">
+          <span id="dirty-dot" class="dirty-dot"></span>
+          <span id="file-name">No profile open</span>
+          <span id="product-pill" class="pill muted">—</span>
+        </div>
       </div>
-      <div class="top-actions">
-        <button id="open-button" class="button ghost">Open</button>
-        <button id="merge-button" class="button ghost" hidden title="Merge another JSON">Merge</button>
-        <button id="save-button" class="button ghost">Save JSON</button>
-        <button id="hub-button" class="button ghost">Hub</button>
-        <button id="settings-button" class="button ghost">Settings</button>
-        <button id="write-button" class="button danger" disabled>Write to keyboard</button>
-        <button id="device-button" class="button primary"><span class="status-light"></span>Devices</button>
+      <div class="command-groups">
+        <div class="top-actions document-actions" aria-label="Document actions">
+          <button id="open-button" class="button ghost">Open</button>
+          <button id="merge-button" class="button ghost" hidden title="Merge another JSON">Merge</button>
+          <button id="save-button" class="button ghost">Save profile</button>
+          <button id="hub-button" class="button ghost">Transfer</button>
+          <button id="settings-button" class="button ghost">Settings</button>
+        </div>
+        <span class="command-divider" aria-hidden="true"></span>
+        <div class="top-actions hardware-actions" aria-label="Keyboard actions">
+          <button id="device-button" class="button primary"><span class="status-light"></span>Keyboards</button>
+          <button id="write-button" class="button danger" disabled>Write to keyboard</button>
+        </div>
       </div>
       <input id="open-input" type="file" accept="application/json,.json" multiple hidden>
       <input id="merge-input" type="file" accept="application/json,.json" multiple hidden>
@@ -45,8 +53,12 @@
     </section>
 
     <div class="workspace">
-      <aside class="sidebar">
-        <nav aria-label="Configurator sections">
+      <aside class="sidebar brand-rail">
+        <div class="brand-lockup" aria-label="OpenKeeb">
+          <img class="brand-symbol" src="/icon.png" alt="">
+          <span class="brand-copy"><strong class="brand-name">OpenKeeb</strong><small>Keyboard workbench</small></span>
+        </div>
+        <nav aria-label="Workbench sections">
           <button class="nav-item" data-route="keymap">
             <span class="nav-icon">⌨</span><span>Keymap</span><small id="nav-layers">—</small>
           </button>
@@ -71,28 +83,32 @@
         <div id="route-content">
           <section id="empty-state" class="empty-state" hidden>
             <div class="empty-orbit"><div></div><img src="/icon.png" alt=""></div>
-            <h1 id="empty-title">Set up your keyboard</h1>
-            <p id="empty-description">Start with your keyboard plugged in, or open a profile you saved earlier.</p>
+            <p class="eyebrow">Local by design</p>
+            <h1 id="empty-title">One workbench for open keyboards</h1>
+            <p id="empty-description">Read and edit what AM, Vial, and VIA firmware exposes, or work from a portable profile without connecting hardware.</p>
             <div class="empty-actions">
               <button id="empty-connect" type="button" class="task-card">
+                <span class="task-card-kicker">Keyboard</span>
                 <strong>Connect a keyboard</strong>
-                <span>Find your keyboard over USB and read its current setup. Reading never writes to the keyboard.</span>
+                <span>Find a supported USB keyboard and read its current setup. Reading never writes.</span>
               </button>
               <button id="empty-open" type="button" class="task-card">
-                <strong>Open a JSON profile</strong>
-                <span>Open a complete portable profile with keymaps, macros, and lighting.</span>
+                <span class="task-card-kicker">Document</span>
+                <strong>Open a profile</strong>
+                <span>Edit an OpenKeeb or compatible JSON profile locally, with no keyboard attached.</span>
               </button>
             </div>
-            <p class="empty-note">Some keyboards cannot read their lighting back. Keep a complete JSON profile — or this computer's last verified snapshot — so existing lighting is preserved.</p>
+            <p class="empty-note"><strong>Document-only until you choose Write.</strong> Some keyboards cannot read lighting back, so keep a complete profile to ensure existing lighting is preserved.</p>
           </section>
 
           <section id="screen" hidden></section>
 
           <section id="lighting-shell" class="lighting-shell" hidden aria-labelledby="lighting-title">
-            <header class="lighting-toolbar">
+            <header class="lighting-toolbar workbench-header">
               <div class="lighting-heading">
-                <h1 id="lighting-title" tabindex="-1">Lighting</h1>
+                <div><p class="eyebrow">Angry Miao workspace</p><h1 id="lighting-title" tabindex="-1">Lighting Studio</h1></div>
                 <span id="lighting-destination-product">No document open</span>
+                <p class="lighting-capability-note">Model-specific AM lighting tools. Generic Vial and VIA lighting is not enabled yet.</p>
               </div>
               <div class="lighting-view-tabs" role="tablist" aria-label="Lighting views">
                 <button id="lighting-edit-tab" role="tab" aria-controls="lighting-edit-panel" aria-selected="true" tabindex="0" data-lighting-route="lighting/edit">Studio</button>
@@ -160,8 +176,8 @@
           </section>
 
           <section id="settings-screen" class="settings-screen screen-shell" hidden aria-labelledby="settings-title">
-            <header class="screen-header settings-header">
-              <div><p class="eyebrow">Preferences</p><h1 id="settings-title" tabindex="-1">Settings</h1><p class="description">Choose where your Library is kept.</p></div>
+            <header class="screen-header workbench-header settings-header">
+              <div><p class="eyebrow">Local storage</p><h1 id="settings-title" tabindex="-1">Settings</h1><p class="description">Choose where the OpenKeeb Library is kept.</p></div>
               <div class="settings-header-actions">
                 <button id="settings-save" type="button" class="button ghost">Save changes</button>
                 <button id="settings-done" type="button" class="button primary">Done</button>
@@ -201,7 +217,8 @@
       </div>
       <div class="about-content">
         <p class="about-version">Version __AM_VERSION__</p>
-        <p>Independent open-source community project. Not affiliated with or endorsed by Angry Miao.</p>
+        <p>OpenKeeb is an independent, open-source community project for configuring compatible keyboards locally.</p>
+        <p>Angry Miao, Vial, and VIA describe compatible hardware or firmware ecosystems; OpenKeeb is not affiliated with or endorsed by their vendors or maintainers.</p>
         <div class="about-meta">
           <a href="https://github.com/roethlar/AMKB-GUI" target="_blank" rel="noopener noreferrer">GitHub repository</a>
           <a href="https://github.com/sponsors/roethlar" target="_blank" rel="noopener noreferrer">Sponsor on GitHub</a>
@@ -218,25 +235,26 @@
         <div><p class="eyebrow">USB keyboards</p><h2>Connected keyboards</h2></div>
         <button class="dialog-close" value="cancel" aria-label="Close">×</button>
       </div>
+      <div class="ecosystem-key"><strong>AM · Vial · VIA</strong><span>Each keyboard is shown with the capabilities its firmware exposes.</span></div>
       <div id="device-list" class="device-list"><div class="loader"></div></div>
       <div id="device-actions" class="device-actions" hidden>
         <button id="read-device" type="button" class="button ghost">Read keymap &amp; macros</button>
       </div>
-      <p class="dialog-note">Choose a keyboard here, then use the always-visible Write button in the main toolbar. LED frames cannot be read back. The app can preserve an open document or restore this machine’s last verified write, but another machine still needs the full portable JSON.</p>
+      <p class="dialog-note">Reading never writes. Choose a keyboard here, then use the separate Write action only when the open profile and exact target are ready. Some AM lighting cannot be read back, so keep a complete portable profile.</p>
     </form>
   </dialog>
 
   <dialog id="hub-dialog" class="dialog hub-dialog">
     <form method="dialog" class="dialog-card">
       <div class="dialog-header">
-        <div><p class="eyebrow">Portable profile</p><h2>Hub profile</h2></div>
-        <button class="dialog-close" value="cancel" aria-label="Close hub profile dialog">×</button>
+        <div><p class="eyebrow">Portable profile</p><h2>OpenKeeb profile</h2></div>
+        <button class="dialog-close" value="cancel" aria-label="Close OpenKeeb profile dialog">×</button>
       </div>
-      <p class="dialog-note">A hub profile is the portable format: export this document to a file, or import one saved from any keyboard. Importing shows exactly what carried over, what was adapted, and what could not fit. Nothing touches a keyboard until you Write.</p>
+      <p class="dialog-note">An OpenKeeb profile is the portable cross-keyboard format. Open one as a document, export the current keyboard snapshot, or transfer compatible keymap data onto this target. The review shows what carried over, what adapted, and what still needs a decision. Nothing touches a keyboard until Write.</p>
       <div class="device-actions">
-        <button id="hub-open" type="button" class="button ghost">Open hub document</button>
-        <button id="hub-export" type="button" class="button ghost">Export this document</button>
-        <button id="hub-import" type="button" class="button primary">Import onto this keyboard…</button>
+        <button id="hub-open" type="button" class="button ghost">Open OpenKeeb profile</button>
+        <button id="hub-export" type="button" class="button ghost">Export portable profile</button>
+        <button id="hub-import" type="button" class="button primary">Transfer onto this target…</button>
       </div>
       <div id="hub-report" class="hub-report" hidden>
         <h3>Transfer report</h3>

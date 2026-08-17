@@ -518,5 +518,5 @@ def import_json_bytes(
     if profile_marked:
         return _profile_report(root, profile_validator=profile_validator)
     raise ValueError(
-        "The selected JSON is not a recognized AM Configurator profile or AM Master lighting file."
+        "The selected JSON is not a recognized OpenKeeb or legacy AM Configurator profile, or an AM Master lighting file."
     )

@@ -178,7 +178,7 @@ class DesktopSmokeTests(unittest.TestCase):
         opened_assets: list[str] = []
         payloads = {
             "/": (
-                b'AM Configurator data-library-filter="sources" '
+                b'OpenKeeb data-library-filter="sources" '
                 b'data-library-filter="removed"'
             ),
             "/lighting_workspace.js": b"createLightingWorkspace",

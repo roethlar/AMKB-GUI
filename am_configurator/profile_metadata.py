@@ -23,7 +23,7 @@ _LAYOUT_FIELDS = {
 }
 _SIGNATURE = re.compile(r"^keymap:v1:[0-9a-f]{64}$")
 _IGNORED_WARNING = (
-    "Saved AM Configurator layout metadata was ignored because it is invalid. "
+            "Saved OpenKeeb layout metadata was ignored because it is invalid. "
     "Per-key editing stays unavailable until exact layout evidence is available."
 )
 
@@ -163,9 +163,9 @@ def _embedded_layout(config: dict[str, Any]) -> tuple[dict[str, Any] | None, boo
     metadata = config[APP_METADATA_KEY]
     _bounded_metadata(metadata)
     if not isinstance(metadata, dict) or set(metadata) != _APP_FIELDS:
-        raise ValueError("AM Configurator metadata has unsupported fields.")
+        raise ValueError("OpenKeeb metadata has unsupported fields.")
     if type(metadata.get("schema_version")) is not int or metadata["schema_version"] != APP_METADATA_SCHEMA_VERSION:
-        raise ValueError("AM Configurator metadata has an unsupported version.")
+        raise ValueError("OpenKeeb metadata has an unsupported version.")
     return _validate_dynamic_layout(
         metadata.get("dynamic_layout"),
         _profile_product_id(config),

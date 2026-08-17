@@ -1,4 +1,4 @@
-"""Run the native AM Configurator with ``python -m am_configurator``."""
+"""Run OpenKeeb through the compatibility module entry point."""
 
 from .desktop import main
 

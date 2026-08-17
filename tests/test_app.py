@@ -454,7 +454,9 @@ class DesktopServerTests(unittest.TestCase):
             encoding="utf-8"
         )
         topbar = re.search(
-            r'<header class="topbar">(?P<body>.*?)</header>', html, re.DOTALL
+            r'<header class="topbar command-bar">(?P<body>.*?)</header>',
+            html,
+            re.DOTALL,
         )
         about = re.search(
             r'<dialog id="about-dialog".*?</dialog>', html, re.DOTALL
@@ -464,13 +466,13 @@ class DesktopServerTests(unittest.TestCase):
         self.assertIsNotNone(about)
         self.assertNotIn("AM Configurator", topbar.group("body"))
         self.assertNotIn("Version", topbar.group("body"))
-        self.assertNotIn('class="brand"', html)
+        self.assertIn('class="brand-lockup"', html)
         self.assertNotIn('id="app-version"', html)
         self.assertIn(
             '<button id="about-button" type="button" class="about-link">About</button>',
             html,
         )
-        self.assertIn("AM Configurator", about.group(0))
+        self.assertIn("OpenKeeb", about.group(0))
         self.assertIn("Version __AM_VERSION__", about.group(0))
         self.assertEqual(1, html.count("__AM_VERSION__"))
         self.assertIn('$("#about-button").addEventListener("click"', script)
@@ -526,7 +528,11 @@ class DesktopServerTests(unittest.TestCase):
         source = (ROOT / "am_configurator" / "web" / "index.html").read_text(
             encoding="utf-8"
         )
-        toolbar = re.search(r'<div class="top-actions">(?P<body>.*?)</div>', source, re.DOTALL)
+        toolbar = re.search(
+            r'<div class="top-actions hardware-actions"[^>]*>(?P<body>.*?)</div>',
+            source,
+            re.DOTALL,
+        )
         picker = re.search(r'<div id="device-actions".*?>(?P<body>.*?)</div>', source, re.DOTALL)
         self.assertIsNotNone(toolbar)
         self.assertIsNotNone(picker)
@@ -685,8 +691,8 @@ class DesktopServerTests(unittest.TestCase):
         try:
             with urlopen(url, timeout=2) as response:
                 page = response.read()
-                self.assertIn(b"AM Configurator", page)
-                self.assertNotIn(b'class="brand"', page)
+                self.assertIn(b"OpenKeeb", page)
+                self.assertIn(b'class="brand-lockup"', page)
                 self.assertNotIn(b'id="app-version"', page)
                 self.assertEqual(1, page.count(f"Version {__version__}".encode()))
                 about = re.search(

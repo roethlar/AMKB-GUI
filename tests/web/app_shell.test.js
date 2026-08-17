@@ -29,7 +29,7 @@ test("empty state offers connect and open as primary tasks with no merge concept
   assert.match(emptyState, /Connect a keyboard/);
   assert.match(emptyState, /never writes/i);
   assert.match(emptyState, /id="empty-open"/);
-  assert.match(emptyState, /Open a JSON profile/);
+  assert.match(emptyState, /Open a profile/);
   assert.match(emptyState, /lighting is preserved/i);
   assert.doesNotMatch(emptyState, /merge/i);
   assert.match(js, /\$\("#empty-connect"\)\.addEventListener\("click",showDeviceDialog\)/);

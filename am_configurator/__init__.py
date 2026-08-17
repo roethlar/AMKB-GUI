@@ -1,4 +1,4 @@
-"""Standalone Angry Miao keyboard configurator."""
+"""OpenKeeb local keyboard workbench."""
 
 from ._version import __version__
 

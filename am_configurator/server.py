@@ -1,4 +1,4 @@
-"""Local, dependency-free browser GUI for Angry Miao keyboard configuration."""
+"""Local OpenKeeb browser application and authenticated loopback API."""
 from __future__ import annotations
 
 import copy

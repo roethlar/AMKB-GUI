@@ -383,7 +383,7 @@ def decode_media(
         from PIL import Image
     except ModuleNotFoundError as exc:
         raise ValueError(
-            "Media import needs Pillow. Reinstall AM Configurator."
+            "Media import needs Pillow. Reinstall OpenKeeb."
         ) from exc
 
     try:

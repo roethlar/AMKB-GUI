@@ -219,7 +219,10 @@ None is an owner gate.
 4. Prove the new tests bite by temporarily restoring one old visible identity,
    observing failure, then restoring the fix.
 
-### H7b — complete application shell and surface overhaul
+### H7b — application shell and surface implementation complete 2026-08-17
+
+Rendered cross-route matrix remains an H7d closure item; the in-app Browser
+runtime exposed no browser instance during the H7b implementation check.
 
 1. Add failing DOM/design-token contracts for shell composition, brand rail,
    document/hardware action separation, every route, dialogs, narrow windows,

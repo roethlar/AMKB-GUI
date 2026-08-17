@@ -26,6 +26,14 @@
   data paths, package IDs, and repository URL remain unchanged. Current source
   artifact names are OpenKeeb; README still identifies already-published 0.1.68
   installers as AM Configurator. Focused branding and packaging tests passed.
+  H7b implementation is complete: the command bar separates document and
+  hardware actions; the persistent brand rail, empty state, Keymap, Macros,
+  Lighting Studio, Library, Settings, device/profile/compatibility/write
+  dialogs, responsive layouts, and active user-visible runtime copy now use one
+  ecosystem-aware OpenKeeb workbench hierarchy. Focused verification passed 222
+  web tests plus 331 affected Python tests, syntax, compilation, and diff
+  checks. The required rendered matrix remains in H7d because the in-app
+  Browser runtime exposed no browser instance during this check.
 
 ## Next
 

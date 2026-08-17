@@ -123,7 +123,7 @@ def _lock_windows_byte(
         except OSError as exc:
             if attempt == attempts - 1:
                 raise TimeoutError(
-                    "Device profile is locked by another AM Configurator process."
+            "Device profile is locked by another OpenKeeb process."
                 ) from exc
             time.sleep(retry_seconds)
 

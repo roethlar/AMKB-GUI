@@ -1070,7 +1070,7 @@ def frames_to_led_tracks(
     try:
         from PIL import Image
     except ModuleNotFoundError as exc:
-        raise ValueError("GIF import needs Pillow. Reinstall AM Configurator.") from exc
+        raise ValueError("GIF import needs Pillow. Reinstall OpenKeeb.") from exc
 
     frames = list(images)[:source_frame_limit]
     if not frames:

@@ -539,7 +539,8 @@ function updateHistoryButtons() {
 function updateMeta() {
   const hub=state.hubEditor;
   const hasDocument=Boolean(state.config||hub);
-  $("#file-name").textContent = hasDocument ? state.fileName : "No configuration open";
+  $("#file-name").textContent = hasDocument ? state.fileName : "No profile open";
+  $("#context-label").textContent = hub ? "OpenKeeb profile" : state.config ? "Keyboard snapshot" : "Open document";
   $("#dirty-dot").classList.toggle("visible",state.dirty);
   const product = $("#product-pill");
   product.textContent = hub ? `${hub.profile.identity.ecosystem.toUpperCase()} · ${hub.profile.identity.family}` : state.config ? productId() : "—";
@@ -563,11 +564,15 @@ function updateMeta() {
   }
   $("#save-button").disabled = !state.config;
   if(hub)$("#save-button").disabled=false;
-  $("#save-button").textContent = hub ? "Save hub JSON" : "Save JSON";
+  $("#save-button").textContent = hub ? "Save OpenKeeb profile" : "Save profile";
   $("#merge-button").disabled = !state.config;
   $("#merge-button").hidden = !state.config;
   $("#validate-button").disabled = !state.config||Boolean(hub);
-  $$('.nav-item').forEach(item=>{item.disabled=Boolean(hub)&&item.dataset.route!==ROUTES.KEYMAP;});
+  $$('.nav-item').forEach(item=>{
+    item.disabled=Boolean(hub)&&item.dataset.route!==ROUTES.KEYMAP;
+    if(hub&&item.dataset.route===ROUTES.MACROS)item.title="Generic macro authoring is not enabled yet; existing macro data stays preserved.";
+    if(hub&&item.dataset.route===ROUTES.EDIT)item.title="Generic Vial and VIA lighting is not enabled yet.";
+  });
   updateHistoryButtons();
   updateDeviceActions();
 }
@@ -751,7 +756,7 @@ async function saveHubDocument() {
       method:"POST",
       body:JSON.stringify({profile:state.hubEditor.profile}),
     });
-    if(typeof response.data!=="string")throw new Error("The canonical hub document was not returned.");
+    if(typeof response.data!=="string")throw new Error("The canonical OpenKeeb profile was not returned.");
     const blob=new Blob([response.data],{type:"application/json;charset=utf-8"});
     const url=URL.createObjectURL(blob);
     const link=document.createElement("a");
@@ -762,8 +767,8 @@ async function saveHubDocument() {
     state.hubEditor=reduceHubKeymapState(state.hubEditor,{type:"MARK_SAVED"});
     state.dirty=false;
     updateMeta();
-    toast("Hub document saved",link.download,"success");
-  }catch(error){toast("Could not save hub document",error.message||String(error),"error");}
+    toast("OpenKeeb profile saved",link.download,"success");
+  }catch(error){toast("Could not save OpenKeeb profile",error.message||String(error),"error");}
 }
 
 function adoptHubDocument({profile,layout=[],target,fileName,loadedDevice=null}) {
@@ -799,8 +804,8 @@ async function openHubFile(file) {
       fileName:file.name,
     });
     $("#hub-dialog").close();
-    toast("Hub document opened",`${response.profile.identity.family} · connect a target to restore active geometry`,"success");
-  }catch(error){toast("Could not open hub document",error.message||String(error),"error");}
+    toast("OpenKeeb profile opened",`${response.profile.identity.family} · connect a target to restore active geometry`,"success");
+  }catch(error){toast("Could not open OpenKeeb profile",error.message||String(error),"error");}
 }
 
 function hubCandidateConfig() {
@@ -830,9 +835,9 @@ async function exportHubProfile() {
     link.download = cleanFileName(state.fileName).replace(/\.json$/i, "") + ".hub.json";
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast("Hub profile exported", link.download, "success");
+    toast("OpenKeeb profile exported", link.download, "success");
   } catch (error) {
-    toast("Could not export hub profile", error.message || String(error), "error");
+    toast("Could not export OpenKeeb profile", error.message || String(error), "error");
   }
 }
 
@@ -884,7 +889,7 @@ async function importHubFile(file) {
       navigateTo(ROUTES.KEYMAP,{replace:true});
       updateMeta();
       render();
-      toast("Hub profile overlaid",`${overlay.worklist.length} items need review. Keyboard unchanged until Write.`,"success");
+      toast("OpenKeeb profile transferred",`${overlay.worklist.length} items need review. Keyboard unchanged until Write.`,"success");
       return;
     }
     if (state.config) {
@@ -906,7 +911,7 @@ async function importHubFile(file) {
         method: "POST",
         body: JSON.stringify({profile:overlay.profile, product_id:targetProduct}),
       });
-      if (!response?.config?.key_layer) throw new Error("This hub profile carries no keymap this keyboard can hold.");
+      if (!response?.config?.key_layer) throw new Error("This OpenKeeb profile carries no keymap this keyboard can hold.");
       pushUndo();
       state.config=response.config;
       state.amHubReview=nextReview;
@@ -917,7 +922,7 @@ async function importHubFile(file) {
       navigateTo(ROUTES.KEYMAP,{replace:true});
       updateMeta();
       render();
-      toast("Hub profile overlaid",`${overlay.worklist.length} items need review. Keyboard unchanged until Write.`,"success");
+      toast("OpenKeeb profile transferred",`${overlay.worklist.length} items need review. Keyboard unchanged until Write.`,"success");
       return;
     }
     const activeDevice = state.devices.find(device => deviceKey(device) === state.loadedDevice) || selectedDevice();
@@ -927,7 +932,7 @@ async function importHubFile(file) {
       method: "POST",
       body: JSON.stringify({profile:opened.profile, product_id: target}),
     });
-    if (!response?.config?.key_layer) throw new Error("This hub profile carries no keymap this keyboard can hold.");
+    if (!response?.config?.key_layer) throw new Error("This OpenKeeb profile carries no keymap this keyboard can hold.");
     closeImportedLightingReview({render: false});
     stashDeviceDocument();
     state.loadedDevice = null;
@@ -948,7 +953,7 @@ async function importHubFile(file) {
     render();
     showHubReport(response.report);
   } catch (error) {
-    toast("Could not import hub profile", error.message || String(error), "error");
+    toast("Could not transfer OpenKeeb profile", error.message || String(error), "error");
   }
 }
 
@@ -1159,7 +1164,7 @@ function servedGeometry(family, target) {
 
 function geometryUnavailableNotice() {
   const loading=state.capabilities===null;
-  const unavailable=state.layoutEvidenceWarning||"Open a profile saved by AM Configurator with its layout evidence, or connect and read the matching keyboard. This surface stays unavailable because showing guessed LED positions would be misleading.";
+  const unavailable=state.layoutEvidenceWarning||"Open an OpenKeeb profile with exact layout evidence, or connect and read the matching keyboard. This surface stays unavailable because showing guessed LED positions would be misleading.";
   return `<div class="empty-state"><p class="eyebrow">${loading?"Loading device layout":"Per-key layout unavailable"}</p><h1>${loading?"Fetching the LED layout for this keyboard…":"This profile does not contain the exact physical layout."}</h1><p>${loading?"The editor opens once the layout arrives.":esc(unavailable)}</p></div>`;
 }
 const LED_SPEEDS = [255,240,224,208,192,176,160,146,132,118,100,90,76,62,48,34];
@@ -2524,11 +2529,15 @@ function renderLibrary() {
 }
 
 function documentRequirementMarkup(message) {
-  return `<div class="route-requirement"><span class="route-requirement-icon" aria-hidden="true">⌨</span><div><strong>Open a keyboard configuration first.</strong><p>${esc(message)} Use Open or Devices in the toolbar above.</p></div></div>`;
+  return `<div class="route-requirement"><span class="route-requirement-icon" aria-hidden="true">⌨</span><div><strong>Open a keyboard profile first.</strong><p>${esc(message)} Use Open or Keyboards in the command bar above.</p></div></div>`;
 }
 
 function renderLightingShell() {
   const route = state.lighting.route;
+  $("#lighting-title").textContent=route===ROUTES.LIBRARY?"OpenKeeb Library":"Lighting Studio";
+  $(".lighting-capability-note").textContent=route===ROUTES.LIBRARY
+    ?"Profiles, media, keymaps, and lighting saved locally on this computer."
+    :"Model-specific Angry Miao lighting tools. Generic Vial and VIA lighting is not enabled yet.";
   const imported=importedLightingReport();
   const available = routeAvailability(route, documentDescriptor(), imported);
   const routes = [ROUTES.EDIT, ROUTES.LIBRARY];
@@ -2622,7 +2631,7 @@ async function applyAmHubReviewResolution(action) {
     body:JSON.stringify({profile:next.profile,product_id:productId()}),
   });
   if(state.amHubReview!==current)return false;
-  if(!response?.config?.key_layer)throw new Error("The reviewed hub profile carries no usable AM keymap.");
+  if(!response?.config?.key_layer)throw new Error("The reviewed OpenKeeb profile carries no usable AM keymap.");
   pushUndo();
   state.config=response.config;
   state.amHubReview=next;
@@ -2720,7 +2729,7 @@ function renderHubKeyInspector(editor,layer,palette){
   return `<div class="card-header"><strong>Selected key</strong><small>Layer ${editor.layer+1}${technical?` · ${esc(item.key)}`:""}</small></div><div class="card-body">
     <div class="selected-code"><div><small class="control-caption">Currently sends</small><br><strong>${esc(description.label)}</strong>${technical?`<br><code>${esc(technicalLabel)}</code>`:""}</div><span class="pill">${esc(editor.ecosystem.toUpperCase())}</span></div>
     ${description.warning?`<p class="inspector-help hub-keycode-warning">${esc(description.warning)}</p>`:""}
-    <p class="inspector-help">Palette choices update this open hub document immediately. Undo restores the previous document snapshot. The keyboard stays unchanged until Write.</p>
+    <p class="inspector-help">Palette choices update this open OpenKeeb profile immediately. Undo restores the previous document snapshot. The keyboard stays unchanged until Write.</p>
     <details id="hub-advanced-keycode" class="advanced-disclosure" ${state.advancedKeycodeOpen?"open":""}>
       <summary>Advanced keycode</summary>
       <p class="inspector-help">Unknown QMK keycodes and source-firmware custom codes remain editable as exact unsigned 16-bit values.</p>
@@ -2808,14 +2817,14 @@ function renderHubKeymap(editor){
   const categories=palette.filter(category=>category.options.length);
   $("#screen").innerHTML=`
     <div class="screen-shell">
-      <header class="screen-header">
-        <div><p class="eyebrow">${esc(editor.name)} · ${esc(editor.ecosystem.toUpperCase())}</p><h1>Keymap</h1><p class="description">Edit the portable hub document. The keyboard stays unchanged until Write.</p></div>
+      <header class="screen-header workbench-header">
+        <div><p class="workbench-kicker"><span class="ecosystem-badge">${esc(editor.ecosystem.toUpperCase())}</span><span>${esc(editor.name)} · OpenKeeb profile</span></p><h1>Keymap</h1><p class="description">Edit the portable keymap and resolve transfers here. <strong class="safety-note">Keyboard unchanged until Write.</strong></p></div>
         <div class="keymap-header-actions"><button id="toggle-technical-labels" type="button" class="button ghost" aria-pressed="${technical}">${technical?'Hide technical labels':'Show technical labels'}</button><div class="segmented layer-tabs">${editor.layers.map(candidate=>`<button class="${candidate.index===editor.layer?'active':''}" data-layer="${candidate.index}" aria-label="Layer ${candidate.index+1}">${candidate.index+1}</button>`).join("")}</div></div>
       </header>
       <div class="editor-grid">
         <section class="card"><div class="card-header"><strong>Layer ${editor.layer+1}</strong><small>${editor.layout.length} physical keys</small></div><div class="card-body">
           <div class="keyboard-stage generic">
-            ${unavailable?`<div class="inspector-empty"><div><strong>Physical layout unavailable</strong><p>Connect and read the target keyboard to obtain its active layout. Geometry is never stored in the hub file.</p></div></div>`:editor.layout.map(key=>{
+            ${unavailable?`<div class="inspector-empty"><div><strong>Physical layout unavailable</strong><p>Connect and read the target keyboard to obtain its active layout. Portable OpenKeeb profiles do not store device geometry.</p></div></div>`:editor.layout.map(key=>{
               const index=key.key;
               const code=codes.get(index)??0;
               const description=describeQmkKeycode(code,{palette,keycodeSpec:editor.keycodeSpec});
@@ -2868,14 +2877,14 @@ function renderKeymap() {
   const technical=state.showTechnicalLabels;
   $("#screen").innerHTML = `
     <div class="screen-shell">
-      <header class="screen-header">
-        <div><p class="eyebrow">${esc(layout.name)}</p><h1>Keymap</h1><p class="description">Select a physical key, then choose what it should send.</p></div>
+      <header class="screen-header workbench-header">
+        <div><p class="workbench-kicker"><span class="ecosystem-badge">AM</span><span>Angry Miao workspace · ${esc(layout.name)}</span></p><h1>Keymap</h1><p class="description">Select a physical key, then choose what it should send. <strong class="safety-note">Keyboard unchanged until Write.</strong></p></div>
         <div class="keymap-header-actions"><button id="toggle-technical-labels" type="button" class="button ghost" aria-pressed="${technical}">${technical?'Hide technical labels':'Show technical labels'}</button><button id="save-mapping-library" type="button" class="button ghost" title="Keep a reusable copy of this profile in Library">Save to Library</button><div class="segmented layer-tabs">${editor.layers.map((_,i) => `<button class="${i===state.layer?'active':''}" data-layer="${i}" aria-label="Layer ${i+1}">${i+1}</button>`).join("")}</div></div>
       </header>
       <div class="editor-grid">
         <section class="card"><div class="card-header"><strong>Layer ${state.layer+1}</strong><small>${layout.keys.length} physical keys</small></div><div class="card-body">
           <div class="keyboard-stage ${layout.className}">
-        ${layout.unavailable?`<div class="inspector-empty"><div><strong>Physical layout unavailable</strong><p>${esc(state.layoutEvidenceWarning||"Open an AM Configurator profile containing exact layout evidence, or connect and read this Neon keyboard.")}</p></div></div>`:layout.keys.map(([index,x,y,w=4.8,rotation=0,height=null]) => {
+        ${layout.unavailable?`<div class="inspector-empty"><div><strong>Physical layout unavailable</strong><p>${esc(state.layoutEvidenceWarning||"Open an OpenKeeb profile containing exact layout evidence, or connect and read this Neon keyboard.")}</p></div></div>`:layout.keys.map(([index,x,y,w=4.8,rotation=0,height=null]) => {
               const code = layer[index] || "#00000000";
               return `<button class="keycap ${keyClass(code)} ${state.selected===index?'selected':''}" data-index="${index}" style="left:${x}%;top:${y}%;width:${w}%;${height===null?'':`height:${height}%;`}transform:rotate(${rotation}deg)" title="${technical?`Matrix ${index} · ${esc(code)}`:esc(decodeCode(code))}">${esc(decodeCode(code))}${technical?`<span>${index}</span>`:''}</button>`;
             }).join("")}
@@ -3273,7 +3282,7 @@ function renderMacros() {
   let macroMode=state.macroMode??(decoded?"text":"flow");
   if(macroMode==="text"&&!textAllowed)macroMode="flow";
   $("#screen").innerHTML = `<div class="screen-shell">
-    <header class="screen-header"><div><p class="eyebrow">Reusable key sequences</p><h1>Macros</h1><p class="description">Type text or record keys, then assign the macro to any key on the Keymap screen.</p></div><div class="header-controls"><button id="import-macros" class="button ghost">Import macros</button><button id="save-macros-library" type="button" class="button ghost" title="Keep a reusable copy of this profile, including its macros, in Library">Save to Library</button><button id="add-macro" class="button primary">+ New macro</button></div></header>
+    <header class="screen-header workbench-header"><div><p class="workbench-kicker"><span class="ecosystem-badge">AM</span><span>Angry Miao workspace · reusable key sequences</span></p><h1>Macros</h1><p class="description">Type text or record keys, then assign the macro on Keymap. <strong class="safety-note">Keyboard unchanged until Write.</strong></p></div><div class="header-controls"><button id="import-macros" class="button ghost">Import macros</button><button id="save-macros-library" type="button" class="button ghost" title="Keep a reusable copy of this profile, including its macros, in Library">Save to Library</button><button id="add-macro" class="button primary">+ New macro</button></div></header>
     ${missingWarning}
     <div class="macro-layout">
       <aside class="card macro-list"><div class="card-header"><strong>Macros in this profile</strong><small>${macros().length} ${macros().length===1?'macro':'macros'}</small></div><div class="macro-list-items">
@@ -6494,7 +6503,7 @@ async function scanDevices() {
     if(!keyboards.some(device=>deviceKey(device)===state.selectedDevice)){
       state.selectedDevice=keyboards.some(device=>deviceKey(device)===state.loadedDevice)?state.loadedDevice:null;
     }
-    $("#device-list").innerHTML=keyboards.map(device=>{const active=deviceKey(device)===state.loadedDevice;const ecosystem=(device.ecosystem||"am").toUpperCase();const detail=device.capabilityLabel||device.version||'Capabilities unavailable';return `<button type="button" class="device-card ${deviceKey(device)===state.selectedDevice?'selected':''} ${active?'active-device':''}" data-device="${esc(deviceKey(device))}"><span><strong>${esc(device.product_id)}</strong><small>${esc(detail)}${device.ecosystem==="am"?` · ${esc(device.version||'firmware unknown')} · pages ${device.pages??'?'}`:''}</small></span><span class="pill">${active?'Active':ecosystem}</span></button>`;}).join('');
+    $("#device-list").innerHTML=keyboards.map(device=>{const active=deviceKey(device)===state.loadedDevice;const ecosystem=(device.ecosystem||"am").toUpperCase();const detail=device.capabilityLabel||device.version||'Capabilities unavailable';return `<button type="button" class="device-card ${deviceKey(device)===state.selectedDevice?'selected':''} ${active?'active-device':''}" data-device="${esc(deviceKey(device))}"><span><strong>${esc(device.product_id)}</strong><small>${esc(detail)}${device.ecosystem==="am"?` · ${esc(device.version||'firmware unknown')} · pages ${device.pages??'?'}`:''}</small></span><span class="pill device-ecosystem">${active?'Active':ecosystem}</span></button>`;}).join('');
     $$('.device-card').forEach(card=>card.addEventListener('click',()=>{state.selectedDevice=card.dataset.device;$$('.device-card').forEach(node=>node.classList.toggle('selected',node===card));updateDeviceActions();}));
     $("#device-actions").hidden=false;
     updateDeviceActions();
@@ -6636,7 +6645,7 @@ function pendingWriteConfirmationMatches(value,pending=state.pendingWrite) {
 async function writeHubDevice() {
   const device=genericWriteTarget();
   if(!device){
-    toast("Write unavailable","Read this exact connected keyboard before writing its hub document.","error");
+    toast("Write unavailable","Read this exact connected keyboard before writing its OpenKeeb profile.","error");
     showDeviceDialog();
     return;
   }
@@ -6710,7 +6719,7 @@ async function writeHubDevice() {
   const confirm=$("#confirm-write");
   confirm.textContent=preflight.matches_target?"Already matches keyboard":"Write keymap & macros";
   confirm.disabled=true;
-  $("#backup-before-write").textContent="Save hub backup";
+  $("#backup-before-write").textContent="Save profile backup";
   $("#cancel-write").disabled=false;
   $("#cancel-write-x").disabled=false;
   $("#device-dialog").close();
@@ -6823,7 +6832,7 @@ async function confirmHubWrite() {
         return;
       }
       status.className="write-status error";
-      status.textContent="Fresh read does not match the intended keymap and macro buffers. The keyboard may contain a partial change; save the hub backup and inspect a fresh device read. Do not retry the write blindly.";
+      status.textContent="Fresh read does not match the intended keymap and macro buffers. The keyboard may contain a partial change; save the profile backup and inspect a fresh device read. Do not retry the write blindly.";
       return;
     }
     state.pendingWrite=null;
@@ -7167,7 +7176,7 @@ lightingMotionPreference?.addEventListener?.("change",event=>{
 
 (async function boot(){
   updateMeta();
-  if(!token){toast('Missing local session token','Launch this page with AM Configurator.','error');return;}
+  if(!token){toast('Missing local session token','Launch this page with OpenKeeb.','error');return;}
   try{
     const result=await api('/api/config');
     if(result.config){
