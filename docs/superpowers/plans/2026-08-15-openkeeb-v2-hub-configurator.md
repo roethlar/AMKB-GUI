@@ -560,8 +560,12 @@ canonical key identity (position-independent), not by matrix coordinates.
 - **H5 — Keymap editor UX:** the board picture, layer editing, keycode
   palette, overlay worklist UI.
 - **H6 — Lighting through the hub:** effect/color/speed on VIA/Vial boards,
-  VialRGB per-LED streaming for animations, per-key geometry from board
-  definitions per the 2026-08-15 geometry amendment.
+  with bounded draft
+  `docs/superpowers/plans/2026-08-17-openkeeb-v2-h6-lighting.md` covering
+  capability-derived effect/color/speed and per-key state, definition/firmware
+  geometry, persistent write safety, and volatile VialRGB animation streaming.
+  Implementation is not authorized; physical hardware activity remains
+  separately owner-gated.
 - **H7 — OpenKeeb branding overhaul:** complete under the owner-delegated,
   continuous-execution plan in
   `docs/superpowers/plans/2026-08-17-openkeeb-branding-overhaul.md`. This is a

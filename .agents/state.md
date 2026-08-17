@@ -15,7 +15,11 @@
 
 ## Next
 
-- **Next implementation lane is H6 lighting through the hub:** first produce a bounded plan for Vial/VIA capability truth, geometry ownership, effect/color/speed mapping, VialRGB streaming boundaries, and write-safety evidence. Do not implement or perform a hardware write before the applicable approval/gate.
+- **Next implementation lane is H6 lighting through the hub:** the bounded draft
+  at `docs/superpowers/plans/2026-08-17-openkeeb-v2-h6-lighting.md` covers
+  Vial/VIA capability truth, geometry ownership, effect/color/speed mapping,
+  VialRGB streaming boundaries, and write-safety evidence. Implementation is
+  not authorized; physical hardware activity remains separately owner-gated.
 
 - **OpenKeeb v2 implementation follows the approved hub-configurator plan.**
   Its canonical scope, sequence, completed-slice evidence, and write-safety
