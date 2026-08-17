@@ -1980,6 +1980,8 @@ class _State:
         device_discovery: (
             Callable[[], list[tuple[transport.DeviceHandle, Any]]] | None
         ) = None,
+        vial_device_discovery: Callable[[], list[Any]] | None = None,
+        via_device_discovery: Callable[[], list[Any]] | None = None,
     ) -> None:
         self.config = copy.deepcopy(config)
         self.token = token
@@ -2005,6 +2007,8 @@ class _State:
         self._lighting_lock = threading.Lock()
         self._lighting_library = lighting_library
         self._device_discovery = device_discovery
+        self._vial_device_discovery = vial_device_discovery
+        self._via_device_discovery = via_device_discovery
         self._library_catalog: Any = None
         self._library_catalog_identity: int | None = None
         self._media_renderer: Any = None
@@ -2425,7 +2429,11 @@ class _Handler(BaseHTTPRequestHandler):
                 elif path == "/api/hub/vial/devices":
                     from . import vial_transport
 
-                    found = self.state.device_io(vial_transport.list_devices)
+                    discover = (
+                        self.state._vial_device_discovery
+                        or vial_transport.list_devices
+                    )
+                    found = self.state.device_io(discover)
                     self.state.last_device_scan = time.monotonic()
                     devices = [
                         vial_transport.device_json(info)
@@ -2435,7 +2443,11 @@ class _Handler(BaseHTTPRequestHandler):
                 elif path == "/api/hub/via/devices":
                     from . import via_transport
 
-                    found = self.state.device_io(via_transport.list_devices)
+                    discover = (
+                        self.state._via_device_discovery
+                        or via_transport.list_devices
+                    )
+                    found = self.state.device_io(discover)
                     self.state.last_device_scan = time.monotonic()
                     devices = [
                         via_transport.device_json(info)
@@ -4500,6 +4512,8 @@ def create_server(
     device_discovery: (
         Callable[[], list[tuple[transport.DeviceHandle, Any]]] | None
     ) = None,
+    vial_device_discovery: Callable[[], list[Any]] | None = None,
+    via_device_discovery: Callable[[], list[Any]] | None = None,
 ) -> tuple[_Server, str]:
     """Create the loopback configurator server without starting its event loop.
 
@@ -4523,6 +4537,8 @@ def create_server(
         token,
         lighting_library=lighting_library,
         device_discovery=device_discovery,
+        vial_device_discovery=vial_device_discovery,
+        via_device_discovery=via_device_discovery,
     )
     state.reconcile_lighting(force=True)
     server = _Server(("127.0.0.1", port), state)

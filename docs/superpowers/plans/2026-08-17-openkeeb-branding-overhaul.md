@@ -250,6 +250,8 @@ exposed no browser instance.
 
 ### H7d — closure
 
+Native acceptance isolation repair landed during closure: startup already injected empty AM discovery, but automatic Vial/VIA scans bypassed that seam and reached hidapi. `create_server` now has explicit injected discovery seams for all three ecosystems, and the native policy smoke supplies empty discovery to each. A focused regression test was proven red with the Vial injection removed and green after restoration; the desktop test module, source policy smoke, rebuilt frozen smoke, and rebuilt frozen WKWebView policy smoke pass.
+
 1. Run the full repository verification entry point.
 2. Because native packaging changes, build on macOS with
    `python build.py --skip-sync` in the prepared environment and run the frozen

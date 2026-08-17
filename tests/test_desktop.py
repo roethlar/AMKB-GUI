@@ -597,8 +597,10 @@ class DesktopNativePolicyTests(unittest.TestCase):
         ):
             self.assertEqual(desktop.run_native_policy_smoke(), 0)
 
-        device_discovery = create_server_mock.call_args.kwargs["device_discovery"]
-        self.assertEqual([], device_discovery())
+        discovery_kwargs = create_server_mock.call_args.kwargs
+        self.assertEqual([], discovery_kwargs["device_discovery"]())
+        self.assertEqual([], discovery_kwargs["vial_device_discovery"]())
+        self.assertEqual([], discovery_kwargs["via_device_discovery"]())
         self.assertEqual(["seed", "verify"], [phase for phase, _url in observed])
         self.assertEqual(1, len({url for _phase, url in observed}))
         self.assertIn("shutdown", lifecycle)

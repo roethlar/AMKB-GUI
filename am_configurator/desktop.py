@@ -550,6 +550,8 @@ def run_native_policy_smoke() -> int:
         try:
             server, url = create_server(
                 device_discovery=_offline_device_discovery,
+                vial_device_discovery=_offline_device_discovery,
+                via_device_discovery=_offline_device_discovery,
             )
             server_thread = threading.Thread(
                 target=server.serve_forever,

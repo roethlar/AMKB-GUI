@@ -43,6 +43,8 @@
   passed 108 tests. Fresh screenshots remain with the H7d rendered matrix
   because no in-app browser instance was available.
 
+H7d closure verification exposed and fixed a native-acceptance isolation defect: the injected offline discovery seam covered AM discovery, but the page's automatic Vial and VIA scans still enumerated attached HID devices and triggered a macOS hidapi shutdown trap. The local server now accepts separate Vial/VIA discovery injections, and the native policy smoke supplies empty discovery for all three ecosystems. The regression test was demonstrated red with the Vial injection removed, then restored green; the complete desktop test module, source native-policy smoke, rebuilt frozen `--smoke-test`, and rebuilt frozen `--native-policy-smoke` pass without HID enumeration. Final-tree full verification, rendered route matrix, screenshots, old-name audit, and closure records remain.
+
 ## Next
 
 - **OpenKeeb v2 implementation is active under the approved hub-configurator
