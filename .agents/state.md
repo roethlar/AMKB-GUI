@@ -13,10 +13,14 @@
   guidance accurately distinguish the two lanes. Adding release-lane
   attestation remains an open option, not a decision.
 
-- **The UI redesign is parked and unblocked to plan:** element-level, not a
-  restyle. Two mockup rounds were rejected, so a new round starts from scratch.
-  Setup rulings (pilot screen, prototype form, arrangements per round) remain
-  open.
+- **H7 OpenKeeb branding/UI overhaul is active under full owner delegation:**
+  complete element-level repositioning, not a rename, restyle, or pilot.
+  Page order, prototype form, visual arrangements, implementation slicing, and
+  technical details belong to the working agent; there are no phase-by-phase
+  owner check-ins. The cold implementation plan is
+  `docs/superpowers/plans/2026-08-17-openkeeb-branding-overhaul.md`. Public/deep
+  identifiers, spending, release/publication, destructive history changes, and
+  physical keyboard writes remain separately owner-gated.
 
 ## Next
 

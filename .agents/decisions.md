@@ -79,6 +79,24 @@ branding overhaul. am conf. is angry miao focused. OpenKeeb is broader." and
   Flatpak ids, repository display/URL, the `2.0.0` version cut, and any
   release or publication.
 
+## 2026-08-17 — H7 is one complete delegated overhaul, with no phase-by-phase owner check-ins
+
+Status: approved owner ruling, 2026-08-17. Owner's words: "which page to START
+with? I don;t give a fuck. you're doing all of it, and it's not done until it's
+done."
+
+- H7 covers the complete user-facing OpenKeeb branding and element-level UI
+  overhaul, not a pilot that can be accepted as the finished slice.
+- The working agent owns page order, prototype form, number of visual
+  arrangements, design-system choices, copy implementation, test strategy, and
+  implementation slicing. Do not return for approval at each stage or phase.
+- Work continues through the durable plan, implementation, automated checks,
+  rendered multi-screen verification, packaging/docs alignment, records, and
+  local commits. Intermediate progress updates are informational, not gates.
+- The pre-existing reserved boundaries remain unchanged: public/deep
+  identifiers, spending, release/publication, destructive history operations,
+  and physical keyboard writes still require their own explicit owner action.
+
 ## 2026-08-16 — Owner delegates technical details; H0 closed; build until it works
 
 Status: owner ruling, 2026-08-16. Owner's words, verbatim: "no. I don't care
