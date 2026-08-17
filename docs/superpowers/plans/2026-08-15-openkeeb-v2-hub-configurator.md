@@ -562,7 +562,7 @@ canonical key identity (position-independent), not by matrix coordinates.
 - **H6 — Lighting through the hub:** effect/color/speed on VIA/Vial boards,
   VialRGB per-LED streaming for animations, per-key geometry from board
   definitions per the 2026-08-15 geometry amendment.
-- **H7 — OpenKeeb branding overhaul:** active under the owner-delegated,
+- **H7 — OpenKeeb branding overhaul:** complete under the owner-delegated,
   continuous-execution plan in
   `docs/superpowers/plans/2026-08-17-openkeeb-branding-overhaul.md`. This is a
   complete repositioning and element-level product overhaul, not a rename or a

@@ -13,41 +13,11 @@
   guidance accurately distinguish the two lanes. Adding release-lane
   attestation remains an open option, not a decision.
 
-- **H7 OpenKeeb branding/UI overhaul is active under full owner delegation:**
-  complete element-level repositioning, not a rename, restyle, or pilot.
-  Page order, prototype form, visual arrangements, implementation slicing, and
-  technical details belong to the working agent; there are no phase-by-phase
-  owner check-ins. The cold implementation plan is
-  `docs/superpowers/plans/2026-08-17-openkeeb-branding-overhaul.md`. Public/deep
-  identifiers, spending, release/publication, destructive history changes, and
-  physical keyboard writes remain separately owner-gated.
-  H7a is complete: OpenKeeb now owns current visible/native product names and
-  deterministic generated SVG/PNG/ICO/ICNS assets while bundle/AppId, command,
-  data paths, package IDs, and repository URL remain unchanged. Current source
-  artifact names are OpenKeeb; README still identifies already-published 0.1.68
-  installers as AM Configurator. Focused branding and packaging tests passed.
-  H7b implementation is complete: the command bar separates document and
-  hardware actions; the persistent brand rail, empty state, Keymap, Macros,
-  Lighting Studio, Library, Settings, device/profile/compatibility/write
-  dialogs, responsive layouts, and active user-visible runtime copy now use one
-  ecosystem-aware OpenKeeb workbench hierarchy. Focused verification passed 222
-  web tests plus 331 affected Python tests, syntax, compilation, and diff
-  checks. The required rendered matrix remains in H7d because the in-app
-  Browser runtime exposed no browser instance during this check.
-  H7c packaging/docs implementation is complete: native/workflow paths and
-  candidate artifact labels use OpenKeeb, package-manager display metadata is
-  ecosystem-neutral while reserved package IDs/commands remain fixed, and the
-  README/current install/Linux/issue guidance distinguishes OpenKeeb
-  development from the published AM Configurator 0.1.68 release. Focused
-  branding, packaging, package-manager, README, and protocol verification
-  passed 108 tests. Fresh screenshots remain with the H7d rendered matrix
-  because no in-app browser instance was available.
-
-As `7f0e3ea`, H7d non-rendered closure verification is green. The exact repository gate passes on the final code tree: 733 Python tests, 222 web tests, compileall, every listed JavaScript syntax check, and `uv build`. The supported macOS `python build.py --skip-sync` path passes; rebuilt frozen `--smoke-test` and WKWebView `--native-policy-smoke` pass. Closure also exposed and fixed native-acceptance isolation: automatic Vial/VIA scans had bypassed the existing offline AM discovery seam and reached hidapi; all three ecosystems now receive injected empty discovery, with a demonstrated red/green regression test. The old-name audit leaves only intentional published-release, legacy-profile, third-party-notice, and reserved-identifier references; the current keyboard inventory and printed Linux rule say OpenKeeb. H7 remains open only because the required in-app Browser retry again exposed zero browser instances after prescribed troubleshooting, so the rendered route matrix and replacement of stale `docs/images` screenshots could not run. The Browser skill forbids substituting standalone Playwright, Computer Use, or another browser surface.
+- **H7 OpenKeeb branding/UI overhaul is complete (2026-08-17):** OpenKeeb now owns the shipped workbench identity, application shell, all current user-facing routes/dialogs, native/package display names, active docs, and deterministic brand assets while reserved compatibility/public identifiers remain unchanged. The in-app Browser rendered the complete approved route matrix at 1000×680, 1280×800, and 1600×1000 with injected-empty AM/Vial/VIA discovery: zero console errors or warnings, zero hardware-write requests across 50 observed requests, no physical keyboard access, and no page-level horizontal overflow after `c0a38e2` fixed the 1000 px Keyboards/Write action defect with a regression contract. Seven public screenshots are actual-app 1600×1000 RGB metadata-free PNGs. Final verification passes 733 Python tests, 223 web tests, compileall, all listed JavaScript syntax checks, `uv build`, the supported macOS frozen build, `--smoke-test`, and WKWebView `--native-policy-smoke`; the final run also repaired stale AUR golden digests for the OpenKeeb Linux rule comment. No release, publication, deep-identifier migration, physical write, or other reserved action occurred.
 
 ## Next
 
-- **Resume H7 only in a session with the in-app Browser available:** run the approved rendered route matrix at 1000×680, 1280×800, and 1600×1000 against an injected no-hardware server; confirm zero console errors and no write requests; replace the stale `docs/images` screenshots with actual-app captures; update the H7 plan/state closure evidence and commit. Do not ask the owner which page or phase to start with.
+- **Next implementation lane is H6 lighting through the hub:** first produce a bounded plan for Vial/VIA capability truth, geometry ownership, effect/color/speed mapping, VialRGB streaming boundaries, and write-safety evidence. Do not implement or perform a hardware write before the applicable approval/gate.
 
 - **OpenKeeb v2 implementation is active under the approved hub-configurator
   plan:** H0 through H4 are complete. H3 (the VIA spoke) has bounded
@@ -127,9 +97,7 @@ As `7f0e3ea`, H7d non-rendered closure verification is green. The exact reposito
   fake-Vial smoke covered edit/preflight/unlock marking, confirmation casing,
   dialog fit, rescan invalidation, and zero console errors; it never submitted a
   write request or touched a physical keyboard.
- H7 is the queued branding overhaul,
-  which the owner ruled is a
-  repositioning rather than a rename. The canonical scope and sequence live in
+  H7 is complete; the canonical scope sequence is live in
   `docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`. Public
   identifiers, releases, money, and future hardware writes remain owner-gated.
 
@@ -158,7 +126,6 @@ As `7f0e3ea`, H7d non-rendered closure verification is green. The exact reposito
 
 ## Blockers
 
-- H7 cannot close in the current runtime because prescribed Browser troubleshooting returns zero browser instances. The required route matrix and screenshots must wait for a session where the in-app Browser is actually available; do not substitute standalone Playwright, Computer Use, or another browser surface.
 
 - Whether the published 0.1.67 listing should carry a known-issue note about
   its unreachable AI providers, now that 0.1.68 supersedes it, is the owner's

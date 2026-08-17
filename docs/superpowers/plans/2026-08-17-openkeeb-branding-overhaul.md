@@ -221,8 +221,8 @@ None is an owner gate.
 
 ### H7b — application shell and surface implementation complete 2026-08-17
 
-Rendered cross-route matrix remains an H7d closure item; the in-app Browser
-runtime exposed no browser instance during the H7b implementation check.
+The rendered cross-route matrix completed in H7d after the in-app Browser
+became available.
 
 1. Add failing DOM/design-token contracts for shell composition, brand rail,
    document/hardware action separation, every route, dialogs, narrow windows,
@@ -233,12 +233,12 @@ runtime exposed no browser instance during the H7b implementation check.
 4. Render and inspect empty, Keymap AM, Keymap Vial/VIA, Macros, Lighting,
    Library, Settings, Devices, Hub, About, compatibility, and write states.
 
-### H7c — packaging, docs, workflow display names, and screenshots
+### H7c — packaging, docs, workflow display names, and screenshots — complete 2026-08-17
 
 Packaging, workflow, issue-form, package-manager display metadata, README, and
-current install-guide implementation landed 2026-08-17. Fresh screenshots
-remain coupled to the H7d rendered matrix because the in-app Browser runtime
-exposed no browser instance.
+current install-guide implementation landed 2026-08-17. H7d replaced all seven
+public screenshots with deterministic synthetic-profile captures from the
+actual application.
 
 1. Add failing packaging/release-info tests for OpenKeeb display and artifact
    names while asserting all reserved identifiers remain byte-for-byte stable.
@@ -248,11 +248,13 @@ exposed no browser instance.
 4. Capture fresh synthetic screenshots from the actual app at the canonical
    viewport and replace current-product README screenshots.
 
-### H7d — closure
+### H7d — closure — complete 2026-08-17
 
 Native acceptance isolation repair landed during closure: startup already injected empty AM discovery, but automatic Vial/VIA scans bypassed that seam and reached hidapi. `create_server` now has explicit injected discovery seams for all three ecosystems, and the native policy smoke supplies empty discovery to each. A focused regression test was proven red with the Vial injection removed and green after restoration; the desktop test module, source policy smoke, rebuilt frozen smoke, and rebuilt frozen WKWebView policy smoke pass.
 
-Closure evidence, 2026-08-17: the exact repository entry point passes with 733 Python tests and 222 web tests, compileall, every required `node --check`, and `uv build`. The supported macOS build path and rebuilt frozen smoke/policy-smoke pass. The repository-wide old-name audit leaves only intentional historical-release, legacy-profile, third-party-notice, and compatibility-identifier references; current inventory/rule text is OpenKeeb. The required Browser retry completed setup and prescribed troubleshooting but `agent.browsers.list()` returned `[]`. Under the Browser skill no Playwright, Computer Use, or alternate browser surface may substitute. Therefore the rendered route matrix and fresh actual-app screenshots remain unexecuted, `docs/images` remains stale, and H7 is not closed.
+Closure evidence, 2026-08-17: the in-app Browser rendered the approved matrix at 1000×680, 1280×800, and 1600×1000 against injected-empty AM, Vial, and VIA discovery. Coverage included empty, AM/Vial/VIA Keymap, Macros, Lighting Studio, Library, Settings, Devices, portable-profile, About, incompatible-profile, and no-target Write states. All sizes had no page-level horizontal overflow after the 1000 px Keyboards/Write action defect was fixed in `c0a38e2` with a regression contract. Browser evidence recorded zero console errors or warnings and zero hardware-write requests across 50 observed requests; no physical keyboard was accessed. Seven `docs/images` captures are now actual-application 1600×1000 RGB PNG files with no metadata.
+
+The final exact repository entry point passes 733 Python tests and 223 web tests, compileall, every required `node --check`, and `uv build`. That run also caught and repaired stale AUR golden digests for the already-landed OpenKeeb Linux rule comment. The supported macOS `uv run --frozen python build.py --skip-sync` path passes, as do the rebuilt frozen `--smoke-test` and WKWebView `--native-policy-smoke`. The repository-wide old-name audit leaves only intentional historical-release, legacy-profile, third-party-notice, and compatibility-identifier references. No release, publication, deep-identifier migration, physical write, or other reserved action occurred. H7 is closed.
 
 1. Run the full repository verification entry point.
 2. Because native packaging changes, build on macOS with
