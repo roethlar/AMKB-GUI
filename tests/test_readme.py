@@ -21,8 +21,8 @@ WEB = ROOT / "am_configurator" / "web"
 # The plan's README order. Item 1 is the one-sentence product purpose, which
 # sits above the first heading and is asserted separately.
 SECTION_ORDER = (
-    "## Download the latest release",
-    "## Supported keyboards and operating systems",
+    "## Download the latest published release",
+    "## Keyboard support",
     "## Five-minute quick start",
     "## What it looks like",
     "## What you can do",
@@ -55,11 +55,11 @@ SCREENSHOTS = (
 # instructions can drift away from the application.
 ACTION_LABELS = (
     "Connect a keyboard",
-    "Open a JSON profile",
+    "Open a profile",
     "Read keymap & macros",
-    "Devices",
+    "Keyboards",
     "Merge",
-    "Save JSON",
+    "Save profile",
     "Settings",
     "Write to keyboard",
     "Write full configuration",
@@ -143,8 +143,8 @@ class ReadmeStructureTest(unittest.TestCase):
     def test_readme_opens_with_the_product_purpose(self) -> None:
         readme = readme_text()
         purpose = (
-            "Set up your Angry Miao keyboard — keymaps, macros, and lighting "
-            "— from one app on your own computer."
+            "A local, open workbench for compatible Angry Miao, Vial, and "
+            "VIA keyboards."
         )
         self.assertIn(purpose, readme)
         self.assertLess(
@@ -212,14 +212,14 @@ class ReadmeStructureTest(unittest.TestCase):
         # gallery must show all four supported boards, in the supported-
         # keyboards section (before the quick start), each with alt text.
         readme = readme_text()
-        section = readme.index("\n## Supported keyboards")
-        quick_start = readme.index("\n## Five-minute quick start\n")
+        section = readme.index("\n## What it looks like\n")
+        gallery_end = readme.index("\n## What you can do\n")
         for image in GALLERY:
             with self.subTest(image=image):
                 self.assertEqual(1, readme.count(image))
                 position = readme.index(image)
                 self.assertLess(section, position)
-                self.assertLess(position, quick_start)
+                self.assertLess(position, gallery_end)
                 self.assertTrue((ROOT / image).is_file(), image)
                 alt = re.search(
                     rf'<img src="{re.escape(image)}" alt="([^"]*)"', readme
@@ -243,7 +243,7 @@ class ReadmeStructureTest(unittest.TestCase):
 
 class ReadmeLinkTest(unittest.TestCase):
     def test_download_points_at_the_latest_release(self) -> None:
-        download = readme_text().split("\n## Download the latest release\n", 1)[
+        download = readme_text().split("\n## Download the latest published release\n", 1)[
             1
         ].split("\n## ", 1)[0]
         self.assertIn(
@@ -252,7 +252,7 @@ class ReadmeLinkTest(unittest.TestCase):
         )
 
     def test_installer_names_match_what_the_build_publishes(self) -> None:
-        download = readme_text().split("\n## Download the latest release\n", 1)[
+        download = readme_text().split("\n## Download the latest published release\n", 1)[
             1
         ].split("\n## ", 1)[0]
         version = project_version()

@@ -90,5 +90,37 @@ class OpenKeebBrandingTests(unittest.TestCase):
                 self.assertFalse((ROOT / relative).exists())
 
 
+    def test_current_workflows_and_native_paths_use_openkeeb(self) -> None:
+        surfaces = (
+            ".github/workflows/desktop.yml",
+            ".github/workflows/release.yml",
+            "packaging/linux/AppRun",
+            "packaging/linux/am-configurator.desktop",
+            "packaging/macos/build_dmg.sh",
+            "packaging/windows/AMConfigurator.iss",
+        )
+        for relative in surfaces:
+            with self.subTest(surface=relative):
+                text = (ROOT / relative).read_text(encoding="utf-8")
+                self.assertIn("OpenKeeb", text)
+                self.assertNotIn("dist/AM Configurator", text)
+                self.assertNotIn("AM-Configurator-${{", text)
+
+    def test_current_docs_distinguish_openkeeb_from_published_release(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        installing = (ROOT / "docs/installing.md").read_text(encoding="utf-8")
+        issue_form = (
+            ROOT / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("No OpenKeeb release has been published", readme)
+        self.assertIn("AM Configurator 0.1.68", readme)
+        self.assertIn("OpenKeeb-<version>-macOS-arm64.dmg", readme)
+        self.assertIn("latest public release", installing)
+        self.assertIn("Report a reproducible OpenKeeb problem", issue_form)
+        self.assertIn("Vial keyboard", issue_form)
+        self.assertIn("VIA keyboard", issue_form)
+
+
 if __name__ == "__main__":
     unittest.main()

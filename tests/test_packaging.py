@@ -299,7 +299,7 @@ class ReleaseManifestTests(unittest.TestCase):
         self.assertIn("0xAA64", arm_job)
         self.assertIn("aarch64", arm_job)
         self.assertIn("Experimental-ARM64-${{ matrix.artifact }}", arm_job)
-        self.assertNotIn("AM-Configurator-${{", arm_job)
+        self.assertNotIn("OpenKeeb-${{", arm_job)
         remainder = workflow.split("  candidate-metadata:\n", 1)[1]
         self.assertIn("needs: installer", remainder)
         self.assertNotIn("experimental-arm", remainder)
@@ -470,7 +470,7 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("*.AppImage", workflow)
         self.assertIn("version --github-output", workflow)
         self.assertIn(
-            "AM-Configurator-${{ steps.build_version.outputs.version }}-"
+            "OpenKeeb-${{ steps.build_version.outputs.version }}-"
             "${{ matrix.artifact }}",
             workflow,
         )
@@ -592,7 +592,7 @@ class ReleaseInfoTests(unittest.TestCase):
             "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
             publish,
         )
-        self.assertIn(f"pattern: AM-Configurator-{version}-*", publish)
+        self.assertIn(f"pattern: OpenKeeb-{version}-*", publish)
         self.assertIn("merge-multiple: true", publish)
         self.assertIn("build_tools/release_manifest.py", publish)
         self.assertIn(f'--version "{version}"', publish)
@@ -603,7 +603,7 @@ class ReleaseInfoTests(unittest.TestCase):
 
         # Title, body source, and flags of every release published so far.
         self.assertIn("tag_name: ${{ github.ref_name }}", publish)
-        self.assertIn(f"name: AM Configurator {version}", publish)
+        self.assertIn(f"name: OpenKeeb {version}", publish)
         self.assertIn(f"body_path: docs/releases/{version}.md", publish)
         self.assertIn("draft: false", publish)
         self.assertIn("prerelease: false", publish)
@@ -613,9 +613,9 @@ class ReleaseInfoTests(unittest.TestCase):
         # An unmatched file is otherwise ignored, publishing a short release.
         self.assertIn("fail_on_unmatched_files: true", publish)
         for filename in (
-            f"AM-Configurator-{version}-macOS-arm64.dmg",
-            f"AM-Configurator-{version}-Windows-x64-Setup.exe",
-            f"AM-Configurator-{version}-Linux-x86_64.AppImage",
+            f"OpenKeeb-{version}-macOS-arm64.dmg",
+            f"OpenKeeb-{version}-Windows-x64-Setup.exe",
+            f"OpenKeeb-{version}-Linux-x86_64.AppImage",
         ):
             with self.subTest(asset=filename):
                 self.assertIn(f"release-installers/{filename}", publish)
@@ -666,11 +666,11 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertEqual(4, provenance.count(pinned_action))
         self.assertNotIn("actions/attest-build-provenance@v", provenance)
         for filename in (
-            "AM-Configurator-${{ steps.build_version.outputs.version }}"
+            "OpenKeeb-${{ steps.build_version.outputs.version }}"
             "-macOS-arm64.dmg",
-            "AM-Configurator-${{ steps.build_version.outputs.version }}"
+            "OpenKeeb-${{ steps.build_version.outputs.version }}"
             "-Windows-x64-Setup.exe",
-            "AM-Configurator-${{ steps.build_version.outputs.version }}"
+            "OpenKeeb-${{ steps.build_version.outputs.version }}"
             "-Linux-x86_64.AppImage",
         ):
             with self.subTest(subject=filename):

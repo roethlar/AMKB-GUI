@@ -1,4 +1,4 @@
-"""PyInstaller launcher that preserves AM Configurator's package context."""
+"""PyInstaller launcher that preserves OpenKeeb's package context."""
 
 from am_configurator.desktop import main
 

@@ -42,24 +42,24 @@ class CommonHelpersTests(unittest.TestCase):
 
     def test_linux_appimage_filename_matches_release_contract(self) -> None:
         self.assertEqual(
-            "AM-Configurator-9.9.9-Linux-x86_64.AppImage",
+            "OpenKeeb-9.9.9-Linux-x86_64.AppImage",
             linux_appimage_filename("9.9.9"),
         )
 
     def test_release_download_url_default_and_template(self) -> None:
         self.assertEqual(
             "https://github.com/roethlar/AMKB-GUI/releases/download/v9.9.9/"
-            "AM-Configurator-9.9.9-Linux-x86_64.AppImage",
+            "OpenKeeb-9.9.9-Linux-x86_64.AppImage",
             release_download_url(
                 "9.9.9",
-                "AM-Configurator-9.9.9-Linux-x86_64.AppImage",
+                "OpenKeeb-9.9.9-Linux-x86_64.AppImage",
             ),
         )
         self.assertEqual(
-            "https://example.test/v9.9.9/AM-Configurator-9.9.9-Linux-x86_64.AppImage",
+            "https://example.test/v9.9.9/OpenKeeb-9.9.9-Linux-x86_64.AppImage",
             release_download_url(
                 "9.9.9",
-                "AM-Configurator-9.9.9-Linux-x86_64.AppImage",
+                "OpenKeeb-9.9.9-Linux-x86_64.AppImage",
                 asset_base="https://example.test/v{version}",
             ),
         )
@@ -69,9 +69,9 @@ class CommonHelpersTests(unittest.TestCase):
             path = Path(temporary) / "SHA256SUMS.txt"
             path.write_text(
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  "
-                "AM-Configurator-9.9.9-Linux-x86_64.AppImage\n"
+                "OpenKeeb-9.9.9-Linux-x86_64.AppImage\n"
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  "
-                "AM-Configurator-9.9.9-macOS-arm64.dmg\n",
+                "OpenKeeb-9.9.9-macOS-arm64.dmg\n",
                 encoding="utf-8",
             )
             digests = digests_from_sums(path)
@@ -79,7 +79,7 @@ class CommonHelpersTests(unittest.TestCase):
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 require_digest(
                     digests,
-                    "AM-Configurator-9.9.9-Linux-x86_64.AppImage",
+                    "OpenKeeb-9.9.9-Linux-x86_64.AppImage",
                 ),
             )
             with self.assertRaises(PackageManagerError):
@@ -102,7 +102,7 @@ class CommonHelpersTests(unittest.TestCase):
                         "artifacts": [
                             {
                                 "filename": (
-                                    "AM-Configurator-9.9.9-Linux-x86_64.AppImage"
+                                    "OpenKeeb-9.9.9-Linux-x86_64.AppImage"
                                 ),
                                 "sha256": "a" * 64,
                                 "platform": "linux",
@@ -120,13 +120,13 @@ class CommonHelpersTests(unittest.TestCase):
             self.assertEqual("9.9.9", version)
             self.assertEqual(
                 "a" * 64,
-                digests["AM-Configurator-9.9.9-Linux-x86_64.AppImage"],
+                digests["OpenKeeb-9.9.9-Linux-x86_64.AppImage"],
             )
 
 
 class AurGeneratorTests(unittest.TestCase):
     VERSION = "9.9.9"
-    APPIMAGE = "AM-Configurator-9.9.9-Linux-x86_64.AppImage"
+    APPIMAGE = "OpenKeeb-9.9.9-Linux-x86_64.AppImage"
     APPIMAGE_SHA256 = "a" * 64
 
     def _digests(self) -> dict[str, str]:
@@ -194,7 +194,7 @@ class AurGeneratorTests(unittest.TestCase):
             self.assertTrue((out / "PKGBUILD").is_file())
             self.assertTrue((out / ".SRCINFO").is_file())
             self.assertTrue((out / "am-configurator.desktop").is_file())
-            self.assertTrue((out / "am-configurator.png").is_file())
+            self.assertTrue((out / "openkeeb.png").is_file())
             self.assertTrue((out / "60-am-neon-80.rules").is_file())
             self.assertTrue((out / "am-configurator.sh").is_file())
             self.assertTrue((out / "am-configurator-bin.install").is_file())
@@ -293,7 +293,7 @@ class AurGeneratorTests(unittest.TestCase):
 
 class ReleaseAurProcessTests(unittest.TestCase):
     VERSION = "9.9.9"
-    APPIMAGE = "AM-Configurator-9.9.9-Linux-x86_64.AppImage"
+    APPIMAGE = "OpenKeeb-9.9.9-Linux-x86_64.AppImage"
     APPIMAGE_SHA256 = "a" * 64
 
     def test_default_sums_url(self) -> None:
@@ -413,7 +413,7 @@ class ReleaseAurProcessTests(unittest.TestCase):
 
 class FlatpakGeneratorTests(unittest.TestCase):
     VERSION = "9.9.9"
-    APPIMAGE = "AM-Configurator-9.9.9-Linux-x86_64.AppImage"
+    APPIMAGE = "OpenKeeb-9.9.9-Linux-x86_64.AppImage"
     APPIMAGE_SHA256 = "a" * 64
     APPIMAGE_SIZE = 12345678
 

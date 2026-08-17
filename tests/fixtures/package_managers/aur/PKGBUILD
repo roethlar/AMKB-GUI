@@ -2,7 +2,7 @@
 pkgname=am-configurator-bin
 pkgver=9.9.9
 pkgrel=1
-pkgdesc='Standalone Angry Miao keyboard configurator'
+pkgdesc='Local OpenKeeb workbench for AM, Vial, and VIA keyboards'
 arch=('x86_64')
 url='https://github.com/roethlar/AMKB-GUI'
 license=('MIT')
@@ -10,29 +10,29 @@ depends=()
 options=('!strip' '!debug')
 install=am-configurator-bin.install
 source=(
-  'AM-Configurator-9.9.9-Linux-x86_64.AppImage::https://github.com/roethlar/AMKB-GUI/releases/download/v9.9.9/AM-Configurator-9.9.9-Linux-x86_64.AppImage'
+  'OpenKeeb-9.9.9-Linux-x86_64.AppImage::https://github.com/roethlar/AMKB-GUI/releases/download/v9.9.9/OpenKeeb-9.9.9-Linux-x86_64.AppImage'
   'am-configurator.desktop'
-  'am-configurator.png'
+  'openkeeb.png'
   '60-am-neon-80.rules'
   'am-configurator.sh'
 )
 sha256sums=(
   'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-  'b17b655985017d7b5f610f0e7a32feb475643a0b5036721aaeaf28cf7a6ee508'
-  '67696d2d9d8517cb2ca6b444434f973ed86aa14326f85b1f9320d9d69194a043'
+  'a9d0217df0982888810d36bb5395d71cde36f297593e27f54ba6c9cac0d2d4ee'
+  '68512ea0170d04db4ad5eea2c887d25981623b6206eb83c984c402d22fdf8b04'
   'dd56cd88fc213e3962a7cf6ac7567d654f3a4bb2cc2656ef48d6fe7c27befa76'
-  '08f7cf1128fe9c5e92418ac53ae944d771b99698871df9ba266885db3b4bb55c'
+  'f44e8d4f35d744254d8f10a3406eb3f81692afe90567835be914ee27cab865be'
 )
 
 package() {
-  install -Dm755 "${srcdir}/AM-Configurator-9.9.9-Linux-x86_64.AppImage" \
-    "${pkgdir}/opt/am-configurator/AM-Configurator-9.9.9-Linux-x86_64.AppImage"
+  install -Dm755 "${srcdir}/OpenKeeb-9.9.9-Linux-x86_64.AppImage" \
+    "${pkgdir}/opt/am-configurator/OpenKeeb-9.9.9-Linux-x86_64.AppImage"
   install -Dm755 "${srcdir}/am-configurator.sh" \
     "${pkgdir}/usr/bin/am-configurator"
   install -Dm644 "${srcdir}/am-configurator.desktop" \
     "${pkgdir}/usr/share/applications/am-configurator.desktop"
-  install -Dm644 "${srcdir}/am-configurator.png" \
-    "${pkgdir}/usr/share/icons/hicolor/512x512/apps/am-configurator.png"
+  install -Dm644 "${srcdir}/openkeeb.png" \
+    "${pkgdir}/usr/share/icons/hicolor/512x512/apps/openkeeb.png"
   install -Dm644 "${srcdir}/60-am-neon-80.rules" \
     "${pkgdir}/usr/lib/udev/rules.d/60-am-neon-80.rules"
 }

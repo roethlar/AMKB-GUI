@@ -113,7 +113,7 @@ class ProtocolTests(unittest.TestCase):
             windows_api,
             create=True,
         ), patch("am_configurator.store.time.sleep"):
-            with self.assertRaisesRegex(TimeoutError, "another AM Configurator"):
+            with self.assertRaisesRegex(TimeoutError, "another OpenKeeb"):
                 store._lock_windows_byte(lock_file, attempts=2, retry_seconds=0)
 
 

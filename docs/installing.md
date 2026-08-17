@@ -1,6 +1,10 @@
-# Installing AM Configurator
+# Installing the published AM Configurator 0.1.68 release
 
-Download AM Configurator only from the
+This page describes the latest public release. OpenKeeb is the next major
+version under development and has not been published. Its workflow candidates
+use `OpenKeeb-…` filenames, but they are not release downloads.
+
+Download AM Configurator 0.1.68 only from the
 [GitHub Releases page](https://github.com/roethlar/AMKB-GUI/releases). A normal
 release contains these five files:
 

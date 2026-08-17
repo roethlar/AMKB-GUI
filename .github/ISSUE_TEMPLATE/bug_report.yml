@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible AM Configurator problem
+description: Report a reproducible OpenKeeb problem
 title: "[Bug] "
 labels:
   - bug
@@ -20,6 +20,8 @@ body:
         - AM Relic 80
         - AM AFA / AFA 2
         - CyberBoard
+        - Vial keyboard
+        - VIA keyboard
         - Other / no keyboard connected
     validations:
       required: true
@@ -46,7 +48,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: AM Configurator version
+      label: Application version
       description: Open About and copy the displayed version.
       placeholder: "0.1.68"
     validations:
@@ -83,7 +85,7 @@ body:
     attributes:
       label: Installer filename or source run
       description: Give the exact release filename, or say that you ran from source.
-      placeholder: "AM-Configurator-0.1.68-macOS-arm64.dmg"
+      placeholder: "OpenKeeb-0.1.68-macOS-arm64.dmg or AM-Configurator-0.1.68-macOS-arm64.dmg"
 
   - type: textarea
     id: steps
@@ -91,7 +93,7 @@ body:
       label: Reproduction steps
       description: Start from app launch and list the smallest reliable sequence.
       placeholder: |
-        1. Launch AM Configurator
+        1. Launch OpenKeeb
         2. ...
     validations:
       required: true

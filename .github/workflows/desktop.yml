@@ -31,19 +31,19 @@ jobs:
           - name: macOS
             os: macos-latest
             platform: macos
-            bundle: dist/AM Configurator.app
+            bundle: dist/OpenKeeb.app
             artifact: macOS-Installer
             installer: dist/*.dmg
           - name: Windows x64
             os: windows-latest
             platform: windows
-            bundle: dist/AM Configurator
+            bundle: dist/OpenKeeb
             artifact: Windows-x64-Installer
             installer: dist/*-Setup.exe
           - name: Linux x86-64
             os: ubuntu-latest
             platform: linux
-            bundle: dist/AM Configurator
+            bundle: dist/OpenKeeb
             artifact: Linux-x86_64-AppImage
             installer: dist/*.AppImage
     runs-on: ${{ matrix.os }}
@@ -81,14 +81,14 @@ jobs:
         run: uv run --frozen python build_tools/native_tree_audit.py "${{ matrix.bundle }}"
       - name: Verify native webview policy (macos)
         if: matrix.platform == 'macos'
-        run: '"dist/AM Configurator.app/Contents/MacOS/AM Configurator" --native-policy-smoke'
+        run: '"dist/OpenKeeb.app/Contents/MacOS/OpenKeeb" --native-policy-smoke'
       - name: Verify native webview policy (windows)
         if: matrix.platform == 'windows'
         shell: pwsh
-        run: '& "dist/AM Configurator/AM Configurator.exe" --native-policy-smoke'
+        run: '& "dist/OpenKeeb/OpenKeeb.exe" --native-policy-smoke'
       - name: Verify native webview policy (linux)
         if: matrix.platform == 'linux'
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" "dist/AM Configurator/AM Configurator" --native-policy-smoke
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" "dist/OpenKeeb/OpenKeeb" --native-policy-smoke
       - name: Build and test macOS DMG
         if: matrix.platform == 'macos'
         run: packaging/macos/build_dmg.sh
@@ -102,7 +102,7 @@ jobs:
       - name: Upload native installer
         uses: actions/upload-artifact@v7
         with:
-          name: AM-Configurator-${{ steps.build_version.outputs.version }}-${{ matrix.artifact }}
+          name: OpenKeeb-${{ steps.build_version.outputs.version }}-${{ matrix.artifact }}
           path: ${{ matrix.installer }}
           if-no-files-found: error
           retention-days: 30
@@ -121,13 +121,13 @@ jobs:
           - name: Windows ARM64
             os: windows-11-arm
             platform: windows
-            bundle: dist/AM Configurator
+            bundle: dist/OpenKeeb
             artifact: Windows-ARM64-Installer
             installer: dist/*-Setup.exe
           - name: Linux ARM64
             os: ubuntu-24.04-arm
             platform: linux
-            bundle: dist/AM Configurator
+            bundle: dist/OpenKeeb
             artifact: Linux-ARM64-AppImage
             installer: dist/*.AppImage
     runs-on: ${{ matrix.os }}
@@ -162,29 +162,29 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          $bytes = [System.IO.File]::ReadAllBytes("dist/AM Configurator/AM Configurator.exe")
+          $bytes = [System.IO.File]::ReadAllBytes("dist/OpenKeeb/OpenKeeb.exe")
           $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
           $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
           if ($machine -ne 0xAA64) { throw ("PE machine 0x{0:X4} is not ARM64 (0xAA64)" -f $machine) }
       - name: Verify ARM64 architecture (Linux)
         if: matrix.platform == 'linux'
-        run: file "dist/AM Configurator/AM Configurator" | tee /dev/stderr | grep -q aarch64
+        run: file "dist/OpenKeeb/OpenKeeb" | tee /dev/stderr | grep -q aarch64
       - name: Audit frozen native tree
         run: uv run --frozen python build_tools/native_tree_audit.py "${{ matrix.bundle }}"
       - name: Verify native webview policy (windows)
         if: matrix.platform == 'windows'
         shell: pwsh
-        run: '& "dist/AM Configurator/AM Configurator.exe" --native-policy-smoke'
+        run: '& "dist/OpenKeeb/OpenKeeb.exe" --native-policy-smoke'
       - name: Verify native webview policy (linux)
         if: matrix.platform == 'linux'
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" "dist/AM Configurator/AM Configurator" --native-policy-smoke
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" "dist/OpenKeeb/OpenKeeb" --native-policy-smoke
       - name: Frozen smoke test (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
-        run: '& "dist/AM Configurator/AM Configurator.exe" --smoke-test'
+        run: '& "dist/OpenKeeb/OpenKeeb.exe" --smoke-test'
       - name: Frozen smoke test (Linux)
         if: matrix.platform == 'linux'
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" "dist/AM Configurator/AM Configurator" --smoke-test
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" "dist/OpenKeeb/OpenKeeb" --smoke-test
       - name: Build and test Windows installer
         if: matrix.platform == 'windows'
         shell: pwsh
@@ -216,7 +216,7 @@ jobs:
       - name: Download native installers
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: AM-Configurator-${{ steps.build_version.outputs.version }}-*
+          pattern: OpenKeeb-${{ steps.build_version.outputs.version }}-*
           path: candidate-installers
           merge-multiple: true
       - name: Generate release metadata
@@ -234,7 +234,7 @@ jobs:
       - name: Upload candidate metadata
         uses: actions/upload-artifact@v7
         with:
-          name: AM-Configurator-${{ steps.build_version.outputs.version }}-candidate-metadata
+          name: OpenKeeb-${{ steps.build_version.outputs.version }}-candidate-metadata
           path: |
             candidate-metadata/release-manifest.json
             candidate-metadata/SHA256SUMS.txt
@@ -259,21 +259,21 @@ jobs:
       - name: Download release subjects
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: AM-Configurator-${{ steps.build_version.outputs.version }}-*
+          pattern: OpenKeeb-${{ steps.build_version.outputs.version }}-*
           path: candidate-provenance
           merge-multiple: true
       - name: Attest macOS installer
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-path: candidate-provenance/AM-Configurator-${{ steps.build_version.outputs.version }}-macOS-arm64.dmg
+          subject-path: candidate-provenance/OpenKeeb-${{ steps.build_version.outputs.version }}-macOS-arm64.dmg
       - name: Attest Windows installer
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-path: candidate-provenance/AM-Configurator-${{ steps.build_version.outputs.version }}-Windows-x64-Setup.exe
+          subject-path: candidate-provenance/OpenKeeb-${{ steps.build_version.outputs.version }}-Windows-x64-Setup.exe
       - name: Attest Linux installer
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-path: candidate-provenance/AM-Configurator-${{ steps.build_version.outputs.version }}-Linux-x86_64.AppImage
+          subject-path: candidate-provenance/OpenKeeb-${{ steps.build_version.outputs.version }}-Linux-x86_64.AppImage
       - name: Attest release metadata
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:

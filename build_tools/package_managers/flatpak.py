@@ -25,7 +25,7 @@ from build_tools.package_managers.common import (
 
 FLATPAK_APP_ID = "io.github.roethlar.AMConfigurator"
 COMMAND_NAME = "am-configurator"
-DISPLAY_NAME = "AM Configurator"
+DISPLAY_NAME = "OpenKeeb"
 RUNTIME = "org.freedesktop.Platform"
 RUNTIME_VERSION = "24.08"
 SDK = "org.freedesktop.Sdk"
@@ -141,7 +141,7 @@ def render_wrapper() -> str:
         "set -eu\n"
         "APPDIR=/app/am-configurator.AppDir\n"
         'if [ ! -x "$APPDIR/AppRun" ]; then\n'
-        '  echo "AM Configurator AppDir is missing under /app '
+        '  echo "OpenKeeb AppDir is missing under /app '
         '(missing AppRun)." >&2\n'
         "  exit 1\n"
         "fi\n"
@@ -155,7 +155,7 @@ def render_desktop() -> str:
         "[Desktop Entry]\n"
         "Type=Application\n"
         f"Name={DISPLAY_NAME}\n"
-        "Comment=Configure Angry Miao keyboards locally\n"
+        "Comment=Configure compatible AM, Vial, and VIA keyboards locally\n"
         f"Exec={COMMAND_NAME}\n"
         f"Icon={FLATPAK_APP_ID}\n"
         "Categories=Settings;HardwareSettings;\n"
@@ -169,14 +169,15 @@ def render_metainfo(inputs: FlatpakPackageInputs) -> str:
 <component type="desktop-application">
   <id>{FLATPAK_APP_ID}</id>
   <name>{DISPLAY_NAME}</name>
-  <summary>Standalone Angry Miao keyboard configurator</summary>
+  <summary>Local keyboard workbench for AM, Vial, and VIA</summary>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
   <description>
     <p>
-      Set up Angry Miao keyboards — keymaps, macros, and lighting — from one
-      app on your own computer. This package embeds the published Linux
-      AppImage from the project GitHub Releases.
+      Read and edit compatible AM, Vial, and VIA keyboard profiles locally.
+      Angry Miao devices include model-specific lighting tools; Vial and VIA
+      support is definition- or firmware-bound. This package embeds the
+      published Linux AppImage from the project GitHub Releases.
     </p>
   </description>
   <launchable type="desktop-id">{FLATPAK_APP_ID}.desktop</launchable>

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "am-configurator"
 dynamic = ["version"]
-description = "Standalone Angry Miao keyboard configurator"
+description = "OpenKeeb local keyboard workbench for AM, Vial, and VIA"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

@@ -2523,7 +2523,7 @@ def _native_audit_report() -> dict:
             _disable_macos_automatic_window_tabbing()
             webview.settings["ALLOW_DOWNLOADS"] = False
             window = webview.create_window(
-                "AM Configurator media framing audit",
+        "OpenKeeb media framing audit",
                 url,
                 width=AUDIT_VIEWPORTS[0][0],
                 height=AUDIT_VIEWPORTS[0][1],

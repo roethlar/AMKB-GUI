@@ -235,6 +235,11 @@ runtime exposed no browser instance during the H7b implementation check.
 
 ### H7c — packaging, docs, workflow display names, and screenshots
 
+Packaging, workflow, issue-form, package-manager display metadata, README, and
+current install-guide implementation landed 2026-08-17. Fresh screenshots
+remain coupled to the H7d rendered matrix because the in-app Browser runtime
+exposed no browser instance.
+
 1. Add failing packaging/release-info tests for OpenKeeb display and artifact
    names while asserting all reserved identifiers remain byte-for-byte stable.
 2. Update spec/build/install scripts and workflow display/path references.

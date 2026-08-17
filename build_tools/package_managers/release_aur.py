@@ -43,7 +43,7 @@ _AUR_PACKAGE_FILES = (
     "PKGBUILD",
     ".SRCINFO",
     "am-configurator.desktop",
-    "am-configurator.png",
+    "openkeeb.png",
     "60-am-neon-80.rules",
     "am-configurator.sh",
     f"{AUR_PACKAGE_NAME}.install",

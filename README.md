@@ -5,232 +5,221 @@
 <h1 align="center">OpenKeeb</h1>
 
 <p align="center">
-  A local, open workbench for Angry Miao, Vial, and VIA keyboards.
+  A local, open workbench for compatible Angry Miao, Vial, and VIA keyboards.
 </p>
 
 <p align="center">
   <a href="https://github.com/roethlar/AMKB-GUI/actions/workflows/ci.yml"><img src="https://github.com/roethlar/AMKB-GUI/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <a href="https://github.com/roethlar/AMKB-GUI/actions/workflows/desktop.yml"><img src="https://github.com/roethlar/AMKB-GUI/actions/workflows/desktop.yml/badge.svg" alt="Desktop installer status"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8358ff" alt="MIT license"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-8f70ff" alt="MIT license"></a>
 </p>
 
 > [!IMPORTANT]
-> OpenKeeb is the next major version and is currently in development on the
-> `v2/openkeeb` branch. The latest published installers are still branded
-> **AM Configurator 0.1.68**; no OpenKeeb release has been published yet.
+> OpenKeeb is the next major version and is under development on the
+> `v2/openkeeb` branch. The latest published installers are still
+> **AM Configurator 0.1.68**. No OpenKeeb release has been published.
 
 ## Download the latest published release
 
-Get the installer for your computer from the
-[latest release](https://github.com/roethlar/AMKB-GUI/releases/latest):
+Download AM Configurator 0.1.68 from the
+[latest GitHub Release](https://github.com/roethlar/AMKB-GUI/releases/latest):
 
-| Your computer | File to download |
+| Computer | Published file |
 |---|---|
 | macOS, Apple silicon | `AM-Configurator-<version>-macOS-arm64.dmg` |
 | Windows 11 x64 | `AM-Configurator-<version>-Windows-x64-Setup.exe` |
 | Linux x86-64 | `AM-Configurator-<version>-Linux-x86_64.AppImage` |
 
-The [GitHub Releases page](https://github.com/roethlar/AMKB-GUI/releases) is the
-only public installer source. Workflow artifacts are temporary candidates for
-maintainers, not downloads.
+The [GitHub Releases page](https://github.com/roethlar/AMKB-GUI/releases) is
+the only public installer source. Workflow artifacts are temporary development
+candidates, not releases. Current OpenKeeb source builds use these names:
 
-The macOS application is signed with an Apple Developer ID certificate and
-notarized by Apple, and the Windows executable and installer are signed through
-Azure Trusted Signing. Windows SmartScreen weighs how widely a signing
-certificate has been seen as well as whether it is valid, so it may still show a
-caution prompt while this certificate is new. The Linux AppImage is unsigned.
-[Installing AM Configurator](docs/installing.md) has the per-system steps for
-the currently published release; never
-turn off an operating system's security checks globally.
+- `OpenKeeb-<version>-macOS-arm64.dmg`
+- `OpenKeeb-<version>-Windows-x64-Setup.exe`
+- `OpenKeeb-<version>-Linux-x86_64.AppImage`
+
+[Installing the published release](docs/installing.md) covers hashes,
+signatures, and per-system installation. Never disable an operating system's
+security checks globally.
 
 Release notes are published with each GitHub Release.
 
-## Supported keyboards and operating systems
+## Keyboard support
 
-| Keyboard | Identifier | Layers and macros | Lighting |
+OpenKeeb supports explicit firmware ecosystems, not every USB keyboard.
+
+| Ecosystem | Discovery and profiles | Keymaps and macros | Lighting |
 |---|---|---|---|
-| CyberBoard | `CB…` | Up to 7 layers and 32 macros | Switch LEDs plus the 40×5 top display |
-| AM Relic 80 | USB `AM21`, profile `80` | Up to 7 layers and 32 macros | Per-key lights plus seven edge lights |
+| Angry Miao | CyberBoard, AM Relic 80, AM AFA/AFA 2, AM Neon 80 | Full current read, edit, and confirmed write workflow | Model-specific Studio tools for supported LEDs and displays |
+| Vial | Reads firmware identity and embedded layout from compatible Vial devices | Read, edit, transfer, physical-unlock guidance, confirmed write, exact read-back | Generic Vial lighting is not enabled yet |
+| VIA | Uses a matching VIA definition supplied by the user | Definition-bound read, edit, transfer, confirmed write, exact read-back | Automatic definition fetching and generic VIA lighting are not enabled yet |
+
+OpenKeeb does not flash firmware. It does not claim universal QMK, Vial, or VIA
+support. A keyboard must expose the protocol and information the selected
+workflow needs.
+
+Angry Miao lighting and physical layouts currently include:
+
+| Keyboard | Identifier | Keymap and macro limits | Lighting |
+|---|---|---|---|
+| CyberBoard | `CB…` | Up to 7 layers and 32 macros | Switch LEDs and 40×5 top display |
+| AM Relic 80 | USB `AM21`, profile `80` | Up to 7 layers and 32 macros | Per-key lights and seven edge lights |
 | AM AFA / AFA 2 | `ALICE` | Up to 7 layers and 32 macros | Alice key lights and centre body lights |
-| AM Neon 80 | `NEON80` | 87-key physical layout, four keymap layers, and 16 macros | 89 axial LEDs, a 46×5 head matrix, and side lights derived from it |
+| AM Neon 80 | `NEON80` | 87-key physical layout, four keymap layers, 16 macros | 89 axial LEDs, 46×5 head matrix, derived side lights |
 
-Each board draws on its own physical layout in the Keymap screen:
-
-<table>
-<tr>
-<td align="center" width="50%"><strong>CyberBoard</strong><br><img src="docs/images/board-cyberboard.png" alt="The Keymap screen showing the CyberBoard 75 percent layout"></td>
-<td align="center" width="50%"><strong>AM Relic 80</strong><br><img src="docs/images/board-relic80.png" alt="The Keymap screen showing the AM Relic 80 layout with its right-hand navigation column"></td>
-</tr>
-<tr>
-<td align="center" width="50%"><strong>AM AFA</strong><br><img src="docs/images/board-afa.png" alt="The Keymap screen showing the split ergonomic AM AFA layout"></td>
-<td align="center" width="50%"><strong>AM Neon 80</strong><br><img src="docs/images/board-neon80.png" alt="The Keymap screen showing the AM Neon 80 layout"></td>
-</tr>
-</table>
-
-The app runs on macOS (Apple silicon), Windows 11 x64, and Linux x86-64. On
-Linux the AM Neon 80 also needs a one-time permission rule — see
+AM Neon 80 on Linux needs a one-time host permission rule:
 [AM Neon 80 on Linux](docs/neon-80-linux.md).
-
-Firmware revisions differ between boards. Keep a complete portable JSON profile,
-or the original media needed to rebuild it, before your first write to a board
-or a firmware version you have not used before.
 
 ## Five-minute quick start
 
-1. **Install** the file for your computer and open **OpenKeeb**.
-2. **Plug in one keyboard** over USB. Close AM Master, Vial, VIA, QMK Toolbox,
-   and anything else that might be holding the board.
-3. Choose **Connect a keyboard**, pick your board under **Devices**, then choose
-   **Read keymap & macros**. Reading never writes to the keyboard. Already have a
-   profile saved? Choose **Open a JSON profile** instead.
-4. **Make a change.** On **Keymap**, select a physical key and give it a new
-   assignment. On **Lighting**, paint a frame and watch it in the Studio.
-5. **Save JSON** to keep a portable backup of everything you just did.
-6. Choose **Write to keyboard** — it names your board once one is connected, for
-   example **Write to NEON80**. Type the device ID the dialog shows you, then
-   choose **Write full configuration**. An AM Neon 80 also needs its physical
-   Esc+F2 unlock.
+1. Open **OpenKeeb** from a source or development build.
+2. Choose **Connect a keyboard** for hardware, or **Open a profile** for
+   document-only work.
+3. Under **Keyboards**, select the exact interface. VIA asks for a matching
+   definition before **Read keymap & macros**.
+4. Edit the **Keymap**. Angry Miao profiles also expose **Macros** and
+   model-specific **Lighting Studio** tools.
+5. Choose **Save profile** before any hardware action.
+6. Choose **Write to keyboard** only when the exact connected target is shown.
+   Review the preflight, save the backup, type the required confirmation, and
+   choose **Write full configuration** for an Angry Miao profile. Keep USB
+   connected through read-back verification.
+
+Reading, selecting, opening, editing, and saving a file do not write to a
+keyboard.
 
 ## What it looks like
 
-![The Keymap screen: a keyboard-shaped layout with one physical key selected and its assignment list open beside it](docs/images/keymap.png)
+<table>
+  <tr>
+    <td align="center" width="50%"><strong>CyberBoard keymap</strong><br><img src="docs/images/board-cyberboard.png" alt="CyberBoard physical keyboard in the OpenKeeb keymap workspace"></td>
+    <td align="center" width="50%"><strong>AM Relic 80 keymap</strong><br><img src="docs/images/board-relic80.png" alt="AM Relic 80 physical keyboard in the OpenKeeb keymap workspace"></td>
+  </tr>
+  <tr>
+    <td align="center" width="50%"><strong>AM AFA keymap</strong><br><img src="docs/images/board-afa.png" alt="AM AFA physical keyboard in the OpenKeeb keymap workspace"></td>
+    <td align="center" width="50%"><strong>AM Neon 80 keymap</strong><br><img src="docs/images/board-neon80.png" alt="AM Neon 80 physical keyboard in the OpenKeeb keymap workspace"></td>
+  </tr>
+</table>
 
-*Keymap — select a physical key, then choose what it should send.*
+![The OpenKeeb Keymap workspace with a keyboard-shaped board, assignment palette, and inspector](docs/images/keymap.png)
 
-![The Lighting Studio: the physical LED output, a horizontal animation timeline, and the Paint, Import media, and Effects tools](docs/images/lighting.png)
+*Keymap keeps the board central and the selected-key inspector subordinate.*
 
-*Lighting — edit a slot directly, or preview a media or effect result before applying it to the open profile.*
+![The OpenKeeb Lighting Studio with board preview, timeline, and editing tools](docs/images/lighting.png)
 
-![The Macros screen: a macro list and the Text entry editor with its Fast, Slow, and Natural timing choices](docs/images/macros.png)
+*Lighting Studio applies model-specific Angry Miao capabilities to the open
+document; it does not imply generic Vial or VIA lighting support.*
 
-*Macros — type the text you want, or record the keys you press.*
+![The OpenKeeb Macros workspace with macro list and Text entry editor](docs/images/macros.png)
+
+*Macros exposes Text entry, Flow, Repeat, recording, and the connected model's
+real capacity.*
 
 ## What you can do
 
 ### Keymap
 
-Select a physical key on a keyboard-shaped layout, then assign a normal QWERTY
-key, one of your macros, or an Angry Miao control such as under-key and top
-display lighting. Every layer in the profile stays available, and each supported
-model keeps its real shape rather than a grid of matrix numbers. If you need the
-firmware-level value, **Advanced keycode** and **Show technical labels** are one
-click away and round-trip whatever the keyboard reported.
+Select a physical key and assign a portable QMK choice or a model-specific
+control. Vial and VIA documents retain exact 16-bit codes that OpenKeeb does not
+recognize. **Advanced keycode** and **Show technical labels** expose firmware
+values without making them the normal path. Cross-keyboard transfer reports
+what carried over, what adapted, and what still needs a placement decision.
 
 ### Macros
 
-**Text entry** turns typed text into the exact keystrokes the keyboard replays,
-with one timing choice: Fast, Slow, or Natural — a WPM target or your own
-captured cadence. **Flow** edits the macro event by event — key, down/up, and
-pause in place — and combos such as Ctrl+Alt+Del are built or recorded as
-ordinary rows. **Repeat** appends a repeated key press and quotes the capacity
-cost before anything changes. **Record keys** captures a sequence as you press
-it. The editor shows the selected keyboard's own macro capacity instead of
-assuming one budget for every model.
+Angry Miao macro authoring offers **Text entry**, **Flow**, **Repeat**, and
+**Record keys**. Capacity uses the selected model's actual encoding budget.
+OpenKeeb preserves generic Vial/VIA macro data and can transfer it, but generic
+macro authoring is not enabled yet.
 
 ### Lighting
 
-The Lighting Studio has three manual tools. **Paint** colours individual lights
-directly on the physical LED output, with one shared horizontal timeline.
-**Import media** brings in GIF, PNG, BMP, and JPEG files and keeps the source frame and
-what the keyboard will show together while you pan, zoom, or stretch. **Effects**
-shows Pulse, Hue cycle, Sweep, Shimmer, and Move & zoom as a live draft. Imported
-media and effects change the open profile only when you choose **Apply**; **Save
-to Library** remains separate. Timing choices are limited to values the destination
-firmware can actually play.
+The Angry Miao Lighting Studio provides **Paint**, **Import media**, and
+**Effects**. Import GIF, PNG, BMP, and JPEG media, then pan, zoom, or stretch it for
+the destination. Built-in effects include Pulse, Hue cycle, Sweep, Shimmer,
+and Move & zoom. Source and board previews, the shared timeline, and **Apply**
+all change the open document only. Generic Vial and VIA lighting is not
+enabled. Some AM firmware cannot read lighting back, so a device read is not
+always a lighting backup.
 
 ### Library
 
-**Save to Library** keeps a reusable copy of a keymap, a macro set, imported
-media, or a lighting slot. Applying something changes only the document you have
-open; saving to Library is always its own labelled action, so nothing is stored
-behind your back. Removal is reversible. When you open a profile, keymap, macro,
-and lighting compatibility are shown separately, so you can take only the parts
-the destination keyboard can safely accept — and if a Relic export arrived as a
-separate key file and LED file, **Merge** brings the second one in. **Settings**
-chooses which folder on your computer holds the Library.
+The OpenKeeb Library stores reusable profiles, keymaps, macro sets, imported
+media, and lighting locally. **Save to Library** is always explicit. **Merge**
+combines split Angry Miao exports when safe. **Settings** chooses the Library
+folder. Removing an item is reversible before permanent deletion.
 
 ## Before you write to a keyboard
 
-Selecting a keyboard, or reading one, never changes it. Writing does.
+Selecting or reading a keyboard never changes it. Writing does.
 
-- A confirmed full write replaces keymaps, macros, and LED data on the board, so
-  the app asks you to type the device ID before it starts. Keep the USB cable
-  connected until verification finishes. Firmware itself is never modified.
-- After a write, the keymap and macros are read back and checked. Lighting is
-  verified by eye on boards whose firmware cannot report its lights.
-- Some keyboards cannot read their lighting back at all. Neon firmware does not
-  expose LED read-back, so a device read is **not** a lighting backup. Use **Save
-  JSON** and keep a complete profile — plus the original media if you imported
-  any — before the first write, and take that file with you when you move to
-  another computer.
+- Document actions and keyboard actions are separate in the command bar.
+- An Angry Miao full write replaces keymaps, macros, and LED data carried by
+  the open profile.
+- Vial and VIA writes require a freshly read live binding to the exact endpoint.
+- VIA also requires the user-supplied definition used for the read.
+- Angry Miao full writes show the exact product and affected content.
+- The confirmation asks you to type the device ID shown before an Angry Miao
+  write can begin.
+- AM Neon 80 requires the physical Esc+F2 unlock.
+- The app asks for an exact typed confirmation and creates a portable backup.
+- Keymaps and macros are read back after writing. Accepted-byte failures switch
+  to read/verify and never resend automatically.
+- Firmware is never flashed.
+- AM Neon 80 firmware does not expose LED read-back.
+- Lighting that firmware cannot report must be verified visually. Keep the full
+  profile and any imported source media.
 
 ## Verify your download
 
-Every release publishes `SHA256SUMS.txt` and a `release-manifest.json` beside
-the installers, and the macOS and Windows downloads carry a publisher signature
-you can check yourself. [Installing AM Configurator](docs/installing.md) walks
-through the SHA-256 digest, the signature, and opening the app on each operating
-system. Signed release files carry no GitHub build attestation, so
-`gh attestation verify` reports none for them.
+Published releases include `SHA256SUMS.txt` and
+`release-manifest.json`. macOS and Windows downloads carry publisher
+signatures; the Linux AppImage is unsigned. The published 0.1.68 release files
+carry no GitHub build attestation.
 
-## Upgrading from a release with AI features
+[Installing the published release](docs/installing.md) explains SHA-256,
+signature checks, and normal operating-system opening steps.
 
-Releases up to 0.1.68 offered optional AI providers. If you ever saved a
-provider API key in one of those releases, the key sits in your operating
-system's credential store under the service name `dev.amconfigurator.ai`
-(one entry per provider: `xai`, `anthropic`, `openai`, `gemini`, `moonshot`,
-`deepseek`). This release no longer reads or deletes those entries, so remove
-any you saved yourself:
+## Upgrading from releases with AI features
 
-- **macOS** — open Keychain Access, search for `dev.amconfigurator.ai`, and
-  delete each item; or run
-  `security delete-generic-password -s dev.amconfigurator.ai` in Terminal,
-  repeating until it reports no matching item.
-- **Windows** — open Credential Manager → Windows Credentials and remove every
-  entry whose name contains `dev.amconfigurator.ai`.
-- **Linux** — run `secret-tool clear service dev.amconfigurator.ai`, or delete
-  the entries with your keyring app (for example GNOME Passwords and Keys).
+Releases through 0.1.68 offered optional AI providers. OpenKeeb does not read
+those credentials. If you saved one, remove it from the operating-system
+credential store under service `dev.amconfigurator.ai`:
 
-If you never saved an API key, there is nothing to remove.
+- **macOS:** open Keychain Access, search for `dev.amconfigurator.ai`, and
+  delete each provider entry.
+- **Windows:** open Credential Manager → Windows Credentials and remove entries
+  whose name contains `dev.amconfigurator.ai`.
+- **Linux:** run `secret-tool clear service dev.amconfigurator.ai` for each
+  saved entry, or remove it with your desktop's Passwords and Keys app.
+
+The identifier is retained here because it is the historical credential-service
+name users must search for.
 
 ## For developers
 
 <details>
-<summary><strong>Run from source, build installers, and verify</strong></summary>
+<summary><strong>Set up, run, test, and package</strong></summary>
 
-Python 3.11 or newer and [uv](https://docs.astral.sh/uv/) are required:
+OpenKeeb requires Python 3.11 or newer and
+[`uv`](https://docs.astral.sh/uv/):
 
 ```sh
 uv sync --extra desktop
 uv run --extra desktop am-configurator
 ```
 
-Files named on the command line are opened, and merged, at launch. Relic key and
-LED exports are often separate:
+`am-configurator` is the retained compatibility command and PyPI
+distribution name. Files named on the command line open or merge at launch.
 
-```sh
-uv run --extra desktop am-configurator AM-80Relic.json AM-80Relic-KEY.json
-```
-
-The interface runs in a native window backed by a token-authenticated loopback
-server.
-
-PyInstaller must run on the target operating system; it is not a
-cross-compiler. From the repository root, build and smoke-test the installer for
-the current operating system with:
+Build and smoke-test the native installer for the current operating system:
 
 ```sh
 python build.py
 ```
 
-Add `--skip-sync` when the environment is already prepared. The script builds
-the canonical application version and writes the finished artifact to `dist/`: a
-versioned DMG on macOS, an Inno Setup installer on Windows, or an AppImage on
-Linux. Local and GitHub builds use the same product version; workflow run
-numbers and commit IDs are diagnostic metadata only.
-
-Windows installer packaging requires Inno Setup 6. It does not require Visual
-Studio Build Tools, a C/C++ compiler, or a separate native media toolchain.
+Use `--skip-sync` when the environment is already prepared. PyInstaller
+must run on the target operating system.
 
 The automated verification entry point is:
 
@@ -244,24 +233,23 @@ node --check am_configurator/web/lighting_review.js
 node --check am_configurator/web/lighting_targets.js
 node --check am_configurator/web/lighting_composer.js
 node --check am_configurator/web/library_state.js
+node --check am_configurator/web/hub_keymap_state.js
+node --check am_configurator/web/hub_keycode_palette.js
 node --check am_configurator/web/app.js
 uv build
 ```
-
-This matches the CI workflow. `uv sync --locked` installs no extras, so a change
-touching optional-dependency code should also be checked in an environment built
-without `--extra desktop`.
 
 </details>
 
 ## Project status
 
-OpenKeeb is independent community software and is not affiliated with or
-endorsed by Angry Miao. Its CyberBoard keymap and LED frame protocol handling was
-derived from the MIT-licensed
-[`GeneralD/cyberboard-cli`](https://github.com/GeneralD/cyberboard-cli) project;
-GeneralD's copyright and license are preserved in
-[`licenses/cyberboard-cli-LICENSE.txt`](licenses/cyberboard-cli-LICENSE.txt), and
+OpenKeeb is an independent open-source community project. It is not affiliated
+with or endorsed by Angry Miao, Vial, VIA, or their vendors or maintainers.
+
+CyberBoard protocol handling was derived from the MIT-licensed
+[`GeneralD/cyberboard-cli`](https://github.com/GeneralD/cyberboard-cli)
+project. GeneralD's copyright and license are preserved in
+[`licenses/cyberboard-cli-LICENSE.txt`](licenses/cyberboard-cli-LICENSE.txt);
 all bundled third-party notices are listed in
 [`THIRD_PARTY_NOTICES`](THIRD_PARTY_NOTICES).
 

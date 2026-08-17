@@ -20,7 +20,7 @@ from build_tools.package_managers.common import (
 # D2 identifiers (decision 2026-08-08).
 AUR_PACKAGE_NAME = "am-configurator-bin"
 COMMAND_NAME = "am-configurator"
-DISPLAY_NAME = "AM Configurator"
+DISPLAY_NAME = "OpenKeeb"
 PKGREL = 1
 LICENSE_ID = "MIT"
 
@@ -29,7 +29,7 @@ _ICON_RELATIVE = Path("assets/openkeeb-512.png")
 _UDEV_RELATIVE = Path("am_configurator/data/60-am-neon-80.rules")
 
 _LOCAL_DESKTOP = "am-configurator.desktop"
-_LOCAL_ICON = "am-configurator.png"
+_LOCAL_ICON = "openkeeb.png"
 _LOCAL_UDEV = "60-am-neon-80.rules"
 _LOCAL_INSTALL = f"{AUR_PACKAGE_NAME}.install"
 _LOCAL_WRAPPER = "am-configurator.sh"
@@ -119,7 +119,7 @@ def render_pkgbuild(inputs: AurPackageInputs) -> str:
         f"pkgname={AUR_PACKAGE_NAME}",
         f"pkgver={inputs.version}",
         f"pkgrel={PKGREL}",
-        f"pkgdesc='Standalone Angry Miao keyboard configurator'",
+        f"pkgdesc='Local OpenKeeb workbench for AM, Vial, and VIA keyboards'",
         "arch=('x86_64')",
         f"url='{inputs.homepage}'",
         f"license=('{LICENSE_ID}')",
@@ -152,7 +152,7 @@ def render_pkgbuild(inputs: AurPackageInputs) -> str:
         f'  install -Dm644 "${{srcdir}}/{_LOCAL_DESKTOP}" \\',
         f'    "${{pkgdir}}/usr/share/applications/{_LOCAL_DESKTOP}"',
         f'  install -Dm644 "${{srcdir}}/{_LOCAL_ICON}" \\',
-        f'    "${{pkgdir}}/usr/share/icons/hicolor/512x512/apps/{COMMAND_NAME}.png"',
+        f'    "${{pkgdir}}/usr/share/icons/hicolor/512x512/apps/{_LOCAL_ICON}"',
         f'  install -Dm644 "${{srcdir}}/{_LOCAL_UDEV}" \\',
         f'    "${{pkgdir}}/usr/lib/udev/rules.d/{_LOCAL_UDEV}"',
         "}",
@@ -167,7 +167,7 @@ def render_srcinfo(inputs: AurPackageInputs) -> str:
     source_appimage = f"{inputs.appimage_filename}::{inputs.appimage_url}"
     rows = [
         f"pkgbase = {AUR_PACKAGE_NAME}",
-        f"\tpkgdesc = Standalone Angry Miao keyboard configurator",
+        f"\tpkgdesc = Local OpenKeeb workbench for AM, Vial, and VIA keyboards",
         f"\tpkgver = {inputs.version}",
         f"\tpkgrel = {PKGREL}",
         f"\turl = {inputs.homepage}",

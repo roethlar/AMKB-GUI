@@ -1,13 +1,13 @@
 # AM Neon 80 on Linux
 
 The AM Neon 80 is reached over raw HID rather than a serial port. On Linux the
-kernel exposes that interface as a `hidraw` node owned by root, so AM
-Configurator cannot open it as a normal desktop user until a udev rule grants
+kernel exposes that interface as a `hidraw` node owned by root, so OpenKeeb
+cannot open it as a normal desktop user until a udev rule grants
 access. macOS and Windows need no equivalent step.
 
 If the application reports *"Permission denied opening the keyboard"*, this page
-is the fix. See [Installing AM Configurator](installing.md) for AppImage hash,
-provenance, and first-launch checks.
+is the fix. See [installing the published release](installing.md) for the 0.1.68
+AppImage hash, provenance, and first-launch checks.
 
 ## Install the rule
 
@@ -28,6 +28,12 @@ the write itself and leaves the application running unprivileged.
 
 ```sh
 ./AM-Configurator-0.1.68-Linux-x86_64.AppImage --print-udev-rule | sudo tee /etc/udev/rules.d/60-am-neon-80.rules >/dev/null
+```
+
+An OpenKeeb development AppImage uses the same option:
+
+```sh
+./OpenKeeb-0.1.68-Linux-x86_64.AppImage --print-udev-rule | sudo tee /etc/udev/rules.d/60-am-neon-80.rules >/dev/null
 ```
 
 **Wheel or source install:**
@@ -80,8 +86,8 @@ error, and that the keyboard was replugged afterwards.
 ## If it still fails
 
 - **Another application holds the device.** AM Master, Vial, VIA, QMK Toolbox,
-  or a second copy of AM Configurator can claim the raw HID interface
-  exclusively. Close it and retry; the application reports this case separately
+  or a second copy of OpenKeeb (or legacy AM Configurator) can claim the raw
+  HID interface exclusively. Close it and retry; the application reports this case separately
   from a permission problem.
 - **Flatpak or Snap sandboxing.** A confined package may not see `/dev/hidraw*`
   regardless of udev. Use the verified AppImage from the GitHub Release when a

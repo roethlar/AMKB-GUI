@@ -55,7 +55,7 @@ def _add_repo_root(parser: argparse.ArgumentParser) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Package-manager release tools for AM Configurator."
+        description="Package-manager release tools for OpenKeeb."
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

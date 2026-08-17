@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=OpenKeeb
-Comment=Configure Angry Miao keyboards locally
+Comment=Configure compatible AM, Vial, and VIA keyboards locally
 Exec=am-configurator
-Icon=am-configurator
+Icon=openkeeb
 Categories=Settings;
 Terminal=false

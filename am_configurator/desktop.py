@@ -783,7 +783,7 @@ def _print_udev_rule() -> int:
     Python cannot import it to ask where it is. Contents on stdout work
     identically for a wheel install, an AppImage, and a source checkout:
 
-        sudo ./AM_Configurator.AppImage --print-udev-rule \\
+        sudo ./OpenKeeb.AppImage --print-udev-rule \\
             > /etc/udev/rules.d/60-am-neon-80.rules
     """
 
