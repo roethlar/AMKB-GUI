@@ -1,10 +1,11 @@
 # OpenKeeb v2 H6 — capability-honest Vial/VIA lighting through the hub
 
-Status: **DRAFT; implementation not authorized.** The owner authorized drafting
-this bounded plan on 2026-08-17, not product-code implementation or a hardware
-write. One owner approval may authorize continuous fixture-backed execution of
-H6a through H6e under the standing technical delegation in
-`.agents/decisions.md`. H6f always requires a new explicit hardware action.
+Status: **APPROVED for continuous fixture-backed H6a–H6e implementation** by
+the owner on 2026-08-17 (`go`). Product code, tests, records, rendered fake-HID
+verification, native verification, and local commits may proceed without
+per-slice approval under the standing technical delegation in
+`.agents/decisions.md`. H6f physical hardware activity, push, release, public
+identifiers, and spending remain separately owner-gated.
 
 ## Objective
 

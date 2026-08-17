@@ -1,5 +1,20 @@
 # Repository Decisions
 
+## 2026-08-17 — H6 fixture-backed implementation approved; hardware remains gated
+
+Status: owner-approved in-session on 2026-08-17. After the bounded H6 plan was
+committed, the owner approved the recommended continuous H6a–H6e implementation
+with `go`.
+
+- The cold implementation contract is
+  `docs/superpowers/plans/2026-08-17-openkeeb-v2-h6-lighting.md`.
+- Approval covers product code, tests, records, rendered fake-HID verification,
+  native verification, and local commits for H6a through H6e without
+  phase-by-phase owner check-ins.
+- H6f physical keyboard writes or VialRGB streaming, push, release,
+  publication, public/deep identifiers, spending, and history rewrites remain
+  separately owner-gated.
+
 ## 2026-08-16 — H3 VIA write planning approved; live write remains gated
 
 Status: owner-approved in-session on 2026-08-16. After H3's generic read-only
