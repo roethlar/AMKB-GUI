@@ -50,6 +50,7 @@ _STATIC = {
     "/lighting_targets.js": "lighting_targets.js",
     "/lighting_composer.js": "lighting_composer.js",
     "/library_state.js": "library_state.js",
+    "/hub_keymap_state.js": "hub_keymap_state.js",
     "/icon.png": "icon.png",
     "/style.css": "style.css",
 }
@@ -2499,6 +2500,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self._export_profile(body)
             elif path == "/api/hub/export":
                 self._hub_export(body)
+            elif path == "/api/hub/open":
+                self._hub_open(body)
+            elif path == "/api/hub/save":
+                self._hub_save(body)
             elif path == "/api/hub/overlay":
                 self._hub_overlay(body)
             elif path == "/api/hub/apply":
@@ -2713,6 +2718,31 @@ class _Handler(BaseHTTPRequestHandler):
             raise ValueError(str(exc)) from exc
         self._json({"profile": profile})
 
+    def _hub_open(self, body: dict[str, Any]) -> None:
+        """Parse untrusted hub bytes through the canonical document loader."""
+
+        from . import hub_profile
+
+        self._strict_body(body, allowed={"data"}, required={"data"})
+        payload = _decode_import_data(body["data"])
+        try:
+            profile = hub_profile.loads_hub_profile(payload)
+        except hub_profile.HubProfileError as exc:
+            raise ValueError(str(exc)) from exc
+        self._json({"profile": profile})
+
+    def _hub_save(self, body: dict[str, Any]) -> None:
+        """Return canonical UTF-8 hub text without browser serialization."""
+
+        from . import hub_profile
+
+        self._strict_body(body, allowed={"profile"}, required={"profile"})
+        try:
+            data = hub_profile.dumps_hub_profile(body["profile"])
+        except hub_profile.HubProfileError as exc:
+            raise ValueError(str(exc)) from exc
+        self._json({"data": data})
+
     def _hub_overlay(self, body: dict[str, Any]) -> None:
         """Build H4's target-shaped first pass without opening a device."""
 
@@ -2772,12 +2802,18 @@ class _Handler(BaseHTTPRequestHandler):
         if not isinstance(address, str) or not address:
             raise ValueError("A Vial endpoint address is required.")
         try:
-            profile = self.state.device_io(
-                lambda: vial_transport.read_hub_profile(address)
+            document = self.state.device_io(
+                lambda: vial_transport.read_hub_document(address)
             )
         except (hid_transport.HidError, vial_keymap.KeyboardLocked) as error:
             raise self._vial_api_error(error) from error
-        self._json({"profile": profile})
+        self._json(
+            {
+                "device": document.device,
+                "profile": document.profile,
+                "layout": document.layout,
+            }
+        )
 
     def _via_hub_read(self, body: dict[str, Any]) -> None:
         from . import hid_transport, via_transport
@@ -2791,14 +2827,20 @@ class _Handler(BaseHTTPRequestHandler):
         if not isinstance(address, str) or not address:
             raise ValueError("A VIA endpoint address is required.")
         try:
-            profile = self.state.device_io(
-                lambda: via_transport.read_hub_profile(
+            document = self.state.device_io(
+                lambda: via_transport.read_hub_document(
                     address, body["definition"]
                 )
             )
         except hid_transport.HidError as error:
             raise ValueError(str(error)) from error
-        self._json({"profile": profile})
+        self._json(
+            {
+                "device": document.device,
+                "profile": document.profile,
+                "layout": document.layout,
+            }
+        )
 
     def _via_hub_preflight(self, body: dict[str, Any]) -> None:
         from . import hid_transport, via_transport

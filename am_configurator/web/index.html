@@ -28,6 +28,8 @@
       <input id="merge-input" type="file" accept="application/json,.json" multiple hidden>
       <input id="macro-import-input" type="file" accept="application/json,.json" hidden>
       <input id="hub-import-input" type="file" accept="application/json,.json" hidden>
+      <input id="hub-open-input" type="file" accept="application/json,.hub.json" hidden>
+      <input id="via-definition-input" type="file" accept="application/json,.json" hidden>
     </header>
 
     <section id="compatibility-banner" class="compatibility-banner" role="status" aria-live="polite" hidden>
@@ -213,7 +215,7 @@
   <dialog id="device-dialog" class="dialog">
     <form method="dialog" class="dialog-card">
       <div class="dialog-header">
-        <div><p class="eyebrow">USB serial</p><h2>Connected keyboards</h2></div>
+        <div><p class="eyebrow">USB keyboards</p><h2>Connected keyboards</h2></div>
         <button class="dialog-close" value="cancel" aria-label="Close">×</button>
       </div>
       <div id="device-list" class="device-list"><div class="loader"></div></div>
@@ -232,6 +234,7 @@
       </div>
       <p class="dialog-note">A hub profile is the portable format: export this document to a file, or import one saved from any keyboard. Importing shows exactly what carried over, what was adapted, and what could not fit. Nothing touches a keyboard until you Write.</p>
       <div class="device-actions">
+        <button id="hub-open" type="button" class="button ghost">Open hub document</button>
         <button id="hub-export" type="button" class="button ghost">Export this document</button>
         <button id="hub-import" type="button" class="button primary">Import onto this keyboard…</button>
       </div>
@@ -313,6 +316,7 @@
   <script src="/lighting_targets.js"></script>
   <script src="/lighting_composer.js"></script>
   <script src="/library_state.js"></script>
+  <script src="/hub_keymap_state.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

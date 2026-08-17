@@ -23,6 +23,7 @@ node --check am_configurator/web/lighting_review.js
 node --check am_configurator/web/lighting_targets.js
 node --check am_configurator/web/lighting_composer.js
 node --check am_configurator/web/library_state.js
+node --check am_configurator/web/hub_keymap_state.js
 node --check am_configurator/web/app.js
 uv build
 ```

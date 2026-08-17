@@ -474,6 +474,17 @@ class GenericViaTransportTests(unittest.TestCase):
         self.assertTrue({0x01, 0x02, 0x0C, 0x0D, 0x0E, 0x11, 0x12} <= commands)
         self.assertFalse(commands & {0x03, 0x05, 0x0F, 0x13})
 
+    def test_editor_document_comes_from_one_read_only_snapshot(self) -> None:
+        document = via_transport.read_hub_document(self.address, self.definition)
+
+        self.assertEqual(self.address, document.device["address"])
+        self.assertTrue(document.device["definition_required"])
+        self.assertEqual("Fixture VIA Pad", document.profile["identity"]["family"])
+        self.assertEqual("K_R0_C0", document.layout[0]["key"])
+        self.assertEqual(0, document.layout[0]["matrix_row"])
+        self.assertEqual(0, document.layout[0]["matrix_col"])
+        self.assertEqual(set(), self._setters(self.backend.commands))
+
     def test_wrong_definition_is_refused_before_opening(self) -> None:
         wrong = copy.deepcopy(self.definition)
         wrong["productId"] = "0x0001"
@@ -769,6 +780,19 @@ class GenericViaTransportTests(unittest.TestCase):
                 )
                 self.assertEqual(200, status)
                 self.assertEqual("Fixture VIA Pad", read["profile"]["identity"]["family"])
+                self.assertEqual(self.address, read["device"]["address"])
+                self.assertTrue(read["device"]["definition_required"])
+                self.assertEqual("K_R0_C0", read["layout"][0]["key"])
+                self.assertEqual(0, read["layout"][0]["matrix_row"])
+                self.assertEqual(0, read["layout"][0]["matrix_col"])
+
+                self.backend.commands.clear()
+                status, missing_definition = request(
+                    "POST", "/api/hub/via/read", {"address": self.address}
+                )
+                self.assertEqual(400, status)
+                self.assertIn("unsupported fields", missing_definition["error"])
+                self.assertEqual([], self.backend.commands)
 
                 status, preflight = request(
                     "POST",

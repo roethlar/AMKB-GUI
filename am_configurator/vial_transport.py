@@ -49,6 +49,15 @@ class PreparedVialWrite:
 
 
 @dataclass(frozen=True)
+class HubDocument:
+    """One browser editor document derived from one live snapshot."""
+
+    device: dict[str, Any]
+    profile: dict[str, Any]
+    layout: tuple[dict[str, int | float | str], ...]
+
+
+@dataclass(frozen=True)
 class VialWriteReceipt:
     """Exact accepted byte counts plus the planner's transfer report."""
 
@@ -177,9 +186,33 @@ def read_snapshot(address: str) -> hub_vial.VialSnapshot:
     return _read_snapshot(hid_transport.find_vial(address))
 
 
+def _editor_layout(
+    snapshot: hub_vial.VialSnapshot,
+) -> tuple[dict[str, int | float | str], ...]:
+    return tuple(
+        {
+            **item,
+            "key": f"K_R{item['matrix_row']}_C{item['matrix_col']}",
+        }
+        for item in snapshot.key_layout
+    )
+
+
+def read_hub_document(address: str, *, origin: str = "device") -> HubDocument:
+    """Read one endpoint once and derive its profile and active geometry."""
+
+    endpoint = hid_transport.find_vial(address)
+    snapshot = _read_snapshot(endpoint)
+    return HubDocument(
+        device=device_json(endpoint),
+        profile=hub_vial.build_hub_profile(snapshot, origin=origin),
+        layout=_editor_layout(snapshot),
+    )
+
+
 def read_hub_profile(address: str, *, origin: str = "device") -> dict[str, Any]:
     """Read one Vial keyboard directly into the common hub profile."""
-    return hub_vial.build_hub_profile(read_snapshot(address), origin=origin)
+    return read_hub_document(address, origin=origin).profile
 
 
 def prepare_write(address: str, profile: object) -> PreparedVialWrite:

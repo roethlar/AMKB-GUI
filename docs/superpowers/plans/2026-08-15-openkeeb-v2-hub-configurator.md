@@ -254,10 +254,9 @@ close H3a/H3b as fixture-backed only and leave H3c open.
 
 ### H5 implementation contract — one editor, honest overlay worklist
 
-Status: bounded planning was authorized by the owner on 2026-08-16 ("go" to
-the proposed planning action). This section is the cold implementation
-contract; that go did not authorize H5 code. H5a begins only on a subsequent
-explicit go.
+Status: bounded planning was authorized by the owner on 2026-08-16. The owner
+subsequently authorized H5a implementation, which landed in this commit. H5b
+and every later H5 slice still require their own explicit go.
 
 H5 extends the existing Keymap workspace rather than introducing a second
 configurator. The board stays the primary surface, the assignment palette stays
@@ -287,6 +286,19 @@ second persistent profile database.
    QMK/XAP support.
 
 #### H5a — editor document, geometry, and read-only connection seam
+
+Landing evidence (2026-08-16): complete. `hub_keymap_state.js` is a pure,
+immutable generic document reducer; `app.js` adapts AM-native and hub documents
+into the existing Keymap workspace. Vial/VIA reads return endpoint metadata,
+profile, and canonical-key geometry from one snapshot. Devices discovery keeps
+AM, Vial, and VIA interfaces explicit; VIA waits for a user-imported definition.
+Authenticated `/api/hub/open` and `/api/hub/save` use the canonical Python
+loader/dumper, so endpoint paths, imported definitions, and geometry stay out of
+saved hub profiles. New H5a hardware flow is read-only and sends no setter.
+Verification passed 725 Python tests, 195 web tests, compile and JavaScript
+checks, and `uv build`. The in-app browser runtime was unavailable, so no extra
+interactive smoke pass was recorded.
+
 
 1. Add a pure browser module `am_configurator/web/hub_keymap_state.js`. Its
    immutable reducer owns a generic document's validated profile, target binding

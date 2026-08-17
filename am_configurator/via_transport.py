@@ -58,6 +58,15 @@ class PreparedViaWrite:
 
 
 @dataclass(frozen=True)
+class HubDocument:
+    """One browser editor document derived from one live snapshot."""
+
+    device: dict[str, Any]
+    profile: dict[str, Any]
+    layout: tuple[dict[str, int | float | str], ...]
+
+
+@dataclass(frozen=True)
 class ViaWriteReceipt:
     """Exact accepted byte counts and planner transfer report."""
 
@@ -210,14 +219,38 @@ def read_snapshot(address: str, definition: object) -> hub_via.ViaSnapshot:
     return _read_snapshot(resolve_device(address, definition))
 
 
+def _editor_layout(
+    snapshot: hub_via.ViaSnapshot,
+) -> tuple[dict[str, int | float | str], ...]:
+    return tuple(
+        {
+            **item,
+            "key": f"K_R{item['matrix_row']}_C{item['matrix_col']}",
+        }
+        for item in snapshot.key_layout
+    )
+
+
+def read_hub_document(
+    address: str, definition: object, *, origin: str = "device"
+) -> HubDocument:
+    """Resolve one endpoint and derive its profile and active geometry."""
+
+    resolved = resolve_device(address, definition)
+    snapshot = _read_snapshot(resolved)
+    return HubDocument(
+        device=device_json(resolved.endpoint),
+        profile=hub_via.build_hub_profile(snapshot, origin=origin),
+        layout=_editor_layout(snapshot),
+    )
+
+
 def read_hub_profile(
     address: str, definition: object, *, origin: str = "device"
 ) -> dict[str, Any]:
     """Read one VIA keyboard directly into the common hub profile."""
 
-    return hub_via.build_hub_profile(
-        read_snapshot(address, definition), origin=origin
-    )
+    return read_hub_document(address, definition, origin=origin).profile
 
 
 def prepare_write(

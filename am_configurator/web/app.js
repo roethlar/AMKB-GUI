@@ -25,6 +25,7 @@ const {
   normalizeProfileSections,
   reduceMediaDraft,
 } = LibraryState;
+const {createHubKeymapState,reduceHubKeymapState}=HubKeymapState;
 const LIGHTING_SESSION_KEY = "am-lighting-session";
 let activePaintStrokeController = null;
 let activeSourceTransformController = null;
@@ -74,6 +75,7 @@ let lightingWorkspace = createLightingWorkspace({
 
 const state = {
   config: null,
+  hubEditor: null,
   documentRevision: null,
   documentSyncEpoch: 0,
   documentSyncing: false,
@@ -125,6 +127,7 @@ const state = {
   devices: [],
   selectedDevice: null,
   loadedDevice: null,
+  pendingViaDevice: null,
   deviceDocuments: new Map(),
   pendingWrite: null,
   capabilities: null,
@@ -476,6 +479,13 @@ function mutate(fn, rerender = true, {preserveEffectDraft = false} = {}) {
 }
 
 function undo() {
+  if(state.hubEditor){
+    state.hubEditor=reduceHubKeymapState(state.hubEditor,{type:"UNDO"});
+    state.dirty=state.hubEditor.dirty;
+    updateMeta();
+    renderScreen();
+    return;
+  }
   if (!state.undo.length || !state.config) return;
   if(lightingWorkspace.effect_draft)cancelLocalAnimationDraft({render:false});
   state.transientLightingPreview=null;
@@ -487,6 +497,13 @@ function undo() {
 }
 
 function redo() {
+  if(state.hubEditor){
+    state.hubEditor=reduceHubKeymapState(state.hubEditor,{type:"REDO"});
+    state.dirty=state.hubEditor.dirty;
+    updateMeta();
+    renderScreen();
+    return;
+  }
   if (!state.redo.length || !state.config) return;
   if(lightingWorkspace.effect_draft)cancelLocalAnimationDraft({render:false});
   state.transientLightingPreview=null;
@@ -498,21 +515,28 @@ function redo() {
 }
 
 function updateHistoryButtons() {
-  $("#undo-button").disabled = !state.undo.length;
-  $("#redo-button").disabled = !state.redo.length;
+  $("#undo-button").disabled = !(state.hubEditor?.undo.length||state.undo.length);
+  $("#redo-button").disabled = !(state.hubEditor?.redo.length||state.redo.length);
 }
 
 function updateMeta() {
-  $("#file-name").textContent = state.config ? state.fileName : "No configuration open";
+  const hub=state.hubEditor;
+  const hasDocument=Boolean(state.config||hub);
+  $("#file-name").textContent = hasDocument ? state.fileName : "No configuration open";
   $("#dirty-dot").classList.toggle("visible",state.dirty);
   const product = $("#product-pill");
-  product.textContent = state.config ? productId() : "—";
-  product.classList.toggle("muted", !state.config);
+  product.textContent = hub ? `${hub.profile.identity.ecosystem.toUpperCase()} · ${hub.profile.identity.family}` : state.config ? productId() : "—";
+  product.classList.toggle("muted", !hasDocument);
   const navCounts = [
     ["#nav-layers", state.config ? layers().length : null, "layer", "layers"],
     ["#nav-macros", state.config ? (state.config.macro_key || []).length : null, "macro", "macros"],
     ["#nav-leds", state.config && pageData().length ? 3 : null, "lighting slot", "lighting slots"],
   ];
+  if(hub){
+    navCounts[0][1]=hub.profile.keymap.layers.length;
+    navCounts[1][1]=(hub.profile.macros||[]).length;
+    navCounts[2][1]=null;
+  }
   for (const [selector, count, singular, plural] of navCounts) {
     const node = $(selector);
     node.textContent = count === null ? "—" : String(count);
@@ -521,9 +545,12 @@ function updateMeta() {
     node.title = label;
   }
   $("#save-button").disabled = !state.config;
+  if(hub)$("#save-button").disabled=false;
+  $("#save-button").textContent = hub ? "Save hub JSON" : "Save JSON";
   $("#merge-button").disabled = !state.config;
   $("#merge-button").hidden = !state.config;
-  $("#validate-button").disabled = !state.config;
+  $("#validate-button").disabled = !state.config||Boolean(hub);
+  $$('.nav-item').forEach(item=>{item.disabled=Boolean(hub)&&item.dataset.route!==ROUTES.KEYMAP;});
   updateHistoryButtons();
   updateDeviceActions();
 }
@@ -631,6 +658,7 @@ async function readFiles(input, merge) {
       state.loadedDevice = null;
     }
     if (effectiveMerge && state.config) pushUndo();
+    state.hubEditor=null;
     state.config = combined;
     state.documentRevision=null;
     state.fileName = cleanFileName(imported[0].report.name);
@@ -651,6 +679,7 @@ async function readFiles(input, merge) {
 }
 
 async function saveConfig() {
+  if(state.hubEditor)return saveHubDocument();
   if (!state.config) return;
   try {
     const candidate = clone(state.config);
@@ -690,6 +719,65 @@ async function saveConfig() {
   }
 }
 
+function hubFileName(name=state.fileName) {
+  return cleanFileName(name).replace(/\.hub\.json$/i,"").replace(/\.json$/i,"")+".hub.json";
+}
+
+async function saveHubDocument() {
+  if(!state.hubEditor)return;
+  try{
+    const response=await api("/api/hub/save",{
+      method:"POST",
+      body:JSON.stringify({profile:state.hubEditor.profile}),
+    });
+    if(typeof response.data!=="string")throw new Error("The canonical hub document was not returned.");
+    const blob=new Blob([response.data],{type:"application/json;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement("a");
+    link.href=url;
+    link.download=hubFileName();
+    link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    state.hubEditor=reduceHubKeymapState(state.hubEditor,{type:"MARK_SAVED"});
+    state.dirty=false;
+    updateMeta();
+    toast("Hub document saved",link.download,"success");
+  }catch(error){toast("Could not save hub document",error.message||String(error),"error");}
+}
+
+function adoptHubDocument({profile,layout=[],target,fileName,loadedDevice=null}) {
+  if(state.config&&state.loadedDevice)stashDeviceDocument();
+  state.hubEditor=createHubKeymapState({profile,layout,target});
+  state.config=null;
+  state.documentRevision=null;
+  state.fileName=hubFileName(fileName||`${profile.identity.family}.hub.json`);
+  state.loadedDevice=loadedDevice;
+  state.selectedDevice=loadedDevice;
+  state.undo=[];
+  state.redo=[];
+  state.dirty=false;
+  closeImportedLightingReview({render:false});
+  navigateTo(ROUTES.KEYMAP,{replace:true});
+}
+
+async function openHubFile(file) {
+  try{
+    const data=arrayBufferToBase64(await file.arrayBuffer());
+    const response=await api("/api/hub/open",{
+      method:"POST",
+      body:JSON.stringify({data}),
+    });
+    const ecosystem=response.profile?.identity?.ecosystem;
+    adoptHubDocument({
+      profile:response.profile,
+      target:{ecosystem,address:null},
+      fileName:file.name,
+    });
+    $("#hub-dialog").close();
+    toast("Hub document opened",`${response.profile.identity.family} · connect a target to restore active geometry`,"success");
+  }catch(error){toast("Could not open hub document",error.message||String(error),"error");}
+}
+
 function hubCandidateConfig() {
   const candidate = clone(state.config);
   candidate.macro_key = (candidate.macro_key || []).map(macro => ({
@@ -703,6 +791,7 @@ function hubCandidateConfig() {
 }
 
 async function exportHubProfile() {
+  if(state.hubEditor)return saveHubDocument();
   if (!state.config) { toast("Nothing to export", "Open a configuration first.", "error"); return; }
   try {
     const response = await api("/api/hub/export", {
@@ -765,6 +854,7 @@ async function importHubFile(file) {
     closeImportedLightingReview({render: false});
     stashDeviceDocument();
     state.loadedDevice = null;
+    state.hubEditor=null;
     state.config = response.config;
     state.documentRevision = null;
     state.fileName = cleanFileName(file.name.replace(/\.hub\.json$/i, ".json"));
@@ -1307,12 +1397,12 @@ function renderRoute() {
     renderLightingShell();
     return;
   }
-  if (!state.config) {
+  if (!state.config&&!state.hubEditor) {
     $("#empty-state").hidden = false;
     return;
   }
   $("#screen").hidden = false;
-  if (route === ROUTES.KEYMAP) renderKeymap();
+  if (route === ROUTES.KEYMAP||state.hubEditor) renderKeymap();
   else if (route === ROUTES.MACROS) renderMacros();
 }
 
@@ -1323,6 +1413,10 @@ function arrayBufferToBase64(buffer) {
     binary+=String.fromCharCode(...bytes.subarray(index,index+0x8000));
   }
   return btoa(binary);
+}
+
+function parseViaDefinitionText(text) {
+  return JSON.parse(text);
 }
 
 async function importLibraryProfiles(input) {
@@ -1913,6 +2007,7 @@ async function applyLibraryProfile(catalogId) {
     state.library.mutatingCatalogId=null;
     mutate(()=>{
       state.config=clone(result.config);
+      state.hubEditor=null;
       state.documentRevision=null;
       state.documentSyncEpoch++;
       state.appliedLightingProvenance=null;
@@ -2426,10 +2521,108 @@ function focusSelectedTarget(target = state.ledTarget) {
   $$('[data-lighting-target]').find(button => button.dataset.lightingTarget === String(target))?.focus();
 }
 
+function keymapEditorAdapter() {
+  if(state.hubEditor){
+    const documentState=state.hubEditor;
+    const profile=documentState.profile;
+    return {
+      kind:"hub",
+      name:profile.identity.family,
+      ecosystem:profile.identity.ecosystem,
+      capabilities:profile.capabilities||{},
+      layers:profile.keymap.layers,
+      layer:documentState.layer,
+      selected:documentState.selectedKey,
+      layout:documentState.layout,
+      report:documentState.report,
+      worklist:documentState.worklist,
+      readOnly:true,
+      save:saveHubDocument,
+      write:null,
+      mutate(action){
+        state.hubEditor=reduceHubKeymapState(state.hubEditor,action);
+        state.dirty=state.hubEditor.dirty;
+      },
+      selectLayer(layer){
+        state.hubEditor=reduceHubKeymapState(state.hubEditor,{type:"SELECT_LAYER",layer});
+      },
+      selectKey(key){
+        state.hubEditor=reduceHubKeymapState(state.hubEditor,{type:"SELECT_KEY",key});
+      },
+    };
+  }
+  const layout=activeLayout();
+  const amLayers=layers();
+  return {
+    kind:"am",
+    name:layout.name,
+    layers:amLayers,
+    layer:state.layer,
+    selected:state.selected,
+    layout,
+    capabilities:activeFamilySpec(),
+    readOnly:false,
+    save:saveConfig,
+    write:writeDevice,
+    mutate,
+    selectLayer(layer){state.layer=layer;},
+    selectKey(key){state.selected=Number(key);},
+  };
+}
+
+function hubCodeLabel(code) {
+  return `0x${Number(code).toString(16).toUpperCase().padStart(4,"0")}`;
+}
+
+function renderHubKeyInspector(editor, layer) {
+  if(editor.selected===null)return `<div class="inspector-empty"><div><p class="eyebrow">Nothing selected</p><p>Click a key to inspect its current assignment.</p></div></div>`;
+  const item=layer.keys.find(key=>key.key===editor.selected);
+  if(!item)return `<div class="inspector-empty"><div><p>The selected key is absent from this layer.</p></div></div>`;
+  const technical=state.showTechnicalLabels;
+  return `<div class="card-header"><strong>Selected key</strong><small>Layer ${editor.layer+1}${technical?` · ${esc(item.key)}`:""}</small></div><div class="card-body">
+    <div class="selected-code"><div><small class="control-caption">Currently sends</small><br><strong>${hubCodeLabel(item.code)}</strong>${technical?`<br><code>${hubCodeLabel(item.code)}</code>`:""}</div><span class="pill">${esc(editor.ecosystem.toUpperCase())}</span></div>
+    <p class="inspector-help">This live H5a view is read-only. Save the complete hub document now; key assignment editing arrives in the next bounded slice.</p>
+  </div>`;
+}
+
+function renderHubKeymap(editor) {
+  const layer=editor.layers.find(candidate=>candidate.index===editor.layer);
+  const codes=new Map((layer?.keys||[]).map(key=>[key.key,key.code]));
+  const technical=state.showTechnicalLabels;
+  const unavailable=!editor.layout.length;
+  $("#screen").innerHTML=`
+    <div class="screen-shell">
+      <header class="screen-header">
+        <div><p class="eyebrow">${esc(editor.name)} · ${esc(editor.ecosystem.toUpperCase())}</p><h1>Keymap</h1><p class="description">Read-only hub document. Geometry comes only from the active keyboard snapshot.</p></div>
+        <div class="keymap-header-actions"><button id="toggle-technical-labels" type="button" class="button ghost" aria-pressed="${technical}">${technical?'Hide technical labels':'Show technical labels'}</button><div class="segmented layer-tabs">${editor.layers.map(candidate=>`<button class="${candidate.index===editor.layer?'active':''}" data-layer="${candidate.index}" aria-label="Layer ${candidate.index+1}">${candidate.index+1}</button>`).join("")}</div></div>
+      </header>
+      <div class="editor-grid">
+        <section class="card"><div class="card-header"><strong>Layer ${editor.layer+1}</strong><small>${editor.layout.length} physical keys</small></div><div class="card-body">
+          <div class="keyboard-stage generic">
+            ${unavailable?`<div class="inspector-empty"><div><strong>Physical layout unavailable</strong><p>Connect and read the target keyboard to obtain its active layout. Geometry is never stored in a hub file.</p></div></div>`:editor.layout.map(key=>{
+              const index=key.key;
+              const code=codes.get(index)??0;
+              const originX=key.rotation_x??key.x;
+              const originY=key.rotation_y??key.y;
+              return `<button class="keycap ${editor.selected===index?'selected':''}" data-index="${esc(index)}" style="left:${key.x}%;top:${key.y}%;width:${key.width}%;height:${key.height}%;transform:rotate(${key.rotation||0}deg);transform-origin:${originX}% ${originY}%" title="${technical?`${esc(index)} · ${hubCodeLabel(code)}`:hubCodeLabel(code)}">${hubCodeLabel(code)}${technical?`<span>${index}</span>`:''}</button>`;
+            }).join("")}
+          </div>
+          <div class="assignment-palette"><p class="inspector-help">Generic key assignment controls are intentionally held for H5b. Reading and saving this document never writes the keyboard.</p></div>
+        </div></section>
+        <aside class="card inspector">${renderHubKeyInspector(editor,layer||{keys:[]})}</aside>
+      </div>
+    </div>`;
+  $$('[data-layer]').forEach(button=>button.addEventListener('click',()=>{editor.selectLayer(Number(button.dataset.layer));renderKeymap();restoreFocus(`[data-layer="${button.dataset.layer}"]`);}));
+  $$('.keycap').forEach(button=>button.addEventListener('click',()=>{editor.selectKey(button.dataset.index);renderKeymap();restoreFocus(`.keycap[data-index="${button.dataset.index}"]`);}));
+  $("#toggle-technical-labels").addEventListener("click",()=>{state.showTechnicalLabels=!state.showTechnicalLabels;renderKeymap();restoreFocus("#toggle-technical-labels");});
+}
+
 function renderKeymap() {
-  state.layer = Math.min(state.layer, Math.max(0, layers().length - 1));
-  const layer = layers()[state.layer]?.layer || [];
-  const layout = activeLayout();
+  const editor=keymapEditorAdapter();
+  if(editor.kind==="hub")return renderHubKeymap(editor);
+  state.layer = Math.min(state.layer, Math.max(0, editor.layers.length - 1));
+  const layer = editor.layers[state.layer]?.layer || [];
+  const layout = editor.layout;
   if (state.selected !== null && !layout.keys.some(key => key[0] === state.selected)) state.selected = null;
   const current=state.selected===null?null:(layer[state.selected]||"#00000000");
   const technical=state.showTechnicalLabels;
@@ -2437,7 +2630,7 @@ function renderKeymap() {
     <div class="screen-shell">
       <header class="screen-header">
         <div><p class="eyebrow">${esc(layout.name)}</p><h1>Keymap</h1><p class="description">Select a physical key, then choose what it should send.</p></div>
-        <div class="keymap-header-actions"><button id="toggle-technical-labels" type="button" class="button ghost" aria-pressed="${technical}">${technical?'Hide technical labels':'Show technical labels'}</button><button id="save-mapping-library" type="button" class="button ghost" title="Keep a reusable copy of this profile in Library">Save to Library</button><div class="segmented layer-tabs">${layers().map((_,i) => `<button class="${i===state.layer?'active':''}" data-layer="${i}" aria-label="Layer ${i+1}">${i+1}</button>`).join("")}</div></div>
+        <div class="keymap-header-actions"><button id="toggle-technical-labels" type="button" class="button ghost" aria-pressed="${technical}">${technical?'Hide technical labels':'Show technical labels'}</button><button id="save-mapping-library" type="button" class="button ghost" title="Keep a reusable copy of this profile in Library">Save to Library</button><div class="segmented layer-tabs">${editor.layers.map((_,i) => `<button class="${i===state.layer?'active':''}" data-layer="${i}" aria-label="Layer ${i+1}">${i+1}</button>`).join("")}</div></div>
       </header>
       <div class="editor-grid">
         <section class="card"><div class="card-header"><strong>Layer ${state.layer+1}</strong><small>${layout.keys.length} physical keys</small></div><div class="card-body">
@@ -2452,8 +2645,8 @@ function renderKeymap() {
         <aside class="card inspector">${renderKeyInspector(layer)}</aside>
       </div>
     </div>`;
-  $$("[data-layer]").forEach(button => button.addEventListener("click", () => { state.layer = Number(button.dataset.layer); renderKeymap(); restoreFocus(`[data-layer="${button.dataset.layer}"]`); }));
-  $$(".keycap").forEach(button => button.addEventListener("click", () => { state.selected = Number(button.dataset.index); renderKeymap(); restoreFocus(`.keycap[data-index="${button.dataset.index}"]`); }));
+  $$("[data-layer]").forEach(button => button.addEventListener("click", () => { editor.selectLayer(Number(button.dataset.layer)); renderKeymap(); restoreFocus(`[data-layer="${button.dataset.layer}"]`); }));
+  $$(".keycap").forEach(button => button.addEventListener("click", () => { editor.selectKey(button.dataset.index); renderKeymap(); restoreFocus(`.keycap[data-index="${button.dataset.index}"]`); }));
   $("#toggle-technical-labels").addEventListener("click", () => { state.showTechnicalLabels = !state.showTechnicalLabels; renderKeymap(); restoreFocus("#toggle-technical-labels"); });
   $("#save-mapping-library")?.addEventListener("click",()=>saveMappingToLibrary("save-mapping-library"));
   wireKeyInspector();
@@ -5799,7 +5992,7 @@ async function validateCurrent(showSuccess = true) {
 // a bare port: a raw-HID keyboard has no serial port, and two transports can
 // hand out addresses that collide as plain strings.
 function deviceKey(device) {
-  return device?`${device.transport}:${device.address}`:null;
+  return device?`${device.ecosystem||"am"}:${device.transport}:${device.address}`:null;
 }
 
 function displayGeometryDevice(product=productId(),layoutEvidence=state.layoutEvidence) {
@@ -5926,6 +6119,7 @@ function stashDeviceDocument() {
 function restoreDeviceDocument(port,deviceId) {
   const saved=state.deviceDocuments.get(port);
   if(!saved||!sameProductFamily(saved.config?.product_info?.product_id,deviceId))return false;
+  state.hubEditor=null;
   state.config=saved.config;
   state.documentRevision=null;
   state.fileName=saved.fileName;
@@ -5970,6 +6164,15 @@ function updateDeviceActions() {
     write.title=state.config?"Choose the target keyboard first.":"Open or read a configuration first.";
     return;
   }
+  if((device.ecosystem||"am")!=="am"){
+    const via=device.ecosystem==="via";
+    read.disabled=false;
+    read.textContent=via?"Choose VIA definition & read":"Read Vial keymap & macros";
+    write.textContent="Write to keyboard";
+    write.disabled=true;
+    write.title="Generic hardware writing is outside the read-only H5a slice.";
+    return;
+  }
   read.disabled=false;
   read.textContent=deviceSwitchesWorkspace(device)?`Switch to ${device.product_id}`:state.loadedDevice===deviceKey(device)?"Refresh keymap & macros":"Read keymap & macros";
   const wrongWorkspace=!sameProductFamily(productId(),device.product_id)||(state.loadedDevice&&state.loadedDevice!==deviceKey(device));
@@ -5987,12 +6190,32 @@ async function scanDevices() {
   $("#device-list").innerHTML='<div class="loader"></div>';
   $("#device-actions").hidden=true;
   try {
-    const result=await api('/api/devices');
+    const [result,vialResult,viaResult]=await Promise.all([
+      api('/api/devices'),
+      api('/api/hub/vial/devices'),
+      api('/api/hub/via/devices'),
+    ]);
     const previous=new Map(state.devices.map(device=>[deviceKey(device),device]));
-    state.devices=(result.devices||[]).map(device=>(
-      mergeScannedDeviceDetails(device,previous.get(deviceKey(device)))
-    ));
-    const keyboards=state.devices.filter(device=>device.is_keyboard);
+    const amDevices=(result.devices||[]).filter(device=>device.is_keyboard).map(device=>{
+      device={...device,ecosystem:"am",capabilityLabel:"Keymap + macros + lighting"};
+      return mergeScannedDeviceDetails(device,previous.get(deviceKey(device)));
+    });
+    const vialDevices=(vialResult.devices||[]).map(device=>({
+      ...device,ecosystem:"vial",transport:"hid",is_keyboard:true,
+      product_id:device.name||device.usb_product||`${device.vid}:${device.pid}`,
+      version:device.identity_error?`Keymap + macros · ${device.identity_error}`:"Keymap + macros",
+      pages:"—",
+      capabilityLabel:device.identity_error?`Keymap + macros · ${device.identity_error}`:"Keymap + macros",
+    }));
+    const viaDevices=(viaResult.devices||[]).map(device=>({
+      ...device,ecosystem:"via",transport:"hid",is_keyboard:true,
+      product_id:device.usb_product||`${device.vid}:${device.pid}`,
+      version:"Keymap + macros · Definition required",
+      pages:"—",
+      capabilityLabel:"Keymap + macros · Definition required",
+    }));
+    state.devices=[...amDevices,...vialDevices,...viaDevices];
+    const keyboards=state.devices;
     $(".status-light").classList.toggle("online",Boolean(keyboards.length));
     if(!keyboards.length){
       state.selectedDevice=null;
@@ -6004,7 +6227,7 @@ async function scanDevices() {
     if(!keyboards.some(device=>deviceKey(device)===state.selectedDevice)){
       state.selectedDevice=keyboards.some(device=>deviceKey(device)===state.loadedDevice)?state.loadedDevice:null;
     }
-    $("#device-list").innerHTML=keyboards.map(device=>{const active=deviceKey(device)===state.loadedDevice;return `<button type="button" class="device-card ${deviceKey(device)===state.selectedDevice?'selected':''} ${active?'active-device':''}" data-device="${esc(deviceKey(device))}"><span><strong>${esc(device.product_id)}</strong><small>${esc(device.version||'Firmware version unavailable')} · pages ${device.pages??'?'}</small></span><span class="pill">${active?'Active':'USB'}</span></button>`;}).join('');
+    $("#device-list").innerHTML=keyboards.map(device=>{const active=deviceKey(device)===state.loadedDevice;const ecosystem=(device.ecosystem||"am").toUpperCase();const detail=device.capabilityLabel||device.version||'Capabilities unavailable';return `<button type="button" class="device-card ${deviceKey(device)===state.selectedDevice?'selected':''} ${active?'active-device':''}" data-device="${esc(deviceKey(device))}"><span><strong>${esc(device.product_id)}</strong><small>${esc(detail)}${device.ecosystem==="am"?` · ${esc(device.version||'firmware unknown')} · pages ${device.pages??'?'}`:''}</small></span><span class="pill">${active?'Active':ecosystem}</span></button>`;}).join('');
     $$('.device-card').forEach(card=>card.addEventListener('click',()=>{state.selectedDevice=card.dataset.device;$$('.device-card').forEach(node=>node.classList.toggle('selected',node===card));updateDeviceActions();}));
     $("#device-actions").hidden=false;
     updateDeviceActions();
@@ -6012,9 +6235,42 @@ async function scanDevices() {
   }catch(error){$("#device-list").innerHTML=`<div class="event-empty">${esc(error.message)}</div>`;toast('Device scan failed',error.message,'error');}
 }
 
+async function readHubDevice(target,definition=null) {
+  const button=$("#read-device");
+  button.disabled=true;
+  button.textContent="Reading…";
+  try{
+    const via=target.ecosystem==="via";
+    const path=via?"/api/hub/via/read":"/api/hub/vial/read";
+    const body={address:target.address,...(via?{definition}:{})};
+    const result=await api(path,{method:"POST",body:JSON.stringify(body)});
+    const loaded=deviceKey(target);
+    state.devices=state.devices.map(device=>deviceKey(device)===loaded?{...device,...result.device,ecosystem:target.ecosystem,transport:"hid"}:device);
+    adoptHubDocument({
+      profile:result.profile,
+      layout:result.layout,
+      target:{ecosystem:target.ecosystem,address:target.address,...(via?{definition}:{})},
+      fileName:`${result.profile.identity.family}.hub.json`,
+      loadedDevice:loaded,
+    });
+    $("#device-dialog").close();
+    toast("Keyboard read",`${result.profile.identity.family} · ${result.profile.keymap.layers.length} layers · read-only`,"success");
+  }catch(error){toast("Could not read keyboard",error.message||String(error),"error");}
+  finally{button.disabled=false;updateDeviceActions();}
+}
+
 async function readDevice() {
   const target=selectedDevice();
   if(!target)return;
+  if(target.ecosystem==="via"){
+    state.pendingViaDevice=deviceKey(target);
+    $("#via-definition-input").click();
+    return;
+  }
+  if(target.ecosystem==="vial"){
+    await readHubDevice(target);
+    return;
+  }
   const port=deviceKey(target);
   const button=$("#read-device");button.disabled=true;button.textContent='Reading…';
   try{
@@ -6038,6 +6294,7 @@ async function readDevice() {
       state.config.macro_key=preserveCyberboardMacros?localMacros:result.macros;
       keptLocalMacros=preserveCyberboardMacros?localMacros.length:0;
     }else{
+      state.hubEditor=null;
       state.config=clone(result.stored_config||result.blank_config);
       const localMacros=clone(state.config.macro_key||[]);
       state.config.key_layer={valid:1,layer_num:result.layers.length,layer_data:result.layers.map(layer=>({layer}))};
@@ -6240,13 +6497,33 @@ $("#merge-input").addEventListener("change",event=>readFiles(event.currentTarget
 $("#macro-import-input").addEventListener("change",event=>importMacros(event.currentTarget));
 $("#save-button").addEventListener("click",saveConfig);
 $("#backup-before-write").addEventListener("click",saveConfig);
-$("#hub-button").addEventListener("click",()=>{$("#hub-report").hidden=true;$("#hub-dialog").showModal();});
+$("#hub-button").addEventListener("click",()=>{$("#hub-report").hidden=true;$("#hub-import").disabled=!state.config;$("#hub-dialog").showModal();});
+$("#hub-open").addEventListener("click",()=>$("#hub-open-input").click());
 $("#hub-export").addEventListener("click",exportHubProfile);
 $("#hub-import").addEventListener("click",()=>$("#hub-import-input").click());
 $("#hub-import-input").addEventListener("change",async event=>{
   const file=event.currentTarget.files[0];
   event.currentTarget.value="";
   if(file)await importHubFile(file);
+});
+$("#hub-open-input").addEventListener("change",async event=>{
+  const file=event.currentTarget.files[0];
+  event.currentTarget.value="";
+  if(file)await openHubFile(file);
+});
+$("#via-definition-input").addEventListener("change",async event=>{
+  const file=event.currentTarget.files[0];
+  event.currentTarget.value="";
+  const pending=state.pendingViaDevice;
+  state.pendingViaDevice=null;
+  if(!file||!pending)return;
+  try{
+    if(file.size>2_000_000)throw new Error("The VIA definition is larger than 2 MB.");
+    const definition=parseViaDefinitionText(await file.text());
+    const target=state.devices.find(device=>deviceKey(device)===pending&&device.ecosystem==="via");
+    if(!target)throw new Error("That VIA endpoint is no longer available. Scan again.");
+    await readHubDevice(target,definition);
+  }catch(error){toast("Could not use VIA definition",error.message||String(error),"error");}
 });
 $("#write-button").addEventListener("click",writeDevice);
 $("#device-button").addEventListener("click",showDeviceDialog);
@@ -6392,6 +6669,7 @@ lightingMotionPreference?.addEventListener?.("change",event=>{
   try{
     const result=await api('/api/config');
     if(result.config){
+      state.hubEditor=null;
       state.config=result.config;
       state.documentRevision=result.document_revision||null;
       state.layoutEvidence=result.layout_evidence||null;

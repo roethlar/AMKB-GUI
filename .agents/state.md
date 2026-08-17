@@ -62,8 +62,17 @@
   existing board/layer/palette UI, make H4 review and resolution first-class,
   then wire the already-landed exact Vial/VIA write gates. Generic macro
   authoring, lighting, definition fetching, and visual rebranding stay out.
-  The 2026-08-16 planning go authorized this contract only; H5a code awaits an
-  explicit go. H7 is the queued branding overhaul,
+  H5a is complete: the pure immutable generic-document reducer owns profile,
+  endpoint/definition binding, geometry, selection, dirty/history, report, and
+  worklist state; the existing Keymap screen now adapts AM and generic documents.
+  The Devices dialog lists AM, Vial, and VIA interfaces without cross-ecosystem
+  deduplication, requires a user-imported definition before VIA read, and adopts
+  same-snapshot geometry. Canonical authenticated hub open/save uses the Python
+  loader/dumper; every new hardware route is read-only. Full landing verification
+  passed 725 Python and 195 web tests, compile/JavaScript checks, and package build.
+  No browser runtime was available for an additional interactive smoke pass. H5b
+  (portable generic keycode palette and document-only assignment editing) awaits
+  its own explicit go. H7 is the queued branding overhaul,
   which the owner ruled is a
   repositioning rather than a rename. The canonical scope and sequence live in
   `docs/superpowers/plans/2026-08-15-openkeeb-v2-hub-configurator.md`. Public

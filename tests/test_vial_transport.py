@@ -221,6 +221,21 @@ class GenericVialTransportTests(unittest.TestCase):
             & {(0xFE, 0x06), (0xFE, 0x07), (0x13, None), (0x0F, None)}
         )
 
+    def test_editor_document_comes_from_one_read_only_snapshot(self) -> None:
+        document = vial_transport.read_hub_document(self.address)
+
+        self.assertEqual(self.address, document.device["address"])
+        self.assertEqual("Fixture Pad", document.profile["identity"]["family"])
+        self.assertEqual("K_R0_C0", document.layout[0]["key"])
+        self.assertEqual(0, document.layout[0]["matrix_row"])
+        self.assertEqual(0, document.layout[0]["matrix_col"])
+        operations = {
+            self._operation(packet) for _path, packet in self.backend.commands
+        }
+        self.assertFalse(
+            operations & {(0xFE, 0x06), (0xFE, 0x07), (0x13, None), (0x0F, None)}
+        )
+
     def test_read_session_refuses_a_set_command_before_transmission(self) -> None:
         info = hid_transport.find_vial(self.address)
         session = hid_transport.open_vial_read(info)
@@ -347,6 +362,10 @@ class GenericVialTransportTests(unittest.TestCase):
                 )
                 self.assertEqual(200, status)
                 self.assertEqual("Fixture Pad", read["profile"]["identity"]["family"])
+                self.assertEqual(self.address, read["device"]["address"])
+                self.assertEqual("K_R0_C0", read["layout"][0]["key"])
+                self.assertEqual(0, read["layout"][0]["matrix_row"])
+                self.assertEqual(0, read["layout"][0]["matrix_col"])
 
                 status, preflight = request(
                     "POST",
