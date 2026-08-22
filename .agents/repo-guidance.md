@@ -9,6 +9,16 @@ commit from it, or introduce a runtime/build dependency on it.
 The supported application scope is the native/local GUI, its device protocol,
 profile store, tests, packaging, and CI for macOS, Windows, and Linux.
 
+## Execution Cadence
+
+An owner direction to work on an approved workstream authorizes autonomous
+completion of substantial in-scope chunks: implementation, verification,
+slice commits, and current-state synchronization. Do not stop for routine
+per-step approval when the plan, repo evidence, or prior owner rulings already
+settle the choice. Stop only for genuinely new scope, conflicting authority, a
+materially changed risk, a destructive/history-rewrite action, or an
+outward-facing action that is not already authorized.
+
 ## Verification
 
 Run the automated verification entry point from the repository root:

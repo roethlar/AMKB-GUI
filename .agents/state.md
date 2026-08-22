@@ -9,6 +9,11 @@
   usable packaged CA trust for AI-provider HTTPS. The fix is `028e73b`, its
   frozen-network guard is `328a738`, and the clean review is recorded in
   `.agents/review/outcomes.md`.
+- **Unsupported-keyboard intake is complete on `main`, unreleased after
+  0.1.68.** `59967d1` added the sanitized read-only support-report builder and
+  API; `d2e0be3` makes server-owned support classification visible in the
+  Devices dialog, keeps unknown keyboards out of read/write actions, and adds
+  local Copy/Save Report controls. No fifth keyboard family is implemented.
 - **Separate, environmental:** the owner’s Anthropic account answered HTTP 400
   “credit balance is too low” on 2026-08-08. That account needs credits
   independently of the TLS fix. The app still classifies that billing response
@@ -25,6 +30,11 @@
   signed DMG or installer through a browser and opened it.
 
 ## Next
+
+- **Additional keyboards:** the intake path is ready. Actual support now needs
+  a named candidate plus a saved support report; full serial-family lighting
+  still needs physical hardware or vendor protocol/geometry evidence. Plan:
+  `docs/superpowers/plans/2026-08-08-unsupported-board-report.md`.
 
 - **Package-manager distribution (Linux-first):** the Flatpak
   `io.github.roethlar.AMConfigurator` now has a repeatable one-shot

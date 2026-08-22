@@ -1,5 +1,16 @@
 # Repository Decisions
 
+## 2026-08-22 — Approved workstreams execute in substantial autonomous chunks
+
+Status: approved directly by the owner on 2026-08-22 while resuming
+additional-keyboard work. The owner rejected per-step “say go” gates and asked
+for significant autonomous progress without repeated approval pauses.
+
+- `.agents/repo-guidance.md` **Execution Cadence** owns the operational rule.
+- This supersedes the repo-local practice of asking again before each routine
+  slice inside an already-approved workstream. It does not invent new product
+  scope or authorize an otherwise gated destructive or outward-facing action.
+
 ## 2026-08-08 — Install docs list options only; no inflated trust narrative
 
 Status: approved by the owner on 2026-08-08 while rejecting agent-proposed
