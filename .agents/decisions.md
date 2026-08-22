@@ -92,8 +92,6 @@ release slice that ships the packaged-TLS-trust fix.
   provider is reachable over HTTPS from them on machines without the build
   machine's certificate path. Signing claims and install copy are unchanged
   from 0.1.67.
-- Publication of `0.1.68` — push, tag, builds, qualification — is separately
-  gated and has not happened.
 
 ## 2026-08-07 — The current product/release version is 0.1.67
 
@@ -114,8 +112,6 @@ for the first platform-signed public release.
   and an Azure Trusted Signing-signed Windows installer, and no longer teach
   the macOS Privacy & Security approval detour. The Linux AppImage is still
   unsigned and its copy is unchanged.
-- Publication of `0.1.67` — tag, builds, qualification, announcement — is
-  separately gated and has not happened.
 
 ## 2026-08-07 — Installers are platform-signed
 
@@ -159,8 +155,6 @@ bump after the macro editor rework and README screenshot recapture.
   `am_configurator/_version.py` is the canonical source, every artifact
   reports that exact version, and a version changes only through a deliberate
   source edit for a new public product release.
-- Publication of `0.1.66` — tag, builds, qualification, release notes,
-  announcement — is separately gated and has not happened.
 - Announcement and release-note copy stays flat: changes are listed evenly
   and no feature is framed as a headline (owner ruling while correcting the
   `0.1.66` Reddit draft, 2026-08-03). Copy says literally what the software
