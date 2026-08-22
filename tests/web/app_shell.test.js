@@ -40,6 +40,47 @@ test("empty state offers connect and open as primary tasks with no merge concept
   assert.doesNotMatch(html, /Local keyboard studio/);
 });
 
+test("unsupported keyboards stay reportable but outside supported device actions", () => {
+  const groupsStart = js.indexOf("function deviceSupportGroups");
+  const groupsEnd = js.indexOf("\nfunction supportReportJson", groupsStart);
+  assert.ok(groupsStart >= 0 && groupsEnd > groupsStart);
+  const deviceSupportGroups = new Function(
+    `${js.slice(groupsStart, groupsEnd)}; return deviceSupportGroups;`
+  )();
+  const supported = {product_id:"CB04",is_keyboard:true,supported:true};
+  const unknown = {product_id:"FUTURE80",is_keyboard:true,supported:false};
+  const dongle = {product_id:"DONGLE",is_keyboard:false,supported:false};
+  assert.deepEqual(deviceSupportGroups([supported,unknown,dongle]), {
+    supported:[supported],
+    unsupported:[unknown],
+    other:[dongle],
+  });
+
+  const scanStart = js.indexOf("async function scanDevices");
+  const scanEnd = js.indexOf("\nasync function readDevice", scanStart);
+  const scan = js.slice(scanStart, scanEnd);
+  assert.match(scan, /const groups=deviceSupportGroups\(\)/);
+  assert.match(scan, /const keyboards=groups\.supported/);
+  assert.match(scan, /deviceSupportNotice\(groups\.unsupported,groups\.other,true\)/);
+  assert.match(scan, /wireDeviceSupportReportActions\(\)/);
+});
+
+test("unsupported keyboard report UI is read-only, explicit, and local", () => {
+  const helpersStart = js.indexOf("function supportReportJson");
+  const helpersEnd = js.indexOf("\nasync function scanDevices", helpersStart);
+  const helpers = js.slice(helpersStart, helpersEnd);
+  assert.match(helpers, /api\('\/api\/devices\/support-report'\)/);
+  assert.match(helpers, /Copy support report/);
+  assert.match(helpers, /Save report/);
+  assert.match(helpers, /Nothing is posted automatically/);
+  assert.match(helpers, /navigator\.clipboard\?\.writeText/);
+  assert.match(helpers, /document\.execCommand\?\.\('copy'\)/);
+  assert.match(helpers, /AM-Configurator-device-support-report\.json/);
+  assert.doesNotMatch(helpers, /method\s*:\s*['"]POST['"]/);
+  assert.match(html, /id="device-list"[^>]*aria-live="polite"/);
+  assert.match(css, /\.device-support-notice/);
+});
+
 test("merge is contextual: absent without a document, offered for key-only exports", () => {
   assert.match(html, /<button id="merge-button"[^>]*\shidden[^>]*>/);
   assert.match(js, /\$\("#merge-button"\)\.hidden = !state\.config/);

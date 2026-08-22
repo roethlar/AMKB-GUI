@@ -2438,6 +2438,47 @@ class LedGenerateEndpointTests(unittest.TestCase):
         self.assertEqual(1, len(workers))
         self.assertTrue(workers[0].startswith("am-device-io"))
 
+    def test_device_scan_marks_supported_and_unknown_keyboards(self) -> None:
+        from am_configurator.transport import DeviceHandle
+
+        def fake_discovery():
+            return [
+                (
+                    DeviceHandle("serial", "/dev/known"),
+                    {"product_id": "CB04", "is_keyboard": True},
+                ),
+                (
+                    DeviceHandle("serial", "/dev/future"),
+                    {"product_id": "FUTURE80", "is_keyboard": True},
+                ),
+            ]
+
+        isolated_server, url = create_server(device_discovery=fake_discovery)
+        isolated_thread = threading.Thread(
+            target=isolated_server.serve_forever,
+            daemon=True,
+        )
+        isolated_thread.start()
+        try:
+            token = parse_qs(urlparse(url).query)["token"][0]
+            request = Request(
+                f"http://127.0.0.1:{isolated_server.server_port}/api/devices",
+                headers={"X-AM-Token": token},
+            )
+            with urlopen(request, timeout=5) as response:
+                payload = json.loads(response.read())
+                self.assertEqual(200, response.status)
+        finally:
+            isolated_server.shutdown()
+            isolated_server.server_close()
+            isolated_thread.join(timeout=2)
+
+        support = {
+            device["product_id"]: device["supported"]
+            for device in payload["devices"]
+        }
+        self.assertEqual({"CB04": True, "FUTURE80": False}, support)
+
     def test_support_report_route_is_read_only_and_sanitized(self) -> None:
         from am_configurator.transport import DeviceHandle
 

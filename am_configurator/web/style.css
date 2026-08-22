@@ -668,6 +668,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .device-card.active-device .pill { color: var(--green); border-color: rgba(83,223,157,.38); background: rgba(83,223,157,.08); }
 .device-card strong { display: block; }
 .device-card small { color: var(--muted); display: block; margin-top: 4px; }
+.device-support-notice { border: 1px solid rgba(255,189,89,.34); background: rgba(255,189,89,.07); border-radius: 11px; padding: 14px; }
+.device-support-notice strong { color: #ffd58f; display: block; }
+.device-support-notice p, .device-support-notice small { color: var(--muted); display: block; font-size: 13px; line-height: 1.5; margin: 5px 0 0; }
+.device-support-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .device-actions { margin-top: 14px; display: flex; justify-content: flex-end; gap: 8px; }
 .dialog-note { color: var(--muted); line-height: 1.5; font-size: 13px; margin: 18px 0 0; }
 .incompatible-dialog { width: min(650px, calc(100vw - 40px)); }
