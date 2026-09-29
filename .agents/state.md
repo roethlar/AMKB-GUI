@@ -2,6 +2,22 @@
 
 ## Now
 
+- **Windows CI red since `f5cf464` is repaired by `.gitattributes`**
+  (2026-09-29, owner-directed fix on `main`): every completed CI run from
+  `f5cf464` through `4cf4d13` failed `Test · Windows` on two
+  `AurGeneratorTests` golden checks. Root cause: the AUR generator hashes
+  `packaging/linux/am-configurator.desktop` and
+  `am_configurator/data/60-am-neon-80.rules` as working-tree bytes, and the
+  Windows runner checked them out CRLF. `.gitattributes` now pins `*.desktop`,
+  `*.rules`, `*.sh`, and `packaging/linux/AppRun` to LF. The FFmpeg-removal
+  guard in `tests/test_packaging.py` no longer asserts `.gitattributes` is
+  absent; its token guard over that file still bites (proven by reintroducing
+  the token). Reproduced and proven locally in a `core.autocrlf=true` clone
+  (2 failures without the file, 21/21 with it); the Windows runner result is
+  the PR's CI run. The AppImage and installer builds were never affected.
+  `v2/openkeeb` carries the same defect and is not covered by CI push
+  triggers.
+
 - **0.1.68 is published** (2026-08-08): tag `v0.1.68` at `cdcf841`, signed
   release run 31240024617 fully green (Release identity, signed Windows
   installer, signed macOS installer, Linux AppImage, Publish), GitHub Release

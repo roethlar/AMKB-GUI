@@ -1243,7 +1243,6 @@ class ReleaseInfoTests(unittest.TestCase):
         self.assertIn("codesign --force --sign -", macos)
 
         removed_paths = (
-            ROOT / ".gitattributes",
             ROOT / "am_configurator" / f"{retired_tool}_runtime.py",
             ROOT / "am_configurator" / "media.py",
             ROOT / "build_tools" / f"{retired_tool}_bundle.py",
