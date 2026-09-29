@@ -1,0 +1,8 @@
+# Files that ship to Linux are hashed and copied byte-for-byte by the package
+# generators in build_tools/package_managers. A CRLF checkout (the Windows
+# default) changes their digests and would put CRLF files in a Linux package,
+# so they stay LF on every platform.
+*.desktop text eol=lf
+*.rules text eol=lf
+*.sh text eol=lf
+packaging/linux/AppRun text eol=lf

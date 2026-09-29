@@ -7,6 +7,16 @@
   (no new feature work or releases; owner-directed fixes only). All new work
   lands on `v2/openkeeb`.
 
+- **The v1 Windows line-ending fix is ported to v2 (2026-09-30).** v1's
+  `02194cf` (owner-directed on `main`, 2026-09-29) added `.gitattributes`
+  pinning `*.desktop`, `*.rules`, `*.sh`, and `packaging/linux/AppRun` to LF,
+  because a CRLF Windows checkout changed the bytes the AUR generator hashes
+  and failed two `AurGeneratorTests` goldens on every Windows CI run.
+  `v2/openkeeb` branched before it and carried the same defect; the
+  cherry-pick brings the same file and the same `tests/test_packaging.py`
+  guard change. `ci.yml` runs on pushes to `main` and on pull requests only,
+  so v2 is exercised on Windows only through a PR.
+
 - **Release-lane assets carry no build attestation.** As of `c677b01`,
   `.github/workflows/release.yml` contains no attestation step while
   `.github/workflows/desktop.yml` attests candidate builds; README and install
