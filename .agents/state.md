@@ -13,8 +13,9 @@
   guard in `tests/test_packaging.py` no longer asserts `.gitattributes` is
   absent; its token guard over that file still bites (proven by reintroducing
   the token). Reproduced and proven locally in a `core.autocrlf=true` clone
-  (2 failures without the file, 21/21 with it); the Windows runner result is
-  the PR's CI run. The AppImage and installer builds were never affected.
+  (2 failures without the file, 21/21 with it) and confirmed on the real
+  runner: CI run 36582902438 on PR #3 at `02194cf` passed `Test · Windows` and
+  every other check. The AppImage and installer builds were never affected.
   `v2/openkeeb` carries the same defect and is not covered by CI push
   triggers.
 
