@@ -1,11 +1,14 @@
 # OpenKeeb v2 — panel text banners for NEON and Cyberboard
 
-Status: **DRAFT — not approved.** D1 settled 2026-09-30: support both drawn
-frames (lane A, both boards) and the Cyberboard firmware's built-in text
-(lane B, Cyberboard only) — `.agents/decisions.md` "2026-09-30 — Cyberboard
-text supports both drawn frames and built-in text". Pending: D2 (approve this
-plan). No implementation, hardware write, push, or release is authorized by
-this document. Written 2026-09-30 on `v2/openkeeb` at `1359a9b`.
+Status: **APPROVED 2026-09-30 (D2); implementation NOT STARTED and not yet
+authorized to start.** Owner's words: "mark the plan approved but do not start
+coding." Coding T1 begins only on a separate owner go. D1 settled 2026-09-30:
+support both drawn frames (lane A, both boards) and the Cyberboard firmware's
+built-in text (lane B, Cyberboard only) — `.agents/decisions.md` "2026-09-30 —
+Cyberboard text supports both drawn frames and built-in text". Approval
+covers T1-T4, B1, T5 (fixture-backed, no hardware). No hardware write (L),
+B3, push, or release is authorized by this document. Written 2026-09-30 on
+`v2/openkeeb` at `1359a9b`.
 
 Governing records: `.agents/decisions.md` "2026-08-14 — Text banner authoring
 is in v2 scope; panel display is a capability" (scope, targets, capability
@@ -459,7 +462,8 @@ unless B2 shows the feature cannot work as the owner expects.
   boards; Cyberboard built-in text). Lane A's Cyberboard scroll length stays
   bounded by the 80-frame cap (text up to 72 columns at 1 px per frame, about
   14 characters; up to 232 columns at 3 px per frame).
-- **D2 — approve this plan** as the implementation gate for T1-T4, B1, T5
-  (fixture-backed, no hardware).
+- **D2 — approved 2026-09-30** as the implementation gate for T1-T4, B1, T5
+  (fixture-backed, no hardware); starting implementation awaits a separate
+  owner go.
 - **Live go (later, separate):** L names the boards, slot, and cases; B3
   follows from B2 records.

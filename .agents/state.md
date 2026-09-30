@@ -55,11 +55,12 @@
 - **Text banner authoring remains in v2 scope for NEON and Cyberboard.** The
   durable boundary, including its text effects, lives in `.agents/decisions.md`
   under "2026-08-14 — Text banner authoring is in v2 scope". Its plan is
-  drafted, not approved (2026-09-30):
+  approved (2026-09-30) but coding has not started and awaits a separate
+  owner go:
   `docs/superpowers/plans/2026-09-30-openkeeb-v2-panel-text-banners.md`.
-  D1 is settled (2026-09-30: support both drawn frames on both boards and the
-  Cyberboard's built-in text; the owner owns a Cyberboard). It awaits D2 (plan
-  approval); no implementation before D2.
+  Both lanes are in scope (drawn frames on both boards; the Cyberboard's
+  built-in text; the owner owns a Cyberboard). First slice on go: T1, the
+  `panel_display` capability. Live hardware writes (L) stay separately gated.
 
 - **The next release notes must carry the retired AI-vault cleanup steps or
   point to README's upgrade section.** No later release record yet owns the

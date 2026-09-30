@@ -1,5 +1,19 @@
 # Repository Decisions
 
+## 2026-09-30 — Panel text banner plan approved; coding waits for a go
+
+Status: owner ruling in-session on 2026-09-30 (D2). Owner's words: "mark the
+plan approved but do not start coding."
+
+- `docs/superpowers/plans/2026-09-30-openkeeb-v2-panel-text-banners.md` is the
+  approved cold-implementation contract for T1-T4, B1, and T5
+  (fixture-backed; no hardware).
+- Implementation has not started and must not start until the owner gives a
+  separate go. Once started, the slices run in plan order without per-slice
+  check-ins unless the go says otherwise.
+- Live hardware writes (slice L, including the Cyberboard built-in-text
+  experiment B2), B3, push, and release remain separately owner-gated.
+
 ## 2026-09-30 — Cyberboard text supports both drawn frames and built-in text
 
 Status: owner ruling in-session on 2026-09-30, answering D1 of the draft
