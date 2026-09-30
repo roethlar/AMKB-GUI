@@ -54,8 +54,11 @@
 
 - **Text banner authoring remains in v2 scope for NEON and Cyberboard.** The
   durable boundary, including its text effects, lives in `.agents/decisions.md`
-  under "2026-08-14 — Text banner authoring is in v2 scope"; it needs its own
-  approved plan before implementation.
+  under "2026-08-14 — Text banner authoring is in v2 scope". Its plan is
+  drafted, not approved (2026-09-30):
+  `docs/superpowers/plans/2026-09-30-openkeeb-v2-panel-text-banners.md`.
+  It awaits owner decisions D1 (Cyberboard rendering path) and D2 (plan
+  approval); no implementation before D2.
 
 - **The next release notes must carry the retired AI-vault cleanup steps or
   point to README's upgrade section.** No later release record yet owns the
