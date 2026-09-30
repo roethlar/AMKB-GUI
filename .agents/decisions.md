@@ -1,5 +1,25 @@
 # Repository Decisions
 
+## 2026-09-30 — Cyberboard text supports both drawn frames and built-in text
+
+Status: owner ruling in-session on 2026-09-30, answering D1 of the draft
+`docs/superpowers/plans/2026-09-30-openkeeb-v2-panel-text-banners.md`. Owner's
+words: "I own a cyberboard. We need to support both A and B."
+
+- **A (drawn frames):** text is drawn into panel-track frames by OpenKeeb on
+  both NEON (`head`) and Cyberboard (`frames`). It is the only path on NEON,
+  whose firmware reads no text section.
+- **B (built-in text):** the Cyberboard firmware's own text section
+  (`word_page`, `[3,1]`, up to 255 characters) is also supported on Cyberboard.
+  Its rendering, scrolling, color use, character coverage, and interaction with
+  panel frames are unknown in this repository and must be established by a
+  live test before the product claims any of them.
+- The owner owns a Cyberboard (exact revision not yet recorded) as well as the
+  NEON 80, so live evidence for both lanes is available.
+- This ruling settles scope only. It does not approve the plan, authorize
+  implementation, or authorize any hardware write; the live Cyberboard
+  experiment needs its own go naming the board and the writes.
+
 ## 2026-08-17 — H6 fixture-backed implementation approved; hardware remains gated
 
 Status: owner-approved in-session on 2026-08-17. After the bounded H6 plan was

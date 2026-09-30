@@ -57,7 +57,8 @@
   under "2026-08-14 — Text banner authoring is in v2 scope". Its plan is
   drafted, not approved (2026-09-30):
   `docs/superpowers/plans/2026-09-30-openkeeb-v2-panel-text-banners.md`.
-  It awaits owner decisions D1 (Cyberboard rendering path) and D2 (plan
+  D1 is settled (2026-09-30: support both drawn frames on both boards and the
+  Cyberboard's built-in text; the owner owns a Cyberboard). It awaits D2 (plan
   approval); no implementation before D2.
 
 - **The next release notes must carry the retired AI-vault cleanup steps or
