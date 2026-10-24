@@ -122,6 +122,7 @@ const state = {
   undo: [],
   redo: [],
   devices: [],
+  deviceSupportReport: null,
   selectedDevice: null,
   loadedDevice: null,
   deviceDocuments: new Map(),
@@ -5879,6 +5880,104 @@ function updateDeviceActions() {
   write.title=wrongWorkspace?"Load this keyboard before writing its configuration.":"";
 }
 
+function deviceSupportGroups(devices=state.devices) {
+  const groups={supported:[],unsupported:[],other:[]};
+  for(const device of devices){
+    if(device?.is_keyboard&&device.supported===true)groups.supported.push(device);
+    else if(device?.is_keyboard)groups.unsupported.push(device);
+    else groups.other.push(device);
+  }
+  return groups;
+}
+
+function supportReportJson(report) {
+  return `${JSON.stringify(report,null,2)}\n`;
+}
+
+async function loadDeviceSupportReport() {
+  if(state.deviceSupportReport)return state.deviceSupportReport;
+  const report=await api('/api/devices/support-report');
+  if(
+    !report
+    ||report.schema_version!==1
+    ||!report.counts
+    ||!report.devices
+  )throw new Error('The device support report was not valid.');
+  state.deviceSupportReport=report;
+  return report;
+}
+
+async function copyPlainText(value) {
+  if(navigator.clipboard?.writeText){
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const field=document.createElement('textarea');
+  field.value=value;
+  field.readOnly=true;
+  field.style.position='fixed';
+  field.style.opacity='0';
+  document.body.append(field);
+  field.select();
+  const copied=document.execCommand?.('copy');
+  field.remove();
+  if(!copied)throw new Error('Clipboard access is unavailable. Save the report instead.');
+}
+
+function setDeviceSupportReportBusy(busy) {
+  for(const id of ['copy-device-support-report','save-device-support-report']){
+    const button=$(`#${id}`);
+    if(button)button.disabled=busy;
+  }
+}
+
+async function copyDeviceSupportReport() {
+  setDeviceSupportReportBusy(true);
+  try{
+    const report=await loadDeviceSupportReport();
+    await copyPlainText(supportReportJson(report));
+    toast('Support report copied','Paste it into a GitHub issue. Host paths and device serial numbers were removed.','success');
+  }catch(error){toast('Could not copy report',error.message||String(error),'error');}
+  finally{setDeviceSupportReportBusy(false);}
+}
+
+async function saveDeviceSupportReport() {
+  setDeviceSupportReportBusy(true);
+  try{
+    const report=await loadDeviceSupportReport();
+    const blob=new Blob([supportReportJson(report)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement('a');
+    link.href=url;
+    link.download='AM-Configurator-device-support-report.json';
+    link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    toast('Support report saved',link.download,'success');
+  }catch(error){toast('Could not save report',error.message||String(error),'error');}
+  finally{setDeviceSupportReportBusy(false);}
+}
+
+function deviceSupportNotice(unsupported, other, hasSupported) {
+  if(unsupported.length){
+    const models=[...new Set(unsupported.map(device=>String(
+      device.product_id||device.product_string||'Unknown model'
+    )))];
+    return `<div class="device-support-notice" role="status"><strong>New keyboard model detected</strong><p>${esc(models.join(', '))} is connected, but this build does not support it yet. Create a read-only report to help add it.</p><div class="device-support-actions"><button id="copy-device-support-report" type="button" class="button primary">Copy support report</button><button id="save-device-support-report" type="button" class="button ghost">Save report</button></div><small>The report removes host paths and device serial numbers. Nothing is posted automatically.</small></div>`;
+  }
+  if(!hasSupported&&other.length){
+    return '<div class="device-support-notice" role="status"><strong>USB device found, but no supported keyboard</strong><p>Connect the keyboard directly by USB, not through its dongle, then scan again.</p></div>';
+  }
+  if(!hasSupported){
+    return '<div class="event-empty">No keyboard detected.<br>Connect it directly by USB, not through its dongle.</div>';
+  }
+  return '';
+}
+
+function wireDeviceSupportReportActions() {
+  $('#copy-device-support-report')?.addEventListener('click',copyDeviceSupportReport);
+  $('#save-device-support-report')?.addEventListener('click',saveDeviceSupportReport);
+}
+
 async function scanDevices() {
   const priorDisplayGeometry=projectVialKeyLayout(displayGeometryDevice());
   const refreshDisplayGeometry=()=>{
@@ -5887,17 +5986,24 @@ async function scanDevices() {
   };
   $("#device-list").innerHTML='<div class="loader"></div>';
   $("#device-actions").hidden=true;
+  state.deviceSupportReport=null;
   try {
     const result=await api('/api/devices');
     const previous=new Map(state.devices.map(device=>[deviceKey(device),device]));
     state.devices=(result.devices||[]).map(device=>(
       mergeScannedDeviceDetails(device,previous.get(deviceKey(device)))
     ));
-    const keyboards=state.devices.filter(device=>device.is_keyboard);
+    const groups=deviceSupportGroups();
+    const keyboards=groups.supported;
     $(".status-light").classList.toggle("online",Boolean(keyboards.length));
     if(!keyboards.length){
       state.selectedDevice=null;
-      $("#device-list").innerHTML='<div class="event-empty">No supported keyboard found.<br>Connect it by USB, not through the dongle.</div>';
+      $("#device-list").innerHTML=deviceSupportNotice(
+        groups.unsupported,
+        groups.other,
+        false,
+      );
+      wireDeviceSupportReportActions();
       updateDeviceActions();
       refreshDisplayGeometry();
       return;
@@ -5905,8 +6011,9 @@ async function scanDevices() {
     if(!keyboards.some(device=>deviceKey(device)===state.selectedDevice)){
       state.selectedDevice=keyboards.some(device=>deviceKey(device)===state.loadedDevice)?state.loadedDevice:null;
     }
-    $("#device-list").innerHTML=keyboards.map(device=>{const active=deviceKey(device)===state.loadedDevice;return `<button type="button" class="device-card ${deviceKey(device)===state.selectedDevice?'selected':''} ${active?'active-device':''}" data-device="${esc(deviceKey(device))}"><span><strong>${esc(device.product_id)}</strong><small>${esc(device.version||'Firmware version unavailable')} · pages ${device.pages??'?'}</small></span><span class="pill">${active?'Active':'USB'}</span></button>`;}).join('');
+    $("#device-list").innerHTML=keyboards.map(device=>{const active=deviceKey(device)===state.loadedDevice;return `<button type="button" class="device-card ${deviceKey(device)===state.selectedDevice?'selected':''} ${active?'active-device':''}" data-device="${esc(deviceKey(device))}"><span><strong>${esc(device.product_id)}</strong><small>${esc(device.version||'Firmware version unavailable')} · pages ${device.pages??'?'}</small></span><span class="pill">${active?'Active':'USB'}</span></button>`;}).join('')+deviceSupportNotice(groups.unsupported,groups.other,true);
     $$('.device-card').forEach(card=>card.addEventListener('click',()=>{state.selectedDevice=card.dataset.device;$$('.device-card').forEach(node=>node.classList.toggle('selected',node===card));updateDeviceActions();}));
+    wireDeviceSupportReportActions();
     $("#device-actions").hidden=false;
     updateDeviceActions();
     refreshDisplayGeometry();

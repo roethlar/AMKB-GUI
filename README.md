@@ -48,6 +48,12 @@ Release notes are published with each GitHub Release.
 | AM AFA / AFA 2 | `ALICE` | Up to 7 layers and 32 macros | Alice key lights and centre body lights |
 | AM Neon 80 | `NEON80` | 87-key physical layout, four keymap layers, and 16 macros | 89 axial LEDs, a 46×5 head matrix, and side lights derived from it |
 
+If the Devices dialog finds a keyboard this build does not support, it keeps
+that device out of the read/write controls and offers **Copy support report**
+and **Save report**. The report is read-only, removes host paths and device
+serial numbers, and can be attached to a
+[GitHub issue](https://github.com/roethlar/AMKB-GUI/issues/new).
+
 Each board draws on its own physical layout in the Keymap screen:
 
 <table>

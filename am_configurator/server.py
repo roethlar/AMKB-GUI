@@ -1564,12 +1564,16 @@ def _device_payload(
     macro_count: int | None = None,
     macro_buffer_bytes: int | None = None,
 ) -> dict[str, Any]:
-    return _decorate_device_descriptor(
+    payload = _decorate_device_descriptor(
         transport.device_json(handle, info),
         layer_count=layer_count,
         macro_count=macro_count,
         macro_buffer_bytes=macro_buffer_bytes,
     )
+    payload["supported"] = device_report.is_supported_product(
+        payload.get("product_id")
+    )
+    return payload
 
 
 def _remember_device_layout(payload: Mapping[str, Any]) -> dict[str, Any] | None:

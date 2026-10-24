@@ -1,7 +1,8 @@
 # Unsupported-board detection and support report
 
-**Status:** Approved in principle (owner 2026-08-03, state.md). Implementation
-started 2026-08-08 with slice UB-1. AUR work is parked independently.
+**Status:** Complete on `main` as of `d2e0be3` (2026-08-22), after the 0.1.68
+release. No fifth keyboard family is implemented; this plan completes the safe
+intake path for identifying the next candidate.
 
 ## Objective
 
@@ -13,14 +14,18 @@ host paths or user identity.
 Known limit (standing): serial-protocol LED geometry is not probeable; lighting
 support for new serial families still needs a physical board or vendor source.
 
-## Current behaviour (evidence)
+## Landed behaviour (evidence)
 
-- `/api/devices` returns whatever transports discover (`transport.discover`).
-- UI (`app.js`) filters `device.is_keyboard` and labels the empty list
-  “No supported keyboard found” — it does not distinguish “nothing plugged in”
-  from “something plugged in we do not drive.”
-- `device_mapping.led_model` / `spec_for_product` define supported families;
-  unknown product IDs fall through to `_UNKNOWN_FAMILY_SPEC`.
+- `/api/devices` marks every discovered device with the server-owned
+  `supported` classification derived from `device_mapping`.
+- The Devices dialog keeps unsupported keyboards out of normal read/write
+  selection and distinguishes them from an empty scan or a dongle/non-keyboard
+  device.
+- **Copy support report** and **Save report** fetch the read-only
+  `/api/devices/support-report` result. Nothing is posted automatically.
+- The JSON report removes host paths, serial numbers, and other local device
+  topology while retaining model/protocol evidence useful for a GitHub issue.
+- README tells users how to export and submit the report.
 
 ## Non-goals
 
@@ -32,7 +37,7 @@ support for new serial families still needs a physical board or vendor source.
 
 ## Slices
 
-### UB-1 — Sanitized report builder (this slice)
+### UB-1 — Sanitized report builder (landed `59967d1`)
 
 Pure library + unit tests:
 
@@ -45,19 +50,19 @@ Pure library + unit tests:
 - Title/summary strings for “new keyboard model detected” when any unsupported
   keyboard is present.
 
-### UB-2 — API
+### UB-2 — API (landed `59967d1`)
 
-- `GET` or `POST /api/devices/support-report` that runs the same discovery as
+- `GET /api/devices/support-report` runs the same discovery as
   `/api/devices` and returns the report. Read-only. No device write.
 
-### UB-3 — UI
+### UB-3 — UI (landed `d2e0be3`)
 
 - Device list empty state: if scan found non-keyboard or unsupported
   keyboards, show that distinction.
 - “Copy support report” / “Save report” for GitHub when unsupported devices
   exist.
 
-### UB-4 — Docs
+### UB-4 — Docs (complete with this closeout)
 
-- One line in README or troubleshooting only if user-facing; keep install docs
+- Add a brief README note once the UI is user-facing; keep install docs
   options-only (decision 2026-08-08).

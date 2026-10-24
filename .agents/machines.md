@@ -4,8 +4,8 @@ Per-machine facts that do not belong in the portable `state.md`.
 
 ## netwatch-01 (Windows 11, x86-64)
 
-_Last verified locally: 2026-07-31; SSH reachability and suite timing were
-last verified 2026-07-29._
+_Last verified locally: 2026-07-31. SSH reachability recheck as `4cf4d13`
+on 2026-08-22 timed out; the host may simply be off._
 
 - Reachable as `michael@netwatch-01` over SSH with key auth from `nagatha`.
   Resolution is not always available; it failed until the owner brought the host
@@ -23,9 +23,6 @@ last verified 2026-07-29._
 - Windows verification must build the environment the way CI does,
   `uv sync --locked -p 3.12` with no extras. Adding `--extra desktop` hides the
   optional-dependency failures this host is used to catch.
-- A fresh Python 3.12 base environment passed 639 tests (5 skipped) in 97.061
-  seconds on 2026-07-30. A separate fresh desktop/build environment resolved all
-  locked Windows packages and passed the canonical installer build.
 - Winget-installed Inno Setup 6.7.3 is at
   `C:\Users\michael\AppData\Local\Programs\Inno Setup 6\ISCC.exe`; its
   Authenticode signature is valid. The Windows packager accepts both official
@@ -46,9 +43,8 @@ last verified 2026-07-29._
 
 ## win-arm-vm (Windows 11, ARM64)
 
-_Key auth from nagatha verified 2026-08-03 (ed25519, no passphrase prompt
-needed; earlier denials were the Windows OpenSSH administrators_authorized_keys
-rule, fixed by the owner). Earlier full verification: 2026-07-31._
+_Key auth last verified 2026-08-03. SSH recheck as `4cf4d13` on
+2026-08-22 reported “Host is down”; no machine facts were revalidated._
 
 - Reachable as `michael@10.1.10.211`; hostname `WIN-RRRKRP63HA6`, Windows 11
   Pro 24H2 build 26100, ARM64. The clean VM has no SmartScreen-disabling user,
@@ -82,58 +78,41 @@ rule, fixed by the owner). Earlier full verification: 2026-07-31._
 
 ## nagatha (macOS arm64)
 
-_Last verified locally on the host: 2026-08-02. SSH reachability and the owner's
-console/RDP session were last verified 2026-08-01._
+_Last verified locally as `4cf4d13` on 2026-08-22._
 
-- This is the owner's Mac, formerly recorded here as `michael-mac`; older
-  records and plans that name `michael-mac` mean this host (owner confirmed
-  2026-08-02). The former `/Users/michael/Dev/am` checkout and its Python 3.13
-  venv no longer exist.
-- Reachable as `michael@10.1.10.247`; hostname `nagatha.local`, macOS 26.6,
-  Darwin 25.6.0, arm64. Its Ed25519 host key matches the trusted former
-  `10.1.10.41` entry; `HostKeyAlias=10.1.10.41` verifies that identity without
-  accepting a different key. Gatekeeper assessments are enabled.
+- This is the owner’s Mac, formerly recorded as `michael-mac`; older records
+  and plans using that name mean this host.
+- Current hostname is `q.lan`; the machine is macOS 27.0, Darwin 27.0.0,
+  arm64. Gatekeeper assessments are enabled.
 - Exact-artifact qualification tools are available: `hdiutil`, `codesign`,
-  `spctl`, `xattr`, `shasum`, `curl`, `file`, `open`, and `ditto`. The temporary
-  directory is writable and the data volume had about 204 GB free on 2026-08-02.
-- Homebrew now supplies GitHub CLI 2.96.0, `uv` 0.11.32, and Node 26.5.0 on
-  `PATH`, so attestation and Node checks no longer have to be delegated to
-  `netwatch-01` and rebound by SHA-256.
-- This host now carries the active working checkout at
-  `/Users/michael/Dev/AMKB-GUI` (case-insensitive, same directory as the
-  lowercase `dev` path recorded earlier). It has both the canonical `origin`
-  and the `gitea` remote and a project venv on Python 3.14.6. Confirm its head
-  against the canonical remote before treating it as current-source evidence.
-  Exact downloaded-artifact checks do not depend on that checkout.
-- The owner may either operate the GUI directly or permit SSH-driven command
-  checks. Availability does not authorize macOS Open Anyway or a keyboard
-  write.
-- A local macOS arm64 PyInstaller bundle built here and its frozen
-  `--smoke-test` passed (last verified 2026-07-21, on the former checkout and
-  venv; recheck on the current checkout before relying on it).
-- Ollama is installed at `/usr/local/bin/ollama` (binary re-verified
-  2026-08-02). On 2026-07-21, `ornith:latest` produced a strict
-  procedural-animation recipe while `gemma4:12b-mlx` ignored the requested JSON
-  schema. Current production generation makes one request without automatic
-  correction retries, so model availability and conformance must be rechecked
-  rather than inferred from that historical run.
+  `spctl`, `xattr`, `shasum`, `curl`, `file`, `open`, and `ditto`.
+  The writable data volume had about 23 GiB free.
+- GitHub CLI 2.98.0, `uv` 0.12.5, and Node 26.7.0 are on `PATH`.
+  `/usr/local/bin/ollama` is installed. Neither `flatpak` nor
+  `flatpak-builder` is installed.
+- The active checkout is `/Users/michael/Dev/AMKB-GUI`; `origin` is the
+  local Gitea remote and `github` is the public GitHub remote. The checkout
+  currently has no `.venv`; exact downloaded-artifact checks do not depend on
+  a project environment.
+- The owner may operate the GUI directly or permit SSH-driven command checks.
+  Availability never authorizes an Open Anyway interaction or hardware write.
 
 ## gabrielle (Linux x86-64)
 
-_Last verified over SSH: 2026-08-01._
+_Last verified over SSH as `4cf4d13` on 2026-08-22._
 
-- Reachable as `michael@gabrielle`; Arch Linux, kernel 7.1.5-arch1-1, x86-64.
-  The home filesystem had about 1.7 TB free and the temporary directory is
-  writable.
-- Available qualification tools include Git 2.55.0, Python 3.14.6, Node
-  26.5.0, GitHub CLI 2.96.0, `curl`, `file`, `sha256sum`, FUSE, and
-  `fusermount3` 3.18.2. `uv` is not installed and is not needed for the planned
-  exact-AppImage inspection.
+- Reachable as `michael@gabrielle`; Arch Linux, kernel 7.1.8-arch1-3,
+  x86-64. The home filesystem had about 1.7 TiB free.
+- Qualification tools include Git 2.55.0, Python 3.14.7, Node 26.7.0, GitHub
+  CLI 2.98.0, `uv` 0.12.5, `curl`, `file`, `sha256sum`, FUSE,
+  `flatpak`, and `flatpak-builder`.
+- The Flatpak `io.github.roethlar.AMConfigurator` is installed from the
+  checkout at `d5c7f4e`; `flatpak run io.github.roethlar.AMConfigurator
+  --smoke-test` passed again on 2026-08-22.
 - An ordinary SSH shell has no `DISPLAY` or `WAYLAND_DISPLAY`. Unprivileged
-  user namespaces, subordinate IDs, `unshare`, and `bwrap` are available; a
-  disposable Ubuntu 24.04 rootfs can run Xvfb and the exact AppImage without
-  changing host packages. This path passed the real GTK/WebKit native-policy
-  smoke and exposed helper executable origins for inspection.
-- Qualification checkouts and Ubuntu rootfs paths are transient and are not
-  durable machine facts. Exact downloaded-artifact checks must create or
-  verify their own isolated working root; no physical-keyboard test is needed.
+  user namespaces, subordinate IDs, `unshare`, and `bwrap` are available;
+  a disposable Ubuntu 24.04 rootfs can run Xvfb for exact AppImage inspection
+  without changing host packages.
+- Qualification checkouts and Ubuntu-rootfs paths are transient, not durable
+  machine facts. Exact downloaded-artifact checks must create their own
+  isolated working root; no physical-keyboard test is needed.
