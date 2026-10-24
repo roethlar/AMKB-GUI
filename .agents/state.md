@@ -17,7 +17,12 @@
   runner: CI run 36582902438 on PR #3 at `02194cf` passed `Test · Windows` and
   every other check. The AppImage and installer builds were never affected.
   `v2/openkeeb` carries the same defect and is not covered by CI push
-  triggers.
+  triggers. As of `b699548` (2026-10-24, the merge joining this fix with the
+  Gitea-only `d54350b..29b7ed4` line, whose `d2e0be3` had never run in CI),
+  PR #4 is green: CI run 40062313242 passed all four `Test` jobs, and Desktop
+  installers run 40062313089 passed every build on attempt 2. Attempt 1's
+  `Installer · Windows x64` failed only because `pwsh` could not start on the
+  runner (exit `0xC0000142`, no script output).
 - **0.1.68 is the latest published release** (re-verified as `4cf4d13` on
   2026-08-22): tag `v0.1.68` is at `cdcf841`; GitHub reports “AM
   Configurator 0.1.68” as the normal, latest, non-draft release, published

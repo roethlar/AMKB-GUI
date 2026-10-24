@@ -7,6 +7,16 @@ Per-machine facts that do not belong in the portable `state.md`.
 _Last verified locally: 2026-07-31. SSH reachability recheck as `4cf4d13`
 on 2026-08-22 timed out; the host may simply be off._
 
+- **Observed locally on 2026-10-24 (as `b699548`), superseding the tool and
+  path bullets below until rechecked:** the host named `NETWATCH-01` now
+  reports Microsoft Windows Server 2025 Standard (build 26100).
+  `C:\Users\michael\dev` is a plain directory, not a reparse point, and `F:\dev`
+  does not exist. `uv` is not installed (no `C:\Users\michael\.local\bin\uv.exe`,
+  none on `PATH`) and Node is not on `PATH`, so the recorded verification entry
+  point cannot run here; GitHub Actions CI stood in for it. Python 3.14.7 exists
+  at `C:\Users\michael\AppData\Local\Programs\Python\Python314\python.exe` but
+  is not on `PATH`, where `python` is the Microsoft Store alias. `gh` and
+  `tea` are on `PATH`, and a non-interactive push to `github` worked.
 - Reachable as `michael@netwatch-01` over SSH with key auth from `nagatha`.
   Resolution is not always available; it failed until the owner brought the host
   up, so treat a name-resolution failure as "ask the owner", not "host is gone".
