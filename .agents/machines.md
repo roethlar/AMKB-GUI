@@ -7,8 +7,7 @@ Per-machine facts that do not belong in the portable `state.md`.
 _Last verified locally: 2026-07-31. SSH reachability recheck as `4cf4d13`
 on 2026-08-22 timed out; the host may simply be off._
 
-- **Observed locally on 2026-10-31 (as `f837e1c`, plus the uncommitted Wooting
-  exploration plan):** Wootility is installed at
+- **Observed locally on 2026-10-31 (as `6a8c694`):** Wootility is installed at
   `C:\Users\michael\AppData\Local\Programs\wootility` (Electron; logic in
   `resources\app.asar`). The Wooting analog SDK is at
   `C:\Program Files\wooting-analog-sdk`. Both are reference material for the

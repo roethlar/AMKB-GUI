@@ -2,9 +2,9 @@
 
 ## Now
 
-- **Wooting exploration planned, nothing implemented** (as of `f837e1c`
-  plus the Wooting plan commit). Work stopped at the plan: no code changed,
-  no device touched. See the Next entry for the open ruling.
+- **Wooting exploration planned, nothing implemented** (as of `6a8c694`).
+  Work stopped at the plan: no code changed, no device touched. See the Next
+  entry for the open ruling.
 - **Windows CI red since `f5cf464` is repaired by `.gitattributes`**
   (2026-09-29, owner-directed fix on `main`): every completed CI run from
   `f5cf464` through `4cf4d13` failed `Test · Windows` on two
