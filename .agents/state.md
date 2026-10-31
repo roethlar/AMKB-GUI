@@ -2,6 +2,9 @@
 
 ## Now
 
+- **Wooting exploration planned, nothing implemented** (as of `f837e1c`
+  plus the Wooting plan commit). Work stopped at the plan: no code changed,
+  no device touched. See the Next entry for the open ruling.
 - **Windows CI red since `f5cf464` is repaired by `.gitattributes`**
   (2026-09-29, owner-directed fix on `main`): every completed CI run from
   `f5cf464` through `4cf4d13` failed `Test · Windows` on two
@@ -52,6 +55,15 @@
 
 ## Next
 
+- **Wooting support exploration (plan drafted; owner ruling W1 pending):** a
+  read-only exploration plan is at
+  `docs/superpowers/plans/2026-10-31-wooting-support-exploration.md`. It asks
+  whether Wooting identification and configuration are feasible, using
+  Wootility's bundled HID module as evidence. Exploration only: no code, no
+  device writes, no push. Verified so far (unconfirmed by the full analysis):
+  the module has revision-dependent framing via `sendFeatureReport`, and vendor
+  ID `0x31E3` appears in the bundle. A full REA analysis of the 190 MB archive
+  timed out, so the next pass must narrow to the Wooting module's exact paths.
 - **Additional keyboards:** the intake path is ready. Actual support now needs
   a named candidate plus a saved support report; full serial-family lighting
   still needs physical hardware or vendor protocol/geometry evidence. Plan:

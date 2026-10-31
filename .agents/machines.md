@@ -7,6 +7,14 @@ Per-machine facts that do not belong in the portable `state.md`.
 _Last verified locally: 2026-07-31. SSH reachability recheck as `4cf4d13`
 on 2026-08-22 timed out; the host may simply be off._
 
+- **Observed locally on 2026-10-31 (as `f837e1c`, plus the uncommitted Wooting
+  exploration plan):** Wootility is installed at
+  `C:\Users\michael\AppData\Local\Programs\wootility` (Electron; logic in
+  `resources\app.asar`). The Wooting analog SDK is at
+  `C:\Program Files\wooting-analog-sdk`. Both are reference material for the
+  Wooting exploration plan (`docs/superpowers/plans/2026-10-31-wooting-support-exploration.md`).
+  The ptk shell session was unstable during the asar search: long
+  whole-archive scans exceeded its 300 s budget and needed `timeoutSeconds`.
 - **Observed locally on 2026-10-24 (as `b699548`), superseding the tool and
   path bullets below until rechecked:** the host named `NETWATCH-01` now
   reports Microsoft Windows Server 2025 Standard (build 26100).
